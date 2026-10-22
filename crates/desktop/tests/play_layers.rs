@@ -7,24 +7,13 @@
 //! (`ddi_library::backgrounds::second_layer`). Skipped without a GPU
 //! adapter (and the movie without the `ffmpeg` command or the helper).
 
-use std::cell::RefCell;
 use std::path::Path;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
-use ddi_desktop::library::files::{DirReader, walk};
-use ddi_desktop::play::load::{Files, Loaded};
-use ddi_desktop::play::view::{Formats, Rgba, View};
-use ddi_desktop::play::{Feed, Play, Request};
-use ddi_platform::HostTime;
-use ddi_platform::decode_all::Range;
 use ddi_ui::state::settings::{BackgroundFrame, Settings, VideoMode};
 
-const W: u32 = 640;
-const H: u32 = 360;
+mod common;
+use common::offscreen_play::{OffscreenPlay, load, pixel};
 
 /// 120 BPM: beat `b` at `b / 2` s. The first layer: the song background
 /// (blue), red from 2 s, the song background again from 7 s. The second:
@@ -111,36 +100,6 @@ fn song(dir: &Path, movie: bool) -> Option<()> {
 /// reads the pixel at (20, 180) (left of the field) at the first frame at
 /// or after each of `times` (song seconds): `(time drawn, [r, g, b])`.
 fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3])> {
-    let paths: Vec<_> = walk(root).listed.into_iter().map(|l| l.path).collect();
-    let reader = DirReader {
-        root: root.to_path_buf(),
-    };
-    let scan =
-        ddi_library::scan::scan_root(&reader, &paths, "Mine", &[], &ddi_library::legacy::none);
-    let s = &scan.songs[0];
-    let files = Files::Dir {
-        root: root.to_path_buf(),
-        dir: s.dir.clone(),
-    };
-    let text = ddi_library::pack::decode_text(&files.read(&s.entry.chart).unwrap());
-    let parsed = ddi_chart::formats::sm::parse_simfile(&text, "sm").unwrap();
-    let music = ddi_desktop::audio::decoder::sound(
-        files.read(&s.entry.music).unwrap(),
-        Some("wav"),
-        Range::default(),
-        48_000,
-    )
-    .unwrap();
-    let movies = ddi_desktop::play::load::movies(&files, &s.entry);
-    let loaded = Rc::new(Loaded {
-        entry: s.entry.clone(),
-        song: parsed,
-        files,
-        music,
-        movies,
-        layers: Vec::new(),
-    });
-    let (device, queue) = gpu::device(adapter).unwrap();
     let settings = Settings {
         noteskin: Some("builtin".into()),
         bg_brightness: 1.0,
@@ -149,57 +108,13 @@ fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3
         video: VideoMode::On,
         ..Settings::default()
     };
-    let mut view = View::new(
-        &device,
-        &queue,
-        Formats::of(wgpu::TextureFormat::Rgba8Unorm, true),
-    );
-    view.set_song(&loaded, &settings);
-    // Read the pictures here, as the host's threads read them.
-    for (what, source, side) in View::images_to_read(&loaded, &settings) {
-        let (size, data) = ddi_desktop::images::load(&source, side).expect("an image");
-        view.add_background(what, Rgba { size, data });
-    }
-    view.start();
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    let audio = Audio::headless(1.0, Some(Arc::new(move || c.load(Ordering::SeqCst))));
-    let mut play = Play::start(
-        Request::song(&s.entry.id, 0, true),
-        loaded,
-        &settings,
-        audio,
-        Rc::new(RefCell::new(Feed::default())),
-        None,
-        60.0,
-    )
-    .unwrap();
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: W,
-            height: H,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
-    let render = ddi_shell::render_options(&settings);
+    let mut p = OffscreenPlay::new(adapter, load(root), &settings);
     #[cfg(feature = "video")]
     {
         let start = std::time::Instant::now();
-        while view.movies.helper_status().is_some()
+        while p.view.movies.helper_status().is_some()
             && !matches!(
-                view.movies.helper_status(),
+                p.view.movies.helper_status(),
                 Some(
                     ddi_desktop::video::HelperStatus::Ready { .. }
                         | ddi_desktop::video::HelperStatus::Failed(_)
@@ -211,64 +126,12 @@ fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3
         }
     }
     let mut out = Vec::new();
-    let mut next = 0;
-    for _ in 0..60 * 30 {
-        if next == times.len() {
-            break;
-        }
-        let now = clock.fetch_add(1_000_000_000 / 60, Ordering::SeqCst) + 1_000_000_000 / 60;
-        let now = HostTime(now as f64 / 1e9);
-        play.tick(now, None);
-        let t = play
-            .session
-            .player
-            .frame(play.session.predicted_present(now))
-            .song_time;
-        let mut encoder = device.create_command_encoder(&Default::default());
-        view.draw(
-            &device,
-            &queue,
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            [W, H],
-            &play,
-            render,
-            now,
-        );
-        if t >= times[next] {
-            next += 1;
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: u64::from(W * 4 * H),
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            encoder.copy_texture_to_buffer(
-                texture.as_image_copy(),
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(W * 4),
-                        rows_per_image: Some(H),
-                    },
-                },
-                texture.size(),
-            );
-            queue.submit(Some(encoder.finish()));
-            let slice = buffer.slice(..);
-            slice.map_async(wgpu::MapMode::Read, |_| {});
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let pixels = slice.get_mapped_range().expect("mapped").to_vec();
-            let i = ((180 * W + 20) * 4) as usize;
-            out.push((t, [pixels[i], pixels[i + 1], pixels[i + 2]]));
-        } else {
-            queue.submit(Some(encoder.finish()));
-        }
+    p.run(
+        times,
         // The decoder thread's turn.
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
+        |_, _| std::thread::sleep(std::time::Duration::from_millis(2)),
+        |t, pixels| out.push((t, pixel(pixels, (20, 180)))),
+    );
     out
 }
 

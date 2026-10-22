@@ -106,9 +106,9 @@ pub fn options_line(o: &ddi_engine::player::PlayOptions) -> String {
         &o.transform,
         o.appearance,
         o.scroll.scroll_action,
+        o.cover,
         None,
     ));
-    parts.extend(o.cover.label());
     parts.join(" · ")
 }
 
@@ -125,20 +125,11 @@ pub fn score_text(r: &Results) -> String {
 /// clear under DDR A's rules), and "ASSIST" when notes were removed or
 /// simplified.
 pub fn lamp(r: &Results) -> Option<String> {
-    let fc = match Lamp::played(r) {
-        Lamp::Failed | Lamp::Clear => "",
-        Lamp::Life4Clear => "LIFE4 CLEAR",
-        Lamp::FullCombo => "FULL COMBO",
-        Lamp::GreatFullCombo => "GREAT FULL COMBO",
-        Lamp::PerfectFullCombo => "PERFECT FULL COMBO",
-        Lamp::SingleDigitPerfects => "SINGLE DIGIT PERFECTS",
-        Lamp::MarvelousFullCombo => "MARVELOUS FULL COMBO",
-    };
-    match (fc.is_empty(), r.assist) {
-        (true, false) => None,
-        (true, true) => Some("ASSIST".into()),
-        (false, true) => Some(format!("{fc} · ASSIST")),
-        (false, false) => Some(fc.into()),
+    match (Lamp::played(r).label(), r.assist) {
+        (None, false) => None,
+        (None, true) => Some("ASSIST".into()),
+        (Some(fc), true) => Some(format!("{fc} · ASSIST")),
+        (Some(fc), false) => Some(fc.into()),
     }
 }
 
@@ -271,9 +262,9 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         &r.transform,
         r.appearance,
         r.scroll_action,
+        r.cover,
         Some((r.lane_map.as_slice(), p.layout)),
     ));
-    mods.extend(r.cover.label());
     mods.extend(p.ruleset.stepmania.summary());
     let panel_sets = panel_sets();
     let panel_set = panel_sets
@@ -361,7 +352,8 @@ pub fn fail_note(r: &Results, ruleset: &Ruleset) -> Option<String> {
     })
 }
 
-/// A song second as `m:ss`.
+/// A song second as `m:ss`, floored: the time as a clock read it then
+/// (`data::clock` rounds, for a length).
 fn clock(seconds: f32) -> String {
     let s = seconds.max(0.0).floor() as u32;
     format!("{}:{:02}", s / 60, s % 60)
@@ -436,14 +428,15 @@ pub fn lanes(layout: &Layout) -> Vec<LaneName> {
         .collect()
 }
 
-/// One label per option that differs from the default, empty when none
-/// does. With `lane_map` (`take_from[new_lane] = old_lane`) and the layout
+/// One label per option that differs from the default, the lane cover
+/// last, empty when none does. With `lane_map` (`take_from[new_lane] = old_lane`) and the layout
 /// played, a shuffle also shows the resulting order: lane `i` shows the
 /// symbol of old lane `take_from[i]`.
 pub fn mods_summary(
     transform: &TransformOptions,
     appearance: Appearance,
     scroll_action: ScrollAction,
+    cover: ddi_engine::cover::LaneCover,
     lane_map: Option<(&[u8], &Layout)>,
 ) -> Vec<String> {
     let mut out = Vec::new();
@@ -481,6 +474,7 @@ pub fn mods_summary(
     if transform.no_holds {
         out.push("no holds".into());
     }
+    out.extend(cover.label());
     out
 }
 

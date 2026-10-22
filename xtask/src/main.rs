@@ -541,18 +541,23 @@ fn main() -> Result<()> {
     }
 }
 
+/// The site's folder a post-build step `cmd` works on: `dest`, else
+/// Trunk's `TRUNK_STAGING_DIR`.
+fn staging_dir(dest: Option<PathBuf>, cmd: &str) -> Result<PathBuf> {
+    match dest {
+        Some(d) => Ok(d),
+        None => std::env::var_os("TRUNK_STAGING_DIR")
+            .map(PathBuf::from)
+            .with_context(|| format!("{cmd} needs --dest or TRUNK_STAGING_DIR")),
+    }
+}
+
 /// `stage-opus`: `opus-worker.js` and `opus-worker_bg.wasm` renamed to
 /// `opus-worker-<hash>.js` and `opus-worker-<hash>_bg.wasm` (FNV-1a of
 /// both), and `<meta name="ddi-opus-worker" content="opus-worker-<hash>">`
 /// in index.html, which `crates/web/src/web/opus.rs` reads.
 fn stage_opus(dest: Option<PathBuf>) -> Result<()> {
-    let dest = match dest {
-        Some(d) => d,
-        None => PathBuf::from(
-            std::env::var_os("TRUNK_STAGING_DIR")
-                .context("stage-opus needs --dest or TRUNK_STAGING_DIR")?,
-        ),
-    };
+    let dest = staging_dir(dest, "stage-opus")?;
     let js = dest.join("opus-worker.js");
     let wasm = dest.join("opus-worker_bg.wasm");
     let (Ok(js_bytes), Ok(wasm_bytes)) = (fs::read(&js), fs::read(&wasm)) else {
@@ -583,13 +588,7 @@ fn stage_opus(dest: Option<PathBuf>) -> Result<()> {
 const VIDEO_FILES: [&str; 3] = ["ddivideo.wasm", "ddivideo.json", "ddivideo.LICENSE.txt"];
 
 fn stage_video(dest: Option<PathBuf>) -> Result<()> {
-    let dest = match dest {
-        Some(d) => d,
-        None => PathBuf::from(
-            std::env::var_os("TRUNK_STAGING_DIR")
-                .context("stage-video needs --dest or TRUNK_STAGING_DIR")?,
-        ),
-    };
+    let dest = staging_dir(dest, "stage-video")?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let built = root.join("target/video");
     if std::env::var_os("DDI_NO_VIDEO").is_some_and(|v| !v.is_empty() && v != "0") {

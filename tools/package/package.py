@@ -285,12 +285,8 @@ def write_zip(source, archive, root_name):
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as out:
         for path in sorted(source.rglob('*')):
             name = (Path(root_name) / path.relative_to(source)).as_posix()
-            if path.is_dir():
-                continue
-            entry = zipfile.ZipInfo.from_file(path, name)
-            entry.compress_type = zipfile.ZIP_DEFLATED
-            with path.open('rb') as file:
-                out.writestr(entry, file.read(), compresslevel=9)
+            if not path.is_dir():
+                out.write(path, name)
 
 
 def dist(app, out_dir, without_video_helper=False, check=True):

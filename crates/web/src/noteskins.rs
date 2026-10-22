@@ -269,24 +269,20 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     };
     let bundled = bundled().await;
     let complete = imported.is_ok() && bundled.is_ok();
-    let stored = match (imported, bundled) {
+    let (stored, bundled_from) = match (imported, bundled) {
         (Err(e), Err(_)) => return Err(e),
         (i, b) => {
             let mut skins = i.unwrap_or_default();
+            let bundled_from = skins.len();
             skins.extend(b.unwrap_or_default());
-            skins
+            (skins, bundled_from)
         }
     };
     let skins = pickable(&stored);
     // What each declares (Dito's are built in).
     let keys: Vec<String> = skins.iter().map(|(k, _)| k.clone()).collect();
     let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
-    let parameters = ddi_noteskin::params::catalog(
-        folders
-            .iter()
-            .zip(stored.iter().map(|s| s.bundled.is_some())),
-        &keys,
-    );
+    let parameters = ddi_noteskin::params::catalog(&folders, bundled_from, &keys);
     Ok(Choices {
         parameters,
         skins,
@@ -803,48 +799,23 @@ pub(crate) fn warm() {
         };
         let layout = want.layout();
         let env = want.env(&layout);
-        let params = env.params.clone();
         let wanted: Wanted = Rc::new(|| true);
         let done = Rc::new(Cell::new(false));
-        let prepared = prepare_until(&key, &layout, env, &wanted, &done, None).await;
+        let mut images = Vec::new();
+        let prepared =
+            prepare_until(&key, &layout, env, &wanted, &done, None, Some(&mut images)).await;
         done.set(true);
         if let Some(p) = prepared {
             p.close();
         }
         // Then the rest of its images (and of the skins it falls back
         // on): those a chart's mines, rolls or other layouts use.
-        let stored = bundled_or_none().await;
-        let Some(chosen) = stored.iter().find(|s| s.key() == key) else {
-            return;
-        };
-        let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
-        let head = ddi_noteskin::params::head(&folders, &chosen.game, &chosen.name, &params);
-        let Ok(skin) = Skin::load(&folders, &chosen.game, &head) else {
-            return;
-        };
-        for dir in &skin.chain {
-            let Dir::Folder(i) = dir else {
-                continue;
-            };
-            let Some(s) = stored.get(*i) else {
-                continue;
-            };
-            let Some(dir) = &s.bundled else {
-                continue;
-            };
-            for path in s.files.iter().filter(|f| is_image(f)) {
+        if key.starts_with(BUNDLED) {
+            for (dir, path) in &images {
                 let _ = file_promise(dir, path);
             }
         }
     });
-}
-
-/// Whether `path` is an image a skin's actors may use.
-fn is_image(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg"]
-        .iter()
-        .any(|e| lower.ends_with(e))
 }
 
 /// How long after the app starts [`warm`] begins, in ms.
@@ -876,7 +847,7 @@ pub(crate) async fn prepare_first(
     let db = Db::open().await.ok();
     let stored = catalogue(db.as_ref()).await;
     let there = pickable(&stored);
-    let (key, env) = ddi_shell::first_there(wants, |k| there.iter().any(|(t, _)| t == k))?;
+    let (key, env) = ddi_shell::first_there(wants, &there)?;
     load(&key, layout, env, Rc::new(|| true), Some((db, stored))).await
 }
 
@@ -907,7 +878,7 @@ async fn load(
     among: Option<Among>,
 ) -> Option<Prepared> {
     let done = Rc::new(Cell::new(false));
-    let prepared = prepare_until(key, layout, env, &wanted, &done, among).await;
+    let prepared = prepare_until(key, layout, env, &wanted, &done, among, None).await;
     // The skin's Lua keeps the clock for the play: the host's from now on.
     done.set(true);
     let given_up = !wanted();
@@ -938,6 +909,8 @@ pub(crate) fn loads() -> (u64, u64) {
     LOADS.with(Cell::get)
 }
 
+/// [`load`]; `images`, when given, gets the bundled images of the skin's
+/// chain, `(folder, path)` ([`warm`]).
 async fn prepare_until(
     key: &str,
     layout: &Layout,
@@ -945,6 +918,7 @@ async fn prepare_until(
     wanted: &Wanted,
     done: &Rc<Cell<bool>>,
     among: Option<Among>,
+    images: Option<&mut Vec<(String, String)>>,
 ) -> Option<Prepared> {
     let clock = || load_clock(wanted.clone(), done.clone());
     // A bundled skin plays without storage.
@@ -975,28 +949,41 @@ async fn prepare_until(
     let mut folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
     // The skin its parameters pick (a color scheme's), loaded in its place
     // (`ddi_noteskin::params`).
-    let head = ddi_noteskin::params::head(
-        &folders,
-        &stored[chosen].game,
-        &stored[chosen].name,
-        &env.params,
-    );
-    let chain: Vec<usize> = {
-        let skin = match Skin::load(&folders, &stored[chosen].game, &head) {
+    let (head, chain): (String, Vec<usize>) = {
+        let skin = match ddi_noteskin::params::head(
+            &folders,
+            &stored[chosen].game,
+            &stored[chosen].name,
+            &env.params,
+        ) {
             Ok(s) => s,
             Err(e) => {
                 web_sys::console::warn_1(&format!("noteskin {key}: {e}").into());
                 return None;
             }
         };
-        skin.chain
+        let chain = skin
+            .chain
             .iter()
             .filter_map(|d| match d {
                 Dir::Folder(i) => Some(*i),
                 Dir::BuiltIn(_) => None,
             })
-            .collect()
+            .collect();
+        (skin.name, chain)
     };
+    if let Some(images) = images {
+        for s in chain.iter().filter_map(|i| stored.get(*i)) {
+            if let Some(dir) = &s.bundled {
+                images.extend(
+                    s.files
+                        .iter()
+                        .filter(|f| ddi_noteskin::is_image(f))
+                        .map(|f| (dir.clone(), f.clone())),
+                );
+            }
+        }
+    }
     for i in chain {
         if let (Some(s), Some(db)) = (stored.get_mut(i), &db)
             && s.bundled.is_none()

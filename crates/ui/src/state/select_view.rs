@@ -43,14 +43,17 @@ impl Listed {
     /// A bundled song as the list shows it: its banner and background
     /// under `songs/<id>/`.
     pub fn bundled(e: &ManifestEntry) -> Listed {
+        let at = |file: &Option<ddi_library::path::RelPathBuf>| {
+            file.as_ref().map(|b| format!("songs/{}/{b}", e.id))
+        };
         Listed {
             entry: e.clone(),
             pack: None,
             pack_banner: None,
-            banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
-            background: e.background.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
-            jacket: e.jacket.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
-            cd_title: e.cd_title.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+            banner: at(&e.banner),
+            background: at(&e.background),
+            jacket: at(&e.jacket),
+            cd_title: at(&e.cd_title),
             removable: false,
         }
     }
@@ -257,9 +260,9 @@ pub fn select_data(
         &settings.transform,
         settings.appearance,
         settings.scroll_action,
+        settings.lane_cover,
         None,
     );
-    mods.extend(settings.lane_cover.label());
     // The StepMania presets' fail type and levels, where they play.
     if settings.ruleset_mode != ddi_engine::rules::presets::RulesetMode::AllDanoni {
         mods.extend(settings.stepmania.summary());

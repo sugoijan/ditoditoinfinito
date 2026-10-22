@@ -8,8 +8,8 @@
 use ddi_library::backgrounds;
 use ddi_library::manifest::ManifestEntry;
 use ddi_session::backgrounds::MAX_CHANGE_SIDE;
-use ddi_session::scripted::{Scripts, Sizes, SongFiles};
-use ddi_ui::state::settings::{BackgroundFrame, Settings};
+use ddi_session::scripted::{FileKind, Scripts, Sizes, SongFiles};
+use ddi_ui::state::settings::BackgroundFrame;
 
 use crate::songs::ImportedSong;
 use crate::stage::Bitmap;
@@ -30,14 +30,14 @@ pub(crate) struct Loaded {
 
 /// Reads `entry`'s scripts and loads them for `song` (as stored: the
 /// play retimes the foregrounds by its song offset), told StepMania's
-/// 4:3 screen under a 4:3 background frame, its 16:9 one otherwise.
+/// 4:3 screen under a 4:3 background `frame`, its 16:9 one otherwise.
 /// `None` without scripts; an error when one fails to load (the song
 /// background shows in their place).
 pub(crate) async fn load(
     entry: &ManifestEntry,
     song: &ddi_chart::Song,
     record: Option<&ImportedSong>,
-    settings: &Settings,
+    frame: BackgroundFrame,
 ) -> Result<Option<Loaded>, String> {
     if entry.bg_scripts.is_empty() {
         return Ok(None);
@@ -49,20 +49,12 @@ pub(crate) async fn load(
         }
         None => (String::new(), entry.id.clone()),
     };
-    let mut files = SongFiles {
-        pack,
-        song: name,
-        files: entry.bg_scripts.iter().map(|f| f.to_string()).collect(),
-        texts: Vec::new(),
-    };
+    let mut files = SongFiles::new(pack, name, &entry.bg_scripts);
     let mut sizes = Sizes::default();
     let mut images = Vec::new();
     for f in &entry.bg_scripts {
-        let lower = f.as_str().to_ascii_lowercase();
-        let image = ddi_library::pack::IMAGE_EXTENSIONS
-            .iter()
-            .any(|x| lower.ends_with(&format!(".{x}")));
-        if !lower.ends_with(".lua") && !image {
+        let kind = FileKind::of(f.as_str());
+        if kind == FileKind::Other {
             continue;
         }
         let blob = match crate::songs::load_script_file(entry, f.as_str(), record).await {
@@ -72,7 +64,7 @@ pub(crate) async fn load(
                 continue;
             }
         };
-        if image {
+        if kind == FileKind::Image {
             match crate::web::image::decode_sized(&blob, MAX_CHANGE_SIDE).await {
                 Ok((bitmap, own)) => {
                     sizes.insert(f.as_str(), own);
@@ -93,11 +85,7 @@ pub(crate) async fn load(
     let none: &[&str] = &[];
     let layers = backgrounds::layers(song, none, none, &folders, none, false);
     let foregrounds = backgrounds::foregrounds(song, &folders);
-    let aspect = match settings.background_frame {
-        BackgroundFrame::FourThree => 4.0 / 3.0,
-        _ => 16.0 / 9.0,
-    };
-    let env = ddi_session::scripted::env(song, aspect);
+    let env = ddi_session::scripted::env(song, ddi_session::scripted::frame_aspect(frame));
     let screen = env.screen;
     let performance = web_sys::window().and_then(|w| w.performance());
     let clock = Box::new(move || performance.as_ref().map_or(0.0, |p| p.now() / 1000.0));

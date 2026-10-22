@@ -16,23 +16,25 @@
 //! Listening: the chart's music is decoded when the editor opens (on an
 //! offline context: no gesture needed), so the press that asks plays it
 //! at once, on a context made inside that press; asked before the
-//! decode ends, it starts when it does (the context runs by then).
+//! decode ends, it starts when it does (the context runs by then). A
+//! chart whose music is the file decoded already is not decoded again.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use ddi_chart::Song;
 use ddi_chart::formats::sm_write;
+use ddi_library::manifest::ManifestEntry;
+use ddi_library::pack::ChartFormat;
 use ddi_library::path::RelPathBuf;
 use ddi_platform::storage::{self, Area};
-use ddi_session::listen::Listening;
+use ddi_session::listen::Listener;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, SAVED};
-use ddi_ui::state::editor::Editor;
 use ddi_ui::state::editor::autosave::{self, Autosave};
+use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::{Cx, UiRequest};
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::AudioBuffer;
 
 use crate::components::ui_dev;
 use crate::router::Route;
@@ -97,12 +99,6 @@ fn forget_autosave() {
     storage::remove(Area::Local, autosave::KEY);
 }
 
-/// Whether song `id`'s chart file is one the editor writes.
-pub(crate) fn editable(chart: &str) -> bool {
-    let ext = chart.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "sm" | "ssc" | "dwi")
-}
-
 /// What the web can do with song `id`.
 pub(crate) fn place(id: &str) -> EditorPlace {
     let imported = crate::songs::is_imported_id(id);
@@ -131,74 +127,82 @@ pub(crate) struct WebEditorHost {
 #[derive(Default)]
 pub(crate) struct Listen {
     audio: Option<WebAudio>,
-    /// The chart whose music is decoded or being decoded.
+    /// The chart whose music was asked for last.
     chart: Option<usize>,
-    music: Option<AudioBuffer>,
-    /// Asked for while the music decoded: from that second.
-    waiting: Option<f64>,
-    playing: Option<Listening>,
+    /// The song's entry once read: which file each chart's music is.
+    entry: Option<ManifestEntry>,
+    listener: Listener<WebAudio>,
 }
 
 impl Listen {
     /// Decodes chart `chart`'s music of song `id` (on `decoder`, or an
-    /// offline context).
+    /// offline context), unless that file is decoded already.
     pub(crate) fn read(
         this: &Rc<RefCell<Listen>>,
         id: &str,
         chart: usize,
         decoder: Option<AudioDecoder>,
     ) {
-        {
+        let known = {
             let mut l = this.borrow_mut();
             l.chart = Some(chart);
-            l.music = None;
-        }
+            match l.entry.as_ref().map(|e| e.music_for(chart).to_owned()) {
+                Some(file) if !l.listener.read(&file) => return,
+                Some(file) => Some(file),
+                None => {
+                    l.listener.forget();
+                    None
+                }
+            }
+        };
         let Some(decoder) = decoder.or_else(|| AudioDecoder::offline(48_000.0)) else {
             return;
         };
         let (this, id) = (this.clone(), id.to_string());
         wasm_bindgen_futures::spawn_local(async move {
+            let mut file = known;
             let decoded = match crate::songs::load_song(&id, chart).await {
                 Ok(loaded) => {
+                    {
+                        let mut l = this.borrow_mut();
+                        if file.is_none() {
+                            // Found out now: read here unless another
+                            // chart is asked for, or its read reads it.
+                            let f = loaded.entry.music_for(chart).to_owned();
+                            if l.chart != Some(chart) || !l.listener.read(&f) {
+                                return;
+                            }
+                            file = Some(f);
+                        }
+                        l.entry.get_or_insert_with(|| loaded.entry.clone());
+                    }
                     let target = ddi_session::music_target(&loaded.song);
                     decoder.decode(&loaded.music_bytes, target).await
                 }
                 Err(e) => Err(e.message()),
             };
-            let mut l = this.borrow_mut();
-            if l.chart != Some(chart) {
-                return;
-            }
-            match decoded {
-                Ok(buffer) => {
-                    l.music = Some(buffer);
-                    if let Some(from) = l.waiting.take() {
-                        l.start(from);
+            let l = &mut *this.borrow_mut();
+            match (decoded, &file) {
+                (Ok(buffer), Some(file)) => {
+                    if let Err(e) = l.listener.music_ready(file, buffer, l.audio.as_mut()) {
+                        web_sys::console::warn_1(&format!("editor: listening: {e}").into());
                     }
                 }
-                Err(e) => {
+                (Ok(_), None) => {}
+                (Err(e), _) => {
                     web_sys::console::warn_1(&format!("editor: the music: {e}").into());
-                    l.waiting = None;
+                    if file.is_some() || l.chart == Some(chart) {
+                        l.listener.music_failed(file.as_deref());
+                    }
                 }
             }
         });
     }
 
-    fn start(&mut self, from: f64) {
-        let (Some(audio), Some(music)) = (self.audio.as_mut(), self.music.as_ref()) else {
-            return;
-        };
-        let s = crate::settings::Settings::load();
-        self.playing = Listening::start(audio, music, from, s.volume, s.audio_offset)
-            .map_err(|e| web_sys::console::warn_1(&format!("editor: listening: {e}").into()))
-            .ok();
-    }
-
     fn stop(&mut self) {
-        if let (Some(p), Some(audio)) = (self.playing.take(), self.audio.as_mut()) {
-            p.stop(audio);
+        if let Some(audio) = self.audio.as_mut() {
+            self.listener.stop(audio);
         }
-        self.waiting = None;
     }
 }
 
@@ -224,12 +228,9 @@ impl EditorHost for WebEditorHost {
                 });
             }
             EditorCall::Export { sm } => {
-                let (text, ext) = if sm {
-                    (sm_write::write_sm(editor.song()), "sm")
-                } else {
-                    (sm_write::write_ssc(editor.song()), "ssc")
-                };
-                if let Err(e) = download(&text, &format!("{}.{ext}", file_stem(editor.song()))) {
+                let (text, ext) = export::simfile(editor.song(), sm);
+                let stem = export::file_stem(&editor.song().title);
+                if let Err(e) = download(&text, &format!("{stem}.{ext}")) {
                     cx.broadcast(Message::new(SAVED).with("Error", Param::Str(e.into())));
                 }
             }
@@ -256,7 +257,6 @@ impl EditorHost for WebEditorHost {
             }
             EditorCall::Listen { from } => {
                 let mut l = self.listen.borrow_mut();
-                l.stop();
                 // Inside the press: the context made and resumed now.
                 if l.audio.is_none() {
                     match WebAudio::new() {
@@ -277,10 +277,12 @@ impl EditorHost for WebEditorHost {
                     Listen::read(&self.listen, &self.id, chart, decoder);
                     l = self.listen.borrow_mut();
                 }
-                if l.music.is_some() {
-                    l.start(from);
-                } else {
-                    l.waiting = Some(from);
+                let s = crate::settings::Settings::load();
+                let l = &mut *l;
+                if let Some(audio) = l.audio.as_mut()
+                    && let Err(e) = l.listener.ask(audio, from, s.volume, s.audio_offset)
+                {
+                    web_sys::console::warn_1(&format!("editor: listening: {e}").into());
                 }
             }
             EditorCall::Stop => self.listen.borrow_mut().stop(),
@@ -300,30 +302,9 @@ impl EditorHost for WebEditorHost {
     }
 
     fn music_time(&self) -> Option<f64> {
-        let mut l = self.listen.borrow_mut();
-        if let Some(from) = l.waiting {
-            return Some(from);
-        }
-        let t = match (&l.playing, &l.audio) {
-            (Some(p), Some(a)) => p.time(a),
-            _ => None,
-        };
-        if t.is_none() {
-            l.playing = None;
-        }
-        t
+        let l = &mut *self.listen.borrow_mut();
+        l.listener.time(l.audio.as_ref()?)
     }
-}
-
-/// A file name from the song's title.
-fn file_stem(song: &Song) -> String {
-    let s: String = song
-        .title
-        .chars()
-        .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
-        .collect();
-    let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "song".into() } else { s }
 }
 
 /// `text` downloaded as `name` (inside the press: a link clicked).
@@ -358,7 +339,7 @@ fn download(text: &str, name: &str) -> Result<(), &'static str> {
 async fn save_imported(id: &str, text: &str) -> Result<(), String> {
     let db = Db::open().await?;
     let mut record = crate::songs::imported_record(&db, id).await?;
-    if record.work.is_some() || !editable(record.entry.chart.as_str()) {
+    if record.work.is_some() || ChartFormat::of(record.entry.chart.as_str()).is_none() {
         return Err("only simfiles can be saved".into());
     }
     let chart = RelPathBuf::from("chart.ssc");

@@ -19,7 +19,7 @@ use std::collections::HashSet;
 
 use super::{
     JUDGE_VERSION, LogError, PlayEntry, PlayLog, PlayRecord, PlaySummary, PlayTiming,
-    RECORD_VERSION,
+    RECORD_VERSION, is_play_id,
 };
 
 /// The longest line read, in bytes: a long chart's play takes about
@@ -265,19 +265,6 @@ impl PlayImport {
     }
 }
 
-/// Whether `id` is a play id as [`super::play_id`] writes them: the time
-/// in 15 digits, a dash, 8 lowercase hex digits. Nothing else is taken
-/// (an id names a file on desktop).
-pub fn is_play_id(id: &str) -> bool {
-    let b = id.as_bytes();
-    b.len() == 24
-        && b[..15].iter().all(u8::is_ascii_digit)
-        && b[15] == b'-'
-        && b[16..]
-            .iter()
-            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c))
-}
-
 fn within(x: f64) -> bool {
     x.is_finite() && x.abs() <= MAX_SECONDS
 }
@@ -339,7 +326,7 @@ pub fn read_line(text: &str) -> Result<Imported, Refused> {
     PlayTiming::decode(&entry.timing).map_err(|e| log_error("timing", e))?;
     // The summary: made from the record; the score the line carried,
     // when it is of this play, kept as unconfirmed until judged again.
-    let mut summary = PlaySummary::from_record(&entry.record).map_err(invalid)?;
+    let mut summary = PlaySummary::of(&record);
     let carried = entry
         .summary
         .as_deref()

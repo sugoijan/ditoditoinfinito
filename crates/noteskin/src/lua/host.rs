@@ -312,7 +312,7 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                 "lua" => "FileType_Lua",
                 "xml" => "FileType_Xml",
                 "ini" => "FileType_Ini",
-                "bmp" | "gif" | "jpeg" | "jpg" | "png" | "svg" => "FileType_Bitmap",
+                _ if crate::is_image(&path) => "FileType_Bitmap",
                 "mp3" | "oga" | "ogg" | "wav" => "FileType_Sound",
                 "avi" | "f4v" | "flv" | "mkv" | "mp4" | "mpeg" | "mpg" | "mov" | "ogv" | "webm"
                 | "wmv" => "FileType_Movie",

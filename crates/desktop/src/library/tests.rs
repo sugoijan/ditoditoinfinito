@@ -223,7 +223,7 @@ fn format_extras_are_found_in_place() {
 }
 
 /// A silent 16-bit mono WAV of `seconds` at 48 kHz.
-fn wav(seconds: f64) -> Vec<u8> {
+pub(crate) fn wav(seconds: f64) -> Vec<u8> {
     let frames = (seconds * 48_000.0) as u32;
     let mut w = b"RIFF".to_vec();
     w.extend((36 + frames * 2).to_le_bytes());
@@ -598,6 +598,7 @@ fn ffr_levels_are_songs_one_a_file_and_cached_by_their_files() {
             format!("{name}/Decomp/DoAction.as"),
             format!("{name}/Decomp/music.ogg"),
         ],
+        &[],
         pack::LOOSE_PACK,
     )
     .into_iter()

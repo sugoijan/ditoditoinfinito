@@ -25,7 +25,7 @@ use ddi_chart::Song;
 use ddi_engine::player::{PlayOptions, Results};
 use ddi_engine::rules::ddr::DdrClear;
 use ddi_engine::rules::{FullCombo, Judgement, ScoreView, Tally};
-pub use ddi_platform::history::{PlayEntry, PlayStore, Reply, play_id};
+pub use ddi_platform::history::{PlayEntry, PlayStore, Reply, is_play_id, play_id};
 use serde::{Deserialize, Serialize};
 
 // The engine's and the chart's history API (steps 1–3).
@@ -34,8 +34,7 @@ pub use ddi_engine::JUDGE_VERSION;
 pub use ddi_engine::history::{LogError, LoggedInput, PlayLog, PlayTiming, replay};
 pub use ddi_engine::rules::RulesetKey;
 pub use import::{
-    ImportReport, Imported, MAX_LINE, MAX_PLAYS, MAX_PROBLEMS, PlayImport, Refused, is_play_id,
-    read_line,
+    ImportReport, Imported, MAX_LINE, MAX_PLAYS, MAX_PROBLEMS, PlayImport, Refused, read_line,
 };
 pub use plays::{Plays, Reworked, export_lines, rework_entries};
 pub use replay::{
@@ -259,6 +258,20 @@ impl Lamp {
             Lamp::MarvelousFullCombo => ("MarvelousFullCombo", "MFC"),
         }
     }
+
+    /// The lamp written out as the results show it; failed and a plain
+    /// clear show none.
+    pub fn label(self) -> Option<&'static str> {
+        match self {
+            Lamp::Failed | Lamp::Clear => None,
+            Lamp::Life4Clear => Some("LIFE4 CLEAR"),
+            Lamp::FullCombo => Some("FULL COMBO"),
+            Lamp::GreatFullCombo => Some("GREAT FULL COMBO"),
+            Lamp::PerfectFullCombo => Some("PERFECT FULL COMBO"),
+            Lamp::SingleDigitPerfects => Some("SINGLE DIGIT PERFECTS"),
+            Lamp::MarvelousFullCombo => Some("MARVELOUS FULL COMBO"),
+        }
+    }
 }
 
 /// What is worked out from a play's raw data, by the judge of
@@ -376,6 +389,20 @@ impl PlaySummary {
         self.worked.as_ref().is_none_or(Worked::is_stale)
     }
 
+    /// The summary of a play from its record, to be worked out.
+    pub fn of(record: &PlayRecord) -> PlaySummary {
+        PlaySummary {
+            version: RECORD_VERSION,
+            chart: record.chart.clone(),
+            ruleset: record.ruleset.clone(),
+            time: record.time,
+            autoplay: record.autoplay.is_some(),
+            ended: record.ended,
+            worked: None,
+            options: Some(record.options),
+        }
+    }
+
     /// The summary of a play from its record alone, to be worked out
     /// (a summary that was lost or does not read).
     pub fn from_record(record: &str) -> Result<PlaySummary, String> {
@@ -412,14 +439,8 @@ pub fn new_entry(
     results: &Results,
 ) -> Result<(PlayEntry, PlaySummary), String> {
     let summary = PlaySummary {
-        version: RECORD_VERSION,
-        chart: record.chart.clone(),
-        ruleset: record.ruleset.clone(),
-        time: record.time,
-        autoplay: record.autoplay.is_some(),
-        ended: record.ended,
         worked: Some(Worked::from_results(results)),
-        options: Some(record.options),
+        ..PlaySummary::of(record)
     };
     let entry = PlayEntry {
         id,

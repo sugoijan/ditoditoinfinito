@@ -68,9 +68,22 @@ impl FileRef {
 
     /// The extension, as `GetExtension` returns it (case kept).
     pub fn extension(&self) -> &str {
-        let name = self.name();
-        name.rfind('.').map_or("", |i| &name[i + 1..])
+        extension(&self.path)
     }
+}
+
+/// `path`'s file name's extension (case kept).
+fn extension(path: &str) -> &str {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.rfind('.').map_or("", |i| &name[i + 1..])
+}
+
+/// Whether `path` is an image a skin's actors may use, by its extension
+/// (SVG: our extension, `crate::svg`).
+pub fn is_image(path: &str) -> bool {
+    ["png", "jpg", "jpeg", "gif", "bmp", "svg"]
+        .iter()
+        .any(|e| extension(path).eq_ignore_ascii_case(e))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -322,21 +335,8 @@ impl<'a> Skin<'a> {
     /// imported (StepMania always has them).
     pub fn load(folders: &'a [Folder], game: &str, name: &str) -> Result<Skin<'a>, LoadError> {
         let legacy = crate::legacy::is_legacy_chain(folders, game, name);
-        let mut skin = Skin {
-            name: name.to_string(),
-            game: game.to_string(),
-            folders: Cow::Borrowed(folders),
-            chain: Vec::new(),
-            metrics: Ini::default(),
-            legacy,
-            root: SKINS_ROOT,
-            listings: HashMap::new(),
-            cache: RefCell::new(HashMap::new()),
-            text_index: RefCell::new(HashMap::new()),
-            warnings: RefCell::new(Vec::new()),
-            legacy_nodes: RefCell::new(HashMap::new()),
-            legacy_budget: Cell::new(crate::legacy::SKIN_BUDGET),
-        };
+        let mut skin = Skin::new(name, game, Cow::Borrowed(folders), SKINS_ROOT);
+        skin.legacy = legacy;
         let (mut loaded_base, mut loaded_common) = (false, false);
         let mut current = name.to_string();
         let mut depth = 0;
@@ -383,15 +383,25 @@ impl<'a> Skin<'a> {
     pub fn song(folder: Folder) -> Skin<'static> {
         let listing = Listing::of_folder(&folder);
         let dir = Dir::Folder(0);
+        let (name, game) = (folder.name.clone(), folder.game.clone());
+        let mut skin = Skin::new(&name, &game, Cow::Owned(vec![folder]), SONGS_ROOT);
+        skin.chain.push(dir);
+        skin.listings.insert(dir, listing);
+        skin
+    }
+
+    /// Skin `name` of `game` over `folders` at `root`, with nothing loaded
+    /// yet.
+    fn new(name: &str, game: &str, folders: Cow<'a, [Folder]>, root: &'static str) -> Skin<'a> {
         Skin {
-            name: folder.name.clone(),
-            game: folder.game.clone(),
-            folders: Cow::Owned(vec![folder]),
-            chain: vec![dir],
+            name: name.to_string(),
+            game: game.to_string(),
+            folders,
+            chain: Vec::new(),
             metrics: Ini::default(),
             legacy: false,
-            root: SONGS_ROOT,
-            listings: HashMap::from([(dir, listing)]),
+            root,
+            listings: HashMap::new(),
             cache: RefCell::new(HashMap::new()),
             text_index: RefCell::new(HashMap::new()),
             warnings: RefCell::new(Vec::new()),

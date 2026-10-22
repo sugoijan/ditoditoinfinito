@@ -214,7 +214,7 @@ impl PlayLog {
                 let us = micros(c.time);
                 put_signed(&mut out, us.saturating_sub(last));
                 last = us;
-                out.push(cover_mode_byte(c.cover.mode));
+                out.push(c.cover.mode.to_byte());
                 out.push(c.cover.sudden);
                 out.push(c.cover.hidden);
             }
@@ -255,13 +255,8 @@ impl PlayLog {
             let mut last = 0i64;
             for _ in 0..n {
                 last = last.checked_add(r.signed()?).ok_or(LogError::Overflow)?;
-                let mode = match r.byte()? {
-                    0 => CoverMode::Off,
-                    1 => CoverMode::Sudden,
-                    2 => CoverMode::Hidden,
-                    3 => CoverMode::HiddenSudden,
-                    k => return Err(LogError::Kind(k)),
-                };
+                let byte = r.byte()?;
+                let mode = CoverMode::from_byte(byte).ok_or(LogError::Kind(byte))?;
                 let sudden = r.byte()?;
                 let hidden = r.byte()?;
                 covers.push(CoverChange {
@@ -309,16 +304,6 @@ impl PlayLog {
                 })
                 .collect(),
         }
-    }
-}
-
-/// A cover mode's byte in the log's binary form.
-fn cover_mode_byte(mode: CoverMode) -> u8 {
-    match mode {
-        CoverMode::Off => 0,
-        CoverMode::Sudden => 1,
-        CoverMode::Hidden => 2,
-        CoverMode::HiddenSudden => 3,
     }
 }
 

@@ -490,7 +490,7 @@ impl Backdrop {
             .map(|l| {
                 let mut image = named(Kind::Sprite(Sprite::quad(size)), "Image");
                 if let Kind::Sprite(s) = &mut image.kind {
-                    s.cover = true;
+                    s.fit = ddi_actor::Fit::Cover;
                 }
                 call(&mut image, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
                 call(&mut image, "diffuse", &[1.0, 1.0, 1.0, alpha]);

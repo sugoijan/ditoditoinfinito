@@ -882,10 +882,7 @@ impl Host {
             );
             // The scripts' sounds, at once on the play's sound.
             for sound in v.take_script_sounds() {
-                use ddi_platform::AudioBackend;
-                let at = play.session.audio().now().context_time;
-                let volume = play.session.volume();
-                if let Err(e) = play.session.audio_mut().play(&sound, at, 0.0, volume) {
+                if let Err(e) = play.session.play_now(&sound) {
                     eprintln!("scripted backgrounds: a sound did not play: {e}");
                 }
             }
@@ -1251,8 +1248,7 @@ pub fn noteskin(
     let shift = settings.song_offset(&loaded.entry.id);
     let (wants, layout) = skin_wants(loaded, chart, settings, shift)?;
     let skins = crate::library::noteskins::all(&crate::library::all_folders());
-    let there = crate::library::noteskins::choices(&skins);
-    let (key, env) = ddi_shell::first_there(wants, |k| there.iter().any(|(t, _)| t == k))?;
+    let (key, env) = ddi_shell::first_there(wants, &crate::library::noteskins::choices(&skins))?;
     let p = super::skins::prepare(&key, &layout, env, &skins)?;
     Some((p.play, p.images, p.strike))
 }
@@ -1269,8 +1265,7 @@ fn skin_wants(
 ) -> Option<(ddi_shell::SkinWants, ddi_chart::Layout)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
-    let wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift);
-    wants.first()?.as_ref()?;
+    let wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift)?;
     Some((wants, layout))
 }
 

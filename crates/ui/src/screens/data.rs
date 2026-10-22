@@ -295,6 +295,18 @@ impl SongEntry {
     }
 }
 
+/// A number with at most `decimals` decimals, for showing ("2.5", "3";
+/// never "-0").
+pub fn trim_number(v: f64, decimals: usize) -> String {
+    let s = format!("{v:.decimals$}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" {
+        "0".to_string()
+    } else {
+        s.to_string()
+    }
+}
+
 /// Seconds as "m:ss".
 pub fn clock(seconds: f32) -> String {
     let s = seconds.max(0.0).round() as u32;

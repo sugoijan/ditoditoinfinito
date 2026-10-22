@@ -274,14 +274,14 @@ fn read_inner(
     let chosen = &stored[0];
     // The skin its parameters pick (a color scheme's), loaded in its place
     // (`ddi_noteskin::params`).
-    let head = ddi_noteskin::params::head(&folders, &chosen.game, &chosen.name, &env.params);
-    let skin = match Skin::load(&folders, &chosen.game, &head) {
+    let skin = match ddi_noteskin::params::head(&folders, &chosen.game, &chosen.name, &env.params) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("noteskin {key}: {e}");
             return None;
         }
     };
+    let head = skin.name.clone();
     // Its Lua stopped twice this run: drawn without it.
     let strike = chosen.strike_key();
     let lua_off = record_failures
@@ -470,8 +470,7 @@ impl Reading {
         wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Reading {
         Reading::spawn(crate::library::all_folders(), layout, wake, |skins| {
-            let there = crate::library::noteskins::choices(skins);
-            ddi_shell::first_there(wants, |k| there.iter().any(|(t, _)| t == k))
+            ddi_shell::first_there(wants, &crate::library::noteskins::choices(skins))
         })
     }
 

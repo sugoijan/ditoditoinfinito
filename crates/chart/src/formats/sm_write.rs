@@ -19,9 +19,9 @@
 use std::fmt::Write as _;
 
 use crate::TICKS_PER_BEAT;
-use crate::formats::sm::{RAW_BG_CHANGES, RAW_FG_CHANGES};
-use crate::formats::sm::{bg_changes_layer, is_ignored_tag, is_timing_tag, known_lane_count};
-use crate::model::{Chart, DisplayBpm, EffectEvent, EffectTime, NoteKind, Song, Tick};
+use crate::formats::sm::split_kind;
+use crate::formats::sm::{Flavor, is_song_tag, known_lane_count};
+use crate::model::{Chart, DisplayBpm, EffectEvent, EffectTime, NoteKind, Song, SourceInfo, Tick};
 use crate::timing::{SpeedUnit, TimingMap};
 
 /// The `#VERSION` the writer writes (StepMania 5.1's
@@ -111,13 +111,7 @@ pub fn sm_losses(song: &Song) -> Vec<SmLoss> {
         if c.display_bpm.is_some() {
             out.push(SmLoss::ChartDisplayBpm { chart });
         }
-        let prefix = format!("NOTEDATA[{chart}].");
-        if song
-            .source
-            .unknown_tags
-            .iter()
-            .any(|(k, _)| k.starts_with(&prefix))
-        {
+        if song.source.chart_tags(chart).next().is_some() {
             out.push(SmLoss::ChartTags { chart });
         }
         if c.difficulty == crate::Difficulty::Hard
@@ -158,11 +152,8 @@ pub fn write_ssc(song: &Song) -> String {
         if let Some(timing) = &chart.timing {
             w.timing(timing, Flavor::Ssc);
         }
-        let prefix = format!("NOTEDATA[{index}].");
-        for (name, value) in &song.source.unknown_tags {
-            if let Some(name) = name.strip_prefix(&prefix) {
-                w.raw_tag(name, value);
-            }
+        for (_, name, value) in song.source.chart_tags(index) {
+            w.raw_tag(name, value);
         }
         w.out.push_str("#NOTES:\n");
         w.out.push_str(&note_data(chart));
@@ -191,12 +182,6 @@ pub fn write_sm(song: &Song) -> String {
         w.out.push_str(";\n");
     }
     w.out
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Flavor {
-    Sm,
-    Ssc,
 }
 
 /// The charts a file holds, with their indexes: the originals.
@@ -258,7 +243,7 @@ impl Writer {
         // as its own (a `.sm`'s `#COMBOS`, which StepMania ignores there
         // and `.ssc` reads).
         for (name, value) in &song.source.unknown_tags {
-            if !name.starts_with("NOTEDATA[") && !is_read_song_tag(name, flavor) {
+            if !SourceInfo::is_chart_tag_key(name) && !is_song_tag(name, flavor) {
                 self.raw_tag(name, value);
             }
         }
@@ -279,24 +264,20 @@ impl Writer {
         let mut i = 0;
         while i < effects.len() {
             let e = &effects[i];
-            match e.kind.as_str() {
-                RAW_BG_CHANGES | RAW_FG_CHANGES => {
-                    let split = if e.kind == RAW_BG_CHANGES {
-                        "bgchange"
-                    } else {
-                        "fgchange"
-                    };
-                    let name = bg_tag_name(split, e.layer);
-                    let value = e.fields.first().map_or("", String::as_str);
-                    self.tag(&name, &escape_with(value, false));
+            if let Some(split) = split_kind(&e.kind) {
+                let name = bg_tag_name(split, e.layer);
+                let value = e.fields.first().map_or("", String::as_str);
+                self.tag(&name, &escape_with(value, false));
+                i += 1;
+                while effects
+                    .get(i)
+                    .is_some_and(|n| n.kind == split && n.layer == e.layer)
+                {
                     i += 1;
-                    while effects
-                        .get(i)
-                        .is_some_and(|n| n.kind == split && n.layer == e.layer)
-                    {
-                        i += 1;
-                    }
                 }
+                continue;
+            }
+            match e.kind.as_str() {
                 kind @ ("bgchange" | "fgchange") => {
                     // Changes made without their written value: joined
                     // again.
@@ -429,41 +410,6 @@ impl Writer {
             ),
         );
     }
-}
-
-/// Whether the reader of `flavor` reads a song-level tag named `name`
-/// (upper case) as one of its own.
-fn is_read_song_tag(name: &str, flavor: Flavor) -> bool {
-    let own = matches!(
-        name,
-        "VERSION"
-            | "TITLE"
-            | "SUBTITLE"
-            | "ARTIST"
-            | "TITLETRANSLIT"
-            | "SUBTITLETRANSLIT"
-            | "ARTISTTRANSLIT"
-            | "GENRE"
-            | "CREDIT"
-            | "MUSIC"
-            | "BANNER"
-            | "BACKGROUND"
-            | "JACKET"
-            | "CDTITLE"
-            | "SAMPLESTART"
-            | "SAMPLELENGTH"
-            | "DISPLAYBPM"
-            | "KEYSOUNDS"
-            | "ATTACKS"
-            | "FGCHANGES"
-            | "ANIMATIONS"
-            | "NOTEDATA"
-            | "NOTES"
-            | "NOTES2"
-    );
-    own || (name.starts_with("BGCHANGES") && bg_changes_layer(name).is_some())
-        || (is_timing_tag(name) && (name != "COMBOS" || flavor == Flavor::Ssc))
-        || is_ignored_tag(name)
 }
 
 fn bg_tag_name(kind: &str, layer: u8) -> String {

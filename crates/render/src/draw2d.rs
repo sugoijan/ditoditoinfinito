@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+pub use ddi_actor::Fit;
 use ddi_actor::Perspective;
 use ddi_actor::text::TextStyle;
 
@@ -87,11 +88,9 @@ pub struct Quad {
     pub transform: Affine,
     /// `None`: the colors alone.
     pub texture: Option<TextureId>,
-    /// Preserve aspect ratio with a centered cover crop.
-    pub cover: bool,
-    /// Preserve aspect ratio, the whole image fitted in the rectangle
-    /// and centered in it (letterboxed).
-    pub contain: bool,
+    /// How the texture fits `rect`: stretched, center-cropped (cover), or
+    /// whole and centered in it (contain, letterboxed).
+    pub fit: Fit,
     /// The texture's rectangle, in fractions of it.
     pub uv: Rect,
     /// Top left, top right, bottom right, bottom left; encoded, straight
@@ -181,8 +180,7 @@ impl Quad {
             rect,
             transform: Affine::IDENTITY,
             texture: None,
-            cover: false,
-            contain: false,
+            fit: Fit::Stretch,
             uv: [0.0, 0.0, 1.0, 1.0],
             colors: [color; 4],
             blend: Blend::Normal,

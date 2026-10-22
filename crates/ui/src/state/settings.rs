@@ -453,17 +453,20 @@ impl Settings {
             .resolve(self.skin_params.get(DITO).unwrap_or(&Values::new()))
     }
 
+    /// Dito's parameter `name`'s value, as its declaration takes it.
+    fn dito_param(&self, name: &str) -> Option<ParamValue> {
+        ddi_noteskin::bundled::dito_parameters()
+            .value(self.skin_params.get(DITO).unwrap_or(&Values::new()), name)
+    }
+
     /// Dito's toggle `name`.
     fn dito_toggle(&self, name: &str) -> bool {
-        self.dito_params().get(name) == Some(&ParamValue::Bool(true))
+        self.dito_param(name) == Some(ParamValue::Bool(true))
     }
 
     /// The note colors: Dito's, which the built-in arrows draw in too.
     pub fn note_colors(&self) -> NoteColors {
-        match self
-            .dito_params()
-            .remove(ddi_noteskin::bundled::dito::COLORS)
-        {
+        match self.dito_param(ddi_noteskin::bundled::dito::COLORS) {
             Some(ParamValue::Text(name)) => {
                 serde_json::from_value(serde_json::Value::String(name)).unwrap_or_default()
             }
@@ -557,17 +560,7 @@ impl Settings {
             self.skin_params.pop_last();
         }
         for values in self.skin_params.values_mut() {
-            values.retain(|name, v| {
-                name.chars().count() <= ddi_noteskin::params::MAX_NAME
-                    && match v {
-                        ParamValue::Number(n) => n.is_finite(),
-                        ParamValue::Text(t) => t.chars().count() <= ddi_noteskin::params::MAX_NAME,
-                        ParamValue::Bool(_) => true,
-                    }
-            });
-            while values.len() > ddi_noteskin::params::MAX_PARAMETERS {
-                values.pop_last();
-            }
+            ddi_noteskin::params::bound_stored(values);
         }
         self.skin_params.retain(|_, v| !v.is_empty());
         // Only a pump skin draws the pump layouts.

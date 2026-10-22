@@ -9,6 +9,9 @@ repository.workspace = true
 description = "DitoDitoInfinito: song library (pack scanning, zip index, manifest entries)"
 
 [dependencies]
+# StepMania's color strings (`RageColor::FromString`) for background
+# changes' colors (`backgrounds::effects`).
+ddi-actor.workspace = true
 ddi-chart.workspace = true
 # A work's charts' excessive setting, kept in its entry (`scan`).
 ddi-engine.workspace = true

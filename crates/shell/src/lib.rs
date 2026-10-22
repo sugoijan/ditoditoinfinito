@@ -21,6 +21,7 @@ pub mod stage;
 
 use ddi_chart::Layout;
 use ddi_noteskin::lua::Env;
+use ddi_noteskin::params::Values;
 use ddi_render::field_preview::{BPM, FieldPreviewOptions, SkinWant};
 use ddi_render::{ColorScheme, RenderOptions, ScoreDelta};
 use ddi_ui::state::history::GhostDelta;
@@ -138,39 +139,65 @@ pub fn play_skin(
     Some((key, env))
 }
 
-/// The skins a play may draw with, best first, each with what its Lua
-/// is told ([`play_skins`]).
-pub type SkinWants = Vec<Option<(String, Env)>>;
+/// The skins a play may draw with, best first ([`play_skins`]).
+#[derive(Clone)]
+pub struct SkinWants {
+    /// Each one's key with its parameters' values; `None`, the built-in
+    /// arrows, ends the list.
+    pub keys: Vec<Option<(String, Values)>>,
+    /// What the Lua of the one drawn with is told, but its parameters'
+    /// values.
+    pub env: Env,
+}
 
 /// The skins a play may draw `song`'s chart `chart` with, best first
 /// ([`play_skin`]): the chosen one, then what is drawn when it is not
 /// there (gone, or chosen on another machine), the choice let go as
-/// Options lets it go ([`Settings::let_go_missing_skins`]). `None`, the
-/// built-in arrows, ends the list; [`first_there`] picks.
+/// Options lets it go ([`Settings::let_go_missing_skins`]). `None` for
+/// the built-in arrows; [`first_there`] picks.
 pub fn play_skins(
     settings: &Settings,
     song: &ddi_chart::Song,
     chart: &ddi_chart::Chart,
     layout: &Layout,
     shift: f64,
-) -> SkinWants {
+) -> Option<SkinWants> {
     let mut settings = settings.clone();
-    let mut wants = vec![play_skin(&settings, song, chart, layout, shift)];
-    while let Some(Some((key, _))) = wants.last()
+    let want = |s: &Settings| {
+        s.play_skin(&layout.id, Some(chart)).map(|k| {
+            let params = s.skin_params(&k);
+            (k, params)
+        })
+    };
+    let mut keys = vec![Some(want(&settings)?)];
+    while let Some(Some((key, _))) = keys.last()
         && settings.let_go_missing_skins(|k| k != key)
     {
-        wants.push(play_skin(&settings, song, chart, layout, shift));
+        keys.push(want(&settings));
     }
-    wants
+    let env = ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift);
+    Some(SkinWants { keys, env })
 }
 
-/// The first of `wants` ([`play_skins`]) that is `there` (by key; Dito
-/// always is): `None` for the built-in arrows.
-pub fn first_there(wants: SkinWants, there: impl Fn(&str) -> bool) -> Option<(String, Env)> {
-    wants
+/// The first of `wants` ([`play_skins`]) among the skins one can pick,
+/// `there` (`(key, name)`; Dito always is): `None` for the built-in
+/// arrows.
+pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> Option<(String, Env)> {
+    let (key, params) = wants
+        .keys
         .into_iter()
-        .find(|w| w.as_ref().is_none_or(|(k, _)| k == DITO || there(k)))
-        .flatten()
+        .find(|w| {
+            w.as_ref()
+                .is_none_or(|(k, _)| k == DITO || there.iter().any(|(t, _)| t == k))
+        })
+        .flatten()?;
+    Some((
+        key,
+        Env {
+            params,
+            ..wants.env
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -273,14 +300,19 @@ mod tests {
             ..Settings::default()
         };
         settings.set_dito_param("Colors", ParamValue::Text("Flat".into()));
-        let wants = play_skins(&settings, &song, chart, &layout, 0.0);
+        let wants = play_skins(&settings, &song, chart, &layout, 0.0).unwrap();
         let keys: Vec<_> = wants
+            .keys
             .iter()
             .map(|w| w.as_ref().map(|(k, _)| k.as_str()))
             .collect();
         assert_eq!(keys, [Some("pump/mine"), Some("dance/mine"), Some(DITO)]);
         let pick = |there: &[&str]| {
-            first_there(wants.clone(), |k| there.contains(&k)).map(|(k, env)| (k, env.params))
+            let there: Vec<(String, String)> = there
+                .iter()
+                .map(|k| (k.to_string(), String::new()))
+                .collect();
+            first_there(wants.clone(), &there).map(|(k, env)| (k, env.params))
         };
         assert_eq!(pick(&["pump/mine", "dance/mine"]).unwrap().0, "pump/mine");
         assert_eq!(pick(&["dance/mine"]).unwrap().0, "dance/mine");
@@ -288,12 +320,15 @@ mod tests {
         assert_eq!(pick(&[]), Some((DITO.into(), settings.skin_params(DITO))));
         // Lighter: the built-in arrows.
         settings.set_dito_param("Lighter", ParamValue::Bool(true));
-        let wants = play_skins(&settings, &song, chart, &layout, 0.0);
-        assert_eq!(wants.len(), 3);
-        assert!(first_there(wants, |_| false).is_none());
+        let wants = play_skins(&settings, &song, chart, &layout, 0.0).unwrap();
+        assert_eq!(wants.keys.len(), 3);
+        assert!(first_there(wants, &[]).is_none());
         // Nothing chosen: Dito alone.
-        let wants = play_skins(&Settings::default(), &song, chart, &layout, 0.0);
-        assert_eq!(wants.len(), 1);
+        let wants = play_skins(&Settings::default(), &song, chart, &layout, 0.0).unwrap();
+        assert_eq!(wants.keys.len(), 1);
+        // Lighter and none chosen: none to ready.
+        (settings.noteskin, settings.pump_noteskin) = (None, None);
+        assert!(play_skins(&settings, &song, chart, &layout, 0.0).is_none());
     }
 
     #[test]

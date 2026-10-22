@@ -345,66 +345,6 @@
         };
       })();
     </script>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: var(--ground);
-      }
-
-      .boot-shell {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        background: var(--ground);
-        z-index: 9999;
-      }
-
-      .boot-shell.is-ready {
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 180ms ease;
-      }
-
-      .boot-bar {
-        width: min(320px, 72vw);
-        height: 10px;
-      }
-
-      .boot-bar-track {
-        width: 100%;
-        height: 2px;
-        background: var(--line);
-        position: relative;
-      }
-
-      .boot-bar-fill {
-        position: absolute;
-        left: 0;
-        top: -2px;
-        height: 6px;
-        width: 4%;
-        background: var(--text);
-      }
-
-      .boot-shell.is-blocked .boot-bar {
-        display: none;
-      }
-
-      .boot-blocked {
-        text-align: left;
-        font-family: ui-monospace, monospace;
-        color: var(--text);
-        max-width: min(480px, 86vw);
-      }
-
-      .hidden {
-        display: none;
-      }
-    </style>
     <link data-trunk rel="rust" href="../crates/app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
     <!-- The Ogg Opus fallback decoder, a worker fetched only when the browser cannot decode Opus (PLAN.md decision 9); `xtask stage-opus` names its files by their hash. -->
     <link data-trunk rel="rust" href="../crates/opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />

@@ -72,8 +72,9 @@ pub(crate) struct GameLoop {
     scripts: crate::scripts::ScriptView,
     /// The scripts' texts the browser drew, waiting for the next frame.
     script_texts: ScriptTexts,
-    /// The scripts' sounds decoded, their buffers once made (on the play's
-    /// sound), those played this frame, and how many played so far.
+    /// The scripts' sounds decoded until their buffers are made (on the
+    /// play's sound, the first time each plays), the buffers, those played
+    /// this frame, and how many played so far.
     script_sounds: std::collections::HashMap<String, ddi_platform::decode::DecodedAudio>,
     sound_buffers: std::collections::HashMap<String, web_sys::AudioBuffer>,
     sounds_due: Vec<String>,
@@ -426,11 +427,11 @@ impl GameLoop {
         };
         for f in self.sounds_due.drain(..) {
             if !self.sound_buffers.contains_key(&f)
-                && let Some(audio) = self.script_sounds.get(&f)
+                && let Some(audio) = self.script_sounds.remove(&f)
             {
                 match session
                     .audio()
-                    .buffer_from_pcm(audio.channels.clone(), f64::from(audio.sample_rate))
+                    .buffer_from_pcm(audio.channels, f64::from(audio.sample_rate))
                 {
                     Ok(b) => {
                         self.sound_buffers.insert(f.clone(), b);
@@ -441,9 +442,7 @@ impl GameLoop {
             let Some(buffer) = self.sound_buffers.get(&f) else {
                 continue;
             };
-            let at = session.audio().now().context_time;
-            let volume = session.volume();
-            match session.audio_mut().play(buffer, at, 0.0, volume) {
+            match session.play_now(buffer) {
                 Ok(_) => self.sounds_played += 1,
                 Err(e) => web_sys::console::warn_1(&format!("{f}: {e}").into()),
             }
@@ -810,38 +809,27 @@ impl GameLoop {
                             stage.quads(frame.song_time, geo.center_x(span), height as f32, srgb);
                         self.stage_drawn = (back.len(), mask.len());
                     }
-                    // The song's scripts, in the background frame.
+                    // The song's scripts, in the background frame (they
+                    // load while the play may have begun).
                     if scripts {
-                        let (device, queue) = (&self.gfx.device, &self.gfx.queue);
-                        // Drawn as skins' quads are (scripts load while the
-                        // play may have begun; a no-op once so).
-                        self.renderer.set_skins_drawn(device, queue, true);
-                        if let Some(why) = self.scripts.frame(
-                            frame.song_time,
-                            frame.beat,
+                        let texts = &self.script_texts;
+                        let drawn = self.scripts.draw(
+                            (&mut self.renderer, &self.gfx.device, &self.gfx.queue),
+                            (frame.song_time, frame.beat),
                             &self.background_schedule,
-                        ) {
+                            ([width as f32, height as f32], frame_aspect),
+                            layer.is_some() || self.stage.shown(),
+                            |s| Self::draw_script_texts(s, texts),
+                            (&mut back, &mut mask),
+                        );
+                        if let Some(why) = drawn.stopped {
                             web_sys::console::warn_1(
                                 &format!("scripted backgrounds stopped: {why}").into(),
                             );
                             self.scripts_stopped = Some(why);
                         }
-                        Self::draw_script_texts(&mut self.scripts, &self.script_texts);
-                        self.sounds_due.extend(self.scripts.take_sounds());
-                        let (device, queue) = (&self.gfx.device, &self.gfx.queue);
-                        self.scripts.upload(&mut self.renderer, device, queue);
-                        let (w, h) = (width as f32, height as f32);
-                        let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
-                            .unwrap_or([0.0, 0.0, w, h]);
-                        let (b, f) = self.scripts.quads(
-                            frame.song_time,
-                            &self.background_schedule,
-                            rect,
-                            srgb,
-                        );
-                        self.scripts_drawn = (b.len(), f.len());
-                        back.extend(b);
-                        mask.splice(0..0, f);
+                        self.sounds_due.extend(drawn.sounds);
+                        self.scripts_drawn = drawn.drawn;
                     }
                     self.renderer.set_stage_quads(back, mask);
                 }
@@ -1079,11 +1067,10 @@ impl GameLoop {
                     let _ =
                         js_sys::Reflect::set(&o, &"quads".into(), &(n.last_quads() as u32).into());
                     // The parameters' values its Lua reads.
-                    let params = serde_json::to_string(&n.parameters()).unwrap_or_default();
                     let _ = js_sys::Reflect::set(
                         &o,
                         &"params".into(),
-                        &js_sys::JSON::parse(&params).unwrap_or(wasm_bindgen::JsValue::NULL),
+                        &crate::web::json(&n.parameters()),
                     );
                     let (fuel, max_fuel) = n.lua_fuel();
                     let lua = js_sys::Object::new();

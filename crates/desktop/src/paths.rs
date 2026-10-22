@@ -56,6 +56,29 @@ pub fn cache_dir() -> Option<PathBuf> {
     }
 }
 
+/// Writes `bytes` to `path` whole or not at all: its folder made, a
+/// synced temporary file beside it (`<name>.<process>.tmp`, removed on a
+/// failure) renamed over it.
+pub fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}.tmp", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    let written = std::fs::File::create(&tmp)
+        .and_then(|mut f| {
+            f.write_all(bytes)?;
+            f.sync_all()
+        })
+        .and_then(|()| std::fs::rename(&tmp, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
 /// The folders a package keeps the game's own files in (`assets/`,
 /// `video/`, `danoni-importer/`), nearest first: the executable's folder
 /// (the relocatable folder, a build's profile folder) and, for an
@@ -101,5 +124,20 @@ mod tests {
             package_dirs(Path::new("/games/MacOS/ditoditoinfinito")),
             [PathBuf::from("/games/MacOS")]
         );
+    }
+
+    #[test]
+    fn a_file_is_written_whole_into_its_folder() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch/write-whole");
+        let _ = std::fs::remove_dir_all(&dir);
+        let file = dir.join("a/b.json");
+        write_whole(&file, b"one").unwrap();
+        write_whole(&file, b"two").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"two");
+        assert_eq!(std::fs::read_dir(dir.join("a")).unwrap().count(), 1);
+        // A folder in the way: nothing written, no temporary file left.
+        std::fs::create_dir_all(dir.join("c")).unwrap();
+        assert!(write_whole(&dir.join("c"), b"x").is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
     }
 }

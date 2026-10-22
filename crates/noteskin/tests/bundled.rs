@@ -446,7 +446,9 @@ fn ditos_parameters_pick_its_colors_skin_and_its_explosions() {
     // itself for Quantized.
     let colors = |c: &str| values(&[(dito::COLORS, Value::Text(c.into()))]);
     assert_eq!(
-        head(&folders, "dance", "Dito", &Values::new()),
+        head(&folders, "dance", "Dito", &Values::new())
+            .unwrap()
+            .name,
         "Dito Vivid"
     );
     for (scheme, skin) in [
@@ -456,7 +458,12 @@ fn ditos_parameters_pick_its_colors_skin_and_its_explosions() {
         ("Flat", "Dito Flat"),
         ("single", "Dito Single"),
     ] {
-        assert_eq!(head(&folders, "dance", "Dito", &colors(scheme)), skin);
+        assert_eq!(
+            head(&folders, "dance", "Dito", &colors(scheme))
+                .unwrap()
+                .name,
+            skin
+        );
     }
     // Every scheme declares what Dito does (merged from its metrics).
     for f in folders.iter().filter(|f| f.name.starts_with("Dito")) {
@@ -505,16 +512,22 @@ fn peters_parameters_preserve_both_looks_and_control_explosions() {
     assert!(declared.warnings.is_empty(), "{:?}", declared.warnings);
     assert_eq!(declared.get("Colors").unwrap().label, "Note colors");
     assert_eq!(
-        head(&folders, "dance", "Peters-DDR", &Values::new()),
+        head(&folders, "dance", "Peters-DDR", &Values::new())
+            .unwrap()
+            .name,
         "Peters-DDR-Vivid"
     );
     // Old names still load their original looks for external fallback chains.
     assert_eq!(
-        head(&folders, "dance", "Peters-DDR-Note", &Values::new()),
+        head(&folders, "dance", "Peters-DDR-Note", &Values::new())
+            .unwrap()
+            .name,
         "Peters-DDR-Note"
     );
     assert_eq!(
-        head(&folders, "dance", "Peters-DDR-Vivid", &Values::new()),
+        head(&folders, "dance", "Peters-DDR-Vivid", &Values::new())
+            .unwrap()
+            .name,
         "Peters-DDR-Vivid"
     );
     for (color, expected, vivid) in [
@@ -526,9 +539,8 @@ fn peters_parameters_preserve_both_looks_and_control_explosions() {
                 ("Colors".into(), Value::Text(color.into())),
                 ("Explosions".into(), Value::Bool(on)),
             ]);
-            let name = head(&folders, "dance", "Peters-DDR", &params);
-            assert_eq!(name, expected);
-            let skin = Skin::load(&folders, "dance", &name).unwrap();
+            let skin = head(&folders, "dance", "Peters-DDR", &params).unwrap();
+            assert_eq!(skin.name, expected);
             let metrics = NoteDisplay::read(&skin, "Down");
             for part in [Part::TapNote, Part::TapFake] {
                 assert_eq!(metrics.part(part).animation_is_vivid, vivid);

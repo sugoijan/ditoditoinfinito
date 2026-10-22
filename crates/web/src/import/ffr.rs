@@ -26,18 +26,16 @@ pub(super) struct LevelsOutcome {
     pub(super) packs: Vec<(String, RelPathBuf)>,
 }
 
-/// Imports every level among `paths`.
+/// Imports every level of `candidates` (`ffr::find_levels`).
 pub(super) async fn import_levels(
     db: &Db,
     sources: &HashMap<String, Source>,
-    paths: &[String],
-    fallback_pack: &str,
+    candidates: &[LevelCandidate],
     folder: Option<&str>,
     report: &mut ImportReport,
     progress: &crate::component::Callback<String>,
 ) -> LevelsOutcome {
     let mut out = LevelsOutcome::default();
-    let candidates = ffr::find_levels(paths, fallback_pack);
     let n = candidates.len();
     for (i, c) in candidates.iter().enumerate() {
         let label = c.path.to_string();

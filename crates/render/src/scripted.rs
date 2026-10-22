@@ -10,11 +10,10 @@
 //! the shell into a texture per run (white, tinted here); models are not
 //! drawn here.
 
-use ddi_actor::{Actor, Drawn, UNTEXTURED, View};
+use ddi_actor::{Actor, Drawn, View};
 
 use crate::actors2d;
-use crate::color::to_target;
-use crate::textured::{Shape, TexQuad, UNTEXTURED as NO_TEXTURE};
+use crate::textured::{self, Shape, TexQuad};
 
 /// A run's drawing by its text: its texture and size in StepMania's
 /// pixels, `None` while not drawn.
@@ -35,7 +34,7 @@ pub fn screen_transform(frame: [f32; 4], screen: [f32; 2]) -> [f32; 6] {
 /// (`None`: not loaded yet, not drawn), `texts` a run's drawing (its
 /// texture and size in StepMania's pixels; `None`: not drawn yet). Colors
 /// as the target expects them for skins' quads (`srgb`, see
-/// [`to_target`]).
+/// [`crate::color::to_target`]).
 pub fn quads<'a>(
     draws: impl IntoIterator<Item = (&'a mut Actor, f32, bool)>,
     frame: [f32; 4],
@@ -88,44 +87,22 @@ fn push(
     let Some(mask) = actors2d::drawn_mask(q.depth, q.blend) else {
         return;
     };
-    let texture = if q.texture == UNTEXTURED {
-        NO_TEXTURE
-    } else {
-        match textures.get(q.texture as usize) {
-            Some(Some(t)) => *t,
-            _ => return,
-        }
+    let Some((shape, texture)) = textured::actor_quad(q, textures, [0.0; 2]) else {
+        return;
     };
-    let uv = actors2d::offset_uv(q.uv, q.texcoord_offset);
-    let shape = match q.projected {
-        Some(p) => Shape::Projected {
-            corners: p.corners,
-            w: p.w,
-            uv,
-        },
-        None => match cut(q.transform, uv, clip) {
+    let shape = match shape {
+        Shape::Quad { transform, uv } => match cut(transform, uv, clip) {
             Some(shape) => shape,
             None => return,
         },
+        projected => projected,
     };
-    let colors = q.diffuse.map(|c| to_target(c, srgb));
     let base = TexQuad {
         blend: actors2d::blend(q.blend),
-        gradient: colors.iter().any(|c| *c != colors[0]).then_some(colors),
         mask,
-        ..TexQuad::new(shape, colors[0], texture)
+        ..TexQuad::new(shape, [1.0; 4], texture)
     };
-    if q.diffuse.iter().any(|c| c[3] > 0.0) {
-        out.push(base);
-    }
-    if q.glow[3] > 0.0 {
-        out.push(TexQuad {
-            color: to_target(q.glow, srgb),
-            glow: true,
-            gradient: None,
-            ..base
-        });
-    }
+    textured::push_passes(base, q.diffuse, q.glow, srgb, out);
 }
 
 /// A run's drawing as a quad over its line box (its top the drawing's),
@@ -143,24 +120,12 @@ fn push_text(t: &ddi_actor::TextDraw, texts: &Texts, srgb: bool, out: &mut Vec<T
         transform: ddi_actor::mul(&t.transform, &local),
         uv: [0.0, 0.0, 1.0, 1.0],
     };
-    let colors = t.diffuse.map(|c| to_target(c, srgb));
     let base = TexQuad {
         blend: actors2d::blend(t.blend),
-        gradient: colors.iter().any(|c| *c != colors[0]).then_some(colors),
         mask,
-        ..TexQuad::new(shape, colors[0], texture)
+        ..TexQuad::new(shape, [1.0; 4], texture)
     };
-    if t.diffuse.iter().any(|c| c[3] > 0.0) {
-        out.push(base);
-    }
-    if t.glow[3] > 0.0 {
-        out.push(TexQuad {
-            color: to_target(t.glow, srgb),
-            glow: true,
-            gradient: None,
-            ..base
-        });
-    }
+    textured::push_passes(base, t.diffuse, t.glow, srgb, out);
 }
 
 /// A quad (`transform` of the unit square, texture rectangle `uv`) cut to

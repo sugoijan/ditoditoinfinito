@@ -18,7 +18,7 @@ use ddi_platform::video::VideoFormat;
 
 use crate::image::{IMAGE_HEADER_LEN, image_size};
 use crate::manifest::{EntryMeta, ManifestEntry, VideoRef, simfile_names, summarize};
-use crate::pack::{self, SongCandidate};
+use crate::pack::{self, MissingTag, SongCandidate};
 use crate::path::{RelPath, RelPathBuf};
 
 /// The most background-change images a song keeps (the web's
@@ -121,14 +121,14 @@ pub fn scan_song(
         reading.sized(&sizes);
     }
     let movies = reading
-        .movies(paths)
-        .into_iter()
+        .movies()
+        .iter()
         .map(|(relative, path)| {
-            let format = sniff_movie(files, &path);
+            let format = sniff_movie(files, path);
             Movie {
                 kept: format.playable(),
-                relative,
-                path,
+                relative: relative.clone(),
+                path: path.clone(),
                 format,
             }
         })
@@ -151,6 +151,10 @@ pub struct Reading {
     pub text: String,
     c: SongCandidate,
     assets: pack::ResolvedAssets,
+    /// [`Reading::movies`].
+    movies: Vec<(RelPathBuf, RelPathBuf)>,
+    /// Whether a background change plays the `#PREVIEWVID` movie too.
+    preview_in_backgrounds: bool,
     warnings: Vec<String>,
     notes: Vec<String>,
 }
@@ -225,7 +229,8 @@ pub fn read_song(
     let mut notes = Vec::new();
     let text = pack::decode_text_with(chart, legacy);
     let mut song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
-    song.resolve_change_names(&song_dir_names(&c.dir, paths));
+    debug_assert!(paths.is_sorted(), "a song's paths are sorted");
+    song.resolve_change_names(&song_dir_names(&c.dir, paths_under(paths, &c.dir)));
     let mut unplayed: Vec<&str> = song
         .charts
         .iter()
@@ -251,11 +256,21 @@ pub fn read_song(
         ));
     }
     let assets = pack::resolve_assets(&song, &c.dir, paths);
+    let mut movies = crate::backgrounds::referenced_movies(&song, &c.dir, paths);
+    let mut preview_in_backgrounds = false;
+    if let Some(p) = &assets.preview_video {
+        preview_in_backgrounds = movies.iter().any(|(_, q)| q == p);
+        if !preview_in_backgrounds {
+            movies.push((p.relative_to(&c.dir), p.clone()));
+        }
+    }
     Ok(Reading {
         song,
         text,
         c: c.clone(),
         assets,
+        movies,
+        preview_in_backgrounds,
         warnings: Vec::new(),
         notes,
     })
@@ -282,14 +297,8 @@ impl Reading {
 
     /// The movies the background changes name, then the `#PREVIEWVID`
     /// movie when it is not one of them, `(relative, path)`.
-    pub fn movies(&self, paths: &[RelPathBuf]) -> Vec<(RelPathBuf, RelPathBuf)> {
-        let mut movies = crate::backgrounds::referenced_movies(&self.song, &self.c.dir, paths);
-        if let Some(p) = &self.assets.preview_video
-            && !movies.iter().any(|(_, q)| q == p)
-        {
-            movies.push((p.relative_to(&self.c.dir), p.clone()));
-        }
-        movies
+    pub fn movies(&self) -> &[(RelPathBuf, RelPathBuf)] {
+        &self.movies
     }
 
     /// The song's entry, its files named as `naming` says, with the
@@ -308,6 +317,8 @@ impl Reading {
             text,
             c,
             assets,
+            movies: _,
+            preview_in_backgrounds,
             mut warnings,
             mut notes,
         } = self;
@@ -320,49 +331,42 @@ impl Reading {
         // the folder's audio or images instead (`Song::TidyUpData`), and
         // packs often rename files without updating the simfile.
         for (tag, reference) in &assets.missing {
-            let tag = tag.as_str();
-            match tag {
-                "#JACKET" | "#CDTITLE" | "#LYRICSPATH" | "#PREVIEWVID" => {
+            // The file that stands in, when one does.
+            let used = match tag {
+                MissingTag::Jacket
+                | MissingTag::CdTitle
+                | MissingTag::LyricsPath
+                | MissingTag::PreviewVid => {
                     notes.push(format!("{tag} names {reference}, which is missing"));
                     continue;
                 }
-                "#PREVIEW" => {
+                MissingTag::Preview => {
                     notes.push(format!(
-                        "#PREVIEW names {reference}, which is missing; the music's sample plays instead"
+                        "{tag} names {reference}, which is missing; the music's sample plays instead"
                     ));
                     continue;
                 }
-                _ if tag.starts_with("#MUSIC (") => {
+                MissingTag::ChartMusic(_) => {
                     notes.push(format!(
                         "{tag} names {reference}, which is missing; the song's music plays instead"
                     ));
                     continue;
                 }
-                _ => {}
-            }
-            let stand_in = match tag {
-                "#BANNER" => assets.banner.is_some(),
-                "#BACKGROUND" => assets.background.is_some(),
-                _ => true,
+                MissingTag::Music => Some(&music),
+                MissingTag::Banner => assets.banner.as_ref(),
+                MissingTag::Background => assets.background.as_ref(),
             };
-            if !stand_in {
+            let Some(used) = used else {
                 warnings.push(format!(
                     "{tag} names {reference}, which is missing; the song has no {}",
-                    tag.trim_start_matches('#').to_lowercase()
+                    tag.to_string().trim_start_matches('#').to_lowercase()
                 ));
                 continue;
-            }
-            let used = match tag {
-                "#MUSIC" => Some(&music),
-                "#BANNER" => assets.banner.as_ref(),
-                _ => assets.background.as_ref(),
             };
-            if let Some(used) = used {
-                notes.push(format!(
-                    "{tag} names {reference}, which is missing; {} is used instead",
-                    used.file_name()
-                ));
-            }
+            notes.push(format!(
+                "{tag} names {reference}, which is missing; {} is used instead",
+                used.file_name()
+            ));
         }
         let (id, name) = c.identity();
         let (title, artist) = simfile_names(&song, &name);
@@ -422,7 +426,6 @@ impl Reading {
         // The preview movie, kept as the background movies are; listed
         // with them only when a background change plays it too.
         let mut preview_video = None;
-        let background_movies = crate::backgrounds::referenced_movies(&song, &c.dir, paths);
         for m in movies {
             let playable = m.format.playable();
             let kept = playable && m.kept;
@@ -432,7 +435,7 @@ impl Reading {
                     format: m.format.clone(),
                     stored: kept,
                 });
-                if !background_movies.iter().any(|(_, p)| *p == m.path) {
+                if !preview_in_backgrounds {
                     if playable && !kept {
                         notes.push(format!(
                             "the preview video {} was not stored (\"also store background videos\" is off)",
@@ -685,14 +688,20 @@ impl Duplicates {
 /// does not go through the whole library for each song.
 pub fn pack_paths<'a>(paths: &'a [RelPathBuf], c: &SongCandidate) -> &'a [RelPathBuf] {
     match c.pack_dir() {
-        Some(dir) if !dir.is_empty() => {
-            let prefix = format!("{dir}/");
-            let start = paths.partition_point(|p| p.as_str() < prefix.as_str());
-            let len = paths[start..].partition_point(|p| p.as_str().starts_with(&prefix));
-            &paths[start..start + len]
-        }
-        _ => paths,
+        Some(dir) => paths_under(paths, dir),
+        None => paths,
     }
+}
+
+/// The paths under folder `dir` (all for the root) out of sorted `paths`.
+fn paths_under<'a>(paths: &'a [RelPathBuf], dir: &RelPath) -> &'a [RelPathBuf] {
+    if dir.is_empty() {
+        return paths;
+    }
+    let prefix = format!("{dir}/");
+    let start = paths.partition_point(|p| p.as_str() < prefix.as_str());
+    let len = paths[start..].partition_point(|p| p.as_str().starts_with(&prefix));
+    &paths[start..start + len]
 }
 
 #[cfg(test)]

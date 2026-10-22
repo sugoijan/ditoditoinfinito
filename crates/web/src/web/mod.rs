@@ -31,6 +31,14 @@ pub(crate) fn js_err(context: &str, err: JsValue) -> String {
     format!("{context}: {err:?}")
 }
 
+/// `value` as a plain JS value, through JSON (`null` when it is not one).
+pub(crate) fn json(value: &impl serde::Serialize) -> JsValue {
+    serde_json::to_string(value)
+        .ok()
+        .and_then(|s| js_sys::JSON::parse(&s).ok())
+        .unwrap_or(JsValue::NULL)
+}
+
 /// `window.__DDI_DEBUG`, what tests read, made when missing; `None`
 /// without a window.
 pub(crate) fn debug_object() -> Option<js_sys::Object> {

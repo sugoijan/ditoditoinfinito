@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
+use ddi_actor::Fit;
 use ddi_actor::text::{FixedMeasure, RunMetrics, TextMeasure, TextStyle};
 
 use crate::atlas::PageRect;
@@ -941,51 +942,35 @@ impl Painter {
                             }
                         }
                     };
-                    let uv = if q.cover {
-                        match bind {
-                            Bind::Image(id) => textures
-                                .get(id)
-                                .map(|image| {
-                                    let m = q.transform.0;
-                                    let w = (q.rect[2] - q.rect[0]).abs() * m[0].hypot(m[1]);
-                                    let h = (q.rect[3] - q.rect[1]).abs() * m[2].hypot(m[3]);
-                                    ddi_actor::background::cover_uv(
-                                        w,
-                                        h,
-                                        image.texture.width() as f32,
-                                        image.texture.height() as f32,
-                                    )
-                                })
-                                .unwrap_or(q.uv),
-                            _ => q.uv,
-                        }
-                    } else {
-                        q.uv
+                    // Covered: the image's middle that fills the rectangle;
+                    // contained: the rectangle narrowed to the image's
+                    // shape, centered (nothing drawn until its size is
+                    // known).
+                    let image = match bind {
+                        Bind::Image(id) if q.fit != Fit::Stretch => textures.get(id),
+                        _ => None,
                     };
-                    // Contained: the rectangle narrowed to the image's shape,
-                    // centered (nothing drawn until its size is known).
-                    let rect = if q.contain {
-                        match bind {
-                            Bind::Image(id) => match textures.get(id) {
-                                Some(image) => {
-                                    let m = q.transform.0;
-                                    let w = (q.rect[2] - q.rect[0]).abs() * m[0].hypot(m[1]);
-                                    let h = (q.rect[3] - q.rect[1]).abs() * m[2].hypot(m[3]);
-                                    contain_rect(
-                                        q.rect,
-                                        w / h.max(f32::MIN_POSITIVE),
-                                        image.texture.width() as f32
-                                            / (image.texture.height() as f32).max(1.0),
-                                    )
-                                }
-                                None => continue,
-                            },
-                            _ => continue,
+                    let (uv, rect) = match (q.fit, image) {
+                        (Fit::Stretch, _) | (Fit::Cover, None) => (q.uv, q.rect),
+                        (Fit::Contain, None) => continue,
+                        (fit, Some(image)) => {
+                            let m = q.transform.0;
+                            let w = (q.rect[2] - q.rect[0]).abs() * m[0].hypot(m[1]);
+                            let h = (q.rect[3] - q.rect[1]).abs() * m[2].hypot(m[3]);
+                            let iw = image.texture.width() as f32;
+                            let ih = image.texture.height() as f32;
+                            if fit == Fit::Cover {
+                                (ddi_actor::background::cover_uv(w, h, iw, ih), q.rect)
+                            } else {
+                                let shown = w / h.max(f32::MIN_POSITIVE);
+                                (q.uv, contain_rect(q.rect, shown, iw / ih.max(1.0)))
+                            }
                         }
-                    } else {
-                        q.rect
                     };
-                    let colors = if q.cover && matches!(bind, Bind::Blank) && q.texture.is_some() {
+                    let colors = if q.fit == Fit::Cover
+                        && matches!(bind, Bind::Blank)
+                        && q.texture.is_some()
+                    {
                         // Keep the previous base visible while a new picture loads.
                         [[0.0; 4]; 4]
                     } else {

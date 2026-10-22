@@ -44,8 +44,6 @@
 //! `Slide*` move it off by a screen while it fades. Each takes a second
 //! (the crossfades 1, 0.75 and 0.5).
 
-use ddi_chart::formats::sm::sm_float;
-
 use super::BgImage;
 
 /// A change's effect, as far as it changes what is drawn.
@@ -165,82 +163,10 @@ fn color(field: Option<&String>) -> [f32; 4] {
         return WHITE;
     };
     let text = field.replace('^', ",");
-    let Some(c) = parse_color(&text) else {
+    let Some(c) = ddi_actor::commands::parse_color(&text) else {
         return WHITE;
     };
     c.map(|v| (v * 255.0).round_ties_even().clamp(0.0, 255.0) / 255.0)
-}
-
-/// `RageColor::FromString`: `sscanf("%f,%f,%f,%f")` with three or four
-/// values, else `sscanf("#%2x%2x%2x%2x")` with three or four.
-fn parse_color(s: &str) -> Option<[f32; 4]> {
-    let mut values = Vec::with_capacity(4);
-    let mut rest = s;
-    while values.len() < 4 {
-        if !values.is_empty() {
-            match rest.strip_prefix(',') {
-                Some(r) => rest = r,
-                None => break,
-            }
-        }
-        let Some((v, r)) = scan_float(rest) else {
-            break;
-        };
-        values.push(v);
-        rest = r;
-    }
-    match values[..] {
-        [r, g, b] => return Some([r, g, b, 1.0]),
-        [r, g, b, a] => return Some([r, g, b, a]),
-        _ => {}
-    }
-    let mut rest = s.strip_prefix('#')?;
-    let mut hex = Vec::with_capacity(4);
-    while hex.len() < 4 {
-        // `%2x` skips white space, then takes up to two hex digits.
-        let r = rest.trim_start();
-        let n = r.bytes().take(2).take_while(u8::is_ascii_hexdigit).count();
-        if n == 0 {
-            break;
-        }
-        hex.push(u8::from_str_radix(&r[..n], 16).ok()?);
-        rest = &r[n..];
-    }
-    let f = |v: u8| f32::from(v) / 255.0;
-    match hex[..] {
-        [r, g, b] => Some([f(r), f(g), f(b), 1.0]),
-        [r, g, b, a] => Some([f(r), f(g), f(b), f(a)]),
-        _ => None,
-    }
-}
-
-/// `%f`: white space, then the longest decimal number (sign, digits, a
-/// point, an exponent); the rest of the text after it.
-fn scan_float(s: &str) -> Option<(f32, &str)> {
-    let t = s.trim_start();
-    let b = t.as_bytes();
-    let mut i = usize::from(matches!(b.first(), Some(b'+' | b'-')));
-    let digits = |i: usize| b[i..].iter().take_while(|c| c.is_ascii_digit()).count();
-    let int = digits(i);
-    i += int;
-    let mut frac = 0;
-    if b.get(i) == Some(&b'.') {
-        frac = digits(i + 1);
-        if int + frac > 0 {
-            i += 1 + frac;
-        }
-    }
-    if int + frac == 0 {
-        return None;
-    }
-    if matches!(b.get(i), Some(b'e' | b'E')) {
-        let sign = usize::from(matches!(b.get(i + 1), Some(b'+' | b'-')));
-        let exp = digits(i + 1 + sign);
-        if exp > 0 {
-            i += 1 + sign + exp;
-        }
-    }
-    Some((sm_float(&t[..i]) as f32, &t[i..]))
 }
 
 /// How the background that leaves goes ([`transition`]).

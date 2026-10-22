@@ -11,8 +11,8 @@ use crate::path::RelPathBuf;
 /// `old`'s entry for the song read from `text` (the `.ssc` the editor
 /// wrote, read as the library reads every simfile, generated versions
 /// added), stored as `chart`: its title, charts, tempo and length the
-/// new ones; its files (music, art, background changes, lyrics) the old
-/// ones. A chart's own music is kept where the chart at its index still
+/// new ones; its files (music, art, background changes, lyrics, preview
+/// movie) the old ones. A chart's own music is kept where the chart at its index still
 /// names one.
 pub fn entry_after_edit(
     old: &ManifestEntry,
@@ -22,26 +22,27 @@ pub fn entry_after_edit(
     let song: Song = crate::scan::parse_simfile(text, "ssc").map_err(|e| e.to_string())?;
     let (title, artist) = simfile_names(&song, &old.title);
     let meta = EntryMeta {
-        id: old.id.clone(),
         title,
         artist,
         chart,
-        music: old.music.clone(),
-        banner: old.banner.clone(),
-        background: old.background.clone(),
-        bg_images: old.bg_images.clone(),
-        bg_videos: old.bg_videos.clone(),
-        bg_shared: old.bg_shared.clone(),
-        credit: old.credit.clone(),
+        ..EntryMeta::default()
     };
-    let mut entry = summarize(meta, &song);
-    entry.jacket = old.jacket.clone();
-    entry.cd_title = old.cd_title.clone();
-    entry.lyrics = old.lyrics.clone();
-    entry.preview = old.preview.clone();
-    entry.bg_scripted = old.bg_scripted.clone();
-    entry.bg_scripts = old.bg_scripts.clone();
-    entry.layer_images = old.layer_images.clone();
+    let new = summarize(meta, &song);
+    let mut entry = ManifestEntry {
+        variants_version: new.variants_version,
+        title: new.title,
+        artist: new.artist,
+        chart: new.chart,
+        bpm: new.bpm,
+        preview_start: new.preview_start,
+        preview_length: new.preview_length,
+        length: new.length,
+        charts: new.charts,
+        layouts: new.layouts,
+        title_translit: new.title_translit,
+        artist_translit: new.artist_translit,
+        ..old.clone()
+    };
     for c in &mut entry.charts {
         if song.chart_music(c.index).is_some() {
             c.music = old
@@ -65,7 +66,7 @@ mod tests {
     #[test]
     fn an_edited_song_keeps_its_files_and_lists_its_new_charts() {
         let song = crate::scan::parse_simfile(SM, "sm").unwrap();
-        let old = summarize(
+        let mut old = summarize(
             EntryMeta {
                 id: "pack:song".into(),
                 title: "Song".into(),
@@ -78,6 +79,15 @@ mod tests {
             },
             &song,
         );
+        let movie = crate::manifest::VideoRef {
+            name: "preview.mp4".into(),
+            format: ddi_platform::video::VideoFormat {
+                container: ddi_platform::video::VideoContainer::Unknown,
+                codec: ddi_platform::video::VideoCodec::Unknown,
+            },
+            stored: true,
+        };
+        old.preview_video = Some(movie.clone());
         let mut edited = song.clone();
         edited.title = "Song (edit)".into();
         let mut hard = edited.charts[0].clone();
@@ -93,6 +103,7 @@ mod tests {
         assert_eq!(e.chart.as_str(), "chart.ssc");
         assert_eq!(e.music.as_str(), "music.ogg");
         assert_eq!(e.banner.as_ref().map(|b| b.as_str()), Some("banner.png"));
+        assert_eq!(e.preview_video, Some(movie), "the preview movie kept");
         assert_eq!(e.bpm, "150");
         assert_eq!(e.charts.len(), 2);
         assert_eq!((e.charts[1].meter, e.charts[1].notes), (9, 2));

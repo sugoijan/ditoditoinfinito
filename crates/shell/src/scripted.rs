@@ -127,18 +127,6 @@ impl<C: StageContent> ScriptView<C> {
             .map_or(Vec::new(), Scripts::take_sounds)
     }
 
-    /// The sound files the scripts may play ([`Scripts::sound_files`]).
-    pub fn sound_files(&self) -> Vec<String> {
-        self.scripts
-            .as_ref()
-            .map_or(Vec::new(), Scripts::sound_files)
-    }
-
-    /// What the scripts noted while loading.
-    pub fn notes(&self) -> &[String] {
-        self.scripts.as_ref().map_or(&[], |s| s.notes())
-    }
-
     /// Fuel the scripts spent in the last frame.
     pub fn frame_fuel(&self) -> u64 {
         self.scripts.as_ref().map_or(0, Scripts::frame_fuel)
@@ -157,14 +145,15 @@ impl<C: StageContent> ScriptView<C> {
         let Some(scripts) = &self.scripts else {
             return;
         };
-        for (content, _, id) in self.texts.values_mut().filter(|t| t.2.is_none()) {
+        let mut register = |content: &C| {
             let [w, h] = content.size();
             let pixels = [w.max(1), h.max(1)];
-            *id = Some(
-                renderer.add_noteskin_image(device, queue, pixels, false, |texture| {
-                    content.write(queue, texture, pixels);
-                }),
-            );
+            renderer.add_noteskin_image(device, queue, pixels, false, |texture| {
+                content.write(queue, texture, pixels);
+            })
+        };
+        for (content, _, id) in self.texts.values_mut().filter(|t| t.2.is_none()) {
+            *id = Some(register(content));
         }
         let keys = scripts.textures().keys();
         if !self.textures.is_empty() || keys.is_empty() {
@@ -176,14 +165,7 @@ impl<C: StageContent> ScriptView<C> {
                 let TextureKey::Skin { path, .. } = key else {
                     return None;
                 };
-                let content = self.images.get(&path.to_lowercase())?;
-                let [w, h] = content.size();
-                let pixels = [w.max(1), h.max(1)];
-                Some(
-                    renderer.add_noteskin_image(device, queue, pixels, false, |texture| {
-                        content.write(queue, texture, pixels);
-                    }),
-                )
+                Some(register(self.images.get(&path.to_lowercase())?))
             })
             .collect();
     }
@@ -197,6 +179,48 @@ impl<C: StageContent> ScriptView<C> {
         layers: &[Vec<BgSegment>; LAYERS],
     ) -> Option<String> {
         self.scripts.as_mut()?.frame(t, beat, layers)
+    }
+
+    /// One frame of the scripts at song second `t` (beat `beat`) on the
+    /// play's `layers`: run ([`ScriptView::frame`]), the texts they show
+    /// that were not drawn yet given to the shell (`texts`, through
+    /// [`ScriptView::measure`]), their images up, and their quads after
+    /// `back`'s and before `front`'s, in the background frame of a
+    /// target of `size` (`aspect`: [`ddi_render::background::frame_rect`]'s).
+    /// Drawn as skins' quads are (a no-op but on a target that draws
+    /// them offscreen); once they stopped, only if `skins` (other quads
+    /// are).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw(
+        &mut self,
+        (renderer, device, queue): (&mut Renderer, &wgpu::Device, &wgpu::Queue),
+        (t, beat): (f64, f64),
+        layers: &[Vec<BgSegment>; LAYERS],
+        (size, aspect): ([f32; 2], Option<f32>),
+        skins: bool,
+        texts: impl FnOnce(&mut Self),
+        (back, front): (&mut Vec<TexQuad>, &mut Vec<TexQuad>),
+    ) -> ScriptFrame {
+        renderer.set_skins_drawn(device, queue, true);
+        let stopped = self.frame(t, beat, layers);
+        if stopped.is_some() {
+            renderer.set_skins_drawn(device, queue, skins);
+        }
+        texts(self);
+        let sounds = self.take_sounds();
+        self.upload(renderer, device, queue);
+        let [w, h] = size;
+        let rect = ddi_render::background::frame_rect(w, h, aspect).unwrap_or([0.0, 0.0, w, h]);
+        let srgb = renderer.skin_colors_linear();
+        let (b, f) = self.quads(t, layers, rect, srgb);
+        let drawn = (b.len(), f.len());
+        back.extend(b);
+        front.splice(0..0, f);
+        ScriptFrame {
+            stopped,
+            sounds,
+            drawn,
+        }
     }
 
     /// The background and foreground quads at song second `t`, in the
@@ -218,6 +242,17 @@ impl<C: StageContent> ScriptView<C> {
         };
         ddi_render::scripted::quads(draws, frame, self.screen, &self.textures, &texts, srgb)
     }
+}
+
+/// What the scripts did in a frame ([`ScriptView::draw`]).
+#[derive(Debug, Default)]
+pub struct ScriptFrame {
+    /// Why they stopped, in the frame they did.
+    pub stopped: Option<String>,
+    /// The sounds they played, for the shell to play now.
+    pub sounds: Vec<String>,
+    /// Their background and foreground quads drawn.
+    pub drawn: (usize, usize),
 }
 
 /// Measures runs by the shell's drawings of them; a run not drawn yet is

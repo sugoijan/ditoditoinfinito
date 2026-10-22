@@ -167,7 +167,9 @@ pub type Parameters = std::collections::BTreeMap<String, Vec<ddi_noteskin::param
 pub fn parameters(skins: &[DiskSkin], choices: &[(String, String)]) -> Parameters {
     let folders = crate::play::skins::folders(skins);
     let keys: Vec<String> = choices.iter().map(|(k, _)| k.clone()).collect();
-    ddi_noteskin::params::catalog(folders.iter().zip(skins.iter().map(|s| s.bundled)), &keys)
+    // The player's first ([`all`]).
+    let bundled = skins.iter().position(|s| s.bundled).unwrap_or(skins.len());
+    ddi_noteskin::params::catalog(&folders, bundled, &keys)
 }
 
 #[cfg(test)]

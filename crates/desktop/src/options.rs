@@ -63,8 +63,7 @@ impl Shared {
             m.world.folders = Some(folders);
             m.world.library_note = note;
         }
-        *self.feed.borrow_mut() = Some(self.model.borrow().data());
-        self.pending.set(true);
+        self.refresh();
     }
 
     /// The play history's import: the plays kept so far while it runs
@@ -78,22 +77,31 @@ impl Shared {
     ) {
         {
             let mut m = self.model.borrow_mut();
+            // `None`: the notice as it is.
             let notice = match (&report, importing) {
-                (Some(r), _) => r.notice(),
-                (None, Some(0)) => "Importing plays…".to_string(),
-                (None, Some(n)) => format!("Importing plays… {n} kept so far."),
-                (None, None) => m.notice.clone(),
+                (Some(r), _) => Some(r.notice()),
+                (None, Some(0)) => Some("Importing plays…".to_string()),
+                (None, Some(n)) => Some(format!("Importing plays… {n} kept so far.")),
+                (None, None) => None,
             };
             if m.world.importing_plays == importing.is_some()
                 && m.world.plays == plays
-                && m.notice == notice
+                && notice.as_ref().is_none_or(|n| *n == m.notice)
             {
                 return;
             }
             m.world.importing_plays = importing.is_some();
             m.world.plays = plays;
-            m.notice = notice;
+            if let Some(n) = notice {
+                m.notice = n;
+            }
         }
+        self.refresh();
+    }
+
+    /// The rows made again from the model: the screen is told the next
+    /// frame.
+    fn refresh(&self) {
         *self.feed.borrow_mut() = Some(self.model.borrow().data());
         self.pending.set(true);
     }
@@ -110,8 +118,7 @@ impl Shared {
             // Not `complete`: a skin chosen on another machine stays chosen.
             self.model.borrow_mut().set_noteskins(skins, false, false);
             self.model.borrow_mut().set_skin_parameters(parameters);
-            *self.feed.borrow_mut() = Some(self.model.borrow().data());
-            self.pending.set(true);
+            self.refresh();
         }
         self.pending.replace(false)
     }
@@ -242,8 +249,7 @@ impl OptionsPlatform for Desktop {
             return;
         };
         let out = Rc::new(RefCell::new(String::new()));
-        let (model, feed, o) = (self.0.model.clone(), self.0.feed.clone(), out.clone());
-        let shared = self.0.clone();
+        let (shared, o) = (self.0.clone(), out.clone());
         plays.export(
             50,
             move |lines| o.borrow_mut().push_str(&lines),
@@ -256,9 +262,8 @@ impl OptionsPlatform for Desktop {
                     Ok(n) => format!("{n} plays exported to {}.", path.display()),
                     Err(e) => format!("The export failed: {e}"),
                 };
-                model.borrow_mut().notice = notice;
-                *feed.borrow_mut() = Some(model.borrow().data());
-                shared.pending.set(true);
+                shared.model.borrow_mut().notice = notice;
+                shared.refresh();
             },
         );
     }
@@ -280,8 +285,7 @@ impl OptionsPlatform for Desktop {
             self.0.model.borrow_mut().notice =
                 "The plays cannot be imported now (an import runs, or the history is not read)."
                     .into();
-            *self.0.feed.borrow_mut() = Some(self.0.model.borrow().data());
-            self.0.pending.set(true);
+            self.0.refresh();
         }
     }
 
@@ -299,16 +303,11 @@ impl OptionsPlatform for Desktop {
         if matches!(reset, Reset::History | Reset::Everything)
             && let Some(plays) = self.0.songs.as_ref().and_then(|s| s.plays.clone())
         {
-            let (model, feed, shared, p) = (
-                self.0.model.clone(),
-                self.0.feed.clone(),
-                self.0.clone(),
-                plays.clone(),
-            );
+            let (shared, p) = (self.0.clone(), plays.clone());
             let alone = *reset == Reset::History;
             plays.remove_all(move |r| {
                 {
-                    let mut m = model.borrow_mut();
+                    let mut m = shared.model.borrow_mut();
                     match r {
                         Ok(()) if alone => m.notice = "Play history deleted.".into(),
                         Ok(()) => m.notice = "Everything reset.".into(),
@@ -316,8 +315,7 @@ impl OptionsPlatform for Desktop {
                     }
                     m.world.plays = p.history().len();
                 }
-                *feed.borrow_mut() = Some(model.borrow().data());
-                shared.pending.set(true);
+                shared.refresh();
             });
         }
     }

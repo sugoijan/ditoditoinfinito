@@ -143,23 +143,24 @@ pub struct LevelInfo {
 /// in the hues our quantization colors use. A name it does not have: none
 /// (the note takes its quantization's).
 pub fn color(name: &str) -> Option<Color> {
-    let rgb = |r: u8, g: u8, b: u8| Color {
-        r: f32::from(r) / 255.0,
-        g: f32::from(g) / 255.0,
-        b: f32::from(b) / 255.0,
+    const PALETTE: [(&str, [u8; 3]); 9] = [
+        ("red", [0xff, 0x3b, 0x30]),
+        ("blue", [0x2f, 0x7d, 0xff]),
+        ("purple", [0xa8, 0x4c, 0xff]),
+        ("yellow", [0xff, 0xd6, 0x1f]),
+        ("pink", [0xff, 0x5c, 0xc8]),
+        ("orange", [0xff, 0x8a, 0x1f]),
+        ("cyan", [0x1f, 0xd8, 0xe8]),
+        ("green", [0x34, 0xd0, 0x58]),
+        ("white", [0xff, 0xff, 0xff]),
+    ];
+    let name = name.trim();
+    let (_, [r, g, b]) = PALETTE.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+    Some(Color {
+        r: f32::from(*r) / 255.0,
+        g: f32::from(*g) / 255.0,
+        b: f32::from(*b) / 255.0,
         a: 1.0,
-    };
-    Some(match name.trim().to_ascii_lowercase().as_str() {
-        "red" => rgb(0xff, 0x3b, 0x30),
-        "blue" => rgb(0x2f, 0x7d, 0xff),
-        "purple" => rgb(0xa8, 0x4c, 0xff),
-        "yellow" => rgb(0xff, 0xd6, 0x1f),
-        "pink" => rgb(0xff, 0x5c, 0xc8),
-        "orange" => rgb(0xff, 0x8a, 0x1f),
-        "cyan" => rgb(0x1f, 0xd8, 0xe8),
-        "green" => rgb(0x34, 0xd0, 0x58),
-        "white" => rgb(0xff, 0xff, 0xff),
-        _ => return None,
     })
 }
 
@@ -177,8 +178,9 @@ fn lane(direction: &Value) -> Option<u8> {
     }
 }
 
-/// A note's time, seconds from the music's start, and its color's name.
-fn note_of(entry: &Value, sync: i64) -> Option<(f64, u8, String)> {
+/// A note's time, seconds from the music's start, its lane and its color
+/// ([`color`]; blue when it names none).
+fn note_of(entry: &Value, sync: i64) -> Option<(f64, u8, Option<Color>)> {
     let Value::List(parts) = entry else {
         return None;
     };
@@ -191,13 +193,13 @@ fn note_of(entry: &Value, sync: i64) -> Option<(f64, u8, String)> {
     if !time.is_finite() || time.abs() > MAX_SECONDS {
         return None;
     }
+    // A number or anything else names no color.
     let color = match parts.get(2) {
         Some(v) if !v.falsy() => match v {
-            Value::Text(t) => t.clone(),
-            Value::Number(n) => n.to_string(),
-            _ => String::new(),
+            Value::Text(t) => color(t),
+            _ => None,
         },
-        _ => "blue".to_string(),
+        _ => color("blue"),
     };
     Some((time, lane, color))
 }
@@ -209,7 +211,7 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
     let Value::List(entries) = beatbox else {
         return Err(ParseError::Malformed("the beatBox is not an array".into()));
     };
-    let mut notes: Vec<(f64, u8, String)> = entries
+    let mut notes: Vec<(f64, u8, Option<Color>)> = entries
         .iter()
         .filter_map(|e| note_of(e, info.sync))
         .take(MAX_NOTES)
@@ -224,7 +226,7 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
     notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
     let notes_start = notes[0].0;
     let mut chart_notes: Vec<Note> = Vec::with_capacity(notes.len());
-    for (time, lane, name) in notes {
+    for (time, lane, color) in notes {
         let tick = Tick(((time - start) * ticks_per_second).round() as i64);
         if chart_notes
             .iter()
@@ -235,7 +237,7 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
             continue;
         }
         let mut note = Note::new(tick, lane, NoteKind::Tap);
-        note.color = color(&name);
+        note.color = color;
         chart_notes.push(note);
     }
     chart_notes.sort_by_key(|n| (n.tick, n.lane));

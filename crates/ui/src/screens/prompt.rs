@@ -737,7 +737,7 @@ fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Act
         let mut s = named(Kind::Sprite(Sprite::quad([w, h])), name);
         if let Kind::Sprite(sp) = &mut s.kind {
             sp.texture = cx.blurred_texture(source, side);
-            sp.cover = true;
+            sp.fit = ddi_actor::Fit::Cover;
         }
         call(&mut s, "xy", &[x + w / 2.0, y + h / 2.0]);
         call(&mut s, "diffuse", &[tint, tint, tint, alpha]);

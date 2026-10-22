@@ -217,43 +217,39 @@ impl View {
     /// 16:9 one otherwise). One that fails to load is noted on the log;
     /// the song background then shows in its place.
     fn load_scripts(&mut self, loaded: &Loaded, settings: &Settings) {
-        use ddi_session::scripted::{Scripts, Sizes, SongFiles};
+        use ddi_session::scripted::{FileKind, Scripts, Sizes, SongFiles};
         let e = &loaded.entry;
         if e.bg_scripts.is_empty() {
             return;
         }
         let dir = loaded.files.dir();
-        let mut files = SongFiles {
-            pack: dir.parent().file_name().to_string(),
-            song: dir.file_name().to_string(),
-            files: e.bg_scripts.iter().map(|f| f.to_string()).collect(),
-            texts: Vec::new(),
-        };
+        let (pack, song) = (dir.parent().file_name(), dir.file_name());
+        let mut files = SongFiles::new(pack.to_string(), song.to_string(), &e.bg_scripts);
         let mut sizes = Sizes::default();
         let mut images = Vec::new();
         for f in &e.bg_scripts {
-            let lower = f.as_str().to_ascii_lowercase();
-            if lower.ends_with(".lua") {
-                if let Ok(bytes) = loaded.files.read(f) {
-                    let text = String::from_utf8_lossy(&bytes).into_owned();
-                    files.texts.push((f.to_string(), text));
+            match FileKind::of(f.as_str()) {
+                FileKind::Lua => {
+                    if let Ok(bytes) = loaded.files.read(f) {
+                        let text = String::from_utf8_lossy(&bytes).into_owned();
+                        files.texts.push((f.to_string(), text));
+                    }
                 }
-            } else if ddi_library::pack::IMAGE_EXTENSIONS
-                .iter()
-                .any(|x| lower.ends_with(&format!(".{x}")))
-                && let Some((size, data, own)) =
-                    crate::images::load_sized(&loaded.files.source(f), MAX_CHANGE_SIDE)
-            {
-                sizes.insert(f.as_str(), own);
-                images.push((f.to_string(), Rgba { size, data }));
+                FileKind::Image => {
+                    let source = loaded.files.source(f);
+                    if let Some((size, data, own)) =
+                        crate::images::load_sized(&source, MAX_CHANGE_SIDE)
+                    {
+                        sizes.insert(f.as_str(), own);
+                        images.push((f.to_string(), Rgba { size, data }));
+                    }
+                }
+                FileKind::Other => {}
             }
         }
         let folders = backgrounds::script_folders_of(&e.bg_scripts);
         let foregrounds = backgrounds::foregrounds(&loaded.song, &folders);
-        let aspect = match settings.background_frame {
-            ddi_ui::state::settings::BackgroundFrame::FourThree => 4.0 / 3.0,
-            _ => 16.0 / 9.0,
-        };
+        let aspect = ddi_session::scripted::frame_aspect(settings.background_frame);
         let env = ddi_session::scripted::env(&loaded.song, aspect);
         let screen = env.screen;
         let start = std::time::Instant::now();
@@ -573,33 +569,25 @@ impl View {
                     .quads(frame.song_time, geo.center_x(span), h, srgb);
             }
             if scripts {
-                // Drawn as skins' quads are (a no-op but on a target
-                // that draws them offscreen).
-                self.renderer.set_skins_drawn(device, queue, true);
-                if let Some(why) = self
-                    .scripts
-                    .frame(frame.song_time, frame.beat, &self.schedule)
-                {
+                let drawn = self.scripts.draw(
+                    (&mut self.renderer, device, queue),
+                    (frame.song_time, frame.beat),
+                    &self.schedule,
+                    ([w, h], frame_aspect),
+                    layer.is_some() || self.stage.shown(),
+                    Self::draw_script_texts,
+                    (&mut back, &mut mask),
+                );
+                if let Some(why) = drawn.stopped {
                     eprintln!("scripted backgrounds stopped: {why}");
                     self.scripts_stopped = Some(why);
-                    let skins = layer.is_some() || self.stage.shown();
-                    self.renderer.set_skins_drawn(device, queue, skins);
                 }
-                Self::draw_script_texts(&mut self.scripts);
-                for f in self.scripts.take_sounds() {
+                for f in drawn.sounds {
                     if let Some(s) = self.script_sounds.get(&f) {
                         self.sounds_due.push(s.clone());
                         self.sounds_played += 1;
                     }
                 }
-                self.scripts.upload(&mut self.renderer, device, queue);
-                let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
-                    .unwrap_or([0.0, 0.0, w, h]);
-                let (b, f) = self
-                    .scripts
-                    .quads(frame.song_time, &self.schedule, rect, srgb);
-                back.extend(b);
-                mask.splice(0..0, f);
             }
             self.stage_drawn = (back.len(), mask.len());
             self.renderer.set_stage_quads(back, mask);

@@ -24,6 +24,10 @@ fn grades(basis: GradeBasis, tiers: &[(&str, f64)]) -> GradeTable {
     }
 }
 
+/// ITG's dance points (`PercentScoreWeight*`), [`itg`]'s and
+/// [`itg_fa_plus`]'s percentage.
+const ITG_WEIGHTS: Weights = Weights::new([5, 4, 2, 0, -6, -12], 5, 0, -6);
+
 /// In The Groove as reproduced by Simply Love's "ITG" mode.
 pub fn itg() -> Ruleset {
     Ruleset {
@@ -58,7 +62,7 @@ pub fn itg() -> Ruleset {
             jumps_add_each: false,
         },
         score: Box::new(DancePoints::new(
-            Weights::new([5, 4, 2, 0, -6, -12], 5, 0, -6),
+            ITG_WEIGHTS,
             None,
             Some(Weights::new([3, 2, 1, 0, 0, 0], 1, 0, -1)),
         )),
@@ -136,7 +140,7 @@ pub fn itg_fa_plus() -> Ruleset {
         },
         score: Box::new(
             DancePoints::new(
-                Weights::new([5, 4, 2, 0, -6, -12], 5, 0, -6),
+                ITG_WEIGHTS,
                 None,
                 Some(Weights::new([6, 4, 2, 0, 0, 0], 2, 0, -2)),
             )

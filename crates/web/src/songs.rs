@@ -276,25 +276,62 @@ const PACK_ART_PREFIX: &str = "packs/";
 
 /// A song's encoded audio, bundled or imported (for previews).
 pub(crate) async fn load_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
-    load_file(entry, &entry.music).await
+    song_file_bytes(entry, None, entry.music.as_str())
+        .await
+        .map_err(|e| e.message())
 }
 
 /// What song select's preview plays: the `.ssc` `#PREVIEW` file when the
 /// song has one, else its music.
 pub(crate) async fn load_preview_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
-    load_file(entry, entry.preview.as_ref().unwrap_or(&entry.music)).await
+    let file = entry.preview.as_ref().unwrap_or(&entry.music);
+    song_file_bytes(entry, None, file.as_str())
+        .await
+        .map_err(|e| e.message())
 }
 
 /// A file of a song, bundled or imported, by the name its entry uses.
-async fn load_file(entry: &ManifestEntry, file: &RelPath) -> Result<Vec<u8>, String> {
+/// `record` as for [`load_background`].
+async fn song_file_bytes(
+    entry: &ManifestEntry,
+    record: Option<&ImportedSong>,
+    file: &str,
+) -> Result<Vec<u8>, LoadError> {
     if is_imported_id(&entry.id) {
-        let db = Db::open().await?;
-        let song = imported_record(&db, &entry.id).await?;
-        let blob = song_file(&db, &song, file).await.map_err(|e| e.message())?;
-        blob_bytes(&blob).await
+        Ok(blob_bytes(&imported_file(entry, record, file).await?).await?)
     } else {
-        fetch_bytes(&format!("songs/{}/{file}", entry.id)).await
+        Ok(fetch_bytes(&format!("songs/{}/{file}", entry.id)).await?)
     }
+}
+
+/// A file of a song as a `Blob`: `stored`, as an imported song keeps it,
+/// or a bundled song's own `bundled`. `record` as for [`load_background`].
+async fn song_blob(
+    entry: &ManifestEntry,
+    record: Option<&ImportedSong>,
+    stored: &str,
+    bundled: &str,
+) -> Result<Blob, String> {
+    if is_imported_id(&entry.id) {
+        imported_file(entry, record, stored)
+            .await
+            .map_err(|e| e.message())
+    } else {
+        let bytes = fetch_bytes(&format!("songs/{}/{bundled}", entry.id)).await?;
+        crate::web::files::bytes_blob(&bytes, "")
+    }
+}
+
+/// One of an imported song's files ([`song_file`]); `record` as for
+/// [`load_background`].
+async fn imported_file(
+    entry: &ManifestEntry,
+    record: Option<&ImportedSong>,
+    file: &str,
+) -> Result<Blob, LoadError> {
+    let db = Db::open().await?;
+    let song = record_or_read(&db, entry, record).await?;
+    song_file(&db, &song, file).await
 }
 
 /// Where a linked file of an imported song is: in its kept folder.
@@ -487,17 +524,7 @@ pub(crate) async fn load_background(
         | BgImage::Scripted(_)
         | BgImage::Black => return Ok(None),
     };
-    if is_imported_id(&entry.id) {
-        let db = Db::open().await?;
-        let song = record_or_read(&db, entry, record).await?;
-        song_file(&db, &song, &stored)
-            .await
-            .map(Some)
-            .map_err(|e| e.message())
-    } else {
-        let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, bundled)).await?;
-        crate::web::files::bytes_blob(&bytes, "").map(Some)
-    }
+    song_blob(entry, record, &stored, &bundled).await.map(Some)
 }
 
 /// A file of the song's scripted backgrounds (stored or linked as
@@ -509,16 +536,7 @@ pub(crate) async fn load_script_file(
     path: &str,
     record: Option<&ImportedSong>,
 ) -> Result<Blob, String> {
-    if is_imported_id(&entry.id) {
-        let db = Db::open().await?;
-        let song = record_or_read(&db, entry, record).await?;
-        song_file(&db, &song, &format!("bga/{path}"))
-            .await
-            .map_err(|e| e.message())
-    } else {
-        let bytes = fetch_bytes(&format!("songs/{}/{path}", entry.id)).await?;
-        crate::web::files::bytes_blob(&bytes, "")
-    }
+    song_blob(entry, record, &format!("bga/{path}"), path).await
 }
 
 /// An image a Dancing☆Onigiri work's back or mask layers show (stored or
@@ -529,9 +547,7 @@ pub(crate) async fn load_layer_image(
     name: &str,
     record: Option<&ImportedSong>,
 ) -> Result<Blob, String> {
-    let db = Db::open().await?;
-    let song = record_or_read(&db, entry, record).await?;
-    song_file(&db, &song, &format!("layer/{name}"))
+    imported_file(entry, record, &format!("layer/{name}"))
         .await
         .map_err(|e| e.message())
 }
@@ -707,18 +723,8 @@ pub(crate) async fn load_song(id: &str, chart: usize) -> Result<LoadedSong, Load
     let found = find_song(id).await?;
     let mut song = parse_found(&found).await?;
     let music = found.entry.music_for(chart);
-    let read = async |file: &RelPath| -> Result<Vec<u8>, LoadError> {
-        Ok(match &found.origin {
-            Origin::Bundled => fetch_bytes(&format!("songs/{}/{file}", found.entry.id)).await?,
-            Origin::Imported(_) => {
-                let song = found
-                    .record
-                    .as_ref()
-                    .ok_or("the stored song went missing")?;
-                let db = Db::open().await?;
-                blob_bytes(&song_file(&db, song, file).await?).await?
-            }
-        })
+    let read = async |file: &RelPath| {
+        song_file_bytes(&found.entry, found.record.as_ref(), file.as_str()).await
     };
     let music_bytes = read(music).await?;
     if let Some(lyrics) = &found.entry.lyrics {

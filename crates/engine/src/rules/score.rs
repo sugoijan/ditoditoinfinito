@@ -50,6 +50,14 @@ impl Weights {
     }
 }
 
+/// `points` of `possible` as a fraction, never below 0 (0 of nothing).
+fn percent(points: i64, possible: i64) -> f64 {
+    if possible <= 0 {
+        return 0.0;
+    }
+    (points as f64 / possible as f64).max(0.0)
+}
+
 /// StepMania / ITG dance points: `percent = points / possible`.
 ///
 /// `weights` is the displayed percentage (`PercentScoreWeight*`),
@@ -93,13 +101,6 @@ impl DancePoints {
         }
     }
 
-    fn percent(points: i64, possible: i64) -> f64 {
-        if possible <= 0 {
-            return 0.0;
-        }
-        (points as f64 / possible as f64).max(0.0)
-    }
-
     /// With a `W0` weight: `ex_weights` as an EX percentage whose `W0`
     /// hits weigh `w0` (Simply Love's EX score in halves: 7, 6, 4, 2,
     /// held 2, mine −2).
@@ -138,10 +139,10 @@ impl ScoreRules for DancePoints {
     fn view(&self) -> ScoreView {
         ScoreView {
             money: None,
-            percent: Some(Self::percent(self.points, self.weights.possible(&self.ctx))),
+            percent: Some(percent(self.points, self.weights.possible(&self.ctx))),
             grade_percent: self
                 .grade_weights
-                .map(|g| Self::percent(self.grade_points, g.possible(&self.ctx))),
+                .map(|g| percent(self.grade_points, g.possible(&self.ctx))),
             ex: self
                 .ex_weights
                 .filter(|_| self.ex_w0.is_none())
@@ -226,18 +227,6 @@ impl DdrMoney {
     }
 
     const EX: Weights = Weights::new([3, 2, 1, 0, 0, 0], 3, 0, 0);
-
-    /// Scored units: steps, holds and shocks (`SC = 1,000,000 / (steps +
-    /// freezes + shock arrows)`), or with ticked holds checkpoint rows for
-    /// the holds.
-    fn count(&self) -> i64 {
-        let holds = if self.ctx.ticked {
-            self.ctx.checkpoints
-        } else {
-            self.ctx.holds
-        };
-        i64::from(self.ctx.steps) + i64::from(holds) + i64::from(self.ctx.shocks)
-    }
 }
 
 impl ScoreRules for DdrMoney {
@@ -258,7 +247,8 @@ impl ScoreRules for DdrMoney {
     }
 
     fn view(&self) -> ScoreView {
-        let n = self.count();
+        // `SC = 1,000,000 / (steps + freezes + shock arrows)`.
+        let n = self.ctx.units();
         let (w, _) = self.weights();
         let money = if n == 0 {
             0
@@ -337,17 +327,6 @@ impl Max2 {
         1_000_000 * i64::from(self.ctx.meter.clamp(1, 10))
     }
 
-    /// `N`: steps and freezes (checkpoint rows for ticked holds), shocks
-    /// counted as freezes as later DDR counts them.
-    fn units(&self) -> i64 {
-        let holds = if self.ctx.ticked {
-            self.ctx.checkpoints
-        } else {
-            self.ctx.holds
-        };
-        i64::from(self.ctx.steps) + i64::from(holds) + i64::from(self.ctx.shocks)
-    }
-
     /// `p` of a scored unit, `None` for what is not a step or a freeze.
     fn multiplier(kind: &JudgeEventKind, ticked: bool) -> Option<i64> {
         Some(match kind.scored_as(ticked)? {
@@ -374,7 +353,9 @@ impl ScoreRules for Max2 {
         let Some(p) = Max2::multiplier(&ev.kind, ctx.ticked) else {
             return;
         };
-        let units = self.units();
+        // `N`: steps and freezes, shocks counted as freezes as later DDR
+        // counts them.
+        let units = self.ctx.units();
         let s = units * (units + 1) / 2;
         if s == 0 {
             return;
@@ -388,14 +369,9 @@ impl ScoreRules for Max2 {
     }
 
     fn view(&self) -> ScoreView {
-        let possible = Self::DANCE_POINTS.possible(&self.ctx);
         ScoreView {
             money: Some(self.score.max(0) as u64),
-            percent: Some(if possible > 0 {
-                (self.points as f64 / possible as f64).max(0.0)
-            } else {
-                0.0
-            }),
+            percent: Some(percent(self.points, Self::DANCE_POINTS.possible(&self.ctx))),
             ..ScoreView::default()
         }
     }

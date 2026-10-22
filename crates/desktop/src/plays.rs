@@ -8,7 +8,6 @@
 //! one that does not read is left where it is and listed, as the web lists
 //! its unreadable plays; temporary files left by a crash are removed.
 
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use ddi_platform::history::{PlayEntry, PlayStore, Reply};
@@ -88,17 +87,9 @@ impl FilePlayStore {
         Some(e)
     }
 
-    /// Writes `path` whole: a synced temporary file, renamed.
+    /// Writes `path` whole (`crate::paths::write_whole`).
     fn write_file(&self, path: &Path, text: &str) -> Result<(), String> {
-        std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
-        let mut tmp = path.as_os_str().to_owned();
-        tmp.push(TMP);
-        let tmp = PathBuf::from(tmp);
-        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        f.sync_all().map_err(|e| e.to_string())?;
-        drop(f);
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        crate::paths::write_whole(path, text.as_bytes()).map_err(|e| e.to_string())
     }
 
     /// The ids of the plays in the folder (a play file or a summary

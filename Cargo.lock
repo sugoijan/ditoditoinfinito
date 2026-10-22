@@ -1036,6 +1036,7 @@ dependencies = [
 name = "ddi-library"
 version = "0.1.0"
 dependencies = [
+ "ddi-actor",
  "ddi-chart",
  "ddi-engine",
  "ddi-platform",

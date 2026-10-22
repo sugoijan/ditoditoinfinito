@@ -232,51 +232,51 @@ fn g6(v: f32) -> String {
 /// `RageColor::FromString` (`src/RageTypes.h:231-256`): `r,g,b[,a]` as
 /// `sscanf("%f,%f,%f,%f")`, else `#rrggbb[aa]`, else white.
 pub fn color_from_string(s: &str) -> [f32; 4] {
-    let mut floats = Vec::new();
+    parse_color(s).unwrap_or([1.0; 4])
+}
+
+/// [`color_from_string`], `None` where it gives white for want of a
+/// color: three or four `%f` values, else `sscanf("#%2x%2x%2x%2x")` with
+/// three or four.
+pub fn parse_color(s: &str) -> Option<[f32; 4]> {
+    let mut floats = Vec::with_capacity(4);
     let mut rest = s;
-    for i in 0..4 {
-        if i > 0 {
+    while floats.len() < 4 {
+        if !floats.is_empty() {
             match rest.strip_prefix(',') {
                 Some(r) => rest = r,
                 None => break,
             }
         }
-        match scan_float(rest) {
-            Some((v, r)) => {
-                floats.push(v);
-                rest = r;
-            }
-            None => break,
-        }
+        let Some((v, r)) = scan_float(rest) else {
+            break;
+        };
+        floats.push(v);
+        rest = r;
     }
-    match floats.len() {
-        3 => return [floats[0], floats[1], floats[2], 1.0],
-        4 => return [floats[0], floats[1], floats[2], floats[3]],
+    match floats[..] {
+        [r, g, b] => return Some([r, g, b, 1.0]),
+        [r, g, b, a] => return Some([r, g, b, a]),
         _ => {}
     }
-    if let Some(hex) = s.strip_prefix('#') {
-        let mut values = Vec::new();
-        let mut h = hex;
-        for _ in 0..4 {
-            // `%2x`: up to two hex digits.
-            let n = h.bytes().take(2).take_while(u8::is_ascii_hexdigit).count();
-            if n == 0 {
-                break;
-            }
-            values.push(u32::from_str_radix(&h[..n], 16).unwrap_or(0));
-            h = &h[n..];
+    let mut rest = s.strip_prefix('#')?;
+    let mut hex = Vec::with_capacity(4);
+    while hex.len() < 4 {
+        // `%2x` skips white space, then takes up to two hex digits.
+        let h = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        let n = h.bytes().take(2).take_while(u8::is_ascii_hexdigit).count();
+        if n == 0 {
+            break;
         }
-        if values.len() >= 3 {
-            let a = values.get(3).map_or(1.0, |&v| v as f32 / 255.0);
-            return [
-                values[0] as f32 / 255.0,
-                values[1] as f32 / 255.0,
-                values[2] as f32 / 255.0,
-                a,
-            ];
-        }
+        hex.push(u8::from_str_radix(&h[..n], 16).ok()?);
+        rest = &h[n..];
     }
-    [1.0; 4]
+    let f = |v: u8| f32::from(v) / 255.0;
+    match hex[..] {
+        [r, g, b] => Some([f(r), f(g), f(b), 1.0]),
+        [r, g, b, a] => Some([f(r), f(g), f(b), f(a)]),
+        _ => None,
+    }
 }
 
 /// `%f`: optional white space, then a decimal number (C syntax), and
@@ -736,6 +736,9 @@ mod tests {
         assert_eq!(color_from_string("1,1"), [1.0; 4]);
         assert_eq!(color_from_string("junk"), [1.0; 4]);
         assert_eq!(color_from_string("#12"), [1.0; 4]);
+        // `%2x` skips white space before its digits.
+        assert_eq!(color_from_string("# ff 00 00"), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(parse_color("junk"), None);
     }
 
     #[test]

@@ -98,6 +98,19 @@ pub fn play_id(time_ms: f64, random: u32) -> String {
     format!("{:015}-{random:08x}", time_ms.max(0.0).round() as u64)
 }
 
+/// Whether `id` is a play id as [`play_id`] writes them: the time in 15
+/// digits, a dash, 8 lowercase hex digits. Nothing else is taken (an id
+/// names a file on desktop).
+pub fn is_play_id(id: &str) -> bool {
+    let b = id.as_bytes();
+    b.len() == 24
+        && b[..15].iter().all(u8::is_ascii_digit)
+        && b[15] == b'-'
+        && b[16..]
+            .iter()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c))
+}
+
 /// Plays in memory (tests; a shell with nowhere to write).
 #[derive(Default)]
 pub struct MemoryPlayStore {

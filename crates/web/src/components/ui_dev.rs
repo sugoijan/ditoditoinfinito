@@ -2213,10 +2213,8 @@ fn publish(h: &Host) {
             set(
                 &f,
                 "params",
-                p.noteskin().map_or(JsValue::NULL, |s| {
-                    let json = serde_json::to_string(&s.parameters()).unwrap_or_default();
-                    js_sys::JSON::parse(&json).unwrap_or(JsValue::NULL)
-                }),
+                p.noteskin()
+                    .map_or(JsValue::NULL, |s| crate::web::json(&s.parameters())),
             );
             set(&f, "layout", p.options().layout.as_str().into());
             set(&f, "demoTime", p.demo_time().into());

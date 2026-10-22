@@ -70,8 +70,8 @@ const OVER_KANJI: f32 = 0.5;
 /// which, as the module explains; `None` when none reads.
 pub fn decode(bytes: &[u8], decode: Decoder) -> Option<(Legacy, String)> {
     let sjis = decode(Legacy::ShiftJis, bytes).filter(|s| crate::pack::reads_as_japanese(s));
-    if let Some(s) = sjis.as_ref().filter(|s| s.chars().any(is_kana)) {
-        return Some((Legacy::ShiftJis, s.clone()));
+    if sjis.as_ref().is_some_and(|s| s.chars().any(is_kana)) {
+        return sjis.map(|s| (Legacy::ShiftJis, s));
     }
     let mut best: Option<(f32, Legacy, String)> = None;
     for legacy in [Legacy::EucKr, Legacy::Gbk, Legacy::Big5] {

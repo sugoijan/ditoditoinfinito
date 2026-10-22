@@ -29,7 +29,7 @@ use crate::color::to_target;
 use crate::model::{Camera, Corners, Seen, triangles_with};
 use crate::scene::FieldGeometry;
 use crate::stencil::Mask;
-use crate::textured::{QuadBlend, Shape, TexQuad, UNTEXTURED};
+use crate::textured::{self, QuadBlend, Shape, TexQuad, UNTEXTURED};
 
 /// What the built-in skin draws when the noteskin does not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1489,50 +1489,15 @@ impl NoteskinPlay {
         let Some(mask) = actors2d::drawn_mask(q.depth, q.blend) else {
             return;
         };
-        let texture = if q.texture == ddi_actor::UNTEXTURED {
-            UNTEXTURED
-        } else {
-            match self.texture_ids.get(q.texture as usize) {
-                Some(Some(t)) => *t,
-                _ => return,
-            }
+        let Some((shape, texture)) = textured::actor_quad(&q, &self.texture_ids, offset) else {
+            return;
         };
-        let uv = actors2d::offset_uv(
-            q.uv,
-            [
-                offset[0] + q.texcoord_offset[0],
-                offset[1] + q.texcoord_offset[1],
-            ],
-        );
-        let shape = match q.projected {
-            Some(p) => Shape::Projected {
-                corners: p.corners,
-                w: p.w,
-                uv,
-            },
-            None => Shape::Quad {
-                transform: q.transform,
-                uv,
-            },
-        };
-        let colors = q.diffuse.map(|c| to_target(c, self.srgb));
         let base = TexQuad {
             blend: actors2d::blend(q.blend),
-            gradient: colors.iter().any(|c| *c != colors[0]).then_some(colors),
             mask,
-            ..TexQuad::new(shape, colors[0], texture)
+            ..TexQuad::new(shape, [1.0; 4], texture)
         };
-        if q.diffuse.iter().any(|c| c[3] > 0.0) {
-            out.push(base);
-        }
-        if q.glow[3] > 0.0 {
-            out.push(TexQuad {
-                color: to_target(q.glow, self.srgb),
-                glow: true,
-                gradient: None,
-                ..base
-            });
-        }
+        textured::push_passes(base, q.diffuse, q.glow, self.srgb, out);
     }
 
     /// A note part drawn as StepMania's `DrawActor` does: placed by the

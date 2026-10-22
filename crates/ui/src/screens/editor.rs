@@ -35,7 +35,7 @@ use ddi_actor::{Actor, Kind, Rgba};
 use ddi_chart::{DisplayBpm, Glyph, NoteKind, Quantization, TICKS_PER_BEAT, Tick};
 use ddi_engine::transform::Turn;
 
-use super::editor_dialogs::{ActionsDialog, SubmitFn, ValueDialog};
+use super::editor_dialogs::{ActionsDialog, PickFn, SubmitFn, ValueDialog};
 use super::options_dialogs::ConfirmDialog;
 use super::{Env, footer, frame, ground, header, left, right};
 use crate::gesture::{Gesture, WheelKind};
@@ -246,9 +246,15 @@ pub struct EditorScreen {
 
 impl EditorScreen {
     pub fn new(env: Env, editor: Editor, place: EditorPlace) -> EditorScreen {
+        EditorScreen::shared(env, Rc::new(RefCell::new(editor)), place)
+    }
+
+    /// On an editor the shell keeps (the web's, across a playtest's
+    /// page).
+    pub fn shared(env: Env, editor: Rc<RefCell<Editor>>, place: EditorPlace) -> EditorScreen {
         EditorScreen {
             env,
-            editor: Rc::new(RefCell::new(editor)),
+            editor,
             host: None,
             place,
             geo: Geometry::default(),
@@ -271,14 +277,6 @@ impl EditorScreen {
     pub fn with_status(mut self, status: &str) -> EditorScreen {
         self.status = status.into();
         self
-    }
-
-    /// On an editor the shell keeps (the web's, across a playtest's
-    /// page).
-    pub fn shared(env: Env, editor: Rc<RefCell<Editor>>, place: EditorPlace) -> EditorScreen {
-        let mut screen = EditorScreen::new(env, Editor::new_song(None, ""), place);
-        screen.editor = editor;
-        screen
     }
 
     pub fn with_host(mut self, host: Rc<dyn EditorHost>) -> EditorScreen {
@@ -493,7 +491,7 @@ impl EditorScreen {
                 let m = env.numbers("", &(t / MEASURE).to_string(), 13.0, "Muted");
                 c.push(right(m, g.lanes_x - 10.0, y));
             } else if t % TICKS_PER_BEAT == 0 && g.beat_h >= 40.0 {
-                let b = env.text("", &trim_number(t as f64 / 48.0), 10.0, 400, "Muted");
+                let b = env.text("", &trim_number(Tick(t).beat()), 10.0, 400, "Muted");
                 let mut b = right(b, g.lanes_x - 10.0, y);
                 call(&mut b, "diffusealpha", &[0.6]);
                 c.push(b);
@@ -563,10 +561,7 @@ impl EditorScreen {
         // The timing's markers at the right of the lanes.
         let mx = g.lanes_x + lanes_w + 10.0;
         let mut on_row: Vec<(i64, usize)> = Vec::new();
-        for (tick, seg) in e.segments() {
-            if tick.0 < first || tick.0 > last {
-                continue;
-            }
+        for (tick, seg) in e.segments_in(Tick(first), Tick(last)) {
             let k = match on_row.iter_mut().find(|(t, _)| *t == tick.0) {
                 Some((_, k)) => {
                     *k += 1;
@@ -769,10 +764,25 @@ impl EditorScreen {
         frame("Panel", c)
     }
 
-    /// Draws the field and the panel again when something changed.
+    /// Draws the field and the panel again when something changed; the
+    /// field alone when only it moved (a glide, the music heard).
     fn refresh(&mut self, root: &mut Actor, cx: &mut Cx) {
-        if self.drawn == Some((self.shown, self.version)) {
-            return;
+        if let Some((shown, version)) = self.drawn
+            && version == self.version
+        {
+            if shown == self.shown {
+                return;
+            }
+            if self.geometry(cx) == self.geo {
+                if let Some(old) = hit::find_mut(root, "FieldLayer") {
+                    *old = self.field();
+                }
+                self.drawn = Some((self.shown, self.version));
+                if let Some(view) = &mut self.env.state.borrow_mut().editor {
+                    view.shown = self.shown;
+                }
+                return;
+            }
         }
         let geo = self.geometry(cx);
         if geo != self.geo {
@@ -986,14 +996,7 @@ impl EditorScreen {
             .map(|(id, l)| (id.to_string(), l))
             .collect();
         cx.overlay(
-            ActionsDialog::new(
-                self.env.clone(),
-                "Editor",
-                items,
-                Rc::new(|id, cx| {
-                    cx.broadcast(Message::new(ACTION).with("Id", Param::Str(id.into())));
-                }),
-            ),
+            ActionsDialog::new(self.env.clone(), "Editor", items, pick(ACTION)),
             true,
         );
     }
@@ -1046,16 +1049,24 @@ impl EditorScreen {
         value: &str,
         apply: impl Fn(&mut Editor, &str) -> Result<(), String> + 'static,
     ) {
+        cx.overlay(self.value_dialog(title, note, value, apply), true);
+    }
+
+    /// [`EditorScreen::ask`]'s dialog.
+    fn value_dialog(
+        &self,
+        title: &str,
+        note: &str,
+        value: &str,
+        apply: impl Fn(&mut Editor, &str) -> Result<(), String> + 'static,
+    ) -> ValueDialog {
         let editor = self.editor.clone();
         let submit: SubmitFn = Rc::new(move |text: &str, cx: &mut Cx| {
             apply(&mut editor.borrow_mut(), text.trim())?;
             cx.broadcast(Message::new(CHANGED));
             Ok(())
         });
-        cx.overlay(
-            ValueDialog::new(self.env.clone(), title, note, value, submit),
-            true,
-        );
+        ValueDialog::new(self.env.clone(), title, note, value, submit)
     }
 
     /// The timing at the cursor: each kind of segment, the offset, and
@@ -1102,15 +1113,7 @@ impl EditorScreen {
         let note = format!("At beat {}.", trim_number(tick.beat()));
         drop(e);
         cx.overlay(
-            ActionsDialog::new(
-                self.env.clone(),
-                "Timing",
-                items,
-                Rc::new(|id, cx| {
-                    cx.broadcast(Message::new(TIMING).with("Id", Param::Str(id.into())));
-                }),
-            )
-            .with_note(&note),
+            ActionsDialog::new(self.env.clone(), "Timing", items, pick(TIMING)).with_note(&note),
             true,
         );
     }
@@ -1206,105 +1209,34 @@ impl EditorScreen {
 
     /// The song's fields.
     fn open_song(&mut self, cx: &mut Cx) {
-        let info = self.editor.borrow().song_info();
-        let none = |s: &Option<String>| s.clone().unwrap_or_else(|| "—".into());
-        let items = vec![
-            ("title", format!("Title: {}", info.title)),
-            ("subtitle", format!("Subtitle: {}", info.subtitle)),
-            ("artist", format!("Artist: {}", info.artist)),
-            (
-                "title_translit",
-                format!("Title (romanized): {}", info.title_translit),
-            ),
-            (
-                "artist_translit",
-                format!("Artist (romanized): {}", info.artist_translit),
-            ),
-            ("genre", format!("Genre: {}", info.genre)),
-            ("credit", format!("Credit: {}", info.credit)),
-            ("music", format!("Music: {}", none(&info.music))),
-            ("banner", format!("Banner: {}", none(&info.banner))),
-            (
-                "background",
-                format!("Background: {}", none(&info.background)),
-            ),
-            (
-                "preview_start",
-                format!("Preview from: {} s", trim_number(info.preview_start)),
-            ),
-            (
-                "preview_length",
-                format!("Preview length: {} s", trim_number(info.preview_length)),
-            ),
-            (
-                "display_bpm",
-                format!("Display BPM: {}", display_bpm_text(info.display_bpm)),
-            ),
-        ];
-        let items = items.into_iter().map(|(a, b)| (a.to_string(), b)).collect();
+        let mut info = self.editor.borrow().song_info();
+        let items = SONG_FIELDS
+            .iter()
+            .map(|(id, label, field)| (id.to_string(), field.line(label, &mut info)))
+            .collect();
         cx.overlay(
-            ActionsDialog::new(
-                self.env.clone(),
-                "Song",
-                items,
-                Rc::new(|id, cx| {
-                    cx.broadcast(Message::new(SONG).with("Id", Param::Str(id.into())));
-                }),
-            ),
+            ActionsDialog::new(self.env.clone(), "Song", items, pick(SONG)),
             true,
         );
     }
 
     fn song_action(&mut self, id: &str, cx: &mut Cx) {
-        let info = self.editor.borrow().song_info();
-        let text = |s: &str| s.to_string();
-        let opt = |s: &Option<String>| s.clone().unwrap_or_default();
-        let (title, value): (&str, String) = match id {
-            "title" => ("Title", text(&info.title)),
-            "subtitle" => ("Subtitle", text(&info.subtitle)),
-            "artist" => ("Artist", text(&info.artist)),
-            "title_translit" => ("Title (romanized)", text(&info.title_translit)),
-            "artist_translit" => ("Artist (romanized)", text(&info.artist_translit)),
-            "genre" => ("Genre", text(&info.genre)),
-            "credit" => ("Credit", text(&info.credit)),
-            "music" => ("Music file", opt(&info.music)),
-            "banner" => ("Banner file", opt(&info.banner)),
-            "background" => ("Background file", opt(&info.background)),
-            "preview_start" => ("Preview from (seconds)", trim_number(info.preview_start)),
-            "preview_length" => ("Preview length (seconds)", trim_number(info.preview_length)),
-            "display_bpm" => ("Display BPM", display_bpm_text(info.display_bpm)),
-            _ => return,
+        let Some(&(_, label, field)) = SONG_FIELDS.iter().find(|(f, ..)| *f == id) else {
+            return;
         };
-        let note = match id {
-            "music" | "banner" | "background" => "A file in the song's folder, by its name.",
-            "display_bpm" => {
-                "One number, a range “100-200”, “*” for random, or empty for the chart's own."
-            }
-            _ => "",
-        };
-        let field = id.to_string();
-        self.ask(cx, title, note, &value, move |e, t| {
-            let mut info: SongInfo = e.song_info();
-            let file = |t: &str| (!t.is_empty()).then(|| t.to_string());
-            match field.as_str() {
-                "title" => info.title = t.into(),
-                "subtitle" => info.subtitle = t.into(),
-                "artist" => info.artist = t.into(),
-                "title_translit" => info.title_translit = t.into(),
-                "artist_translit" => info.artist_translit = t.into(),
-                "genre" => info.genre = t.into(),
-                "credit" => info.credit = t.into(),
-                "music" => info.music = file(t),
-                "banner" => info.banner = file(t),
-                "background" => info.background = file(t),
-                "preview_start" => info.preview_start = parse_number(t)?.max(0.0),
-                "preview_length" => info.preview_length = parse_number(t)?.max(0.0),
-                "display_bpm" => info.display_bpm = parse_display_bpm(t)?,
-                _ => {}
-            }
-            e.set_song_info(info);
-            Ok(())
-        });
+        let value = field.value(&mut self.editor.borrow().song_info());
+        self.ask(
+            cx,
+            &field.title(label),
+            field.note(),
+            &value,
+            move |e, t| {
+                let mut info = e.song_info();
+                field.set(&mut info, t)?;
+                e.set_song_info(info);
+                Ok(())
+            },
+        );
     }
 
     /// The chart's fields, and the song's other charts.
@@ -1336,14 +1268,7 @@ impl EditorScreen {
         let title = format!("Chart {} of {n}", e.chart_index() + 1);
         drop(e);
         cx.overlay(
-            ActionsDialog::new(
-                self.env.clone(),
-                &title,
-                items,
-                Rc::new(|id, cx| {
-                    cx.broadcast(Message::new(CHART).with("Id", Param::Str(id.into())));
-                }),
-            ),
+            ActionsDialog::new(self.env.clone(), &title, items, pick(CHART)),
             true,
         );
     }
@@ -1383,15 +1308,8 @@ impl EditorScreen {
                     })
                     .collect();
                 cx.overlay(
-                    ActionsDialog::new(
-                        self.env.clone(),
-                        "Add a chart",
-                        items,
-                        Rc::new(|id, cx| {
-                            cx.broadcast(Message::new(CHART).with("Id", Param::Str(id.into())));
-                        }),
-                    )
-                    .with_note("An empty Edit chart on the song's timing."),
+                    ActionsDialog::new(self.env.clone(), "Add a chart", items, pick(CHART))
+                        .with_note("An empty Edit chart on the song's timing."),
                     true,
                 );
             }
@@ -1426,10 +1344,8 @@ impl EditorScreen {
                     _ => return,
                 };
                 let field = other.to_string();
-                let editor = self.editor.clone();
-                let submit: SubmitFn = Rc::new(move |t: &str, cx: &mut Cx| {
-                    let mut info = editor.borrow().chart_info();
-                    let t = t.trim();
+                let dialog = self.value_dialog(title, "", &value, move |e, t| {
+                    let mut info = e.chart_info();
                     match field.as_str() {
                         "meter" => {
                             info.meter = t
@@ -1441,11 +1357,9 @@ impl EditorScreen {
                         "credit" => info.credit = t.into(),
                         _ => {}
                     }
-                    editor.borrow_mut().set_chart_info(info);
-                    cx.broadcast(Message::new(CHANGED));
+                    e.set_chart_info(info);
                     Ok(())
                 });
-                let dialog = ValueDialog::new(self.env.clone(), title, "", &value, submit);
                 cx.overlay(if numeric { dialog.numeric() } else { dialog }, true);
             }
         }
@@ -1516,12 +1430,10 @@ impl EditorScreen {
             (false, "Minus") => {
                 self.zoom_steps = (self.zoom_steps - 1).max(-3);
                 self.changed();
-                self.drawn = None;
             }
             (false, "Equal") => {
                 self.zoom_steps = (self.zoom_steps + 1).min(3);
                 self.changed();
-                self.drawn = None;
             }
             _ if k.modifiers.any_but_shift() => return Handled::No,
             _ => match key.as_str() {
@@ -1629,6 +1541,110 @@ impl EditorScreen {
 }
 
 /// A message the dialogs send back: an action's id picked.
+/// How a song's field is shown and set.
+#[derive(Clone, Copy)]
+enum SongField {
+    Text(fn(&mut SongInfo) -> &mut String),
+    /// A file in the song's folder, none when empty.
+    File(fn(&mut SongInfo) -> &mut Option<String>),
+    /// Seconds, not negative.
+    Seconds(fn(&mut SongInfo) -> &mut f64),
+    DisplayBpm,
+}
+
+/// The song's fields as the Song menu lists them: id, label, kind.
+const SONG_FIELDS: [(&str, &str, SongField); 13] = [
+    ("title", "Title", SongField::Text(|i| &mut i.title)),
+    ("subtitle", "Subtitle", SongField::Text(|i| &mut i.subtitle)),
+    ("artist", "Artist", SongField::Text(|i| &mut i.artist)),
+    (
+        "title_translit",
+        "Title (romanized)",
+        SongField::Text(|i| &mut i.title_translit),
+    ),
+    (
+        "artist_translit",
+        "Artist (romanized)",
+        SongField::Text(|i| &mut i.artist_translit),
+    ),
+    ("genre", "Genre", SongField::Text(|i| &mut i.genre)),
+    ("credit", "Credit", SongField::Text(|i| &mut i.credit)),
+    ("music", "Music", SongField::File(|i| &mut i.music)),
+    ("banner", "Banner", SongField::File(|i| &mut i.banner)),
+    (
+        "background",
+        "Background",
+        SongField::File(|i| &mut i.background),
+    ),
+    (
+        "preview_start",
+        "Preview from",
+        SongField::Seconds(|i| &mut i.preview_start),
+    ),
+    (
+        "preview_length",
+        "Preview length",
+        SongField::Seconds(|i| &mut i.preview_length),
+    ),
+    ("display_bpm", "Display BPM", SongField::DisplayBpm),
+];
+
+impl SongField {
+    /// Its value as its dialog shows it.
+    fn value(self, info: &mut SongInfo) -> String {
+        match self {
+            SongField::Text(f) => f(info).clone(),
+            SongField::File(f) => f(info).clone().unwrap_or_default(),
+            SongField::Seconds(f) => trim_number(*f(info)),
+            SongField::DisplayBpm => display_bpm_text(info.display_bpm),
+        }
+    }
+
+    /// Its line in the menu.
+    fn line(self, label: &str, info: &mut SongInfo) -> String {
+        match self {
+            SongField::File(f) => format!("{label}: {}", f(info).as_deref().unwrap_or("—")),
+            SongField::Seconds(_) => format!("{label}: {} s", self.value(info)),
+            _ => format!("{label}: {}", self.value(info)),
+        }
+    }
+
+    /// Its dialog's title.
+    fn title(self, label: &str) -> String {
+        match self {
+            SongField::File(_) => format!("{label} file"),
+            SongField::Seconds(_) => format!("{label} (seconds)"),
+            _ => label.to_string(),
+        }
+    }
+
+    fn note(self) -> &'static str {
+        match self {
+            SongField::File(_) => "A file in the song's folder, by its name.",
+            SongField::DisplayBpm => {
+                "One number, a range “100-200”, “*” for random, or empty for the chart's own."
+            }
+            _ => "",
+        }
+    }
+
+    /// Sets it from its dialog's text.
+    fn set(self, info: &mut SongInfo, t: &str) -> Result<(), String> {
+        match self {
+            SongField::Text(f) => *f(info) = t.into(),
+            SongField::File(f) => *f(info) = (!t.is_empty()).then(|| t.to_string()),
+            SongField::Seconds(f) => *f(info) = parse_number(t)?.max(0.0),
+            SongField::DisplayBpm => info.display_bpm = parse_display_bpm(t)?,
+        }
+        Ok(())
+    }
+}
+
+/// A menu's pick broadcast as `message`, its `Id` the item's.
+fn pick(message: &'static str) -> PickFn {
+    Rc::new(move |id, cx| cx.broadcast(Message::new(message).with("Id", Param::Str(id.into()))))
+}
+
 const ACTION: &str = "EditorAction";
 const TIMING: &str = "EditorTiming";
 const SONG: &str = "EditorSong";

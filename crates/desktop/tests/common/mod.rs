@@ -1,7 +1,10 @@
 //! What the desktop's tests share: the bundled songs' and noteskins'
 //! indexes (`target/songs/index.json`, `target/noteskins/index.json`),
 //! which Trunk's builds and `just test` write, written here when a fresh
-//! checkout has none.
+//! checkout has none; a song played offscreen ([`offscreen_play`]).
+
+#[allow(dead_code)]
+pub mod offscreen_play;
 
 use std::path::Path;
 use std::sync::Once;

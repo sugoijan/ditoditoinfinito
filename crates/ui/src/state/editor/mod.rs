@@ -16,6 +16,7 @@
 
 pub mod autosave;
 mod change;
+pub mod export;
 #[cfg(test)]
 mod tests;
 
@@ -219,13 +220,7 @@ impl Segment {
 
 /// A number with at most three decimals, for showing.
 pub fn trim_number(v: f64) -> String {
-    let s = format!("{v:.3}");
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s == "-0" {
-        "0".to_string()
-    } else {
-        s.to_string()
-    }
+    crate::screens::data::trim_number(v, 3)
 }
 
 /// Notes cut or copied: ticks from the selection's start, and its length.
@@ -262,6 +257,9 @@ pub struct Editor {
     /// (no change has it) for a song never saved.
     saved: Option<u64>,
     held: Option<Held>,
+    /// The chart's layout ([`Editor::layout`]), made again when an edit
+    /// or another chart may change it.
+    layout: Layout,
 }
 
 impl Editor {
@@ -276,6 +274,7 @@ impl Editor {
             saved = Some(0);
         }
         let chart = chart.min(song.charts.len() - 1);
+        let layout = layout_of(&song, chart);
         Editor {
             song,
             chart,
@@ -289,6 +288,7 @@ impl Editor {
             serial: 0,
             saved,
             held: None,
+            layout,
         }
     }
 
@@ -341,10 +341,8 @@ impl Editor {
 
     /// The chart's layout: its steps type's, else as many lanes as a file
     /// writes for it.
-    pub fn layout(&self) -> Layout {
-        self.song
-            .layout_of(self.chart())
-            .unwrap_or_else(|| Layout::generic(sm_write::lane_count(self.chart())))
+    pub fn layout(&self) -> &Layout {
+        &self.layout
     }
 
     pub fn lanes(&self) -> u8 {
@@ -398,7 +396,7 @@ impl Editor {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.undo.last().map(|(s, _)| *s) != self.saved
+        self.revision() != self.saved
     }
 
     /// The song as it is now has been saved.
@@ -462,7 +460,16 @@ impl Editor {
 
     /// Moves by `steps` snaps, to the snap's grid.
     pub fn move_snaps(&mut self, steps: i64, extend: bool) {
-        let step = self.step();
+        self.move_on_grid(steps, self.step(), extend);
+    }
+
+    /// Moves by `measures` measures, to the measure grid.
+    pub fn move_measures(&mut self, measures: i64, extend: bool) {
+        self.move_on_grid(measures, MEASURE, extend);
+    }
+
+    /// Moves by `steps` lines of a grid `step` ticks apart, to the grid.
+    fn move_on_grid(&mut self, steps: i64, step: i64, extend: bool) {
         let on_grid = self.cursor.0.div_euclid(step) * step;
         // Back from between two lines, the first step is to the line
         // before.
@@ -470,17 +477,6 @@ impl Editor {
             on_grid + (steps + 1) * step
         } else {
             on_grid + steps * step
-        };
-        self.set_cursor(Tick(target), extend);
-    }
-
-    /// Moves by `measures` measures, to the measure grid.
-    pub fn move_measures(&mut self, measures: i64, extend: bool) {
-        let on_grid = self.cursor.0.div_euclid(MEASURE) * MEASURE;
-        let target = if measures < 0 && on_grid != self.cursor.0 {
-            on_grid + (measures + 1) * MEASURE
-        } else {
-            on_grid + measures * MEASURE
         };
         self.set_cursor(Tick(target), extend);
     }
@@ -525,6 +521,7 @@ impl Editor {
         if index < self.song.charts.len() {
             self.chart = index;
             self.held = None;
+            self.layout = layout_of(&self.song, index);
         }
     }
 
@@ -621,8 +618,7 @@ impl Editor {
         let Some(serial) = held.placed else {
             return;
         };
-        if self.undo.last().map(|(s, _)| *s) != Some(serial) || self.tool.long(held.start).is_none()
-        {
+        if self.revision() != Some(serial) || self.tool.long(held.start).is_none() {
             self.held = None;
             return;
         }
@@ -677,15 +673,7 @@ impl Editor {
             .filter(|n| n.lane < lanes)
             .map(|n| shifted(n, at))
             .collect();
-        let mut removed = self.heads_in(at, at + clip.length);
-        for n in &added {
-            for c in self.covering(n.lane, n.tick, n.end_tick()) {
-                if !removed.contains(&c) {
-                    removed.push(c);
-                }
-            }
-        }
-        self.commit_notes(removed, added);
+        self.replace(self.heads_in(at, at + clip.length), added);
     }
 
     /// Moves the selected notes (and the selection) by `steps` snaps,
@@ -711,7 +699,7 @@ impl Editor {
         let Some((from, to)) = self.selection() else {
             return;
         };
-        let map = lane_map(&self.layout(), turn, 0);
+        let map = lane_map(&self.layout, turn, 0);
         // `map[new] = old`: where each old lane goes.
         let mut to_lane = vec![0u8; map.len()];
         for (new, &old) in map.iter().enumerate() {
@@ -764,14 +752,12 @@ impl Editor {
 
     /// Every segment's tick and values, in order (the markers).
     pub fn segments(&self) -> Vec<(Tick, Segment)> {
-        let t = self.timing();
-        let mut ticks: Vec<Tick> = all_ticks(t);
-        ticks.sort();
-        ticks.dedup();
-        ticks
-            .into_iter()
-            .flat_map(|tick| segments_at(t, tick).into_iter().map(move |s| (tick, s)))
-            .collect()
+        sorted(segments_where(self.timing(), |_| true))
+    }
+
+    /// [`Editor::segments`] on `from..=to` (the markers in view).
+    pub fn segments_in(&self, from: Tick, to: Tick) -> Vec<(Tick, Segment)> {
+        sorted(segments_where(self.timing(), |t| t >= from && t <= to))
     }
 
     /// Sets a segment at `tick`, replacing one of its kind there. Values
@@ -905,7 +891,7 @@ impl Editor {
             chart: Box::new(empty_chart(layout, difficulty)),
             tags: Vec::new(),
         });
-        self.chart = index;
+        self.select_chart(index);
     }
 
     /// Takes away the chart shown (not the last one).
@@ -951,8 +937,11 @@ impl Editor {
         }
     }
 
+    /// After an edit, undone or redone: the chart shown still there,
+    /// and its layout as it is now.
     fn fix_chart(&mut self) {
         self.chart = self.chart.min(self.song.charts.len() - 1);
+        self.layout = layout_of(&self.song, self.chart);
     }
 
     // ---------------------------------------------------------------------
@@ -970,6 +959,13 @@ impl Editor {
         };
         (self.song.clone(), self.chart, start)
     }
+}
+
+/// Chart `chart`'s layout ([`Editor::layout`]).
+fn layout_of(song: &Song, chart: usize) -> Layout {
+    let c = &song.charts[chart];
+    song.layout_of(c)
+        .unwrap_or_else(|| Layout::generic(sm_write::lane_count(c)))
 }
 
 fn empty_chart(layout: &str, difficulty: Difficulty) -> Chart {
@@ -1043,95 +1039,68 @@ fn retimed(notes: &[Note], before: &TimingMap, after: &TimingMap) -> Vec<Note> {
     out
 }
 
-fn all_ticks(t: &TimingMap) -> Vec<Tick> {
-    let mut v = Vec::new();
-    v.extend(t.bpms.iter().map(|s| s.tick));
-    v.extend(t.stops.iter().map(|s| s.tick));
-    v.extend(t.delays.iter().map(|s| s.tick));
-    v.extend(t.warps.iter().map(|s| s.tick));
-    v.extend(t.speeds.iter().map(|s| s.tick));
-    v.extend(t.scrolls.iter().map(|s| s.tick));
-    v.extend(t.fakes.iter().map(|s| s.tick));
-    v.extend(t.time_signatures.iter().map(|s| s.tick));
-    v.extend(t.tick_counts.iter().map(|s| s.tick));
-    v.extend(t.combos.iter().map(|s| s.tick));
-    v.extend(t.labels.iter().map(|s| s.tick));
-    v
-}
-
 /// The segments of a map on `tick`, in [`SegmentKind::ALL`]'s order.
 pub fn segments_at(t: &TimingMap, tick: Tick) -> Vec<Segment> {
+    segments_where(t, |at| at == tick)
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect()
+}
+
+/// Segments by tick; on one tick, still in kind order.
+fn sorted(mut segments: Vec<(Tick, Segment)>) -> Vec<(Tick, Segment)> {
+    segments.sort_by_key(|(tick, _)| *tick);
+    segments
+}
+
+/// The segments of a map on the ticks `keep` keeps, each kind in turn in
+/// [`SegmentKind::ALL`]'s order.
+fn segments_where(t: &TimingMap, keep: impl Fn(Tick) -> bool) -> Vec<(Tick, Segment)> {
     let mut out = Vec::new();
-    out.extend(
-        t.bpms
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Bpm(s.bpm)),
-    );
-    out.extend(
-        t.stops
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Stop(s.seconds)),
-    );
-    out.extend(
-        t.delays
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Delay(s.seconds)),
-    );
-    out.extend(
-        t.warps
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Warp(s.length)),
-    );
-    out.extend(
-        t.speeds
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Speed {
-                ratio: s.ratio,
-                delay: s.delay,
-                unit: s.unit,
-            }),
-    );
-    out.extend(
-        t.scrolls
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Scroll(s.ratio)),
-    );
-    out.extend(
-        t.fakes
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Fake(s.length)),
-    );
-    out.extend(
-        t.time_signatures
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::TimeSignature(s.numerator, s.denominator)),
-    );
-    out.extend(
-        t.tick_counts
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::TickCount(s.ticks_per_beat)),
-    );
-    out.extend(
-        t.combos
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Combo(s.combo, s.miss_combo)),
-    );
-    out.extend(
-        t.labels
-            .iter()
-            .filter(|s| s.tick == tick)
-            .map(|s| Segment::Label(s.text.clone())),
-    );
+    let mut add = |tick: Tick, segment: &dyn Fn() -> Segment| {
+        if keep(tick) {
+            out.push((tick, segment()));
+        }
+    };
+    for s in &t.bpms {
+        add(s.tick, &|| Segment::Bpm(s.bpm));
+    }
+    for s in &t.stops {
+        add(s.tick, &|| Segment::Stop(s.seconds));
+    }
+    for s in &t.delays {
+        add(s.tick, &|| Segment::Delay(s.seconds));
+    }
+    for s in &t.warps {
+        add(s.tick, &|| Segment::Warp(s.length));
+    }
+    for s in &t.speeds {
+        add(s.tick, &|| Segment::Speed {
+            ratio: s.ratio,
+            delay: s.delay,
+            unit: s.unit,
+        });
+    }
+    for s in &t.scrolls {
+        add(s.tick, &|| Segment::Scroll(s.ratio));
+    }
+    for s in &t.fakes {
+        add(s.tick, &|| Segment::Fake(s.length));
+    }
+    for s in &t.time_signatures {
+        add(s.tick, &|| {
+            Segment::TimeSignature(s.numerator, s.denominator)
+        });
+    }
+    for s in &t.tick_counts {
+        add(s.tick, &|| Segment::TickCount(s.ticks_per_beat));
+    }
+    for s in &t.combos {
+        add(s.tick, &|| Segment::Combo(s.combo, s.miss_combo));
+    }
+    for s in &t.labels {
+        add(s.tick, &|| Segment::Label(s.text.clone()));
+    }
     out
 }
 

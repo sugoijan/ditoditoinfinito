@@ -754,6 +754,19 @@ pub struct ScoreCtx {
     pub meter: u32,
 }
 
+impl ScoreCtx {
+    /// The units DDR's scores divide among: steps, holds (checkpoint rows
+    /// for ticked holds) and shocks.
+    pub fn units(&self) -> i64 {
+        let holds = if self.ticked {
+            self.checkpoints
+        } else {
+            self.holds
+        };
+        i64::from(self.steps) + i64::from(holds) + i64::from(self.shocks)
+    }
+}
+
 /// Score as the HUD shows it. Fields a scoring system does not produce are `None`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

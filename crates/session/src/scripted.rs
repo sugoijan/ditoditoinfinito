@@ -26,10 +26,12 @@
 
 use ddi_actor::{Actor, Clocks};
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
+use ddi_library::path::RelPathBuf;
 use ddi_lua::Failure;
 use ddi_noteskin::build::{Built, Images, Textures};
 use ddi_noteskin::lua::{Env, FrameBudget, LoadBudget, LuaSkin, Pause, Position};
 use ddi_noteskin::skin::{Folder, Skin};
+use ddi_ui::state::settings::BackgroundFrame;
 
 /// What a song's scripts may spend loading, all together (the skins'
 /// load budget).
@@ -70,9 +72,58 @@ pub struct SongFiles {
     pub texts: Vec<(String, String)>,
 }
 
+impl SongFiles {
+    /// The song `song` of pack `pack` with `files` kept (no text read
+    /// yet).
+    pub fn new(pack: String, song: String, files: &[RelPathBuf]) -> SongFiles {
+        SongFiles {
+            pack,
+            song,
+            files: files.iter().map(|f| f.to_string()).collect(),
+            texts: Vec::new(),
+        }
+    }
+}
+
+/// What a file of a song's scripts is to the shell loading them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileKind {
+    /// Lua, read as text ([`SongFiles::texts`]).
+    Lua,
+    /// An image, decoded ([`Sizes`]).
+    Image,
+    /// Anything else (a sound, read when the scripts name it).
+    Other,
+}
+
+impl FileKind {
+    /// The kind of `path`, by its extension (any case).
+    pub fn of(path: &str) -> FileKind {
+        if path
+            .rsplit_once('.')
+            .is_some_and(|(_, e)| e.eq_ignore_ascii_case("lua"))
+        {
+            FileKind::Lua
+        } else if backgrounds::is_image(path) {
+            FileKind::Image
+        } else {
+            FileKind::Other
+        }
+    }
+}
+
 /// The results' note for scripts that stopped during a play.
 pub fn stop_note(why: &str) -> String {
     format!("The song's scripted backgrounds stopped ({why}); the song background showed.")
+}
+
+/// The shape of StepMania's screen the scripts are told under a
+/// background `frame`: 4:3 under a 4:3 frame, 16:9 otherwise.
+pub fn frame_aspect(frame: BackgroundFrame) -> f64 {
+    match frame {
+        BackgroundFrame::FourThree => 4.0 / 3.0,
+        _ => 16.0 / 9.0,
+    }
 }
 
 /// The environment a song's scripts read: the song's timing and
@@ -153,11 +204,6 @@ pub struct Scripts {
     notes: Vec<String>,
 }
 
-/// The texts of a failure, for the results and the log.
-fn reason(f: &Failure) -> String {
-    format!("{f}")
-}
-
 impl Scripts {
     /// Builds every script `layers` (the play's schedules) and
     /// `foregrounds` name, from `files` with `images` (their decoded
@@ -173,7 +219,8 @@ impl Scripts {
         clock: Box<dyn FnMut() -> f64>,
     ) -> Result<Option<Scripts>, String> {
         let load = Scripts::load_sliced(files, env, layers, foregrounds, images, clock, None);
-        ddi_noteskin::lua::now(async { load.await.map_err(Failure::Error) }).map_err(|f| reason(&f))
+        ddi_noteskin::lua::now(async { load.await.map_err(Failure::Error) })
+            .map_err(|f| f.to_string())
     }
 
     /// [`Scripts::load`], giving the host a turn every
@@ -216,7 +263,7 @@ impl Scripts {
             pause.as_deref_mut(),
         )
         .await
-        .map_err(|f| reason(&f))?;
+        .map_err(|f| f.to_string())?;
         let mut textures = Textures::default();
         let mut notes = Vec::new();
         let mut list: Vec<Background> = Vec::new();
@@ -385,7 +432,7 @@ impl Scripts {
         match self.step(t, dt, &clocks, layers) {
             Ok(()) => None,
             Err(f) => {
-                let why = reason(&f);
+                let why = f.to_string();
                 self.stopped = Some(why.clone());
                 Some(why)
             }
@@ -421,13 +468,9 @@ impl Scripts {
                     continue;
                 }
             }
-            let running = [Some(state.current), state.previous];
-            let running: Vec<usize> = running
-                .into_iter()
-                .flatten()
-                .filter_map(|i| self.background_of(&schedule[i]))
-                .collect();
-            for b in running {
+            let running = [Some(state.current), state.previous]
+                .map(|i| i.and_then(|i| self.background_of(&schedule[i])));
+            for b in running.into_iter().flatten() {
                 self.update(Tree::Background(b), dt, clocks)?;
             }
         }
@@ -526,11 +569,6 @@ impl Scripts {
                 alphas.push((b, 1.0 - mix));
             }
         }
-        let shown: Vec<bool> = self
-            .foregrounds
-            .iter()
-            .map(|f| !f.done && f.until.is_some_and(|u| t <= u))
-            .collect();
         let mut out: Vec<(&mut Actor, f32, bool)> = Vec::new();
         let mut backgrounds: Vec<Option<&mut Box<Actor>>> = self
             .backgrounds
@@ -542,7 +580,8 @@ impl Scripts {
                 out.push((tree, alpha, false));
             }
         }
-        for (fg, shown) in self.foregrounds.iter_mut().zip(shown) {
+        for fg in &mut self.foregrounds {
+            let shown = !fg.done && fg.until.is_some_and(|u| t <= u);
             if let Some(tree) = fg.tree.as_mut().filter(|_| shown) {
                 out.push((tree, 1.0, true));
             }
@@ -563,7 +602,7 @@ async fn build(
     let element = lua
         .actor_file_sliced(path, color, textures, images, pause)
         .await
-        .map_err(|f| reason(&f))?;
+        .map_err(|f| f.to_string())?;
     notes.extend(element.notes);
     Ok(match element.built {
         Built::Actor(tree) => {

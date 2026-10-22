@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use ddi_actor::{Actor, Kind, Rgba, Sprite};
+use ddi_actor::{Actor, Fit, Kind, Rgba, Sprite};
 use ddi_ui::look::{
     Look, Spec, WheelPlace, call, command_of, mono_width, named, quad, text_weighted, tracked,
 };
@@ -703,7 +703,7 @@ impl Infinito {
         call(&mut jacket, "x", &[w - bh]);
         for s in [&mut short, &mut jacket] {
             if let Kind::Sprite(sp) = &mut s.kind {
-                sp.cover = true;
+                sp.fit = Fit::Cover;
             }
             call(s, "cornerradius", &[6.0]);
             call(s, "halign", &[0.0]);
@@ -732,7 +732,7 @@ impl Infinito {
         let inset = 8.0 * scale;
         let mut cd = named(Kind::Sprite(Sprite::quad([cw, ch])), "CdTitle");
         if let Kind::Sprite(sp) = &mut cd.kind {
-            sp.contain = true;
+            sp.fit = Fit::Contain;
         }
         call(&mut cd, "halign", &[0.0]);
         call(&mut cd, "valign", &[0.0]);

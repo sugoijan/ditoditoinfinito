@@ -41,9 +41,21 @@ pub fn is_level_file(path: &str) -> bool {
     }
 }
 
-fn is_swf_name(path: &RelPath) -> bool {
+/// Whether `path` names a SWF: a level that holds its music, an MP3
+/// ([`music`]).
+pub fn is_swf_name(path: &RelPath) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("swf"))
+}
+
+/// The extension of the audio [`music`] gives for song music file `file`
+/// (`mp3` for a SWF's), as the file names it.
+pub fn music_extension(file: &RelPath) -> Option<&str> {
+    if is_swf_name(file) {
+        Some("mp3")
+    } else {
+        file.extension()
+    }
 }
 
 /// A file that may be a level.
@@ -63,16 +75,18 @@ pub struct LevelCandidate {
     pub music: Option<RelPathBuf>,
 }
 
-/// The files of `paths` that may be levels, by path: not in a simfile's
-/// song folder (that folder is a StepMania song), not ignored
-/// (`pack::is_ignored`). `fallback_pack` names the pack of levels at the
-/// import's root.
-pub fn find_levels<S: AsRef<str>>(paths: &[S], fallback_pack: &str) -> Vec<LevelCandidate> {
+/// The files of `paths` that may be levels, by path: not in a song folder
+/// of `songs` (`pack::find_songs` of the same paths: that folder is a
+/// StepMania song), not ignored (`pack::is_ignored`). `fallback_pack`
+/// names the pack of levels at the import's root.
+pub fn find_levels<S: AsRef<str>>(
+    paths: &[S],
+    songs: &[pack::SongCandidate],
+    fallback_pack: &str,
+) -> Vec<LevelCandidate> {
     let paths: Vec<&str> = paths.iter().map(AsRef::as_ref).collect();
-    let song_dirs: std::collections::HashSet<RelPathBuf> = pack::find_songs(&paths, fallback_pack)
-        .into_iter()
-        .map(|c| c.dir)
-        .collect();
+    let song_dirs: std::collections::HashSet<&RelPath> =
+        songs.iter().map(|c| c.dir.as_rel_path()).collect();
     let mut out: Vec<LevelCandidate> = paths
         .iter()
         .filter(|p| !pack::is_ignored(p) && is_level_file(p))
@@ -226,32 +240,44 @@ pub fn is_level_chart(chart: &RelPath) -> bool {
 /// A level's song read again from its chart file's bytes (a SWF, a text
 /// level, or a stored `beatBox`), titled `title`.
 pub fn chart_song(chart: &RelPath, bytes: &[u8], title: &str) -> Result<Song, String> {
-    let beatbox: Value = if is_swf_name(chart) {
-        crate::swf::read(bytes)?
-            .beatbox
-            .ok_or("the level has no beatBox")?
+    chart_song_and_music(chart, bytes, title).map(|(song, _)| song)
+}
+
+/// [`chart_song`], with the music when the chart file holds it (a SWF's
+/// MP3, as [`music`] of the same file gives it), the file read once.
+pub fn chart_song_and_music(
+    chart: &RelPath,
+    bytes: &[u8],
+    title: &str,
+) -> Result<(Song, Option<Vec<u8>>), String> {
+    let (beatbox, mp3): (Value, _) = if is_swf_name(chart) {
+        let level = crate::swf::read(bytes)?;
+        let beatbox = level.beatbox.ok_or("the level has no beatBox")?;
+        (beatbox, Some(level.mp3).filter(|m| !m.is_empty()))
     } else {
-        parse_beatbox_text(&pack::decode_text(bytes)).map_err(|e| e.to_string())?
+        let text = pack::decode_text(bytes);
+        (parse_beatbox_text(&text).map_err(|e| e.to_string())?, None)
     };
     let info = LevelInfo {
         title: title.to_string(),
         ..LevelInfo::default()
     };
-    song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())
+    let song = song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())?;
+    Ok((song, mp3))
 }
 
 /// A song's music file's bytes as audio: a SWF's MP3 taken out of it
 /// (`mp3` its extension), any other file as it is. With the extension the
 /// decoder is given.
 pub fn music(file: &RelPath, bytes: Vec<u8>) -> Result<(Vec<u8>, Option<String>), String> {
+    let ext = music_extension(file).map(str::to_ascii_lowercase);
     if is_swf_name(file) {
         let mp3 = crate::swf::read(&bytes)?.mp3;
         if mp3.is_empty() {
             return Err("the level has no MP3 music".into());
         }
-        return Ok((mp3, Some("mp3".into())));
+        return Ok((mp3, ext));
     }
-    let ext = file.extension().map(str::to_ascii_lowercase);
     Ok((bytes, ext))
 }
 
@@ -271,6 +297,14 @@ mod tests {
             .collect()
     }
 
+    fn find(paths: &[&str], fallback_pack: &str) -> Vec<LevelCandidate> {
+        find_levels(
+            paths,
+            &pack::find_songs(paths, fallback_pack),
+            fallback_pack,
+        )
+    }
+
     #[test]
     fn levels_are_found_one_a_file_their_folder_their_pack() {
         let paths = [
@@ -287,7 +321,7 @@ mod tests {
             "Pack/Song/intro.swf",
             "loose.swf",
         ];
-        let found = find_levels(&paths, "Imported");
+        let found = find(&paths, "Imported");
         let got: Vec<(&str, &str, &str, Option<&str>)> = found
             .iter()
             .map(|c| {
@@ -328,7 +362,7 @@ mod tests {
     fn a_swf_level_is_a_song_with_its_music_inside() {
         let mp3 = vec![0xff, 0xfb, 0x90, 0x64, 1, 2, 3];
         let swf = crate::swf::write_level(&notes(), &mp3, true);
-        let c = &find_levels(&["FFR/level_9.swf"], "x")[0];
+        let c = &find(&["FFR/level_9.swf"], "x")[0];
         let read = read_level(c, &swf).unwrap().unwrap();
         assert_eq!(read.mp3.as_deref(), Some(&mp3[..]));
         assert_eq!(read.song.title, "level_9");
@@ -348,6 +382,9 @@ mod tests {
         // Read again for a play: the same chart; the music out of it.
         let again = chart_song(RelPath::new(&chart), &swf, &e.title).unwrap();
         assert_eq!(again.chart_digest(0), read.song.chart_digest(0));
+        let (both, inside) = chart_song_and_music(RelPath::new(&chart), &swf, &e.title).unwrap();
+        assert_eq!(both.chart_digest(0), read.song.chart_digest(0));
+        assert_eq!(inside.as_deref(), Some(&mp3[..]));
         let (bytes, ext) = music(RelPath::new(&music_name), swf.clone()).unwrap();
         assert_eq!((bytes, ext.as_deref()), (mp3.clone(), Some("mp3")));
         // As the web stores it: the beatBox as JSON.
@@ -363,7 +400,7 @@ mod tests {
         let c = |p: &str, extra: &[&str]| {
             let mut paths = vec![p];
             paths.extend_from_slice(extra);
-            find_levels(&paths, "x").remove(0)
+            find(&paths, "x").remove(0)
         };
         // A SWF of something else; not a SWF at all; an `.as` of other
         // actions.

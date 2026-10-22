@@ -1917,6 +1917,12 @@ impl SelectScreen {
         }
     }
 
+    /// Whether a key may be a letter's shortcut: a fresh press, not
+    /// typed into search or composed, with no modifier but Shift.
+    fn letter_shortcut(&self, k: &crate::event::KeyEvent) -> bool {
+        k.down && !k.repeat && !k.composing && !self.typing && !k.modifiers.any_but_shift()
+    }
+
     /// What Manage acts on: the selected header's pack, or the selected
     /// song (imported), when something can be done.
     fn manageable(&self) -> Option<Manage> {
@@ -3173,11 +3179,7 @@ impl SelectScreen {
             }
             // The chart's plays (P), its best's replay (W).
             Input::Key(k)
-                if k.down
-                    && !k.repeat
-                    && !k.composing
-                    && !self.typing
-                    && !k.modifiers.any_but_shift()
+                if self.letter_shortcut(k)
                     && self.plays.is_some()
                     && (k.key.eq_ignore_ascii_case("p") || k.key.eq_ignore_ascii_case("w")) =>
             {
@@ -3191,13 +3193,7 @@ impl SelectScreen {
             }
             // The chart editor (E).
             Input::Key(k)
-                if k.down
-                    && !k.repeat
-                    && !k.composing
-                    && !self.typing
-                    && !k.modifiers.any_but_shift()
-                    && self.editing
-                    && k.key.eq_ignore_ascii_case("e") =>
+                if self.letter_shortcut(k) && self.editing && k.key.eq_ignore_ascii_case("e") =>
             {
                 self.edit(cx);
                 return Handled::Yes;

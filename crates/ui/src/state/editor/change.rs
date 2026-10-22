@@ -2,7 +2,7 @@
 //! the song it was made on gives the song after it, and its
 //! [`Change::inverse`] applied then gives the song before.
 
-use ddi_chart::{Chart, DisplayBpm, Note, Song, TimingMap};
+use ddi_chart::{Chart, DisplayBpm, Note, Song, SourceInfo, TimingMap};
 
 /// One edit as data.
 #[derive(Clone, Debug, PartialEq)]
@@ -148,12 +148,12 @@ impl Change {
                 song.charts.insert(*index, (**chart).clone());
                 let list = &mut song.source.unknown_tags;
                 for (at, name, value) in tags {
-                    let tag = (format!("NOTEDATA[{index}].{name}"), value.clone());
+                    let tag = (SourceInfo::chart_tag_key(*index, name), value.clone());
                     list.insert((*at).min(list.len()), tag);
                 }
             }
             Change::RemoveChart { index, .. } => {
-                let prefix = format!("NOTEDATA[{index}].");
+                let prefix = SourceInfo::chart_tag_key(*index, "");
                 song.source
                     .unknown_tags
                     .retain(|(k, _)| !k.starts_with(&prefix));
@@ -190,15 +190,9 @@ fn renumber_tags(song: &mut Song, from: usize, by: isize) {
 /// A chart's tags kept as written: their places, and names without their
 /// `NOTEDATA[i].` prefix.
 pub(crate) fn chart_tags(song: &Song, index: usize) -> Vec<(usize, String, String)> {
-    let prefix = format!("NOTEDATA[{index}].");
     song.source
-        .unknown_tags
-        .iter()
-        .enumerate()
-        .filter_map(|(at, (k, v))| {
-            k.strip_prefix(&prefix)
-                .map(|k| (at, k.to_string(), v.clone()))
-        })
+        .chart_tags(index)
+        .map(|(at, k, v)| (at, k.to_string(), v.to_string()))
         .collect()
 }
 

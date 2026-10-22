@@ -148,23 +148,14 @@ impl Plays {
         if !self.loaded() {
             return done(Err("the play history is not read yet".into()));
         }
-        let mut entries = Vec::new();
-        let mut kept = 0;
-        {
-            let mut h = self.history.borrow_mut();
-            for p in plays {
-                if h.contains(&p.entry.id) {
-                    kept += 1;
-                } else {
-                    h.add(p.entry.id.clone(), p.summary);
-                    entries.push(p.entry);
-                }
-            }
-        }
+        let (entries, kept) = self.add_new(
+            plays
+                .into_iter()
+                .map(|p| (p.entry.id.clone(), p.summary, p.entry)),
+        );
         if entries.is_empty() {
             return done(Ok((0, kept)));
         }
-        self.changed();
         let ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
         let me = self.clone();
         self.store.append_all(
@@ -183,20 +174,34 @@ impl Plays {
     /// thread of its own) into memory; those kept already are left. How
     /// many were new.
     pub fn adopt(&self, plays: Vec<(String, PlaySummary)>) -> usize {
-        let mut n = 0;
+        let (added, _) = self.add_new(plays.into_iter().map(|(id, s)| (id, s, ())));
+        added.len()
+    }
+
+    /// Plays `(id, summary, what goes with it)` not kept yet, into memory
+    /// (said changed when any was): what went with those, and how many
+    /// were kept already.
+    fn add_new<T>(
+        &self,
+        plays: impl IntoIterator<Item = (String, PlaySummary, T)>,
+    ) -> (Vec<T>, usize) {
+        let mut added = Vec::new();
+        let mut kept = 0;
         {
             let mut h = self.history.borrow_mut();
-            for (id, summary) in plays {
-                if !h.contains(&id) {
+            for (id, summary, with) in plays {
+                if h.contains(&id) {
+                    kept += 1;
+                } else {
                     h.add(id, summary);
-                    n += 1;
+                    added.push(with);
                 }
             }
         }
-        if n > 0 {
+        if !added.is_empty() {
             self.changed();
         }
-        n
+        (added, kept)
     }
 
     /// Works out again up to `max` stale plays of `song_id` on `song` (as

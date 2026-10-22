@@ -108,6 +108,72 @@ impl TexQuad {
     }
 }
 
+/// An actor's quad as drawn: its registered texture (`ids` by the ids
+/// actors carry; untextured stays so) and its shape, seen in perspective
+/// or its transform, its texture rectangle moved by its offset and
+/// `offset`. `None` while its texture is not loaded.
+pub(crate) fn actor_quad(
+    q: &ddi_actor::Quad,
+    ids: &[Option<u32>],
+    offset: [f32; 2],
+) -> Option<(Shape, u32)> {
+    let texture = if q.texture == ddi_actor::UNTEXTURED {
+        UNTEXTURED
+    } else {
+        (*ids.get(q.texture as usize)?)?
+    };
+    let uv = crate::actors2d::offset_uv(
+        q.uv,
+        [
+            offset[0] + q.texcoord_offset[0],
+            offset[1] + q.texcoord_offset[1],
+        ],
+    );
+    let shape = match q.projected {
+        Some(p) => Shape::Projected {
+            corners: p.corners,
+            w: p.w,
+            uv,
+        },
+        None => Shape::Quad {
+            transform: q.transform,
+            uv,
+        },
+    };
+    Some((shape, texture))
+}
+
+/// An actor's diffuse and glow passes (`Sprite::DrawTexture`) as `base`
+/// (its shape, texture, blend and mask): the diffuse pass when a corner
+/// shows (a gradient when the corners' colors differ), the glow's when it
+/// shows; colors as the target expects them (`srgb`, see
+/// [`crate::color::to_target`]).
+pub(crate) fn push_passes(
+    base: TexQuad,
+    diffuse: [[f32; 4]; 4],
+    glow: [f32; 4],
+    srgb: bool,
+    out: &mut Vec<TexQuad>,
+) {
+    let colors = diffuse.map(|c| crate::color::to_target(c, srgb));
+    let base = TexQuad {
+        color: colors[0],
+        gradient: colors.iter().any(|c| *c != colors[0]).then_some(colors),
+        ..base
+    };
+    if diffuse.iter().any(|c| c[3] > 0.0) {
+        out.push(base);
+    }
+    if glow[3] > 0.0 {
+        out.push(TexQuad {
+            color: crate::color::to_target(glow, srgb),
+            glow: true,
+            gradient: None,
+            ..base
+        });
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Instance {

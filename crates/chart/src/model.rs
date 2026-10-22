@@ -335,7 +335,32 @@ pub enum SourceFormat {
 pub struct SourceInfo {
     pub format: SourceFormat,
     /// Tags the importer did not understand, in order: `(name, raw value)`.
+    /// A chart's are named by [`SourceInfo::chart_tag_key`].
     pub unknown_tags: Vec<(String, String)>,
+}
+
+impl SourceInfo {
+    /// The name `unknown_tags` keeps tag `name` of chart `index` (of
+    /// `Song::charts`) under: `NOTEDATA[index].NAME`. An empty `name` gives
+    /// the chart's prefix.
+    pub fn chart_tag_key(index: usize, name: &str) -> String {
+        format!("NOTEDATA[{index}].{name}")
+    }
+
+    /// Whether `key` (of `unknown_tags`) is a chart's tag.
+    pub fn is_chart_tag_key(key: &str) -> bool {
+        key.starts_with("NOTEDATA[")
+    }
+
+    /// Chart `index`'s tags, in order: `(place in unknown_tags, name
+    /// without its prefix, value)`.
+    pub fn chart_tags(&self, index: usize) -> impl Iterator<Item = (usize, &str, &str)> {
+        let prefix = Self::chart_tag_key(index, "");
+        self.unknown_tags
+            .iter()
+            .enumerate()
+            .filter_map(move |(at, (k, v))| Some((at, k.strip_prefix(&prefix)?, v.as_str())))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -315,8 +315,6 @@ pub(crate) struct GameCanvas {
     early_audio: Option<WebAudio>,
     /// The music decodes before Start.
     predecoding: bool,
-    /// The music decoded before Start, and its context.
-    predecoded: Option<(WebAudio, AudioBuffer)>,
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
     /// A song's results, the theme's screen on the canvas (step 6.1).
@@ -366,9 +364,9 @@ pub(crate) struct PromptShell {
     /// The context a pad press made, while the screen waits to see
     /// whether it starts; a tap or key press meanwhile resumes it.
     pad_ctx: RefCell<Option<web_sys::AudioContext>>,
-    /// The context the music was decoded on before Start, while it waits
+    /// The music decoded before Start, and its context, while it waits
     /// for Start ([`Msg::Predecoded`]).
-    early: RefCell<Option<web_sys::AudioContext>>,
+    predecoded: RefCell<Option<(WebAudio, AudioBuffer)>>,
     /// When the results' Retry brought the start prompt back (ms, the
     /// page's clock): a tap right after it is the Retry's, not a start.
     retried_at: std::cell::Cell<f64>,
@@ -395,11 +393,12 @@ impl PromptShell {
                 // The music decoded already, on the context song select
                 // handed over: it starts, resumed inside this gesture (or
                 // running, for a pad's press).
-                if let Some(early) = self.early.borrow().as_ref()
-                    && (cx.in_gesture() || early.state() == web_sys::AudioContextState::Running)
+                if let Some((early, _)) = self.predecoded.borrow().as_ref()
+                    && (cx.in_gesture()
+                        || early.context().state() == web_sys::AudioContextState::Running)
                 {
                     if cx.in_gesture() {
-                        let _ = early.resume();
+                        let _ = early.context().resume();
                     }
                     self.state
                         .borrow_mut()
@@ -598,7 +597,7 @@ impl Component for GameCanvas {
             state: prompt_state.clone(),
             access: RefCell::new(None),
             pad_ctx: RefCell::new(None),
-            early: RefCell::new(None),
+            predecoded: RefCell::new(None),
             retried_at: std::cell::Cell::new(f64::NEG_INFINITY),
         });
         GameCanvas {
@@ -636,7 +635,6 @@ impl Component for GameCanvas {
             skin_loading: false,
             early_audio,
             predecoding: false,
-            predecoded: None,
             video_line: None,
             prompt: None,
             prompt_state,
@@ -938,8 +936,7 @@ impl GameCanvas {
             }
             Msg::Begin(audio, from_pad) => {
                 // Started on a context of its own: the one decoded on goes.
-                self.predecoded = None;
-                self.shell.early.borrow_mut().take();
+                self.shell.predecoded.take();
                 self.start(ctx, *audio, from_pad)
             }
             Msg::BeginDecoded => {
@@ -950,10 +947,9 @@ impl GameCanvas {
                 if !ready {
                     return false;
                 }
-                let Some((audio, buffer)) = self.predecoded.take() else {
+                let Some((audio, buffer)) = self.shell.predecoded.take() else {
                     return false;
                 };
-                self.shell.early.borrow_mut().take();
                 self.stage = Stage::Decoding;
                 self.needs_gesture = false;
                 ctx.link().send_future(async move {
@@ -968,8 +964,7 @@ impl GameCanvas {
                 self.predecoding = false;
                 match r {
                     Ok((audio, buffer)) if matches!(self.stage, Stage::Idle) => {
-                        *self.shell.early.borrow_mut() = Some(audio.context().clone());
-                        self.predecoded = Some((audio, buffer));
+                        self.shell.predecoded.replace(Some((audio, buffer)));
                     }
                     Ok(_) => {}
                     // Decoded again at Start, which says what went wrong.
@@ -1307,8 +1302,7 @@ impl GameCanvas {
             p.close();
         }
         self.early_audio = None;
-        self.predecoded = None;
-        self.shell.early.borrow_mut().take();
+        self.shell.predecoded.take();
         // The route can change inside a frame (the game loop or its
         // animation frame borrowed): what is borrowed goes once that
         // returns.
@@ -2429,14 +2423,14 @@ fn results_card(
     if let Some(ex) = ddi_ui::screens::play::ex_text(&r.score) {
         push(ex, "Muted");
     }
-    let mut mods = mods_summary(
+    let mods = mods_summary(
         &r.transform,
         r.appearance,
         r.scroll_action,
+        r.cover,
         layout.map(|l| (r.lane_map.as_slice(), l)),
-    );
-    mods.extend(r.cover.label());
-    let mods = mods.join(" · ");
+    )
+    .join(" · ");
     if !mods.is_empty() {
         push(mods, "Muted");
     }
@@ -2546,7 +2540,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     let shift = ddi_session::play::song_shift(&settings, &id, kept, false);
     let background_name = new_play_background(&id);
     let show_background = settings.bg_brightness > 0.0;
-    let script_settings = settings.clone();
+    let script_frame = settings.background_frame;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
     let edit = ctx.props().edit;
@@ -2681,8 +2675,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 let song = loaded.song.clone();
                 link.send_future(async move {
                     let r =
-                        crate::scripts::load(&entry, &song, record.as_deref(), &script_settings)
-                            .await;
+                        crate::scripts::load(&entry, &song, record.as_deref(), script_frame).await;
                     Msg::ScriptsLoaded(match r {
                         Ok(loaded) => loaded.map(Box::new),
                         Err(e) => {
@@ -2891,8 +2884,7 @@ fn noteskin_ready(
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
-    let wants = ddi_shell::play_skins(settings, song, c, &layout, shift);
-    wants.first()?.as_ref()?;
+    let wants = ddi_shell::play_skins(settings, song, c, &layout, shift)?;
     Some(async move {
         crate::noteskins::prepare_first(wants, &layout)
             .await

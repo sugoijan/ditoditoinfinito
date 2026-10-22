@@ -39,7 +39,7 @@ const CURRENT_SSC_VERSION: f32 = 0.83;
 const MAX_TICKS_PER_BEAT: u32 = 48;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Flavor {
+pub(crate) enum Flavor {
     Sm,
     Ssc,
 }
@@ -897,24 +897,33 @@ fn parse_bg_changes(value: &str, kind: &'static str, layer: u8, out: &mut Vec<Ef
     if joined.is_empty() {
         return;
     }
+    let entries = split_bg_changes::<&str>(&joined, &[]);
     out.push(EffectEvent {
         at: EffectTime::Beat(Tick::ZERO),
         kind: raw_kind(kind).to_string(),
         layer,
-        fields: vec![joined.clone()],
+        fields: vec![joined],
     });
-    out.extend(change_events(
-        split_bg_changes::<&str>(&joined, &[]),
-        kind,
-        layer,
-    ));
+    out.extend(change_events(entries, kind, layer));
 }
 
+/// The raw kind ([`RAW_BG_CHANGES`], [`RAW_FG_CHANGES`]) of split changes
+/// of `kind`.
 fn raw_kind(kind: &str) -> &'static str {
     if kind == "fgchange" {
         RAW_FG_CHANGES
     } else {
         RAW_BG_CHANGES
+    }
+}
+
+/// The kind of the split changes after a raw kind's event (`bgchange`,
+/// `fgchange`); `None` for any other kind.
+pub fn split_kind(raw: &str) -> Option<&'static str> {
+    match raw {
+        RAW_BG_CHANGES => Some("bgchange"),
+        RAW_FG_CHANGES => Some("fgchange"),
+        _ => None,
     }
 }
 
@@ -1022,12 +1031,7 @@ impl Song {
             .map(AsRef::as_ref)
             .filter(|n| n.contains([',', '=']))
             .collect();
-        if names.is_empty()
-            || !self
-                .effects
-                .iter()
-                .any(|e| e.kind == RAW_BG_CHANGES || e.kind == RAW_FG_CHANGES)
-        {
+        if names.is_empty() || !self.effects.iter().any(|e| split_kind(&e.kind).is_some()) {
             return;
         }
         let old = std::mem::take(&mut self.effects);
@@ -1039,13 +1043,9 @@ impl Song {
                 }
                 skipping = None;
             }
-            let kind = match e.kind.as_str() {
-                RAW_BG_CHANGES => "bgchange",
-                RAW_FG_CHANGES => "fgchange",
-                _ => {
-                    self.effects.push(e);
-                    continue;
-                }
+            let Some(kind) = split_kind(&e.kind) else {
+                self.effects.push(e);
+                continue;
             };
             let entries = split_bg_changes(e.fields.first().map_or("", String::as_str), &names);
             let layer = e.layer;
@@ -1091,6 +1091,44 @@ fn parse_attacks(tag: &MsdTag, out: &mut Vec<EffectEvent>) {
 }
 
 /// Tags understood but deliberately dropped (cache-only or not modelled).
+/// The song-level tags the reader reads as its own by name (the song
+/// level's `match` below), besides `BGCHANGES<n>` and the timing tags.
+const SONG_TAGS: &[&str] = &[
+    "VERSION",
+    "TITLE",
+    "SUBTITLE",
+    "ARTIST",
+    "TITLETRANSLIT",
+    "SUBTITLETRANSLIT",
+    "ARTISTTRANSLIT",
+    "GENRE",
+    "CREDIT",
+    "MUSIC",
+    "BANNER",
+    "BACKGROUND",
+    "JACKET",
+    "CDTITLE",
+    "SAMPLESTART",
+    "SAMPLELENGTH",
+    "DISPLAYBPM",
+    "KEYSOUNDS",
+    "ATTACKS",
+    "FGCHANGES",
+    "ANIMATIONS",
+    "NOTEDATA",
+    "NOTES",
+    "NOTES2",
+];
+
+/// Whether the reader of `flavor` reads a song-level tag named `name`
+/// (upper case) as one of its own: not kept in `unknown_tags`.
+pub(crate) fn is_song_tag(name: &str, flavor: Flavor) -> bool {
+    SONG_TAGS.contains(&name)
+        || (name.starts_with("BGCHANGES") && bg_changes_layer(name).is_some())
+        || (is_timing_tag(name) && (name != "COMBOS" || flavor == Flavor::Ssc))
+        || is_ignored_tag(name)
+}
+
 pub(crate) fn is_ignored_tag(name: &str) -> bool {
     matches!(
         name,
@@ -1260,7 +1298,7 @@ fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
                     for (k, v) in chart.unknown {
                         song.source
                             .unknown_tags
-                            .push((format!("NOTEDATA[{idx}].{k}"), v));
+                            .push((SourceInfo::chart_tag_key(idx, &k), v));
                     }
                     song.charts.push(built);
                 }
@@ -1291,6 +1329,8 @@ fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
         }
 
         // --- Song level -------------------------------------------------
+        // Every name read here is one of `is_song_tag`'s (checked by
+        // `song_tags_are_those_the_reader_keeps_to_itself`).
         match name.as_str() {
             "VERSION" => {
                 version = sm_float(value) as f32;
@@ -1401,6 +1441,44 @@ mod tests {
 
     fn approx(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-6
+    }
+
+    #[test]
+    fn song_tags_are_those_the_reader_keeps_to_itself() {
+        let timing = [
+            "OFFSET",
+            "BPMS",
+            "STOPS",
+            "FREEZES",
+            "DELAYS",
+            "WARPS",
+            "SPEEDS",
+            "SCROLLS",
+            "FAKES",
+            "TIMESIGNATURES",
+            "TICKCOUNTS",
+            "COMBOS",
+            "LABELS",
+        ];
+        let others = [
+            "SELECTABLE",
+            "RADARVALUES",
+            "BGCHANGES",
+            "BGCHANGES2",
+            "BGCHANGES3",
+            "PREVIEW",
+            "PREVIEWVID",
+            "LYRICSPATH",
+            "ORIGIN",
+            "FOO",
+        ];
+        for (flavor, ext) in [(Flavor::Sm, "sm"), (Flavor::Ssc, "ssc")] {
+            for name in SONG_TAGS.iter().chain(&timing).chain(&others) {
+                let song = parse_simfile(&format!("#{name}:1;"), ext).unwrap();
+                let kept = song.source.unknown_tags.iter().any(|(k, _)| k == name);
+                assert_eq!(kept, !is_song_tag(name, flavor), "{name} in .{ext}");
+            }
+        }
     }
 
     #[test]

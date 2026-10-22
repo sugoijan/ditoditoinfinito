@@ -60,15 +60,9 @@ impl FileStore {
     }
 
     fn write_file(&self) -> Result<(), String> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
         let json =
             serde_json::to_string_pretty(&*self.values.borrow()).map_err(|e| e.to_string())?;
-        // Whole or not at all.
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())
+        crate::paths::write_whole(&self.path, json.as_bytes()).map_err(|e| e.to_string())
     }
 }
 

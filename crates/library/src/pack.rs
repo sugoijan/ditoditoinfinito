@@ -233,11 +233,42 @@ pub struct ResolvedAssets {
     /// title, jacket, CD image, disc; see [`resolve_assets`]), sorted.
     /// Candidates for [`classify_images`].
     pub unclassified: Vec<RelPathBuf>,
-    /// `(tag, reference)` for `#MUSIC`, `#BANNER`, `#BACKGROUND`,
-    /// `#JACKET`, `#CDTITLE`, `#LYRICSPATH`, `#PREVIEW`, `#PREVIEWVID` and charts'
-    /// `#MUSIC` (as `#MUSIC (chart n)`) values that name a file the import
+    /// `(tag, reference)` for the values that name a file the import
     /// does not have (a fallback may still have been found).
-    pub missing: Vec<(String, String)>,
+    pub missing: Vec<(MissingTag, String)>,
+}
+
+/// The tag of a reference [`ResolvedAssets::missing`] lists, shown as the
+/// simfile writes it (`#MUSIC (chart n)` for a chart's own `#MUSIC`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MissingTag {
+    Music,
+    Banner,
+    Background,
+    Jacket,
+    CdTitle,
+    LyricsPath,
+    Preview,
+    PreviewVid,
+    /// A chart's own `#MUSIC`, by its index in `Song::charts`.
+    ChartMusic(usize),
+}
+
+impl std::fmt::Display for MissingTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tag = match self {
+            MissingTag::Music => "#MUSIC",
+            MissingTag::Banner => "#BANNER",
+            MissingTag::Background => "#BACKGROUND",
+            MissingTag::Jacket => "#JACKET",
+            MissingTag::CdTitle => "#CDTITLE",
+            MissingTag::LyricsPath => "#LYRICSPATH",
+            MissingTag::Preview => "#PREVIEW",
+            MissingTag::PreviewVid => "#PREVIEWVID",
+            MissingTag::ChartMusic(i) => return write!(f, "#MUSIC (chart {})", i + 1),
+        };
+        f.write_str(tag)
+    }
 }
 
 /// Resolves the song's `#MUSIC`, `#BANNER` and `#BACKGROUND` against the
@@ -370,21 +401,21 @@ pub fn resolve_assets<S: AsRef<str>>(
     let chart_music: Vec<(usize, RelPathBuf)> = (0..song.charts.len())
         .filter_map(|i| Some((i, find(song.chart_music(i))?)))
         .collect();
-    let mut missing: Vec<(String, String)> = [
-        ("#MUSIC", song.music.as_deref()),
-        ("#BANNER", song.banner.as_deref()),
-        ("#BACKGROUND", song.background.as_deref()),
-        ("#JACKET", song.jacket.as_deref()),
-        ("#CDTITLE", song.cd_title.as_deref()),
-        ("#LYRICSPATH", song.lyrics_path()),
-        ("#PREVIEW", song.preview_music()),
-        ("#PREVIEWVID", song.preview_video()),
+    let mut missing: Vec<(MissingTag, String)> = [
+        (MissingTag::Music, song.music.as_deref()),
+        (MissingTag::Banner, song.banner.as_deref()),
+        (MissingTag::Background, song.background.as_deref()),
+        (MissingTag::Jacket, song.jacket.as_deref()),
+        (MissingTag::CdTitle, song.cd_title.as_deref()),
+        (MissingTag::LyricsPath, song.lyrics_path()),
+        (MissingTag::Preview, song.preview_music()),
+        (MissingTag::PreviewVid, song.preview_video()),
     ]
     .into_iter()
     .filter_map(|(tag, reference)| {
         let reference = reference?.trim();
         (!reference.is_empty() && find(Some(reference)).is_none())
-            .then(|| (tag.to_string(), reference.to_string()))
+            .then(|| (tag, reference.to_string()))
     })
     .collect();
     // Each chart's own music once (generated versions name their
@@ -394,7 +425,7 @@ pub fn resolve_assets<S: AsRef<str>>(
             continue;
         };
         if song.effects_chart(i) == i && !reference.is_empty() && find(Some(reference)).is_none() {
-            missing.push((format!("#MUSIC (chart {})", i + 1), reference.to_string()));
+            missing.push((MissingTag::ChartMusic(i), reference.to_string()));
         }
     }
     ResolvedAssets {
@@ -981,7 +1012,7 @@ mod tests {
         // an empty `#BANNER` names nothing.
         assert_eq!(
             r.missing,
-            vec![("#MUSIC".to_string(), "missing.ogg".to_string())]
+            vec![(MissingTag::Music, "missing.ogg".to_string())]
         );
 
         // A single intro-named file is still the music.

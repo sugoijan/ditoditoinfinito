@@ -352,6 +352,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.volume
     }
 
+    /// Plays `buffer` now on the play's sound, at the music's volume (a
+    /// song's scripts' sounds).
+    pub fn play_now(&mut self, buffer: &A::Buffer) -> Result<ddi_platform::SoundId, A::Error> {
+        let at = self.audio.now().context_time;
+        self.audio.play(buffer, at, 0.0, self.volume)
+    }
+
     /// The claps scheduled and the mine sounds played so far.
     pub fn event_sounds(&self) -> (u32, u32) {
         (self.sounds.claps, self.sounds.mines)
@@ -398,29 +405,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let bindings = play_bindings(&controls, &layout, &connected);
         let known_pads: Vec<(String, u32)> =
             connected.iter().map(|c| (c.id.clone(), c.index)).collect();
-        let pad_ids = || {
-            settings
-                .controls
-                .pads
-                .iter()
-                .map(|p| p.id.clone())
-                .chain(connected.iter().map(|c| c.id.clone()))
-        };
-        let pad_control = |id: String, pick: fn(PadBindings) -> Option<String>| {
-            let standard = connected.iter().any(|c| c.id == id && c.standard);
-            let control = pick(settings.pad_bindings(&id, standard)?)?;
-            Some((id, control))
-        };
-        let mut pad_cancel: Vec<(String, String)> = pad_ids()
-            .filter_map(|id| pad_control(id, |p| p.back))
-            .collect();
-        pad_cancel.sort();
-        pad_cancel.dedup();
-        let mut pad_start: Vec<(String, String)> = pad_ids()
-            .filter_map(|id| pad_control(id, |p| p.start))
-            .collect();
-        pad_start.sort();
-        pad_start.dedup();
+        let (pad_cancel, pad_start) = pad_controls(&controls, &connected);
         let via_pad = (auto_play && config.auto_pad).then(|| {
             (0..layout.lanes.len() as u8)
                 .map(|lane| {
@@ -995,17 +980,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     fn adopt_pads(&mut self) {
         let connected = self.inputs.connected_pads();
         self.input.bindings = play_bindings(&self.controls, &self.layout, &connected);
-        for c in &connected {
-            let pad = self.controls.pad(&c.id, c.standard);
-            if let Some(back) = pad.as_ref().and_then(|p| p.back.clone())
-                && !self.pad_cancel.iter().any(|(id, _)| *id == c.id)
-            {
-                self.pad_cancel.push((c.id.clone(), back));
-            }
-            if let Some(start) = pad.and_then(|p| p.start)
-                && !self.pad_start.iter().any(|(id, _)| *id == c.id)
-            {
-                self.pad_start.push((c.id.clone(), start));
+        let (cancel, start) = pad_controls(&self.controls, &connected);
+        for (kept, new) in [(&mut self.pad_cancel, cancel), (&mut self.pad_start, start)] {
+            for (id, control) in new {
+                if !kept.iter().any(|(k, _)| *k == id) {
+                    kept.push((id, control));
+                }
             }
         }
         self.known_pads = connected.into_iter().map(|c| (c.id, c.index)).collect();
@@ -1061,6 +1041,35 @@ impl<A: AudioBackend, I: Inputs> Drop for PlaySession<A, I> {
         self.audio.stop_all();
         self.inputs.pads_running(None);
     }
+}
+
+/// Pads' controls of one kind: `(Gamepad.id, control)`.
+type PadControls = Vec<(String, String)>;
+
+/// The Back and Start controls of every pad `controls` keeps and every
+/// one `connected` (a standard one without saved bindings: its defaults).
+fn pad_controls(
+    controls: &ControlBindings,
+    connected: &[ConnectedPad],
+) -> (PadControls, PadControls) {
+    let ids = controls
+        .pads
+        .iter()
+        .map(|p| &p.id)
+        .chain(connected.iter().map(|c| &c.id));
+    let pick = |pick: fn(PadBindings) -> Option<String>| {
+        let mut out: PadControls = ids
+            .clone()
+            .filter_map(|id| {
+                let standard = connected.iter().any(|c| c.id == *id && c.standard);
+                Some((id.clone(), pick(controls.pad(id, standard)?)?))
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    };
+    (pick(|p| p.back), pick(|p| p.start))
 }
 
 /// A play's bindings: the saved ones for the layout and the touch columns,

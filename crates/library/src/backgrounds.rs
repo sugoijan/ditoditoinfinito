@@ -310,7 +310,8 @@ fn all_changes(song: &Song) -> Vec<(Tick, &[String])> {
     changes
 }
 
-fn is_image(path: &str) -> bool {
+/// Whether `path` is an image, by its extension (any case).
+pub fn is_image(path: &str) -> bool {
     extension(path).is_some_and(|e| IMAGE_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
@@ -585,13 +586,15 @@ pub fn unshown_files<S: AsRef<str>, T: AsRef<str>>(
 
 /// The names `song`'s changes give scripted backgrounds and foregrounds:
 /// both background layers' files and every `#FGCHANGES` file, as written
-/// (trimmed), in order of first use, without duplicates.
+/// (trimmed), in order of first use, without duplicates or StepMania's
+/// special names.
 fn script_names(song: &Song) -> Vec<&str> {
     let foreground = song
         .effects
         .iter()
         .filter(|e| e.kind == "fgchange" && e.fields.len() >= 2 && loaded(&e.fields))
         .map(|e| e.fields[1].as_str());
+    let mut seen = std::collections::HashSet::new();
     let mut out: Vec<&str> = Vec::new();
     for name in all_changes(song)
         .into_iter()
@@ -599,7 +602,7 @@ fn script_names(song: &Song) -> Vec<&str> {
         .chain(foreground)
     {
         let name = name.trim();
-        if !name.is_empty() && !is_media(name) && !out.iter().any(|o| key(o) == key(name)) {
+        if !name.is_empty() && !is_special(name) && !is_media(name) && seen.insert(key(name)) {
             out.push(name);
         }
     }
@@ -618,17 +621,24 @@ pub fn script_folders<S: AsRef<str>>(
     dir: &RelPath,
     all_paths: &[S],
 ) -> Vec<RelPathBuf> {
-    script_names(song)
+    let names = script_names(song);
+    if names.is_empty() {
+        return Vec::new();
+    }
+    // Each folder with a `default.lua`, by its lower-case path: the first.
+    let mut folders: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for p in all_paths.iter().map(AsRef::as_ref) {
+        if let Some(folder) = p.to_lowercase().strip_suffix("/default.lua") {
+            folders
+                .entry(folder.to_string())
+                .or_insert(&p[..p.len() - "/default.lua".len()]);
+        }
+    }
+    names
         .into_iter()
         .filter_map(|name| {
             let wanted = dir.resolve(name)?.as_str().to_lowercase();
-            let lua = format!("{wanted}/default.lua");
-            let found = all_paths
-                .iter()
-                .map(AsRef::as_ref)
-                .find(|p| p.to_lowercase() == lua)?;
-            let folder = RelPath::new(&found[..found.len() - "/default.lua".len()]);
-            Some(folder.relative_to(dir))
+            Some(RelPath::new(folders.get(&wanted)?).relative_to(dir))
         })
         .collect()
 }
@@ -646,6 +656,9 @@ pub fn script_files<S: AsRef<str>>(
         .filter_map(|f| dir.resolve(f.as_str()))
         .map(|f| format!("{}/", f.as_str().to_lowercase()))
         .collect();
+    if prefixes.is_empty() {
+        return Vec::new();
+    }
     all_paths
         .iter()
         .map(AsRef::as_ref)

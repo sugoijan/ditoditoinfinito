@@ -18,7 +18,7 @@ use ddi_engine::{
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
 
-use super::data::{OptionDef, OptionKind, OptionSection, OptionsData};
+use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number};
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
@@ -326,7 +326,7 @@ impl OptionsModel {
         let mut preview = vec![
             self.skin_name(s.noteskin_for(shown)),
             style,
-            format!("×{}", trim(s.speed)),
+            format!("×{}", trim_number(s.speed, 2)),
         ];
         if s.reverse {
             preview.push("Reverse".into());
@@ -381,7 +381,10 @@ impl OptionsModel {
     fn scroll(&self) -> OptionSection {
         let s = &self.settings;
         let values = self.speeds();
-        let speeds: Vec<String> = values.iter().map(|v| format!("×{}", trim(*v))).collect();
+        let speeds: Vec<String> = values
+            .iter()
+            .map(|v| format!("×{}", trim_number(*v, 2)))
+            .collect();
         let at = values
             .iter()
             .position(|v| (v - s.speed).abs() < 1e-6)
@@ -464,22 +467,10 @@ impl OptionsModel {
             ),
         ];
         if cover.mode.sudden() {
-            rows.push(row(
-                "cover_sudden",
-                "Sudden+ height",
-                OptionKind::Stepper(cover_heights()),
-                usize::from(cover.sudden.min(LaneCover::FULL)),
-                "How much of the lane Sudden+ covers. A play keeps the height you leave it at.",
-            ));
+            rows.push(cover_height("cover_sudden", "Sudden+", cover.sudden));
         }
         if cover.mode.hidden() {
-            rows.push(row(
-                "cover_hidden",
-                "Hidden+ height",
-                OptionKind::Stepper(cover_heights()),
-                usize::from(cover.hidden.min(LaneCover::FULL)),
-                "How much of the lane Hidden+ covers. A play keeps the height you leave it at.",
-            ));
+            rows.push(cover_height("cover_hidden", "Hidden+", cover.hidden));
         }
         rows.extend([
             cut,
@@ -577,7 +568,7 @@ impl OptionsModel {
                     "life",
                     "Life difficulty",
                     OptionKind::Stepper(levels(LIFE_SCALES.len())),
-                    usize::from(s.stepmania.life.max(1) - 1),
+                    level_index(s.stepmania.life),
                     "Higher drains the life bar faster and refills it slower (StepMania's levels; \
                      4 is the ruleset's own). DDR A's gauge keeps its own.",
                 ),
@@ -589,7 +580,7 @@ impl OptionsModel {
                             .map(StepManiaOptions::judge_name)
                             .collect(),
                     ),
-                    usize::from(s.stepmania.judge.max(1) - 1),
+                    level_index(s.stepmania.judge),
                     "Higher narrows every timing window (StepMania's levels; 4 is the ruleset's \
                      own, Justice the narrowest). Bests are kept apart for each level.",
                 ),
@@ -605,7 +596,7 @@ impl OptionsModel {
                     "lives",
                     "Battery lives",
                     OptionKind::Stepper(levels(usize::from(StepManiaOptions::MAX_LIVES))),
-                    usize::from(s.stepmania.lives.max(1) - 1),
+                    level_index(s.stepmania.lives),
                     "How many lives the battery starts with.",
                 ),
                 row(
@@ -1394,12 +1385,10 @@ impl OptionsModel {
             }
             "holds" => s.holds = at(&HOLD_STYLES, i),
             "fail" => s.stepmania.fail = at(&FailType::ALL, i),
-            "life" => s.stepmania.life = (i.min(LIFE_SCALES.len() - 1) + 1) as u8,
-            "judge" => s.stepmania.judge = (i.min(JUDGE_SCALES.len() - 1) + 1) as u8,
+            "life" => s.stepmania.life = level_at(i, LIFE_SCALES.len()),
+            "judge" => s.stepmania.judge = level_at(i, JUDGE_SCALES.len()),
             "life_type" => s.stepmania.life_type = at(&LifeType::ALL, i),
-            "lives" => {
-                s.stepmania.lives = (i.min(usize::from(StepManiaOptions::MAX_LIVES) - 1) + 1) as u8
-            }
+            "lives" => s.stepmania.lives = level_at(i, usize::from(StepManiaOptions::MAX_LIVES)),
             "ddr_gauge" => s.stepmania.gauge = DdrGauge::ALL.get(i).copied().unwrap_or_default(),
             "danoni.gauge" => {
                 s.danoni.gauge = DANONI_GAUGES
@@ -1783,7 +1772,12 @@ fn param_values(
         ParamKind::Number { unit, .. } => p
             .numbers()
             .into_iter()
-            .map(|n| (format!("{}{unit}", trim(n)), ParamValue::Number(n)))
+            .map(|n| {
+                (
+                    format!("{}{unit}", trim_number(n, 2)),
+                    ParamValue::Number(n),
+                )
+            })
             .unzip(),
         ParamKind::Color(palette) => {
             let mut pairs: Vec<(String, ParamValue)> = palette
@@ -1901,18 +1895,22 @@ fn levels(n: usize) -> Vec<String> {
     (1..=n).map(|l| l.to_string()).collect()
 }
 
+/// A level `1..=n`'s place in its stepper.
+fn level_index(level: u8) -> usize {
+    usize::from(level.max(1) - 1)
+}
+
+/// The level `1..=n` at a stepper's place.
+fn level_at(i: usize, n: usize) -> u8 {
+    (i.min(n - 1) + 1) as u8
+}
+
 fn count(n: usize, one: &str, many: &str) -> String {
     match n {
         0 => format!("no {many}"),
         1 => format!("1 {one}"),
         n => format!("{n} {many}"),
     }
-}
-
-/// "2.5", "3".
-fn trim(v: f64) -> String {
-    let s = format!("{v:.2}");
-    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 const SPEED_SOURCES: [SpeedSource; 2] = [SpeedSource::Player, SpeedSource::Chart];
@@ -1943,9 +1941,15 @@ const COVER_MODES: [CoverMode; 4] = [
     CoverMode::HiddenSudden,
 ];
 
-/// A cover's heights as its steppers show them, 0 to 100% by 1.
-fn cover_heights() -> Vec<String> {
-    (0..=LaneCover::FULL).map(|v| format!("{v}%")).collect()
+/// A cover's height row: its heights 0 to 100% by 1.
+fn cover_height(id: &str, name: &str, height: u8) -> OptionDef {
+    row(
+        id,
+        &format!("{name} height"),
+        OptionKind::Stepper((0..=LaneCover::FULL).map(|v| format!("{v}%")).collect()),
+        usize::from(height.min(LaneCover::FULL)),
+        &format!("How much of the lane {name} covers. A play keeps the height you leave it at."),
+    )
 }
 
 const CUTS: [TimingCut; 3] = [TimingCut::Off, TimingCut::Quarters, TimingCut::Eighths];

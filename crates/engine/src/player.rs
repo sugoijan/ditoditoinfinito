@@ -214,8 +214,9 @@ pub struct Player {
     delta_sum: f64,
     delta_sq_sum: f64,
     delta_count: u32,
-    /// `(judgement, delta, song_time, combo_at)`.
-    last_flash: Option<(Judgement, f64, f64, u32)>,
+    /// `(judgement, delta, song_time, combo_at, w0)`, `w0` as
+    /// [`JudgementFlash::w0`].
+    last_flash: Option<(Judgement, f64, f64, u32, Option<bool>)>,
     /// The last shock stepped on: from when to when the notes to come are
     /// hidden.
     shock_blind: Option<(f64, f64)>,
@@ -936,10 +937,11 @@ impl Player {
         let mut times = 1;
         // A hit inside the FA+ window: counted, and weighed apart by the
         // EX score.
-        let w0 = match ev.kind {
-            JudgeEventKind::Tap(j, delta) => self.ruleset.judge.is_w0(j, delta) == Some(true),
-            _ => false,
+        let is_w0 = match ev.kind {
+            JudgeEventKind::Tap(j, delta) => self.ruleset.judge.is_w0(j, delta),
+            _ => None,
         };
+        let w0 = is_w0 == Some(true);
         match ev.kind {
             JudgeEventKind::Tap(j, _) => {
                 if combo.neutral == Some(j) {
@@ -1018,7 +1020,7 @@ impl Player {
         }
         if let JudgeEventKind::Tap(j, delta) = ev.kind {
             let delta = if j.is_miss() { 0.0 } else { delta };
-            self.last_flash = Some((j, delta, ev.song_time, self.combo));
+            self.last_flash = Some((j, delta, ev.song_time, self.combo, is_w0));
         }
         if self.gauge_failed_at.is_none() && self.ruleset.gauge.failed() {
             self.gauge_failed_at = Some(ev.song_time);
@@ -1178,13 +1180,15 @@ impl Player {
 
         let judgement = self
             .last_flash
-            .map(|(judgement, delta_seconds, at, combo_at)| JudgementFlash {
-                judgement,
-                delta_seconds,
-                age: age(at),
-                combo_at,
-                w0: self.ruleset.judge.is_w0(judgement, delta_seconds),
-            })
+            .map(
+                |(judgement, delta_seconds, at, combo_at, w0)| JudgementFlash {
+                    judgement,
+                    delta_seconds,
+                    age: age(at),
+                    combo_at,
+                    w0,
+                },
+            )
             .filter(|f| f.age < FLASH_SECONDS);
 
         let mut flashes: Vec<HoldFlash> = match self.hold_place {
@@ -1277,12 +1281,18 @@ impl Player {
             appearance: self.options.appearance,
             cover: self.shown_cover,
             scroll_action: self.options.scroll.scroll_action,
-            assist: self.chart_assist || self.options.transform.is_assist(),
+            assist: self.assisted(),
             timeline: Vec::new(),
             life: Vec::new(),
             gauge_failed_at: self.gauge_failed_at.map(|t| t as f32),
             ddr: self.ddr_clear(),
         }
+    }
+
+    /// Whether the play is assisted ([`Results::assist`]): its chart, or
+    /// its transform.
+    fn assisted(&self) -> bool {
+        self.chart_assist || self.options.transform.is_assist()
     }
 
     /// [`Results::ddr`]: under DDR A's rules with a bar, the rank kept by
@@ -1294,7 +1304,7 @@ impl Player {
         }
         let cleared = !self.failed && self.gauge_failed_at.is_none();
         let flare = cleared.then(|| rules.gauge.flare_rank().unwrap_or(0));
-        let assist = self.chart_assist || self.options.transform.is_assist();
+        let assist = self.assisted();
         Some(DdrClear {
             gauge: rules.stepmania.gauge,
             flare,

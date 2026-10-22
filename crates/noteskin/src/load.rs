@@ -487,8 +487,7 @@ impl Skin<'_> {
             };
         }
         match file.extension().to_ascii_lowercase().as_str() {
-            // SVG: our extension (`crate::svg`).
-            "png" | "jpg" | "jpeg" | "gif" | "bmp" | "svg" => Source::Image(file),
+            _ if crate::is_image(&file.path) => Source::Image(file),
             "lua" => Source::Lua(file),
             "txt" => Source::Model(file),
             "sprite" | "actor" | "model" | "xml" => Source::Legacy(file),

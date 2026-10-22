@@ -37,6 +37,7 @@ const MAX_STACK: usize = 4_000_000;
 const MAX_VALUES: usize = 8_000_000;
 
 const TAG_END: u16 = 0;
+const TAG_SHOW_FRAME: u16 = 1;
 const TAG_DO_ACTION: u16 = 12;
 const TAG_DEFINE_SOUND: u16 = 14;
 const TAG_SOUND_STREAM_HEAD: u16 = 18;
@@ -136,42 +137,12 @@ pub fn read(bytes: &[u8]) -> Result<Level, String> {
     Ok(level)
 }
 
-/// The song of a level file named `name` (`level_123.swf`): its chart
-/// (`ddi_chart::formats::ffr::song_from_beatbox`, titled by the file's
-/// name, its music `<name>.mp3`) and that music's bytes. `info` says
-/// what the level does not (an empty title: the file's name).
-pub fn level_song(
-    bytes: &[u8],
-    name: &str,
-    mut info: ddi_chart::formats::ffr::LevelInfo,
-) -> Result<(ddi_chart::Song, Vec<u8>), String> {
-    let level = read(bytes)?;
-    let beatbox = level.beatbox.ok_or("the level has no beatBox")?;
-    if level.mp3.is_empty() {
-        return Err("the level has no MP3 music".into());
-    }
-    let stem = name.rsplit('/').next().unwrap_or(name);
-    let stem = stem.rsplit_once('.').map_or(stem, |(s, _)| s).to_string();
-    if info.title.is_empty() {
-        info.title = stem.clone();
-    }
-    info.music = Some(format!("{stem}.mp3"));
-    let song =
-        ddi_chart::formats::ffr::song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())?;
-    Ok((song, level.mp3))
-}
-
 /// A level SWF of our own, as Flash compiles one (tests and fixtures:
 /// no FFR level is ever needed to check the game): `notes` as
 /// `_root.beatBox = [[frame, direction, color], …]` in one `DoAction`,
 /// `mp3` as a 44.1 kHz MP3 sound stream in blocks of a few kilobytes,
 /// zlib-compressed (`CWS`) or not.
 pub fn write_level(notes: &[(f64, &str, &str)], mp3: &[u8], compressed: bool) -> Vec<u8> {
-    fn tag(out: &mut Vec<u8>, code: u16, body: &[u8]) {
-        out.extend_from_slice(&((code << 6) | 0x3f).to_le_bytes());
-        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
-        out.extend_from_slice(body);
-    }
     fn push(code: &mut Vec<u8>, values: &[&[u8]]) {
         let data: Vec<u8> = values.concat();
         code.push(ACTION_PUSH);
@@ -199,34 +170,62 @@ pub fn write_level(notes: &[(f64, &str, &str)], mp3: &[u8], compressed: bool) ->
     code.push(ACTION_INIT_ARRAY);
     code.push(ACTION_SET_MEMBER);
     code.push(ACTION_END);
-    // A 0-bit rectangle, 30 frames a second, a frame a block.
-    let blocks = mp3.chunks(4096).collect::<Vec<_>>();
-    let mut body = vec![0u8, 0, 30];
-    body.extend_from_slice(&(blocks.len().max(1) as u16).to_le_bytes());
     // Playback and stream: MP3, 44.1 kHz, 16-bit stereo; 1,470 samples a
-    // frame; no latency.
-    tag(
-        &mut body,
-        TAG_SOUND_STREAM_HEAD2,
-        &[0x0f, 0x2f, 0xbe, 0x05, 0, 0],
-    );
-    tag(&mut body, TAG_DO_ACTION, &code);
-    for block in blocks {
+    // frame; no latency. A frame a block.
+    let mut swf = Swf::default()
+        .tag(TAG_SOUND_STREAM_HEAD2, &[0x0f, 0x2f, 0xbe, 0x05, 0, 0])
+        .tag(TAG_DO_ACTION, &code);
+    for block in mp3.chunks(4096) {
         let mut b = vec![0xbe, 0x05, 0, 0];
         b.extend_from_slice(block);
-        tag(&mut body, TAG_SOUND_STREAM_BLOCK, &b);
-        tag(&mut body, 1, &[]);
+        swf = swf.tag(TAG_SOUND_STREAM_BLOCK, &b).tag(TAG_SHOW_FRAME, &[]);
     }
-    tag(&mut body, TAG_END, &[]);
-    let mut out = if compressed { b"CWS" } else { b"FWS" }.to_vec();
-    out.push(8);
-    out.extend_from_slice(&((body.len() + 8) as u32).to_le_bytes());
-    if compressed {
-        out.extend(miniz_oxide::deflate::compress_to_vec_zlib(&body, 6));
-    } else {
-        out.extend(body);
+    swf.bytes(compressed)
+}
+
+/// A SWF writer, for [`write_level`] and the tests' own levels.
+#[derive(Default)]
+pub(crate) struct Swf {
+    tags: Vec<u8>,
+    frames: u16,
+}
+
+impl Swf {
+    pub(crate) fn tag(mut self, code: u16, body: &[u8]) -> Self {
+        if body.len() < 0x3f {
+            self.tags
+                .extend_from_slice(&((code << 6) | body.len() as u16).to_le_bytes());
+        } else {
+            self.tags
+                .extend_from_slice(&((code << 6) | 0x3f).to_le_bytes());
+            self.tags
+                .extend_from_slice(&(body.len() as u32).to_le_bytes());
+        }
+        self.tags.extend_from_slice(body);
+        if code == TAG_SHOW_FRAME {
+            self.frames += 1;
+        }
+        self
     }
-    out
+
+    /// The file, uncompressed (`FWS`) or zlib-compressed (`CWS`).
+    pub(crate) fn bytes(&self, compressed: bool) -> Vec<u8> {
+        // A 0-bit rectangle (one byte), 30 fps, its frames (at least one).
+        let mut body = vec![0u8, 0, 30];
+        body.extend_from_slice(&self.frames.max(1).to_le_bytes());
+        body.extend_from_slice(&self.tags);
+        body.extend_from_slice(&[0, 0]);
+        let len = (body.len() + 8) as u32;
+        let mut out = if compressed { b"CWS" } else { b"FWS" }.to_vec();
+        out.push(8);
+        out.extend_from_slice(&len.to_le_bytes());
+        if compressed {
+            out.extend(miniz_oxide::deflate::compress_to_vec_zlib(&body, 6));
+        } else {
+            out.extend(body);
+        }
+        out
+    }
 }
 
 /// A sound format byte's rate (bits 2–3).
@@ -564,48 +563,6 @@ fn text(slot: &Slot) -> String {
 pub(crate) mod tests {
     use super::*;
 
-    const TAG_SHOW_FRAME: u16 = 1;
-
-    /// A SWF writer for the tests' own levels.
-    #[derive(Default)]
-    pub(crate) struct Swf {
-        tags: Vec<u8>,
-    }
-
-    impl Swf {
-        pub(crate) fn tag(mut self, code: u16, body: &[u8]) -> Self {
-            if body.len() < 0x3f {
-                self.tags
-                    .extend_from_slice(&((code << 6) | body.len() as u16).to_le_bytes());
-            } else {
-                self.tags
-                    .extend_from_slice(&((code << 6) | 0x3f).to_le_bytes());
-                self.tags
-                    .extend_from_slice(&(body.len() as u32).to_le_bytes());
-            }
-            self.tags.extend_from_slice(body);
-            self
-        }
-
-        /// The file, uncompressed (`FWS`) or zlib-compressed (`CWS`).
-        pub(crate) fn bytes(&self, compressed: bool) -> Vec<u8> {
-            // A 0-bit rectangle (one byte), 30 fps, one frame.
-            let mut body = vec![0u8, 0, 30, 1, 0];
-            body.extend_from_slice(&self.tags);
-            body.extend_from_slice(&[0, 0]);
-            let len = (body.len() + 8) as u32;
-            let mut out = if compressed { b"CWS" } else { b"FWS" }.to_vec();
-            out.push(8);
-            out.extend_from_slice(&len.to_le_bytes());
-            if compressed {
-                out.extend(miniz_oxide::deflate::compress_to_vec_zlib(&body, 6));
-            } else {
-                out.extend(body);
-            }
-            out
-        }
-    }
-
     /// ActionScript 2 bytecode, as a compiler writes it.
     #[derive(Default)]
     pub(crate) struct As2 {
@@ -781,23 +738,23 @@ pub(crate) mod tests {
             )
             .tag(TAG_SOUND_STREAM_BLOCK, &block(&frames))
             .bytes(true);
-        let (song, mp3) = level_song(&swf, "Levels/level_42.swf", Default::default()).unwrap();
-        assert_eq!(mp3, frames);
-        assert_eq!(song.title, "level_42");
-        assert_eq!(song.music.as_deref(), Some("level_42.mp3"));
-        let notes = &song.charts[0].notes;
+        let c = &crate::ffr::find_levels(&["Levels/level_42.swf"], &[], "x")[0];
+        let level = crate::ffr::read_level(c, &swf).unwrap().unwrap();
+        assert_eq!(level.mp3, Some(frames.clone()));
+        assert_eq!(level.song.title, "level_42");
+        let notes = &level.song.charts[0].notes;
         assert_eq!((notes[0].tick.0, notes[0].lane), (1200, 0));
         assert_eq!((notes[1].tick.0, notes[1].lane), (1240, 3));
-        // No chart, or no music: not a song.
+        // No music: refused; no chart: not a level.
         let silent = Swf::default()
             .tag(TAG_DO_ACTION, &beatbox_actions(&[(30, "L", "red")]))
             .bytes(false);
-        assert!(level_song(&silent, "a.swf", Default::default()).is_err());
+        assert!(crate::ffr::read_level(c, &silent).is_err());
         let chartless = Swf::default()
             .tag(TAG_SOUND_STREAM_HEAD, &stream_head())
             .tag(TAG_SOUND_STREAM_BLOCK, &block(&frames))
             .bytes(false);
-        assert!(level_song(&chartless, "a.swf", Default::default()).is_err());
+        assert_eq!(crate::ffr::read_level(c, &chartless).unwrap(), None);
     }
 
     #[test]
@@ -839,7 +796,8 @@ pub(crate) mod tests {
             .tag(TAG_DO_ACTION, &beatbox_actions(&notes))
             .tag(TAG_SOUND_STREAM_BLOCK, &block(&mp3_frames(1)))
             .bytes(false);
-        let (song, _) = level_song(&swf, "level.swf", Default::default()).unwrap();
+        let song =
+            crate::ffr::chart_song(crate::path::RelPath::new("level.swf"), &swf, "level").unwrap();
         let rules = ddi_engine::rules::presets::itg().key();
         let player = Player::new(
             &song,

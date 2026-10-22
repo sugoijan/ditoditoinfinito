@@ -43,6 +43,27 @@ impl CoverMode {
     pub fn hidden(self) -> bool {
         matches!(self, CoverMode::Hidden | CoverMode::HiddenSudden)
     }
+
+    /// Its byte in a play log's binary form.
+    pub fn to_byte(self) -> u8 {
+        match self {
+            CoverMode::Off => 0,
+            CoverMode::Sudden => 1,
+            CoverMode::Hidden => 2,
+            CoverMode::HiddenSudden => 3,
+        }
+    }
+
+    /// The mode of a play log's byte ([`CoverMode::to_byte`]).
+    pub fn from_byte(byte: u8) -> Option<CoverMode> {
+        Some(match byte {
+            0 => CoverMode::Off,
+            1 => CoverMode::Sudden,
+            2 => CoverMode::Hidden,
+            3 => CoverMode::HiddenSudden,
+            _ => return None,
+        })
+    }
 }
 
 /// The lane covers and their heights.

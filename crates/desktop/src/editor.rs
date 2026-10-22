@@ -10,8 +10,8 @@
 //! `<name>.old` the first time in an editing session (the screen asks
 //! first); for a song read from `.sm` or `.dwi`, a new `.ssc` beside it,
 //! which the library reads before them as StepMania does (the old file
-//! is left as it is). Written to a temporary file first and renamed
-//! over, so a failed write leaves the old file whole. A bundled song or
+//! is left as it is). Written whole (`crate::paths::write_whole`), so a
+//! failed write leaves the old file whole. A bundled song or
 //! one read from a zip is not saved in place: a copy only. The song's
 //! pack is read again after a save. The autosave
 //! (`ddi_ui::state::editor::autosave`) is `editor-autosave.json` in the
@@ -24,16 +24,18 @@ use std::sync::Arc;
 
 use ddi_chart::Song;
 use ddi_chart::formats::sm_write;
-use ddi_session::listen::Listening;
+use ddi_library::pack::ChartFormat;
+use ddi_library::path::RelPathBuf;
+use ddi_session::listen::Listener;
 use ddi_ui::Cx;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen, SAVED};
 use ddi_ui::screens::select::{FEED, SelectCall};
-use ddi_ui::state::editor::Editor;
 use ddi_ui::state::editor::autosave::Autosave;
+use ddi_ui::state::editor::{Editor, export};
 
-use crate::audio::{Audio, Sound};
+use crate::audio::Audio;
 use crate::play::load::Loading;
 
 use crate::songs::Songs;
@@ -57,11 +59,8 @@ pub fn target(id: &str) -> Option<Target> {
         return None;
     }
     let chart = &s.entry.chart;
-    let ext = chart.extension()?.to_ascii_lowercase();
-    if !matches!(ext.as_str(), "ssc" | "sm" | "dwi") {
-        return None;
-    }
-    let file = if ext == "ssc" {
+    let ssc = ChartFormat::of(chart.as_str())? == ChartFormat::Ssc;
+    let file = if ssc {
         s.dir.join(chart.as_str())
     } else {
         s.dir
@@ -70,7 +69,7 @@ pub fn target(id: &str) -> Option<Target> {
     };
     let file = file.to_path(&s.root)?;
     Some(Target {
-        overwrites: ext == "ssc" || file.exists(),
+        overwrites: ssc || file.exists(),
         file,
         pack: s.pack.clone(),
     })
@@ -80,19 +79,18 @@ pub fn target(id: &str) -> Option<Target> {
 pub fn read(id: &str, chart: usize) -> Result<Editor, String> {
     let (files, entry) = crate::play::load::Files::of(id).ok_or_else(|| format!("no song {id}"))?;
     if crate::library::song(id).is_some_and(|s| s.work.is_some())
-        || ddi_library::ffr::is_level_chart(&entry.chart)
+        || ChartFormat::of(entry.chart.as_str()).is_none()
     {
         return Err("Only StepMania and DWI songs can be edited.".into());
     }
-    let bytes = files.read(&entry.chart)?;
-    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::legacy_text);
-    let ext = entry.chart.extension().unwrap_or("sm").to_ascii_lowercase();
-    let song = ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
-    Ok(Editor::open(song, chart))
+    Ok(Editor::open(
+        crate::play::load::chart_of(&files, &entry)?,
+        chart,
+    ))
 }
 
-/// Writes `song` as `.ssc` to `file`: through a temporary file renamed
-/// over it; the file there before kept as `<name>.old` when `backup`.
+/// Writes `song` as `.ssc` to `file` whole; the file there before kept
+/// as `<name>.old` when `backup`.
 pub fn save(song: &Song, file: &Path, backup: bool) -> Result<(), String> {
     let text = sm_write::write_ssc(song);
     let name = file
@@ -104,12 +102,7 @@ pub fn save(song: &Song, file: &Path, backup: bool) -> Result<(), String> {
         std::fs::copy(file, file.with_file_name(format!("{name}.old")))
             .map_err(|e| format!("keeping the old file: {e}"))?;
     }
-    let tmp = file.with_file_name(format!(".{name}.tmp"));
-    std::fs::write(&tmp, text.as_bytes()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, file).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    crate::paths::write_whole(file, text.as_bytes()).map_err(|e| e.to_string())
 }
 
 /// Where the autosave is kept.
@@ -142,73 +135,75 @@ struct Host {
 }
 
 /// Listening: the editor's own output, the music of a chart (decoded on
-/// a thread from when the editor opens, at the output's rate), what
-/// plays.
+/// a thread from when the editor opens, at the output's rate; again only
+/// for another file), what plays.
 struct Listen {
     audio: Audio,
-    /// The chart whose music is read or being read.
-    chart: usize,
-    music: Option<Sound>,
-    loading: Option<Loading>,
-    /// Asked for while the music was read: from that second.
-    waiting: Option<f64>,
-    playing: Option<Listening>,
+    id: String,
+    /// The music file being read.
+    loading: Option<(RelPathBuf, Loading)>,
+    listener: Listener<Audio>,
 }
 
 impl Listen {
     fn new(id: &str, chart: usize) -> Listen {
-        let audio = Audio::new(1.0);
-        let loading = Some(Loading::start(
-            id,
-            Some(chart),
-            audio.sample_rate(),
-            false,
-            None,
-            None,
-        ));
-        Listen {
-            audio,
-            chart,
-            music: None,
-            loading,
-            waiting: None,
-            playing: None,
+        let mut l = Listen {
+            audio: Audio::new(1.0),
+            id: id.to_string(),
+            loading: None,
+            listener: Listener::default(),
+        };
+        l.load(chart);
+        l
+    }
+
+    /// Reads chart `chart`'s music, unless that file is read already.
+    fn load(&mut self, chart: usize) {
+        let file = crate::library::song(&self.id)
+            .map_or_else(RelPathBuf::default, |s| s.entry.music_for(chart).to_owned());
+        if self.listener.read(&file) {
+            let rate = self.audio.sample_rate();
+            let loading = Loading::start(&self.id, Some(chart), rate, false, None, None);
+            self.loading = Some((file, loading));
         }
     }
 
     /// Takes in the music once read; plays it if it was waited for.
     fn poll(&mut self) {
-        let Some(result) = self.loading.as_ref().and_then(Loading::poll) else {
+        let Some(result) = self.loading.as_ref().and_then(|(_, l)| l.poll()) else {
             return;
         };
-        self.loading = None;
+        let Some((file, _)) = self.loading.take() else {
+            return;
+        };
         match result {
-            Ok(loaded) => self.music = Some(loaded.music),
+            Ok(loaded) => {
+                if let Err(e) =
+                    self.listener
+                        .music_ready(&file, loaded.music, Some(&mut self.audio))
+                {
+                    eprintln!("editor: listening: {e}");
+                }
+            }
             Err(e) => {
                 eprintln!("editor: the music: {e}");
-                self.waiting = None;
+                self.listener.music_failed(Some(&file));
             }
-        }
-        if let Some(from) = self.waiting.take() {
-            self.start(from);
         }
     }
 
-    fn start(&mut self, from: f64) {
-        let Some(music) = &self.music else {
-            return;
-        };
+    fn ask(&mut self, from: f64) {
         let s = crate::store::settings_cached();
-        self.playing = Listening::start(&mut self.audio, music, from, s.volume, s.audio_offset)
-            .map_err(|e| eprintln!("editor: listening: {e}"))
-            .ok();
+        if let Err(e) = self
+            .listener
+            .ask(&mut self.audio, from, s.volume, s.audio_offset)
+        {
+            eprintln!("editor: listening: {e}");
+        }
     }
 
     fn stop(&mut self) {
-        if let Some(p) = self.playing.take() {
-            p.stop(&mut self.audio);
-        }
-        self.waiting = None;
+        self.listener.stop(&mut self.audio);
     }
 }
 
@@ -242,24 +237,19 @@ impl EditorHost for Host {
                 cx.broadcast(message);
             }
             EditorCall::Export { sm } => {
-                let ext = if sm { "sm" } else { "ssc" };
+                let (text, ext) = export::simfile(editor.song(), sm);
                 let stem = self
                     .target
                     .as_ref()
                     .and_then(|t| t.file.file_stem())
                     .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| file_stem_of(&editor.song().title));
+                    .unwrap_or_else(|| export::file_stem(&editor.song().title));
                 let Some(path) = rfd::FileDialog::new()
                     .add_filter("Simfile", &[ext])
                     .set_file_name(format!("{stem}.{ext}"))
                     .save_file()
                 else {
                     return;
-                };
-                let text = if sm {
-                    sm_write::write_sm(editor.song())
-                } else {
-                    sm_write::write_ssc(editor.song())
                 };
                 if let Err(e) = std::fs::write(&path, text.as_bytes()) {
                     cx.broadcast(Message::new(SAVED).with("Error", Param::Str(e.to_string())));
@@ -274,14 +264,10 @@ impl EditorHost for Host {
             }
             EditorCall::Autosave => {
                 let a = editor.autosave(&self.id, crate::play::epoch_ms());
-                if let (Some(path), Ok(json)) = (autosave_path(), serde_json::to_string(&a)) {
-                    let tmp = path.with_extension("json.tmp");
-                    let written = std::fs::create_dir_all(path.parent().unwrap_or(&path))
-                        .and_then(|_| std::fs::write(&tmp, json))
-                        .and_then(|_| std::fs::rename(&tmp, &path));
-                    if let Err(e) = written {
-                        eprintln!("editor: autosave: {e}");
-                    }
+                if let (Some(path), Ok(json)) = (autosave_path(), serde_json::to_string(&a))
+                    && let Err(e) = crate::paths::write_whole(&path, json.as_bytes())
+                {
+                    eprintln!("editor: autosave: {e}");
                 }
             }
             EditorCall::Leave => {
@@ -290,55 +276,21 @@ impl EditorHost for Host {
             }
             EditorCall::Listen { from } => {
                 let mut l = self.listen.borrow_mut();
-                l.stop();
-                // Another chart's music, which may be another file.
-                let chart = editor.chart_index();
-                if chart != l.chart {
-                    l.chart = chart;
-                    l.music = None;
-                    l.loading = Some(Loading::start(
-                        &self.id,
-                        Some(chart),
-                        l.audio.sample_rate(),
-                        false,
-                        None,
-                        None,
-                    ));
-                }
+                // This chart's music, which may be another file.
+                l.load(editor.chart_index());
                 l.poll();
-                if l.music.is_some() {
-                    l.start(from);
-                } else {
-                    l.waiting = Some(from);
-                }
+                l.ask(from);
             }
             EditorCall::Stop => self.listen.borrow_mut().stop(),
         }
     }
 
     fn music_time(&self) -> Option<f64> {
-        let mut l = self.listen.borrow_mut();
+        let l = &mut *self.listen.borrow_mut();
         l.audio.tick();
         l.poll();
-        if let Some(from) = l.waiting {
-            return Some(from);
-        }
-        let t = l.playing.as_ref().and_then(|p| p.time(&l.audio));
-        if t.is_none() {
-            l.playing = None;
-        }
-        t
+        l.listener.time(&l.audio)
     }
-}
-
-/// A file name from a title: what file systems take.
-fn file_stem_of(title: &str) -> String {
-    let s: String = title
-        .chars()
-        .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
-        .collect();
-    let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "song".into() } else { s }
 }
 
 /// The editor on song `id` at chart `chart`.
@@ -431,25 +383,6 @@ mod tests {
         assert_eq!(names.len(), 2, "{names:?}");
     }
 
-    /// A silent mono WAV `seconds` long.
-    fn wav(seconds: f64) -> Vec<u8> {
-        let frames = (seconds * 48_000.0) as u32;
-        let mut w = b"RIFF".to_vec();
-        w.extend((36 + frames * 2).to_le_bytes());
-        w.extend(b"WAVEfmt ");
-        w.extend(16u32.to_le_bytes());
-        w.extend(1u16.to_le_bytes());
-        w.extend(1u16.to_le_bytes());
-        w.extend(48_000u32.to_le_bytes());
-        w.extend(96_000u32.to_le_bytes());
-        w.extend(2u16.to_le_bytes());
-        w.extend(16u16.to_le_bytes());
-        w.extend(b"data");
-        w.extend((frames * 2).to_le_bytes());
-        w.resize(w.len() + frames as usize * 2, 0);
-        w
-    }
-
     /// An `.sm` song of the library edited, saved as `.ssc` beside it
     /// (read before the `.sm` from then on), read back as edited, and
     /// playtested part-way without being kept.
@@ -475,7 +408,7 @@ mod tests {
              #NOTES:dance-single:x:Easy:3:0,0,0,0,0:1000\n0100\n0010\n0001\n;",
         )
         .unwrap();
-        std::fs::write(song.join("song.wav"), wav(8.0)).unwrap();
+        std::fs::write(song.join("song.wav"), crate::library::tests::wav(8.0)).unwrap();
         let (songs, report) = crate::library::scan_folders(std::slice::from_ref(&root));
         assert!(report.failed.is_empty(), "{:?}", report.failed);
         crate::library::register_for_tests(&songs);
@@ -539,11 +472,5 @@ mod tests {
         assert_eq!(p.session.player.tally().taps[0], 8);
         assert!(!results.failed);
         assert_eq!(store.len(), 0, "a playtest is never kept");
-    }
-
-    #[test]
-    fn file_names_from_titles() {
-        assert_eq!(file_stem_of("A/B: c?"), "A_B_ c_");
-        assert_eq!(file_stem_of(" .. "), "song");
     }
 }

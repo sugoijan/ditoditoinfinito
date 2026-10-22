@@ -30,4 +30,4 @@ pub mod svg;
 
 pub use load::{Button, LaneButton, Resolved, Source};
 pub use metrics::{NoteColorType, NoteDisplay, Part, PartMetrics};
-pub use skin::{Dir, FileRef, Folder, LoadError, PathError, Skin};
+pub use skin::{Dir, FileRef, Folder, LoadError, PathError, Skin, is_image};

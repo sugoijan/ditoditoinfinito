@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use crate::layout::Layout;
-use crate::model::{Chart, Difficulty, Song, SourceFormat};
+use crate::model::{Chart, Difficulty, Song, SourceFormat, SourceInfo};
 
 impl Song {
     /// First chart with the given layout id (e.g. `dance-single`) and difficulty.
@@ -72,7 +72,7 @@ impl Song {
             return None;
         }
         let index = self.effects_chart(index);
-        self.file_tag(&format!("NOTEDATA[{index}].MUSIC"))
+        self.file_tag(&SourceInfo::chart_tag_key(index, "MUSIC"))
     }
 
     /// Charts whose layout is known (the ones the game can play).

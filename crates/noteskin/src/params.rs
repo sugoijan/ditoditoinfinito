@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::ini::{Ini, string_to_float};
-use crate::skin::{Folder, Skin};
+use crate::skin::{Folder, LoadError, Skin};
 
 /// Parameters a skin may declare.
 pub const MAX_PARAMETERS: usize = 16;
@@ -160,6 +160,23 @@ pub fn hex_color(s: &str) -> Option<String> {
         .then(|| format!("#{}", hex.to_ascii_uppercase()))
 }
 
+/// Stored values kept within the bounds a skin may declare: names and
+/// texts of at most [`MAX_NAME`], finite numbers, at most
+/// [`MAX_PARAMETERS`] (what a skin takes of them is read as it loads).
+pub fn bound_stored(values: &mut Values) {
+    values.retain(|name, v| {
+        name.chars().count() <= MAX_NAME
+            && match v {
+                Value::Number(n) => n.is_finite(),
+                Value::Text(t) => t.chars().count() <= MAX_NAME,
+                Value::Bool(_) => true,
+            }
+    });
+    while values.len() > MAX_PARAMETERS {
+        values.pop_last();
+    }
+}
+
 /// A metric read as a boolean, as `GetMetricB` reads one (`1`, `true`).
 fn truthy(s: &str) -> bool {
     let s = s.trim();
@@ -279,6 +296,18 @@ impl Declared {
                 (p.name.clone(), v)
             })
             .collect()
+    }
+
+    /// Parameter `name`'s value as [`Declared::resolve`] gives it, or
+    /// `None` when it is not declared.
+    pub fn value(&self, stored: &Values, name: &str) -> Option<Value> {
+        let p = self.get(name)?;
+        Some(
+            stored
+                .get(name)
+                .and_then(|v| p.accept(v))
+                .unwrap_or_else(|| p.default.clone()),
+        )
     }
 
     /// The skin drawing it with `values` (resolved): the first choice that
@@ -427,55 +456,59 @@ fn choices(
 }
 
 /// The parameters the skins keyed `keys` ([`crate::bundled::key`]) among
-/// `skins` declare, by key: each skin's folder and whether it is bundled
-/// (a bundled skin's fallbacks are looked for among the bundled ones
-/// only, as a play loads it). Skins that declare none are left out.
-pub fn catalog<'a>(
-    skins: impl IntoIterator<Item = (&'a Folder, bool)>,
+/// `folders` declare, by key: the player's skins, then from `bundled` on
+/// the bundled ones (a bundled skin's fallbacks are looked for among the
+/// bundled ones only, as a play loads it). Skins that declare none are
+/// left out.
+pub fn catalog(
+    folders: &[Folder],
+    bundled: usize,
     keys: &[String],
 ) -> BTreeMap<String, Vec<Parameter>> {
-    let skins: Vec<(&Folder, bool)> = skins.into_iter().collect();
-    let all: Vec<Folder> = skins.iter().map(|(f, _)| (*f).clone()).collect();
-    let bundled: Vec<Folder> = skins
-        .iter()
-        .filter(|(_, b)| *b)
-        .map(|(f, _)| (*f).clone())
-        .collect();
     // No folder declares any: nothing to load.
-    if !all.iter().any(|f| {
+    if !folders.iter().any(|f| {
         f.text("metrics.ini")
             .is_some_and(|t| t.contains("[Parameters]"))
     }) {
         return BTreeMap::new();
     }
-    skins
+    folders
         .iter()
-        .filter_map(|(f, is_bundled)| {
-            let key = crate::bundled::key(&f.game, &f.name, *is_bundled);
+        .enumerate()
+        .filter_map(|(i, f)| {
+            let is_bundled = i >= bundled;
+            let key = crate::bundled::key(&f.game, &f.name, is_bundled);
             if !keys.contains(&key) {
                 return None;
             }
-            let among = if *is_bundled { &bundled } else { &all };
+            let among = if is_bundled {
+                &folders[bundled..]
+            } else {
+                folders
+            };
             let declared = Declared::of_skin(among, &f.game, &f.name);
             (!declared.parameters.is_empty()).then_some((key, declared.parameters))
         })
         .collect()
 }
 
-/// The skin to load for skin `name` of `game` among `folders` with the
-/// parameter values `stored`: the one its choices name for them (a skin
-/// that loads and falls back on it), else `name` itself.
-pub fn head(folders: &[Folder], game: &str, name: &str, stored: &Values) -> String {
-    let Ok(base) = Skin::load(folders, game, name) else {
-        return name.to_string();
-    };
+/// Skin `name` of `game` among `folders` as the parameter values `stored`
+/// pick it: the skin its choices name for them (one that loads and falls
+/// back on it), loaded in its place, else `name` itself.
+pub fn head<'a>(
+    folders: &'a [Folder],
+    game: &str,
+    name: &str,
+    stored: &Values,
+) -> Result<Skin<'a>, LoadError> {
+    let base = Skin::load(folders, game, name)?;
     let declared = Declared::from_ini(&base.metrics);
     let Some(variant) = declared.skin_for(&declared.resolve(stored)) else {
-        return name.to_string();
+        return Ok(base);
     };
     match Skin::load(folders, game, variant) {
-        Ok(v) if v.chain.contains(&base.chain[0]) => v.name,
-        _ => name.to_string(),
+        Ok(v) if v.chain.contains(&base.chain[0]) => Ok(v),
+        _ => Ok(base),
     }
 }
 
@@ -632,14 +665,14 @@ mod tests {
         ];
         let pick = |look: &str| {
             let stored: Values = [("Look".to_string(), Value::Text(look.into()))].into();
-            head(&folders, "dance", "Base", &stored)
+            head(&folders, "dance", "Base", &stored).unwrap().name
         };
         assert_eq!(pick("Plain"), "Base");
         assert_eq!(pick("gold"), "Base Gold");
         // Not one of its own: the skin itself.
         assert_eq!(pick("Other"), "Base");
         assert_eq!(pick("Gone"), "Base");
-        assert_eq!(head(&folders, "dance", "Nope", &Values::new()), "Nope");
+        assert!(head(&folders, "dance", "Nope", &Values::new()).is_err());
         // The variant declares what its base declares.
         let d = Declared::of_skin(&folders, "dance", "Base Gold");
         assert_eq!(d.parameters.len(), 1);
@@ -648,23 +681,22 @@ mod tests {
     #[test]
     fn the_catalog_has_the_listed_skins_that_declare_some() {
         let folders = [
-            folder("Base", "[Parameters]\nList=B\n[Parameter B]\nType=Toggle\n"),
             folder("Plain", ""),
             folder("On base", "[Global]\nFallbackNoteSkin=Base\n"),
+            folder("Base", "[Parameters]\nList=B\n[Parameter B]\nType=Toggle\n"),
         ];
-        let keys: Vec<String> = ["bundled:dance/base", "dance/plain", "dance/on base"]
+        let keys: Vec<String> = ["dance/plain", "dance/on base", "bundled:dance/base"]
             .into_iter()
             .map(str::to_string)
             .collect();
-        // Base bundled, the others the player's (falling back on it).
-        let skins = folders.iter().zip([true, false, false]);
-        let c = catalog(skins.clone(), &keys);
+        // The player's, the second falling back on Base, bundled.
+        let c = catalog(&folders, 2, &keys);
         assert_eq!(
             c.keys().collect::<Vec<_>>(),
             ["bundled:dance/base", "dance/on base"]
         );
         // Unlisted: left out.
-        assert!(catalog(skins, &keys[1..2]).is_empty());
+        assert!(catalog(&folders, 2, &keys[..1]).is_empty());
     }
 
     #[test]

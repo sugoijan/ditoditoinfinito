@@ -23,13 +23,7 @@ const SCHEME: &str =
     "the page asks for the system's color scheme: it follows the game's theme alone";
 
 pub(crate) fn check_boot(dest: Option<PathBuf>) -> Result<()> {
-    let dest = match dest {
-        Some(d) => d,
-        None => PathBuf::from(
-            std::env::var_os("TRUNK_STAGING_DIR")
-                .context("check-boot needs --dest or TRUNK_STAGING_DIR")?,
-        ),
-    };
+    let dest = crate::staging_dir(dest, "check-boot")?;
     let index = dest.join("index.html");
     let html =
         std::fs::read_to_string(&index).with_context(|| format!("reading {}", index.display()))?;

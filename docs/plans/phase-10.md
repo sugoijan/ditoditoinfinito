@@ -203,9 +203,8 @@ build their own SWFs).
   music, meter), `color`, `SYNTHETIC_BPM`; `formats::synthetic_bpm` for
   every frame-based format.
 - `crates/library/src/swf.rs`: `read` (a `Level`: the `beatBox`, the MP3,
-  its rate, the SWF's frame rate and version), `is_swf`, `level_song`
-  (the song, titled by the file's name, its music `<name>.mp3`, and the
-  MP3's bytes).
+  its rate, the SWF's frame rate and version), `is_swf`; a level read
+  into its song by `crates/library/src/ffr.rs`.
 - `ddi_engine::scroll::speed_for_song` and the manifest's BPM take any
   frame-based format.
 

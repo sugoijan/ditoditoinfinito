@@ -126,7 +126,7 @@ fn menu(device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
     let mut list = DrawList::new();
     list.quad(Quad {
         texture: Some(id),
-        cover: true,
+        fit: ddi_render::draw2d::Fit::Cover,
         ..Quad::plain(
             [0.0, 0.0, SIZE[0] as f32, SIZE[1] as f32],
             [1.0, 1.0, 1.0, 0.2],

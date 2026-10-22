@@ -22,6 +22,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 
 use crate::web::idb::{self, Db, Write};
+use crate::web::json;
 
 /// Plays read and written out at a time by the export.
 const EXPORT_BATCH: usize = 100;
@@ -76,20 +77,7 @@ fn from_raw(id: String, summary: Option<String>, raw: &JsValue) -> PlayEntry {
 }
 
 async fn append(e: PlayEntry) -> Result<(), String> {
-    let db = Db::open().await?;
-    let mut writes = vec![Write::Put {
-        store: idb::PLAYS,
-        key: e.id.clone(),
-        value: raw_value(&e),
-    }];
-    if let Some(summary) = &e.summary {
-        writes.push(Write::Put {
-            store: idb::PLAY_SUMMARIES,
-            key: e.id.clone(),
-            value: JsValue::from_str(summary),
-        });
-    }
-    db.write(writes).await
+    append_all(vec![e]).await
 }
 
 async fn append_all(entries: Vec<PlayEntry>) -> Result<(), String> {
@@ -593,13 +581,6 @@ pub(crate) fn remove_all(done: impl FnOnce(Result<(), String>) + 'static) {
 
 fn set(o: &Object, k: &str, v: JsValue) {
     let _ = Reflect::set(o, &JsValue::from_str(k), &v);
-}
-
-fn json(value: &impl serde::Serialize) -> JsValue {
-    serde_json::to_string(value)
-        .ok()
-        .and_then(|s| js_sys::JSON::parse(&s).ok())
-        .unwrap_or(JsValue::NULL)
 }
 
 /// `__DDI_DEBUG.history`: `count`, `loaded`, `error`, `blocked` (the

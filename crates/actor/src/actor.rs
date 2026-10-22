@@ -257,16 +257,27 @@ pub struct State {
     pub delay: f32,
 }
 
+/// How a UI image fits the rectangle it is drawn in, once the texture's
+/// size is known.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Fit {
+    /// Stretched over it (as StepMania draws a sprite).
+    #[default]
+    Stretch,
+    /// Its shape kept, center-cropped to fill it.
+    Cover,
+    /// Its shape kept, whole inside it and centered (a CD title in its
+    /// box).
+    Contain,
+}
+
 /// A sprite: a texture and its states.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sprite {
     /// The renderer's texture (an index it hands out).
     pub texture: u32,
-    /// UI images: center-crop to the drawn rectangle after the texture size is known.
-    pub cover: bool,
-    /// UI images: fit whole inside the drawn rectangle, centered, once
-    /// the texture size is known (a CD title in its box).
-    pub contain: bool,
+    /// UI images: how the image fits the drawn rectangle.
+    pub fit: Fit,
     /// Rounded corners, a soft edge, an outline, saturation: our
     /// extension, not StepMania's ([`Shape`]).
     pub shape: Shape,
@@ -304,8 +315,7 @@ impl Sprite {
         };
         Sprite {
             texture,
-            cover: false,
-            contain: false,
+            fit: Fit::Stretch,
             frames: states.iter().map(|s| s.rect).collect(),
             frame_size: size,
             states,
@@ -1208,10 +1218,8 @@ pub struct Quad {
     /// `y' = m[1]x + m[3]y + m[5]`, already scaled by the quad's size.
     pub transform: [f32; 6],
     pub texture: u32,
-    /// UI images: center-crop to the drawn rectangle after the texture size is known.
-    pub cover: bool,
-    /// UI images: fit whole inside the drawn rectangle, centered.
-    pub contain: bool,
+    /// UI images: how the image fits the drawn rectangle.
+    pub fit: Fit,
     /// `[left, top, right, bottom]` of the image, before `texcoord_offset`.
     pub uv: [f32; 4],
     pub texcoord_offset: [f32; 2],
@@ -2730,8 +2738,7 @@ impl Actor {
                     Some(Drawn::Quad(Quad {
                         transform,
                         texture: sprite.texture,
-                        cover: sprite.cover,
-                        contain: sprite.contain,
+                        fit: sprite.fit,
                         uv,
                         texcoord_offset: sprite.texcoord_offset,
                         diffuse,

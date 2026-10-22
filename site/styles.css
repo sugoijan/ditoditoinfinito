@@ -1,5 +1,61 @@
 /* Colors are the theme's (`--ground`, `--text`, `--muted`, `--accent`,
    `--line`: target/seo/theme.css, inlined before this). */
+
+/* The loader (index.html's `#boot-shell`), drawn from the page's first
+   bytes (`xtask check-boot`). */
+.boot-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--ground);
+  z-index: 9999;
+}
+
+.boot-shell.is-ready {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.boot-bar {
+  width: min(320px, 72vw);
+  height: 10px;
+}
+
+.boot-bar-track {
+  width: 100%;
+  height: 2px;
+  background: var(--line);
+  position: relative;
+}
+
+.boot-bar-fill {
+  position: absolute;
+  left: 0;
+  top: -2px;
+  height: 6px;
+  width: 4%;
+  background: var(--text);
+}
+
+.boot-shell.is-blocked .boot-bar {
+  display: none;
+}
+
+.boot-blocked {
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+  max-width: min(480px, 86vw);
+}
+
+.hidden {
+  display: none;
+}
+
 :root {
   color-scheme: dark;
 }

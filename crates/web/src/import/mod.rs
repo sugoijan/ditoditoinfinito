@@ -332,7 +332,8 @@ async fn run(
         .filter_map(|p| Some((pack::shared_path(p)?.into_string(), p.clone())))
         .collect();
     let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
-    let maybe_levels = !ddi_library::ffr::find_levels(&paths, &fallback).is_empty();
+    let level_candidates = ddi_library::ffr::find_levels(&paths, &candidates, &fallback);
+    let maybe_levels = !level_candidates.is_empty();
     let skins = ddi_noteskin::import::find_skins(&paths);
     // A folder read again with nothing left in it still drops its songs.
     if candidates.is_empty()
@@ -442,8 +443,7 @@ async fn run(
     let levels = ffr::import_levels(
         &db,
         &sources,
-        &paths,
-        &fallback,
+        &level_candidates,
         origin.as_ref().map(|o| o.folder.as_str()),
         &mut report,
         &progress,
@@ -813,7 +813,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     // Movies: what each is; kept when linked, or copied with "also store
     // background videos"; never when the game cannot play them.
     let mut movies = Vec::new();
-    for (relative, path) in reading.movies(paths) {
+    for (relative, path) in reading.movies().to_vec() {
         let src = source(sources, &path)?;
         let format = sniff_movie(src).await;
         let linkable = src.link(&path).filter(|_| linked).is_some();
