@@ -56,6 +56,36 @@ const RETRY: std::time::Duration = std::time::Duration::from_millis(250);
 /// The mouse's pointer id; touches are numbered after it.
 const MOUSE: u64 = 0;
 
+/// How long a play's window may be hidden and the play go on: macOS
+/// reports the window covered while it moves to or from its fullscreen
+/// Space (most of a second of animation), which must not stop a play; a
+/// window minimized, or another Space shown, for longer does.
+const HIDDEN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The window hidden during a play: since when, and whether the play
+/// stops for it once the window shows again (no frame is drawn, so the
+/// play is judged again only then).
+#[derive(Default)]
+struct Hidden {
+    since: Option<Instant>,
+}
+
+impl Hidden {
+    /// The window was hidden at `now` during a play (the first time
+    /// counts until it shows again).
+    fn hide(&mut self, now: Instant) {
+        self.since.get_or_insert(now);
+    }
+
+    /// The window shows again at `now`: how long it was hidden during a
+    /// play, and whether that stops the play (longer than
+    /// [`HIDDEN_GRACE`]).
+    fn show(&mut self, now: Instant) -> Option<(std::time::Duration, bool)> {
+        let hidden = now.saturating_duration_since(self.since.take()?);
+        Some((hidden, hidden > HIDDEN_GRACE))
+    }
+}
+
 /// The game's id, as the packages name it (`tools/package/`): the Linux
 /// desktop entry's and its icon's.
 #[cfg(target_os = "linux")]
@@ -97,6 +127,8 @@ pub struct Shell {
     preedit: bool,
     typing: bool,
     occluded: bool,
+    /// The window hidden during a play ([`HIDDEN_GRACE`]).
+    hidden: Hidden,
     /// A redraw was asked for and has not come: not asked again (a window
     /// that cannot draw, a locked screen, must not spin the loop).
     pending: bool,
@@ -275,6 +307,7 @@ impl Shell {
             preedit: false,
             typing: false,
             occluded: false,
+            hidden: Hidden::default(),
             pending: false,
             retry_at: None,
             start: Instant::now(),
@@ -486,6 +519,7 @@ impl Shell {
 
     fn resized(&mut self) {
         self.occluded = false;
+        self.shown();
         let Some(s) = &mut self.surface else { return };
         let size = s.window.inner_size();
         s.config.width = size.width.max(1);
@@ -507,6 +541,26 @@ impl Shell {
             size: [logical.width.max(1.0), logical.height.max(1.0)],
             ratio: self.scale as f32,
         });
+    }
+
+    /// The window shows again (or was resized, which shows it): a play
+    /// hidden longer than [`HIDDEN_GRACE`] stops as interrupted, its
+    /// prompt offering Retry; one hidden for less goes on, the notes
+    /// passed meanwhile judged at its next frame.
+    fn shown(&mut self) {
+        let Some((hidden, stops)) = self.hidden.show(Instant::now()) else {
+            return;
+        };
+        if !self.play.playing() {
+            return;
+        }
+        let secs = hidden.as_secs_f64();
+        if stops {
+            eprintln!("the window was hidden for {secs:.2} s: the play stops as interrupted");
+            self.play.feed.borrow_mut().interrupted = true;
+        } else {
+            eprintln!("the window was hidden for {secs:.2} s: the play goes on");
+        }
     }
 
     fn send(&mut self, event: UiEvent) {
@@ -1088,10 +1142,13 @@ impl ApplicationHandler for Shell {
                 self.send(UiEvent::Focus(f));
             }
             WindowEvent::Occluded(o) => {
-                // A play stops when its window is hidden, as the web's
-                // does with its page (its frames would stop).
+                // A play stops when its window stays hidden, as the web's
+                // does with its page (its frames stop); a moment hidden
+                // (a fullscreen Space's transition) does not stop it.
                 if o && self.play.playing() {
-                    self.play.feed.borrow_mut().interrupted = true;
+                    self.hidden.hide(Instant::now());
+                } else if !o {
+                    self.shown();
                 }
                 self.occluded = o;
                 self.pending = false;
@@ -1654,6 +1711,26 @@ mod tests {
         assert_eq!(at(1, 1)[3], 0);
         assert_eq!(at(8, 32), [0x16, 0x13, 0x18, 0xff]);
         assert_eq!(at(32, 45), [0xff, 0x6e, 0xa0, 0xff]);
+    }
+
+    /// A play's window hidden for a moment (macOS's fullscreen Space
+    /// entered or left) goes on; hidden longer, it stops. Shown again
+    /// without having been hidden during a play, nothing.
+    #[test]
+    fn a_window_hidden_for_a_moment_keeps_the_play() {
+        let t = Instant::now();
+        let ms = std::time::Duration::from_millis;
+        let mut h = Hidden::default();
+        assert_eq!(h.show(t), None);
+        h.hide(t);
+        // Hidden again before it showed: from the first time.
+        h.hide(t + ms(300));
+        assert_eq!(h.show(t + ms(700)), Some((ms(700), false)));
+        assert_eq!(h.show(t + ms(800)), None);
+        h.hide(t);
+        assert_eq!(h.show(t + HIDDEN_GRACE), Some((HIDDEN_GRACE, false)));
+        h.hide(t);
+        assert_eq!(h.show(t + ms(5000)), Some((ms(5000), true)));
     }
 
     #[test]

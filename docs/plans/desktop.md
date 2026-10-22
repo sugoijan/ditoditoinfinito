@@ -1890,7 +1890,10 @@ Built in `crates/desktop/src/play/`:
 - **`mod.rs`:** `Play`, the shared session (`ddi_session::play`) on the
   desktop's `Audio` and `DesktopInputs`: the shell's keyboard and pad
   edges come through a `Feed` (the keyboard's only while a play reads
-  them; a hidden window interrupts the play, as a hidden page does),
+  them; a window hidden for more than two seconds interrupts the play,
+  as a hidden page does; a moment hidden, as macOS reports a window
+  moving to or from its fullscreen Space, does not, `HIDDEN_GRACE` in
+  `shell.rs`),
   `--auto=pad`'s test pad answers there too. The play is kept in the
   history at its fail or its end through `ddi_session::record`, the
   record the web now builds the same way (moved out of

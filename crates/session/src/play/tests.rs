@@ -237,6 +237,38 @@ fn autoplay_is_all_top_tier_at_any_frame_rate() {
     }
 }
 
+/// Frames that stop for most of a second (desktop's window hidden while
+/// macOS moves it to its fullscreen Space) and go on: the notes passed
+/// meanwhile are judged at the next frame, autoplay's all top tier.
+#[test]
+fn autoplay_is_all_top_tier_across_a_gap_in_the_frames() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let clock: Clock = Rc::new(RefCell::new(100.0));
+    let config = SessionConfig::from_settings(&settings, true, None);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.012),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    assert!(run(&mut s, &clock, 60.0, 20.0).is_none());
+    let before = s.player.tally().taps[0];
+    *clock.borrow_mut() += 1.9;
+    let Some(SessionEvent::Finished { results, .. }) = run(&mut s, &clock, 60.0, 200.0) else {
+        panic!("no end after the gap");
+    };
+    let t = s.player.tally();
+    assert!(t.taps[0] > before, "{t:?}");
+    assert!(t.taps[1..].iter().all(|&n| n == 0), "{t:?}");
+    assert_eq!(t.let_go, 0);
+    assert!(!results.failed);
+}
+
 #[test]
 fn autoplay_through_a_test_pad_is_all_top_tier() {
     let song = bundled("beatucada");
