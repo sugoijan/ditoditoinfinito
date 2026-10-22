@@ -211,6 +211,33 @@ fn call_with(
                 true,
             );
         }
+        Act::AddButton { id, lane } => {
+            let (name, controls, standard) = {
+                let m = model.borrow();
+                let name = m
+                    .bind_layout
+                    .lanes
+                    .get(lane)
+                    .map(|l| l.label().to_string())
+                    .unwrap_or_default();
+                (name, m.settings.controls.clone(), standard_pads(&m))
+            };
+            let (m, f, pad) = (model.clone(), feed.clone(), id.clone());
+            cx.overlay(
+                KeyDialog::for_pad(
+                    env.clone(),
+                    &name,
+                    &id,
+                    controls,
+                    standard,
+                    Rc::new(move |control, cx| {
+                        m.borrow_mut().add_pad_control(&pad, lane, &control);
+                        send(&m, &f, cx);
+                    }),
+                ),
+                true,
+            );
+        }
         Act::Confirm(reset) => {
             let (title, body, yes) = reset.texts(&model.borrow());
             let (m, f, p) = (model.clone(), feed.clone(), platform.clone());

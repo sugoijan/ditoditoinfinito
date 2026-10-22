@@ -525,9 +525,6 @@ Menus:
   library); kanji titles without a transliteration are not found by
   romaji (no reading dictionary); input methods tried by the
   maintainer in Safari on the published URL (2026-10-22).
-- *New:* the guided controller binding records one control per lane; a
-  second set (face buttons beside the d-pad) comes only from the standard
-  defaults, while the keyboard has "add key".
 - The skin preview shows the chosen skin only; lifts and fakes are not in
   its demo (`docs/plans/skin-preview.md`).
 

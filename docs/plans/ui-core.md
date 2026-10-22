@@ -1242,7 +1242,14 @@ Done, 6.3 options (2026-10-16):
   library's), "Any device" (the first press picks it), the keyboard
   (bind, reset its keys, per lane: add a key, clear), each controller
   connected or saved (what it plays: saved, defaults, one pad of a
-  double; bind, clear, use defaults, forget). The bind flow
+  double; bind, clear, use defaults, forget; per lane, where it plays
+  the layout with a table of its own: add a button, clear, 2026-10-22).
+  A controller's Add button takes the next button, stick or hat
+  direction that controller presses (`KeyDialog::for_pad`), moved from
+  any other lane of the table as a key is; its Start is refused (Start
+  and Back act before any lane), its Back, another controller's Back,
+  Escape or holding a button cancels, and a key asks for the
+  controller. The bind flow
   (`crates/ui/src/state/bind.rs`, natively tested) is the Yew one's: each lane,
   then a controller's Start and Back (skippable), a press released
   before the next, one device only, a control used twice or a lane of

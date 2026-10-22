@@ -1,6 +1,7 @@
 //! The options screen's dialogs: a confirmation (resets, removing a
 //! noteskin), the guided binding ([`BindFlow`]: each lane in turn on the
-//! device being bound, then a live test) and taking one key for a lane.
+//! device being bound, then a live test) and taking one key (or one
+//! controller's control) for a lane.
 //! The two that listen take keys and controllers' controls as they are
 //! ([`Screen::raw_input`]); pointers still press their buttons.
 
@@ -403,14 +404,18 @@ impl Screen for BindDialog {
     }
 }
 
-/// Told the key taken.
+/// Told the key (or the controller's control) taken.
 pub type KeyFn = Rc<dyn Fn(String, &mut Cx)>;
 
-/// "Press a key for Left": the next key pressed, Escape to cancel.
+/// "Press a key for Left": the next key pressed, Escape to cancel. Or,
+/// for a controller ([`KeyDialog::for_pad`]), the next button, stick or
+/// hat direction it presses.
 pub struct KeyDialog {
     env: Env,
     lane: String,
     on_key: KeyFn,
+    /// The controller whose control is taken (none: the keyboard's key).
+    pad: Option<String>,
     /// The saved bindings and the standard controllers (their Back
     /// cancels), and the buttons held.
     pads: (ddi_engine::ControlBindings, Vec<String>),
@@ -425,6 +430,7 @@ impl KeyDialog {
             env,
             lane: lane.into(),
             on_key,
+            pad: None,
             pads: Default::default(),
             holds: Holds::default(),
             message: None,
@@ -442,23 +448,57 @@ impl KeyDialog {
         self
     }
 
+    /// The next control controller `id` presses, for a lane: not its
+    /// Start (refused: Start and Back act before any lane), its Back
+    /// cancels, as another controller's Back, Escape or holding a button.
+    pub fn for_pad(
+        env: Env,
+        lane: &str,
+        id: &str,
+        controls: ddi_engine::ControlBindings,
+        standard: Vec<String>,
+        on_control: KeyFn,
+    ) -> KeyDialog {
+        let mut d = KeyDialog::new(env, lane, on_control).with_pads(controls, standard);
+        d.pad = Some(id.to_string());
+        d
+    }
+
+    /// The controller's own Start and Back (saved, else the standard
+    /// ones).
+    fn pad_start_back(&self, id: &str) -> (Option<String>, Option<String>) {
+        let (controls, standard) = &self.pads;
+        controls
+            .pad(id, standard.iter().any(|s| s == id))
+            .map_or((None, None), |p| (p.start, p.back))
+    }
+
+    fn say(&mut self, message: String, root: &mut Actor) {
+        self.message = Some(message);
+        let fresh = self.tree();
+        if let (Kind::Frame(old), Kind::Frame(new)) = (&mut root.kind, fresh.kind) {
+            *old = new;
+        }
+    }
+
     fn tree(&self) -> Actor {
         let env = self.env.clone();
         let w = 460.0_f32.min(self.screen[0] - 32.0);
         let h = 170.0;
-        let (mut c, [x, y]) = shell(
-            &env,
-            self.screen,
-            [w, h],
-            &format!("A key for {}", self.lane),
-        );
-        let mut p = env.text(
-            "Prompt",
-            "Press a key (Escape, a controller's Back or holding its button cancels).",
-            14.0,
-            600,
-            "Text",
-        );
+        let (title, prompt) = if self.pad.is_some() {
+            (
+                format!("A button for {}", self.lane),
+                "Press a button, a stick or a hat direction on the controller (Escape, its Back \
+                 or holding a button cancels).",
+            )
+        } else {
+            (
+                format!("A key for {}", self.lane),
+                "Press a key (Escape, a controller's Back or holding its button cancels).",
+            )
+        };
+        let (mut c, [x, y]) = shell(&env, self.screen, [w, h], &title);
+        let mut p = env.text("Prompt", prompt, 14.0, 600, "Text");
         wrap(&mut p, w - 48.0);
         c.push(left(p, x + 24.0, y + 66.0));
         if let Some(m) = &self.message {
@@ -513,18 +553,54 @@ impl Screen for KeyDialog {
             Input::Raw(e) if e.device == DeviceId::Keyboard && e.pressed => {
                 match e.control.as_str() {
                     "Escape" => cx.close(true),
+                    _ if self.pad.is_some() => {
+                        self.say("Press it on the controller.".into(), root);
+                    }
                     "Backspace" => {
-                        self.message =
-                            Some("Backspace leaves a song; press a different key.".into());
-                        let fresh = self.tree();
-                        if let (Kind::Frame(old), Kind::Frame(new)) = (&mut root.kind, fresh.kind) {
-                            *old = new;
-                        }
+                        self.say(
+                            "Backspace leaves a song; press a different key.".into(),
+                            root,
+                        );
                     }
                     code => {
                         (self.on_key)(code.to_string(), cx);
                         cx.close(false);
                     }
+                }
+                Handled::Yes
+            }
+            // The controller's own: taken, unless it is its Start or Back.
+            Input::Raw(e)
+                if self
+                    .pad
+                    .as_ref()
+                    .is_some_and(|id| e.device == DeviceId::Gamepad(id.clone())) =>
+            {
+                self.holds.edge(e);
+                if !e.pressed {
+                    return Handled::Yes;
+                }
+                let id = self.pad.clone().unwrap_or_default();
+                let (start, back) = self.pad_start_back(&id);
+                let label = || {
+                    e.control
+                        .parse::<ddi_platform::gamepad::Control>()
+                        .map(|c| c.label())
+                        .unwrap_or_else(|_| e.control.clone())
+                };
+                if back.as_deref() == Some(e.control.as_str()) {
+                    cx.close(true);
+                } else if start.as_deref() == Some(e.control.as_str()) {
+                    self.say(
+                        format!(
+                            "{} is this controller's Start. Press a different one.",
+                            label()
+                        ),
+                        root,
+                    );
+                } else {
+                    (self.on_key)(e.control.clone(), cx);
+                    cx.close(false);
                 }
                 Handled::Yes
             }

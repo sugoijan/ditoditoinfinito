@@ -208,6 +208,11 @@ pub enum Act {
     Bind(Option<DeviceId>),
     /// One more key for a lane of the keyboard.
     AddKey(usize),
+    /// One more control for a lane of controller `id` (its next press).
+    AddButton {
+        id: String,
+        lane: usize,
+    },
     /// Start or stop the volume sample (in the gesture).
     Sample,
     /// Download the play history.
@@ -1189,18 +1194,34 @@ impl OptionsModel {
                 .collect(),
             _ => layout.lanes.iter().map(|l| l.label().to_string()).collect(),
         };
+        let own = !matches!(pad_use, PadUse::OnePad { .. });
         let table = match pad_use {
             PadUse::Table { table, .. } | PadUse::OnePad { single: table, .. } => table,
             PadUse::Unused => Vec::new(),
         };
         let b = bindings.unwrap_or_default();
+        // A lane's own controls, as the keyboard's keys: one more (from
+        // the controller, so only while it is connected) or none. A
+        // controller playing one pad of the layout plays it with its
+        // bindings of the one-pad layout: changed there.
+        let lane_buttons: &[&str] = match (own, count > 0) {
+            (false, _) => &[],
+            (true, true) => &["Add button", "Clear"],
+            (true, false) => &["Clear"],
+        };
         for (lane, name) in lanes.iter().enumerate() {
             rows.push(actions(
                 &format!("pad.{j}.lane.{lane}"),
                 name,
-                &[],
+                lane_buttons,
                 &list(table.get(lane).map(Vec::as_slice).unwrap_or_default()),
-                "What plays this lane; Bind changes it.",
+                if own {
+                    "Add button takes the next button, stick or hat direction you press on this \
+                     controller for this lane (Escape, its Back or holding a button a second \
+                     cancels); a control plays one lane only. Clear empties the lane."
+                } else {
+                    "What plays this lane; its bindings for the one-pad style change it."
+                },
             ));
         }
         for (what, c) in [("Start", &b.start), ("Back", &b.back)] {
@@ -1556,6 +1577,10 @@ impl OptionsModel {
                         Act::Done
                     }
                     ["pad", n] => self.pad_action(n.parse().unwrap_or(usize::MAX), b),
+                    ["pad", n, "lane", l] => match (n.parse::<usize>(), l.parse::<usize>()) {
+                        (Ok(j), Ok(lane)) => self.pad_lane_action(j, lane, b),
+                        _ => Act::Nothing,
+                    },
                     _ => Act::Nothing,
                 }
             }
@@ -1600,6 +1625,83 @@ impl OptionsModel {
             }
             _ => Act::Nothing,
         }
+    }
+
+    /// A lane row's button of the `j`th controller listed: Add button or
+    /// Clear.
+    fn pad_lane_action(&mut self, j: usize, lane: usize, button: usize) -> Act {
+        let Some((id, standard, _)) = self.pads().into_iter().nth(j) else {
+            return Act::Nothing;
+        };
+        let label = self
+            .data()
+            .sections
+            .iter()
+            .flat_map(|s| &s.options)
+            .find(|o| o.id == format!("pad.{j}.lane.{lane}"))
+            .and_then(|o| o.values().get(button).cloned())
+            .unwrap_or_default();
+        match label.as_str() {
+            "Add button" => Act::AddButton { id, lane },
+            "Clear" => {
+                let layout = self.bind_layout.clone();
+                let mut table = self.pad_lanes(&id, standard);
+                if let Some(c) = table.get_mut(lane) {
+                    c.clear();
+                }
+                let mut pad = self.pad_entry(&id, standard);
+                pad.set_table(&layout.id, table);
+                self.settings.set_pad_bindings(pad);
+                Act::Done
+            }
+            _ => Act::Nothing,
+        }
+    }
+
+    /// Controller `id`'s table for the layout shown: saved, else the
+    /// standard defaults, else nothing on every lane.
+    fn pad_lanes(&self, id: &str, standard: bool) -> Vec<Vec<String>> {
+        let layout = &self.bind_layout;
+        let mut table = self
+            .settings
+            .controls
+            .pad_table(id, standard, layout)
+            .unwrap_or_default();
+        table.resize_with(layout.lane_count(), Vec::new);
+        table
+    }
+
+    /// A control added to a lane of controller `id` for the layout shown
+    /// (taken from any other lane: a control plays one lane only), as the
+    /// keyboard's [`Self::add_key`]. The dialog never takes its Start or
+    /// Back (they act before any lane).
+    pub fn add_pad_control(&mut self, id: &str, lane: usize, control: &str) {
+        let layout = self.bind_layout.clone();
+        let standard = self.standard(id);
+        let mut table = self.pad_lanes(id, standard);
+        let mut from = None;
+        for (i, controls) in table.iter_mut().enumerate() {
+            if i != lane && controls.iter().any(|c| c == control) {
+                from = Some(i);
+            }
+            controls.retain(|c| c != control);
+        }
+        if let Some(controls) = table.get_mut(lane) {
+            controls.push(control.to_string());
+        }
+        let mut pad = self.pad_entry(id, standard);
+        pad.set_table(&layout.id, table);
+        self.settings.set_pad_bindings(pad);
+        let name = |i: usize| layout.lanes.get(i).map_or("", |l| l.label()).to_string();
+        let shown = control
+            .parse::<Control>()
+            .map(|c| c.label())
+            .unwrap_or_else(|_| control.to_string());
+        self.notice = match from {
+            Some(f) => format!("{shown} moved from {} to {}.", name(f), name(lane)),
+            None => format!("{shown} added to {}.", name(lane)),
+        };
+        self.settings.save();
     }
 
     /// A controller's saved entry, else its standard defaults (so a table

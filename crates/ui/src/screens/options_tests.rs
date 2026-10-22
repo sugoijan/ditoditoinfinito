@@ -697,3 +697,93 @@ fn the_footer_calibrates_from_any_section() {
     r.h.tap(PointerKind::Mouse, "Link.Calibrate");
     assert!(r.logged("leave Calibrate"), "{:?}", r.fake.log.borrow());
 }
+
+#[test]
+fn a_controller_lane_takes_one_more_control_as_the_keyboard_does() {
+    let mut r = rig([1280.0, 720.0], DESIGN);
+    let edge = |control: &str, pressed: bool| {
+        UiEvent::Raw(RawInput {
+            device: DeviceId::Gamepad("Pad".into()),
+            control: control.into(),
+            pressed,
+            host_time: HostTime(0.0),
+            slot: 0,
+        })
+    };
+    let press = |r: &mut Rig, control: &str| {
+        r.h.send(edge(control, true));
+        r.h.send(edge(control, false));
+        r.h.run(0.3);
+    };
+    let single = ddi_chart::Layout::dance_single();
+    let table = || {
+        stored()
+            .controls
+            .pad_table("Pad", true, &ddi_chart::Layout::dance_single())
+            .unwrap()
+    };
+    r.section("Controls");
+    // The standard pad's Left: the d-pad's and X.
+    r.row("pad.0.lane.0");
+    r.h.key("Enter", "Enter");
+    r.h.run(0.2);
+    assert_eq!(r.top(), "key");
+    // Its Start is refused, a key asks for the controller.
+    press(&mut r, "button:9");
+    assert_eq!(r.top(), "key");
+    r.raw("KeyQ");
+    assert_eq!(r.top(), "key");
+    // A shoulder button: added to Left, kept with the others.
+    press(&mut r, "button:5");
+    assert_ne!(r.top(), "key");
+    assert_eq!(table()[0], ["button:14", "button:2", "button:5"]);
+    assert!(
+        r.state.borrow().notice.ends_with("added to Left."),
+        "{}",
+        r.state.borrow().notice
+    );
+    // A play reads both: the first and the added one play Left.
+    let b = stored().controls.resolve(
+        &single,
+        &[ConnectedPad {
+            id: "Pad".into(),
+            index: 0,
+            standard: true,
+        }],
+    );
+    let pad = DeviceId::Gamepad("Pad".into());
+    assert_eq!(b.lane_of(&pad, "button:14"), Some(0));
+    assert_eq!(b.lane_of(&pad, "button:5"), Some(0));
+    // B is a lane's, not Back, on the controller bound: it moves.
+    r.row("pad.0.lane.0");
+    r.h.key("Enter", "Enter");
+    r.h.run(0.2);
+    press(&mut r, "button:1");
+    assert_eq!(
+        table()[0],
+        ["button:14", "button:2", "button:5", "button:1"]
+    );
+    assert!(table()[3].iter().all(|c| c != "button:1"));
+    assert!(
+        r.state
+            .borrow()
+            .notice
+            .ends_with("moved from Right to Left."),
+        "{}",
+        r.state.borrow().notice
+    );
+    // Its Back cancels, nothing changed.
+    r.row("pad.0.lane.1");
+    r.h.key("Enter", "Enter");
+    r.h.run(0.2);
+    assert_eq!(r.top(), "key");
+    press(&mut r, "button:8");
+    assert_ne!(r.top(), "key");
+    assert_eq!(table()[1], ["button:13", "button:0"]);
+    // Clear empties the lane.
+    r.h.key("ArrowRight", "ArrowRight");
+    r.h.key("Enter", "Enter");
+    r.h.run(0.2);
+    assert!(table()[1].is_empty());
+    assert_eq!(table()[0].len(), 4);
+}
