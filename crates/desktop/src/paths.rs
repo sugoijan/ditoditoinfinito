@@ -57,15 +57,18 @@ pub fn cache_dir() -> Option<PathBuf> {
 }
 
 /// Writes `bytes` to `path` whole or not at all: its folder made, a
-/// synced temporary file beside it (`<name>.<process>.tmp`, removed on a
+/// synced temporary file beside it (`<name>.<process>-<n>.tmp`, removed on a
 /// failure) renamed over it.
 pub fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    // A temp file of its own per write: threads may write the same file.
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut tmp = path.as_os_str().to_owned();
-    tmp.push(format!(".{}.tmp", std::process::id()));
+    tmp.push(format!(".{}-{n}.tmp", std::process::id()));
     let tmp = PathBuf::from(tmp);
     let written = std::fs::File::create(&tmp)
         .and_then(|mut f| {
