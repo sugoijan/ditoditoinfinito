@@ -17,8 +17,9 @@ use crate::history::{LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, NoteState};
 use crate::rules::ddr::{DdrClear, flare_points};
+use crate::rules::ffr::FfrResult;
 use crate::rules::{
-    FailPolicy, FullCombo, Judgement, LifeType, Ruleset, ScoreCtx, ScoreView, Tally,
+    EmptyPress, FailPolicy, FullCombo, Judgement, LifeType, Ruleset, ScoreCtx, ScoreView, Tally,
 };
 use crate::scroll::{ScrollAction, ScrollOptions, ScrollState};
 use crate::transform::{self, TransformOptions};
@@ -152,6 +153,9 @@ pub struct Results {
     /// (`docs/plans/rulesets.md`).
     #[serde(default)]
     pub ddr: Option<DdrClear>,
+    /// Under FFR's rules, its flag, total score and raw goods.
+    #[serde(default)]
+    pub ffr: Option<FfrResult>,
 }
 
 /// One judgement of a play ([`Results::timeline`]); a tap's offset to
@@ -290,7 +294,17 @@ impl Player {
         if ruleset.judge.shock_rows {
             shock_rows(&mut transformed.notes, layout.lane_count().max(chart_lanes));
         }
-        let judge = Judge::new(&transformed.notes, &timing, ruleset.judge.clone());
+        if ruleset.judge.taps_only {
+            taps_only(&mut transformed.notes);
+        }
+        let mut judge = Judge::new(&transformed.notes, &timing, ruleset.judge.clone());
+        // Every stray press counts, in a lane without notes too.
+        if matches!(
+            ruleset.judge.empty_press,
+            EmptyPress::Boo | EmptyPress::BooFromFirstNote
+        ) {
+            judge = judge.with_lanes(layout.lane_count().max(chart_lanes));
+        }
         let lanes = layout
             .lane_count()
             .max(chart_lanes)
@@ -928,8 +942,8 @@ impl Player {
         // to it and counts its judgement that many times, one that breaks
         // it counts as the segment's miss combo; dance points and the
         // holds', mines' and shocks' own outcomes are unchanged. A
-        // StepMania rule, so not under Dancing☆Onigiri's.
-        let (hit_times, miss_times) = if self.ruleset.id == "danoni" {
+        // StepMania rule, so not under Dancing☆Onigiri's or FFR's.
+        let (hit_times, miss_times) = if matches!(self.ruleset.id.as_str(), "danoni" | "ffr") {
             (1, 1)
         } else {
             self.timing.combo_at(ev.tick)
@@ -1286,6 +1300,10 @@ impl Player {
             life: Vec::new(),
             gauge_failed_at: self.gauge_failed_at.map(|t| t as f32),
             ddr: self.ddr_clear(),
+            ffr: self
+                .ruleset
+                .is_ffr()
+                .then(|| FfrResult::of(&self.tally, self.max_combo, self.ctx.steps)),
         }
     }
 
@@ -1343,6 +1361,25 @@ fn shock_rows(notes: &mut [Note], lanes: usize) {
         }
         start = end;
     }
+}
+
+/// Only taps, as FFR's rules play a chart
+/// ([`JudgeTable::taps_only`](crate::rules::JudgeTable::taps_only)): a
+/// hold's or roll's head a tap, the rest left out.
+fn taps_only(notes: &mut Vec<Note>) {
+    notes.retain_mut(|n| match n.kind {
+        NoteKind::Tap => true,
+        NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
+            n.kind = NoteKind::Tap;
+            true
+        }
+        NoteKind::Mine
+        | NoteKind::Lift
+        | NoteKind::Fake
+        | NoteKind::Shock
+        | NoteKind::AutoKeysound
+        | NoteKind::Dummy => false,
+    });
 }
 
 /// `seconds` to the nearest microsecond, as the input log keeps it

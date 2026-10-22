@@ -218,6 +218,9 @@ pub struct Judge {
     /// Shock rows ([`JudgeTable::shock_rows`]): each row's notes, one a
     /// lane.
     shocks: Vec<Vec<usize>>,
+    /// The second of the chart's first judged press ([`EmptyPress::BooFromFirstNote`]):
+    /// that of the chart as given, a play started part-way too.
+    first_note: Option<f64>,
 }
 
 impl Judge {
@@ -296,7 +299,13 @@ impl Judge {
         } else {
             (Vec::new(), Vec::new())
         };
+        let first_note = notes
+            .iter()
+            .filter(|n| n.judgeable && n.is_press_judged())
+            .map(|n| n.seconds)
+            .reduce(f64::min);
         let mut judge = Judge {
+            first_note,
             notes,
             rows: Vec::new(),
             cursor: vec![0; lane_count],
@@ -358,6 +367,18 @@ impl Judge {
             row.holds.retain(|&i| notes[i].judgeable);
             row.seconds >= song_time && !row.holds.is_empty()
         });
+    }
+
+    /// Judges presses in at least `lanes` lanes, those without notes too
+    /// (where every stray press counts, a Boo in a lane the chart leaves
+    /// empty).
+    pub fn with_lanes(mut self, lanes: usize) -> Judge {
+        if lanes > self.lanes.len() {
+            self.lanes.resize(lanes, Vec::new());
+            self.cursor.resize(lanes, 0);
+            self.down.resize(lanes, false);
+        }
+        self
     }
 
     pub fn table(&self) -> &JudgeTable {
@@ -889,6 +910,12 @@ impl Judge {
             let boo = match self.table.empty_press {
                 EmptyPress::Ignore => false,
                 EmptyPress::Boo => true,
+                // FFR: nothing before the first note. R^3 times a Boo by
+                // the game's frame, which a press inside three frames of a
+                // note of its lane can move past that note (`booConflict`);
+                // a press so close always hits the note here (the press's
+                // own time is judged, not a frame's), so that never arises.
+                EmptyPress::BooFromFirstNote => self.first_note.is_some_and(|t| song_time >= t),
                 EmptyPress::ExcessiveEarly { lo, hi, .. } => self.lanes[lane_idx][from..]
                     .iter()
                     .map(|&idx| &self.notes[idx])

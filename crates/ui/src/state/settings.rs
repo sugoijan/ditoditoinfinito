@@ -792,13 +792,14 @@ impl Settings {
 
     /// The key the play history keeps a chart's bests under, from what
     /// the song list knows of the chart: its layout, whether it is a
-    /// Dancing☆Onigiri work's, and the excessive setting such a chart
-    /// gives ([`chart_excessive`]). The same as `ruleset_for(chart)`'s
-    /// key's `best_key` (a test holds them equal).
+    /// Dancing☆Onigiri work's or an FFR level's, and the excessive setting
+    /// such a work's chart gives ([`chart_excessive`]). The same as
+    /// `ruleset_for(chart)`'s key's `best_key` (a test holds them equal).
     pub fn best_key_for(
         &self,
         layout: &str,
         danoni: bool,
+        ffr: bool,
         excessive: Option<bool>,
     ) -> ddi_engine::rules::RulesetKey {
         let chart = ddi_chart::Chart {
@@ -813,6 +814,7 @@ impl Settings {
             timing: None,
             display_bpm: None,
             danoni: danoni.then(Default::default),
+            ffr,
         };
         let mut key = self.ruleset_for(&chart).key();
         // Excessive as the chart sets it, where the player left it to the
@@ -1090,11 +1092,16 @@ mod tests {
                     .collect(),
                 ..Default::default()
             }),
+            ffr: false,
         };
         let plain = Chart {
             danoni: None,
             layout: "dance-single".into(),
             ..work(Vec::new())
+        };
+        let level = Chart {
+            ffr: true,
+            ..plain.clone()
         };
         for mode in [
             RulesetMode::Original,
@@ -1120,11 +1127,13 @@ mod tests {
                     work(vec![("excessiveUse", "true,on")]),
                     work(Vec::new()),
                     plain.clone(),
+                    level.clone(),
                 ] {
                     let play = s.ruleset_for(&chart).key().best_key();
                     let list = s.best_key_for(
                         &chart.layout,
                         chart.danoni.is_some(),
+                        chart.ffr,
                         chart_excessive(&chart),
                     );
                     assert_eq!(list, play, "{mode:?} {excessive:?} {:?}", chart.danoni);
@@ -1137,5 +1146,19 @@ mod tests {
         );
         assert_eq!(chart_excessive(&work(Vec::new())), Some(false));
         assert_eq!(chart_excessive(&plain), None);
+        // An FFR level plays by FFR's rules where each chart is left to
+        // its game, else by the preset chosen.
+        let mut s = Settings {
+            ruleset_mode: RulesetMode::Original,
+            ..Settings::default()
+        };
+        assert_eq!(s.ruleset_for(&level).id, "ffr");
+        assert_eq!(s.ruleset_for(&plain).id, "itg");
+        s.ruleset_mode = RulesetMode::AllStepMania;
+        assert_eq!(s.ruleset_for(&level).id, "itg");
+        s.ruleset = "ffr".into();
+        assert_eq!(s.ruleset_for(&plain).id, "ffr");
+        s.ruleset_mode = RulesetMode::AllDanoni;
+        assert_eq!(s.ruleset_for(&level).id, "danoni");
     }
 }

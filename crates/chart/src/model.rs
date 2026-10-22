@@ -243,6 +243,11 @@ pub struct Chart {
     /// What a Dancing☆Onigiri chart says beyond its notes.
     #[serde(default)]
     pub danoni: Option<DanoniChart>,
+    /// An FFR level's chart (`formats::ffr`): played by FFR's rules where
+    /// the player leaves each chart to its game's. Not in its digest (the
+    /// notes and timing are).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ffr: bool,
 }
 
 /// A Dancing☆Onigiri chart's own settings, kept for the rulesets and

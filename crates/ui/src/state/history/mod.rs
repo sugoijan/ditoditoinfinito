@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use ddi_chart::Song;
 use ddi_engine::player::{PlayOptions, Results};
 use ddi_engine::rules::ddr::DdrClear;
+use ddi_engine::rules::ffr::Flag;
 use ddi_engine::rules::{FullCombo, Judgement, ScoreView, Tally};
 pub use ddi_platform::history::{PlayEntry, PlayStore, Reply, is_play_id, play_id};
 use serde::{Deserialize, Serialize};
@@ -205,7 +206,11 @@ fn first_judge() -> u32 {
 /// better to the end. Under DDR A's rules, LIFE4's clear types too
 /// (`docs/plans/rulesets.md`): a clear under the LIFE4 gauge (or RISKY)
 /// and single digit perfects, a perfect full combo short of a marvelous
-/// one by 1 to 9 Perfects.
+/// one by 1 to 9 Perfects. Under FFR's rules, its flags instead of the
+/// full combos' kinds (`ddi_engine::rules::ffr::Flag`, R^3's song icons
+/// in its order): a clear, a full combo, then single digit goods to AAA,
+/// which only FFR's rules earn and compare among themselves (bests are
+/// kept by ruleset).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Lamp {
@@ -217,6 +222,13 @@ pub enum Lamp {
     PerfectFullCombo,
     SingleDigitPerfects,
     MarvelousFullCombo,
+    SingleDigitGoods,
+    Omniflag,
+    Missflag,
+    Averageflag,
+    Blackflag,
+    Booflag,
+    Aaa,
 }
 
 impl Lamp {
@@ -231,6 +243,19 @@ impl Lamp {
     /// The lamp the play's judgements earn, failed or not (the results
     /// show a full combo's kind beside FAILED).
     pub fn played(r: &Results) -> Lamp {
+        if let Some(ffr) = &r.ffr {
+            return match ffr.flag {
+                Flag::Pass => Lamp::Clear,
+                Flag::FullCombo => Lamp::FullCombo,
+                Flag::SingleDigitGoods => Lamp::SingleDigitGoods,
+                Flag::Omniflag => Lamp::Omniflag,
+                Flag::Missflag => Lamp::Missflag,
+                Flag::Averageflag => Lamp::Averageflag,
+                Flag::Blackflag => Lamp::Blackflag,
+                Flag::Booflag => Lamp::Booflag,
+                Flag::Aaa => Lamp::Aaa,
+            };
+        }
         let ddr = r.ddr.as_ref();
         match r.full_combo {
             FullCombo::None if ddr.is_some_and(DdrClear::life4) => Lamp::Life4Clear,
@@ -256,6 +281,13 @@ impl Lamp {
             Lamp::PerfectFullCombo => ("PerfectFullCombo", "PFC"),
             Lamp::SingleDigitPerfects => ("SingleDigitPerfects", "SDP"),
             Lamp::MarvelousFullCombo => ("MarvelousFullCombo", "MFC"),
+            Lamp::SingleDigitGoods => ("SingleDigitGoods", "SDG"),
+            Lamp::Omniflag => ("Omniflag", "OMNIFLAG"),
+            Lamp::Missflag => ("Missflag", "MISSFLAG"),
+            Lamp::Averageflag => ("Averageflag", "AVFLAG"),
+            Lamp::Blackflag => ("Blackflag", "BLACKFLAG"),
+            Lamp::Booflag => ("Booflag", "BOOFLAG"),
+            Lamp::Aaa => ("Aaa", "AAA"),
         }
     }
 
@@ -270,6 +302,13 @@ impl Lamp {
             Lamp::PerfectFullCombo => Some("PERFECT FULL COMBO"),
             Lamp::SingleDigitPerfects => Some("SINGLE DIGIT PERFECTS"),
             Lamp::MarvelousFullCombo => Some("MARVELOUS FULL COMBO"),
+            Lamp::SingleDigitGoods => Some("SINGLE DIGIT GOODS"),
+            Lamp::Omniflag => Some("OMNIFLAG"),
+            Lamp::Missflag => Some("MISSFLAG"),
+            Lamp::Averageflag => Some("AVERAGEFLAG"),
+            Lamp::Blackflag => Some("BLACKFLAG"),
+            Lamp::Booflag => Some("BOOFLAG"),
+            Lamp::Aaa => Some("AAA"),
         }
     }
 }

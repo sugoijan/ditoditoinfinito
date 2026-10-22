@@ -6,6 +6,7 @@
 
 pub mod danoni;
 pub mod ddr;
+pub mod ffr;
 pub mod gauge;
 pub mod presets;
 pub mod score;
@@ -82,8 +83,12 @@ impl Window {
 pub enum EmptyPress {
     /// DDR / StepMania: nothing happens.
     Ignore,
-    /// FFR: every stray press is a `Boo` event.
+    /// Every stray press is a `Boo` event.
     Boo,
+    /// FFR (R^3): a stray press is a `Boo` from the chart's first note
+    /// on, and nothing before it (rCubed's `commitJudge` drops a Boo
+    /// whose frame is before `gameFirstNoteFrame`; [`ffr`]).
+    BooFromFirstNote,
     /// Dancing☆Onigiri "Excessive": a press that is early by `lo..=hi`
     /// seconds of a pending note in the same lane is a `Boo`. `factor` is
     /// the intended life damage as a fraction of a miss; gauges decide
@@ -136,6 +141,19 @@ pub struct JudgeTable {
     /// such a row is mines, as StepMania plays it.
     #[serde(default)]
     pub shock_rows: bool,
+    /// Seconds (raw, scaled like the tiers) after a note at which it is
+    /// missed, where that is later than the widest late window: FFR's
+    /// hits end 117 ms late and its miss comes at the note's sixth frame
+    /// ([`ffr`]). Between the two the note can no longer be hit, and a
+    /// press goes on to the next note of its lane. `None`: missed as the
+    /// widest late window ends.
+    #[serde(default)]
+    pub miss_at: Option<f64>,
+    /// Only taps are played (FFR): a hold's or roll's head is a tap and
+    /// its body is not played; mines, shocks, lifts, fakes, dummies and
+    /// keysounds are left out, as R^3 plays a StepMania chart ([`ffr`]).
+    #[serde(default)]
+    pub taps_only: bool,
 }
 
 impl JudgeTable {
@@ -207,13 +225,18 @@ impl JudgeTable {
         None
     }
 
-    /// Widest late bound: a note older than this is a `Miss`.
+    /// When a note passed unhit is a `Miss`, seconds after it: the
+    /// widest late bound, or [`JudgeTable::miss_at`] where that is later.
     pub fn miss_after(&self) -> f64 {
-        Judgement::ALL[..5]
+        let late = Judgement::ALL[..5]
             .iter()
             .filter_map(|t| self.window(*t))
             .map(|w| w.late)
-            .fold(0.0, f64::max)
+            .fold(0.0, f64::max);
+        match self.miss_at {
+            Some(at) => late.max(self.scaled(at)),
+            None => late,
+        }
     }
 
     /// Widest early bound: a note further ahead than this cannot be hit.
@@ -865,7 +888,7 @@ pub struct Ruleset {
 /// players' choices (its windows, a judge offset) are not in it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RulesetKey {
-    /// `itg`, `sm5`, `ddr-a`, `danoni`, `calibration`.
+    /// `itg`, `sm5`, `ddr-a`, `ffr`, `danoni`, `calibration`.
     pub id: String,
     /// The StepMania presets' holds as played: [`presets::HoldStyle::Dance`]
     /// or [`presets::HoldStyle::Ticked`] (never `ByGame`: resolved for
@@ -942,9 +965,15 @@ impl Ruleset {
     }
 
     /// Whether this is one of the StepMania presets (not
-    /// Dancing☆Onigiri's rules, not calibration's).
+    /// Dancing☆Onigiri's or FFR's rules, not calibration's): those the
+    /// player's [`StepManiaOptions`] apply to.
     pub fn is_stepmania(&self) -> bool {
-        !matches!(self.id.as_str(), "danoni" | "calibration")
+        !matches!(self.id.as_str(), "danoni" | "ffr" | "calibration")
+    }
+
+    /// Whether these are FFR's rules ([`presets::ffr`]).
+    pub fn is_ffr(&self) -> bool {
+        self.id == "ffr"
     }
 
     /// Whether the player's DDR gauge ([`StepManiaOptions::gauge`])
@@ -1042,6 +1071,8 @@ mod tests {
             supersede: None,
             just: None,
             shock_rows: false,
+            miss_at: None,
+            taps_only: false,
         }
     }
 

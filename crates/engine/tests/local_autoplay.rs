@@ -3,10 +3,11 @@
 //! `DDI_AUTOPLAY_CORPUS=<dir>[:<dir>…] cargo test --release -p ddi-engine
 //! --test local_autoplay -- --nocapture` imports every `.sm`, `.ssc` and
 //! `.dwi` under the folders (recursively) and plays each chart's script
-//! ([`ddi_engine::autoplay::script`], on time) under ITG, StepMania 5 and
-//! DDR A, holds ticked on pump charts as the game's default does. Each play
-//! must end with every step at the top judgement, 100 %, the full EX score
-//! and DDR A's 1,000,000: whatever is left over (a mine under a hold, a
+//! ([`ddi_engine::autoplay::script`], on time) under ITG, StepMania 5,
+//! DDR A and FFR, holds ticked on pump charts as the game's default does.
+//! Each play must end with every step at the top judgement, 100 %, the
+//! full EX score, DDR A's 1,000,000 and FFR's AAA (its raw score 50 a
+//! note, no Boo): whatever is left over (a mine under a hold, a
 //! note the judge never reaches, a roll the taps cannot keep) is a bug in
 //! the importer, the judge or the script. Each play is also judged again
 //! from its input log ([`ddi_engine::history::replay`]) to the same
@@ -23,6 +24,7 @@ use ddi_engine::autoplay;
 use ddi_engine::judge::JudgeEventKind;
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::danoni::DanoniOptions;
+use ddi_engine::rules::ffr::Flag;
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{FullCombo, Judgement};
 use ddi_library::scan::parse_simfile;
@@ -31,7 +33,7 @@ use ddi_platform::{ClockSample, HostTime};
 /// The shell's frame, 60 Hz.
 const FRAME: f64 = 1.0 / 60.0;
 
-const PRESETS: [&str; 3] = ["itg", "sm5", "ddr-a"];
+const PRESETS: [&str; 4] = ["itg", "sm5", "ddr-a", "ffr"];
 
 #[test]
 fn local_autoplay() {
@@ -212,10 +214,22 @@ fn check(r: &Results) -> Vec<String> {
     if r.score.ex != r.score.max_ex {
         out.push(format!("EX {:?} of {:?}", r.score.ex, r.score.max_ex));
     }
-    if let Some(m) = r.score.money
-        && m != 1_000_000
-    {
-        out.push(format!("{m} points"));
+    match &r.ffr {
+        Some(ffr) => {
+            if ffr.flag != Flag::Aaa || t.boo > 0 {
+                out.push(format!("{:?}, {} stray presses", ffr.flag, t.boo));
+            }
+            if r.score.money != Some(50 * u64::from(t.total_taps())) {
+                out.push(format!("raw score {:?}", r.score.money));
+            }
+        }
+        None => {
+            if let Some(m) = r.score.money
+                && m != 1_000_000
+            {
+                out.push(format!("{m} points"));
+            }
+        }
     }
     out
 }

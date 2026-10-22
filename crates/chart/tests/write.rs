@@ -476,6 +476,7 @@ fn generated(rng: &mut Rng, ssc: bool) -> Song {
                 None
             },
             danoni: None,
+            ffr: false,
         });
     }
     let mut unknown_tags = Vec::new();

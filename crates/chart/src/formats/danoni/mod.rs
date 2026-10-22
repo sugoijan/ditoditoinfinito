@@ -221,6 +221,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                     timing: None,
                     display_bpm: None,
                     danoni: None,
+                    ffr: false,
                 });
             }
             continue;
@@ -407,6 +408,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                 fade: span.fade,
                 stage: Some(stage),
             }),
+            ffr: false,
         };
 
         let music = music_nos.get(i).copied().unwrap_or(0);

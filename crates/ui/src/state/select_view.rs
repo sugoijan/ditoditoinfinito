@@ -119,7 +119,7 @@ fn shows(c: &ChartInfo, settings: &Settings) -> bool {
 
 /// The best keys worked out so far in one [`select_data`], by what
 /// [`Settings::best_key_for`] reads of a chart.
-type BestKeys<'a> = HashMap<(&'a str, bool, Option<bool>), RulesetKey>;
+type BestKeys<'a> = HashMap<(&'a str, bool, bool, Option<bool>), RulesetKey>;
 
 /// The player's best on a chart under the rules the settings choose for
 /// it. Original charts show unassisted bests; generated charts show their
@@ -133,9 +133,10 @@ fn best_of<'a>(
 ) -> Option<Best> {
     let digest = chart.digest?;
     let danoni = entry.is_danoni_work();
+    let ffr = ddi_library::ffr::is_level_chart(&entry.chart);
     let ruleset = keys
-        .entry((chart.layout.as_str(), danoni, chart.excessive))
-        .or_insert_with(|| settings.best_key_for(&chart.layout, danoni, chart.excessive))
+        .entry((chart.layout.as_str(), danoni, ffr, chart.excessive))
+        .or_insert_with(|| settings.best_key_for(&chart.layout, danoni, ffr, chart.excessive))
         .clone();
     let key = BestKey {
         digest,

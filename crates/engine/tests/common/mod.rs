@@ -65,6 +65,7 @@ pub fn song(layout: &str, timing: TimingMap, notes: Vec<Note>) -> Song {
             timing: None,
             display_bpm: None,
             danoni: None,
+            ffr: false,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),

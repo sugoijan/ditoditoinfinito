@@ -1,7 +1,9 @@
 //! FFR levels in the library on disk (`docs/plans/phase-10.md`, step 2):
 //! a folder of level SWFs and a `beatBox` text beside its music, scanned
 //! in place, each level a song; played headless on a fake clock, the
-//! music taken out of the SWF, every note autoplayed to the top tier.
+//! music taken out of the SWF, every note autoplayed to the top tier,
+//! under the ruleset chosen and, each chart left to its game's rules,
+//! under FFR's (`docs/plans/rulesets.md`, "FFR").
 //!
 //! `DDI_FFR_FIXTURES=<dir>` with `--ignored` writes the same levels to a
 //! folder (the web's checks import them).
@@ -15,6 +17,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ddi_desktop::audio::Audio;
 use ddi_desktop::play::{Ended, Feed, Play, Request, load};
+use ddi_engine::player::Results;
+use ddi_engine::rules::ffr::Flag;
+use ddi_engine::rules::presets::RulesetMode;
 use ddi_platform::HostTime;
 use ddi_ui::state::settings::Settings;
 
@@ -68,9 +73,9 @@ fn write_levels(dir: &Path) {
     std::fs::write(text.join("DoAction.mp3"), &mp3).unwrap();
 }
 
-/// Autoplays chart 0 of library song `id` on a fake clock: its tally
-/// (taps by tier, then holds let go).
-fn autoplay(id: &str) -> Result<Vec<u32>, String> {
+/// Autoplays chart 0 of library song `id` on a fake clock under
+/// `settings`: its results.
+fn autoplay(id: &str, settings: &Settings) -> Result<Results, String> {
     let loaded = Rc::new(load::load(id, 48_000)?);
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
     let c = clock.clone();
@@ -78,7 +83,7 @@ fn autoplay(id: &str) -> Result<Vec<u32>, String> {
     let mut p = Play::start(
         Request::song(id, 0, true),
         loaded,
-        &Settings::default(),
+        settings,
         audio,
         Rc::new(RefCell::new(Feed::default())),
         None,
@@ -88,11 +93,7 @@ fn autoplay(id: &str) -> Result<Vec<u32>, String> {
     loop {
         let now = clock.fetch_add(step, Ordering::SeqCst) + step;
         match p.tick(HostTime(now as f64 / 1e9), None) {
-            Some(Ended::Finished { results, .. }) => {
-                let mut t = results.tally.taps.to_vec();
-                t.push(results.tally.let_go);
-                return Ok(t);
-            }
+            Some(Ended::Finished { results, .. }) => return Ok(*results),
             Some(_) => return Err("the play did not finish".into()),
             None => {}
         }
@@ -131,14 +132,32 @@ fn levels_in_a_folder_are_songs_that_play() {
         ]
     );
     ddi_desktop::library::register_for_tests(&songs);
+    let original = Settings {
+        ruleset_mode: RulesetMode::Original,
+        ..Settings::default()
+    };
     for s in &songs {
         // The music out of the level (or beside it), decoded.
         let loaded = load::load(&s.entry.id, 48_000).unwrap();
         assert!(loaded.music.duration() > 10.0, "{}", s.entry.title);
-        let t = autoplay(&s.entry.id).unwrap();
+        let r = autoplay(&s.entry.id, &Settings::default()).unwrap();
+        let t = r.tally;
         let n = s.entry.charts[0].notes as u32;
-        assert_eq!(t[0], n, "{}: {t:?}", s.entry.title);
-        assert_eq!(t[1..].iter().sum::<u32>(), 0, "{}: {t:?}", s.entry.title);
+        assert_eq!(t.taps[0], n, "{}: {t:?}", s.entry.title);
+        assert_eq!(
+            t.taps[1..].iter().sum::<u32>() + t.let_go,
+            0,
+            "{}",
+            s.entry.title
+        );
+        assert_eq!(r.ffr, None);
+        // By the level's own game's rules: FFR's, AAA.
+        let r = autoplay(&s.entry.id, &original).unwrap();
+        let ffr = r.ffr.expect("played by FFR's rules");
+        assert_eq!(ffr.flag, Flag::Aaa, "{}", s.entry.title);
+        assert_eq!(r.tally.taps[0], n);
+        assert_eq!(r.score.money, Some(50 * u64::from(n)));
+        assert_eq!(ffr.total, 1550 * u64::from(n));
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

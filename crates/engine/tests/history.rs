@@ -17,13 +17,14 @@ use ddi_engine::rules::{FailType, Ruleset, StepManiaOptions};
 use ddi_engine::{ClockOptions, InputEvent, TimingCut, TransformOptions, Turn, autoplay};
 use ddi_platform::{ClockSample, HostTime};
 
-/// The rulesets a player can choose for `song`'s chart: each StepMania
-/// preset with dance and ticked holds, the pump chart's holds by its
-/// game, and Dancing☆Onigiri with its defaults and other options.
+/// The rulesets a player can choose for `song`'s chart: each preset
+/// with dance and ticked holds, the pump chart's holds by its game (FFR's
+/// rules playing them as taps), and Dancing☆Onigiri with its defaults and
+/// other options.
 fn rulesets(song: &Song) -> Vec<Ruleset> {
     let chart = &song.charts[0];
     let mut out = Vec::new();
-    for id in ["itg", "sm5", "ddr-a", "ddr-extreme"] {
+    for id in ["itg", "sm5", "ddr-a", "ddr-extreme", "ffr"] {
         for holds in [HoldStyle::Dance, HoldStyle::Ticked, HoldStyle::ByGame] {
             out.push(presets::for_chart(
                 RulesetMode::AllStepMania,

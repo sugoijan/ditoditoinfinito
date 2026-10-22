@@ -1,12 +1,13 @@
 # More rulesets: DDR EXTREME, DDR's gauges and FLARE, LIFE4's lamps
 
-Status: done 2026-10-21 (decision 57). Phase 10's "more rulesets"
+Status: done 2026-10-21 (decision 57); the `ffr` preset done 2026-10-22
+(decision 58, "FFR" below). Phase 10's "more rulesets"
 (`docs/PLAN.md` section 5): DDR's legacy scoring as the `ddr-extreme`
 preset, DDR A's other gauges (LIFE4, RISKY, FLARE I–EX, FLOATING FLARE)
 with the FLARE rank and FLARE SKILL a play keeps, and LIFE4's clear types
-as lamps. Everything lives in the shared crates (`ddi-engine`, `ddi-ui`,
-`ddi-theme`), so both shells have it with no code of their own. The `ffr`
-preset is not built (below).
+as lamps; then FlashFlashRevolution's rules as R^3 plays them. Everything
+lives in the shared crates (`ddi-engine`, `ddi-ui`, `ddi-theme`), so both
+shells have it with no code of their own.
 
 ## Research
 
@@ -151,13 +152,79 @@ keeps the combo; no life comes back. RISKY: one life, lost to a Miss.
 ### FFR
 
 `docs/research/formats-ffr-danoni.md` A2 gives rCubed's windows, raw and
-end-of-song score and life. Not built here: FFR has no grades (its
-community flags, AAA, SDG, black flag, are not a ladder the results can
-show as one), its Boo rule ignores presses before the first note and its
-miss comes 200 ms late while hits end at 117 ms (the engine would need
-both), and FFR charts have no holds or mines, so the preset would have
-to invent their rules. It belongs with the FFR chart import (another
-agent's, phase 10), as a module of its own when that lands.
+end-of-song score and life. Left out on 2026-10-21 (no grades, a Boo
+rule from the first note, a miss later than the hits end, no holds or
+mines); built on 2026-10-22 after reading rCubed again (`main` at
+`e57179c`, the commit A2 read; AGPL-3.0, so read for its rules and
+nothing transcribed):
+
+- **Windows** (`Constant.JUDGE_WINDOW`, `judgeScorePosition`): a press's
+  accuracy (press − note, ms) takes the last entry it is above: Average
+  (−118, −85], Good (−85, −51], Perfect (−51, −18], Amazing (−18, 17],
+  Perfect (17, 50], Good (50, 84], Good (84, 117]; above 117 nothing.
+  No Average on the late side. The times are whole milliseconds
+  (`getTimer`), so the early bounds being open only matters at an exact
+  instant.
+- **The note judged around:** `NoteBox.spawnArrow` places a note half a
+  frame into its frame (`POSITION = (time + 0.5/30) × 1000`), and both
+  drawing and judging use that; `GAME_FRAME` runs a frame behind the
+  clock's frames (`round(time × 30 − 0.5)`).
+- **Miss:** each frame, the notes on screen whose frame is six or more
+  behind the game's (`GAME_FRAME − FRAME + offset ≥ 6`) are missed, in
+  order: 200 ms after the frame starts, 183.3 ms (5.5 frames) after the
+  instant judged around. A press on a note past 117 ms is not a hit, and
+  the search goes on to the next note of the lane (`judgeScorePosition`
+  breaks only on a hit or a note too early), so a late press on a jack
+  can hit the second note while the first waits to be missed.
+- **Boo:** a press that hits nothing is a Boo, −5 raw score, −5 life,
+  0.2 raw goods, the combo kept; `commitJudge` returns on a Boo whose
+  frame is before the chart's first note's. That frame is the game's,
+  except that a press within three frames of a note of its lane
+  (`booConflict`, only with the default judge) moves it past the note:
+  a correction for the frame loop running behind the press's own time
+  (a press that close always hits the note when judged at its own
+  time).
+- **Combo:** every hit adds one, a Miss resets it, a Boo leaves it.
+- **Raw score** (`gameScore`): Amazing and Perfect 50, Good 25, Average
+  5, Boo −5, Miss −10; it is what the game shows in play, what a level's
+  best and rank are kept by (`ScoreHandler`'s `rawscore`, the song
+  list's icons, multiplayer's score) and may go negative.
+- **Total score** (`GameScoreResult.score_total`, the results' "grand
+  total"): (Amazing + Perfect) × 500 + Good × 250 + Average × 50 + max
+  combo × 1,000 − Miss × 300 − Boo × 15 + raw score, never below 0 (the
+  playlist gives a level's best as its notes × 1,550, which agrees).
+  `restartGame`'s running total uses the current combo instead; that is
+  a statistic of restarts, not a play's score.
+- **Raw goods** (`raw_goods`): Good 1, Average 1.8, Miss 2.4, Boo 0.2.
+- **Life** (`updateHealth`): whole numbers, 50 at the start, +5 a hit,
+  −5 a Miss or a Boo, never above 100; at 0 or below the game ends at
+  once (an unfinished play). The bar shades from red to green with no
+  danger state (`LifeBar.as`).
+- **What a play comes to:** no grade. The song list shows an icon
+  (`GlobalVariables.getSongIconIndex`, each that applies replacing the
+  one before): passed; FC (every note hit, the combo the notes); SDG
+  (the raw score within 250 of the most, fewer than 10 raw goods; no
+  full combo needed); OMNIFLAG (one each of a Good, an Average, a Miss
+  and a Boo); MISSFLAG (one Miss, the rest Amazing or Perfect); AVFLAG,
+  BLACKFLAG (one Average, one Good, a full combo); BOOFLAG (one Boo);
+  AAA (the raw score the most: every note an Amazing or a Perfect, no
+  Boo). That is R^3's own order, not a ladder the community wrote.
+- **Holds and mines:** FFR's charts have neither. R^3 plays StepMania
+  charts too (`ChartStepmania.as`, `ChartSSC.as`): it reads `1`, `2` and
+  `4` as notes (a hold's and a roll's head a note, its tail kept but not
+  played) and lists mines without playing them; lifts, fakes and
+  keysounds are not read at all.
+- **Per-chart judge:** R^3 can take another judge window
+  (`options.judgeWindow`, from the site's `configJudge`, a score then
+  not standard); a level holds none, so the importer has nothing to hand
+  on as a ruleset hint (PLAN.md 3.2).
+- **Found for the import, not changed here:** R^3 judges and draws a
+  note half a frame (16.7 ms) after its frame's start, and starts the
+  music `mp3Frame` frames into the game (`songDelay`, the SWF frame the
+  sound stream begins at, less 2), while the importer puts a note at its
+  frame's start from the music's start (`docs/plans/phase-10.md`). Both
+  are the chart's timing under any rules (an FFR level under ITG's too),
+  left to the import's check against a real level ("Left" there).
 
 ## Decided here (the maintainer may change any)
 
@@ -218,7 +285,63 @@ agent's, phase 10), as a module of its own when that lands.
     by default in `PrefsManager.cpp`) would give; whether Simply Love
     keeps it is not checked. Applying it changes those presets' plays
     (another judge version), so it is left to a decision of its own.
-11. `ffr` is left to the FFR import (above).
+11. `ffr` waited for the FFR import; built since (decision 58, below).
+
+### `ffr` (2026-10-22, decision 58)
+
+12. `ffr` ("FFR (R^3)", not approximate: the rules are in rCubed's
+    source) is R^3's default judge around the note's time: Amazing −18/+17
+    ms, Perfect −51/+50, Good −85/+117, Average −118 early only
+    (`presets::ffr`); a note missed 5.5 frames (183.3 ms) after it
+    (`JudgeTable::miss_at`, a new field; the windows still end at 117 ms,
+    and a later press goes on to the lane's next note); stray presses
+    Boos from the chart's first note on (`EmptyPress::BooFromFirstNote`;
+    `booConflict` not modeled, as it never applies to presses judged at
+    their own time). The windows are relative to the note's time as the
+    importer gives it; R^3's half-frame (above) is the importer's to add.
+    A stray press counts in every lane of the layout, those without
+    notes too (`Judge::with_lanes`, only under Boo rules, so the other
+    presets judge as before).
+13. Score: the raw score (`rules::ffr::FfrRaw`) is the score, shown in
+    play and kept for bests, as FFR keeps it; shown at 0 when below
+    (R^3 shows it negative, which only a play missing nearly every note
+    reaches; our scores are never negative). The total score and the raw
+    goods are results' stats ("Total score", "Raw goods") from
+    `Results::ffr` (`FfrResult`), computed from the counts and the
+    longest combo.
+14. Life: `rules::ffr::FfrLife`, whole numbers as R^3 keeps them, failing
+    at once at 0 (`FailPolicy::Immediate`); no danger state.
+15. No grade (the grade is empty). The flag is the lamp: `Lamp` gains
+    R^3's icons above FC in its order (single digit goods, omniflag,
+    missflag, averageflag, blackflag, booflag, AAA), PASS being a clear
+    and FC a full combo; only FFR's rules earn them, and bests are kept by
+    ruleset, so they never compare with DDR's. A failed play is FAILED
+    (R^3's unfinished). The theme gives each its own color.
+16. Holds, rolls, mines and the rest in charts from other games: as R^3
+    plays a StepMania chart, holds and rolls are taps at their heads and
+    everything else is left out (mines, shocks, lifts, fakes, dummies,
+    keysounds; `JudgeTable::taps_only`). Not an assist (the rules, not a
+    choice of the player; bests are by ruleset anyway). The hold style is
+    ignored (a key says dance holds), as are `#COMBOS` segments, a
+    StepMania rule.
+17. StepMania's options (fail type, life and judge levels, the battery,
+    DDR's gauge) do not apply, as under Dancing☆Onigiri's rules: FFR has
+    none of them (`Ruleset::is_stepmania` is false for `ffr`). Options'
+    rows say so. R^3's own options (autofail thresholds, another judge
+    window, the judge offset in frames) are not offered.
+18. Which charts: `ffr` is in the ruleset list (after DDR EXTREME), for
+    any chart. With "Rules for each chart" on "The chart's game"
+    (`RulesetMode::Original`), an FFR level plays by `ffr` as a
+    Dancing☆Onigiri work plays by Dancing☆Onigiri's rules: the precedent
+    for a chart made for another game. The level's chart says so
+    (`Chart::ffr`, set by the importer, not in the digest), and the song
+    list's best key reads it from the entry
+    (`ddi_library::ffr::is_level_chart`). Under the default ("The ruleset
+    below") levels play by the ruleset chosen, as before.
+19. Names: Amazing, Perfect, Good, Average, Miss; Boos are the results'
+    "Stray presses", always shown under `ffr`; no hold or mine rows. The
+    plays list says "FFR". No `JUDGE_VERSION` change: no kept play's
+    results change.
 
 ## Steps
 
@@ -229,6 +352,12 @@ agent's, phase 10), as a module of its own when that lands.
    the results' stat, lamp and mods, the history's lamps, the plays
    list's ruleset name; the theme's lamp colors. Done.
 3. Browser and desktop checks. Done (below).
+4. `ffr` (2026-10-22): engine (`rules::ffr`, `presets::ffr`,
+   `JudgeTable::miss_at` and `taps_only`, `EmptyPress::BooFromFirstNote`,
+   `Results::ffr`, `Chart::ffr`, `RulesetMode::Original` for levels),
+   UI (the ruleset row, the results' stats, the lamps and their colors,
+   the best key, the plays list's name, the options' wording), checks.
+   Done.
 
 ## Checks
 
@@ -270,3 +399,35 @@ agent's, phase 10), as a module of its own when that lands.
   gauge" row, FLARE VII). Not checked: the maintainer's Firefox and
   Safari by hand, a LIFE4 clear and SDP lamp in the browser (the
   autoplayer's bias cannot make one miss; unit tests cover them).
+- `ffr` (2026-10-22). Engine (`crates/engine/tests/ffr.rs`, each play
+  judged again from its key and log): every window half a millisecond
+  inside and outside its bounds; a missed note at 1 s + 183.3 ms, not
+  at the window's end; a press 150 ms late on a jack taking the second
+  note, the first missed after it; Boos only from the first note on, in
+  a lane without notes too, keeping the combo (raw 90, life 50%, SDG);
+  ten Misses failing at the tenth, eleven Boos after a hit, the life
+  capped at 100; autoplay AAA with the raw score 50 a note and the total
+  1,550 a note; holds, rolls, mines, lifts and fakes as taps or nothing;
+  the key, the StepMania options ignored, the chart's game picking `ffr`
+  for a level; a `beatBox` level by its frames (a frame late still AAA,
+  two a Blackflag). `rules::ffr` unit tests: the raw score, the life,
+  totals and raw goods, every flag in R^3's order. `history.rs` replays
+  autoplays and random plays (with holds, rolls, mines, lifts, shocks)
+  under `ffr`. `local_autoplay` lists `ffr` (AAA, 50 a note).
+- UI: `ffr_shows_its_totals_and_flags_and_no_grade`, the song list's
+  best key for a level (`the_song_lists_best_key_is_the_plays`).
+- Desktop (`crates/desktop/tests/ffr_levels.rs`): the three levels
+  autoplayed under the default settings (ITG, no FFR result) and under
+  "The chart's game" (FFR: AAA, 50 a note, total 1,550 a note).
+- Local corpus (`local_autoplay`, 1,749 files, 11,898 charts, under ITG,
+  StepMania 5, DDR A and FFR): every FFR play AAA and judged again to the
+  same results; the six DDR A shortfalls (a hold let go in "The Edge"
+  and "A Princess On My Horse") are the same at the commit before.
+- Browser (2026-10-22, `target/scratch/pw/ffr.mjs`, headless Chrome on
+  WebGPU, `ruleset: "ffr"`, Beatucada's Challenge autoplayed): on time
+  276 Amazings, the score 13,800, "Total score" 427,800, "Raw goods"
+  0.0, no grade, the history's lamp `aaa` and key `ffr`; 70 ms late 276
+  Goods (6,900, raw goods 276.0, a full combo); 150 ms late each press
+  past its note and 96 ms early on the next (4 Averages), then 7 Boos
+  and 7 Misses to an empty life, failed. Not checked: Firefox and Safari
+  by hand, a real FFR level's timing (see "Found for the import").

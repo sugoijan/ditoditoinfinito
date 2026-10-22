@@ -140,6 +140,7 @@ pub fn song(layout: &str, bpm: f64) -> Option<Song> {
             timing: None,
             display_bpm: None,
             danoni: None,
+            ffr: false,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),

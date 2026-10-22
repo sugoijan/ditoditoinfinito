@@ -80,6 +80,21 @@ total = (amazing+perfect)*500 + good*250 + average*50 + maxCombo*1000 − miss*3
 
 **Offsets.** Two user offsets: *Global offset* shifts chart frames/time (visual + audio alignment; `NoteMod.transformNote` adds `Math.round(offsetGlobal)` frames) and *Judge offset* shifts only the judgement comparison: `JUDGE_OFFSET_FRAMES = round(offsetJudge)`, `JUDGE_OFFSET_MS = offsetJudge*1000/30` (`GameplayDisplay.as` L633-637). Both are therefore specified **in 30-fps frames** (fractional allowed for ms path). An "auto judge offset" option exists (`SettingsTabGeneral.as`). A per-song `sync` is added at parse time.
 
+**Read again for the `ffr` preset (2026-10-22, same commit;
+`docs/plans/rulesets.md`, "FFR").** A note is judged and drawn at its
+`POSITION`, half a frame into its frame (`NoteBox.spawnArrow`:
+`(time + 0.5/30) × 1000`), so the miss at the sixth frame comes 183.3 ms
+after the instant the windows are around (200 ms after the frame's
+start). A press past a note's last window is not a hit on it and the
+search goes on to the lane's next note. The end-of-song total is
+`GameScoreResult.score_total`, with the **max** combo and floored at 0
+(the `hitCombo` formula above is `restartGame`'s statistic). The flags
+are R^3's song icons (`GlobalVariables.getSongIconIndex`), each that
+applies replacing the one before: passed, FC, SDG (raw score within 250
+of the most), OMNIFLAG, MISSFLAG, AVFLAG, BLACKFLAG, BOOFLAG, AAA (the
+raw score the most). The music starts `mp3Frame` frames into the game
+(`songDelay`; the SWF frame its sound stream begins at, less 2).
+
 ### A3. Options and supported modes
 
 - 4-key only (`noteDirections = ["D","L","U","R"]`, `validDirections`).

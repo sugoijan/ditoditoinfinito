@@ -50,8 +50,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [The play history](play-history.md) (2026-10-16): done, replays and the
   ghost included (decision 49); importing plays in `phase-10.md`.
 - [Phase 10](phase-10.md) (2026-10-21): importing plays done; FFR
-  levels (SWF and text `beatBox`) imported on both shells, their rules
-  waiting for the rulesets. Rulesets later.
+  levels (SWF and text `beatBox`) imported on both shells, played by
+  FFR's rules (`ffr`, in `rulesets.md`) where each chart is left to its
+  game. Left: their timing against a real level.
 - [The chart editor](editor.md) (2026-10-21): in progress. The
   `.ssc`/`.sm` writer, notes and timing with undo, the screen on both
   shells (song select's E, `#/edit`), listening, playtests, saving and
@@ -73,7 +74,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [More rulesets](rulesets.md) (2026-10-21): done (decision 57): DDR
   EXTREME's score, grades and windows, DDR A's LIFE4, RISKY, FLARE and
   FLOATING FLARE gauges with the FLARE rank and FLARE SKILL, LIFE4's
-  lamps. Left: SuperNOVA2/X, `ffr` (with the FFR import).
+  lamps; `ffr` (2026-10-22, decision 58): R^3's windows, miss, Boos, raw
+  and total score, life and flags. Left: SuperNOVA2/X.
 - [Lane covers and the preview video](lane-covers.md) (2026-10-21):
   lane covers (Sudden+, Hidden+, both) done: drawn over the lanes,
   moved and hidden in play, kept in the play's log for replays.

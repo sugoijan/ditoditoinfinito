@@ -50,6 +50,8 @@ pub fn itg() -> Ruleset {
             supersede: None,
             just: None,
             shock_rows: false,
+            miss_at: None,
+            taps_only: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -185,6 +187,8 @@ pub fn calibration() -> Ruleset {
             supersede: None,
             just: None,
             shock_rows: false,
+            miss_at: None,
+            taps_only: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W1,
@@ -237,6 +241,8 @@ pub fn sm5() -> Ruleset {
             supersede: None,
             just: None,
             shock_rows: false,
+            miss_at: None,
+            taps_only: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -323,6 +329,8 @@ pub fn ddr_a() -> Ruleset {
             supersede: None,
             just: None,
             shock_rows: true,
+            miss_at: None,
+            taps_only: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W4,
@@ -432,6 +440,8 @@ pub fn ddr_extreme() -> Ruleset {
             supersede: None,
             just: None,
             shock_rows: false,
+            miss_at: None,
+            taps_only: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -469,10 +479,105 @@ pub fn ddr_extreme() -> Ruleset {
         stepmania: StepManiaOptions::default(),
     }
 }
+
+/// One of FFR's 30 frames a second.
+const FFR_FRAME: f64 = 1.0 / 30.0;
+
+/// FlashFlashRevolution as its R^3 client plays it
+/// (`docs/plans/rulesets.md`, "FFR"; rCubed read for its rules, its code
+/// being AGPL: [`super::ffr`]).
+///
+/// The windows are R^3's default judge (`Constant.JUDGE_WINDOW`), around
+/// the instant it judges a note: Amazing −18/+17 ms, Perfect −51/+50,
+/// Good −85/+117, Average early only, −118 ms; R^3 takes a bound's early
+/// side as outside (`judgeAccuracy > t`), which only an exact instant can
+/// tell apart. Hits end 117 ms late, but a note is only missed once the
+/// game reaches its sixth frame after it (`GAME_FRAME − FRAME ≥ 6`), 5.5
+/// frames after that instant (half a frame into the note's frame,
+/// `NoteBox.spawnArrow`): [`JudgeTable::miss_at`]. A press that hits no
+/// note is a Boo from the chart's first note on
+/// ([`EmptyPress::BooFromFirstNote`]). Judged a note at a time; every hit
+/// keeps the combo and a Miss breaks it, a Boo does neither. The raw
+/// score and the life are [`super::ffr::FfrRaw`] and
+/// [`super::ffr::FfrLife`]; the life empty ends the play at once. No
+/// grades: what a play comes to is its flag (AAA, the flags, single digit
+/// goods, a full combo), the results' lamp. Only taps are played
+/// ([`JudgeTable::taps_only`]): FFR's charts have nothing else, and R^3
+/// plays a StepMania chart's holds and rolls as taps and its mines not at
+/// all (`ChartStepmania.as` reads `1`, `2` and `4` as notes). The
+/// StepMania presets' options (fail type, life and judge levels, the
+/// battery) do not apply, as FFR has none of them.
+pub fn ffr() -> Ruleset {
+    Ruleset {
+        id: "ffr".into(),
+        name: "FFR (R^3)".into(),
+        approximate: false,
+        judge: JudgeTable {
+            tiers: [
+                Some(Window {
+                    early: 0.018,
+                    late: 0.017,
+                }),
+                Some(Window {
+                    early: 0.051,
+                    late: 0.050,
+                }),
+                Some(Window {
+                    early: 0.085,
+                    late: 0.117,
+                }),
+                // No Average on the late side.
+                Some(Window {
+                    early: 0.118,
+                    late: 0.0,
+                }),
+                None,
+            ],
+            scale: 1.0,
+            add: 0.0,
+            // Holds, rolls and mines are not played.
+            hold_window: 0.0,
+            roll_window: 0.0,
+            mine_window: 0.0,
+            w0: None,
+            empty_press: EmptyPress::BooFromFirstNote,
+            judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
+            shock_rows: false,
+            miss_at: Some(5.5 * FFR_FRAME),
+            taps_only: true,
+        },
+        combo: ComboRules {
+            continue_min: Judgement::W4,
+            per_row: false,
+            held_increments: false,
+            let_go_breaks: false,
+            mine_breaks: false,
+            neutral: None,
+            let_go_loses_full_combo: false,
+            jumps_add_each: false,
+        },
+        score: Box::new(super::ffr::FfrRaw::new()),
+        gauge: Box::new(super::ffr::FfrLife::new()),
+        fail: FailPolicy::Immediate,
+        grades: grades(GradeBasis::Money, &[("", 0.0)]),
+        names: JudgeNames::new(
+            ["Amazing", "Perfect", "Good", "Average", "—", "Miss"],
+            "",
+            "",
+        ),
+        danoni: None,
+        stepmania: StepManiaOptions::default(),
+    }
+}
+
 /// Presets selectable by players, in menu order (excludes `calibration`
 /// and the chart-dependent [`danoni`] rules).
 pub fn all() -> Vec<Ruleset> {
-    vec![itg(), itg_fa_plus(), sm5(), ddr_a(), ddr_extreme()]
+    vec![itg(), itg_fa_plus(), sm5(), ddr_a(), ddr_extreme(), ffr()]
 }
 
 /// Dancing☆Onigiri rules with danoniplus's defaults, as for a chart from
@@ -484,7 +589,7 @@ pub fn danoni() -> Ruleset {
 /// Which rules a chart is played by (decision 23).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RulesetMode {
-    /// The chosen StepMania preset for every chart.
+    /// The chosen preset for every chart.
     #[default]
     AllStepMania,
     /// Each chart by the rules of the game it was written for.
@@ -527,9 +632,12 @@ impl HoldStyle {
     }
 }
 
-/// The ruleset to play `chart` with: the StepMania preset `preset` (ITG
-/// when unknown), its holds as `holds` says, or the Dancing☆Onigiri rules
-/// (which keep their own holds), as `mode` says.
+/// The ruleset to play `chart` with: the preset `preset` (ITG when
+/// unknown), its holds as `holds` says, or the Dancing☆Onigiri rules
+/// (which keep their own holds), as `mode` says. Leaving each chart to
+/// its game ([`RulesetMode::Original`]) plays a Dancing☆Onigiri work's
+/// charts by Dancing☆Onigiri's rules and an FFR level's
+/// ([`Chart::ffr`]) by FFR's.
 pub fn for_chart(
     mode: RulesetMode,
     preset: &str,
@@ -544,16 +652,18 @@ pub fn for_chart(
     };
     if use_danoni {
         super::danoni::ruleset(Some(chart), danoni)
+    } else if mode == RulesetMode::Original && chart.ffr {
+        ffr()
     } else {
         stepmania(preset, holds, chart)
     }
 }
 
-/// The StepMania preset `id` (ITG when unknown) for `chart`, its holds as
-/// `holds` says.
+/// The preset `id` (ITG when unknown) for `chart`, its holds as `holds`
+/// says (FFR's rules play holds as taps, so keep none).
 pub fn stepmania(id: &str, holds: HoldStyle, chart: &Chart) -> Ruleset {
     let mut ruleset = by_id(id).unwrap_or_else(itg);
-    if holds.ticks(chart) {
+    if holds.ticks(chart) && !ruleset.judge.taps_only {
         ruleset.judge.hold = HoldRules::Ticked {
             checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
         };
@@ -569,6 +679,7 @@ pub fn by_id(id: &str) -> Option<Ruleset> {
         "sm5" => Some(sm5()),
         "ddr-a" => Some(ddr_a()),
         "ddr-extreme" => Some(ddr_extreme()),
+        "ffr" => Some(ffr()),
         _ => None,
     }
 }

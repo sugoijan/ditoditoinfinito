@@ -265,6 +265,7 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
         timing: None,
         display_bpm: None,
         danoni: None,
+        ffr: true,
     });
     Ok(song)
 }

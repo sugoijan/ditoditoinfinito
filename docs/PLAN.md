@@ -147,7 +147,7 @@ The five games disagree on nearly every axis, which is the argument for a data-d
 | Combo | Good keeps combo (2013+); 1 per row; OK doesn't add; NG breaks | Great keeps; 1 per note | same as SM | Miss breaks only | Shobon/Uwan break; Matari hides; separate freeze combo |
 | Score | 1,000,000 × weighted% (5/5/3/1/OK 5) − 10 per non-Marvelous, rounded to 10; EX 3/2/1/OK 3 | DP percent 3/2/1/0/0, Held 3, mine −2; grade weights 2/2/1/0/−4/−8 | DP 5/4/2/0/−6/−12, Held 5, mine −6; EX 3.5/3/2/1 | raw ±50/50/25/5/−5/−10 + end formula with combo×1000 | 1,000,000 × (8/4/2/Kita 8 + combo terms)/(n×10); ranks SS≥97%… |
 | Gauge | starts 50%; fixed % per judgement (community-measured, ~+0.4…1.2% Perfect, −4.8…−10% Miss, consecutive-miss and DANGER modifiers); LIFE4; RISKY; FLARE; GRADE | +0.008/+0.008/+0.004/0/−0.040/−0.080, Held +0.008, LetGo −0.080, mine −0.160; LifeDifficulty multiply/divide; regen lockout after miss; battery 4 lives | W5 −0.050, Miss −0.100, mine −0.050 | 0–100, start 50, ±5 | `{init, border, recovery, damage}` per gauge/chart; fixed or scaled by note count; max 1000 |
-| Fail | immediate at 0 (Premium: continue, score frozen) | Immediate / ImmediateContinue / EndOfSong / Off | same | immediate at 0 | border gauges evaluate at song end; life gauges fail at 0 |
+| Fail | immediate at 0 (Premium: continue, score frozen) | Immediate / ImmediateContinue / EndOfSong / Off | same | immediate at 0; a note missed at its sixth frame | border gauges evaluate at song end; life gauges fail at 0 |
 | Holds | no release judgement; brief release tolerated; OK = full step, no combo; NG breaks | hold life decays over 0.25 s released, reset on press; roll decays over 0.5 s, reset on tap | hold 0.32 s, roll 0.35 s | none | start within ±4 frames, release tolerance `frzAttempt` 5 frames |
 
 Grade tables verified: DDR A (AAA ≥ 990k … D < 550k), Simply Love (★★★★ 100% … D < 55%), StepMania (AAA all-W2, AA 93%, A 80%, B 65%, C 45%).
@@ -360,7 +360,7 @@ Status as of 2026-10-21: one line per phase, the full notes below the table; kno
 | 7 Input devices | done | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | 1 ms poll loop with pad timestamps, bindings per controller model, touch lanes; WebHID out of scope; notes below |
 | 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays and StepMania's named background effects and transitions (`docs/plans/overlays.md`). Scripted backgrounds and `#FGCHANGES`: `default.lua` folders done (`docs/plans/scripted-backgrounds.md`); not done: their movies, StepMania 3.9's and ITG's formats; notes below |
 | 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); packaging and draft releases from tags (`docs/plans/packaging.md`); start menu since 2026-10-21 (`docs/plans/start-menu.md`); next: hardware checks, frame pacing measurements, Windows video; notes below |
-| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`; no `ffr` preset, `docs/plans/rulesets.md`); more rulesets done (decision 57, `docs/plans/rulesets.md`: `ddr-extreme`, DDR A's LIFE4, RISKY, FLARE and FLOATING FLARE gauges with FLARE SKILL, LIFE4's lamps); a first chart editor on both shells (`docs/plans/editor.md`: the `.ssc`/`.sm` writer, notes and timing with undo, listening, playtests, saving and the autosave; left: the field in the player's skin, the metronome and tap-to-tempo, new songs); not done: the `ffr` preset |
+| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`) and played by FFR's rules (`ffr`, decision 58, `docs/plans/rulesets.md`); more rulesets done (decision 57, `docs/plans/rulesets.md`: `ddr-extreme`, DDR A's LIFE4, RISKY, FLARE and FLOATING FLARE gauges with FLARE SKILL, LIFE4's lamps); a first chart editor on both shells (`docs/plans/editor.md`: the `.ssc`/`.sm` writer, notes and timing with undo, listening, playtests, saving and the autosave; left: the field in the player's skin, the metronome and tap-to-tempo, new songs) |
 
 ### Phase notes
 
@@ -454,8 +454,11 @@ Charts and import:
   kept, `docs/plans/format-gaps.md` decision 11).
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
   left out with a note (decision 27); KSF, BMS and `.osu` are not
-  read (section 2.1); FFR levels play under the rules chosen until
-  theirs come (phase 10); keysounds are a non-goal (section 1).
+  read (section 2.1); FFR levels play by FFR's rules only where each
+  chart is left to its game (decision 58), and their timing is not yet
+  checked against a real level (R^3's half-frame and music start,
+  `docs/plans/rulesets.md`, "FFR"); keysounds are a non-goal
+  (section 1).
 - Korean and Chinese legacy encodings are told apart by a heuristic
   (`ddi_library::legacy`, `docs/plans/format-gaps.md`): a short title
   may still be misread.
@@ -468,9 +471,10 @@ Charts and import:
 
 Rules and options:
 
-- *New:* the `itg`, `itg-fa+`, `sm5`, `ddr-a`, `ddr-extreme` and `danoni`
-  presets exist; `ffr` (section 3.3) is not built, nor DDR SuperNOVA2/X's
-  rules (`docs/plans/rulesets.md`).
+- *New:* the `itg`, `itg-fa+`, `sm5`, `ddr-a`, `ddr-extreme`, `ffr` and
+  `danoni` presets exist; DDR SuperNOVA2/X's rules are not built, nor
+  R^3's own options (autofail, another judge window;
+  `docs/plans/rulesets.md`).
 - Not built: music rate, a separate judge
   offset (section 3.3); the editor (phase 10); LIFE4's standings and the
   FLARE SKILL total (across plays and DDR's versions;
@@ -716,6 +720,8 @@ remain separate work.
 56. **Skins declare their parameters; Dito's looks are its parameters** (2026-10-21; `docs/plans/skin-parameters.md`). Our extension, as SVG images are: a skin's `metrics.ini` lists parameters (`[Parameters] List`, a `[Parameter <name>]` each: a choice, a toggle, a number in a range or a color, with a label, a description and a default; bounded, malformed ones left out with a warning), merged under its fallbacks like any metric. Options shows the chosen skin's as rows under Arrows; the values are kept per skin key in the settings (a default not stored), go into a play's settings snapshot and its drawn record so replays draw the same, and reach the skin's Lua read-only (`NOTESKIN:GetParameter`), with the same values for Options' preview and a play (`ddi_shell::play_skin`, `field_preview_skin`). A choice may name the skin that draws it (one falling back on this one), loaded in its place, so Dito's color schemes stay the skins they were and are its `Colors` choice. The note colors and songs' own colors are Dito's parameters (older settings migrate on load), with `Explosions` (read by its Lua) and `Lighter`, which draws the built-in arrows instead: the visible Built-in choice is retired into it, the procedural arrows staying what missing elements, a stopped Lua and a song's own colors fall back on. The game reads Dito's colors, songs' own colors and lighter by name; other skins' parameters reach only their own Lua. A skin without declarations behaves as before.
 
 57. **DDR's legacy score is a preset of its own, DDR's gauges and LIFE4's lamps go with DDR A** (2026-10-21; `docs/plans/rulesets.md`). `ddr-extreme` is DDRMAX2 and EXTREME's normal play: EXTREME's windows as measured from its `GAME.DAT` (Marvelous only in courses), MAX2's money score by the song's feet, MAX's dance points for the grade (AAA at 100%, E failed), a jump adding two to the combo, and StepMania 3.9's life bar for DDR's unpublished one (approximate). SuperNOVA2/X and an `ffr` preset are not built. DDR A takes DDR's other gauges as a player option (`StepManiaOptions::gauge`: LIFE4, RISKY, FLARE I–EX with BEMANIWiki's WORLD drains, FLOATING FLARE), replaced by StepMania's battery when that is chosen; a DDR A play keeps its gauge, the FLARE rank its gauge kept and its FLARE SKILL points (`Results::ddr`), and earns LIFE4's clear types as lamps (LIFE4 clear, single digit perfects). Bests are kept with every gauge's plays. LIFE4's standings and the FLARE SKILL total are across plays and DDR's own songs, not a play's. `JUDGE_VERSION` 2 judges kept plays again for them.
+
+58. **FFR's rules are a preset, `ffr`, as R^3 plays them** (2026-10-22; `docs/plans/rulesets.md`, "FFR"). rCubed (`e57179c`, AGPL-3.0: read for its rules, nothing transcribed) gives the rules: its default judge around the note (Amazing −18/+17 ms, Perfect −51/+50, Good −85/+117, Average −118 early only), a note missed only at its sixth frame (5.5 frames after the instant judged, so a later press goes on to the lane's next note: `JudgeTable::miss_at`), every stray press a Boo from the chart's first note on (`EmptyPress::BooFromFirstNote`), the raw score (50/50/25/5, Boo −5, Miss −10) as the score shown and kept for bests, the total score (with the longest combo × 1,000) and raw goods among the results' stats, a whole-number life of 0–100 from 50 with ±5 that ends the play at 0. No grade: the lamp is R^3's song icon in its own order (PASS, FC, SDG, OMNIFLAG, MISSFLAG, AVFLAG, BLACKFLAG, BOOFLAG, AAA; new `Lamp`s above FC). Charts of other games play as R^3 plays a StepMania chart: holds and rolls taps at their heads, mines and the rest left out (`JudgeTable::taps_only`, not an assist). StepMania's options do not apply (none are FFR's). FFR levels play by `ffr` where each chart is left to its game's rules (`RulesetMode::Original`, `Chart::ffr`), as Dancing☆Onigiri works do by theirs; otherwise by the ruleset chosen, `ffr` among them for any chart. A level holds no judge window, so there is no per-chart hint. Found for the import, not changed: R^3 judges a note half a frame into its frame and starts the music at the SWF frame its stream begins at.
 
 ## 7. Risks
 

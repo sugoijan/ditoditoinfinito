@@ -981,6 +981,7 @@ fn empty_chart(layout: &str, difficulty: Difficulty) -> Chart {
         timing: None,
         display_bpm: None,
         danoni: None,
+        ffr: false,
     }
 }
 

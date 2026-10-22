@@ -1232,6 +1232,7 @@ fn build_chart(
         timing: None,
         display_bpm: None,
         danoni: None,
+        ffr: false,
     })
 }
 

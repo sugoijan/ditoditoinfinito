@@ -7,8 +7,8 @@
 
 use ddi_chart::{Glyph, Layout};
 use ddi_engine::judge::JudgeEventKind;
-use ddi_engine::rules::FailType;
 use ddi_engine::rules::ddr::flare_name;
+use ddi_engine::rules::{EmptyPress, FailType};
 use ddi_engine::{
     Appearance, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions, Turn,
 };
@@ -184,22 +184,35 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         })
         .collect();
     let t = &r.tally;
-    let mut stats = vec![(
-        format!("{} / {}", names.held, names.let_go),
-        format!("{} / {}", t.held, t.let_go),
-    )];
+    let judge = &p.ruleset.judge;
+    let mut stats = Vec::new();
+    // Rules that play only taps (FFR's) have no holds or mines to count.
+    if !judge.taps_only {
+        stats.push((
+            format!("{} / {}", names.held, names.let_go),
+            format!("{} / {}", t.held, t.let_go),
+        ));
+    }
     if t.checkpoint_hit + t.checkpoint_miss > 0 {
         stats.push((
             "Ticks hit / missed".into(),
             format!("{} / {}", t.checkpoint_hit, t.checkpoint_miss),
         ));
     }
-    stats.push(("Mines hit".into(), t.mine_hit.to_string()));
-    if t.boo > 0 {
+    if !judge.taps_only {
+        stats.push(("Mines hit".into(), t.mine_hit.to_string()));
+    }
+    // Where every stray press counts (FFR's Boo), always.
+    let counts_strays = matches!(
+        judge.empty_press,
+        EmptyPress::Boo | EmptyPress::BooFromFirstNote
+    );
+    if t.boo > 0 || counts_strays {
         stats.push(("Stray presses".into(), t.boo.to_string()));
     }
     stats.push(("Max combo".into(), r.max_combo.to_string()));
     stats.extend(flare_stat(r));
+    stats.extend(ffr_stats(r));
     stats.push(("Fast / slow".into(), format!("{} / {}", r.fast, r.slow)));
     stats.push((
         "Mean offset".into(),
@@ -223,7 +236,6 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         .collect();
     // FA+: the blue Fantastics' window first, the rest of the Fantastic
     // window white (the lanes panel counts what is short of the first).
-    let judge = &p.ruleset.judge;
     let w0 = judge.w0.map(|w0| {
         let ms = (judge.scaled(w0) * 1000.0) as f32;
         Window {
@@ -330,6 +342,18 @@ pub fn flare_stat(r: &Results) -> Option<(String, String)> {
         (None, None) => return None,
     };
     Some(("Flare skill".into(), value))
+}
+
+/// An FFR play's total score and raw goods, as R^3's results show them
+/// beside its raw score (the score shown).
+pub fn ffr_stats(r: &Results) -> Vec<(String, String)> {
+    let Some(ffr) = &r.ffr else {
+        return Vec::new();
+    };
+    vec![
+        ("Total score".into(), ffr.total.to_string()),
+        ("Raw goods".into(), ffr.raw_goods_text()),
+    ]
 }
 
 /// What the fail type made of an empty life bar, where it changed the
@@ -553,6 +577,7 @@ mod tests {
             life: vec![[0.0, 0.5], [10.0, 0.6]],
             gauge_failed_at: None,
             ddr: None,
+            ffr: None,
         }
     }
 
@@ -892,6 +917,65 @@ mod tests {
         r.failed = true;
         assert_eq!(Lamp::of(&r), Lamp::Failed);
         assert_eq!(lamp(&r).as_deref(), Some("PERFECT FULL COMBO"));
+    }
+
+    #[test]
+    fn ffr_shows_its_totals_and_flags_and_no_grade() {
+        use ddi_engine::rules::ffr::{FfrResult, Flag};
+        let layout = single();
+        let ffr = presets::ffr();
+        // 19 Amazings and a Good, two stray presses, a full combo.
+        let mut r = results([19, 0, 1, 0, 0, 0]);
+        r.tally.boo = 2;
+        r.max_combo = 20;
+        r.grade = String::new();
+        r.score.money = Some(19 * 50 + 25 - 10);
+        r.ffr = Some(FfrResult::of(&r.tally, r.max_combo, 20));
+        let d = results_data(&info(&r, &ffr, &layout));
+        assert_eq!(d.grade, "");
+        assert_eq!(d.score, "965");
+        let stat = |name: &str| {
+            d.stats
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(stat("Raw goods").as_deref(), Some("1.4"));
+        assert_eq!(
+            stat("Total score").as_deref(),
+            Some(&*(19 * 500 + 250 + 20 * 1000 - 30 + 965).to_string())
+        );
+        assert_eq!(stat("Stray presses").as_deref(), Some("2"));
+        // Nothing of holds or mines: FFR's rules play taps only.
+        assert!(stat("Mines hit").is_none(), "{:?}", d.stats);
+        assert!(
+            !d.stats
+                .iter()
+                .any(|(n, _)| n.contains('/') && n != "Fast / slow")
+        );
+        // Its judgements by their names, no fifth tier.
+        let names: Vec<_> = d.judgements.iter().map(|j| j.name.as_str()).collect();
+        assert_eq!(names, ["Amazing", "Perfect", "Good", "Average", "Miss"]);
+        assert_eq!(Lamp::of(&r), Lamp::SingleDigitGoods);
+        assert_eq!(lamp(&r).as_deref(), Some("SINGLE DIGIT GOODS"));
+        // The flags, R^3's song icons, in its order.
+        for (flag, lamp_now) in [
+            (Flag::Pass, Lamp::Clear),
+            (Flag::FullCombo, Lamp::FullCombo),
+            (Flag::Blackflag, Lamp::Blackflag),
+            (Flag::Aaa, Lamp::Aaa),
+        ] {
+            r.ffr = Some(FfrResult {
+                flag,
+                ..r.ffr.unwrap()
+            });
+            assert_eq!(Lamp::of(&r), lamp_now);
+        }
+        assert!(Lamp::Aaa > Lamp::Booflag && Lamp::SingleDigitGoods > Lamp::FullCombo);
+        assert_eq!(Lamp::Blackflag.names(), ("Blackflag", "BLACKFLAG"));
+        // A play stopped by an empty life: failed, as R^3's unfinished.
+        r.failed = true;
+        assert_eq!(Lamp::of(&r), Lamp::Failed);
     }
 
     #[test]

@@ -537,7 +537,8 @@ impl OptionsModel {
                     &["The ruleset below", "The chart's game", "Dancing☆Onigiri"],
                     pos(&RULESET_MODES, s.ruleset_mode),
                     "The ruleset below for every chart, the rules of the game each chart was made \
-                     for, or Dancing☆Onigiri rules for every chart.",
+                     for (Dancing☆Onigiri works and FFR levels by theirs, the rest by the ruleset \
+                     below), or Dancing☆Onigiri rules for every chart.",
                 ),
                 row(
                     "ruleset",
@@ -562,7 +563,7 @@ impl OptionsModel {
                     pos(&FailType::ALL, s.stepmania.fail),
                     "When an empty life bar fails the play: at once, ending the song; at once \
                      but playing on to the end; only if it is still empty at the end; or never. \
-                     The results say when the bar emptied.",
+                     The results say when the bar emptied. FFR's rules always fail at once.",
                 ),
                 row(
                     "life",
@@ -570,7 +571,7 @@ impl OptionsModel {
                     OptionKind::Stepper(levels(LIFE_SCALES.len())),
                     level_index(s.stepmania.life),
                     "Higher drains the life bar faster and refills it slower (StepMania's levels; \
-                     4 is the ruleset's own). DDR A's gauge keeps its own.",
+                     4 is the ruleset's own). DDR A's gauge and FFR's life keep their own.",
                 ),
                 row(
                     "judge",
@@ -582,7 +583,8 @@ impl OptionsModel {
                     ),
                     level_index(s.stepmania.judge),
                     "Higher narrows every timing window (StepMania's levels; 4 is the ruleset's \
-                     own, Justice the narrowest). Bests are kept apart for each level.",
+                     own, Justice the narrowest). Bests are kept apart for each level. FFR's \
+                     rules keep their own windows.",
                 ),
                 choice(
                     "life_type",
@@ -590,7 +592,8 @@ impl OptionsModel {
                     &["Bar", "Battery"],
                     pos(&LifeType::ALL, s.stepmania.life_type),
                     "The ruleset's life bar, or a battery of lives: one lost for each step worse \
-                     than a Great, each mine stepped on and each hold let go.",
+                     than a Great, each mine stepped on and each hold let go. Not under FFR's \
+                     rules.",
                 ),
                 row(
                     "lives",

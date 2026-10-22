@@ -193,8 +193,10 @@ build their own SWFs).
 - **FFR's rules** (its asymmetric 30 fps windows, Boo on every stray
   press, ±5 life on 0–100 starting at 50, the raw score and the end
   formula with combo × 1000; research A2) need a ruleset of their own:
-  they wait for the rulesets work under way (presets and rules options);
-  FFR charts play under the rules chosen until then.
+  built since as `ffr` (2026-10-22, `rulesets.md`, decision 58). A
+  level plays by it where the player leaves each chart to its game's
+  rules (the importer marks the chart, `Chart::ffr`), else by the rules
+  chosen.
 
 ### Built
 
@@ -285,9 +287,15 @@ notes, all the top tier.
 
 Left:
 
-- FFR's rules (above), its playlist's `sync`, title and difficulty
-  (a player could give them on import), and a check of the music's
-  timing against a real level.
+- Its playlist's `sync`, title and difficulty (a player could give
+  them on import), and a check of the music's timing against a real
+  level. Found while building `ffr` (`rulesets.md`, "FFR"), to settle
+  with that check: R^3 judges and draws a note half a frame (16.7 ms)
+  after its frame's start (`NoteBox.spawnArrow`), and starts the music
+  at the game frame its SWF's sound stream begins at, less 2
+  (`Song.mp3Frame`, `songDelay`); the importer puts a note at its
+  frame's start from the music's start. FFR's rules done (decision
+  58).
 
 ## Step 3: the editor
 

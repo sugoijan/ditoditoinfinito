@@ -66,6 +66,16 @@ numbers_weight = 800
 # LIFE4's single digit perfects: a gold lamp nearer white.
 "Lamp.SingleDigitPerfects" = "#fff2a8"
 "Lamp.MarvelousFullCombo" = "#8cf2ff"
+# FFR's flags (R^3's song icons), in our own shades: orange single digit
+# goods, violet for one of everything, the flags' red, amber, a black
+# flag drawn light on the dark ground, brown, and a gold AAA.
+"Lamp.SingleDigitGoods" = "#f2a65a"
+"Lamp.Omniflag" = "#c98af2"
+"Lamp.Missflag" = "#d0605a"
+"Lamp.Averageflag" = "#ffb84d"
+"Lamp.Blackflag" = "#d8d3df"
+"Lamp.Booflag" = "#c4935e"
+"Lamp.Aaa" = "#fff35c"
 # Judgements as the HUD draws them (crates/render/src/scene.rs,
 # `judgement_color`), so results read as play does.
 "Judgement.W1" = "#8cf2ff"

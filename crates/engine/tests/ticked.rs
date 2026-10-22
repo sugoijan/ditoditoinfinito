@@ -66,6 +66,7 @@ fn song(layout: &str) -> Song {
             timing: None,
             display_bpm: None,
             danoni: None,
+            ffr: false,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),

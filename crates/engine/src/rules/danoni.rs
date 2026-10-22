@@ -799,6 +799,8 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
             // (`displayDiff`, mainWindow.js).
             just: Some(frames(1)),
             shock_rows: false,
+            miss_at: None,
+            taps_only: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W2,
