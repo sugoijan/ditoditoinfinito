@@ -3,7 +3,7 @@
 //! missed refresh, a compositor's deadline it is not told, a late timer
 //! and a variable refresh rate, each against blocking frames.
 
-use super::sim::{self, Display, Noise, Surface};
+use super::sim::{self, Compositor, Display, Noise, Surface};
 use super::*;
 
 /// What really happened from frame `from` on.
@@ -721,6 +721,7 @@ fn late_two_learns_the_macs_compositor_and_keeps_it_for_the_next_song() {
         "{first:?} {second:?}"
     );
     assert!(late_misses(&second, 150.0) <= 6, "{second:?}");
+    assert_eq!(pacer.fallbacks, 0);
 }
 
 #[test]
@@ -826,4 +827,230 @@ fn a_present_stall_has_target_gaps_without_collisions() {
     assert!((f.interval[2] - 4000.0 / 120.0).abs() < 0.001);
     assert_eq!(f.target_gaps, 3);
     assert_eq!(f.target_collisions, 0);
+}
+
+/// The 2026-10-22 report's costs: builds of 0.35 ± 0.1 ms and a timer late
+/// by 0.2 ms plus an exponential 0.35 ms (median 0.44, p95 1.25; measured
+/// 0.46 and 0.99).
+#[allow(clippy::type_complexity)]
+fn light(seed: u64) -> (Box<dyn FnMut(usize) -> f64>, Box<dyn FnMut(usize) -> f64>) {
+    let mut n = Noise::new(seed);
+    let mut w = Noise::new(seed + 1);
+    (
+        Box::new(move |_| (0.000_35 + 0.000_1 * n.normal()).max(0.000_2)),
+        Box::new(move |_| 0.000_2 - 0.000_35 * (1.0 - w.uniform()).ln()),
+    )
+}
+
+/// A 120 Hz display on a display link behaving as `c`, configured for
+/// `in_flight`, and a pacer for it.
+fn on(c: Compositor, mode: Mode, in_flight: u32) -> (Surface, Pacer, sim::Loop) {
+    let mut surface = fixed(120.0);
+    c.apply(&mut surface);
+    surface.images = in_flight as usize + 1;
+    let mut pacer = Pacer::new(mode);
+    pacer.set_in_flight(in_flight);
+    pacer.set_refresh_hint(Some(120.0));
+    pacer.set_surface((3024, 1964), true);
+    let l = sim::Loop {
+        link: true,
+        ..sim::Loop::default()
+    };
+    (surface, pacer, l)
+}
+
+/// What the glass showed of a column's frames from `from` s on: refreshes
+/// with no new frame a second (charged to the column of the frame
+/// presented last before them), and frame start to glass (ms, mean).
+fn glass(frames: &[sim::Frame], surface: &Surface, column: Column, from: f64) -> (f64, f64) {
+    let of = |r: &Record| Column::new(r.mode, r.in_flight) == column;
+    let (mut repeats, mut refreshes, mut j) = (0, 0, 0);
+    let end = frames.last().map_or(0.0, |f| f.record.end) - 0.1;
+    for (g, id) in &surface.refreshes {
+        while j + 1 < frames.len() && frames[j + 1].record.end <= *g {
+            j += 1;
+        }
+        if *g < from || *g > end || !of(&frames[j].record) {
+            continue;
+        }
+        refreshes += 1;
+        repeats += usize::from(id.is_none());
+    }
+    let shown: Vec<f64> = frames
+        .iter()
+        .filter(|f| of(&f.record) && f.record.begin >= from)
+        .filter_map(|f| f.glass.map(|g| (g - f.record.begin) * 1000.0))
+        .collect();
+    (
+        repeats as f64 * 120.0 / f64::from(refreshes.max(1)),
+        mean_sd(&shown).0,
+    )
+}
+
+/// The report's four columns in turn on a 120 Hz display link behaving
+/// as `c`, `seconds` long, with the 2026-10-22 costs.
+fn compositor_report(c: Compositor, seconds: f64) -> (Report, Vec<sim::Frame>, Surface) {
+    let (mut surface, mut pacer, mut l) = on(c, Mode::Block, 1);
+    let mut report = Report::alternating(4.0, &COLUMNS);
+    report.hint = Some(120.0);
+    report.link = Some("simulated");
+    let (mut cost, mut late) = light(111);
+    while l.t < seconds {
+        l.step(
+            &mut pacer,
+            &mut surface,
+            &mut cost,
+            &mut late,
+            Some(&mut report),
+        );
+    }
+    let frames = l.finish(&mut surface);
+    (report, frames, surface)
+}
+
+#[test]
+fn fullscreen_late_pacing_blocks_where_it_cannot_keep_up() {
+    // The 2026-10-22 fullscreen report as `Compositor::DIRECT` has it.
+    // Before: late·1 missed 37 refreshes a second (83 frames a second),
+    // late·2 1.8 with its margin pinned at its cap, 1.7 repeats a second
+    // on the glass. Waits for a drawable are no misses now, so late·1
+    // misses where its deadline does; and where misses keep coming with
+    // the margin at its cap each late column blocks instead, as many in
+    // flight, which the report says.
+    let (report, frames, surface) = compositor_report(Compositor::DIRECT, 120.0);
+    eprintln!(
+        "{}",
+        report.text("simulated fullscreen (direct presentation)")
+    );
+    let f = |m, n| report.figures(Column::new(m, n));
+    let g = |m, n| glass(&frames, &surface, Column::new(m, n), 1.0);
+    let (b1, b2, l1, l2) = (
+        f(Mode::Block, 1),
+        f(Mode::Block, 2),
+        f(Mode::Late, 1),
+        f(Mode::Late, 2),
+    );
+    let (gb1, gb2, gl1, gl2) = (
+        g(Mode::Block, 1),
+        g(Mode::Block, 2),
+        g(Mode::Late, 1),
+        g(Mode::Late, 2),
+    );
+    eprintln!(
+        "glass (repeats a second, start → shown ms): block·1 {gb1:?}, block·2 {gb2:?}, late·1 {gl1:?}, late·2 {gl2:?}"
+    );
+    assert!(b1.fallback_after.is_none() && b2.fallback_after.is_none());
+    assert!(l1.fallback_after.is_some_and(|t| t < 10.0), "{l1:?}");
+    assert!(l2.fallback_after.is_some_and(|t| t < 25.0), "{l2:?}");
+    // On the glass: late·1 about as block·1, late·2 (blocking for its
+    // last quarter here) fewer repeats than the 1.8 a second before.
+    assert!(l1.frames as f64 / l1.seconds > 115.0, "{l1:?}");
+    assert!(gl1.0 < gb1.0 + 0.5, "{gl1:?} {gb1:?}");
+    assert!(gl2.0 < 1.4, "{gl2:?}");
+    assert!(l1.latch_misses as f64 / l1.seconds < 2.0, "{l1:?}");
+    let text = report.text("fullscreen");
+    let row = text
+        .lines()
+        .find(|l| l.contains("late fell back to block"))
+        .unwrap();
+    assert_eq!(row.matches('%').count(), 2, "{row}");
+}
+
+#[test]
+fn a_window_never_falls_back() {
+    let (report, frames, surface) = compositor_report(Compositor::WINDOWED, 120.0);
+    eprintln!("{}", report.text("simulated window"));
+    for n in [1, 2] {
+        let c = Column::new(Mode::Late, n);
+        let f = report.figures(c);
+        let (repeats, shown) = glass(&frames, &surface, c, 1.0);
+        eprintln!(
+            "{}: {repeats:.2} repeats a second, start → shown {shown:.2} ms",
+            c.name()
+        );
+        assert!(f.fallback_after.is_none(), "{f:?}");
+        assert!(repeats < 0.8, "{}: {repeats}", c.name());
+        assert!(shown < 8.0, "{}: {shown}", c.name());
+    }
+    let text = report.text("window");
+    let row = text
+        .lines()
+        .find(|l| l.contains("late fell back to block"))
+        .unwrap();
+    assert!(row.ends_with(" no"), "{row}");
+    // Ten minutes of late·2, the default.
+    let (mut surface, mut pacer, mut l) = on(Compositor::WINDOWED, Mode::Late, 2);
+    let (mut cost, mut late) = light(121);
+    l.until(600.0, &mut pacer, &mut surface, &mut cost, &mut late);
+    assert_eq!(pacer.fallbacks, 0);
+}
+
+#[test]
+fn a_drawable_kept_past_half_a_refresh_is_no_miss() {
+    // One in flight; the compositor keeps the replaced drawable 5.5 ms
+    // after the refresh (more than half of 8.33) and wants frames 1 ms
+    // before it. A late frame that waits for that drawable still makes
+    // its refresh: once each such wait was a miss, a larger margin, an
+    // earlier start and a longer wait.
+    let mut c = Compositor::WINDOWED;
+    c.release = 0.005_5;
+    c.release_sd = 0.000_3;
+    c.hiccups = 0.0;
+    let (mut surface, mut pacer, mut l) = on(c, Mode::Late, 1);
+    let (mut cost, mut late) = light(131);
+    l.until(30.0, &mut pacer, &mut surface, &mut cost, &mut late);
+    let waited = l.records.iter().filter(|r| r.blocked > BLOCKED).count();
+    let frames = l.finish(&mut surface);
+    let (repeats, shown) = glass(&frames, &surface, Column::new(Mode::Late, 1), 1.0);
+    eprintln!(
+        "kept 5.5 ms: {waited} waits, {} misses, {repeats:.2} repeats a second, start → shown {shown:.2} ms, margin {:.2} ms",
+        pacer.latch_misses,
+        pacer.margin() * 1000.0
+    );
+    assert!(waited > 100, "{waited}");
+    assert!(pacer.latch_misses <= 2, "{}", pacer.latch_misses);
+    assert!(repeats < 0.1, "{repeats}");
+    assert_eq!(pacer.fallbacks, 0);
+}
+
+#[test]
+fn leaving_fullscreen_undoes_the_fallback() {
+    let (mut surface, mut pacer, mut l) = on(Compositor::DIRECT, Mode::Late, 2);
+    let (mut cost, mut late) = light(141);
+    while !pacer.fallen_back() && l.t < 60.0 {
+        l.step(&mut pacer, &mut surface, &mut cost, &mut late, None);
+    }
+    assert!(pacer.fallen_back(), "never fell back");
+    let at = l.t;
+    eprintln!("fell back after {at:.1} s");
+    l.until(at + 20.0, &mut pacer, &mut surface, &mut cost, &mut late);
+    let after: Vec<&Record> = l.records.iter().filter(|r| r.begin > at).collect();
+    assert!(after.iter().all(|r| r.fallback && r.late.is_none()));
+    // As smooth as block·2 in fullscreen, its latency too.
+    let mut shown_surface = surface.clone();
+    let done = l.clone().finish(&mut shown_surface);
+    let (repeats, shown) = glass(&done, &shown_surface, Column::new(Mode::Late, 2), at + 1.0);
+    eprintln!("blocking: {repeats:.2} repeats a second, start → shown {shown:.2} ms");
+    assert!(repeats < 0.2, "{repeats}");
+    assert!((19.0..23.0).contains(&shown), "{shown}");
+    // Blocking with two in flight: the drawn-for refresh still the grid's.
+    assert_eq!(pacer.next(l.t), Next::Now);
+    assert!(
+        after
+            .iter()
+            .all(|r| r.mode == Mode::Late && r.in_flight == 2)
+    );
+    // The same surface again (a spurious resize): still blocking.
+    pacer.set_surface((3024, 1964), true);
+    assert!(pacer.fallen_back());
+    // The window again: late pacing tries again, and holds.
+    pacer.set_surface((1512, 982), false);
+    assert!(!pacer.fallen_back());
+    Compositor::WINDOWED.apply(&mut surface);
+    let from = l.records.len();
+    l.until(at + 65.0, &mut pacer, &mut surface, &mut cost, &mut late);
+    assert_eq!(pacer.fallbacks, 1);
+    let windowed = &l.records[from..];
+    let late_frames = windowed.iter().filter(|r| r.late.is_some()).count();
+    assert!(late_frames > windowed.len() * 9 / 10, "{late_frames}");
 }

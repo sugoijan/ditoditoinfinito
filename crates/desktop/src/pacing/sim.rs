@@ -2,8 +2,9 @@
 //! (built for tests and the `sim` feature only).
 //! Fifo with a few drawables: a frame presented in time for a refresh
 //! (its `latch` before it) is shown at it, the drawable of the frame it
-//! replaces released `release` after; an acquire with no drawable free
-//! waits for one. The display refreshes on a fixed grid, or (a variable
+//! replaces released `release` after (now and then `kept` later still);
+//! an acquire with no drawable free waits for one. [`Compositor`] holds
+//! the Mac's window and fullscreen as fitted to its reports. The display refreshes on a fixed grid, or (a variable
 //! refresh rate) when a frame comes, no sooner than its shortest period
 //! after the last refresh and no later than its longest.
 //!
@@ -25,6 +26,66 @@ pub enum Display {
     Vrr { min: f64, max: f64 },
 }
 
+/// What a compositor does with the frames, fitted to the maintainer's M1
+/// Max at 120 Hz on a display link (`docs/plans/desktop.md`, "Frame
+/// pacing", 2026-10-22), with builds of about 0.35 ms and a timer late by
+/// 0.2 ms plus an exponential 0.35 ms (the tests' `light` costs).
+#[derive(Clone, Copy, Debug)]
+pub struct Compositor {
+    pub release: f64,
+    pub release_sd: f64,
+    pub latch: f64,
+    pub hiccups: f64,
+    pub hiccup_latch: f64,
+    pub kept_share: f64,
+    pub kept: f64,
+}
+
+impl Compositor {
+    /// A window: the replaced drawable released 4.5 ± 0.7 ms after the
+    /// refresh, frames wanted 1 ms before it, 6 ms on 0.4 % of refreshes
+    /// (the 2026-10-17 model).
+    pub const WINDOWED: Compositor = Compositor {
+        release: 0.004_5,
+        release_sd: 0.000_7,
+        latch: 0.001,
+        hiccups: 0.004,
+        hiccup_latch: 0.006,
+        kept_share: 0.0,
+        kept: 0.0,
+    };
+
+    /// Fullscreen, presented directly: frames wanted 3.5 ms before the
+    /// refresh, the replaced drawable released 3 ± 0.5 ms after it and on
+    /// 1.5 % of refreshes a refresh later still. With the pacer as it was
+    /// it gives the measured table: block·1 8.50 ms between presents
+    /// (measured 8.47), block·2 8.34 (8.37), late·1 83 frames a second
+    /// with 37 inferred misses (91, 37), late·2 1.8 misses a second
+    /// (2.1) with its margin pinned at its cap. A later deadline alone
+    /// misses with late·1 but not late·2; drawables kept longer alone
+    /// slow block·1 as much as late·1.
+    pub const DIRECT: Compositor = Compositor {
+        release: 0.003,
+        release_sd: 0.000_5,
+        latch: 0.003_5,
+        hiccups: 0.004,
+        hiccup_latch: 0.006,
+        kept_share: 0.015,
+        kept: 1.0 / 120.0,
+    };
+
+    /// `surface` behaving so.
+    pub fn apply(&self, surface: &mut Surface) {
+        surface.release = self.release;
+        surface.release_sd = self.release_sd;
+        surface.latch = self.latch;
+        surface.hiccups = self.hiccups;
+        surface.hiccup_latch = self.hiccup_latch;
+        surface.kept_share = self.kept_share;
+        surface.kept = self.kept;
+    }
+}
+
 /// A display with a Fifo swapchain.
 #[derive(Clone, Debug)]
 pub struct Surface {
@@ -38,6 +99,10 @@ pub struct Surface {
     /// refresh, give or take `release_sd` (a normal spread).
     pub release: f64,
     pub release_sd: f64,
+    /// The share of drawables released `kept` later still (a display
+    /// that keeps the one it scanned out until a refresh after).
+    pub kept_share: f64,
+    pub kept: f64,
     /// The share of refreshes whose deadline is `hiccup_latch` instead
     /// (a compositor's stall).
     pub hiccups: f64,
@@ -67,6 +132,8 @@ impl Surface {
             latch: 0.0,
             release: 0.000_1,
             release_sd: 0.0,
+            kept_share: 0.0,
+            kept: 0.0,
             hiccups: 0.0,
             hiccup_latch: 0.0,
             noise: Noise::new(0x5eed),
@@ -105,11 +172,14 @@ impl Surface {
         {
             self.queue.pop_front();
             if self.shown.replace(id).is_some() {
-                let spread = if self.release_sd > 0.0 {
+                let mut spread = if self.release_sd > 0.0 {
                     self.release_sd * self.noise.normal()
                 } else {
                     0.0
                 };
+                if self.kept_share > 0.0 && self.noise.uniform() < self.kept_share {
+                    spread += self.kept;
+                }
                 self.releases.push(g + (self.release + spread).max(0.0));
             }
             if self.glass.len() <= id {

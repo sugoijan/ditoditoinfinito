@@ -398,6 +398,16 @@ impl Shell {
         self.pacer.set_mode(self.pacing_flag.unwrap_or(mode));
         self.pacer
             .set_in_flight(self.in_flight_flag.unwrap_or(in_flight));
+        // `--pacing-report` with `--pacing` or `--in-flight`: that column
+        // alone (a play as it runs by default, its fallback included).
+        if let Some(r) = &mut self.pacing_report
+            && (self.pacing_flag.is_some() || self.in_flight_flag.is_some())
+        {
+            r.columns = vec![pacing::Column::new(
+                self.pacer.mode(),
+                self.pacer.in_flight(),
+            )];
+        }
         self.surface = Some(Surface {
             link,
             window,
@@ -481,6 +491,12 @@ impl Shell {
         s.config.width = size.width.max(1);
         s.config.height = size.height.max(1);
         s.surface.configure(&s.gpu.device, &s.config);
+        // Another size, or fullscreen entered or left: late pacing tries
+        // again where it had fallen back (`crate::pacing`).
+        self.pacer.set_surface(
+            (s.config.width, s.config.height),
+            s.window.fullscreen().is_some(),
+        );
         let logical = size.to_logical::<f32>(self.scale);
         // The theme's design for this size (compact for a small window).
         if let Some((_, look)) = &self.theme {
@@ -687,9 +703,18 @@ impl Shell {
             }
         };
         self.surface_failures = 0;
+        let fallbacks = self.pacer.fallbacks;
         let present_at = paced
             .then(|| self.pacer.acquired(acquire, crate::clock::now().0))
             .flatten();
+        if self.pacer.fallbacks > fallbacks {
+            eprintln!(
+                "late pacing kept missing refreshes with its margin at its cap: \
+                 blocking frames ({} in flight) until the window's size or \
+                 fullscreen changes",
+                self.pacer.in_flight()
+            );
+        }
         let mut sample = None;
         let view = frame
             .texture
@@ -996,6 +1021,7 @@ impl Shell {
         });
         let every = r
             .alternate
+            .filter(|_| r.columns.len() > 1)
             .map_or(String::new(), |e| format!(" · alternating every {e} s"));
         Some(r.text(&format!(
             "{}{modes}{every}",

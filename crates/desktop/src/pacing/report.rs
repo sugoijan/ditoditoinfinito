@@ -124,6 +124,10 @@ pub struct Figures {
     pub overruns: usize,
     pub early: usize,
     pub latch_misses: usize,
+    /// Frames late pacing ran as blocking frames, having fallen back
+    /// (share), and when it first did (s into the column's frames).
+    pub fallback: f64,
+    pub fallback_after: Option<f64>,
     /// The missed frames' time to spare at their present and how late
     /// they woke (ms, medians).
     pub miss_spare: f64,
@@ -312,6 +316,24 @@ impl Report {
         f.overruns = rs.iter().filter(|(r, _)| r.overrun).count();
         f.early = rs.iter().filter(|(r, _)| r.early).count();
         f.latch_misses = rs.iter().filter(|(r, _)| r.latch_miss).count();
+        f.fallback = rs.iter().filter(|(r, _)| r.fallback).count() as f64 / rs.len() as f64;
+        // Counted in the column's own time (its turns end to end).
+        let mut at = 0.0;
+        if rs[0].0.fallback {
+            f.fallback_after = Some(0.0);
+        }
+        for w in rs.windows(2) {
+            let ((a, _), (b, follows)) = (w[0], w[1]);
+            if f.fallback_after.is_some() {
+                break;
+            }
+            if follows {
+                at += b.end - a.end;
+            }
+            if b.fallback {
+                f.fallback_after = Some(at);
+            }
+        }
         f.miss_spare = summary(rs.iter().filter_map(|(r, _)| r.miss_spare).collect()).p50;
         f.miss_late = summary(rs.iter().filter_map(|(r, _)| r.miss_late).collect()).p50;
         let n = rs.len() as f64;
@@ -450,6 +472,23 @@ impl Report {
                 })
                 .collect(),
         );
+        head(
+            &mut out,
+            "late fell back to block (frames · after s)",
+            columns
+                .iter()
+                .zip(&figures)
+                .map(|(c, f)| {
+                    if f.frames == 0 || c.mode != Mode::Late {
+                        "-".into()
+                    } else if let Some(at) = f.fallback_after {
+                        format!("{:.0} % · {at:.1}", f.fallback * 100.0)
+                    } else {
+                        "no".into()
+                    }
+                })
+                .collect(),
+        );
         row(&mut out, "missed: spare · woke late ms (p50)", &|f| {
             if f.latch_misses == 0 || f.miss_spare.is_nan() {
                 "-".into()
@@ -468,6 +507,8 @@ impl Report {
              \x20        with collisions (two frames assigned the same or an earlier refresh).\n\
              \x20        Later/earlier compare targets before/after building; acquire misses\n\
              \x20        are inferred from late pacing's acquire waits, unavailable for block.\n\
+             \x20        A late column that fell back blocked from then on, as many in flight\n\
+             \x20        (its figures mix both): misses no margin could answer kept coming.\n\
              \x20        Keys and pads are polled just before a frame starts, and a blocking\n\
              \x20        frame then waits in the acquire: \"frame start → shown\" is closer to\n\
              \x20        what a press waits for than \"input read → shown\", which flatters block.\n\

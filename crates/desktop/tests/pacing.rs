@@ -2,7 +2,9 @@
 //! autoplayed with no device on a fake clock, their frames at the times
 //! late pacing gives them against a simulated display (60 and 144 Hz,
 //! jittery builds, a late timer, a missed refresh; a variable refresh
-//! rate; two frames in flight on a display link), judged the same as at a steady 60 frames a second: the same
+//! rate; two frames in flight on a display link, in a window and in
+//! fullscreen, where late pacing falls back to blocking frames), judged
+//! the same as at a steady 60 frames a second: the same
 //! tally, the same presses and releases logged (so a replay of either is
 //! the other's), every hit at the same offset.
 
@@ -13,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ddi_desktop::audio::Audio;
-use ddi_desktop::pacing::sim::{self, Display, Noise, Surface};
+use ddi_desktop::pacing::sim::{self, Compositor, Display, Noise, Surface};
 use ddi_desktop::pacing::{Mode, Pacer};
 use ddi_desktop::play::{Ended, Feed, Play, Request, load};
 use ddi_platform::HostTime;
@@ -79,6 +81,37 @@ fn paced_on_a_link(seconds: f64, seed: u64) -> Vec<f64> {
     l.until(seconds, &mut pacer, &mut surface, &mut cost, &mut late);
     let frames = l.finish(&mut surface);
     assert!(frames.iter().filter(|f| f.record.late.is_some()).count() > frames.len() / 2);
+    frames.iter().map(|f| f.record.sample).collect()
+}
+
+/// Frame times (s) from late pacing with two frames in flight on a
+/// display link at 120 Hz in fullscreen (`Compositor::DIRECT`), where it
+/// falls back to blocking frames on the way.
+fn paced_in_fullscreen(seconds: f64, seed: u64) -> Vec<f64> {
+    let hz = 120.0;
+    let mut pacer = Pacer::new(Mode::Late);
+    pacer.set_refresh_hint(Some(hz));
+    pacer.set_in_flight(2);
+    pacer.set_surface((3024, 1964), true);
+    let mut surface = Surface::new(Display::Fixed {
+        period: 1.0 / hz,
+        phase: 0.002,
+    });
+    surface.images = 3;
+    Compositor::DIRECT.apply(&mut surface);
+    let mut l = sim::Loop {
+        link: true,
+        ..sim::Loop::default()
+    };
+    let mut cost = Noise::new(seed);
+    let mut late = Noise::new(seed + 1);
+    let mut cost = |_: usize| (0.000_35 + 0.000_1 * cost.normal()).max(0.000_2);
+    let mut late = |_: usize| 0.000_2 - 0.000_35 * (1.0 - late.uniform()).ln();
+    l.until(seconds, &mut pacer, &mut surface, &mut cost, &mut late);
+    assert_eq!(pacer.fallbacks, 1);
+    let frames = l.finish(&mut surface);
+    let fell = frames.iter().filter(|f| f.record.fallback).count();
+    assert!(fell > frames.len() / 2 && fell < frames.len(), "{fell}");
     frames.iter().map(|f| f.record.sample).collect()
 }
 
@@ -168,6 +201,10 @@ fn late_pacing_judges_as_steady_frames_do() {
         (
             "late, two in flight, display link, 120 Hz",
             paced_on_a_link(seconds, 4),
+        ),
+        (
+            "late, two in flight, 120 Hz fullscreen, falling back",
+            paced_in_fullscreen(seconds, 5),
         ),
     ];
     let songs = ddi_desktop::library::bundled();

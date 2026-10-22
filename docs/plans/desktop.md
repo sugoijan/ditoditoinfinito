@@ -43,9 +43,12 @@ under it in section 7:
   held 120 Hz in the maintainer's follow-up run, with no inferred
   misses in late·2 and 4.20 ms mean frame start to estimated shown.
   The report now distinguishes target gaps from observed repeats.
-  Fullscreen measured 2026-10-22 ("Frame pacing"): late pacing misses
-  there (late·2 44 acquire misses in 21 s, none windowed); what it
-  should do in fullscreen is left to decide.
+  Fullscreen measured 2026-10-22 ("Frame pacing"): late pacing missed
+  there (late·2 44 acquire misses in 21 s, none windowed). Since then a
+  wait for a drawable is no miss, and late pacing that keeps missing with
+  its margin at its cap blocks (as many in flight) until the window's
+  size or fullscreen state changes; simulated, the fullscreen run is
+  to repeat (item 9).
 - OS video: checked 8-bit H.264, HEVC and VP9 subsets now use hardware
   VideoToolbox, with copied planes, exact seeks and the software decoder
   as fallback. MP4/Matroska/WebM packets come from the sandboxed helper's
@@ -104,10 +107,10 @@ under it in section 7:
    gaps and collisions, acquire misses, and frame start → estimated shown.
    These are model estimates, not measured presentation latency or repeats.
    The follow-up run below supports late·2 windowed; in fullscreen
-   (2026-10-22) late pacing misses.
-   Expected from the simulation: block·2 smooth at a refresh more than
-   late·2, late·2 with few repeats and lowest; block·1 and late·1 repeating as
-   before if the compositor keeps drawables long.
+   (2026-10-22) late pacing missed, and now falls back where it keeps
+   missing. In fullscreen also `--pacing late --in-flight 2
+   --pacing-report` (late·2 alone, as a play runs by default). What to
+   look for: "Fullscreen in the model" in section 3.
 
 ## Goals
 
@@ -556,19 +559,37 @@ come), so it never waits in the acquire:
   redraw, `request_redraw` wakes the run loop and `RedrawRequested`
   comes in the next turn (microseconds), all counted in the cost.
 - **The margin** covers GPU work and the compositor's deadline. It
-  starts at 2 ms. A wait ending over half a refresh after the inferred
-  drawable release suggests a missed refresh. Repeated misses within
+  starts at 2 ms. An acquire's wait that ends a refresh or more after the
+  refresh that frees the frame's drawable says the frame before missed
+  (a missed frame frees it a refresh later); one that ends sooner is the
+  compositor keeping the drawable, and the frame waited for it (half a
+  refresh was the line until 2026-10-22). Repeated misses within
   10 s raise the floor by 0.5 ms and the margin by 1.5 ms; an isolated
   miss with more spare time than recent successful frames changes neither.
   The margin decays to the floor over 5 s. The cap is half a refresh per
   frame in flight: with two, the spare drawable allows up to 8.33 ms at
-  120 Hz, instead of the old 4.17 ms ceiling. The floor survives songs
+  120 Hz, instead of the old 4.17 ms ceiling. Each number of frames in
+  flight keeps its own margin and floor (the report alternates them).
+  The floor survives songs
   and drops 0.5 ms after a minute without misses (including time in menus).
   A miss within 30 s of lowering it doubles that hold, up to eight
   minutes. Wake lateness remains part of the measured cost's 95th
   percentile; the margin covers recurring tails. This inference is
   imperfect, especially when compositor releases drift across its
   half-period threshold; direct presentation timestamps would improve it.
+- **The fallback** (2026-10-22). Misses with the margin already at its
+  cap on 15 of the last 1200 frames late pacing ran with as many in
+  flight (1.25 %, ten seconds at 120 Hz) make it block, as many frames
+  in flight (the surface is not configured again), until the surface's
+  size or fullscreen state changes (`Pacer::set_surface`, from the
+  shell's resize; a new song keeps it). The play keeps getting the
+  grid's refresh, the full queue's as the report estimates block's, so
+  the notes do not jump. The report's late columns say whether and when
+  they fell back, and the shell prints a line when it happens. The
+  threshold: a compositor's stalls, which blocking frames miss too, come
+  on under 0.5 % of refreshes windowed (15 in 1200 is then a one in 10⁴
+  chance); in the fullscreen model late·2 misses on about 1.5 % with its
+  margin at its cap, late·1 on about 3 %.
 - **The predicted presentation** for late pacing is the estimated
   target refresh on the grid, handed to the play (`Host::present_at`
   → `View::present_at`). Blocking keeps the session's prediction,
@@ -644,9 +665,13 @@ in flight repeat a third of the refreshes, with two in flight none
   before and keep the queue empty. The pacer knows which refresh frees a
   drawable (the last frame's with one in flight, the one before's with
   two) and learns how long after it the compositor lets go (the waits
-  that end within half a refresh of it), so a late frame does not start
-  before a drawable is free. A miss is now a wait that ends more than
-  half a refresh after that refresh, whatever the frames in flight.
+  that end within a refresh of it). A late frame started before its
+  drawable is free waits for it in the acquire, which returns as it
+  comes free. (Until 2026-10-22 it waited by its timer for the 95th
+  percentile of the releases learned, which woke late; and the releases
+  learned were only those waited for, so the estimate crept later.) A
+  miss is a wait that ends a refresh or more after that refresh,
+  whatever the frames in flight.
   With two in flight a missed refresh leaves a frame queued behind;
   the next acquire then waits and says so only when the compositor keeps
   drawables longer than the frame's budget leaves (the ProMotion case);
@@ -712,9 +737,9 @@ misses and 85 target gaps in 21 s (2 windowed), its frame start →
 estimated shown 8.23 ms instead of 4.66. Block is unchanged by
 fullscreen. The likely cause is direct presentation: fullscreen hands
 the drawable to the display, which keeps it longer, so a frame started
-by the windowed margin waits in the acquire. Not changed yet: what late
-pacing should do there (a larger margin learned from acquire misses, or
-block in fullscreen) waits for a decision.
+by the windowed margin waits in the acquire. The maintainer chose: a
+larger margin learned from the misses, and block where they keep
+coming; as built, "Fullscreen in the model" below.
 
 | Figure | block·1 | block·2 | late·1 | late·2 |
 |---|---:|---:|---:|---:|
@@ -732,6 +757,66 @@ Late·2's wake lateness was 0.46 / 0.99 / 1.27 ms (median / p95 / max),
 its build 0.35 / 0.55 / 1.12 ms (mean / p95 / max); margin 4.00 ms.
 Block·2 had one large build maximum, 30.29 ms. These CPU observations
 do not establish actual presentation latency or an absence of stutter.
+
+**Fullscreen in the model (2026-10-22).** `sim::Compositor::DIRECT`:
+frames wanted 3.5 ms before the refresh (1 in a window), the replaced
+drawable released 3 ± 0.5 ms after it (4.5 ± 0.7) and on 1.5 % of
+refreshes a refresh later still; this report's costs (builds 0.35 ±
+0.1 ms, the timer 0.2 ms plus an exponential 0.35 ms late). With the
+pacer as it was, the alternating report: block·1 8.50 ms between
+presents (measured 8.47), block·2 8.34 (8.37), late·1 83 frames a second
+and 37 acquire misses a second (91, 37), late·2 1.8 misses a second
+(2.1) with its margin at its 8.33 ms cap (6.61 at the column's end).
+Neither half fits alone: the earlier deadline makes late·1 miss (its
+margin stops at half a refresh) and leaves late·2 clean; drawables kept
+longer, alone, slow block·1 as much as late·1, which the measurement
+does not show. As modeled, late·1 cannot cover the deadline with its
+capped margin, and its waits for drawables released after half a
+refresh counted as misses too. Late·2 meets a kept drawable as a wait
+past a refresh: read as a miss, the pacer moved its refreshes on a
+refresh (a queue it assumed) and started the next frame a refresh late,
+a repeat of its own making, and raised the margin, which started frames
+sooner, where they met kept drawables more often.
+
+What changed: a wait for a drawable that ends within a refresh is no
+miss; late frames are no longer held back to the learned release (the
+acquire waits for the drawable); each number of frames in flight keeps
+its own margin and floor; and the fallback above. Simulated with the
+report's alternation (120 s, the pacer before and after side by side in
+a scratch harness over the same `sim`; repeats are refreshes the
+simulated display showed no new frame at, a second; shown is frame
+start to the glass, ms):
+
+| Repeats · shown | block·1 | block·2 | late·1 | late·2 |
+|---|---:|---:|---:|---:|
+| Window, before | 0.36 · 11.72 | 0 · 20.00 | 0.39 · 3.84 | 0.36 · 6.86 |
+| Window, after | 0.29 · 11.71 | 0 · 20.00 | 0.54 · 5.13 | 0.29 · 7.37 |
+| Fullscreen, before | 2.42 · 13.39 | 0.03 · 21.36 | 36.8 · 11.02 | 1.68 · 8.99 |
+| Fullscreen, after | 2.39 · 13.39 | 0.03 · 21.37 | 2.51 · 11.78 | 1.14 · 11.12 |
+
+After, in fullscreen, late·1 fell back after 5.0 s of its frames and
+late·2 after 18.8 s (its column blocking for its last quarter). Late·2
+alone, a minute in a window then 30 s in fullscreen (five seeds): before,
+1.82 repeats a second; after, it falls back in every seed and then
+repeats none (0.03 for block·2), at a refresh more latency (21.4 ms
+frame start to the glass, 9.6 before). Block·2, not block·1: block·1
+repeats on every kept drawable (2.4 a second in the model; measured
+8.47 ms between presents against block·2's 8.37). Windowed late·2 is
+unchanged: ten minutes on the 2026-10-17 model repeat the same 18 of
+71,923 frames (8.61 / 9.52 ms, margin 6.50), no fallback. Windowed
+late·1 gives up about 1.3 ms (its margin, not the learned release, now
+sets its start); on the 2026-10-17 model's 1.1 ms builds it falls back
+after 8.7 s of its frames, where it missed 14 refreshes a second.
+
+In the next run, windowed: late·2's "late fell back to block" says
+"no", acquire misses and target gaps as before (0–2). Fullscreen: the
+fallback row for late·1 and late·2 (share of the column's frames, and
+after how many seconds of them), a line on stderr when one falls back,
+late·1's acquire misses far below 768, late·2's present-to-present mean
+near block·2's; `--pacing late --in-flight 2 --pacing-report` for
+late·2 alone, as a play runs by default. Late·2 not falling back, with
+misses at windowed levels, would say the release's reading was the
+whole story; leaving fullscreen undoes a fallback.
 
 The hundreds of block target gaps **do not establish repeated refreshes**.
 `target_after` rounds each present up to a refresh and assumes a full
@@ -769,7 +854,10 @@ return to present), how late the timer woke, input read → estimated shown and
 frame start → estimated shown (to the refresh the grid gives the frame),
 inferred target gaps and collisions (consecutive frames assigned the same
 or an earlier refresh), targets later or earlier than predicted before
-building, acquire-inferred misses (late only), probes and the margin.
+building, acquire-inferred misses (late only), whether and when a late
+column fell back to blocking (and the share of its frames since), probes
+and the margin. With `--pacing` or `--in-flight` the report runs that
+column alone.
 Boundary jitter can pair target gaps with collisions at a steady present
 cadence; these counts cannot establish repeated refreshes. Keys and pads
 reach the play when the loop polls them, just before a frame starts; a blocking frame
@@ -782,8 +870,9 @@ before); what is shown stays one frame a refresh, which the estimate approximate
 are retried quietly and never enter the report.
 
 **The harness.** `pacing::sim::Surface` is a Fifo swapchain on a fake
-clock (drawables, a compositor's deadline, the release after a refresh)
-over a fixed or variable display; `sim::run` and `sim::Loop` drive a
+clock (drawables, a compositor's deadline, the release after a refresh,
+now and then a refresh later) over a fixed or variable display, and
+`sim::Compositor` the Mac's window and fullscreen as fitted above; `sim::run` and `sim::Loop` drive a
 `Pacer` as the shell's loop does and say when each frame was really
 shown. It is built for tests only (`cfg(test)`, and the `sim` feature
 the integration tests turn on through ddi-desktop's dev-dependency on
@@ -798,13 +887,16 @@ the learned floor survives a new play, a faster refresh found with a stale OS ra
 timer up to 2 ms late, a variable refresh rate, a new play locks again,
 the report over one alternating run, a display link as the grid from
 the first frame, a compositor that keeps drawables (one in flight
-repeats, two do not); `display_link.rs`: a `CVDisplayLink` run with no
+repeats, two do not), fullscreen's direct presentation (late·1 and
+late·2 fall back, the report says so), a window never falls back (ten
+minutes of late·2), a drawable kept past half a refresh is no miss,
+leaving fullscreen undoes the fallback; `display_link.rs`: a `CVDisplayLink` run with no
 window ticks at the display's rate on the host clock, and
 `CACurrentMediaTime` is the host clock. A review's simulation (phase
 shifts, 60 ↔ 120 Hz, a 3 s stall, late releases) ran on it too. `crates/desktop/tests/pacing.rs`: every bundled chart autoplayed with its
 frames at the times late pacing gives them (60 Hz, 144 Hz, a 48–144 Hz
-variable display, a missed refresh, a late timer) judged as at a steady
-60: the same tally, the same log (so the same replay), every hit at the
+variable display, a missed refresh, a late timer, fullscreen falling
+back) judged as at a steady 60: the same tally, the same log (so the same replay), every hit at the
 same offset.
 
 ### What a play draws and plays

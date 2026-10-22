@@ -21,6 +21,15 @@
 //! soon causes another miss. Two frames in flight allow a margin up to one
 //! refresh, using the spare drawable to start earlier.
 //!
+//! An acquire that waits less than a refresh after the refresh that frees
+//! its drawable is the compositor keeping that drawable, never a miss: a
+//! missed frame frees it a refresh later. A frame started before its
+//! drawable is free waits for it there, which returns as it comes free.
+//! Misses that keep coming with the margin at its cap make late pacing
+//! block (as many frames in flight) for the surface it met them on, until
+//! the window's size or fullscreen state changes (`docs/plans/desktop.md`,
+//! "Frame pacing").
+//!
 //! Late pacing gives the play its estimated target refresh. Blocking
 //! keeps the session's prediction; queue depth and delayed drawable
 //! release can separate them. Judging never reads either prediction:
@@ -90,6 +99,17 @@ const TOLERANCE: f64 = 0.000_5;
 /// A display link's refreshes are the grid while its last one is this
 /// recent (s).
 const LINK_STALE: f64 = 0.1;
+/// Late pacing blocks instead when misses with the margin already at its
+/// cap come on [`FALLBACK_MISSES`] of the last [`FALLBACK_FRAMES`] frames
+/// it ran late with as many in flight (1.25 %; ten seconds at 120 Hz).
+/// Learning takes the margin to its cap in a few misses. A compositor's
+/// stalls, which blocking frames miss as well, come on under 0.5 % of
+/// refreshes windowed (simulated and measured), which makes 15 in 1200 a
+/// one in 10⁴ chance; in the fullscreen model (`sim::Compositor::DIRECT`)
+/// late·2 misses on about 1.5 % with its margin pinned at its cap, and
+/// late·1 on about 3 %.
+const FALLBACK_FRAMES: u64 = 1200;
+const FALLBACK_MISSES: usize = 15;
 
 /// Where a frame's refresh times came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -501,6 +521,8 @@ pub struct Record {
     pub source: Source,
     /// Frames in flight (the swapchain's drawables less one).
     pub in_flight: u32,
+    /// Late pacing had fallen back: the frame blocked.
+    pub fallback: bool,
     pub margin: f64,
 }
 
@@ -538,6 +560,18 @@ pub struct Pacer {
     pending: VecDeque<(f64, f64, f64)>,
     /// Recent misses (host s).
     misses: VecDeque<f64>,
+    /// Frames run late, and those of them that missed with the margin at
+    /// its cap among the last [`FALLBACK_FRAMES`], by frames in flight.
+    late_frames: [u64; 2],
+    stuck: [VecDeque<u64>; 2],
+    /// The margin's floor and the margin with the other number of frames
+    /// in flight (a report's columns alternate them).
+    other: (f64, f64),
+    /// When late pacing fell back to blocking frames, by frames in flight
+    /// asked for (1, 2), on this surface.
+    fallen: [Option<f64>; 2],
+    /// The surface it fell back on: its size and whether fullscreen.
+    surface: Option<(u32, u32, bool)>,
     /// When the next burst starts, its frames left and their returns.
     burst_at: f64,
     burst_left: u32,
@@ -547,6 +581,8 @@ pub struct Pacer {
     pub latch_misses: u32,
     /// Faster refreshes found by bursts.
     pub faster_found: u32,
+    /// Times late pacing fell back to blocking frames.
+    pub fallbacks: u32,
 }
 
 impl Default for Pacer {
@@ -576,12 +612,18 @@ impl Pacer {
             made: VecDeque::new(),
             pending: VecDeque::new(),
             misses: VecDeque::new(),
+            late_frames: [0; 2],
+            stuck: [VecDeque::new(), VecDeque::new()],
+            other: (MARGIN, MARGIN),
+            fallen: [None; 2],
+            surface: None,
             burst_at: f64::INFINITY,
             burst_left: 0,
             burst: Vec::new(),
             frame: Frame::default(),
             latch_misses: 0,
             faster_found: 0,
+            fallbacks: 0,
         }
     }
 
@@ -613,12 +655,48 @@ impl Pacer {
     }
 
     /// Frames in flight (1 or 2): the swapchain has one drawable more.
+    /// Each number keeps its own margin and floor (their caps differ, and
+    /// a report's columns alternate them).
     pub fn set_in_flight(&mut self, n: u32) {
-        self.in_flight = n.clamp(1, 2);
+        let n = n.clamp(1, 2);
+        if n != self.in_flight {
+            let mine = (self.floor, self.margin);
+            (self.floor, self.margin) = std::mem::replace(&mut self.other, mine);
+            self.in_flight = n;
+        }
+    }
+
+    /// The margin's cap: half a refresh a frame in flight (a spare
+    /// drawable lets a frame start up to a refresh early).
+    fn cap(&self) -> f64 {
+        self.grid.period * f64::from(self.in_flight) / 2.0
     }
 
     pub fn in_flight(&self) -> u32 {
         self.in_flight
+    }
+
+    /// Late pacing fell back to blocking frames (with as many in flight)
+    /// on this surface.
+    pub fn fallen_back(&self) -> bool {
+        self.mode == Mode::Late && self.fallen[self.in_flight as usize - 1].is_some()
+    }
+
+    /// The surface's size and whether it is fullscreen. Another one undoes
+    /// a fallback: what late pacing met may not be there (fullscreen's
+    /// direct presentation left, a window resized).
+    pub fn set_surface(&mut self, size: (u32, u32), fullscreen: bool) {
+        let key = (size.0, size.1, fullscreen);
+        if self.surface != Some(key) {
+            self.surface = Some(key);
+            self.fallen = [None; 2];
+            self.stuck = [VecDeque::new(), VecDeque::new()];
+        }
+    }
+
+    /// Frames start late (late pacing, not fallen back).
+    fn late(&self) -> bool {
+        self.mode == Mode::Late && !self.fallen_back()
     }
 
     /// The refresh after which a drawable comes free: the last frame's
@@ -664,12 +742,13 @@ impl Pacer {
     }
 
     /// When a frame should start, after the frame shown at `last`: its
-    /// budget before the next refresh, and no sooner than a drawable is
-    /// free (a refresh, and the time the compositor keeps the drawable
-    /// it replaced).
+    /// budget before the next refresh. A frame that starts before its
+    /// drawable is free (the compositor keeping the one the refresh
+    /// replaced) waits in the acquire, which returns as the drawable comes
+    /// free: sooner than a timer set for it would wake, and a wait that
+    /// ends before the refresh after is no miss.
     fn wake_after(&self, last: f64) -> f64 {
-        let free = self.reference().unwrap_or(last) + self.releases.quantile(0.95);
-        (last + self.grid.period - self.budget()).max(free)
+        last + self.grid.period - self.budget()
     }
 
     /// The planned start of the next frame, if late pacing plans it.
@@ -678,7 +757,7 @@ impl Pacer {
         // gives them.
         let probing = !self.grid.linked(now)
             && (now >= self.probe_at || now >= self.burst_at || self.burst_left > 0);
-        if self.mode != Mode::Late || !self.grid.locked_at(now) || probing {
+        if !self.late() || !self.grid.locked_at(now) || probing {
             return None;
         }
         self.last_target.map(|l| self.wake_after(l))
@@ -697,20 +776,15 @@ impl Pacer {
         let scheduled = self.planned(now);
         let locked = self.grid.locked_at(now);
         let linked = self.grid.linked(now);
-        if self.mode == Mode::Late
-            && locked
-            && !linked
-            && self.burst_left == 0
-            && now >= self.burst_at
-        {
+        if self.late() && locked && !linked && self.burst_left == 0 && now >= self.burst_at {
             self.burst_left = BURST;
             self.burst.clear();
         }
         self.frame = Frame {
             begin: now,
             scheduled,
-            probe: self.mode == Mode::Late && scheduled.is_none() && locked && !linked,
-            burst: self.mode == Mode::Late && self.burst_left > 0 && !linked,
+            probe: self.late() && scheduled.is_none() && locked && !linked,
+            burst: self.late() && self.burst_left > 0 && !linked,
             ..Frame::default()
         };
     }
@@ -735,7 +809,7 @@ impl Pacer {
             return t + p;
         }
         let latest = self.grid.next_after(t) + f64::from(self.in_flight - 1) * p;
-        if self.mode == Mode::Block {
+        if !self.late() {
             return latest;
         }
         let after = self
@@ -761,58 +835,28 @@ impl Pacer {
             if self.frame.burst {
                 self.burst.push(end);
             }
-            // A wait that ends within half a refresh after the refresh
-            // that frees a drawable is the compositor keeping it a while
-            // (learned); one that ends a refresh or more later says the
-            // frame before missed its refresh.
+            // A wait that ends less than a refresh after the refresh that
+            // frees a drawable is the compositor keeping it a while
+            // (learned, to place a missed frame's refresh); one that ends a
+            // refresh or more later says the frame before missed its
+            // refresh, which frees that drawable a refresh later. Half a
+            // refresh was the line once: a compositor that keeps drawables
+            // longer than that (a window's late release; one of the
+            // fullscreen model's) made every such wait a miss and every
+            // miss a larger margin, which started frames sooner and made
+            // them wait the more.
             let p = self.grid.period;
             let after = reference.map(|r| end - r);
-            if self.mode == Mode::Late
+            let missed = after.is_some_and(|d| d > p - TOLERANCE);
+            if self.late()
                 && let Some(d) = after
-                && (-TOLERANCE..=p / 2.0).contains(&d)
+                && d >= -TOLERANCE
+                && !missed
             {
                 self.releases.push(d.max(0.0));
             }
-            if self.mode == Mode::Late && was_locked && after.is_some_and(|d| d > p / 2.0) {
-                // The frame before missed its refresh: it is shown now.
-                self.frame.latch_miss = true;
-                self.latch_misses += 1;
-                // With two in flight a spare drawable lets a frame start
-                // up to a refresh early.
-                let cap = p * f64::from(self.in_flight) / 2.0;
-                // The frame that missed: the oldest not yet known to have
-                // made it.
-                let culprit = self.pending.front().copied();
-                self.pending.clear();
-                self.frame.miss_spare = culprit.map(|(_, s, _)| s);
-                self.frame.miss_late = culprit.map(|(_, _, l)| l);
-                // A deadline the margin and its floor must cover, unless
-                // a frame lately made its refresh with less time to spare
-                // and misses are not coming fast (a hiccup: a higher
-                // margin would not have saved it, so nothing moves).
-                while self.misses.front().is_some_and(|t| end - t > MISS_WINDOW) {
-                    self.misses.pop_front();
-                }
-                let frequent = !self.misses.is_empty();
-                self.misses.push_back(end);
-                let hiccup = !frequent
-                    && culprit.is_some_and(|(_, s, _)| {
-                        self.made.iter().any(|(_, m)| *m < s - SPARE_NOISE)
-                    });
-                if !hiccup {
-                    if self.lowered.is_some_and(|t| end - t <= TOO_FAR) {
-                        self.hold = (self.hold * 2.0).min(FLOOR_HOLD_MAX);
-                    }
-                    self.lowered = None;
-                    self.floor = (self.floor + FLOOR_STEP).min(cap);
-                    self.margin = (self.margin.max(self.floor) + MARGIN_STEP).min(cap);
-                }
-                self.floor_since = end;
-                // Shown now (one in flight), or the frame queued behind it
-                // a refresh later (two).
-                let shown = self.grid.nearest(end) + f64::from(self.in_flight - 1) * p;
-                self.prev_target = Some(shown - p);
-                self.last_target = Some(shown);
+            if self.late() && was_locked && missed {
+                self.missed(end);
             }
         }
         // The frame `in_flight` back made its refresh.
@@ -835,7 +879,70 @@ impl Pacer {
         // A typical build: one that takes longer and misses the refresh
         // is an overrun, known as one.
         self.frame.predicted = self.target_after(end + self.builds.quantile(0.5));
+        // Fallen back, the grid's refresh still: the notes stay where the
+        // late frames before drew them.
         (self.mode == Mode::Late && self.grid.locked_at(end)).then_some(self.frame.predicted)
+    }
+
+    /// An acquire that returned at `end` says a frame before missed its
+    /// refresh: the margin learns, the frames' refreshes move, and misses
+    /// that keep coming with the margin at its cap make late pacing block.
+    fn missed(&mut self, end: f64) {
+        let p = self.grid.period;
+        self.frame.latch_miss = true;
+        self.latch_misses += 1;
+        let cap = self.cap();
+        // The frame that missed: the oldest not yet known to have made it.
+        let culprit = self.pending.front().copied();
+        self.pending.clear();
+        self.frame.miss_spare = culprit.map(|(_, s, _)| s);
+        self.frame.miss_late = culprit.map(|(_, _, l)| l);
+        // A deadline the margin and its floor must cover, unless a frame
+        // lately made its refresh with less time to spare and misses are
+        // not coming fast (a hiccup: a higher margin would not have saved
+        // it, so nothing moves).
+        while self.misses.front().is_some_and(|t| end - t > MISS_WINDOW) {
+            self.misses.pop_front();
+        }
+        let frequent = !self.misses.is_empty();
+        self.misses.push_back(end);
+        let hiccup = !frequent
+            && culprit.is_some_and(|(_, s, _)| self.made.iter().any(|(_, m)| *m < s - SPARE_NOISE));
+        // The margin can grow no further. Misses a margin cannot answer
+        // (a deadline beyond the cap, frames held back until their
+        // drawable comes free too late) take it there in a few.
+        let stuck = self.margin >= cap - 1e-9;
+        if !hiccup {
+            if self.lowered.is_some_and(|t| end - t <= TOO_FAR) {
+                self.hold = (self.hold * 2.0).min(FLOOR_HOLD_MAX);
+            }
+            self.lowered = None;
+            self.floor = (self.floor + FLOOR_STEP).min(cap);
+            self.margin = (self.margin.max(self.floor) + MARGIN_STEP).min(cap);
+        }
+        self.floor_since = end;
+        // Shown now (one in flight), or the frame queued behind it a
+        // refresh later (two); the wait ended the time the compositor
+        // keeps a drawable after that refresh.
+        let shown = self.grid.nearest(end - self.releases.quantile(0.5))
+            + f64::from(self.in_flight - 1) * p;
+        self.prev_target = Some(shown - p);
+        self.last_target = Some(shown);
+        let k = self.in_flight as usize - 1;
+        if stuck {
+            let at = self.late_frames[k];
+            let recent = &mut self.stuck[k];
+            while recent.front().is_some_and(|f| at - f >= FALLBACK_FRAMES) {
+                recent.pop_front();
+            }
+            recent.push_back(at);
+            if recent.len() >= FALLBACK_MISSES {
+                recent.clear();
+                self.fallen[k] = Some(end);
+                self.fallbacks += 1;
+                self.made.clear();
+            }
+        }
     }
 
     /// A burst's frames are done: returns closer together than the grid's
@@ -873,7 +980,10 @@ impl Pacer {
         let early = target < f.predicted - self.grid.period / 2.0;
         // A late frame's time to spare, known to have been enough once an
         // acquire `in_flight` frames on does not say it missed.
-        if self.mode == Mode::Late && locked && !overrun {
+        if self.late() {
+            self.late_frames[self.in_flight as usize - 1] += 1;
+        }
+        if self.late() && locked && !overrun {
             self.pending
                 .push_back((end, target - start, late.unwrap_or(0.0)));
         } else {
@@ -919,6 +1029,7 @@ impl Pacer {
             measured: self.grid.measured,
             source: self.grid.source(end),
             in_flight: self.in_flight,
+            fallback: self.fallen_back(),
             margin: self.margin,
         }
     }
