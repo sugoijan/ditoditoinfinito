@@ -1,11 +1,13 @@
-# More rulesets: DDR EXTREME, DDR's gauges and FLARE, LIFE4's lamps
+# More rulesets: DDR EXTREME, DDR X, DDR's gauges and FLARE, LIFE4's lamps
 
 Status: done 2026-10-21 (decision 57); the `ffr` preset done 2026-10-22
-(decision 58, "FFR" below). Phase 10's "more rulesets"
+(decision 58, "FFR" below); the `ddr-x` preset done 2026-10-22
+(decision 59, "DDR X" below). Phase 10's "more rulesets"
 (`docs/PLAN.md` section 5): DDR's legacy scoring as the `ddr-extreme`
 preset, DDR A's other gauges (LIFE4, RISKY, FLARE I–EX, FLOATING FLARE)
 with the FLARE rank and FLARE SKILL a play keeps, and LIFE4's clear types
-as lamps; then FlashFlashRevolution's rules as R^3 plays them. Everything
+as lamps; then FlashFlashRevolution's rules as R^3 plays them, and DDR
+X's (SuperNOVA2's score, grades by the chart's difficulty). Everything
 lives in the shared crates (`ddi-engine`, `ddi-ui`, `ddi-theme`), so both
 shells have it with no code of their own.
 
@@ -53,12 +55,12 @@ pages) documents every era. Two were candidates:
   `B / S`).
 - **SuperNOVA2 and X**: SC = 1,000,000 / (steps + freezes + shocks),
   Marvelous and O.K. SC, Perfect SC − 10, Great SC/2 − 10 (the engine's
-  `DdrVariant::Sn2`, unused until now); grades by money and by the chart's
-  difficulty (AAA 990k and AA 950k everywhere; A/B/C 800/700/500k for
-  Beginner and Basic, 850/750/600k Difficult, 900/800/700k Expert and
+  `DdrVariant::Sn2`, unused until 2026-10-22); grades by money and by the
+  chart's difficulty (AAA 990k and AA 950k everywhere; A/B/C 800/700/500k
+  for Beginner and Basic, 850/750/600k Difficult, 900/800/700k Expert and
   Challenge); no measured windows, no public life numbers, the fraction of
   SC rounded nobody says how, and whether an O.K. adds to the combo not
-  documented.
+  documented. Researched further and built as `ddr-x` ("DDR X" below).
 
 Neither era's life gauge has public numbers (start half full, Perfect and
 Great fill it slowly, Boo and Miss empty it fast, Good does nothing:
@@ -226,6 +228,100 @@ nothing transcribed):
   the notes there (`docs/plans/phase-10.md`, "Timing as R^3 has it");
   the rules here are unchanged.
 
+### DDR X
+
+Researched again for the preset (2026-10-22). RemyWiki is read through the Wayback
+Machine (its live pages answer scripts with Cloudflare's challenge);
+BEMANIWiki's version pages directly. Era: SuperNOVA2 (2008), X (2008),
+X2 (2010), X3 VS 2ndMIX (2011), DDR (2013) and DDR (2014) score alike;
+their judgements and combo differ, so the preset is one version's, X's.
+
+- **Score** (RemyWiki's "DanceDanceRevolution SuperNOVA2 Scoring
+  System"; BEMANIWiki's SN2 to 2014 pages): "SC x (number of Marvelous
+  + number of OKs) + (SC - 10) x (number of Perfects) + [(SC ÷ 2) - 10]
+  x number of Greats", SC = 1,000,000 ÷ (steps + freezes + 4- or 8-way
+  shock sets), a jump one step, "A pair of freeze that starts at the same
+  time will be considered as one freeze"; Good, Almost and Boo 0
+  (BEMANIWiki's DDR A/基礎知識, "DDR2014(変更前)": "GREAT 基準点の50%-10点 |
+  GOOD 0点"). An all-Marvelous play is 1,000,000 (BEMANIWiki X).
+- **Rounding**: shown in tens in normal play ("multiples of 10 if
+  playing in Standard mode", RemyWiki; "スコアは10点単位で加算(1の位は必ず0)",
+  BEMANIWiki SN2). How: BEMANIWiki's X2 page drops the ones digit
+  ("1の位を切り捨て"), X3, 2013 and 2014's "10点単位、端数は切り捨て"; its SN2
+  page rounds half up, but says its formula was guessed from a location
+  test video ("北米ロケテ動画から推測したもの"). StepMania's own SN2 scoring
+  (waiei's, `Themes/_fallback/Scripts/04 Scoring.lua`, March to July
+  2012, MIT) floors the exact total to ten, then takes 10 for each Perfect
+  and Great. Flooring an SC to whole points a step instead cannot make
+  1,000,000 of every all-Marvelous play (three steps: 999,999).
+- **No EX score** in SuperNOVA2 and X (RemyWiki's "What Is DDR?": EX
+  score in EXTREME's Challenge mode, "and X2 and later games, which can
+  be enabled through a code"). No dance points: grades are by the score.
+- **Grades** (RemyWiki's table, its "SuperNOVA2 to (2014) (Dance
+  Level)" columns, the current revision and 2015's alike; BEMANIWiki's
+  SN2, X2, X3, 2013 and 2014 pages, "A～Dのランクは難易度によって基準スコアが
+  異なっている。AAとAAAの基準スコアは全難易度共通"): AAA from 990,000 and AA
+  from 950,000 on every difficulty; A, B, C from 800,000, 700,000,
+  500,000 on Beginner and Basic, 850,000, 750,000, 600,000 on Difficult,
+  900,000, 800,000, 700,000 on Expert and Challenge; D below; E failed
+  ("ゲージ、ライフがなくなる"). AAA asks nothing more ("99万点以上でAAAが取れる
+  ようになった(GREAT以下を含んでもOK)", BEMANIWiki SN2). No source gives an
+  edit's grades; DDR (2013) shows an edit as a Challenge chart
+  (BEMANIWiki's "リンク・EDIT関連": "EDIT譜面の難度をBEGINNERに設定しても、
+  表示が紫色（CHALLENGE譜面扱い）になる"). Courses score and grade otherwise
+  (BEMANIWiki X2, X3); the game has none.
+- **Judgements**: Marvelous in every mode from SuperNOVA2 ("MARVELOUS
+  timing is also now on all the time in all modes", RemyWiki's AC DDR
+  SuperNOVA2; "通常モードにもMARVELOUS判定が出現するようになった",
+  BEMANIWiki). SuperNOVA to X name the old Boo Almost and a miss Boo
+  ("BOO→ALMOST、MISS→BOOに変更", BEMANIWiki SuperNOVA); X2 removed
+  Almost ("ALMOST judgement has been removed, and N.G. is merged with
+  BOO, now renamed to its former name MISS", RemyWiki's AC DDR X2;
+  Wikipedia says into Good).
+- **Windows**: none measured for any of these versions. The 60 fps
+  table, Marvelous ±1 frame (16.7 ms), Perfect ±2 (33.3), Great ±5.5
+  (91.7), Good ±8.5 (141.7), "Boo" ±13.5 (225), is a post of 1 March
+  2016, during DDR (2014), before A ("Only DDR has frame-based timing",
+  LHoT10820, r/rhythmgames 48dfkn, archived); "the Marvelous window
+  remains at +/-1 frame on DDR A, as it had been in previous games. All
+  other windows have remained intact" (NewbStepper, Zenius-I-vanisher
+  thread 9479, second hand); frame-tied timing "continued all the way up
+  to DDR 2014" (thread 11131). Cabinets judged differently
+  ("新筐体(X生産分)、赤筐体(SN生産分)、黒筐体でも判定の違いが確認されている",
+  BEMANIWiki X). EXTREME's measured asymmetric table is an older game's.
+- **Combo**: a jump adds one ("Jumps count as a single note for combo
+  purposes once again", RemyWiki's AC DDR SuperNOVA). Great is "The
+  lowest judgment that would not break the player's combo until
+  DanceDanceRevolution (2013)" (RemyWiki's glossary; BEMANIWiki 2013:
+  "Good判定 COMBO BREAK仕様廃止"). An N.G. breaks it from X: "Obtaining an
+  N.G. from a Freeze Arrow/a set of Shock Arrows now breaks your combo"
+  (RemyWiki's AC DDR X; "フリーズアローを切ってN.G.判定を出すと、コンボが切れる",
+  BEMANIWiki X; in SuperNOVA2 a freeze's N.G. still kept the full combo
+  mark). A shock avoided is an O.K. and adds one ("踏まなければO.K.判定と
+  なり、同時にコンボが1増える", BEMANIWiki X). Whether a freeze held adds one:
+  no source; current DDR's does not ("holding freeze notes to the end
+  does not increment the combo", ddrguide).
+- **Shocks** (X on, Challenge charts): a full row only ("全レーンにまたがって
+  流れてくるため、全パネルから足を離さないとミス扱いになる", BEMANIWiki X);
+  stepped on, "your gauge going down like a misstep would" (RemyWiki's AC
+  DDR X), the combo broken and the arrows hidden a moment ("一瞬だけステルス
+  状態になり", BEMANIWiki X); one unit of SC (Wikipedia's DDR X).
+- **Life**: no numbers for any of these versions. It starts half full
+  (RemyWiki's "What Is DDR?"); it drains on "timing judgments lower than
+  Good (O.K. does not count)" (same), and before 2013 a Good did not lower
+  it ("ゲージが減らないもののCOMBOが切れる", BEMANIWiki 2013); Great and better
+  refill it. The amounts varied with the stage, the combo and the
+  operator's setting ("筐体設定によりゲージの減り方が異なる", Konami's EXTREME
+  Q&A as atwiki iamkenzen quotes it; the same wiki: "シミュレータでも完全再現
+  を出来ているものはおそらく存在しない", and X's gauge "シリーズを通して一番減り
+  づらい"). SuperNOVA2 to X showed DANGER only on RISKY, LIFE4 and
+  Challenge courses ("This message would not return until A", RemyWiki's
+  AC DDR SuperNOVA2). LIFE4 and RISKY were not options of X's normal
+  play (RISKY from X2, LIFE4 from 2014; RemyWiki's "DDR AC General
+  Info").
+- **Freezes**: a moment off the panel is forgiven ("フリーズアローは一瞬だけ
+  なら足を離しても大丈夫", BEMANIWiki 2013); how long, no source.
+
 ## Decided here (the maintainer may change any)
 
 1. `ddr-extreme` ("DDR EXTREME", approximate) is DDRMAX2 and EXTREME's
@@ -242,10 +338,11 @@ nothing transcribed):
    delayed fail ("P is changed to 1"; the grade is E either way), the
    long and marathon versions (no source), mines (EXTREME had none;
    StepMania's −8 dance points).
-2. SuperNOVA2 and X are not built: no measured windows or gauge, grades
-   that depend on the chart's difficulty (a grade table that cannot see
-   the chart), and an undocumented combo rule. One legacy preset is
-   enough to stand for the era; this research is here for the next.
+2. SuperNOVA2 and X were not built then: no measured windows or gauge,
+   grades that depend on the chart's difficulty (a grade table that
+   cannot see the chart), and an undocumented combo rule. Built since at
+   the maintainer's request, the gaps taken from the closest sources
+   (decision 59, "DDR X" below).
 3. DDR's gauges are an option of `ddr-a` only (A3 and WORLD's DANCE
    GAUGE row): `StepManiaOptions::gauge` (`DdrGauge`: Normal, LIFE4,
    RISKY, FLARE I–IX and EX, FLOATING FLARE), the Rules section's "DDR
@@ -343,6 +440,55 @@ nothing transcribed):
     plays list says "FFR". No `JUDGE_VERSION` change: no kept play's
     results change.
 
+### `ddr-x` (2026-10-22, decision 59)
+
+20. `ddr-x` ("DDR X", approximate) is DDR X's normal play: the 60 fps
+    frame table with Almost at ±13.5 frames (W5) and a note let pass a
+    Boo (`presets::ddr_x`); judged a row at a time, a jump one step and
+    one to the combo; Great keeps the combo, Good, Almost and Boo break
+    it, as does an N.G. (a freeze let go, a shock stepped on, a mine of a
+    row that is not full); a shock avoided adds one, a freeze held none
+    (no source: DDR A's rule, the nearest version with one). Freezes
+    forgive 0.25 s off the panel (StepMania's `TW_Hold`, as `ddr-a`);
+    shocks are a full row of mines, judged in DDR A's 0.07 s.
+21. Score: `DdrMoney` with `DdrVariant::Sn2`, the exact total floored to
+    ten after the Perfects' and Greats' tens (BEMANIWiki's later pages
+    and StepMania's SN2 script; the order does not matter, the tens being
+    whole), shown in the HUD and kept for bests; no EX score (none in X).
+22. Grades: `presets::ddr_x_grades` by the chart's difficulty (Beginner
+    and Easy as Beginner and Basic, Medium as Difficult, Hard and
+    Challenge as Expert and Challenge), an edit as Expert and Challenge;
+    E failed. The ruleset is built for a chart (`presets::ddr_x_for`, from
+    `presets::stepmania`, which `for_chart` and `RulesetKey::build` go
+    through, so a replay and a play judged again grade alike); the grade
+    table stays a property of the ruleset, as a chart's holds already
+    were. Built for no chart (the options' list), Expert's.
+23. Life: StepMania 3.9's bar, as `ddr-extreme`'s (merciful drain, the
+    regen lockout to 10, the harsh penalty from full): its defaults follow
+    the pattern the sources give for 1st to X ("large gain
+    Perfect/Marvelous, small gain Great, 0 Good, small loss Boo, large
+    loss Miss", atwiki iamkenzen) with Almost as the small loss; a shock
+    stepped on and a freeze let go as a Miss (−0.08), a mine −0.16. No
+    danger state (`LifeBar`'s threshold 0, its danger line none), as X
+    showed none. StepMania's options apply as to the other StepMania
+    presets (fail type, life and judge levels, the battery); DDR's gauge
+    does not (X had no LIFE4 or RISKY to choose).
+24. Lamps as the other StepMania presets' (a full combo with Greats
+    GFC, X's "FULL COMBO"); LIFE4's lamps stay DDR A's. The plays list
+    says "DDR X". No `JUDGE_VERSION` change: no kept play's results change
+    (`DdrVariant::Sn2` and the bar's danger line were used by no preset).
+25. Found, changed: the autoplayer stopped re-tapping a roll 0.2 s
+    before the lane's next note, inside X's 0.225 s Almost window, so a
+    re-tap hit that note early (the local corpus's rolls under `ddr-x`).
+    It stops 0.23 s before (`autoplay::ROLL_TAP_STOP`) and taps once there,
+    so the roll's tail stays within DDR A's and X's 0.25 s roll window.
+    The script is not kept with a play (its presses are), so no kept play
+    changes.
+26. Not modeled: X's gauge amounts and their variation by stage and
+    combo, per-cabinet judging, courses and their scores, X2 to 2014's
+    rules (Almost gone, Good keeping the combo from 2013), SuperNOVA2's
+    (no shocks, an N.G. keeping the combo).
+
 ## Steps
 
 1. Engine: `rules::ddr` (`DdrGauge`, `Flare`, `flare_points`,
@@ -358,6 +504,11 @@ nothing transcribed):
    UI (the ruleset row, the results' stats, the lamps and their colors,
    the best key, the plays list's name, the options' wording), checks.
    Done.
+5. `ddr-x` (2026-10-22): engine (`presets::ddr_x`, `ddr_x_grades`,
+   `ddr_x_for` through `presets::stepmania`, `DdrMoney` without EX under
+   `Sn2`, `LifeBar` without a danger line at 0, the autoplayer's roll
+   re-taps), UI (the plays list's name; the ruleset row and results
+   follow the preset), checks. Done.
 
 ## Checks
 
@@ -433,3 +584,26 @@ nothing transcribed):
   by hand, a real FFR level's music against Flash's decode (the half
   frame and the music's start are the import's since 2026-10-22, "Found
   for the import").
+- `ddr-x` (2026-10-22). Engine (`crates/engine/tests/rulesets.rs`, each
+  play judged again from its key and log): 20 steps of a Challenge chart
+  all Marvelous 1,000,000 AAA MFC, a jump one to the combo, no EX score;
+  a Perfect and a Great 974,980 (AA); a Good, an Almost and a Boo
+  850,000 (B on Challenge), the combo broken by each; failed E; three
+  steps, a Great 833,320 (the remainder dropped; A on Basic); every
+  threshold of every difficulty and an edit's; the chart's difficulty's
+  grades through `presets::stepmania`, `for_chart` and a key's build;
+  autoplay all Marvelous with freezes and jumps, a freeze held adding
+  nothing; freezes let go and a shock stepped on (three N.G.s, 727,270),
+  a shock avoided adding one; the bar with no danger, a Good leaving it.
+  `history.rs` replays autoplays and random plays under `ddr-x`;
+  `autoplay` the roll re-tap before a note under X's windows. UI: the
+  results' tiers (Almost, Boo) and no danger line.
+- Local corpus (`local_autoplay`, 1,749 files, 11,898 charts, 59,490
+  plays under ITG, StepMania 5, DDR A, DDR X and FFR): every play perfect
+  and judged again to the same results. The first run, before the
+  autoplayer's change, had 104 plays short (`ddr-x`'s roll re-taps
+  judged Almosts of the next note, and DDR A's six); after it none, DDR
+  A's six (a hold let go in "The Edge" and "A Princess On My Horse")
+  gone too. Not checked:
+  the browser and desktop by hand (the preset adds no screen; its row
+  and results are the shared ones), Firefox and Safari.

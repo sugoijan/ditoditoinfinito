@@ -395,6 +395,7 @@ fn ruleset_name(key: &RulesetKey) -> String {
         "itg-fa+" => "ITG FA+".into(),
         "sm5" => "StepMania 5".into(),
         "ddr-a" => "DDR A".into(),
+        "ddr-x" => "DDR X".into(),
         "ddr-extreme" => "DDR EXTREME".into(),
         "ffr" => "FFR".into(),
         "danoni" => "Dancing☆Onigiri".into(),

@@ -24,7 +24,7 @@ use ddi_platform::{ClockSample, HostTime};
 fn rulesets(song: &Song) -> Vec<Ruleset> {
     let chart = &song.charts[0];
     let mut out = Vec::new();
-    for id in ["itg", "sm5", "ddr-a", "ddr-extreme", "ffr"] {
+    for id in ["itg", "sm5", "ddr-a", "ddr-x", "ddr-extreme", "ffr"] {
         for holds in [HoldStyle::Dance, HoldStyle::Ticked, HoldStyle::ByGame] {
             out.push(presets::for_chart(
                 RulesetMode::AllStepMania,

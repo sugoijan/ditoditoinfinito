@@ -1,16 +1,17 @@
 //! Phase 10's rulesets (`docs/plans/rulesets.md`): DDR EXTREME's score,
 //! grades and combo, DDR A's other gauges (LIFE4, RISKY, FLARE, FLOATING
-//! FLARE) with the FLARE rank and FLARE SKILL a play keeps, and that each
+//! FLARE) with the FLARE rank and FLARE SKILL a play keeps, DDR X's
+//! SuperNOVA2 score and its grades by the chart's difficulty, and that each
 //! play's key builds the same rules again, so its replay judges the same.
 
 mod common;
 
-use ddi_chart::{Note, NoteKind, Tick, TimingMap};
+use ddi_chart::{Difficulty, Note, NoteKind, Tick, TimingMap};
 use ddi_engine::autoplay;
 use ddi_engine::history::replay;
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::ddr::{DdrClear, DdrGauge, FLARE_EX};
-use ddi_engine::rules::presets;
+use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{
     FailType, FullCombo, Judgement, LifeType, Max2, Ruleset, RulesetKey, ScoreCtx, ScoreRules,
     StepManiaOptions,
@@ -379,4 +380,239 @@ fn ddr_extremes_bar_is_harsh_when_full() {
         "{}",
         bar.life()
     );
+}
+
+/// DDR X's rules for `song`'s chart, as a play builds them.
+fn ddr_x(song: &ddi_chart::Song) -> Ruleset {
+    presets::stepmania("ddr-x", HoldStyle::ByGame, &song.charts[0])
+}
+
+#[test]
+fn ddr_x_scores_as_supernova2() {
+    // 20 steps (every fifth a jump, 24 notes): SC = 50,000.
+    let mut song = chart(20, 5, 9);
+    song.charts[0].difficulty = Difficulty::Challenge;
+    let r = play(&song, ddr_x(&song), |_| Some(0.0));
+    assert_eq!(r.score.money, Some(1_000_000));
+    assert_eq!((r.score.ex, r.score.max_ex), (None, None));
+    assert_eq!(r.tally.count(Judgement::W1), 20);
+    assert_eq!(r.full_combo, FullCombo::MarvelousFC);
+    // A jump is one step and one to the combo.
+    assert_eq!(r.max_combo, 20);
+    assert_eq!(r.grade, "AAA");
+    // A Perfect (25 ms late) costs 10, a Great (50 ms) SC/2 + 10.
+    let r = play(&song, ddr_x(&song), |i| {
+        Some(match i {
+            0 => 0.025,
+            1 => 0.05,
+            _ => 0.0,
+        })
+    });
+    assert_eq!(
+        (r.tally.count(Judgement::W2), r.tally.count(Judgement::W3)),
+        (1, 1)
+    );
+    assert_eq!(r.score.money, Some(1_000_000 - 10 - 25_010));
+    assert_eq!(r.full_combo, FullCombo::GreatFC);
+    assert_eq!(r.grade, "AA");
+    // A Good (120 ms) scores nothing and breaks the combo, as do an
+    // Almost (200 ms early) and a Boo (not pressed), X's miss.
+    let r = play(&song, ddr_x(&song), |i| match i {
+        6 => Some(0.12),
+        12 => Some(-0.2),
+        18 => None,
+        _ => Some(0.0),
+    });
+    assert_eq!(
+        [Judgement::W4, Judgement::W5, Judgement::Miss].map(|j| r.tally.count(j)),
+        [1, 1, 1],
+        "{:?}",
+        r.tally
+    );
+    assert_eq!(r.score.money, Some(850_000));
+    assert_eq!(r.full_combo, FullCombo::None);
+    assert_eq!(r.max_combo, 5);
+    // 850,000 on a Challenge chart: B (A from 900,000).
+    assert_eq!(r.grade, "B");
+    let names = &ddr_x(&song).names;
+    assert_eq!(
+        [names.name(Judgement::W5), names.name(Judgement::Miss)],
+        ["Almost", "Boo"]
+    );
+    // A failed play is E.
+    let r = play(&song, ddr_x(&song), |_| None);
+    assert!(r.failed);
+    assert_eq!(r.grade, "E");
+}
+
+#[test]
+fn ddr_x_drops_the_remainder_to_ten() {
+    // 3 steps: SC = 333,333.3…; all Marvelous is 1,000,000, a Perfect
+    // 999,990, a Great 833,323.3… − its 10, dropped to 833,320.
+    let mut song = chart(3, 0, 5);
+    song.charts[0].difficulty = Difficulty::Easy;
+    assert_eq!(
+        play(&song, ddr_x(&song), |_| Some(0.0)).score.money,
+        Some(1_000_000)
+    );
+    let r = play(&song, ddr_x(&song), |i| {
+        Some(if i == 0 { 0.025 } else { 0.0 })
+    });
+    assert_eq!(r.score.money, Some(999_990));
+    let r = play(&song, ddr_x(&song), |i| {
+        Some(if i == 2 { 0.05 } else { 0.0 })
+    });
+    assert_eq!(r.score.money, Some(833_320));
+    // 833,320 on a Basic chart: A (from 800,000).
+    assert_eq!(r.grade, "A");
+}
+
+#[test]
+fn ddr_x_grades_by_the_charts_difficulty() {
+    use ddi_engine::rules::ScoreView;
+    let tally = {
+        let mut t = ddi_engine::rules::Tally::default();
+        t.taps[2] = 1;
+        t
+    };
+    let grade = |difficulty, money: u64| {
+        presets::ddr_x_grades(difficulty).grade(
+            &ScoreView {
+                money: Some(money),
+                ..ScoreView::default()
+            },
+            &tally,
+            false,
+        )
+    };
+    // RemyWiki's and BEMANIWiki's table: AAA and AA the same everywhere,
+    // A, B and C by the difficulty.
+    for (difficulty, [a, b, c]) in [
+        (Difficulty::Beginner, [800_000, 700_000, 500_000]),
+        (Difficulty::Easy, [800_000, 700_000, 500_000]),
+        (Difficulty::Medium, [850_000, 750_000, 600_000]),
+        (Difficulty::Hard, [900_000, 800_000, 700_000]),
+        (Difficulty::Challenge, [900_000, 800_000, 700_000]),
+        (Difficulty::Edit, [900_000, 800_000, 700_000]),
+    ] {
+        for (money, expected) in [
+            (1_000_000, "AAA"),
+            (990_000, "AAA"),
+            (989_990, "AA"),
+            (950_000, "AA"),
+            (949_990, "A"),
+            (a, "A"),
+            (a - 10, "B"),
+            (b, "B"),
+            (b - 10, "C"),
+            (c, "C"),
+            (c - 10, "D"),
+            (0, "D"),
+        ] {
+            assert_eq!(grade(difficulty, money), expected, "{difficulty:?} {money}");
+        }
+        assert_eq!(
+            presets::ddr_x_grades(difficulty).grade(&ScoreView::default(), &tally, true),
+            "E"
+        );
+    }
+    // A play's rules see its chart's difficulty, as does its key's.
+    let mut song = chart(4, 0, 3);
+    song.charts[0].difficulty = Difficulty::Beginner;
+    let rules = ddr_x(&song);
+    assert_eq!(rules.grades, presets::ddr_x_grades(Difficulty::Beginner));
+    assert_eq!(rules.key().build(&song.charts[0]).grades, rules.grades);
+    assert_eq!(
+        presets::for_chart(
+            RulesetMode::AllStepMania,
+            "ddr-x",
+            &Default::default(),
+            HoldStyle::ByGame,
+            &song.charts[0]
+        )
+        .grades,
+        rules.grades
+    );
+    assert_eq!(presets::by_id("ddr-x").unwrap().id, "ddr-x");
+    // In the list, after DDR A.
+    let ids: Vec<_> = presets::all().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids[3..5], ["ddr-a", "ddr-x"]);
+}
+
+#[test]
+fn ddr_x_autoplays_all_marvelous() {
+    for (jump, hold) in [(3, 5), (2, 3), (0, 2)] {
+        let song = chart_of(40, jump, hold, 9);
+        let seed = (jump, hold);
+        let r = autoplayed(&song, ddr_x(&song));
+        assert!(!r.failed);
+        assert_eq!(
+            r.tally.count(Judgement::W1),
+            r.tally.total_taps(),
+            "{seed:?}"
+        );
+        assert_eq!((r.tally.let_go, r.tally.mine_hit), (0, 0));
+        assert_eq!(r.score.money, Some(1_000_000), "{seed:?}");
+        assert_eq!(r.full_combo, FullCombo::MarvelousFC);
+        assert_eq!(r.grade, "AAA");
+        // A freeze held adds nothing to the combo.
+        assert_eq!(r.max_combo, r.tally.total_taps(), "{seed:?}");
+        assert_eq!(r.ddr, None);
+    }
+}
+
+#[test]
+fn ddr_x_freezes_and_shocks() {
+    // 8 steps, every fourth a two-beat freeze; a shock (a full row of
+    // mines) at beat 12: SC = 1,000,000 / (8 + 2 + 1).
+    let mut song = chart_of(8, 0, 4, 9);
+    let notes = &mut song.charts[0].notes;
+    for n in notes.iter_mut() {
+        if let NoteKind::HoldHead { end } = &mut n.kind {
+            *end = Tick(n.tick.0 + 96);
+        }
+    }
+    notes.extend((0..4).map(|lane| Note::new(Tick::from_beats(12), lane, NoteKind::Mine)));
+    notes.sort_by_key(|n| (n.tick, n.lane));
+    // Autoplayed: the shock avoided, an O.K. adding one to the combo.
+    let r = autoplayed(&song, ddr_x(&song));
+    assert_eq!(r.score.money, Some(1_000_000));
+    assert_eq!(r.tally.held, 3);
+    assert_eq!(r.max_combo, 9);
+    // Each freeze let go at once and the shock stepped on: three N.G.s
+    // for nothing, each breaking the combo.
+    let mut edges: Vec<(f64, u8, bool)> = song.charts[0]
+        .notes
+        .iter()
+        .filter(|n| n.kind != NoteKind::Mine)
+        .flat_map(|n| {
+            let t = n.tick.beat() / 2.0;
+            [(t, n.lane, true), (t + 0.03, n.lane, false)]
+        })
+        .collect();
+    edges.extend([(6.0, 1, true), (6.03, 1, false)]);
+    let r = run(&song, ddr_x(&song), edges);
+    assert_eq!((r.tally.held, r.tally.let_go), (0, 3));
+    assert_eq!(r.score.money, Some(8 * 1_000_000 / 11 / 10 * 10));
+    assert_eq!(r.full_combo, FullCombo::None);
+    assert_eq!(r.max_combo, 4);
+}
+
+#[test]
+fn ddr_xs_bar_shows_no_danger() {
+    let rules = ddr_x(&chart(4, 0, 1));
+    let mut bar = rules.gauge.fresh();
+    let ctx = ScoreCtx::default();
+    bar.begin(&ctx);
+    assert_eq!(bar.life(), 0.5);
+    for _ in 0..7 {
+        bar.on_event(&event(JudgeEventKind::Tap(Judgement::Miss, 0.0)), &ctx);
+        assert!(!bar.danger());
+    }
+    assert!(bar.life() < 0.2 && !bar.failed());
+    assert_eq!(bar.danger_line(), None);
+    // A Good leaves it as it is.
+    let life = bar.life();
+    bar.on_event(&event(JudgeEventKind::Tap(Judgement::W4, 0.0)), &ctx);
+    assert_eq!(bar.life(), life);
 }

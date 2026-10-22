@@ -16,8 +16,10 @@ use crate::judge::JudgedNote;
 /// Seconds between the autoplayer's taps on a roll.
 pub const ROLL_TAP_INTERVAL: f64 = 0.12;
 /// No roll re-tap later than this before the next note in the lane: beyond
-/// the widest early window (0.18 s), so the tap cannot hit that note early.
-pub const ROLL_TAP_STOP: f64 = 0.2;
+/// the widest early window (DDR X's Almost, 0.225 s), so the tap cannot
+/// hit that note early. A roll cut short there is tapped once more right
+/// at it, so its tail, before the next note, is less than this from a tap.
+pub const ROLL_TAP_STOP: f64 = 0.23;
 /// No roll re-tap this close to a mine in the lane: beyond the widest mine
 /// window (0.09 s), and short enough that the taps before a mine just past
 /// a roll's tail keep it alive under the shortest roll window (DDR A's
@@ -91,7 +93,8 @@ pub fn script(notes: &[JudgedNote], bias: f64) -> Vec<Press> {
                     .iter()
                     .find(|&&s| s > t)
                     .map_or(f64::INFINITY, |&s| s - ROLL_TAP_STOP);
-                let last = (n.end_seconds + bias).min(next);
+                let end = n.end_seconds + bias;
+                let last = end.min(next);
                 // Taps on a grid, none near a mine in the lane, and one
                 // each side of such a mine instead, so the roll is never
                 // left longer than an interval and twice the clearance.
@@ -110,6 +113,11 @@ pub fn script(notes: &[JudgedNote], bias: f64) -> Vec<Press> {
                 .filter(|&k| clear(k) && beside.iter().all(|b| (b - k).abs() >= ROLL_TAP_GAP))
                 .collect();
                 taps.extend(beside);
+                // Cut short by the next note: a last tap as late as it may.
+                if last < end && last > t && clear(last) {
+                    taps.retain(|&k| last - k >= ROLL_TAP_GAP);
+                    taps.push(last);
+                }
                 taps.sort_by(f64::total_cmp);
                 push(t, t + 0.04);
                 let mut previous = t;
@@ -165,7 +173,7 @@ pub fn sort_edges(edges: &mut [(f64, u8, bool)]) {
 mod tests {
     use super::*;
     use crate::judge::{Judge, JudgeEventKind};
-    use crate::rules::presets;
+    use crate::rules::{Judgement, presets};
     use ddi_chart::{Note, Tick, TimingMap};
 
     fn presses(notes: &[Note]) -> Vec<Press> {
@@ -214,6 +222,40 @@ mod tests {
                 .filter(|k| !matches!(k, JudgeEventKind::Tap(..)))
                 .collect();
             assert_eq!(kinds, [JudgeEventKind::Held], "mine at {mine:?}");
+        }
+    }
+
+    #[test]
+    fn a_roll_just_before_a_note_is_kept_and_the_note_hit_on_time() {
+        // A roll over beats 1 to 2 at 60 BPM and a tap in its lane a
+        // little after its tail, at every 48th up to half a beat: kept
+        // under DDR X's 0.25 s roll window, every tap judged on its note
+        // (none in its 0.225 s Almost window of the next).
+        for after in 1..24 {
+            let notes = [
+                Note::new(Tick(48), 0, NoteKind::RollHead { end: Tick(96) }),
+                Note::new(Tick(96 + after), 0, NoteKind::Tap),
+            ];
+            let timing = TimingMap::constant(60.0, 0.0);
+            let mut judge = Judge::new(&notes, &timing, presets::ddr_x().judge);
+            let mut events = Vec::new();
+            for p in script(judge.notes(), 0.0) {
+                events.extend(judge.update(p.press));
+                events.extend(judge.press(p.lane, p.press));
+                events.extend(judge.update(p.release));
+                events.extend(judge.release(p.lane, p.release));
+            }
+            events.extend(judge.update(5.0));
+            let kinds: Vec<_> = events.iter().map(|e| e.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    JudgeEventKind::Tap(Judgement::W1, 0.0),
+                    JudgeEventKind::Held,
+                    JudgeEventKind::Tap(Judgement::W1, 0.0)
+                ],
+                "tap {after} 48ths after the tail"
+            );
         }
     }
 

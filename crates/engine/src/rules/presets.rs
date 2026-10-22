@@ -1,6 +1,6 @@
 //! Shipped rulesets.
 
-use ddi_chart::Chart;
+use ddi_chart::{Chart, Difficulty};
 use serde::{Deserialize, Serialize};
 
 use super::danoni::DanoniOptions;
@@ -480,6 +480,132 @@ pub fn ddr_extreme() -> Ruleset {
     }
 }
 
+/// DDR X in normal play, its score and grades SuperNOVA2's
+/// (`docs/plans/rulesets.md`, "DDR X"; approximate: neither its windows
+/// nor its gauge are public).
+///
+/// The windows are the 60 fps frame table quoted for DDR before A
+/// (Marvelous ±1 frame, Perfect ±2, Great ±5.5, Good ±8.5 and the
+/// Almost, SuperNOVA to X's name for the old Boo, ±13.5; "the Marvelous
+/// window remains at +/-1 frame on DDR A, as it had been in previous
+/// games. All other windows have remained intact", Zenius-I-vanisher
+/// thread 9479); a note let pass is a Boo, X's name for a miss.
+/// Marvelous judges in every mode from SuperNOVA2. Judged a row at a
+/// time, a jump one step and one to the combo; Great keeps the combo,
+/// Good and worse break it ("The lowest judgment that would not break
+/// the player's combo until DanceDanceRevolution (2013)", RemyWiki's
+/// glossary), as does an N.G., a freeze let go or a shock stepped on
+/// (new in X); a shock avoided adds one, a freeze held none (as DDR A).
+/// The score is [`DdrVariant::Sn2`], with no EX score (X had none). The
+/// life bar is StepMania 3.9's, as [`ddr_extreme`]'s: X's amounts are
+/// not public, only their pattern (Marvelous and Perfect a large gain,
+/// Great a small one, Good nothing, Almost a small loss, Boo a large
+/// one), which it follows; X showed no DANGER on it. The grades depend
+/// on the chart's difficulty ([`ddr_x_grades`], [`ddr_x_for`]); for no
+/// chart, Expert's.
+pub fn ddr_x() -> Ruleset {
+    let mut bar = LifeBar::new(
+        LifeDeltas::new(
+            [0.008, 0.008, 0.004, 0.0, -0.040, -0.080],
+            0.008,
+            -0.080,
+            -0.160,
+        ),
+        0.5,
+        0.0,
+        5,
+        10,
+    );
+    bar.merciful_drain = true;
+    bar.hot_penalty = true;
+    Ruleset {
+        id: "ddr-x".into(),
+        name: "DDR X".into(),
+        approximate: true,
+        judge: JudgeTable {
+            tiers: symmetric([0.016_667, 0.033_333, 0.091_667, 0.141_667, 0.225]),
+            scale: 1.0,
+            add: 0.0,
+            hold_window: 0.25,
+            roll_window: 0.25,
+            mine_window: 0.07,
+            w0: None,
+            empty_press: EmptyPress::Ignore,
+            judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
+            shock_rows: true,
+            miss_at: None,
+            taps_only: false,
+        },
+        combo: ComboRules {
+            continue_min: Judgement::W3,
+            per_row: true,
+            held_increments: false,
+            let_go_breaks: true,
+            mine_breaks: true,
+            neutral: None,
+            let_go_loses_full_combo: false,
+            jumps_add_each: false,
+        },
+        score: Box::new(DdrMoney::new(DdrVariant::Sn2)),
+        gauge: Box::new(bar),
+        fail: FailPolicy::Immediate,
+        grades: ddr_x_grades(Difficulty::Hard),
+        names: JudgeNames::new(
+            ["Marvelous", "Perfect", "Great", "Good", "Almost", "Boo"],
+            "O.K.",
+            "N.G.",
+        ),
+        danoni: None,
+        stepmania: StepManiaOptions::default(),
+    }
+}
+
+/// DDR X's rules ([`ddr_x`]) for `chart`: its grades are its
+/// difficulty's ([`ddr_x_grades`]).
+pub fn ddr_x_for(chart: &Chart) -> Ruleset {
+    Ruleset {
+        grades: ddr_x_grades(chart.difficulty),
+        ..ddr_x()
+    }
+}
+
+/// DDR SuperNOVA2 and X's grades, by the chart's difficulty (RemyWiki's
+/// "DanceDanceRevolution SuperNOVA2 Scoring System", the table's
+/// "SuperNOVA2 to (2014)" columns): AAA from 990,000 and AA from 950,000
+/// on every difficulty; A, B and C from 800,000, 700,000 and 500,000 on
+/// Beginner and Basic, 850,000, 750,000 and 600,000 on Difficult, and
+/// 900,000, 800,000 and 700,000 on Expert and Challenge; D below; E a
+/// failed play. No source gives an edit's: it takes Expert and
+/// Challenge's (DDR (2013) shows an edit as a Challenge chart,
+/// BEMANIWiki's "リンク・EDIT関連"; `docs/plans/rulesets.md`).
+pub fn ddr_x_grades(difficulty: Difficulty) -> GradeTable {
+    let [a, b, c] = match difficulty {
+        Difficulty::Beginner | Difficulty::Easy => [800_000.0, 700_000.0, 500_000.0],
+        Difficulty::Medium => [850_000.0, 750_000.0, 600_000.0],
+        Difficulty::Hard | Difficulty::Challenge | Difficulty::Edit => {
+            [900_000.0, 800_000.0, 700_000.0]
+        }
+    };
+    GradeTable {
+        failed: Some("E".into()),
+        ..grades(
+            GradeBasis::Money,
+            &[
+                ("AAA", 990_000.0),
+                ("AA", 950_000.0),
+                ("A", a),
+                ("B", b),
+                ("C", c),
+                ("D", 0.0),
+            ],
+        )
+    }
+}
+
 /// One of FFR's 30 frames a second.
 const FFR_FRAME: f64 = 1.0 / 30.0;
 
@@ -577,7 +703,15 @@ pub fn ffr() -> Ruleset {
 /// Presets selectable by players, in menu order (excludes `calibration`
 /// and the chart-dependent [`danoni`] rules).
 pub fn all() -> Vec<Ruleset> {
-    vec![itg(), itg_fa_plus(), sm5(), ddr_a(), ddr_extreme(), ffr()]
+    vec![
+        itg(),
+        itg_fa_plus(),
+        sm5(),
+        ddr_a(),
+        ddr_x(),
+        ddr_extreme(),
+        ffr(),
+    ]
 }
 
 /// Dancing☆Onigiri rules with danoniplus's defaults, as for a chart from
@@ -660,9 +794,13 @@ pub fn for_chart(
 }
 
 /// The preset `id` (ITG when unknown) for `chart`, its holds as `holds`
-/// says (FFR's rules play holds as taps, so keep none).
+/// says (FFR's rules play holds as taps, so keep none), DDR X's grades
+/// those of the chart's difficulty ([`ddr_x_for`]).
 pub fn stepmania(id: &str, holds: HoldStyle, chart: &Chart) -> Ruleset {
-    let mut ruleset = by_id(id).unwrap_or_else(itg);
+    let mut ruleset = match id {
+        "ddr-x" => ddr_x_for(chart),
+        id => by_id(id).unwrap_or_else(itg),
+    };
     if holds.ticks(chart) && !ruleset.judge.taps_only {
         ruleset.judge.hold = HoldRules::Ticked {
             checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
@@ -678,6 +816,7 @@ pub fn by_id(id: &str) -> Option<Ruleset> {
         "itg-fa+" => Some(itg_fa_plus()),
         "sm5" => Some(sm5()),
         "ddr-a" => Some(ddr_a()),
+        "ddr-x" => Some(ddr_x()),
         "ddr-extreme" => Some(ddr_extreme()),
         "ffr" => Some(ffr()),
         _ => None,

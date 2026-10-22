@@ -4,9 +4,10 @@
 //! --test local_autoplay -- --nocapture` imports every `.sm`, `.ssc` and
 //! `.dwi` under the folders (recursively) and plays each chart's script
 //! ([`ddi_engine::autoplay::script`], on time) under ITG, StepMania 5,
-//! DDR A and FFR, holds ticked on pump charts as the game's default does.
-//! Each play must end with every step at the top judgement, 100 %, the
-//! full EX score, DDR A's 1,000,000 and FFR's AAA (its raw score 50 a
+//! DDR A, DDR X and FFR, holds ticked on pump charts as the game's
+//! default does. Each play must end with every step at the top
+//! judgement, 100 %, the full EX score, DDR A's and DDR X's 1,000,000
+//! and FFR's AAA (its raw score 50 a
 //! note, no Boo): whatever is left over (a mine under a hold, a
 //! note the judge never reaches, a roll the taps cannot keep) is a bug in
 //! the importer, the judge or the script. Each play is also judged again
@@ -33,7 +34,7 @@ use ddi_platform::{ClockSample, HostTime};
 /// The shell's frame, 60 Hz.
 const FRAME: f64 = 1.0 / 60.0;
 
-const PRESETS: [&str; 4] = ["itg", "sm5", "ddr-a", "ffr"];
+const PRESETS: [&str; 5] = ["itg", "sm5", "ddr-a", "ddr-x", "ffr"];
 
 #[test]
 fn local_autoplay() {

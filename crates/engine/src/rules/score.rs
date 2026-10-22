@@ -175,7 +175,9 @@ impl ScoreRules for DancePoints {
 /// Which DDR money-score formula.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DdrVariant {
-    /// SuperNOVA2 → DDR (2014): Great = SC/2 − 10, Good = 0.
+    /// SuperNOVA2 → DDR (2014): Great = SC/2 − 10, Good = 0; no EX
+    /// score (SuperNOVA2 and X had none, X2 to 2014 only by an operator's
+    /// code).
     Sn2,
     /// DDR A → WORLD: Great = SC·3/5 − 10, Good = SC/5 − 10.
     A,
@@ -186,8 +188,11 @@ pub enum DdrVariant {
 /// `SC = 1,000,000 / (steps + holds)`; Marvelous and O.K. earn `SC`,
 /// Perfect `SC − 10`, Great and Good a fraction of `SC` minus 10 (see
 /// [`DdrVariant`]). Computed as `1,000,000 × weighted%` in integer
-/// arithmetic, minus 10 per penalised judgement, floored to 10. EX score
-/// 3/2/1, O.K. 3.
+/// arithmetic, minus 10 per penalised judgement, floored to 10: the exact
+/// total with its remainder dropped ("10点単位、端数は切り捨て",
+/// BEMANIWiki's X3 to 2014 and A pages), which, the penalties being whole
+/// tens, is the same as flooring before them. EX score 3/2/1, O.K. 3,
+/// under DDR A.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DdrMoney {
     pub variant: DdrVariant,
@@ -256,12 +261,13 @@ impl ScoreRules for DdrMoney {
             let ideal = 1_000_000 * self.sum / (i64::from(w.tiers[0]) * n);
             ((ideal - 10 * self.penalties).max(0) / 10 * 10) as u64
         };
+        let ex = self.variant == DdrVariant::A;
         ScoreView {
             money: Some(money),
             percent: None,
             grade_percent: None,
-            ex: Some(self.ex.max(0) as u32),
-            max_ex: Some((Self::EX.possible(&self.ctx)).max(0) as u32),
+            ex: ex.then(|| self.ex.max(0) as u32),
+            max_ex: ex.then(|| Self::EX.possible(&self.ctx).max(0) as u32),
             ex_percent: None,
         }
     }

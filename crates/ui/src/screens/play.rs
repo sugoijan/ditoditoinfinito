@@ -636,6 +636,15 @@ mod tests {
         let d = results_data(&info(&r, &ddr, &layout));
         assert_eq!(names(&d), ["Marvelous", "Perfect", "Great", "Good", "Miss"]);
         assert_eq!(d.stats[0].0, "O.K. / N.G.");
+        // DDR X: SuperNOVA to X's Almost, and Boo for a miss; no DANGER
+        // line on its bar.
+        let x = presets::ddr_x();
+        let d = results_data(&info(&r, &x, &layout));
+        assert_eq!(
+            names(&d),
+            ["Marvelous", "Perfect", "Great", "Good", "Almost", "Boo"]
+        );
+        assert_eq!(d.danger, None);
         let danoni = presets::danoni();
         let d = results_data(&info(&r, &danoni, &layout));
         assert_eq!(names(&d), ["Perfect", "Great", "Good", "Bad", "Miss"]);

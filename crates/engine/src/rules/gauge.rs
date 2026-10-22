@@ -155,8 +155,9 @@ impl GaugeRules for LifeBar {
         self.life < self.danger_threshold
     }
 
+    /// None where the bar is never in danger (a threshold of 0).
     fn danger_line(&self) -> Option<f32> {
-        Some(self.danger_threshold)
+        (self.danger_threshold > 0.0).then_some(self.danger_threshold)
     }
 
     fn set_difficulty(&mut self, scale: f64) -> bool {

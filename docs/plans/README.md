@@ -78,7 +78,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   EXTREME's score, grades and windows, DDR A's LIFE4, RISKY, FLARE and
   FLOATING FLARE gauges with the FLARE rank and FLARE SKILL, LIFE4's
   lamps; `ffr` (2026-10-22, decision 58): R^3's windows, miss, Boos, raw
-  and total score, life and flags. Left: SuperNOVA2/X.
+  and total score, life and flags; `ddr-x` (2026-10-22, decision 59):
+  DDR X, SuperNOVA2's score, grades by the chart's difficulty.
 - [Lane covers and the preview video](lane-covers.md) (2026-10-21):
   lane covers (Sudden+, Hidden+, both) done: drawn over the lanes,
   moved and hidden in play, kept in the play's log for replays.
