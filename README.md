@@ -1,4 +1,4 @@
-# Dito Dito Infinito (Demo)
+# Dito Dito Infinito
 
 A dance rhythm game (four arrows, hit them in time with the music) that plays
 StepMania and DWI simfiles: a few bundled songs, plus any packs you import

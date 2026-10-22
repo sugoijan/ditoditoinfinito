@@ -695,7 +695,7 @@ mod tests {
         );
         SeoManifest {
             default_locale: "en".to_string(),
-            site_name: "Dito Dito Infinito (Demo)".to_string(),
+            site_name: "Dito Dito Infinito".to_string(),
             alternate_name: None,
             theme_color: "#0a090d".to_string(),
             canonical_url: "https://example.test/app/".to_string(),
