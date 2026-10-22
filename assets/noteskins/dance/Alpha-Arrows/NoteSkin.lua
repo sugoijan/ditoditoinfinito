@@ -13,6 +13,7 @@ local turns =
 	Right = -90,
 	UpLeft = 135,
 	UpRight = 225,
+	Center = 0,
 }
 
 -- Hold and roll top caps exist for the diagonal arrows only (their art is
@@ -56,7 +57,14 @@ ret.Load = function()
 	if string.find(element, "Head") or element == "Tap Fake" then
 		file = "Tap Note"
 	end
-	local art = string.find(element, "Topcap") and "UpLeft" or "Down"
+	-- A pump pad's center has its own taps (and receptor, which Down
+	-- Receptor.lua draws for it); its holds, lift and mine are Down's.
+	local art = "Down"
+	if string.find(element, "Topcap") then
+		art = "UpLeft"
+	elseif button == "Center" and (file == "Tap Note" or element == "Receptor") then
+		art = "Center"
+	end
 	local t = LoadActor(NOTESKIN:GetPath(art, file))
 	if turned[element] then
 		t.BaseRotationZ = turns[button]

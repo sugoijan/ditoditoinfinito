@@ -47,7 +47,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
 ## Charts, layouts and play
 
 - [Pump layouts](pump.md) (2026-10-13): done (ticked holds 2026-10-14,
-  pump skins 2026-10-16). Later: center notes for the other bundled skins.
+  pump skins 2026-10-16, every bundled skin's own center 2026-10-22).
 - [The play history](play-history.md) (2026-10-16): done, replays and the
   ghost included (decision 49); importing plays in `phase-10.md`.
 - [Phase 10](phase-10.md) (2026-10-21): importing plays done; FFR

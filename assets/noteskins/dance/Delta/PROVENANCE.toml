@@ -1,10 +1,15 @@
-# StepMania 5.1's Delta noteskin, byte for byte. Its readme.txt licenses the
-# skin under CC BY 3.0; StepMania's developers later edited its Lua and
-# metrics, under StepMania's own licence (Docs/Licenses.txt there).
+# StepMania 5.1's Delta noteskin, byte for byte, and a center for pump
+# layouts made from its art. Its readme.txt licenses the skin under CC BY
+# 3.0; StepMania's developers later edited its Lua and metrics, under
+# StepMania's own licence (Docs/Licenses.txt there).
 author = "shakesoda"
 credit = "shakesoda · CC BY 3.0"
 excluded = []
-modifications = []
+modifications = [
+    "_center tap note 12x8.png, _center receptor 4x1.png and Center Tap Explosion Bright.png made from _down tap note 12x8.png, Receptor 4x1.png and Down Tap Explosion Bright.png by python3 tools/noteskin-centers/generate.py: the arrow reshaped into a rounded square, every frame (the rim and the explosion's glow by depth, the fill from the arrow's own pixels)",
+    "Center Tap Note.lua and Center Receptor.lua: Down Tap Note.lua and Down Receptor.lua with those images' names; Center Tap Explosion Dim.redir: Down's, to the center's",
+    "NoteSkin.lua: a pump pad's center panel (Center) takes its own tap, receptor and explosion, Down's for the rest; a notice of the change at its top",
+]
 
 [source]
 url = "https://github.com/stepmania/stepmania"
@@ -22,3 +27,13 @@ part = "later edits to its Lua and metrics"
 spdx = "LicenseRef-StepMania"
 url = "https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad684dc04dd151b2d5dec3/Docs/Licenses.txt"
 holders = ["AJ Kelly, the StepMania development team and other contributors"]
+
+[[licenses]]
+part = "the center's images, adapted from the skin's"
+spdx = "CC-BY-3.0"
+holders = ["shakesoda", "すごいジャン"]
+
+[[licenses]]
+part = "the changes to NoteSkin.lua"
+spdx = "MIT"
+holders = ["すごいジャン"]

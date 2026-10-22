@@ -482,6 +482,9 @@ Rust and the browser are implementation details, not advertised features.
   danoniplus SVG alpha masks to the game's SVG subset for the `DanOni`
   noteskin proof. Its Lua behavior and host-interface limits are documented
   in `tools/noteskin-danoni/README.md`; upstream originals remain byte-identical.
+- `python3 tools/noteskin-centers/generate.py [--check]` draws pump's
+  center panel for Delta from its own art (`docs/plans/pump.md`, "Centers
+  for the bundled skins").
 - Peters-DDR's approved raster center, holds, rolls and layered mines are bundled
   from SkinCraft exports; editable sources are in `tools/noteskin-peters/design/`.
   `python3 tools/noteskin-peters/generate.py [--check]` reproduces only the earlier

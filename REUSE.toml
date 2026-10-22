@@ -71,6 +71,19 @@ path = ["assets/noteskins/dance/Delta/*.lua", "assets/noteskins/dance/Delta/*.re
 SPDX-FileCopyrightText = ["shakesoda", "AJ Kelly, the StepMania development team and other contributors"]
 SPDX-License-Identifier = "CC-BY-3.0 AND LicenseRef-StepMania"
 
+# Delta's center for pump layouts, made from its art by
+# tools/noteskin-centers/generate.py (CC BY 3.0, as the art), and the
+# NoteSkin.lua that draws it, changed by this repository.
+[[annotations]]
+path = ["assets/noteskins/dance/Delta/_center tap note 12x8.png", "assets/noteskins/dance/Delta/_center receptor 4x1.png", "assets/noteskins/dance/Delta/Center Tap Explosion Bright.png"]
+SPDX-FileCopyrightText = ["shakesoda", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/noteskins/dance/Delta/NoteSkin.lua"]
+SPDX-FileCopyrightText = ["shakesoda", "AJ Kelly, the StepMania development team and other contributors", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "CC-BY-3.0 AND LicenseRef-StepMania AND MIT"
+
 # Alpha-Arrows by Aozora Tori (Tiny-Foxes/Aozora-Tori-Assets 499ee273,
 # Noteskins/alpha-arrows): its images, readme and licence byte for byte,
 # Apache-2.0. Its Lua and metrics.ini here are this repository's own (MIT,
@@ -86,6 +99,18 @@ SPDX-License-Identifier = "Apache-2.0"
 path = ["assets/noteskins/dance/Dake/*.png", "assets/noteskins/dance/Dake/*.lua", "assets/noteskins/dance/Dake/metrics.ini", "assets/noteskins/dance/Dake/README.md", "assets/noteskins/dance/Dake/LICENSE"]
 SPDX-FileCopyrightText = "hanubeki"
 SPDX-License-Identifier = "Apache-2.0"
+
+# Its NoteSkin.lua with the center's line this repository added for pump
+# layouts, and the file declaring the center's art.
+[[annotations]]
+path = ["assets/noteskins/dance/Dake/NoteSkin.lua"]
+SPDX-FileCopyrightText = ["hanubeki", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "Apache-2.0 AND MIT"
+
+[[annotations]]
+path = ["assets/noteskins/dance/Dake/Center Tap Note.lua"]
+SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
+SPDX-License-Identifier = "MIT"
 
 # Peter Lawrence's CF_CHROME, CF_VIBRANT and CF_ALLOY
 # (Pete-Lawrence/Peters-Noteskins 6faea8e1, SM5/Completed/): their dance

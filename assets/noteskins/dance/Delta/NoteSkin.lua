@@ -1,5 +1,9 @@
 local ret = ... or {};
 
+-- Changed by Dito Dito Infinito: a pump pad's center panel (Center) has
+-- its own tap, receptor and explosion (generated from Delta's art by
+-- tools/noteskin-centers/generate.py); the rest of it is Down's.
+
 ret.RedirTable =
 {
 	Up = "Down",
@@ -8,16 +12,23 @@ ret.RedirTable =
 	Right = "Down",
 	UpLeft = "Down",
 	UpRight = "Down",
+	Center = "Down",
 };
 
 local OldRedir = ret.Redir;
 
 ret.Redir = function(sButton, sElement)
+	local center = sButton == "Center";
 	sButton, sElement = OldRedir(sButton, sElement);
 
 	--Point the head files back to the tap note
 	if string.find(sElement, "Head") then
 		sElement = "Tap Note";
+	end
+
+	if center and (sElement == "Tap Note" or sElement == "Receptor" or
+	   string.find(sElement, "Tap Explosion")) then
+		return "Center", sElement;
 	end
 
 	sButton = ret.RedirTable[sButton];
@@ -61,6 +72,7 @@ ret.Rotate =
 	Right = -90,
 	UpLeft = 135,
 	UpRight = 225,
+	Center = 0,
 };
 
 ret.Blank =

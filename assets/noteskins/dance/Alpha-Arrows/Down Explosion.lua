@@ -11,6 +11,7 @@ local turns =
 	Right = -90,
 	UpLeft = 135,
 	UpRight = 225,
+	Center = 0,
 }
 local turn = turns[Var "Button"] or 0
 local colors =
@@ -29,7 +30,8 @@ local rays =
 	TapNoteScore_W3 = true,
 	HoldNoteScore_Held = true,
 }
-local glow = NOTESKIN:GetPath("Down", "Tap Explosion Dim")
+-- A pump pad's center glows in its octagon.
+local glow = NOTESKIN:GetPath(Var "Button" == "Center" and "Center" or "Down", "Tap Explosion Dim")
 
 local function burst(self, c, bright, ray)
 	self:GetChild("Glow"):finishtweening()

@@ -44,7 +44,11 @@ by position (`ChartInfo::index`), and a song of them alone is dropped;
 Dito's explosion rings the onigiri with its star's outline. Since pump layouts came
 (`docs/plans/pump.md`), a skin's own `DownLeft` and `DownRight` elements
 (pump's diagonals, a few skins) draw the down-left and down-right lanes
-here too, as they are; without them, the Down arrow turned.
+here too, as they are; without them, the Down arrow turned. Since
+2026-10-22 every bundled skin has a `Center` (`docs/plans/pump.md`,
+"Centers for the bundled skins"): Alpha-Arrows, Dake, Delta and
+Peters-DDR draw the onigiri with theirs (Dake's Lua now lists it), DanOni
+and Dito with their own onigiri.
 
 ## Steps
 

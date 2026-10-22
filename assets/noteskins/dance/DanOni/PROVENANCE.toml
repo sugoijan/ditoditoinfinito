@@ -11,6 +11,7 @@ modifications = [
     "opt-in dropped-state actors use upstream #cccccc outlines, #333333 fills and opaque #999999 bars; manual flashes use the hit note's prior drawn position and 0.75 alpha, autoplay uses centered #999999 flashes at alpha 1",
     "TapJudgmentsPerNote opts into immediate, independent note flashes rather than StepMania's completed-row flashes",
     "StepMania-only rolls reuse freeze visuals, lifts and fakes reuse taps, mines use a red onigiri",
+    "a pump pad's center is the onigiri, as in the middle of Dancing☆Onigiri's 7-key layout (Center Tap Note.lua and Center Receptor.lua declare it, as the Onigiri files do)",
 ]
 
 [source]

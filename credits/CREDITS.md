@@ -79,8 +79,8 @@ Source: [https://github.com/Tiny-Foxes/Aozora-Tori-Assets](https://github.com/Ti
 
 - **the images and readme**: Aozora "Aqui" Tori — [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 - **the Lua and metrics.ini**: すごいジャン — [MIT](https://opensource.org/license/mit)
-- Not included: NoteSkin.lua, Fallback Explosion.lua, Down/Center *.lua and metrics.ini (code without a clear licence; replaced); Center * and _center * (the center button of other games); Down Mine Body/TopCap/BottomCap and Down Hold LiftTail (OutFox's mine and lift holds)
-- Modifications: the folder renamed alpha-arrows → Alpha-Arrows; NoteSkin.lua, Down Tap Note.lua, Down Tap Lift.lua, Down Tap Mine.lua, Down Receptor.lua, Down Explosion.lua and metrics.ini written anew (MIT, Dito Dito Infinito); LICENSE copied from the repository's root
+- Not included: NoteSkin.lua, Fallback Explosion.lua, Down/Center *.lua and metrics.ini (code without a clear licence; replaced); Down Mine Body/TopCap/BottomCap and Down Hold LiftTail (OutFox's mine and lift holds)
+- Modifications: the folder renamed alpha-arrows → Alpha-Arrows; NoteSkin.lua, Down Tap Note.lua, Down Tap Lift.lua, Down Tap Mine.lua, Down Receptor.lua, Down Explosion.lua and metrics.ini written anew (MIT, Dito Dito Infinito); Center Tap Note.lua and Center Receptor.lua written anew for the upstream center images (pump layouts' center panel; Down Receptor.lua and Down Explosion.lua draw the center's receptor and glow from them), MIT, Dito Dito Infinito; LICENSE copied from the repository's root
 
 ### CF_ALLOY — Peter Lawrence
 
@@ -112,8 +112,9 @@ Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/P
 Source: [https://github.com/hanubeki/dake](https://github.com/hanubeki/dake) at commit `e26aa8d03bf54722d2ad8eaf0c8597aac0dc9450`, folder `.` (retrieved 2026-10-12).
 
 - **the skin (images, Lua, metrics, README)**: hanubeki — [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
-- Not included: the images of the other games and of buttons dance does not have (all but the 74 dance asks for); _common buttons/ (key labels for kbx), Inner Sound.wav and Outer Sound.wav, extras/ (eight variant skins)
-- Modifications: the folder named Dake (upstream, the repository's root)
+- **the Center button's line in NoteSkin.lua and Center Tap Note.lua**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Not included: the images of the other games and of buttons dance does not have (all but the 74 dance asks for and the 16 _center ones a pump pad's center panel takes); _common buttons/ (key labels for kbx), Inner Sound.wav and Outer Sound.wav, extras/ (eight variant skins)
+- Modifications: the folder named Dake (upstream, the repository's root); NoteSkin.lua: dance's button table lists Center ("Center" = "Center"), so that a pump pad's center panel takes the _center images; a notice of the change at its top; Center Tap Note.lua added (MIT, Dito Dito Infinito): it declares the center's own art, so the center panel takes it rather than Down's (docs/plans/pump.md), and loads the tap through NoteSkin.lua
 
 ### DanOni — tickle; Dito Dito Infinito adaptation
 
@@ -121,7 +122,7 @@ Source: [https://github.com/cwtickle/danoniplus](https://github.com/cwtickle/dan
 
 - **derived SVG artwork and Lua behavior**: 2018 tickle, すごいジャン — [MIT](https://opensource.org/license/mit)
 - Not included: all upstream files except the four original alpha masks archived in tools/noteskin-danoni/upstream/img and LICENSE; chart-specific colors, skins, custom JavaScript, alternate image sets and key modes beyond the default 5/7-key appearance
-- Modifications: python3 tools/noteskin-danoni/generate.py: flatten SVG class styles, change black mask RGB to white for actor tinting, add 64x64 logical dimensions; geometry and stroke widths unchanged; the same generator writes 40/50-wide freeze-bar SVGs with the source's inactive/active colors and 0.75 opacity, plus its opaque #999999 dropped bar; JavaScript/CSS behavior re-created in Lua actors and metrics.ini; notes use fixed lane colors, receptors use key-down overlays, hit outlines last 4/60 seconds, freezes change colors while held; opt-in dropped-state actors use upstream #cccccc outlines, #333333 fills and opaque #999999 bars; manual flashes use the hit note's prior drawn position and 0.75 alpha, autoplay uses centered #999999 flashes at alpha 1; TapJudgmentsPerNote opts into immediate, independent note flashes rather than StepMania's completed-row flashes; StepMania-only rolls reuse freeze visuals, lifts and fakes reuse taps, mines use a red onigiri
+- Modifications: python3 tools/noteskin-danoni/generate.py: flatten SVG class styles, change black mask RGB to white for actor tinting, add 64x64 logical dimensions; geometry and stroke widths unchanged; the same generator writes 40/50-wide freeze-bar SVGs with the source's inactive/active colors and 0.75 opacity, plus its opaque #999999 dropped bar; JavaScript/CSS behavior re-created in Lua actors and metrics.ini; notes use fixed lane colors, receptors use key-down overlays, hit outlines last 4/60 seconds, freezes change colors while held; opt-in dropped-state actors use upstream #cccccc outlines, #333333 fills and opaque #999999 bars; manual flashes use the hit note's prior drawn position and 0.75 alpha, autoplay uses centered #999999 flashes at alpha 1; TapJudgmentsPerNote opts into immediate, independent note flashes rather than StepMania's completed-row flashes; StepMania-only rolls reuse freeze visuals, lifts and fakes reuse taps, mines use a red onigiri; a pump pad's center is the onigiri, as in the middle of Dancing☆Onigiri's 7-key layout (Center Tap Note.lua and Center Receptor.lua declare it, as the Onigiri files do)
 
 ### Delta — shakesoda
 
@@ -129,7 +130,9 @@ Source: [https://github.com/stepmania/stepmania](https://github.com/stepmania/st
 
 - **the skin (images, Lua, metrics, readme)**: shakesoda — [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)
 - **later edits to its Lua and metrics**: AJ Kelly, the StepMania development team and other contributors — [StepMania's licence (MIT-style)](https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad684dc04dd151b2d5dec3/Docs/Licenses.txt)
-- Modifications: none (files are byte-identical to upstream)
+- **the center's images, adapted from the skin's**: shakesoda, すごいジャン — [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)
+- **the changes to NoteSkin.lua**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Modifications: _center tap note 12x8.png, _center receptor 4x1.png and Center Tap Explosion Bright.png made from _down tap note 12x8.png, Receptor 4x1.png and Down Tap Explosion Bright.png by python3 tools/noteskin-centers/generate.py: the arrow reshaped into a rounded square, every frame (the rim and the explosion's glow by depth, the fill from the arrow's own pixels); Center Tap Note.lua and Center Receptor.lua: Down Tap Note.lua and Down Receptor.lua with those images' names; Center Tap Explosion Dim.redir: Down's, to the center's; NoteSkin.lua: a pump pad's center panel (Center) takes its own tap, receptor and explosion, Down's for the rest; a notice of the change at its top
 
 ### Peters-DDR — Peter Lawrence
 

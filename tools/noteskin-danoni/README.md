@@ -91,7 +91,8 @@ This is a reproducible baseline, not every configurable DanOni work:
   same arrow button and different colors); this proof targets 5/7 keys.
 - Rolls use freeze art; lifts/fakes use taps. Mines use a red onigiri.
   These are explicit extensions for StepMania charts, with no upstream
-  equivalent. A pump center uses the down-arrow fallback.
+  equivalent. A pump center is the onigiri, the 7-key layout's middle
+  lane (`Center Tap Note.lua`, `Center Receptor.lua`).
 - Field spacing, scrolling, judgment windows and the game's HUD are supplied
   by Dito Dito Infinito, outside a noteskin's remit.
 

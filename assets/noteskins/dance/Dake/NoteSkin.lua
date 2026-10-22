@@ -1,5 +1,9 @@
 -- hanubeki's SUPER-SPAGHETTI™ NoteSkin lua
 
+-- Changed by Dito Dito Infinito (2026): dance's button table also lists
+-- Center, so that a pump pad's center panel, which the game draws with a
+-- dance skin, takes the center's art (docs/plans/pump.md).
+
 local ret = ... or {}
 
 -- An old unused table
@@ -35,6 +39,7 @@ local ButtonRedirTable =
 		["Up"] = "Up",
 		["UpRight"] = "UpRight",
 		["Right"] = "Right",
+		["Center"] = "Center",
 	},
 	["groove"] = {
 		["Left"] = "Left",

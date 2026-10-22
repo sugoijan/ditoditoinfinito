@@ -309,7 +309,7 @@ fn bundled_skins_build_every_element_through_their_lua() {
     assert!(!folders.is_empty());
     for f in folders.iter().filter(|f| f.game == "dance") {
         let skin = Skin::load(&folders, &f.game, &f.name).unwrap();
-        // The onigiri: Dito's own, CF/Peters' center, the others' Down.
+        // The onigiri: Dito's and DanOni's own, the others' center.
         let seven = ddi_chart::Layout::builtin("danoni-7").unwrap();
         let onigiri = seven
             .lanes
@@ -320,25 +320,14 @@ fn bundled_skins_build_every_element_through_their_lua() {
             .button;
         let expected = if f.name.starts_with("Dito") || f.name == "DanOni" {
             Button::Onigiri
-        } else if f.name.starts_with("CF_") || f.name.starts_with("Peters-DDR") {
-            Button::Center
         } else {
-            Button::Down
+            Button::Center
         };
         assert_eq!(onigiri, expected, "{}", f.name);
-        // A pump pad's centre: Dito's, CF's and Peters' own, the others'
-        // Down.
+        // A pump pad's center: every skin's own (docs/plans/pump.md).
         let centre = ddi_chart::Layout::pump_single().lanes[2].clone();
         let centre = skin.lane_button(&centre).unwrap().button;
-        let expected = if f.name.starts_with("Dito")
-            || f.name.starts_with("CF_")
-            || f.name.starts_with("Peters-DDR")
-        {
-            Button::Center
-        } else {
-            Button::Down
-        };
-        assert_eq!(centre, expected, "{}", f.name);
+        assert_eq!(centre, Button::Center, "{}", f.name);
         let start = std::time::Instant::now();
         let mut lua = LuaSkin::new(
             skin.into_owned(),
@@ -379,6 +368,23 @@ fn bundled_skins_build_every_element_through_their_lua() {
             }
         }
         assert_eq!(lua.warnings(), Vec::<String>::new(), "{}", f.name);
+        // The center's receptor is drawn from the skin's center art (its
+        // onigiri's, DanOni's), not Down's.
+        let mut receptor = Textures::default();
+        lua.element(Button::Center, "Receptor", &mut receptor, &AnySize)
+            .unwrap();
+        let own = if f.name == "DanOni" {
+            "onigiri"
+        } else {
+            "center"
+        };
+        assert!(
+            receptor.keys().iter().any(|k| matches!(k,
+                ddi_noteskin::build::TextureKey::Skin { path, .. } if path.to_lowercase().contains(own))),
+            "{}: {:?}",
+            f.name,
+            receptor.keys()
+        );
         // Dito's onigiri bursts in its star's outline, its centre in its
         // square's.
         if f.name.starts_with("Dito") {

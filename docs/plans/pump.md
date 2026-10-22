@@ -70,8 +70,9 @@ Done:
   receptor; `Center Tap Note.lua` and `Center Receptor.lua` load the
   symbols' shared files (`_symbol tap note.lua`, `_symbol receptor.lua`,
   the onigiri's too), and the explosion rings the centre in its square.
-  CF_CHROME, CF_VIBRANT and CF_ALLOY draw their own centre; the other
-  bundled skins their Down.
+  CF_CHROME, CF_VIBRANT and CF_ALLOY draw their own centre; since
+  2026-10-22 every other bundled skin does too ("Centers for the bundled
+  skins" below).
 - The preview's layout picker and the bindings page list the three; the
   song list offers them as styles where the library has their charts, and
   warns about a connected controller with no bindings for the layout (a
@@ -220,6 +221,48 @@ Fades and crops (pump/delta's notes use `fadetop`) came after
 (2026-10-16, `docs/plans/noteskins.md`). No pump skin is bundled (none
 with art under a licence we can ship was found).
 
-## Later
+## Centers for the bundled skins (2026-10-22)
 
-- Centre notes for the other bundled skins (the maintainer's wish).
+The maintainer's wish: every bundled dance skin draws pump's center panel
+as its own, not its Down arrow. Each has a `Center` file at its top (what
+`Skin::lane_buttons` looks for), colored by the beat as its arrows are
+(dance skins draw pump layouts by the beat, above), and the center's tap,
+receptor and explosion from art in the skin's look; holds, mines and the
+rest stay Down's. Since a skin's onigiri takes its `Center` when it has
+no `Onigiri` (`docs/plans/danoni-skins.md`), these skins draw
+Dancing☆Onigiri's onigiri with their center too.
+
+- **Alpha-Arrows** and **Dake**: their upstreams draw a center for other
+  games, under the same Apache-2.0 as the rest. Their `_center` images
+  are bundled byte for byte from the pinned commits (Alpha-Arrows' tap
+  sheet, receptor, receptor flash and glow, octagons; Dake's tap sheet,
+  receptor, glow and hold and roll parts). Alpha-Arrows' Lua is ours:
+  `Center Tap Note.lua`, and Down's receptor and explosion pick the
+  center's art for it. Dake's own `NoteSkin.lua` draws a button only
+  from its game's table, so dance's lists `Center` (with a notice of the
+  change, as Apache-2.0 asks), and our `Center Tap Note.lua` declares the
+  center's art for the lane choice.
+- **DanOni**: its Lua already drew a `Center` as the onigiri (the middle
+  lane of danoniplus's 7 keys); `Center Tap Note.lua` and `Center
+  Receptor.lua` declare it, as the onigiri's files do.
+- **Delta** (CC BY 3.0): no center upstream (StepMania's `pump/delta` is
+  another skin, without a licence we can ship), so
+  `tools/noteskin-centers/generate.py` reshapes its arrow art into a
+  rounded square, all 96 frames of its tap sheet, its receptor's four and
+  its explosion: the square's rim is the arrow head's rim at the same
+  depth where it faces the same way, its inside the arrow's own pixels
+  (the glossy bands keep their animation, the receptor its carbon
+  weave), the explosion its glow by depth. The images are adaptations,
+  CC BY 3.0 as the art; `NoteSkin.lua` sends the center's tap, receptor
+  and explosion to them.
+- **Peters-DDR** (Note and Vivid, the Unlicense): the maintainer's
+  square center from SkinCraft, with its receptor, holds and rolls, in
+  raster (`docs/plans/bundled-skins.md`, "Peters-DDR consolidation";
+  sources in `tools/noteskin-peters/design/`).
+
+`python3 tools/noteskin-centers/generate.py --check` checks the
+generated files. Checked: `crates/noteskin/tests/bundled.rs` (every skin's
+center and onigiri lane, every element through its Lua without warnings,
+the center's receptor from its center art); the desktop's skin tests;
+Beatucada's pump-single chart rendered offscreen with each skin (the
+`screenshot` example) at a tap, a held center hold and its explosion.

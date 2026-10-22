@@ -1,15 +1,18 @@
 # Dake by hanubeki: its dance files, byte for byte (the skin covers every
-# game; only what dance plays loads is bundled). It is written for OutFox
+# game; only what dance plays loads is bundled), and its center's, which
+# pump layouts draw. It is written for OutFox
 # 0.5; the few OutFox and theme names it reads are stood in for by our Lua
 # host (noteskin/src/lua/prelude.lua).
 author = "hanubeki"
 credit = "hanubeki · Apache 2.0"
 excluded = [
-    "the images of the other games and of buttons dance does not have (all but the 74 dance asks for)",
+    "the images of the other games and of buttons dance does not have (all but the 74 dance asks for and the 16 _center ones a pump pad's center panel takes)",
     "_common buttons/ (key labels for kbx), Inner Sound.wav and Outer Sound.wav, extras/ (eight variant skins)",
 ]
 modifications = [
     "the folder named Dake (upstream, the repository's root)",
+    "NoteSkin.lua: dance's button table lists Center (\"Center\" = \"Center\"), so that a pump pad's center panel takes the _center images; a notice of the change at its top",
+    "Center Tap Note.lua added (MIT, Dito Dito Infinito): it declares the center's own art, so the center panel takes it rather than Down's (docs/plans/pump.md), and loads the tap through NoteSkin.lua",
 ]
 
 [source]
@@ -22,3 +25,8 @@ retrieved = "2026-10-12"
 part = "the skin (images, Lua, metrics, README)"
 spdx = "Apache-2.0"
 holders = ["hanubeki"]
+
+[[licenses]]
+part = "the Center button's line in NoteSkin.lua and Center Tap Note.lua"
+spdx = "MIT"
+holders = ["すごいジャン"]

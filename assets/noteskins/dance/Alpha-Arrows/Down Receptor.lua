@@ -10,6 +10,9 @@ local flashes =
 	W5 = color("1,0.55,0.3,1"),
 }
 
+-- A pump pad's center draws its octagon instead.
+local art = Var "Button" == "Center" and "_center" or "_down"
+
 local t = Def.ActorFrame {
 	PressCommand = function(self)
 		self:zoom(0.9)
@@ -18,13 +21,13 @@ local t = Def.ActorFrame {
 		self:zoom(1)
 	end,
 	Def.Sprite {
-		Texture = NOTESKIN:GetPath("_down", "receptor"),
+		Texture = NOTESKIN:GetPath(art, "receptor"),
 		Frame0000 = 0,
 		Delay0000 = 1,
 	},
 	Def.Sprite {
 		Name = "Flash",
-		Texture = NOTESKIN:GetPath("_down", "rflash"),
+		Texture = NOTESKIN:GetPath(art, "rflash"),
 		Frame0000 = 0,
 		Delay0000 = 1,
 		InitCommand = function(self)

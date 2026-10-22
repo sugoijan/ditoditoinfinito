@@ -25,6 +25,7 @@ actors and per-hit presentation metadata, shared by desktop, web and SkinCraft.
 | CF_CHROME, CF_VIBRANT, CF_ALLOY (Peter Lawrence) | Unlicense (CF_CHROME's mine explosion CC0, JangaFX) | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-12: taps, lifts and mines are MilkShape models (`docs/plans/models.md`, step 5) |
 | (2026-10-13) CF_CHROME, CF_VIBRANT, CF_ALLOY's `Center` files | Unlicense | the same | restored byte for byte so the family draws Dancing☆Onigiri's onigiri as its own (`docs/plans/danoni-skins.md`); CF_ALLOY's `Center Tap Lift.lua` left out, CF_CHROME's |
 | Peters-DDR (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colors cycle in vivid; originally falling back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox. Combined as Peters-DDR on 2026-10-22 (below) |
+| (2026-10-22) Pump's center for every skin: Alpha-Arrows' and Dake's `_center` images; Delta's made from its art; Peters-DDR's the SkinCraft raster center (below) | Apache-2.0; CC BY 3.0 (adapted); the Unlicense with our MIT changes | the same | each skin draws pump's center panel as its own (and the onigiri with it, but for DanOni and Dito, which draw their own) (`docs/plans/pump.md`, "Centers for the bundled skins") |
 
 The built-in arrows (`crates/render/src/scene.rs`, `shader.wgsl`,
 `note_colors.rs`) are procedural: an SDF arrow with a darker rim, an
@@ -188,7 +189,8 @@ without copying it. The 512 px sheets are decoded at their size (the
 
 **Done 2026-10-12.** Bundled as `Alpha-Arrows`: its dance images, readme
 and the repository's `LICENSE` (Apache-2.0) byte for byte; the `Center`
-art (other games), OutFox's mine-hold and lift-hold parts, and all its
+art (other games; bundled since 2026-10-22 for pump's center panel),
+OutFox's mine-hold and lift-hold parts, and all its
 Lua and `metrics.ini` left out. The metrics carry the explosions'
 commands and are written in the same style as the Lua, so they went
 with it: `NoteSkin.lua`, the tap, lift, mine, receptor and explosion Lua
