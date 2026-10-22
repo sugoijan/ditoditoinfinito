@@ -728,7 +728,12 @@ fn new_host(
 ) -> Rc<RefCell<Host>> {
     let settings = crate::settings::Settings::load();
     let embedded = frame_el.is_none();
-    Rc::new(RefCell::new(Host {
+    // The canvas is the app's one: a pointer a host before this one hid
+    // (a key's press on the start prompt) stays hidden until the mouse
+    // moves, and this host is the one that shows it.
+    let pointer_hidden =
+        canvas.style().get_property_value("cursor").ok().as_deref() == Some("none");
+    let host = Rc::new(RefCell::new(Host {
         ui,
         dev: Shared::default(),
         widgets: SharedWidgets::default(),
@@ -753,7 +758,7 @@ fn new_host(
         navigate_after_pops: None,
         files_picked: 0,
         last_consumed: false,
-        pointer_hidden: false,
+        pointer_hidden,
         cursor: "default",
         mouse_held: false,
         lost: None,
@@ -777,7 +782,9 @@ fn new_host(
         field_last: None,
         field_busy: 0,
         field_size: [0, 0],
-    }))
+    }));
+    host.borrow().show_cursor();
+    host
 }
 
 /// The theme's listeners: faces loading, the system's reduced motion.
@@ -896,6 +903,7 @@ fn embedded_gfx(weak: &Weak<RefCell<Host>>, gfx: Rc<Gfx>, again: bool) {
         if let Ok(mut h) = rc.try_borrow_mut() {
             h.attachment = attachment;
             h.canvas = canvas.clone();
+            h.show_cursor();
             h.listeners.clear();
         }
         let listeners = listen(&rc, &canvas, &textarea, &files);
@@ -1484,8 +1492,7 @@ fn dispatch(weak: &Weak<RefCell<Host>>, event: UiEvent) -> bool {
             && hide != h.pointer_hidden
         {
             h.pointer_hidden = hide;
-            let css = if hide { "none" } else { h.cursor };
-            let _ = h.canvas.style().set_property("cursor", css);
+            h.show_cursor();
         }
         let out = h.ui.handle(event);
         h.last_consumed = out.consumed;
@@ -1622,6 +1629,16 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
 }
 
 impl Host {
+    /// The canvas's cursor as this host has it: hidden, or the screen's.
+    fn show_cursor(&self) {
+        let css = if self.pointer_hidden {
+            "none"
+        } else {
+            self.cursor
+        };
+        let _ = self.canvas.style().set_property("cursor", css);
+    }
+
     /// Whether the field preview is a still frame (reduced motion).
     fn field_still(&self) -> bool {
         self.theme
@@ -1727,9 +1744,7 @@ impl Host {
                         Cursor::Grabbing => "grabbing",
                     };
                     self.cursor = css;
-                    if !self.pointer_hidden {
-                        let _ = self.canvas.style().set_property("cursor", css);
-                    }
+                    self.show_cursor();
                 }
                 UiRequest::Persist { key, value } => {
                     let _ = storage::set(Area::Local, &key, &value);
