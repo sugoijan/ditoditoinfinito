@@ -293,6 +293,50 @@ that names it), a change through both shells' movie code, not a cheap
 one. A second file that is a movie draws nothing (StepMania would play
 it); a script's movie sprite draws nothing.
 
+What they need (2026-10-22, step 6's last part, not started):
+
+- **A clock per movie, not per segment.** StepMania's movie texture
+  (`MovieTexture_Generic`, 5.1) is one per file, shared by every sprite
+  showing it; it runs from its load on the frame's own delta
+  (`RageTextureManager::Update`, not the song's time), at its `rate`,
+  looping by default (back to 0.5 s, as the background movies do),
+  `position` seeking to 0 only; `play`, `pause`, `rate`, `loop` and
+  `position` are a movie sprite's methods. A script's movie would be
+  timed by the scripts' frames (`Scripts::frame`'s delta, so a replay
+  draws the same), from when the scripts load. An effect's second file
+  runs as its first does (both loaded when the change's background is
+  made, `BackgroundImpl::Layer::CreateBackground`), so it can share its
+  segment's clock (`movie_position_in`).
+- **The movie slots.** `MovieSlots` opens a decoder per wanted
+  `(layer, segment)` (`movie_segments_at`), for the segment's own file.
+  The second file needs the change's part in that key (`OpenMovie` and
+  `movie_segments_at` keyed by `(layer, segment, part)`, the textures
+  by name as now); a script's movies a third kind of wanted entry, by
+  file, with the scripts' clock, opened while a sprite showing it is
+  drawn (at most two a song, as decoders are dear on the web). Both
+  shells' `MovieShell`s then serve them unchanged (WebCodecs or the
+  module's worker on the web, the OS decoders or the helper on
+  desktop).
+- **The textures.** Movie frames go up as the backdrop's textures (RGBA,
+  planar YUV, NV12, the web's external WebCodecs copies), which the
+  textured pipeline (the scripts' quads) cannot sample: each new frame
+  would be converted into an RGBA texture registered as a skin's (a pass
+  like a render target's, `TexturedPipeline::draw_targets`), or the
+  textured shader taught the backdrop's YUV forms. The conversion keeps
+  one path for both shells.
+- **The schedule and the import.** `backgrounds::look_of` resolves a
+  second file among images only; it would take the movies too (with the
+  movie effects' rules for the second part). A script folder's movies
+  are kept as plain files (64 a song) and not sniffed: they would go
+  through the import's movie sniff (`bg_videos`, stored or linked as
+  `import_videos` says), so `plays()` decides as for the background
+  movies, and the converter would keep a movie sprite's file
+  (`TextureKey::Movie`) as it keeps a `Sound`'s.
+- **Checks** as for the background movies: numbered-color clips in a
+  script's sprite and as a `File2Normal` second file, read back
+  offscreen on desktop and in headless Chrome (WebGPU, WebGL2) and
+  Firefox.
+
 `Sound` since (2026-10-21, second slice, decision 4): the converter keeps
 a song's `Sound` actors' files (relative to the file that wrote them),
 `song.lua`'s `Actor:play` notes a `Sound` actor's play
