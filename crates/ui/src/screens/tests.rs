@@ -1043,9 +1043,19 @@ use super::select::{FEED, Feed, SelectCall, SharedFeed, ShellFn};
 type Calls = Rc<RefCell<Vec<SelectCall>>>;
 
 fn shelled(data: Data, start: Option<&str>) -> (Harness, SharedTheme, Calls, SharedFeed) {
+    shelled_with(data, start, true)
+}
+
+/// `gestures`: whether the platform's field starts only from a key or a
+/// tap (a browser), or from anything (desktop).
+fn shelled_with(
+    data: Data,
+    start: Option<&str>,
+    gestures: bool,
+) -> (Harness, SharedTheme, Calls, SharedFeed) {
     let env = env();
     let state = env.state.clone();
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    let mut h = Harness::with_gestures(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror, gestures);
     let play: PlayFn = Rc::new(|song, chart, env: &Env, _| {
         env.state.borrow_mut().status = format!("PLAYED {} {}", song.id, chart.index);
     });
@@ -2226,4 +2236,131 @@ fn blur_and_overlays_stop_a_held_song_navigation() {
         h.run(1.0);
         assert_eq!(s.borrow().song, song);
     }
+}
+
+fn pad_press(h: &mut Harness, action: crate::MenuAction) {
+    h.pad(action, true);
+    h.pad(action, false);
+    h.run(0.6);
+}
+
+#[test]
+fn a_pad_reaches_the_search_field_and_leaves_it_where_the_list_was() {
+    use crate::MenuAction::{Back, Down, Left, Right, Start, Up};
+    // In a browser: a controller cannot start typing.
+    let (mut h, s, calls, _) = shelled(library(), Some("some-things-must"));
+    for _ in 0..3 {
+        pad_press(&mut h, Up);
+    }
+    assert_eq!(s.borrow().header.as_deref(), Some("Bundled songs"));
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    // A fresh Up on the first row: the field.
+    pad_press(&mut h, Up);
+    assert_eq!(h.ui.focused(), Some("Search"));
+    // Down goes back to the list as it was (no move).
+    pad_press(&mut h, Down);
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().header.as_deref(), Some("Bundled songs"));
+    // Back does too, and stays on song select.
+    pad_press(&mut h, Up);
+    assert_eq!(h.ui.focused(), Some("Search"));
+    pad_press(&mut h, Back);
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().header.as_deref(), Some("Bundled songs"));
+    assert!(!calls.borrow().contains(&SelectCall::Leave));
+    // Start on the field asks for a key or a tap; the pack stays open.
+    pad_press(&mut h, Up);
+    let items = s.borrow().items;
+    pad_press(&mut h, Start);
+    assert!(h.ui.text_field().is_none());
+    assert_eq!(h.ui.focused(), Some("Search"));
+    assert_eq!(s.borrow().items, items, "the header was not toggled");
+    assert!(
+        s.borrow()
+            .hints
+            .iter()
+            .any(|t| t.contains("Press / or tap the field to type.")),
+        "{:?}",
+        s.borrow().hints
+    );
+    // Along the header and back; Back from the list then leaves.
+    pad_press(&mut h, Right);
+    assert_eq!(h.ui.focused(), Some("Mod0"));
+    pad_press(&mut h, Left);
+    assert_eq!(h.ui.focused(), Some("Search"));
+    pad_press(&mut h, Down);
+    pad_press(&mut h, Back);
+    assert!(calls.borrow().contains(&SelectCall::Leave));
+}
+
+#[test]
+fn a_pad_types_searches_and_clears_where_typing_needs_no_gesture() {
+    use crate::MenuAction::{Back, Down, Right, Start, Up};
+    // Desktop: Start on the field types (on a keyboard).
+    let (mut h, s, _, _) = shelled_with(library(), Some("some-things-must"), false);
+    for _ in 0..4 {
+        pad_press(&mut h, Up);
+    }
+    assert_eq!(h.ui.focused(), Some("Search"));
+    pad_press(&mut h, Start);
+    assert!(h.ui.text_field().is_some());
+    h.sync("Swe", [3, 3], None);
+    h.run(0.2);
+    assert!(s.borrow().popup);
+    // Back closes the popup, then stops typing; the filter stays.
+    pad_press(&mut h, Back);
+    assert!(!s.borrow().popup);
+    assert!(h.ui.text_field().is_some());
+    pad_press(&mut h, Back);
+    assert!(h.ui.text_field().is_none());
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().search, "Swe");
+    assert_eq!(s.borrow().song, "Sweeteners");
+    // Start submits as Enter does: to the songs found.
+    for _ in 0..3 {
+        pad_press(&mut h, Up);
+    }
+    assert_eq!(h.ui.focused(), Some("Search"));
+    pad_press(&mut h, Start);
+    assert!(h.ui.text_field().is_some());
+    pad_press(&mut h, Start);
+    assert!(h.ui.text_field().is_none());
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().song, "Sweeteners");
+    // Down while typing leaves for the list where it was.
+    let song = s.borrow().song.clone();
+    for _ in 0..3 {
+        pad_press(&mut h, Up);
+    }
+    assert_eq!(h.ui.focused(), Some("Search"));
+    let header_now = s.borrow().header.clone();
+    pad_press(&mut h, Start);
+    pad_press(&mut h, Down);
+    assert!(h.ui.text_field().is_none());
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().header, header_now);
+    // The field's Clear is next along the header while there is text.
+    pad_press(&mut h, Up);
+    assert_eq!(h.ui.focused(), Some("Search"));
+    pad_press(&mut h, Right);
+    assert_eq!(h.ui.focused(), Some("ClearSearch"));
+    pad_press(&mut h, Start);
+    assert_eq!(s.borrow().search, "");
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().song, song);
+}
+
+#[test]
+fn a_held_up_stops_on_the_first_row_and_a_fresh_one_goes_on_to_the_field() {
+    use crate::MenuAction::Up;
+    let (mut h, s, _, _) = shelled(library(), Some("some-things-must"));
+    h.pad(Up, true);
+    h.run(2.0);
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().header.as_deref(), Some("Bundled songs"));
+    h.pad(Up, false);
+    h.run(0.6);
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    pad_press(&mut h, Up);
+    assert_eq!(h.ui.focused(), Some("Search"));
 }

@@ -517,9 +517,10 @@ Play screen:
 
 Menus:
 
-- *New:* search: Down on a controller from the field lands on the first
-  pack header; the list has no way back up into the field, and only the
-  `/` key reaches it (no controller); a short query or Enter on a large
+- *New:* search: a controller reaches the field (Up from the list's
+  top), clears it and leaves it where the list was (2026-10-22,
+  `plans/song-navigation.md`), but types only with a keyboard (a browser
+  needs `/` or a tap; no on-screen keyboard); a short query or Enter on a large
   library opens most packs (not yet tried on the maintainer's full
   library); kanji titles without a transliteration are not found by
   romaji (no reading dictionary); input methods tried by the

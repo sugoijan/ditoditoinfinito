@@ -78,7 +78,9 @@ Entering Singleplayer also must not pass the activating Enter/Start on
 to the song list and accidentally start a song.
 
 An open dialog, popup, binding flow or focused text editor handles its
-own cancellation first. Backspace still deletes text; IME composition
+own cancellation first; Back with song select's search field focused
+(reached by Up from the list's top) returns to the list where it was
+(`song-navigation.md`). Backspace still deletes text; IME composition
 retains its keys. Existing modified shortcuts, including Cmd/Ctrl+
 Backspace for management, keep their meaning.
 

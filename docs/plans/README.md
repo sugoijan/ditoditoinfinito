@@ -63,7 +63,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   (2026-10-18): done. DanOni 5/7/9A/9B charts converted to Single, Solo,
   Double and Techno 8-panel, marked as assisted.
 - [Song-select navigation](song-navigation.md) (2026-10-20): done; the
-  reference for the tuned timings of taps, pairs and holds.
+  reference for the tuned timings of taps, pairs and holds, and for the
+  search field from a controller (2026-10-22).
 - [Smaller chart and import format gaps](format-gaps.md) (2026-10-21):
   done: `.lrc` lyrics, jackets and CD titles, per-chart and preview
   music, background names with `,` or `=`, Korean and Chinese text.

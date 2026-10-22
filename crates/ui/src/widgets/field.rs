@@ -161,6 +161,32 @@ impl SearchField {
         }
     }
 
+    /// Closes the popup (a controller's Back, as Escape's first press);
+    /// whether it was open.
+    pub fn close_popup(&mut self) -> bool {
+        let open = self.popup_open();
+        self.close();
+        open
+    }
+
+    /// Typing stopped by the screen (a controller's button rather than
+    /// a key): the text kept, the popup closed.
+    pub fn stop(&mut self, root: &mut Actor, cx: &mut Cx) {
+        self.close();
+        if self.typing {
+            self.typing = false;
+            cx.end_text();
+        }
+        set_text(root, &self.text_actor(), &self.text.clone());
+        self.show_hint(root);
+    }
+
+    /// Typing could not start (no gesture for the platform's field).
+    pub fn refused(&mut self, root: &mut Actor) {
+        self.typing = false;
+        self.show_hint(root);
+    }
+
     fn close(&mut self) {
         let mut s = self.popup.borrow_mut();
         s.open = false;

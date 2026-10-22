@@ -70,6 +70,33 @@ The theme's `Look::wheel_focus` blends row height, banner/text geometry,
 plate color, shadow and ring by visual distance. Selection does not restart
 row tweens at commit. The plain look retains its Select/Deselect commands.
 
+## The search field from a controller (2026-10-22)
+
+The arrows keep browsing the list as above; the header is reached only
+past the list's top, so no tap, pair or hold changes meaning. A fresh
+Up on the first row (the first pack header, or the first song where a
+library has none) moves the focus to the search field, as a key's Up
+did already; a held Up stops on the first row. From the field:
+
+| Input | Not typing | Typing (a keyboard in hand) |
+| --- | --- | --- |
+| Start (Enter, A, a pad's Start) | starts typing | goes to the songs found, as Enter |
+| Down | back to the list where it was | the same, the text and filter kept |
+| Back (B, a pad's Back; Escape) | back to the list where it was | closes the suggestions, then stops typing, as Escape |
+| Left / Right | along the header: Clear (while there is text), the mods, Autoplay | the same, typing stopped |
+| Up | the app's notices, as from the rest of the header | nothing |
+
+Clear empties the search and returns to the list; Back on it does too.
+While typing, a keyboard's keys stay the field's (its arrows still move
+through the suggestions or browse the songs found), so these rows only
+change what a controller does. A browser starts typing only inside a key
+or a tap (a phone's keyboard opens only then, `UiRequest::needs_gesture`):
+there a controller's Start on the field says "Press / or tap the field to
+type." in the footer and the focus stays, so Clear and the way back
+still work; desktop types at once. There is no on-screen keyboard.
+No new menu button was added: a standard pad's X is a lane, Y is
+Select (the next style), and Start/Back are A/B's twins.
+
 ## Returning to Start
 
 Unmodified Escape and Backspace map to the same menu Back action. Text
@@ -89,6 +116,8 @@ missing fourth taps, repeated navigation, device separation, held second
 presses, acceleration/reversal/release, cancellation, explicit Start and
 continuous motion through commit. UI harness tests assert that quick
 opposite pairs emit no temporary song callbacks on keyboard or pad, and
-that blur/search stops holds. Theme/widget tests cover wheel geometry,
+that blur/search stops holds; a pad reaches the search field from the
+first row, types where the platform allows, clears and goes back to the
+list where it was, in a browser and on desktop. Theme/widget tests cover wheel geometry,
 compact navigation and existing pointer/flick behavior. Browser checks
 exercise the built app through the same shared screen.

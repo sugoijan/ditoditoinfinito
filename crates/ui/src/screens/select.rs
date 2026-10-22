@@ -14,8 +14,11 @@
 //! - **Keys**: all four arrows move through songs; double-tap the same
 //!   arrow to change chart (Up/Left easier, Down/Right harder). Tab
 //!   (the menu's Select) goes to the next lit style, Start plays
-//!   (or opens and closes a pack), `/` searches, Back clears the search
-//!   or closes the pack.
+//!   (or opens and closes a pack), `/` searches, Back returns to the
+//!   start menu. A fresh Up on the first row focuses the search field:
+//!   Start types there, Down or Back return to the list where it was,
+//!   Right reaches Clear (a controller's way to the search,
+//!   `docs/plans/song-navigation.md`).
 //!
 //! Changing style keeps the chart's difficulty, or the closest
 //! ([`super::data::closest`]); what the player picked is kept as their
@@ -533,9 +536,11 @@ pub struct SelectScreen {
     /// The footer's hints, whether a search was in them, its note and
     /// whether Manage was offered.
     hints: Option<(Hints, bool, String, bool)>,
-    /// A link a controller pressed could not open (a browser opens one
-    /// only from a key or a tap): how long the footer still says so.
+    /// A link a controller pressed could not open, or the search field
+    /// could not start typing (a browser does either only from a key or
+    /// a tap): how long the footer still says so, and what.
     gesture_note: f32,
+    gesture_text: &'static str,
     /// The item whose song the left side shows.
     shown: Option<Item>,
     /// The song whose preview movie shows in the banner's place
@@ -650,6 +655,7 @@ impl SelectScreen {
             layout,
             hints: None,
             gesture_note: 0.0,
+            gesture_text: "",
             shown: None,
             movie: None,
             left_dirty: true,
@@ -1798,9 +1804,7 @@ impl SelectScreen {
         let manage = self.can_manage();
         // While searching (not typing), what it found.
         let found = match (&self.matches, now) {
-            _ if self.gesture_note > 0.0 && now != Hints::Typing => {
-                "Press Enter or tap to open the link.".to_string()
-            }
+            _ if self.gesture_note > 0.0 && now != Hints::Typing => self.gesture_text.to_string(),
             (_, Hints::Typing) | (None, _) => String::new(),
             (Some(_), _) => match self.match_count {
                 0 => "No song matches.".to_string(),
@@ -2550,16 +2554,26 @@ impl SelectScreen {
     }
 
     fn begin_search(&mut self, root: &mut Actor, cx: &mut Cx) {
+        // The focus first: typing refused (a controller's press in a
+        // browser) then finds it on the field.
+        cx.focus(self.search.name.clone());
         let activate = Input::Activate {
             name: self.search.name.clone(),
         };
         let suggest = |_: &str| Vec::new();
         self.search.input(&activate, root, cx, &suggest);
         self.typing = true;
-        cx.focus(self.search.name.clone());
         if let Some(f) = hit::find_mut(root, "Search") {
             f.visible = true;
         }
+    }
+
+    /// A controller's button while typing (keys are the field's): the
+    /// field is left with its text and its filter.
+    fn leave_typing(&mut self, root: &mut Actor, cx: &mut Cx) {
+        self.search.stop(root, cx);
+        self.typing = false;
+        self.hints = None;
     }
 
     /// Typing stopped other than by Enter: the focus goes back to where
@@ -2821,13 +2835,15 @@ impl Screen for SelectScreen {
 
     fn focusables(&self) -> Vec<Focusable> {
         // The header's row in order, explicitly (the wheel below lies
-        // nearer than the next thing to the right): the search, the mods,
-        // the autoplay switch.
+        // nearer than the next thing to the right): the search, its Clear
+        // while it shows, the mods, the autoplay switch.
         let n = self.data.mods.len();
+        let clear = self.typing || !self.search.text.is_empty();
         let row: Vec<String> = if self.layout.compact {
             Vec::new()
         } else {
             std::iter::once(self.search.name.clone())
+                .chain(clear.then(|| "ClearSearch".to_string()))
                 .chain((0..n).map(|i| format!("Mod{i}")))
                 .chain(std::iter::once("Autoplay".to_string()))
                 .collect()
@@ -2843,11 +2859,13 @@ impl Screen for SelectScreen {
             }
             f
         };
-        let mut v = vec![
-            Focusable::new("Wheel"),
-            along(&self.search.name),
-            Focusable::new("ClearSearch"),
-        ];
+        // A fresh Up on the list's first row: the search field (a phone's
+        // goes up to the icons over it).
+        let mut wheel = Focusable::new("Wheel");
+        if !self.layout.compact {
+            wheel.up = Some(self.search.name.clone());
+        }
+        let mut v = vec![wheel, along(&self.search.name), along("ClearSearch")];
         if self.layout.compact {
             for n in [
                 "Back",
@@ -3121,9 +3139,31 @@ impl Screen for SelectScreen {
         // key or a tap; the footer says so for a while.
         if let Input::NeedsGesture(UiRequest::OpenUrl(_)) = input {
             self.gesture_note = 4.0;
+            self.gesture_text = "Press Enter or tap to open the link.";
             self.hints = None;
             self.fill_footer(root);
             self.status("press Enter or tap to open".into());
+            self.publish_dirty = true;
+            self.publish();
+            return Handled::Yes;
+        }
+        // The search field a controller activated: a browser starts
+        // typing only from a key or a tap (a phone's keyboard opens only
+        // then). The field keeps the focus: Right reaches Clear, Down
+        // the list.
+        if let Input::NeedsGesture(UiRequest::StartTextInput { .. }) = input {
+            self.typing = false;
+            self.search.refused(root);
+            self.gesture_note = 4.0;
+            self.gesture_text = "Press / or tap the field to type.";
+            self.hints = None;
+            self.fill_footer(root);
+            self.sync_field(root);
+            // A phone's field shows only while typed into: back on its icon.
+            if self.layout.compact && cx.focused() == Some(self.search.name.as_str()) {
+                cx.focus("SearchIcon");
+            }
+            self.status("press / or tap the field to type".into());
             self.publish_dirty = true;
             self.publish();
             return Handled::Yes;
@@ -3290,15 +3330,69 @@ impl SelectScreen {
                 || f.starts_with("Mod")
                 || matches!(
                     f,
-                    "Autoplay" | "Back" | "AutoIcon" | "AddIcon" | "SearchIcon" | "OptionsIcon"
+                    "ClearSearch"
+                        | "Autoplay"
+                        | "Back"
+                        | "AutoIcon"
+                        | "AddIcon"
+                        | "SearchIcon"
+                        | "OptionsIcon"
                 )
         });
-        // (The search field keeps Up and Down for the wheel, as before.)
         let on_search = cx.focused() == Some(self.search.name.as_str());
+        // A controller's buttons on the search field (a keyboard's keys
+        // are the field's while typing; its arrows browse the wheel).
+        // Typing: Start goes to the songs found (as Enter), Back closes
+        // the popup, then stops typing (as Escape), Down leaves for the
+        // list, Left and Right along the header. Not typing: Start
+        // types, Down or Back go back to the list where it was.
+        if on_search
+            && let Input::Menu { action, .. } = input
+            && *action != MenuAction::Select
+        {
+            if self.typing {
+                match action {
+                    MenuAction::Start => {
+                        let text = self.search.text.clone();
+                        self.leave_typing(root, cx);
+                        if text != self.filtered {
+                            self.filter(&text);
+                        }
+                        cx.focus("Wheel");
+                    }
+                    MenuAction::Back => {
+                        if !self.search.close_popup() {
+                            self.leave_typing(root, cx);
+                            self.stop_typing(cx);
+                        }
+                    }
+                    MenuAction::Down => {
+                        self.leave_typing(root, cx);
+                        cx.focus("Wheel");
+                    }
+                    MenuAction::Left | MenuAction::Right => {
+                        self.leave_typing(root, cx);
+                        self.search_from = None;
+                        return Handled::No;
+                    }
+                    _ => {}
+                }
+                return Handled::Yes;
+            }
+            match action {
+                MenuAction::Down | MenuAction::Back => {
+                    self.search_from = None;
+                    cx.focus("Wheel");
+                    return Handled::Yes;
+                }
+                // The field's own: typing.
+                MenuAction::Start => return Handled::No,
+                _ => {}
+            }
+        }
         // The header is the top: a fresh Up there goes past it, to the
         // app's notices (the focus stays, for Down to come back to).
         if in_header
-            && !on_search
             && matches!(
                 input,
                 Input::Menu {
@@ -3310,11 +3404,7 @@ impl SelectScreen {
             cx.enter_chrome();
             return Handled::Yes;
         }
-        if in_header
-            && matches!(input, Input::Menu { action, .. }
-                if matches!(action, MenuAction::Left | MenuAction::Right)
-                    || (!on_search && action.is_direction()))
-        {
+        if in_header && matches!(input, Input::Menu { action, .. } if action.is_direction()) {
             return Handled::No;
         }
         // A fresh Up on the first row goes on up (the search field, then
@@ -3352,14 +3442,18 @@ impl SelectScreen {
                     Handled::Yes
                 }
                 MenuAction::Start => {
-                    let focused = cx.focused().unwrap_or("Wheel");
-                    if focused == "Wheel" || focused == self.search.name {
+                    if cx.focused().unwrap_or("Wheel") == "Wheel" {
                         self.start(root, cx);
                         Handled::Yes
                     } else {
                         // The focused button's own.
                         Handled::No
                     }
+                }
+                // The search's Clear is the field's: back to the list.
+                MenuAction::Back if cx.focused() == Some("ClearSearch") => {
+                    cx.focus("Wheel");
+                    Handled::Yes
                 }
                 MenuAction::Back => self.back(root, cx),
                 _ => Handled::No,
