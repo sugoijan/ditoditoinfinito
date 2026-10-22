@@ -1422,6 +1422,13 @@ impl Actor {
         self.commands.iter().any(|(n, _)| n == name)
     }
 
+    /// `SetX`, `SetY`, `SetZ` at once: where the tweens queued so far end,
+    /// or where it is (`DestTweenState`), as a particle layer moves its
+    /// particles each frame (StepMania 3.9's `BGAnimationLayer::Update`).
+    pub fn set_position(&mut self, pos: [f32; 3]) {
+        self.dest().pos = pos;
+    }
+
     /// `SetDiffuse`/`SetGlow` as `NoteDisplay::DrawActor` calls them for a
     /// note: the color of the appearance mods and a hold's life.
     pub fn set_note_colors(&mut self, diffuse: Rgba, glow: Rgba) {

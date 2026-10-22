@@ -490,8 +490,8 @@ impl Reading {
         let (present, absent): (Vec<_>, Vec<_>) =
             unshown.into_iter().partition(|(_, exists)| *exists);
         let scripted: Vec<RelPathBuf> = present.iter().map(|(n, _)| n.into()).collect();
-        // Scripts (folders with a `default.lua`) play; the rest of what
-        // exists does not.
+        // The song's folders play (scripts and StepMania 3.9's formats);
+        // animations found only in the shared folders do not.
         let scripts = crate::backgrounds::script_folders(&song, &c.dir, paths);
         let mut script_files = crate::backgrounds::script_files(&c.dir, &scripts, paths);
         if script_files.len() > MAX_SCRIPT_FILES {
@@ -515,7 +515,7 @@ impl Reading {
         };
         if !present.is_empty() {
             notes.push(format!(
-                "background changes use animations made for older StepMania versions, which are not played (the song background shows instead): {}",
+                "background changes use animations from shared folders, which are not played (the song background shows instead): {}",
                 names(present)
             ));
         }
@@ -1057,16 +1057,20 @@ mod tests {
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
         let s = &scan.songs[0];
+        // StepMania 3.9's folders are kept as the scripts' are.
         assert_eq!(
             s.entry.bg_scripts,
-            vec!["Anim/default.lua", "Anim/x.png", "fg/default.lua"]
+            vec![
+                "Anim/default.lua",
+                "Anim/x.png",
+                "fg/default.lua",
+                "old/BGAnimation.ini"
+            ]
         );
-        // Only the folder made for older versions is noted as not played.
-        let note = s
-            .notes
-            .iter()
-            .find(|n| n.contains("older StepMania"))
-            .unwrap();
-        assert!(note.ends_with(": old"), "{note}");
+        assert!(
+            !s.notes.iter().any(|n| n.contains("not played")),
+            "{:?}",
+            s.notes
+        );
     }
 }

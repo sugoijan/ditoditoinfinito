@@ -133,7 +133,9 @@ Rust and the browser are implementation details, not advertised features.
   the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same
   Lua host runs a song's scripted backgrounds over its folder
   (`Skin::song`, `LuaSkin::actor_file`, `lua/song.lua`;
-  `docs/plans/scripted-backgrounds.md`). Pure,
+  `docs/plans/scripted-backgrounds.md`), and builds a song's StepMania 3.9
+  and ITG animations (`BGAnimation.ini`, `default.xml`, 3.0 layer
+  folders) natively (`crates/noteskin/src/bganimation.rs`). Pure,
   natively tested; `docs/plans/noteskins.md`. `crates/render/src/noteskin.rs`
   loads a skin through its Lua for both shells (`NoteskinPlay::load_lua`),
   draws it in play and runs its Lua each frame. Our opt-in

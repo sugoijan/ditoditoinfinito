@@ -749,6 +749,34 @@ impl<'a> Skin<'a> {
         folder.texts.get(at).map(|(_, t)| t.as_str())
     }
 
+    /// The files directly in folder `folder` of `dir` (relative to it;
+    /// empty for its top), in the order `GetDirListing` sorts them
+    /// (lowercased).
+    pub(crate) fn folder_files(&self, dir: Dir, folder: &str) -> Vec<FileRef> {
+        let mask = if folder.is_empty() {
+            "*".to_string()
+        } else {
+            match normalize(&format!("{folder}/*")) {
+                Some(m) => m,
+                None => return Vec::new(),
+            }
+        };
+        let Some(listing) = self.listings.get(&dir) else {
+            return Vec::new();
+        };
+        listing
+            .matching(&mask, usize::MAX)
+            .into_iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| FileRef {
+                dir,
+                path: e.path.clone(),
+                virt: e.virt,
+                is_dir: false,
+            })
+            .collect()
+    }
+
     /// Whether `dir` holds `path` (a file, ignoring case).
     pub(crate) fn dir_has(&self, dir: Dir, path: &str) -> Option<String> {
         let mask = normalize(path)?;

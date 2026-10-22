@@ -90,6 +90,15 @@ fn push(
     let Some((shape, texture)) = textured::actor_quad(q, textures, [0.0; 2]) else {
         return;
     };
+    // Texture coordinates past the image (a scrolling texture,
+    // `customtexturerect` past it) repeat it: StepMania wraps a sprite's
+    // texture once its coordinates are set (`Sprite::SetCustomTextureRect`).
+    let wrap = match &shape {
+        Shape::Quad { uv, .. } | Shape::Projected { uv, .. } => {
+            uv.iter().any(|c| !(0.0..=1.0).contains(c))
+        }
+        _ => false,
+    };
     let shape = match shape {
         Shape::Quad { transform, uv } => match cut(transform, uv, clip) {
             Some(shape) => shape,
@@ -100,6 +109,7 @@ fn push(
     let base = TexQuad {
         blend: actors2d::blend(q.blend),
         mask,
+        wrap,
         ..TexQuad::new(shape, [1.0; 4], texture)
     };
     textured::push_passes(base, q.diffuse, q.glow, srgb, out);
@@ -198,6 +208,41 @@ mod tests {
         assert_eq!(transform, [640.0, 0.0, 0.0, 480.0, 320.0, 240.0]);
         assert_eq!(uv, [0.25, 0.0, 0.75, 1.0]);
         assert_eq!(back[0].color[3], 0.5);
+    }
+
+    #[test]
+    fn scrolled_textures_repeat() {
+        let mut quad = Actor::new(Kind::Sprite(Sprite::new(0, Vec::new(), [64.0, 64.0])));
+        let calls = ddi_actor::commands::parse("xy,320,240;customtexturerect,0,0,1,1").unwrap();
+        let mut p = ddi_actor::Problems::default();
+        for c in &calls {
+            quad.call(c, &mut p, 0).unwrap();
+        }
+        let screen = [640.0, 480.0];
+        let frame = [0.0, 0.0, 640.0, 480.0];
+        let (back, _) = quads(
+            [(&mut quad, 1.0, false)],
+            frame,
+            screen,
+            &[Some(3)],
+            &|_| None,
+            false,
+        );
+        assert!(!back[0].wrap);
+        let calls = ddi_actor::commands::parse("texcoordvelocity,0.5,0").unwrap();
+        for c in &calls {
+            quad.call(c, &mut p, 0).unwrap();
+        }
+        quad.update(0.5, &ddi_actor::Clocks::default(), &mut p);
+        let (back, _) = quads(
+            [(&mut quad, 1.0, false)],
+            frame,
+            screen,
+            &[Some(3)],
+            &|_| None,
+            false,
+        );
+        assert!(back[0].wrap);
     }
 
     #[test]

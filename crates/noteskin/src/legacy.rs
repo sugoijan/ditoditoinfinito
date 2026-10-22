@@ -559,7 +559,7 @@ impl Builder<'_, '_> {
     }
 
     /// Charges `work` against the skin's [`Budget`].
-    fn charge(&mut self, work: u64) -> Result<(), String> {
+    pub(crate) fn charge(&mut self, work: u64) -> Result<(), String> {
         let mut b = self.skin.legacy_budget.get();
         if b.work < work {
             b.work = 0;
@@ -573,7 +573,7 @@ impl Builder<'_, '_> {
 
     /// Counts an actor of `attributes` attributes against [`MAX_ACTORS`]
     /// and the skin's [`Budget`].
-    fn spend(&mut self, attributes: usize) -> Result<(), String> {
+    pub(crate) fn spend(&mut self, attributes: usize) -> Result<(), String> {
         self.actors += 1;
         if self.actors > MAX_ACTORS {
             return Err(format!("more than {MAX_ACTORS} actors"));
@@ -591,9 +591,15 @@ impl Builder<'_, '_> {
     }
 
     /// `ActorUtil::MakeActor` on `file`, `depth` files in.
-    fn file_actor(&mut self, file: &FileRef, depth: u32) -> Result<Actor, String> {
+    pub(crate) fn file_actor(&mut self, file: &FileRef, depth: u32) -> Result<Actor, String> {
         if depth > MAX_FILE_DEPTH {
             return Err(format!("{}: files load each other too deep", file.path));
+        }
+        // A song's folder: a background animation of its own
+        // (`crate::bganimation`; StepMania 3.9's `MakeActor` makes a
+        // generic `BGAnimation` of it).
+        if file.is_dir && self.skin.is_song() && file.virt.is_none() {
+            return self.animation_dir(file, true, depth + 1);
         }
         match self.skin.classify(file.clone()) {
             // Counted as its nodes are built.
@@ -619,7 +625,11 @@ impl Builder<'_, '_> {
 
     /// The node of an actor file of the format: its `[<section>]` (an INI
     /// file) or its root (`.xml`), read once per skin.
-    fn file_node(&mut self, file: &FileRef, section: Option<&str>) -> Result<Arc<Node>, String> {
+    pub(crate) fn file_node(
+        &mut self,
+        file: &FileRef,
+        section: Option<&str>,
+    ) -> Result<Arc<Node>, String> {
         let key = (file.dir, file.path.clone());
         if let Some(r) = self.skin.legacy_nodes.borrow().get(&key) {
             return r.clone();
@@ -723,7 +733,12 @@ impl Builder<'_, '_> {
     /// `ActorUtil::LoadFromActorFile` (`src/ActorUtil.cpp:104-264`): the
     /// node's class (`Class`, `Type`, else its name) when it is one we
     /// draw, else the actor its `File` makes, given the node's attributes.
-    fn node_actor(&mut self, dir: &str, node: &Node, depth: u32) -> Result<Actor, String> {
+    pub(crate) fn node_actor(
+        &mut self,
+        dir: &str,
+        node: &Node,
+        depth: u32,
+    ) -> Result<Actor, String> {
         if node.attr("Condition").is_some() {
             return Err(format!("{}: a Condition is Lua", node.name));
         }
@@ -764,6 +779,17 @@ impl Builder<'_, '_> {
                 self.load_node(&mut a, node);
                 Ok(a)
             }
+            // A song's: a plain rectangle, and text as a song's scripts'
+            // is drawn (`crate::lua::song_text_style`).
+            "Quad" if self.skin.is_song() => {
+                let mut a = Actor::new(Kind::Sprite(ddi_actor::Sprite::quad([1.0, 1.0])));
+                self.load_node(&mut a, node);
+                Ok(a)
+            }
+            "BitmapText" if self.skin.is_song() => Ok(self.text_node(node)),
+            _ if node.attr("Text").is_some() && named.is_none() && self.skin.is_song() => {
+                Ok(self.text_node(node))
+            }
             "Quad" | "BitmapText" | "ActorScroller" | "BGAnimation" => {
                 Err(format!("{class} is not drawn"))
             }
@@ -788,6 +814,18 @@ impl Builder<'_, '_> {
                 Ok(a)
             }
         }
+    }
+
+    /// `BitmapText` of a song's (StepMania 3.9's `LoadFromActorFile`
+    /// with `Text`): its text in the face songs' text is drawn in,
+    /// whatever font `File` names, `::` a line break (one line here: a
+    /// space).
+    fn text_node(&mut self, node: &Node) -> Actor {
+        let text = node.attr("Text").unwrap_or("").replace("::", " ");
+        let text = ddi_actor::Text::new(text, crate::lua::song_text_style());
+        let mut a = Actor::new(Kind::Text(text));
+        self.load_node(&mut a, node);
+        a
     }
 
     /// `Sprite::LoadFromNode`: its `Texture` (relative to `dir`), the
@@ -858,7 +896,7 @@ impl Builder<'_, '_> {
     /// `Actor::LoadFromNode` (`src/Actor.cpp:176-217`): the name, base
     /// rotations and zooms, every `…Command` (`Command` alone is `On`), and
     /// `Init` played.
-    fn load_node(&mut self, a: &mut Actor, node: &Node) {
+    pub(crate) fn load_node(&mut self, a: &mut Actor, node: &Node) {
         if let Some(name) = node.attr("Name") {
             a.name = name.to_string();
         }

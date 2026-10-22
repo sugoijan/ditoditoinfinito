@@ -207,3 +207,79 @@ fn sounds_play_when_their_script_says_so() {
     assert_eq!(s.take_sounds(), vec!["BG/boom.ogg"]);
     assert!(s.take_sounds().is_empty());
 }
+
+/// Images 64 × 32.
+struct Images64;
+
+impl Images for Images64 {
+    fn size(&self, _: Dir, _: &str) -> Option<(u32, u32)> {
+        Some((64, 32))
+    }
+    fn max_size(&self) -> u32 {
+        4096
+    }
+}
+
+#[test]
+fn stepmania_3_9_animations_play_without_a_vm() {
+    let song = song();
+    // A background of a `BGAnimation.ini` layer fading in on `On`, and a
+    // foreground lasting its `LengthSeconds`; no Lua at all.
+    let files = SongFiles {
+        pack: "Pack".into(),
+        song: "Song".into(),
+        files: vec![
+            "BG/BGAnimation.ini".into(),
+            "BG/a.png".into(),
+            "FG/BGAnimation.ini".into(),
+        ],
+        texts: vec![
+            (
+                "BG/BGAnimation.ini".into(),
+                "[Layer1]\nFile=a.png\nOnCommand=diffusealpha,0;linear,1;diffusealpha,1\n".into(),
+            ),
+            (
+                "FG/BGAnimation.ini".into(),
+                "[BGAnimation]\nLengthSeconds=2\n".into(),
+            ),
+        ],
+    };
+    let scripts = ["BG", "FG"];
+    let none: &[&str] = &[];
+    let layers = backgrounds::layers(&song, none, none, &scripts, none, false);
+    let fgs = backgrounds::foregrounds(&song, &scripts);
+    let mut s = Scripts::load(
+        files,
+        env(&song, 4.0 / 3.0),
+        &layers,
+        &fgs,
+        &Images64,
+        Box::new(|| 0.0),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(s.lua.is_none());
+    assert!(s.notes().is_empty(), "{:?}", s.notes());
+    // The foreground from 1 s for its two seconds.
+    s.frame(1.0, 2.0, &layers);
+    assert_eq!(s.draws(1.0, &layers).len(), 1);
+    // The background at 2 s, its sprite centered on the 4:3 screen and
+    // fading in; the foreground still shown.
+    s.frame(2.0, 4.0, &layers);
+    s.frame(2.5, 5.0, &layers);
+    let d = s.draws(2.5, &layers);
+    assert_eq!(d.len(), 2);
+    assert!(!d[0].2 && d[1].2);
+    // The tinted frame, the animation, its layer, the sprite.
+    let sprite = &d[0].0.children()[0].children()[0].children()[0];
+    assert_eq!(sprite.current().pos[..2], [320.0, 240.0]);
+    assert!((sprite.current().diffuse()[3] - 0.5).abs() < 1e-4);
+    s.frame(3.5, 7.0, &layers);
+    assert_eq!(s.draws(3.5, &layers).len(), 1);
+    // A retry starts them over as they loaded.
+    s.restart();
+    s.frame(2.0, 4.0, &layers);
+    let d = s.draws(2.0, &layers);
+    let sprite = &d[0].0.children()[0].children()[0].children()[0];
+    assert_eq!(sprite.current().diffuse()[3], 0.0);
+}

@@ -12,6 +12,7 @@
 //! SVG images, our extension ([`svg`]), and declare parameters the player
 //! sets, another ([`params`]).
 
+pub mod bganimation;
 pub mod build;
 pub mod builtin;
 pub mod bundled;

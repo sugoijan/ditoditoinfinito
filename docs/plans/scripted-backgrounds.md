@@ -133,13 +133,10 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    the scripts load); `ActorMultiVertex`, `ActorFrameTexture`,
    `ActorProxy` and `ActorScroller` load as actors that draw nothing
    (noted once in the log).
-   Folders without one keep what the game does now (the song background
-   on the first layer, nothing on the second), although StepMania 5.1
-   draws an empty actor for `BGAnimation.ini` and `default.xml` folders:
-   they were made for StepMania 3.9 and ITG, whose authors meant them to
-   play, and a later step can draw them natively (the legacy noteskin
-   reader parses the same actor files). 3.0-style layer folders come with
-   that step too.
+   Folders without one are drawn natively as StepMania 3.9 and ITG drew
+   them (since step 6, below), although StepMania 5.1 draws an empty
+   actor for `BGAnimation.ini` and `default.xml` folders: they were made
+   for those versions, whose authors meant them to play.
 5. **Budgets.** Load: 20 million fuel and 5 s for all of a song's scripts
    together (the skins' load budget), while the start prompt shows, on
    the web in slices of 100,000 fuel with the page's turn between them
@@ -193,10 +190,10 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
 5. **Shells**: the web's import and play, desktop's play; a synthetic
    pack in headless Chrome (WebGPU, WebGL2) and Firefox, offscreen on
    desktop.
-6. Later: `BGAnimation.ini`, `default.xml` and 3.0-style layer folders drawn
-   natively (decision 4); the global `BGAnimations/` folder; render
-   targets within a pixel budget; movies in scripts and as an effect's
-   second file (below).
+6. `BGAnimation.ini`, `default.xml` and 3.0-style layer folders drawn
+   natively (decision 4; done 2026-10-22, below). Later: the global
+   `BGAnimations/` folder; render targets within a pixel budget; movies
+   in scripts and as an effect's second file (below).
 
 ## Status (2026-10-21)
 
@@ -219,7 +216,8 @@ background layers and as foregrounds, on both shells.
   `BgImage::Black` under it on the first while scripts run,
   `backgrounds::foregrounds`, `script_folders` and `script_files` for the
   import, `ManifestEntry::bg_scripts` (the files kept); the import's note
-  names only folders made for older versions as not played.
+  names only animations found in the shared folders alone as not
+  played.
 - **Runtime** (`session/src/scripted.rs`): one VM a song, a background
   built once per script and `Color1`; at a change `LoseFocus` on the
   script leaving, `InitState`, `On`, `GainFocus` on the one coming, then
@@ -282,8 +280,7 @@ about twenty turns, none much past `LUA_TURN`
 Not yet: the images' decoded pixels have no budget of their own beyond the 64 files;
 a script's quads draw over the second image layer; the transitions fade
 a script whatever their kind; scripts read only their folders' files
-(not the song's other files); no movies or render targets; the 3.9 and
-ITG formats and 3.0-style layer folders (step 6).
+(not the song's other files); no movies or render targets.
 
 Movies stay out of scripts and of the named effects' second file (second
 slice, 2026-10-21): the movie slots (`ddi_session::movies::MovieSlots`,
@@ -323,3 +320,73 @@ web through a canvas (`text_bitmap`, arriving a frame or so later). Checked: nat
 converter, a run's quad), offscreen on desktop (yellow text left of the
 field from the change on) and in headless Chrome (WebGPU, WebGL2) and
 Firefox (the same, with a screenshot looked at).
+
+StepMania 3.9's and ITG's formats since (2026-10-22, step 6): a named
+folder of the song without a `default.lua` is an animation built
+natively (`ddi_noteskin::bganimation`, over `Skin::song` and the legacy
+skins' node reader, `crate::legacy`), as StepMania 3.9 reads it
+(`BGAnimation.cpp`, `BGAnimationLayer.cpp`, `ActorUtil.cpp` at
+`v390release`, MIT-style) with what OpenITG (`f2c129fe`) added:
+
+- **Which.** A `default.xml` (OpenITG's actor tree: `ActorFrame`,
+  `Sprite`, `Model`, a `Quad`, `Text` as a song's text is drawn, an actor
+  of a `File`, a folder `File` a generic animation of its own), else a
+  `BGAnimation.ini`, else a 3.0 folder of layers (its `*.png`, `*.jpg`,
+  `*.jpeg`, `*.gif`, `*.sprite` and movies, sorted, `_` names skipped).
+- **An ini.** `[BGAnimation]`'s `InitCommand` run at load and
+  `LengthSeconds` (OpenITG's: an actor sleeping that long on `On`, which a
+  foreground's time includes); `Layer<N>` sections in order of their
+  numbers (`Layer01` too), `Import` taking another folder's layers. A
+  layer's `Type` (`sprite`, `particles`, `tiles`, or 1 to 3, 1 stretched),
+  `File` or `Text`, `Stretch`, every `…Command` (whatever the key's case:
+  `oncommand` is `On`), base rotations and zooms, `TexCoordVelocityX/Y`
+  (and the `Stretch…` names), `FOV`, `StartOnRandomFrame`,
+  `CommandRepeatSeconds`; particles' `NumParticles`, `ZoomMin/Max`,
+  `Velocity{X,Y,Z}{Min,Max}`, `OverrideSpeed`, `ParticlesBounce`; tiles'
+  `TilesStartX/Y`, `TilesSpacingX/Y`, `TileVelocityX/Y`. A sprite layer
+  of the song's own folder is centered on the screen, or stretched over
+  it; a folder loaded by another file is generic (at its parent's
+  origin).
+- **A 3.0 layer** by its file name: `center`, the `stretch*` effects (the
+  scrolls at half a texture a second), `stretchspin`, the `particles*`
+  (as many as cover the screen, `PARTICLE_SPEED` 300, bouncing or
+  wrapping as `ActorCollision.h` says), the `tile*` (scrolling, flipping,
+  pulsing), and the hints `cyclecolor`, `cyclealpha`,
+  `startonrandomframe`, `dontanimate`, `add`; read from its path in the
+  song's folder (StepMania reads its whole path).
+- **In play.** A background comes on as 3.9's layers do
+  (`BGAnimationLayer::GainFocus`): its layers' actors' tweens stopped, `On`
+  and `GainFocus` played (no `InitState`: what loading placed stays);
+  `LoseFocus` when it leaves; updated with the song time as a script is,
+  each layer's particles and tiles moved after its actors. A foreground
+  plays `On` at its beat and shows for its tweens' time. A retry starts
+  them over from a copy kept as they loaded. They need no VM: a song
+  whose animations are all of these formats loads no Lua.
+- **Not drawn** (each noted once, the rest of the animation drawn): Lua
+  (`Condition` and `Cond` leave a layer out, `DrawCond` is ignored,
+  `File=@…`), `Player=2` (never enabled here), the song's own art
+  (`songbackground`, `usesongbg`, banners), movies, `UseScroller`.
+  Random placements come from a generator seeded by the folder's name, so
+  a replay draws the same. Tiles move on the animation's own seconds
+  (3.9: the program's).
+- **Import.** Every named folder of the song is kept as the scripts' are
+  (`backgrounds::script_folders`, any folder whatever it holds; 64 files a
+  song); the shells read the ini, XML and actor files as text
+  (`FileKind::Text`) and decode the images. A scrolled texture repeats
+  (`ddi_render::scripted`: a quad whose texture coordinates run past the
+  image wraps, as `SetCustomTextureRect` turns wrapping on), which
+  scripts' `texcoordvelocity` needed too.
+
+Checked: native tests (`bganimation`: ini layers in number order,
+centered and stretched, a lowercased `oncommand`, `LengthSeconds`,
+`Player=2`, a condition noted, particles and tiles moving and wrapping,
+`CommandRepeatSeconds`, `Import`, a `default.xml` before the ini with a
+quad, text and a generic folder, a 3.0 folder by its names, what cannot
+be drawn noted, the same placements every load; the runtime without a
+VM, a retry; the schedule and the import's files), offscreen on desktop
+(`play_scripts.rs::stepmania_3_9_animations_draw_natively`: an ini's
+stretched green image and its red one moved by its `On`, a foreground's
+white square for its `LengthSeconds`, a 3.0 folder's stretched yellow
+image), and the same song imported as a zip in headless Chrome (WebGPU,
+WebGL2) and Firefox, the pixels left of the field the same at each
+change, the autoplay all top tier.

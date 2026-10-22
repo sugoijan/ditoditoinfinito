@@ -167,10 +167,13 @@ pub(crate) struct Builder<'s, 'a> {
     pub(crate) skin: &'s Skin<'a>,
     pub(crate) textures: &'s mut Textures,
     pub(crate) images: &'s dyn Images,
-    notes: Vec<String>,
+    pub(crate) notes: Vec<String>,
     /// Actors made from a StepMania 3.9 skin's files so far
     /// (`crate::legacy`).
     pub(crate) actors: usize,
+    /// A song's background animation's layers built so far
+    /// (`crate::bganimation`).
+    pub(crate) bga: crate::bganimation::Building,
 }
 
 /// Builds `element` of `button`'s column, its `Init` commands played.
@@ -202,6 +205,7 @@ pub fn build_colored(
         images,
         notes: Vec::new(),
         actors: 0,
+        bga: Default::default(),
     };
     let built = if skin.legacy {
         b.legacy_element(button, element, color)

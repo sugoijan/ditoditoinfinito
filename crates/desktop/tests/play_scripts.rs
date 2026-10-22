@@ -1,6 +1,7 @@
 //! Scripted backgrounds and foregrounds on desktop
 //! (`docs/plans/scripted-backgrounds.md`): a song folder made here with a
-//! `#BGCHANGES` and an `#FGCHANGES` naming folders with a `default.lua`,
+//! `#BGCHANGES` and an `#FGCHANGES` naming folders with a `default.lua`
+//! (or in StepMania 3.9's formats),
 //! played autoplayed on a fake clock with no sound device, drawn
 //! offscreen through the play's view, pixels left of the field read back
 //! at chosen song times. Skipped without a GPU adapter.
@@ -104,18 +105,11 @@ fn play(
     adapter: &wgpu::Adapter,
     root: &Path,
     times: &[f64],
+    files: usize,
 ) -> (Vec<(f64, [[u8; 3]; 2], usize)>, Option<String>, usize) {
     let loaded = load(root);
     let scripts = &loaded.entry.bg_scripts;
-    assert_eq!(
-        scripts.len(),
-        if scripts.iter().any(|f| f.as_str().starts_with("Stop")) {
-            5
-        } else {
-            4
-        },
-        "{scripts:?}"
-    );
+    assert_eq!(scripts.len(), files, "{scripts:?}");
     let settings = Settings {
         noteskin: Some("builtin".into()),
         bg_brightness: 1.0,
@@ -176,7 +170,7 @@ fn scripts_draw_behind_the_field_and_over_it() {
     };
     let plain = dir.join("plain");
     song(&plain, false).expect("the song folder");
-    let (samples, stopped, sounds) = play(&adapter, &plain, &[1.0, 3.0, 6.5, 7.5]);
+    let (samples, stopped, sounds) = play(&adapter, &plain, &[1.0, 3.0, 6.5, 7.5], 4);
     assert_eq!(stopped, None);
     // The background's `On` played its sound once.
     assert_eq!(sounds, 1);
@@ -202,10 +196,87 @@ fn scripts_draw_behind_the_field_and_over_it() {
     // note on the results.
     let stop = dir.join("stop");
     song(&stop, true).expect("the song folder");
-    let (samples, stopped, _) = play(&adapter, &stop, &[9.5, 10.5]);
+    let (samples, stopped, _) = play(&adapter, &stop, &[9.5, 10.5], 5);
     assert!(near(samples[0].1[0], GREEN), "{samples:?}");
     assert!(near(samples[1].1[0], BLUE), "{samples:?}");
     assert!(stopped.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A song of StepMania 3.9's animations (no Lua): the song background
+/// until 2 s; then `Old` (`BGAnimation.ini`): a green image stretched over
+/// the screen and the red one moved left of the field by its `On`; from
+/// 6 s the `Front` foreground (an ini with `LengthSeconds=1`): a white
+/// square at the screen's left edge for a second; from 10 s `Layers`, a
+/// 3.0 folder whose one image (yellow) is named to stretch.
+fn old_song(dir: &Path) -> Option<()> {
+    let song = dir.join("Pack/Old");
+    let files: [(&str, &str); 2] = [
+        (
+            "Old/BGAnimation.ini",
+            "[Layer1]\nFile=green.png\nType=1\n\
+             [Layer2]\nfile=red.png\noncommand=x,100;zoom,4\n",
+        ),
+        (
+            "Front/BGAnimation.ini",
+            "[BGAnimation]\nLengthSeconds=1\n\
+             [Layer1]\nFile=white.png\nOnCommand=zoomto,80,80;x,40\n",
+        ),
+    ];
+    for (name, text) in files {
+        let path = song.join(name);
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        std::fs::write(path, text).ok()?;
+    }
+    std::fs::create_dir_all(song.join("Layers")).ok()?;
+    std::fs::write(
+        song.join("song.sm"),
+        simfile(false)
+            .replace("=BG=", "=Old=")
+            .replace("=FG=", "=Front=")
+            .replace(",99999=", ",20=Layers=1=0=0=0,99999="),
+    )
+    .ok()?;
+    for (name, rgba) in [
+        ("bg.png", [30, 30, 200, 255]),
+        ("Old/green.png", [0, 204, 0, 255]),
+        ("Old/red.png", [200, 30, 30, 255]),
+        ("Front/white.png", [255, 255, 255, 255]),
+        ("Layers/1 stretchstill.png", [220, 220, 0, 255]),
+    ] {
+        image::RgbaImage::from_pixel(16, 16, image::Rgba(rgba))
+            .save(song.join(name))
+            .ok()?;
+    }
+    std::fs::write(song.join("music.wav"), silence()).ok()
+}
+
+#[test]
+fn stepmania_3_9_animations_draw_natively() {
+    let dir = std::env::temp_dir().join(format!("ddi-play-old-bgas-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    old_song(&dir).expect("the song folder");
+    let (samples, stopped, _) = play(&adapter, &dir, &[1.0, 3.0, 6.5, 7.5, 10.5], 6);
+    assert_eq!(stopped, None);
+    const YELLOW: [u8; 3] = [220, 220, 0];
+    let want = [
+        [BLUE, BLUE],
+        [GREEN, RED],
+        [WHITE, RED],
+        [GREEN, RED],
+        [YELLOW, YELLOW],
+    ];
+    assert_eq!(samples.len(), want.len(), "{samples:?}");
+    for ((t, got, _), want) in samples.iter().zip(want) {
+        for (g, w) in got.iter().zip(want) {
+            assert!(near(*g, w), "at {t:.3} s: {got:?}, want {want:?}");
+        }
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

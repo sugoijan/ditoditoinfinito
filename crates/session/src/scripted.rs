@@ -1,10 +1,13 @@
 //! A song's scripted backgrounds and foregrounds in a play
-//! (`docs/plans/scripted-backgrounds.md`): folders of the song with a
-//! `default.lua` that its background changes (either layer,
-//! [`BgImage::Scripted`]) or its `#FGCHANGES` name, run as StepMania 5.1
-//! runs them (`Background.cpp`, `Foreground.cpp`) on the noteskins' Lua
-//! host, in a VM of the song's own (`ddi_noteskin::lua::LuaSkin` over
-//! `Skin::song`).
+//! (`docs/plans/scripted-backgrounds.md`): folders of the song that its
+//! background changes (either layer, [`BgImage::Scripted`]) or its
+//! `#FGCHANGES` name. One with a `default.lua` runs as StepMania 5.1 runs
+//! it (`Background.cpp`, `Foreground.cpp`) on the noteskins' Lua host, in
+//! a VM of the song's own (`ddi_noteskin::lua::LuaSkin` over
+//! `Skin::song`); any other is an animation of StepMania 3.9's or ITG's
+//! formats (`default.xml`, `BGAnimation.ini`, a 3.0 folder of layers),
+//! built natively (`ddi_noteskin::bganimation`) and shown as StepMania
+//! 3.9 shows it (`GainFocus`: its tweens stopped, `On` played again).
 //!
 //! - Every background and foreground is built when the play loads, a
 //!   background once for each script and `Color1` it is shown with (one
@@ -28,6 +31,7 @@ use ddi_actor::{Actor, Clocks};
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_library::path::RelPathBuf;
 use ddi_lua::Failure;
+use ddi_noteskin::bganimation::{self, Animation};
 use ddi_noteskin::build::{Built, Images, Textures};
 use ddi_noteskin::lua::{Env, FrameBudget, LoadBudget, LuaSkin, Pause, Position};
 use ddi_noteskin::skin::{Folder, Skin};
@@ -68,7 +72,7 @@ pub struct SongFiles {
     /// The files kept, relative to the song's folder
     /// (`ManifestEntry::bg_scripts`).
     pub files: Vec<String>,
-    /// The text of each Lua file among them.
+    /// The text of each text file among them ([`FileKind::Text`]).
     pub texts: Vec<(String, String)>,
 }
 
@@ -88,8 +92,10 @@ impl SongFiles {
 /// What a file of a song's scripts is to the shell loading them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
-    /// Lua, read as text ([`SongFiles::texts`]).
-    Lua,
+    /// Text: Lua, and the actor files of StepMania 3.9's formats
+    /// (`.ini`, `.xml`, `.sprite`, `.actor`, `.model`, MilkShape `.txt`,
+    /// `.redir`), read as text ([`SongFiles::texts`]).
+    Text,
     /// An image, decoded ([`Sizes`]).
     Image,
     /// Anything else (a sound, read when the scripts name it).
@@ -99,11 +105,8 @@ pub enum FileKind {
 impl FileKind {
     /// The kind of `path`, by its extension (any case).
     pub fn of(path: &str) -> FileKind {
-        if path
-            .rsplit_once('.')
-            .is_some_and(|(_, e)| e.eq_ignore_ascii_case("lua"))
-        {
-            FileKind::Lua
+        if ddi_noteskin::import::kept_text(path) {
+            FileKind::Text
         } else if backgrounds::is_image(path) {
             FileKind::Image
         } else {
@@ -171,18 +174,48 @@ impl Images for Sizes {
     }
 }
 
-/// A background script as shown with one `Color1`.
+/// What a background or foreground draws.
+enum Drawn {
+    /// A script's tree, its Lua's.
+    Lua(Box<Actor>),
+    /// An animation of StepMania 3.9's formats, and a copy of it as it
+    /// loaded (a retry starts it over).
+    Native(Box<Animation>, Box<Animation>),
+}
+
+impl Drawn {
+    fn native(a: Animation) -> Drawn {
+        Drawn::Native(Box::new(a.clone()), Box::new(a))
+    }
+
+    fn tree(&mut self) -> &mut Actor {
+        match self {
+            Drawn::Lua(t) => t,
+            Drawn::Native(a, _) => &mut a.tree,
+        }
+    }
+
+    /// Back as it loaded.
+    fn reset(&mut self) {
+        match self {
+            Drawn::Lua(t) => t.init_state(),
+            Drawn::Native(a, loaded) => **a = (**loaded).clone(),
+        }
+    }
+}
+
+/// A background as shown with one `Color1`.
 struct Background {
     script: String,
     color: [f32; 4],
     /// `None`: its script failed (StepMania's empty actor: nothing shows).
-    tree: Option<Box<Actor>>,
+    tree: Option<Drawn>,
 }
 
 /// A foreground change.
 struct Foreground {
     seconds: f64,
-    tree: Option<Box<Actor>>,
+    tree: Option<Drawn>,
     /// Shown since its beat, until the second its tweens ended then.
     until: Option<f64>,
     done: bool,
@@ -190,7 +223,8 @@ struct Foreground {
 
 /// A play's scripts.
 pub struct Scripts {
-    lua: LuaSkin,
+    /// The song's VM, when one of them is Lua.
+    lua: Option<LuaSkin>,
     textures: Textures,
     backgrounds: Vec<Background>,
     foregrounds: Vec<Foreground>,
@@ -254,16 +288,36 @@ impl Scripts {
             files: files.files,
             texts: files.texts,
         };
-        let mut lua = LuaSkin::new_sliced(
-            Skin::song(folder),
-            env,
-            ddi_lua::Settings::default(),
-            LOAD_BUDGET,
-            clock,
-            pause.as_deref_mut(),
-        )
-        .await
-        .map_err(|f| f.to_string())?;
+        let native = |name: &str| bganimation::is_native(&folder.files, name);
+        let names = || {
+            layers
+                .iter()
+                .flatten()
+                .filter_map(scripted)
+                .map(|(n, _)| n)
+                .chain(foregrounds.iter().map(|f| f.script.clone()))
+        };
+        // The animations of StepMania 3.9's formats over a copy of the
+        // folder; the VM only when a script is Lua.
+        let animations = names()
+            .any(|n| native(&n))
+            .then(|| Skin::song(folder.clone()));
+        let screen = env.screen.map(|v| v as f32);
+        let mut lua = if names().any(|n| !native(&n)) {
+            let lua = LuaSkin::new_sliced(
+                Skin::song(folder.clone()),
+                env,
+                ddi_lua::Settings::default(),
+                LOAD_BUDGET,
+                clock,
+                pause.as_deref_mut(),
+            )
+            .await
+            .map_err(|f| f.to_string())?;
+            Some(lua)
+        } else {
+            None
+        };
         let mut textures = Textures::default();
         let mut notes = Vec::new();
         let mut list: Vec<Background> = Vec::new();
@@ -271,16 +325,29 @@ impl Scripts {
             if list.iter().any(|b| b.script == script && b.color == color) {
                 continue;
             }
-            let [r, g, b, a] = color;
-            let tint = format!("{r},{g},{b},{a}");
-            let path = format!("{root}{script}");
-            let tree = build(
-                &mut lua,
-                (&path, Some(&tint)),
-                (&mut textures, images, &mut notes),
-                pause.as_deref_mut(),
-            )
-            .await?;
+            let tree = match (&animations, lua.as_mut()) {
+                (Some(skin), _) if native(&script) => Some(Drawn::native(animation(
+                    skin,
+                    &script,
+                    Some(color),
+                    screen,
+                    (&mut textures, images, &mut notes),
+                ))),
+                (_, Some(lua)) => {
+                    let [r, g, b, a] = color;
+                    let tint = format!("{r},{g},{b},{a}");
+                    let path = format!("{root}{script}");
+                    build(
+                        lua,
+                        (&path, Some(&tint)),
+                        (&mut textures, images, &mut notes),
+                        pause.as_deref_mut(),
+                    )
+                    .await?
+                    .map(Drawn::Lua)
+                }
+                _ => None,
+            };
             list.push(Background {
                 script,
                 color,
@@ -289,14 +356,27 @@ impl Scripts {
         }
         let mut fgs = Vec::new();
         for fg in foregrounds {
-            let path = format!("{root}{}", fg.script);
-            let tree = build(
-                &mut lua,
-                (&path, None),
-                (&mut textures, images, &mut notes),
-                pause.as_deref_mut(),
-            )
-            .await?;
+            let tree = match (&animations, lua.as_mut()) {
+                (Some(skin), _) if native(&fg.script) => Some(Drawn::native(animation(
+                    skin,
+                    &fg.script,
+                    None,
+                    screen,
+                    (&mut textures, images, &mut notes),
+                ))),
+                (_, Some(lua)) => {
+                    let path = format!("{root}{}", fg.script);
+                    build(
+                        lua,
+                        (&path, None),
+                        (&mut textures, images, &mut notes),
+                        pause.as_deref_mut(),
+                    )
+                    .await?
+                    .map(Drawn::Lua)
+                }
+                _ => None,
+            };
             fgs.push(Foreground {
                 seconds: fg.seconds,
                 tree,
@@ -304,7 +384,9 @@ impl Scripts {
                 done: false,
             });
         }
-        notes.extend(lua.warnings());
+        if let Some(lua) = &lua {
+            notes.extend(lua.warnings());
+        }
         notes.dedup();
         Ok(Some(Scripts {
             lua,
@@ -320,7 +402,8 @@ impl Scripts {
     }
 
     /// A new play of the same song (a retry): no background on yet, no
-    /// foreground shown yet. Scripts that stopped stay stopped.
+    /// foreground shown yet, the animations of StepMania 3.9's formats as
+    /// they loaded. Scripts that stopped stay stopped.
     pub fn restart(&mut self) {
         self.current = [None; LAYERS];
         self.last = None;
@@ -329,7 +412,12 @@ impl Scripts {
             fg.until = None;
             fg.done = false;
             if let Some(tree) = fg.tree.as_mut() {
-                tree.init_state();
+                tree.reset();
+            }
+        }
+        for b in &mut self.backgrounds {
+            if let Some(tree @ Drawn::Native(..)) = b.tree.as_mut() {
+                tree.reset();
             }
         }
     }
@@ -362,13 +450,13 @@ impl Scripts {
     /// The sound files the scripts may play (relative to the song's
     /// folder), for the shell to decode ahead.
     pub fn sound_files(&self) -> Vec<String> {
-        self.lua.sound_files()
+        self.lua.as_ref().map_or(Vec::new(), LuaSkin::sound_files)
     }
 
     /// The sounds the scripts played since last asked (none once they
     /// stopped), for the shell to play now.
     pub fn take_sounds(&mut self) -> Vec<String> {
-        let played = self.lua.take_sounds();
+        let played = self.lua.as_mut().map_or(Vec::new(), LuaSkin::take_sounds);
         if self.stopped.is_some() {
             return Vec::new();
         }
@@ -379,17 +467,14 @@ impl Scripts {
     pub fn trees_mut(&mut self) -> impl Iterator<Item = &mut Actor> {
         self.backgrounds
             .iter_mut()
-            .filter_map(|b| b.tree.as_deref_mut())
-            .chain(
-                self.foregrounds
-                    .iter_mut()
-                    .filter_map(|f| f.tree.as_deref_mut()),
-            )
+            .filter_map(|b| b.tree.as_mut())
+            .chain(self.foregrounds.iter_mut().filter_map(|f| f.tree.as_mut()))
+            .map(Drawn::tree)
     }
 
     /// Fuel the scripts spent in the last frame.
     pub fn frame_fuel(&self) -> u64 {
-        self.lua.frame_fuel()
+        self.lua.as_ref().map_or(0, LuaSkin::frame_fuel)
     }
 
     /// The scripted background segment `seg` shows, by its script and
@@ -420,8 +505,9 @@ impl Scripts {
         let dt = self.last.map_or(0.0, |l| (t - l).max(0.0));
         self.last = Some(t);
         self.timer += dt;
-        self.lua
-            .begin_frame(Position { seconds: t, beat }, FRAME_BUDGET);
+        if let Some(lua) = self.lua.as_mut() {
+            lua.begin_frame(Position { seconds: t, beat }, FRAME_BUDGET);
+        }
         let clocks = Clocks {
             timer: self.timer as f32,
             music_seconds: t as f32,
@@ -458,10 +544,7 @@ impl Scripts {
                     self.play(Tree::Background(b), &["LoseFocus"])?;
                 }
                 if let Some(b) = self.background_of(&schedule[state.current]) {
-                    if let Some(tree) = self.backgrounds[b].tree.as_mut() {
-                        tree.init_state();
-                    }
-                    self.play(Tree::Background(b), &["On", "GainFocus"])?;
+                    self.come_on(b)?;
                     // From the change's second on (`UpdateCurBGChange`).
                     let first = (t - schedule[state.current].seconds).max(0.0);
                     self.update(Tree::Background(b), first, clocks)?;
@@ -484,7 +567,7 @@ impl Scripts {
                 None => {
                     self.play(Tree::Foreground(i), &["On"])?;
                     let fg = &mut self.foregrounds[i];
-                    let left = fg.tree.as_ref().map_or(0.0, |t| t.tween_time_left());
+                    let left = fg.tree.as_mut().map_or(0.0, |t| t.tree().tween_time_left());
                     fg.until = Some(fg.seconds + f64::from(left));
                     t - fg.seconds
                 }
@@ -498,43 +581,84 @@ impl Scripts {
         Ok(())
     }
 
-    fn slot(&mut self, which: Tree) -> Option<&mut Option<Box<Actor>>> {
+    /// Background `b` comes on: a script's state set anew, then `On`
+    /// and `GainFocus` (StepMania 5.1's `UpdateCurBGChange`); an
+    /// animation of StepMania 3.9's formats gains the focus as 3.9's
+    /// layers do (`BGAnimationLayer::GainFocus`).
+    fn come_on(&mut self, b: usize) -> Result<(), Failure> {
+        match self.backgrounds[b].tree.as_mut() {
+            Some(Drawn::Native(a, _)) => {
+                a.gain_focus();
+                Ok(())
+            }
+            Some(Drawn::Lua(tree)) => {
+                tree.init_state();
+                self.play(Tree::Background(b), &["On", "GainFocus"])
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn slot(&mut self, which: Tree) -> Option<&mut Option<Drawn>> {
         match which {
             Tree::Background(i) => Some(&mut self.backgrounds.get_mut(i)?.tree),
             Tree::Foreground(i) => Some(&mut self.foregrounds.get_mut(i)?.tree),
         }
     }
 
-    /// Runs `f` on a tree's actor id with the tree lent to its Lua.
+    /// Runs `lua` on a script's tree's actor id with the tree lent to its
+    /// Lua, or `native` on an animation of StepMania 3.9's formats.
     fn lent(
         &mut self,
         which: Tree,
-        f: impl FnOnce(&mut LuaSkin, u32) -> Result<(), Failure>,
+        lua: impl FnOnce(&mut LuaSkin, u32) -> Result<(), Failure>,
+        native: impl FnOnce(&mut Animation),
     ) -> Result<(), Failure> {
-        let Some(mut tree) = self.slot(which).and_then(Option::take) else {
+        let Some(slot) = self.slot(which) else {
             return Ok(());
         };
-        let lent = self.lua.lend(&mut tree);
-        let r = f(&mut self.lua, tree.id);
+        let mut tree = match slot.take() {
+            Some(Drawn::Lua(tree)) => tree,
+            Some(Drawn::Native(mut a, loaded)) => {
+                native(&mut a);
+                *slot = Some(Drawn::Native(a, loaded));
+                return Ok(());
+            }
+            None => return Ok(()),
+        };
+        let Some(vm) = self.lua.as_mut() else {
+            if let Some(slot) = self.slot(which) {
+                *slot = Some(Drawn::Lua(tree));
+            }
+            return Ok(());
+        };
+        let lent = vm.lend(&mut tree);
+        let r = lua(vm, tree.id);
         if lent {
-            self.lua.reclaim(&mut tree);
+            vm.reclaim(&mut tree);
         }
         if let Some(slot) = self.slot(which) {
-            *slot = Some(tree);
+            *slot = Some(Drawn::Lua(tree));
         }
         r
     }
 
     /// Plays `commands` on a tree.
     fn play(&mut self, which: Tree, commands: &[&str]) -> Result<(), Failure> {
-        self.lent(which, |lua, id| {
-            commands.iter().try_for_each(|c| lua.play(id, c, &[]))
-        })
+        self.lent(
+            which,
+            |lua, id| commands.iter().try_for_each(|c| lua.play(id, c, &[])),
+            |a| commands.iter().for_each(|c| a.play(c)),
+        )
     }
 
     /// Updates a tree for `dt` seconds.
     fn update(&mut self, which: Tree, dt: f64, clocks: &Clocks) -> Result<(), Failure> {
-        self.lent(which, |lua, id| lua.update(id, dt as f32, clocks))
+        self.lent(
+            which,
+            |lua, id| lua.update(id, dt as f32, clocks),
+            |a| a.update(dt as f32, clocks),
+        )
     }
 
     /// What to draw at song second `t`, back to front: each layer's
@@ -570,10 +694,10 @@ impl Scripts {
             }
         }
         let mut out: Vec<(&mut Actor, f32, bool)> = Vec::new();
-        let mut backgrounds: Vec<Option<&mut Box<Actor>>> = self
+        let mut backgrounds: Vec<Option<&mut Actor>> = self
             .backgrounds
             .iter_mut()
-            .map(|b| b.tree.as_mut())
+            .map(|b| b.tree.as_mut().map(Drawn::tree))
             .collect();
         for (b, alpha) in alphas {
             if let Some(tree) = backgrounds.get_mut(b).and_then(Option::take) {
@@ -583,11 +707,40 @@ impl Scripts {
         for fg in &mut self.foregrounds {
             let shown = !fg.done && fg.until.is_some_and(|u| t <= u);
             if let Some(tree) = fg.tree.as_mut().filter(|_| shown) {
-                out.push((tree, 1.0, true));
+                out.push((tree.tree(), 1.0, true));
             }
         }
         out
     }
+}
+
+/// The animation of StepMania 3.9's formats in the song's folder `name`
+/// of `skin` on StepMania's `screen`, its notes kept: a background's in a
+/// frame tinted by its `Color1` (as the `UpperLeft` effect tints a
+/// script), a foreground's as it is.
+fn animation(
+    skin: &Skin<'_>,
+    name: &str,
+    color: Option<[f32; 4]>,
+    screen: [f32; 2],
+    (textures, images, notes): (&mut Textures, &dyn Images, &mut Vec<String>),
+) -> Animation {
+    let (mut a, n) = bganimation::load(skin, name, screen, textures, images);
+    notes.extend(n);
+    if let Some([r, g, b, alpha]) = color {
+        let mut frame = Actor::new(ddi_actor::Kind::Frame(vec![std::mem::replace(
+            &mut a.tree,
+            Actor::new(ddi_actor::Kind::Actor),
+        )]));
+        let mut p = ddi_actor::Problems::default();
+        if let Ok(calls) = ddi_actor::commands::parse(&format!("diffuse,{r},{g},{b},{alpha}")) {
+            for c in &calls {
+                let _ = frame.call(c, &mut p, 0);
+            }
+        }
+        a.tree = frame;
+    }
+    a
 }
 
 /// Builds the actor at `path` (a background's with its `Color1`), its

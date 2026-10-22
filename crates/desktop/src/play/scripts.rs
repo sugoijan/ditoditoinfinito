@@ -40,8 +40,8 @@ pub struct Ready {
     pub sounds: HashMap<String, Sound>,
 }
 
-/// What the reading thread hands over: the Lua's texts, the images'
-/// sizes and the images.
+/// What the reading thread hands over: the texts, the images' sizes and
+/// the images.
 struct Read {
     files: SongFiles,
     sizes: Sizes,
@@ -319,14 +319,15 @@ pub fn text_image(text: &str) -> Option<(Rgba, [f32; 2])> {
     super::stage::text_image(text, size, "#ffffff").map(|(image, (w, h))| (image, [w, h]))
 }
 
-/// The scripts' files read where the library found them: the Lua as
-/// text, the images decoded (and their own sizes).
+/// The scripts' files read where the library found them: the Lua and
+/// the other actor files as text, the images decoded (and their own
+/// sizes).
 fn read(files: &Files, mut songs: SongFiles) -> Read {
     let mut sizes = Sizes::default();
     let mut images = Vec::new();
     for f in songs.files.clone() {
         match FileKind::of(&f) {
-            FileKind::Lua => {
+            FileKind::Text => {
                 if let Ok(bytes) = files.read(&f) {
                     let text = String::from_utf8_lossy(&bytes).into_owned();
                     songs.texts.push((f, text));
