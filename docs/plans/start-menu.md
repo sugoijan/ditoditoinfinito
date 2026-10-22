@@ -61,10 +61,12 @@ returning from song select focuses Singleplayer.
 | Start menu → Credits | Back | Start menu |
 | Song list → Credits | Back | Song list |
 | Pre-start or results | Existing return-to-songs action | Song list |
-| Start menu | Back | Remain on start menu |
+| Start menu | Back | Remain on start menu; on desktop, focus Quit (2026-10-22) |
 
 Gameplay's existing quit gesture stays separate from menu Back. Quit
-requires activating its explicit entry; repeated Back never quits.
+requires activating its explicit entry; repeated Back never quits: on
+desktop the first Back moves the focus to Quit and further ones do
+nothing.
 
 ### Back means leaving, with local interaction first
 

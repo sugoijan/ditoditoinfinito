@@ -173,10 +173,17 @@ impl Screen for StartScreen {
     }
     fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
+            // Back goes to Quit where there is one, and no further: the
+            // menu is the first screen.
             Input::Menu {
                 action: MenuAction::Back,
                 ..
-            } => Handled::Yes,
+            } => {
+                if self.desktop {
+                    cx.focus(Choice::Quit.id());
+                }
+                Handled::Yes
+            }
             Input::Activate { name } => {
                 if let Some(choice) = self.choices().into_iter().find(|c| c.id() == name) {
                     (self.action)(choice, cx);
@@ -216,10 +223,28 @@ mod tests {
             ));
             h.run(0.3);
             assert_eq!(h.ui.focused(), Some("Singleplayer"));
-            for key in ["Escape", "Backspace"] {
+            // Back goes to Quit on desktop (again and again: no further),
+            // and does nothing where there is no Quit.
+            for key in ["Escape", "Backspace", "Escape"] {
                 h.key(key, key);
+                assert_eq!(
+                    h.ui.focused(),
+                    Some(if desktop { "Quit" } else { "Singleplayer" })
+                );
             }
+            h.pad(MenuAction::Back, true);
+            h.pad(MenuAction::Back, false);
             assert_eq!(h.ui.layers().len(), 1);
+            assert!(calls.borrow().is_empty());
+            assert!(!h.requests.contains(&UiRequest::Quit));
+            if desktop {
+                h.key("ArrowUp", "ArrowUp");
+                assert_eq!(h.ui.focused(), Some("Credits"));
+                for _ in 0..3 {
+                    h.key("ArrowUp", "ArrowUp");
+                }
+            }
+            assert_eq!(h.ui.focused(), Some("Singleplayer"));
             h.key("ArrowDown", "ArrowDown");
             assert_eq!(h.ui.focused(), Some("Multiplayer"));
             h.key("Enter", "Enter");
