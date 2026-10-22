@@ -360,12 +360,12 @@ were kept current at each step; this one added decision 39 and closed
 One selectable skin, **Peters-DDR**, with **Note colors** (Vivid by
 default, By subdivision) and **Explosions** (on by default). This is the
 starting point for a later SVG design closer to Peters' arrows; Dito
-remains the game's default and the existing Peters artwork stays intact.
+remains the game's default.
 
 The former `Peters-DDR-Note` assets now live in `Peters-DDR`. Its original
 metrics draw the subdivision colors; its `Colors` parameter chooses
 `Peters-DDR-Vivid` for Vivid, which falls back on the shared skin. The
-original models and textures are unchanged. The shared explosion script
+original tap-arrow models and source textures are unchanged. The shared explosion script
 returns an empty actor frame when `Explosions` is off, covering taps,
 holds, rolls and mines without disabling receptor feedback.
 
@@ -382,6 +382,17 @@ preview panel and MCP, saves preview values per project, and retains both
 variants in its file inventory and exports. The Lua guard still keeps
 effects enabled in older hosts without parameter support.
 
+The approved SkinCraft raster extension is now bundled: the square center's
+matching receptor and charge regions, center/diagonal holds with connected caps,
+blue-purple rolls with flashing bars and charged heads, and layered metallic
+mines. Electricity connects only across adjacent lanes; isolated mines retain
+complete effects. Roll bars follow the active scaled roll timing window,
+independently of BPM. Both color modes and compatibility aliases share the
+extension. Original arrow tap models and cardinal hold artwork remain unchanged.
+See [`tools/noteskin-peters/README.md`](../../tools/noteskin-peters/README.md)
+for native sources and the superseded model/SVG study. Bundled checks load the
+raster charge sheets and all mine/long-note directions, including their metrics.
+
 Verified: bundled-skin tests build every element and layout; the Peters
 parameter test checks both color modes, their original textures and
 explosions on/off. Settings tests cover migration, persistence and imported
@@ -389,3 +400,8 @@ names. The desktop GPU field-preview test switches both modes, and the
 actual play renderer captured Beatucada at 24.25 s in Vivid, subdivision
 colors and Vivid with explosions off. Index and credits regenerated;
 REUSE lint passes. This consolidation has not had a new browser run.
+
+The approved raster bundle also passes the bundled Lua checks for every layout
+and all ten mine/long-note button directions. The desktop GPU field-preview
+check loads both color modes in dance-single and danoni-9B. Asset index and
+credits are regenerated, and REUSE lint passes.

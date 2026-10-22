@@ -119,6 +119,10 @@ Rust and the browser are implementation details, not advertised features.
   (`crates/noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
   3.9's and OpenITG's format built natively (`crates/noteskin/src/legacy.rs`);
   SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension);
+  opt-in mine row links from actual drawn positions (`MineConnectRows`,
+  a `Tap Mine` frame’s `MineLink` child; `docs/plans/noteskin-authoring.md`);
+  opt-in roll body/cap animation from the active scaled roll timing window
+  (`RollAnimationTimingWindowRatio`, `docs/plans/noteskin-authoring.md`);
   parameters a skin declares in its metrics, kept per skin in the
   settings, shown under Options → Arrows and read by its Lua
   (`NOTESKIN:GetParameter`; `crates/noteskin/src/params.rs`, our extension,
@@ -478,6 +482,10 @@ Rust and the browser are implementation details, not advertised features.
   danoniplus SVG alpha masks to the game's SVG subset for the `DanOni`
   noteskin proof. Its Lua behavior and host-interface limits are documented
   in `tools/noteskin-danoni/README.md`; upstream originals remain byte-identical.
+- Peters-DDR's approved raster center, holds, rolls and layered mines are bundled
+  from SkinCraft exports; editable sources are in `tools/noteskin-peters/design/`.
+  `python3 tools/noteskin-peters/generate.py [--check]` reproduces only the earlier
+  model/SVG study under `target/scratch/peters/model-svg-study`, not the bundled skin.
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.

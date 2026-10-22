@@ -52,7 +52,7 @@ fn a_skin_picked_shows_once_read() {
         s.set_skin_param(key, "Explosions", Some(ParamValue::Bool(false)), None);
         s
     };
-    let picks: [(Settings, Option<&str>); 9] = [
+    let picks: [(Settings, Option<&str>); 11] = [
         // Dito by default, in the note colors' variant.
         (Settings::default(), Some("Dito Vivid")),
         (
@@ -66,6 +66,21 @@ fn a_skin_picked_shows_once_read() {
         (dito("Lighter", ParamValue::Bool(true)), None),
         (peters("Vivid"), Some("Peters-DDR-Vivid")),
         (peters("Quantized"), Some("Peters-DDR")),
+        // The bundled raster center, diagonal holds/rolls and layered mines.
+        (
+            Settings {
+                style: "danoni-9B".into(),
+                ..peters("Vivid")
+            },
+            Some("Peters-DDR-Vivid"),
+        ),
+        (
+            Settings {
+                style: "danoni-9B".into(),
+                ..peters("Quantized")
+            },
+            Some("Peters-DDR"),
+        ),
         (
             Settings {
                 noteskin: Some("bundled:dance/delta".into()),

@@ -1,0 +1,92 @@
+{
+  "_roll down cap 4x1 (res 256x64).png": {
+    "changed_region": [
+      250,
+      456,
+      1799,
+      462
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll up cap 4x1 (res 256x64).png": {
+    "changed_region": [
+      234,
+      456,
+      1815,
+      464
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll downleft cap 4x1 (res 384x64).png": {
+    "changed_region": [
+      260,
+      456,
+      2845,
+      468
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll left cap 4x1 (res 256x64).png": {
+    "changed_region": [
+      250,
+      456,
+      1847,
+      464
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll right cap 4x1 (res 256x64).png": {
+    "changed_region": [
+      202,
+      456,
+      1799,
+      464
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll downright cap 4x1 (res 384x64).png": {
+    "changed_region": [
+      227,
+      456,
+      2812,
+      468
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll center cap 4x1 (res 256x64).png": {
+    "changed_region": [
+      114,
+      456,
+      1934,
+      469
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll upleft cap 4x1 (res 384x64).png": {
+    "changed_region": [
+      260,
+      456,
+      2624,
+      469
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  },
+  "_roll upright cap 4x1 (res 384x64).png": {
+    "changed_region": [
+      448,
+      456,
+      2812,
+      469
+    ],
+    "terminal_region_steady": true,
+    "silhouette_unchanged": true
+  }
+}

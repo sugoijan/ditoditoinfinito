@@ -1231,6 +1231,7 @@ impl Player {
         Frame {
             song_time,
             beat,
+            roll_window_seconds: self.ruleset.judge.roll_window_seconds(),
             lanes: self.lanes,
             receptors,
             notes,

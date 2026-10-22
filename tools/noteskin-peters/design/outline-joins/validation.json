@@ -1,0 +1,18 @@
+{
+  "DownLeft": {
+    "remaining_inner_gap_pixels": 0,
+    "exposed_top_border_pixels_checked": 22
+  },
+  "DownRight": {
+    "remaining_inner_gap_pixels": 0,
+    "exposed_top_border_pixels_checked": 22
+  },
+  "UpLeft": {
+    "remaining_inner_gap_pixels": 0,
+    "exposed_top_border_pixels_checked": 0
+  },
+  "UpRight": {
+    "remaining_inner_gap_pixels": 0,
+    "exposed_top_border_pixels_checked": 0
+  }
+}

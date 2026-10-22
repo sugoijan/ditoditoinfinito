@@ -19,7 +19,7 @@ with their Lua (on `lunita`, our hardened fork of piccolo), 3D models and
 StepMania 3.9 and OpenITG skins, drawing every built-in layout, with a
 preview; bundled ones: Dito, the built-in arrows as a skin and the
 default, Delta, Alpha-Arrows, Dake, Peter Lawrence's CF_CHROME,
-CF_VIBRANT, CF_ALLOY and Peters-DDR (3D models; Vivid / subdivision colors)
+CF_VIBRANT, CF_ALLOY and Peters-DDR (3D arrows and raster center; Vivid / subdivision colors)
 and `DanOni`; Dancing☆Onigiri's back and mask layers; StepMania's
 named background effects and transitions, and scripted backgrounds'
 first slice (`default.lua` folders, foregrounds too) since

@@ -1,7 +1,17 @@
-local t = Def.ActorFrame {
-	Def.Sprite {
-		Texture=NOTESKIN:GetPath( '_Up', 'Tap Mine' );
-		Frames = Sprite.LinearFrames( 8, 0.5 );
-	};
-};
-return t;
+local bolt = NOTESKIN:GetPath("_mine", "electricity")
+return Def.ActorFrame {
+    Def.Sprite {
+        Name="MineCore";
+        Texture=NOTESKIN:GetPath("_mine", "up base");
+    };
+    Def.Sprite {
+        Name="LocalElectricity";
+        Texture=bolt;
+        Frames=Sprite.LinearFrames(8, 0.5);
+    };
+    Def.Sprite {
+        Name="MineLink";
+        Texture=bolt;
+        Frames=Sprite.LinearFrames(8, 0.5);
+    };
+}

@@ -1,0 +1,272 @@
+{
+  "Down body": {
+    "logical_frame": [
+      64,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Down cap": {
+    "logical_frame": [
+      64,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Left body": {
+    "logical_frame": [
+      64,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Left cap": {
+    "logical_frame": [
+      64,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Up body": {
+    "logical_frame": [
+      64,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Up cap": {
+    "logical_frame": [
+      64,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Right body": {
+    "logical_frame": [
+      64,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Right cap": {
+    "logical_frame": [
+      64,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Center body": {
+    "logical_frame": [
+      64,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "Center cap": {
+    "logical_frame": [
+      64,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "DownLeft body": {
+    "logical_frame": [
+      96,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "DownLeft cap": {
+    "logical_frame": [
+      96,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "DownRight body": {
+    "logical_frame": [
+      96,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "DownRight cap": {
+    "logical_frame": [
+      96,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "UpLeft body": {
+    "logical_frame": [
+      96,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "UpLeft cap": {
+    "logical_frame": [
+      96,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "UpRight body": {
+    "logical_frame": [
+      96,
+      128
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  },
+  "UpRight cap": {
+    "logical_frame": [
+      96,
+      64
+    ],
+    "bar_pitch": 16,
+    "bar_thickness": 5,
+    "frame_colors": [
+      "#787878",
+      "#b8b8b8",
+      "#f9f9f9",
+      "#b8b8b8"
+    ],
+    "roll_window_ratio": 0.75
+  }
+}

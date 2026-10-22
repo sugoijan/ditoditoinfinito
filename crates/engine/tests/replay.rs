@@ -1736,3 +1736,24 @@ fn skin_hits_identify_each_rows_note_and_keep_autoplay_cosmetic() {
             .any(|e| matches!(e.kind, SkinEventKind::NoteTap { .. }))
     );
 }
+
+#[test]
+fn render_snapshot_carries_the_active_scaled_roll_window() {
+    let song = fixture_song();
+    for (mut rules, raw) in [
+        (presets::itg(), 0.35),
+        (presets::sm5(), 0.5),
+        (presets::ddr_a(), 0.25),
+    ] {
+        rules.judge.scale = 0.8;
+        rules.judge.add = 0.01;
+        let mut player = Player::new(&song, 0, rules, PlayOptions::default());
+        player.clock_sample(ClockSample::default());
+        player.start(0.0, 0.0);
+        assert!(close(
+            player.frame(HostTime(0.1)).roll_window_seconds,
+            raw * 0.8 + 0.01,
+            1e-10
+        ));
+    }
+}

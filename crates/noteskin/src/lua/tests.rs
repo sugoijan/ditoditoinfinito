@@ -701,6 +701,66 @@ fn queued_commands_and_update_functions_run_through_lua() {
 }
 
 #[test]
+fn frame_budget_is_renewed_after_long_idle_gaps() {
+    let folders = vec![folder(
+        "dance",
+        "idle",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Receptor.lua",
+                r#"local frames = 0
+return Def.ActorFrame {
+    InitCommand = function(self)
+        self:SetUpdateFunction(function(s)
+            local sum = 0
+            for i = 1, 300 do sum = sum + i end
+            frames = frames + 1
+            s:x(sum):y(frames)
+        end)
+    end,
+}
+"#,
+            ),
+        ],
+    )];
+    let skin = Skin::load(&folders, "dance", "idle").unwrap().into_owned();
+    let time = Rc::new(std::cell::Cell::new(0.0));
+    let clock = time.clone();
+    let mut skin = load(
+        skin,
+        Env::default(),
+        LoadBudget::default(),
+        Box::new(move || {
+            let now = clock.get();
+            clock.set(now + 0.000001);
+            now
+        }),
+    )
+    .unwrap();
+    let mut receptor = boxed(&mut skin, "Receptor");
+    let budget = FrameBudget {
+        fuel: 10_000,
+        seconds: 0.01,
+    };
+    let before = skin.fuel_used();
+    for frame in 1..=128 {
+        // A hidden window may resume hours later; idle time is not Lua work.
+        time.set(time.get() + 3600.0);
+        skin.begin_frame(Position::default(), budget);
+        assert!(skin.lend(&mut receptor));
+        skin.update(receptor.id, 1.0 / 60.0, &Clocks::default())
+            .unwrap();
+        assert!(skin.reclaim(&mut receptor));
+        assert_eq!(receptor.current().pos[0], 45_150.0);
+        assert_eq!(receptor.current().pos[1], frame as f32);
+        assert!(skin.frame_fuel() <= budget.fuel);
+    }
+    assert!(skin.fuel_used() - before > budget.fuel);
+    assert!(skin.failure().is_none());
+}
+
+#[test]
 fn a_frame_out_of_fuel_ends_the_lua() {
     let mut skin = lua_skin(&live(), "live").unwrap_or_else(|e| panic!("{e}"));
     let mut tap = boxed(&mut skin, "Tap Note");

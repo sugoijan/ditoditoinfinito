@@ -1,0 +1,147 @@
+{
+  "down": {
+    "runtime_body_size": [
+      1024,
+      512
+    ],
+    "runtime_cap_size": [
+      1024,
+      256
+    ],
+    "animated_bar_pixels": 30720,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 0
+  },
+  "left": {
+    "runtime_body_size": [
+      1024,
+      512
+    ],
+    "runtime_cap_size": [
+      1024,
+      256
+    ],
+    "animated_bar_pixels": 30720,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 0
+  },
+  "up": {
+    "runtime_body_size": [
+      1024,
+      512
+    ],
+    "runtime_cap_size": [
+      1024,
+      256
+    ],
+    "animated_bar_pixels": 30720,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 0
+  },
+  "right": {
+    "runtime_body_size": [
+      1024,
+      512
+    ],
+    "runtime_cap_size": [
+      1024,
+      256
+    ],
+    "animated_bar_pixels": 30720,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 0
+  },
+  "center": {
+    "runtime_body_size": [
+      1024,
+      512
+    ],
+    "runtime_cap_size": [
+      1024,
+      256
+    ],
+    "animated_bar_pixels": 22720,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 8
+  },
+  "downleft": {
+    "runtime_body_size": [
+      1536,
+      512
+    ],
+    "runtime_cap_size": [
+      1536,
+      256
+    ],
+    "animated_bar_pixels": 22400,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 8
+  },
+  "downright": {
+    "runtime_body_size": [
+      1536,
+      512
+    ],
+    "runtime_cap_size": [
+      1536,
+      256
+    ],
+    "animated_bar_pixels": 22560,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 4
+  },
+  "upleft": {
+    "runtime_body_size": [
+      1536,
+      512
+    ],
+    "runtime_cap_size": [
+      1536,
+      256
+    ],
+    "animated_bar_pixels": 22400,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 8
+  },
+  "upright": {
+    "runtime_body_size": [
+      1536,
+      512
+    ],
+    "runtime_cap_size": [
+      1536,
+      256
+    ],
+    "animated_bar_pixels": 22560,
+    "changes_outside_bars": 0,
+    "body_cap_seam_pixel_differences": 4
+  },
+  "timing": {
+    "metric": "RollAnimationTimingWindowRatio",
+    "ratio": 0.75,
+    "default_period_seconds": {
+      "itg": 0.2625,
+      "sm5": 0.375,
+      "ddr-a": 0.1875
+    },
+    "live_preview_song_time": 4.65,
+    "observed_bar_rgb": {
+      "itg": [
+        249,
+        249,
+        249
+      ],
+      "sm5": [
+        184,
+        184,
+        184
+      ],
+      "ddr-a": [
+        184,
+        184,
+        184
+      ]
+    },
+    "verification": "Native SkinCraft screenshots at the same song time show the expected atlas phases for each active roll window; renderer tests cover elapsed-time cycles, varying/frozen beats, scaled windows and unchanged hold/default animation."
+  }
+}

@@ -1,5 +1,5 @@
 # Peters-DDR combines Peter Lawrence's Note and Vivid through parameters.
-# Original art, models and other scripts remain byte-identical.
+# Original tap-arrow models and source textures remain byte-identical.
 author = "Peter Lawrence"
 credit = "Peter Lawrence · The Unlicense"
 modifications = [
@@ -7,6 +7,12 @@ modifications = [
     "Renamed Peters-DDR-Note to Peters-DDR; retained the old name as a compatibility skin",
     "Added Colors and Explosions parameters to metrics.ini",
     "Added the Explosions parameter guard to Fallback Explosion.lua",
+    "Added raster center taps/lifts and matching receptor with inner-to-outer charge, derived from original arrow sections in SkinCraft",
+    "Added source-derived center and diagonal hold heads, repeating bodies and connected caps",
+    "Replaced rolls with blue-purple gradients, repeating gray bars and charged heads; flashing follows 75% of the active scaled roll timing window",
+    "Reconstructed metallic mine cores and layered original electricity, with complete isolated effects and adjacent-lane connections",
+    "Updated NoteSkin.lua routing and metrics for all extensions; original tap arrows and cardinal hold textures remain unchanged",
+    "Retained the earlier model/SVG center study as unused reference files; the approved raster extension is documented in tools/noteskin-peters",
 ]
 
 [source]
@@ -21,6 +27,11 @@ spdx = "Unlicense"
 holders = ["Peter Lawrence"]
 
 [[licenses]]
-part = "parameter declarations and explosion toggle additions"
+part = "parameter declarations, explosion toggle, routing, new element Lua, original square geometry and SVG shapes"
+spdx = "MIT"
+holders = ["すごいジャン"]
+
+[[licenses]]
+part = "new raster composition for center, derived holds, rolls and layered mines (original pixels retain the Unlicense above)"
 spdx = "MIT"
 holders = ["すごいジャン"]

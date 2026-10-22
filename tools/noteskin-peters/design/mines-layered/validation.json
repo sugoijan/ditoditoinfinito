@@ -1,0 +1,123 @@
+{
+  "_mine downright base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine right base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine left base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine up base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine downleft base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine upleft base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine down base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine upright base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0
+  },
+  "_mine center base (res 96x96).png": {
+    "pixels": [
+      192,
+      192
+    ],
+    "logical_size": [
+      96,
+      96
+    ],
+    "maximum_border_alpha": 0,
+    "inset_bevel": {
+      "source_size": 7,
+      "depth": 70,
+      "soften": 1,
+      "authored_with": "SkinCraft native bevel/emboss"
+    },
+    "outer_face_output_black": 24
+  },
+  "electricity": {
+    "frame_border_alpha": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "frames": 8,
+    "cycle_seconds": 0.5,
+    "source": "White silhouettes extracted from the original Down mine animation; cyan palette retained."
+  }
+}

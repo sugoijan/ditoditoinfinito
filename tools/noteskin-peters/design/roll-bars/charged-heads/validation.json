@@ -1,0 +1,122 @@
+{
+  "_roll upleft head 4x1 (res 384x96).png": {
+    "white_charge_pixels": [
+      0,
+      5945,
+      11084,
+      32663
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll down head 4x1 (res 256x64).png": {
+    "white_charge_pixels": [
+      0,
+      6088,
+      11388,
+      33852
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll center head 4x1 (res 256x64).png": {
+    "white_charge_pixels": [
+      0,
+      1404,
+      12692,
+      63484
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll upright head 4x1 (res 384x96).png": {
+    "white_charge_pixels": [
+      0,
+      5945,
+      11084,
+      32663
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll right head 4x1 (res 256x64).png": {
+    "white_charge_pixels": [
+      0,
+      6088,
+      11388,
+      33852
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll downleft head 4x1 (res 384x96).png": {
+    "white_charge_pixels": [
+      0,
+      5945,
+      11084,
+      32663
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll up head 4x1 (res 256x64).png": {
+    "white_charge_pixels": [
+      0,
+      6088,
+      11388,
+      33852
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll downright head 4x1 (res 384x96).png": {
+    "white_charge_pixels": [
+      0,
+      5945,
+      11084,
+      32663
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll left head 4x1 (res 256x64).png": {
+    "white_charge_pixels": [
+      0,
+      6088,
+      11388,
+      33852
+    ],
+    "steady_color_and_outline": true,
+    "unchanged_alpha": true
+  },
+  "_roll up cap 4x1 (res 256x64).png": {
+    "outline_mask_inset": 16,
+    "changed_region": [
+      32,
+      260,
+      2016,
+      464
+    ],
+    "terminal_region_steady": true
+  },
+  "_roll upleft cap 4x1 (res 384x64).png": {
+    "outline_mask_inset": 16,
+    "changed_region": [
+      227,
+      0,
+      2879,
+      469
+    ],
+    "terminal_region_steady": true
+  },
+  "_roll upright cap 4x1 (res 384x64).png": {
+    "outline_mask_inset": 16,
+    "changed_region": [
+      193,
+      0,
+      2845,
+      469
+    ],
+    "terminal_region_steady": true
+  }
+}

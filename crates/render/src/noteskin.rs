@@ -20,7 +20,7 @@ use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build, build_colo
 use ddi_noteskin::lua::{
     Env, FrameBudget, LoadBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position,
 };
-use ddi_noteskin::metrics::{NoteDisplay, Part};
+use ddi_noteskin::metrics::{NoteDisplay, Part, PartMetrics};
 use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
 use ddi_noteskin::{Button, Folder, LaneButton, Skin};
 
@@ -1846,6 +1846,7 @@ impl NoteLayer for NoteskinPlay {
         self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
+        self.mine_links(frame, layout, geo, &mut lanes, out);
         let mut order: Vec<&NoteSprite> = frame
             .notes
             .iter()
@@ -1867,6 +1868,11 @@ impl NoteLayer for NoteskinPlay {
             let note_type = note_type(note.beat);
             let at = [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)];
             let mut e = std::mem::replace(lane.note_slot(slot, note_type), Element::Blank);
+            let visibility = if matches!(slot, Slot::Mine) && lane.metrics.mine_connect_rows {
+                mine_layers(&mut e, false)
+            } else {
+                None
+            };
             self.note_actor(
                 &mut e,
                 &lane.metrics,
@@ -1879,11 +1885,170 @@ impl NoteLayer for NoteskinPlay {
                 1.0,
                 out,
             );
+            restore_mine_layers(&mut e, visibility);
             *lane.note_slot(slot, note_type) = e;
             self.last_note_positions.insert(note.note_index, note.y);
         }
         self.lanes = lanes;
     }
+}
+
+/// One visible mine's actual field position, after the layout and reverse.
+#[derive(Clone, Copy)]
+struct MineEndpoint<'a> {
+    note: &'a NoteSprite,
+    at: [f32; 2],
+}
+
+/// Connect adjacent lanes in each aligned chart row, independently of lane indices.
+/// A missing mine must leave a break rather than stretching across the empty lane.
+fn aligned_mines(
+    mut nodes: Vec<MineEndpoint<'_>>,
+    tolerance: f32,
+    lane_width: f32,
+) -> Vec<[MineEndpoint<'_>; 2]> {
+    nodes.sort_by(|a, b| {
+        a.note
+            .beat
+            .total_cmp(&b.note.beat)
+            .then_with(|| a.at[1].total_cmp(&b.at[1]))
+            .then_with(|| a.at[0].total_cmp(&b.at[0]))
+    });
+    let mut links = Vec::new();
+    let mut start = 0;
+    while start < nodes.len() {
+        let first = nodes[start];
+        let mut end = start + 1;
+        while end < nodes.len()
+            && nodes[end].note.beat == first.note.beat
+            && (nodes[end].at[1] - first.at[1]).abs() <= tolerance
+        {
+            end += 1;
+        }
+        nodes[start..end].sort_by(|a, b| a.at[0].total_cmp(&b.at[0]));
+        links.extend(nodes[start..end].windows(2).filter_map(|pair| {
+            let distance = pair[1].at[0] - pair[0].at[0];
+            (distance > 0.001 && distance <= lane_width + 0.001).then_some([pair[0], pair[1]])
+        }));
+        start = end;
+    }
+    links
+}
+
+fn has_mine_link(element: &Element) -> bool {
+    matches!(element, Element::Actor(a) if a.children().iter().any(|c| c.name == "MineLink"))
+}
+
+/// Keep the local effect for single mines; reserve just this child for bridges.
+fn mine_layers(element: &mut Element, link_only: bool) -> Option<Vec<bool>> {
+    let Element::Actor(a) = element else {
+        return None;
+    };
+    let index = a.children().iter().position(|c| c.name == "MineLink")?;
+    let visibility = a.children().iter().map(|c| c.visible).collect();
+    for (i, c) in a.children_mut().iter_mut().enumerate() {
+        if (i == index) != link_only {
+            c.visible = false;
+        }
+    }
+    Some(visibility)
+}
+
+fn restore_mine_layers(element: &mut Element, visibility: Option<Vec<bool>>) {
+    if let (Element::Actor(a), Some(visibility)) = (element, visibility) {
+        for (child, visible) in a.children_mut().iter_mut().zip(visibility) {
+            child.visible = visible;
+        }
+    }
+}
+
+impl NoteskinPlay {
+    fn mine_links(
+        &self,
+        frame: &Frame,
+        layout: &Layout,
+        geo: &FieldGeometry,
+        lanes: &mut [Lane],
+        out: &mut Vec<TexQuad>,
+    ) {
+        let nodes = frame
+            .notes
+            .iter()
+            .filter_map(|note| {
+                if !matches!(note.kind, SpriteKind::Mine | SpriteKind::Shock)
+                    || (note.alpha <= 0.0 && note.glow <= 0.0)
+                {
+                    return None;
+                }
+                let lane = lanes.get_mut(usize::from(note.lane))?;
+                let l = layout.lanes.get(usize::from(note.lane))?;
+                if !lane.metrics.mine_connect_rows
+                    || !has_mine_link(lane.note_slot(Slot::Mine, note_type(note.beat)))
+                {
+                    return None;
+                }
+                let at = [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)];
+                at.iter()
+                    .all(|v| v.is_finite())
+                    .then_some(MineEndpoint { note, at })
+            })
+            .collect();
+        let k = geo.arrow / 64.0;
+        for [left, right] in aligned_mines(nodes, geo.arrow * 0.125, geo.arrow) {
+            let dx = right.at[0] - left.at[0];
+            let dy = right.at[1] - left.at[1];
+            let length = dx.hypot(dy);
+            let lane = &mut lanes[usize::from(left.note.lane)];
+            let e = lane.note_slot(Slot::Mine, note_type(left.note.beat));
+            let visibility = mine_layers(e, true);
+            if let Element::Actor(a) = e {
+                a.reset_placement();
+                a.set_note_colors(
+                    [1.0, 1.0, 1.0, left.note.alpha.min(right.note.alpha)],
+                    [1.0, 1.0, 1.0, left.note.glow.min(right.note.glow)],
+                );
+                // The child is authored over 64 logical pixels. Stretch only
+                // its length; keep its width at the note's drawing scale.
+                self.emit(
+                    a,
+                    [
+                        dx / 64.0,
+                        dy / 64.0,
+                        -dy / length * k,
+                        dx / length * k,
+                        (left.at[0] + right.at[0]) * 0.5,
+                        (left.at[1] + right.at[1]) * 0.5,
+                    ],
+                    [0.0; 2],
+                    out,
+                );
+            }
+            restore_mine_layers(e, visibility);
+        }
+    }
+}
+
+/// Roll cue frames may follow the judging window instead of the musical beat.
+fn long_note_animation_percent(
+    metrics: &NoteDisplay,
+    part: &PartMetrics,
+    note: &NoteSprite,
+    frame: &Frame,
+) -> f32 {
+    if matches!(note.kind, SpriteKind::RollHead { .. }) {
+        let period =
+            frame.roll_window_seconds * f64::from(metrics.roll_animation_timing_window_ratio);
+        if period.is_finite() && period > 0.0 {
+            return (frame.song_time / period).rem_euclid(1.0) as f32;
+        }
+    }
+    animation_percent(
+        part,
+        metrics.animation_is_beat_based,
+        frame.beat as f32,
+        frame.song_time as f32,
+        note.beat,
+    )
 }
 
 /// Where and how a hold's body is drawn.
@@ -1961,13 +2126,7 @@ impl NoteskinPlay {
                 && let Kind::Sprite(s) = &mut actor.kind
             {
                 let pm = m.part(part);
-                let percent = animation_percent(
-                    pm,
-                    m.animation_is_beat_based,
-                    frame.beat as f32,
-                    frame.song_time as f32,
-                    note.beat,
-                );
+                let percent = long_note_animation_percent(m, pm, note, frame);
                 let length: f32 = s.states.iter().map(|st| st.delay).sum();
                 s.set_seconds_into_animation(percent * length);
             }
@@ -2109,6 +2268,7 @@ mod tests {
         Frame {
             song_time,
             beat: song_time * 2.0,
+            roll_window_seconds: 0.35,
             lanes: 4,
             receptors: vec![
                 ReceptorState {
@@ -2333,6 +2493,274 @@ mod tests {
             beat: index as f32,
             hold_life: 0.0,
         }
+    }
+
+    #[test]
+    fn mine_adjacency_is_independent_of_lane_order_in_each_layout() {
+        for id in [
+            "dance-single",
+            "dance-solo",
+            "dance-double",
+            "pump-single",
+            "danoni-9B",
+        ] {
+            let layout = Layout::builtin(id).unwrap();
+            let notes: Vec<_> = layout
+                .lanes
+                .iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    let mut note = danoni_note(i, i as u8, 2.0, SpriteKind::Mine);
+                    note.beat = 8.0;
+                    note
+                })
+                .collect();
+            for reverse in [false, true] {
+                let geo =
+                    FieldGeometry::new(1200.0, 800.0, crate::scene::field_span(&layout), reverse);
+                let nodes: Vec<_> = notes
+                    .iter()
+                    .zip(&layout.lanes)
+                    .map(|(note, l)| MineEndpoint {
+                        note,
+                        at: [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)],
+                    })
+                    .collect();
+                let mut row_counts = std::collections::HashMap::new();
+                for node in &nodes {
+                    *row_counts.entry(node.at[1].to_bits()).or_insert(0usize) += 1;
+                }
+                let expected: usize = row_counts.values().map(|n| n.saturating_sub(1)).sum();
+                let links = aligned_mines(nodes.clone(), geo.arrow * 0.125, geo.arrow);
+                assert_eq!(links.len(), expected, "{id} reverse={reverse}");
+                let mut reordered = nodes.clone();
+                reordered.reverse();
+                let shuffled = aligned_mines(reordered, geo.arrow * 0.125, geo.arrow);
+                let ids = |links: Vec<[MineEndpoint<'_>; 2]>| {
+                    links
+                        .iter()
+                        .map(|[a, b]| (a.note.lane, b.note.lane))
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(ids(links.clone()), ids(shuffled));
+                for [a, b] in links {
+                    assert!(a.at[0] < b.at[0]);
+                    assert_eq!(a.at[1], b.at[1]);
+                    assert!(
+                        !nodes
+                            .iter()
+                            .any(|n| n.at[1] == a.at[1] && n.at[0] > a.at[0] && n.at[0] < b.at[0]),
+                        "only physical neighbours connect"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mine_links_stop_at_empty_lanes() {
+        let mut notes: Vec<_> = (0..4)
+            .map(|lane| danoni_note(lane, lane as u8, 2.0, SpriteKind::Mine))
+            .collect();
+        for note in &mut notes {
+            note.beat = 4.0;
+        }
+        let nodes: Vec<_> = notes
+            .iter()
+            .enumerate()
+            .map(|(i, note)| MineEndpoint {
+                note,
+                at: [i as f32 * 64.0, 100.0],
+            })
+            .collect();
+        assert_eq!(aligned_mines(nodes.clone(), 8.0, 64.0).len(), 3);
+        let separated = vec![nodes[0], nodes[2], nodes[3]];
+        let links = aligned_mines(separated, 8.0, 64.0);
+        assert_eq!(links.len(), 1);
+        assert_eq!((links[0][0].note.lane, links[0][1].note.lane), (2, 3));
+        assert!(aligned_mines(vec![nodes[0], nodes[3]], 8.0, 64.0).is_empty());
+    }
+
+    #[test]
+    fn layered_mines_connect_drawn_neighbours_and_keep_complete_isolated_effects() {
+        let mut layout = Layout::dance_single();
+        for (lane, column) in layout.lanes.iter_mut().zip([3.0, 0.0, 2.0, 1.0]) {
+            lane.column = column;
+        }
+        let mine = r#"return Def.ActorFrame {
+            Def.Sprite { Name='Base', Texture='x.png' },
+            Def.Sprite { Name='LocalElectricity', Texture='x.png' },
+            Def.Sprite { Name='MineLink', Texture='x.png' },
+        }"#;
+        let mut play = lua_play_on(
+            &layout,
+            "return Def.Sprite {Texture='x.png'}",
+            &[
+                ("Left Tap Mine.lua", mine),
+                ("Down Tap Mine.lua", mine),
+                ("Up Tap Mine.lua", mine),
+                ("Right Tap Mine.lua", mine),
+            ],
+        );
+        for i in 0..play.texture_keys().len() {
+            play.set_texture(i, i as u32);
+        }
+        for lane in &mut play.lanes {
+            lane.metrics.mine_connect_rows = true;
+        }
+        for reverse in [false, true] {
+            let geo = FieldGeometry::new(800.0, 800.0, 4.0, reverse);
+            let mut f = frame(0.1, None);
+            f.notes = (0..3)
+                .map(|lane| danoni_note(lane, lane as u8, 2.0, SpriteKind::Mine))
+                .collect();
+            for note in &mut f.notes {
+                note.beat = 4.0;
+            }
+            let mut out = Vec::new();
+            play.update(&f, [].iter(), reverse);
+            play.receptors(&f, &layout, &geo, &mut out);
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(
+                out.len(),
+                7,
+                "three bases + local effects, one adjacent bridge: {:?}; {:?}",
+                play.lanes
+                    .iter()
+                    .map(|l| (l.mine.is_skin(), has_mine_link(&l.mine)))
+                    .collect::<Vec<_>>(),
+                play.problems()
+            );
+            for (quad, (a, b)) in out[..1].iter().zip([(2.0, 3.0)]) {
+                let Shape::Quad { transform, .. } = quad.shape else {
+                    panic!("not a quad")
+                };
+                assert!((transform[4] - (geo.lane_x(a) + geo.lane_x(b)) * 0.5).abs() < 1e-4);
+                assert!((transform[0] - (geo.lane_x(b) - geo.lane_x(a))).abs() < 1e-4);
+                assert!(
+                    (transform[3].abs() - geo.arrow).abs() < 1e-4,
+                    "stretch length, preserve bolt thickness"
+                );
+            }
+            f.notes[2].alpha = 0.0;
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(
+                out.len(),
+                4,
+                "hidden mines add neither local art nor bridges across the empty lanes"
+            );
+            f.notes[2].alpha = 1.0;
+            f.notes[1].kind = SpriteKind::Shock;
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(
+                out.len(),
+                7,
+                "shock presentation shares the layered mine artwork"
+            );
+            // A different physical row must not connect even at the same beat.
+            f.notes[2].y = 3.0;
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(out.len(), 6);
+            // Equal screen positions on different chart rows must not connect.
+            f.notes[2].y = 2.0;
+            f.notes[0].beat = 5.0;
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(out.len(), 6);
+            f.notes.truncate(1);
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(
+                out.len(),
+                2,
+                "isolated mine keeps its base and full local electricity"
+            );
+            let Element::Actor(a) = &play.lanes[0].mine else {
+                panic!("missing mine")
+            };
+            assert!(
+                a.children().iter().all(|c| c.visible),
+                "temporary draw visibility must be restored"
+            );
+            play.lanes[0].metrics.mine_connect_rows = false;
+            out.clear();
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(out.len(), 3, "no extension behaviour without opt-in");
+            play.lanes[0].metrics.mine_connect_rows = true;
+        }
+    }
+
+    #[test]
+    fn roll_cues_follow_scaled_windows_in_seconds_without_changing_holds() {
+        use ddi_engine::rules::presets;
+        let skin = Skin::load(&[], "dance", "default").unwrap();
+        let mut metrics = NoteDisplay::read(&skin, "Down");
+        metrics.roll_animation_timing_window_ratio = 0.75;
+        metrics.animation_is_beat_based = true;
+        metrics.parts[Part::HoldBody as usize].animation_length = 4.0;
+        metrics.parts[Part::HoldBody as usize].animation_is_vivid = false;
+        let note = danoni_note(
+            0,
+            0,
+            0.0,
+            SpriteKind::RollHead {
+                tail_y: 2.0,
+                active: true,
+                dropped: false,
+            },
+        );
+        for (mut rules, expected_period) in [
+            (presets::itg(), 0.2625),
+            (presets::sm5(), 0.375),
+            (presets::ddr_a(), 0.1875),
+        ] {
+            // Include non-default timing scale/add, which judging applies to rolls.
+            rules.judge.scale = 0.8;
+            rules.judge.add = 0.01;
+            let period = expected_period * 0.8 + 0.0075;
+            for cycles in [0.125, 0.375, 0.625, 0.875, 3.375] {
+                let mut f = frame(cycles * period, None);
+                f.roll_window_seconds = rules.judge.roll_window_seconds();
+                // Including a frozen beat (a stop): only elapsed seconds count.
+                for beat in [0.0, 1.0, 15.25, 700.0] {
+                    f.beat = beat;
+                    let phase = long_note_animation_percent(
+                        &metrics,
+                        metrics.part(Part::HoldBody),
+                        &note,
+                        &f,
+                    );
+                    assert!((f64::from(phase) - cycles.fract()).abs() < 1e-5);
+                }
+            }
+        }
+        let mut f = frame(0.1, None);
+        f.beat = 1.0;
+        let mut hold = note.clone();
+        hold.kind = SpriteKind::HoldHead {
+            tail_y: 2.0,
+            active: true,
+            dropped: false,
+        };
+        assert_eq!(
+            long_note_animation_percent(&metrics, metrics.part(Part::HoldBody), &hold, &f),
+            0.25
+        );
+        metrics.roll_animation_timing_window_ratio = 0.0;
+        assert_eq!(
+            long_note_animation_percent(&metrics, metrics.part(Part::HoldBody), &note, &f),
+            0.25
+        );
+        metrics.roll_animation_timing_window_ratio = 0.75;
+        f.roll_window_seconds = 0.0;
+        assert_eq!(
+            long_note_animation_percent(&metrics, metrics.part(Part::HoldBody), &note, &f),
+            0.25
+        );
     }
 
     #[test]

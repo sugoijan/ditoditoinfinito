@@ -198,6 +198,9 @@ pub struct NoteSprite {
 pub struct Frame {
     pub song_time: f64,
     pub beat: f64,
+    /// Active ruleset's scaled roll grace period, in song seconds, as judging uses it.
+    /// Presentation only: noteskins may use it to cue repeated roll taps.
+    pub roll_window_seconds: f64,
     pub lanes: u8,
     /// `len() == lanes`.
     pub receptors: Vec<ReceptorState>,

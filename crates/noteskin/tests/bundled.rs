@@ -309,7 +309,7 @@ fn bundled_skins_build_every_element_through_their_lua() {
     assert!(!folders.is_empty());
     for f in folders.iter().filter(|f| f.game == "dance") {
         let skin = Skin::load(&folders, &f.game, &f.name).unwrap();
-        // The onigiri: Dito's own, the CF skins' centre, the others' Down.
+        // The onigiri: Dito's own, CF/Peters' center, the others' Down.
         let seven = ddi_chart::Layout::builtin("danoni-7").unwrap();
         let onigiri = seven
             .lanes
@@ -320,17 +320,20 @@ fn bundled_skins_build_every_element_through_their_lua() {
             .button;
         let expected = if f.name.starts_with("Dito") || f.name == "DanOni" {
             Button::Onigiri
-        } else if f.name.starts_with("CF_") {
+        } else if f.name.starts_with("CF_") || f.name.starts_with("Peters-DDR") {
             Button::Center
         } else {
             Button::Down
         };
         assert_eq!(onigiri, expected, "{}", f.name);
-        // A pump pad's centre: Dito's and the CF skins' own, the others'
+        // A pump pad's centre: Dito's, CF's and Peters' own, the others'
         // Down.
         let centre = ddi_chart::Layout::pump_single().lanes[2].clone();
         let centre = skin.lane_button(&centre).unwrap().button;
-        let expected = if f.name.starts_with("Dito") || f.name.starts_with("CF_") {
+        let expected = if f.name.starts_with("Dito")
+            || f.name.starts_with("CF_")
+            || f.name.starts_with("Peters-DDR")
+        {
             Button::Center
         } else {
             Button::Down
@@ -501,6 +504,132 @@ fn ditos_parameters_pick_its_colors_skin_and_its_explosions() {
     };
     assert!(explosion(true) > 0);
     assert_eq!(explosion(false), 0);
+}
+
+#[test]
+fn peters_center_loads_approved_raster_art_and_charge_animation() {
+    let folders = bundled();
+    for name in ["Peters-DDR", "Peters-DDR-Vivid", "Peters-DDR-Note"] {
+        let skin = Skin::load(&folders, "dance", name).unwrap();
+        for id in ["danoni-5", "danoni-7", "pump-single"] {
+            let layout = ddi_chart::Layout::builtin(id).unwrap();
+            let lane = layout
+                .lanes
+                .iter()
+                .find(|l| {
+                    matches!(
+                        l.glyph,
+                        ddi_chart::Glyph::Center | ddi_chart::Glyph::Onigiri
+                    )
+                })
+                .unwrap();
+            assert_eq!(skin.lane_button(lane).unwrap().button, Button::Center);
+        }
+        let mut lua = LuaSkin::new(
+            skin.into_owned(),
+            Env::default(),
+            ddi_lua::Settings::default(),
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap();
+        let mut textures = Textures::default();
+        for part in ENGINE_ELEMENTS {
+            let element = lua
+                .element(Button::Center, part, &mut textures, &AnySize)
+                .unwrap();
+            assert!(
+                element.notes.is_empty(),
+                "{name} {part}: {:?}",
+                element.notes
+            );
+            if matches!(*part, "Tap Note" | "Tap Fake" | "Tap Lift") {
+                let Built::Actor(a) = element.built else {
+                    panic!("{name} {part}")
+                };
+                let ddi_actor::Kind::Sprite(center) = a.kind else {
+                    panic!("{name} {part} must use the approved raster center")
+                };
+                assert_eq!(center.frame_size, [64.0, 64.0]);
+                assert_eq!(
+                    center.frames.len(),
+                    if name == "Peters-DDR-Vivid" { 32 } else { 64 }
+                );
+                assert_eq!(
+                    center.states.len(),
+                    if name == "Peters-DDR-Vivid" { 32 } else { 4 }
+                );
+                assert!(textures.keys().iter().any(|key| matches!(key,
+                    ddi_noteskin::build::TextureKey::Skin { path, .. }
+                        if path.starts_with(if name == "Peters-DDR-Vivid" {
+                            "_center vivid tap"
+                        } else {
+                            "_center raster tap"
+                        })
+                )));
+            }
+        }
+        assert!(lua.warnings().is_empty(), "{name}: {:?}", lua.warnings());
+    }
+}
+
+#[test]
+fn peters_bundled_extensions_load_for_every_mine_and_long_note_direction() {
+    use ddi_noteskin::metrics::NoteDisplay;
+    let folders = bundled();
+    for name in ["Peters-DDR", "Peters-DDR-Vivid", "Peters-DDR-Note"] {
+        let skin = Skin::load(&folders, "dance", name).unwrap();
+        assert!(NoteDisplay::read(&skin, "Center").mine_connect_rows);
+        assert_eq!(
+            NoteDisplay::read(&skin, "Down").roll_animation_timing_window_ratio,
+            0.75
+        );
+        let mut lua = LuaSkin::new(
+            skin.into_owned(),
+            Env::default(),
+            ddi_lua::Settings::default(),
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap();
+        let mut textures = Textures::default();
+        for button in Button::ALL.into_iter().chain([
+            Button::DownLeft,
+            Button::DownRight,
+            Button::Center,
+            Button::Onigiri,
+        ]) {
+            for part in [
+                "Tap Mine",
+                "Hold Head Active",
+                "Hold Body Active",
+                "Hold Bottomcap Active",
+                "Roll Head Active",
+                "Roll Body Active",
+                "Roll Bottomcap Active",
+            ] {
+                let element = lua.element(button, part, &mut textures, &AnySize).unwrap();
+                assert!(
+                    element.notes.is_empty(),
+                    "{name} {button:?} {part}: {:?}",
+                    element.notes
+                );
+                let Built::Actor(actor) = element.built else {
+                    panic!("{name} {button:?} {part}")
+                };
+                if part == "Tap Mine" {
+                    let children: Vec<_> =
+                        actor.children().iter().map(|a| a.name.as_str()).collect();
+                    assert_eq!(
+                        children,
+                        ["MineCore", "LocalElectricity", "MineLink"],
+                        "{name} {button:?}"
+                    );
+                }
+            }
+        }
+        assert!(lua.warnings().is_empty(), "{name}: {:?}", lua.warnings());
+    }
 }
 
 #[test]

@@ -6,6 +6,9 @@ variant_of = "Peters-DDR"
 modifications = [
     "LICENSE and README.md copied from the repository's root",
     "Changed metrics.ini fallback to Peters-DDR, which supplies the shared parameters and original Note assets",
+    "Added raster center tap/lift sheet using the original Vivid colors and inner-to-outer charge, assembled in SkinCraft",
+    "Added center sprite routing and animation metrics; shared holds, rolls, receptors and layered mines come from Peters-DDR",
+    "Retained the unused earlier center model study alongside the original models",
 ]
 
 [source]
@@ -20,6 +23,11 @@ spdx = "Unlicense"
 holders = ["Peter Lawrence"]
 
 [[licenses]]
-part = "fallback change in metrics.ini"
+part = "fallback and animation metrics additions, center sprite Lua and earlier square model geometry"
+spdx = "MIT"
+holders = ["すごいジャン"]
+
+[[licenses]]
+part = "new raster center Vivid composition (original pixels retain the Unlicense above)"
 spdx = "MIT"
 holders = ["すごいジャン"]

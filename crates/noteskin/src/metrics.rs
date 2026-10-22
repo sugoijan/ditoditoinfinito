@@ -101,6 +101,11 @@ pub struct PartMetrics {
 pub struct NoteDisplay {
     pub parts: [PartMetrics; 9],
     pub animation_is_beat_based: bool,
+    /// Opt-in roll body/cap cycle as a fraction of the active roll timing window.
+    /// Zero disables it; valid fractions are greater than zero and at most one.
+    pub roll_animation_timing_window_ratio: f32,
+    /// Reserve a mine actor's direct `MineLink` child for position-based row links.
+    pub mine_connect_rows: bool,
     pub draw_hold_head_for_taps_on_same_row: bool,
     pub draw_roll_head_for_taps_on_same_row: bool,
     pub tap_hold_roll_on_row_means_hold: bool,
@@ -157,7 +162,16 @@ impl NoteDisplay {
         NoteDisplay {
             parts: Part::ALL.map(part),
             animation_is_beat_based: b("AnimationIsBeatBased"),
+            roll_animation_timing_window_ratio: {
+                let ratio = f("RollAnimationTimingWindowRatio");
+                if ratio.is_finite() && ratio > 0.0 && ratio <= 1.0 {
+                    ratio
+                } else {
+                    0.0
+                }
+            },
             draw_hold_head_for_taps_on_same_row: b("DrawHoldHeadForTapsOnSameRow"),
+            mine_connect_rows: b("MineConnectRows"),
             draw_roll_head_for_taps_on_same_row: b("DrawRollHeadForTapsOnSameRow"),
             tap_hold_roll_on_row_means_hold: b("TapHoldRollOnRowMeansHold"),
             start_drawing_hold_body_offset_from_head: i("StartDrawingHoldBodyOffsetFromHead"),
@@ -211,6 +225,8 @@ impl NoteDisplay {
         NoteDisplay {
             parts: Part::ALL.map(part),
             animation_is_beat_based: true,
+            roll_animation_timing_window_ratio: 0.0,
+            mine_connect_rows: false,
             draw_hold_head_for_taps_on_same_row: hold_head,
             draw_roll_head_for_taps_on_same_row: hold_head,
             tap_hold_roll_on_row_means_hold: false,
@@ -233,6 +249,44 @@ impl NoteDisplay {
 mod tests {
     use super::*;
     use crate::skin::tests::folder;
+
+    #[test]
+    fn mine_connections_are_opt_in_and_button_specific() {
+        let folders = [folder(
+            "dance",
+            "s",
+            &[(
+                "metrics.ini",
+                "[Global]\nFallbackNoteSkin=default\n[Left]\nMineConnectRows=1\n",
+            )],
+        )];
+        let skin = Skin::load(&folders, "dance", "s").unwrap();
+        assert!(!NoteDisplay::read(&skin, "Down").mine_connect_rows);
+        assert!(NoteDisplay::read(&skin, "Left").mine_connect_rows);
+    }
+
+    #[test]
+    fn roll_window_animation_is_opt_in_and_rejects_unsafe_ratios() {
+        for (value, expected) in [
+            ("", 0.0),
+            ("0.75", 0.75),
+            ("1", 1.0),
+            ("-1", 0.0),
+            ("1.1", 0.0),
+            ("NaN", 0.0),
+            ("inf", 0.0),
+        ] {
+            let text = format!(
+                "[Global]\nFallbackNoteSkin=default\n[NoteDisplay]\nRollAnimationTimingWindowRatio={value}\n"
+            );
+            let folders = [folder("dance", "s", &[("metrics.ini", &text)])];
+            let skin = Skin::load(&folders, "dance", "s").unwrap();
+            assert_eq!(
+                NoteDisplay::read(&skin, "Down").roll_animation_timing_window_ratio,
+                expected
+            );
+        }
+    }
 
     #[test]
     fn defaults_come_from_the_fallbacks_and_buttons_override() {

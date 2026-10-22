@@ -1,0 +1,54 @@
+{
+  "DownLeft": {
+    "unfilled_head_gap_pixels": 0,
+    "cap_color_rgb": [
+      232,
+      246,
+      80
+    ],
+    "cap_opaque_end_source_px": 482
+  },
+  "DownRight": {
+    "unfilled_head_gap_pixels": 0,
+    "cap_color_rgb": [
+      232,
+      246,
+      80
+    ],
+    "cap_opaque_end_source_px": 482
+  },
+  "UpLeft": {
+    "unfilled_head_gap_pixels": 0,
+    "cap_color_rgb": [
+      232,
+      246,
+      80
+    ],
+    "cap_opaque_end_source_px": 482
+  },
+  "UpRight": {
+    "unfilled_head_gap_pixels": 0,
+    "cap_color_rgb": [
+      232,
+      246,
+      80
+    ],
+    "cap_opaque_end_source_px": 482
+  },
+  "DownReference": {
+    "cap_color_rgb": [
+      232,
+      246,
+      80
+    ],
+    "cap_opaque_end_source_px": 482
+  },
+  "Center": {
+    "cap_color_rgb": [
+      232,
+      246,
+      80
+    ],
+    "cap_opaque_end_source_px": 482
+  }
+}

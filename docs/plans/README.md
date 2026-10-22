@@ -20,7 +20,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   the sandboxed VM.
 - [Bundled noteskins](bundled-skins.md) (2026-10-12): done, with Peter
   Lawrence's skins (2026-10-12/13) and `DanOni` (2026-10-20) added since;
-  Peters-DDR Note/Vivid combined with color and explosion options (2026-10-22).
+  Peters-DDR Note/Vivid combined with color and explosion options, and a
+  raster center, derived holds/rolls and layered mines added (2026-10-22).
   Freely licensed skins shipped with the game; Dito, the built-in arrows
   as a Lua skin, is the default.
 - [3D models](models.md) (2026-10-12): done 2026-10-13. Later: a depth

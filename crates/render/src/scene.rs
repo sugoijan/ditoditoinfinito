@@ -1300,6 +1300,7 @@ mod tests {
     fn frame(notes: Vec<NoteSprite>, appearance: Appearance) -> Frame {
         Frame {
             song_time: 0.0,
+            roll_window_seconds: 0.0,
             beat: 0.0,
             lanes: 4,
             receptors: vec![

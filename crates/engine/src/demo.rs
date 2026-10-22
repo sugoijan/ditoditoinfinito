@@ -22,8 +22,10 @@ use crate::scroll::{ScrollOptions, SpeedMod};
 
 /// Beats before the first note.
 const LEAD_IN: i64 = 4;
-/// Beats of the phrase.
-const PHRASE: i64 = 8;
+/// Wider layouts leave room to inspect the caps between long-note groups.
+fn phrase_beats(lanes: usize) -> i64 {
+    if lanes == 4 { 8 } else { 20 }
+}
 /// Times the phrase plays before the demo starts again.
 const REPEATS: i64 = 4;
 /// Beats after the last phrase.
@@ -60,9 +62,9 @@ enum Kind {
     Mine,
 }
 
-/// The phrase on `lanes` lanes other than four: eighth notes across the
-/// lanes, a hold on the first and a roll on the last, a mine in the middle
-/// one, sixteenths back across.
+/// The phrase on layouts other than four lanes: taps across the lanes,
+/// followed by holds and rolls in every lane so authoring previews expose
+/// each lane's long-note artwork, including center and onigiri lanes.
 fn phrase(lanes: u8) -> Vec<(i64, u8, Kind)> {
     if lanes == 4 {
         return PHRASE_NOTES.to_vec();
@@ -71,18 +73,12 @@ fn phrase(lanes: u8) -> Vec<(i64, u8, Kind)> {
         .map(|l| (i64::from(l) * 24, l, Kind::Tap))
         .filter(|n| n.0 < 192)
         .collect();
-    out.push((192, 0, Kind::Hold(72)));
-    if lanes > 1 {
-        out.push((192, lanes - 1, Kind::Roll(72)));
-    }
-    if lanes > 2 {
-        out.push((240, lanes / 2, Kind::Mine));
-    }
-    out.extend(
-        (0..lanes)
-            .map(|i| (288 + i64::from(i) * 12, lanes - 1 - i, Kind::Tap))
-            .filter(|n| n.0 < 372),
-    );
+    out.extend((0..lanes).map(|lane| (192, lane, Kind::Hold(72))));
+    out.extend((0..lanes).map(|lane| (384, lane, Kind::Roll(48))));
+    // Isolated, spaced pair, and full-row mines after the long-note studies.
+    out.push((576, lanes / 2, Kind::Mine));
+    out.extend([0, lanes - 1].map(|lane| (672, lane, Kind::Mine)));
+    out.extend((0..lanes).map(|lane| (768, lane, Kind::Mine)));
     out
 }
 
@@ -93,7 +89,7 @@ pub fn song(layout: &str, bpm: f64) -> Option<Song> {
     let phrase = phrase(lanes);
     let mut notes = Vec::new();
     for r in 0..REPEATS {
-        let base = (LEAD_IN + r * PHRASE) * 48;
+        let base = (LEAD_IN + r * phrase_beats(usize::from(lanes))) * 48;
         for &(at, lane, kind) in &phrase {
             let tick = Tick(base + at);
             let kind = match kind {
@@ -232,7 +228,10 @@ impl Demo {
     ) -> Option<Demo> {
         let rules = rules.clone();
         let song = song(layout, bpm)?;
-        let length = (LEAD_IN + REPEATS * PHRASE + TAIL) as f64 * 60.0 / bpm;
+        let length =
+            (LEAD_IN + REPEATS * phrase_beats(Layout::builtin(layout)?.lane_count()) + TAIL) as f64
+                * 60.0
+                / bpm;
         let (player, script) = Self::start(&song, options, &rules);
         Some(Demo {
             song,
@@ -416,6 +415,40 @@ mod tests {
     use crate::rules::Judgement;
 
     #[test]
+    fn wider_previews_show_holds_and_rolls_in_every_lane() {
+        for layout in ["pump-single", "danoni-5", "danoni-9B"] {
+            let song = song(layout, 120.0).unwrap();
+            let lanes = Layout::builtin(layout).unwrap().lane_count();
+            for lane in 0..lanes as u8 {
+                let notes = &song.charts[0].notes;
+                assert!(
+                    notes
+                        .iter()
+                        .any(|n| n.lane == lane && matches!(n.kind, NoteKind::HoldHead { .. }))
+                );
+                assert!(
+                    notes
+                        .iter()
+                        .any(|n| n.lane == lane && matches!(n.kind, NoteKind::RollHead { .. }))
+                );
+                for hold in notes.iter().filter(|n| n.lane == lane) {
+                    if let NoteKind::HoldHead { end } = hold.kind {
+                        let roll = notes
+                            .iter()
+                            .find(|n| {
+                                n.lane == lane
+                                    && n.tick > end
+                                    && matches!(n.kind, NoteKind::RollHead { .. })
+                            })
+                            .unwrap();
+                        assert!(roll.tick.0 - end.0 >= 120, "{layout}: hold cap clearance");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_demo_shows_every_kind_of_note_and_loops() {
         let mut demo = Demo::new("dance-single", 120.0, 1.5).unwrap();
         let (mut held, mut mines, mut kinds) = (0, 0, Vec::new());
@@ -504,10 +537,13 @@ mod tests {
                 }
             }
             assert!(seen.iter().all(|s| *s), "{id}: {seen:?}");
-            // A hold and a roll each phrase, every other one let go; a
-            // mine where there are three lanes or more.
-            assert_eq!(held, REPEATS, "{id}");
-            assert_eq!(mines, if lanes > 2 { REPEATS } else { 0 }, "{id}");
+            // Wider phrases also show an isolated mine, a pair and a full row.
+            assert!(held >= REPEATS, "{id}: {held}");
+            assert_eq!(
+                mines,
+                REPEATS * if lanes == 4 { 1 } else { lanes as i64 + 3 },
+                "{id}"
+            );
         }
         assert!(Demo::new("pump-couple", 120.0, 1.0).is_none());
     }

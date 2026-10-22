@@ -110,7 +110,36 @@ SPDX-License-Identifier = "Unlicense"
 
 # Original metrics/Lua with our parameter and fallback additions.
 [[annotations]]
-path = ["assets/noteskins/dance/Peters-DDR/metrics.ini", "assets/noteskins/dance/Peters-DDR/Fallback Explosion.lua", "assets/noteskins/dance/Peters-DDR-Vivid/metrics.ini"]
+path = ["assets/noteskins/dance/Peters-DDR/metrics.ini", "assets/noteskins/dance/Peters-DDR/NoteSkin.lua", "assets/noteskins/dance/Peters-DDR/Fallback Explosion.lua", "assets/noteskins/dance/Peters-DDR-Vivid/metrics.ini"]
+SPDX-FileCopyrightText = ["Peter Lawrence", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "Unlicense AND MIT"
+
+# New center Lua and supporting SVG shapes.
+[[annotations]]
+path = ["assets/noteskins/dance/Peters-DDR/Center*.lua", "assets/noteskins/dance/Peters-DDR/_center*.svg"]
+SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
+SPDX-License-Identifier = "MIT"
+
+# Native SkinCraft raster extension and its element scripts.
+[[annotations]]
+path = ["assets/noteskins/dance/Peters-DDR/_center*.png", "assets/noteskins/dance/Peters-DDR/_derived*.png", "assets/noteskins/dance/Peters-DDR/_roll*.png", "assets/noteskins/dance/Peters-DDR/_mine*.png", "assets/noteskins/dance/Peters-DDR/Center Hold*.png", "assets/noteskins/dance/Peters-DDR/UpLeft Hold*.png", "assets/noteskins/dance/Peters-DDR/UpRight Hold*.png", "assets/noteskins/dance/Peters-DDR/DownLeft Hold*.png", "assets/noteskins/dance/Peters-DDR/DownRight Hold*.png", "assets/noteskins/dance/Peters-DDR-Vivid/_center*.png"]
+SPDX-FileCopyrightText = ["Peter Lawrence", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "Unlicense AND MIT"
+
+[[annotations]]
+path = ["assets/noteskins/dance/Peters-DDR/* Tap Mine.lua", "assets/noteskins/dance/Peters-DDR/* Roll*.lua", "assets/noteskins/dance/Peters-DDR/UpLeft Hold*.lua", "assets/noteskins/dance/Peters-DDR/UpRight Hold*.lua", "assets/noteskins/dance/Peters-DDR/DownLeft Hold*.lua", "assets/noteskins/dance/Peters-DDR/DownRight Hold*.lua", "assets/noteskins/dance/Peters-DDR-Vivid/Center*.lua"]
+SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
+SPDX-License-Identifier = "MIT"
+
+# Square geometry with original Peters-DDR material data.
+[[annotations]]
+path = ["assets/noteskins/dance/Peters-DDR/_center*.txt", "assets/noteskins/dance/Peters-DDR-Vivid/_center*.txt"]
+SPDX-FileCopyrightText = ["Peter Lawrence", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "Unlicense AND MIT"
+
+# Raster study assembled from Peters-DDR textures in SkinCraft.
+[[annotations]]
+path = ["tools/noteskin-peters/design/*.png", "tools/noteskin-peters/design/*.pcraft", "tools/noteskin-peters/design/v2/*.png", "tools/noteskin-peters/design/v2/*.pcraft", "tools/noteskin-peters/design/derived/*.png", "tools/noteskin-peters/design/derived/*.pcraft", "tools/noteskin-peters/design/stacking/*.png", "tools/noteskin-peters/design/stacking/*.pcraft", "tools/noteskin-peters/design/joins/*.png", "tools/noteskin-peters/design/joins/*.pcraft", "tools/noteskin-peters/design/outline-joins/*.png", "tools/noteskin-peters/design/outline-joins/*.pcraft", "tools/noteskin-peters/design/roll-bars/*.png", "tools/noteskin-peters/design/roll-bars/*.pcraft", "tools/noteskin-peters/design/roll-bars/preview-4x/*.png", "tools/noteskin-peters/design/roll-bars/caps-clean/*.png", "tools/noteskin-peters/design/roll-bars/caps-clean/*.pcraft", "tools/noteskin-peters/design/roll-bars/caps-clean/preview-4x/*.png", "tools/noteskin-peters/design/roll-bars/charged-heads/*.png", "tools/noteskin-peters/design/roll-bars/charged-heads/*.pcraft", "tools/noteskin-peters/design/roll-bars/charged-heads/preview-4x/*.png", "tools/noteskin-peters/design/mines-layered/*.png", "tools/noteskin-peters/design/mines-layered/*.pcraft", "tools/noteskin-peters/design/mines-layered/preview-2x/*.png", "tools/noteskin-peters/design/mines-layered/refined/*.pcraft", "tools/noteskin-peters/design/mines-layered/refined/*.png", "tools/noteskin-peters/design/mines-layered/refined/preview-2x/*.png"]
 SPDX-FileCopyrightText = ["Peter Lawrence", "すごいジャン <me@sugoijan.dev>"]
 SPDX-License-Identifier = "Unlicense AND MIT"
 

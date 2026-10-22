@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<title>Peters-DDR square roll inactive</title>
+<defs>
+<path id="ring" d="M14 7H50L57 14V50L50 57H14L7 50V14Z M19 18L18 19V45L19 46H45L46 45V19L45 18Z" fill-rule="evenodd"/>
+<path id="outline" d="M14 7H50L57 14V50L50 57H14L7 50V14Z" fill="none" stroke="#080c12" stroke-width="2"/>
+<path id="lip" d="M19 16H45L48 19V45L45 48H19L16 45V19Z" fill="none" stroke="#edf7ff" stroke-width="1"/>
+<linearGradient id="c0_0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#40bd30"/><stop offset="0.46" stop-color="#ffffff"/><stop offset="0.58" stop-color="#a4cb3f"/><stop offset="1" stop-color="#a4cb3f"/></linearGradient>
+</defs>
+<g transform="translate(0 0)"><use href="#ring" fill="url(#c0_0)"/><use href="#outline"/><use href="#lip"/></g>
+</svg>

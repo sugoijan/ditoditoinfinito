@@ -679,6 +679,7 @@ fn still_frame(o: &PreviewOptions, layout: &Layout, beat: f64) -> Frame {
         .collect();
     Frame {
         song_time: beat * 60.0 / o.bpm,
+        roll_window_seconds: 0.0,
         beat,
         lanes: count as u8,
         receptors: vec![

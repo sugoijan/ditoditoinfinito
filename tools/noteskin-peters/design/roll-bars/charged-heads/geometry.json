@@ -1,0 +1,83 @@
+{
+  "Down": {
+    "charge_region_areas": [
+      6088,
+      5300,
+      22464
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "Left": {
+    "charge_region_areas": [
+      6088,
+      5300,
+      22464
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "Up": {
+    "charge_region_areas": [
+      6088,
+      5300,
+      22464
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "Right": {
+    "charge_region_areas": [
+      6088,
+      5300,
+      22464
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "Center": {
+    "charge_region_areas": [
+      1404,
+      11288,
+      50792
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "DownLeft": {
+    "charge_region_areas": [
+      5945,
+      5139,
+      21579
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "DownRight": {
+    "charge_region_areas": [
+      5945,
+      5139,
+      21579
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "UpLeft": {
+    "charge_region_areas": [
+      5945,
+      5139,
+      21579
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  },
+  "UpRight": {
+    "charge_region_areas": [
+      5945,
+      5139,
+      21579
+    ],
+    "head_charge_beats": 1,
+    "stages": 4
+  }
+}

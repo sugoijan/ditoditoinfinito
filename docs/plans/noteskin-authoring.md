@@ -13,3 +13,57 @@ beside the executable, so a Git build needs no sibling game checkout.
 
 When changing a shared host API, test SkinCraft with local patches before
 pushing DDI, then update SkinCraft's DDI revision and test without patches.
+
+The shared demo exercises holds and rolls in every lane on layouts other
+than four lanes, including center/onigiri, so authoring can inspect long-note
+artwork alongside the arrows. The four-lane demonstration keeps its original
+phrase.
+
+## Roll tap cues from judging (2026-10-22)
+
+A modern skin may set `[NoteDisplay] RollAnimationTimingWindowRatio=0.75`.
+This opt-in runs a roll’s body, top-cap and bottom-cap sprite cycle once per
+75% of the active ruleset’s **scaled roll window**, in song seconds. All
+lanes and those parts share the same phase. The play snapshot carries the
+window directly from `JudgeTable::roll_window_seconds()`, so play and
+SkinCraft’s actual demo follow the same rule, including timing scale/add.
+BPM changes and stops do not change the cadence. The ratio leaves time
+between the suggested tap and the actual drop deadline; it is a visual cue,
+not an input requirement and does not alter judging.
+
+The metric accepts finite fractions `(0, 1]`; missing or invalid values keep
+the existing hold-part animation metrics. Holds, heads, taps and legacy
+skins retain their current animation. A synthetic snapshot with no positive
+roll window also keeps the existing animation. No Lua update callback is
+needed. The Peters raster roll study sets the ratio to `0.75`: ITG cycles in
+262.5 ms, SM5 in 375 ms, DDR A in 187.5 ms at their default timing settings.
+
+## Layered mine electricity (2026-10-22)
+
+`[NoteDisplay] MineConnectRows=1` opts a modern skin into position-based
+mine links. `Tap Mine.lua` remains an ActorFrame containing the normal
+mine core and its complete local effect. A direct child named `MineLink`
+is reserved for connections and omitted from the individual mine drawing.
+Without the metric, names have no special meaning. The root should have
+neutral base orientation/scale; pre-rotate the core's own child as needed.
+
+The link is authored horizontally across 64 logical pixels, centered on
+the actor origin. The renderer stretches its length between neighboring
+visible mines' drawn centers, preserving its perpendicular scale. It draws
+links behind the mine actors, then draws each mine's ordinary local layers.
+All children keep their normal actor animation clock; no per-frame Lua
+lookup of other notes is needed. Temporary visibility is restored after
+both passes, so commands and later frames keep their actor state.
+
+Neighbors are sorted by actual field x within the same chart beat and
+visible y row (tolerance: one eighth of a note). Lane names and chart lane
+indices do not determine adjacency. Connections span at most one lane width,
+so empty lanes break the electricity even when the remaining mines share a row.
+Hidden mines are excluded, different
+chart rows never connect, and a lone mine draws only its complete local
+effect. This is presentation only: mine hits, shocks and chart data are
+unchanged. Single, reordered, reversed and separated visible rows are
+covered by renderer tests.
+
+Wider demo phrases retain their taps/holds/rolls and add isolated, spaced
+pair and full-row mines afterward. The four-lane phrase is unchanged.

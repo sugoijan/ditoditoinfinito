@@ -89,6 +89,7 @@ fn hud_and_menu_colors_draw_as_written() {
     ] {
         let frame = Frame {
             song_time: 0.0,
+            roll_window_seconds: 0.0,
             beat: 0.0,
             lanes: 4,
             receptors: vec![

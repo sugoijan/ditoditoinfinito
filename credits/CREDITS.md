@@ -136,16 +136,18 @@ Source: [https://github.com/stepmania/stepmania](https://github.com/stepmania/st
 Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/Pete-Lawrence/Peters-Noteskins) at commit `6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6`, folder `SM5/Completed/Peters-DDR-Note` (retrieved 2026-10-13).
 
 - **the skin (models, images, Lua, metrics, notes, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
-- **parameter declarations and explosion toggle additions**: すごいジャン — [MIT](https://opensource.org/license/mit)
-- Modifications: LICENSE and README.md copied from the repository's root; Renamed Peters-DDR-Note to Peters-DDR; retained the old name as a compatibility skin; Added Colors and Explosions parameters to metrics.ini; Added the Explosions parameter guard to Fallback Explosion.lua
+- **parameter declarations, explosion toggle, routing, new element Lua, original square geometry and SVG shapes**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- **new raster composition for center, derived holds, rolls and layered mines (original pixels retain the Unlicense above)**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Modifications: LICENSE and README.md copied from the repository's root; Renamed Peters-DDR-Note to Peters-DDR; retained the old name as a compatibility skin; Added Colors and Explosions parameters to metrics.ini; Added the Explosions parameter guard to Fallback Explosion.lua; Added raster center taps/lifts and matching receptor with inner-to-outer charge, derived from original arrow sections in SkinCraft; Added source-derived center and diagonal hold heads, repeating bodies and connected caps; Replaced rolls with blue-purple gradients, repeating gray bars and charged heads; flashing follows 75% of the active scaled roll timing window; Reconstructed metallic mine cores and layered original electricity, with complete isolated effects and adjacent-lane connections; Updated NoteSkin.lua routing and metrics for all extensions; original tap arrows and cardinal hold textures remain unchanged; Retained the earlier model/SVG center study as unused reference files; the approved raster extension is documented in tools/noteskin-peters
 
 ### Peters-DDR-Vivid — Peter Lawrence
 
 Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/Pete-Lawrence/Peters-Noteskins) at commit `6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6`, folder `SM5/Completed/Peters-DDR-Vivid` (retrieved 2026-10-13).
 
 - **the skin (model, textures, metrics, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
-- **fallback change in metrics.ini**: すごいジャン — [MIT](https://opensource.org/license/mit)
-- Modifications: LICENSE and README.md copied from the repository's root; Changed metrics.ini fallback to Peters-DDR, which supplies the shared parameters and original Note assets
+- **fallback and animation metrics additions, center sprite Lua and earlier square model geometry**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- **new raster center Vivid composition (original pixels retain the Unlicense above)**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Modifications: LICENSE and README.md copied from the repository's root; Changed metrics.ini fallback to Peters-DDR, which supplies the shared parameters and original Note assets; Added raster center tap/lift sheet using the original Vivid colors and inner-to-outer charge, assembled in SkinCraft; Added center sprite routing and animation metrics; shared holds, rolls, receptors and layered mines come from Peters-DDR; Retained the unused earlier center model study alongside the original models
 
 ## Fonts
 
