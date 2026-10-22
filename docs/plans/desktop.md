@@ -43,7 +43,9 @@ under it in section 7:
   held 120 Hz in the maintainer's follow-up run, with no inferred
   misses in late·2 and 4.20 ms mean frame start to estimated shown.
   The report now distinguishes target gaps from observed repeats.
-  Fullscreen and direct presentation measurements remain to be checked.
+  Fullscreen measured 2026-10-22 ("Frame pacing"): late pacing misses
+  there (late·2 44 acquire misses in 21 s, none windowed); what it
+  should do in fullscreen is left to decide.
 - OS video: checked 8-bit H.264, HEVC and VP9 subsets now use hardware
   VideoToolbox, with copied planes, exact seeks and the software decoder
   as fallback. MP4/Matroska/WebM packets come from the sandboxed helper's
@@ -101,7 +103,8 @@ under it in section 7:
    period 8.333 ms with a small spread, present cadence, inferred target
    gaps and collisions, acquire misses, and frame start → estimated shown.
    These are model estimates, not measured presentation latency or repeats.
-   The follow-up run below supports late·2; fullscreen remains unchecked.
+   The follow-up run below supports late·2 windowed; in fullscreen
+   (2026-10-22) late pacing misses.
    Expected from the simulation: block·2 smooth at a refresh more than
    late·2, late·2 with few repeats and lowest; block·1 and late·1 repeating as
    before if the compositor keeps drawables long.
@@ -699,6 +702,31 @@ late·2 as the default, without another margin change from this run.
 | Frame start → estimated shown mean / p95 (ms) | 11.43 / 16.64 | 19.71 / 24.98 | 4.35 / 5.31 | 4.20 / 5.07 |
 | Target gaps (then labelled estimated repeats) | 643 | 639 | 1 | 0 |
 | Acquire-inferred misses (late only) | — | — | 1 | 0 |
+
+**Windowed and fullscreen (2026-10-22).** The same play, once windowed
+and once in fullscreen, both perfect (276), CADisplayLink at 120.00 Hz
+with every frame on a locked grid. Windowed agrees with the run above.
+In fullscreen late pacing misses: late·1 falls to about 91 frames a
+second with 768 acquire misses, and late·2, the default, has 44 acquire
+misses and 85 target gaps in 21 s (2 windowed), its frame start →
+estimated shown 8.23 ms instead of 4.66. Block is unchanged by
+fullscreen. The likely cause is direct presentation: fullscreen hands
+the drawable to the display, which keeps it longer, so a frame started
+by the windowed margin waits in the acquire. Not changed yet: what late
+pacing should do there (a larger margin learned from acquire misses, or
+block in fullscreen) waits for a decision.
+
+| Figure | block·1 | block·2 | late·1 | late·2 |
+|---|---:|---:|---:|---:|
+| Windowed: frames (seconds) | 2943 (24.5) | 2858 (23.8) | 2509 (20.9) | 2516 (20.9) |
+| Windowed: present interval mean / sd / max (ms) | 8.33 / 1.11 / 13.33 | 8.34 / 1.31 / 33.70 | 8.36 / 0.83 / 15.17 | 8.34 / 0.79 / 12.50 |
+| Windowed: frame start → estimated shown mean / p95 (ms) | 12.36 / 16.64 | 20.84 / 24.98 | 4.48 / 5.05 | 4.66 / 6.40 |
+| Windowed: target gaps · acquire misses | 598 · — | 553 · — | 8 · 3 | 2 · 0 |
+| Fullscreen: frames (seconds) | 2892 (24.4) | 2853 (23.8) | 1906 (20.9) | 2435 (20.9) |
+| Fullscreen: present interval mean / sd / max (ms) | 8.47 / 1.17 / 25.02 | 8.37 / 2.94 / 35.83 | 11.00 / 2.49 / 18.50 | 8.62 / 1.79 / 20.82 |
+| Fullscreen: frame start → estimated shown mean / p95 (ms) | 12.24 / 16.64 | 20.96 / 25.46 | 7.97 / 13.64 | 8.23 / 10.43 |
+| Fullscreen: target gaps · acquire misses | 657 · — | 628 · — | 605 · 768 | 85 · 44 |
+| Fullscreen: time blocked in acquire | 80 % | 79 % | 18 % | 3 % |
 
 Late·2's wake lateness was 0.46 / 0.99 / 1.27 ms (median / p95 / max),
 its build 0.35 / 0.55 / 1.12 ms (mean / p95 / max); margin 4.00 ms.
