@@ -147,6 +147,13 @@ pub trait Screen {
         false
     }
 
+    /// When the screen next has something to do though nothing moves (a
+    /// deadline on [`Cx::time`]'s clock): the shell, idle, wakes for a
+    /// frame then ([`crate::Ui::wake_in`]) instead of drawing until it.
+    fn wake_at(&self) -> Option<f64> {
+        None
+    }
+
     /// Receives physical direction releases and cancellation on focus loss.
     fn direction_edges(&self) -> bool {
         false
@@ -299,7 +306,8 @@ impl Cx {
         &self.viewport
     }
 
-    /// Seconds of updates since the UI started.
+    /// Seconds since the UI started: its updates, and the shell's idle
+    /// waits it was told of ([`crate::Ui::idle_for`]).
     pub fn time(&self) -> f64 {
         self.time
     }

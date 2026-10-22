@@ -233,7 +233,8 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    question; the files it was imported from are never touched; any song
    downloads as `.ssc` (or `.sm`), a link clicked inside the press.
    The autosave (`ddi_ui::state::editor::autosave`): every 5 s while
-   there are unsaved changes the song as edited is kept (desktop:
+   there are unsaved changes the song as edited is kept (a wake-up at
+   that time, `Screen::wake_at`, with no frames drawn meanwhile; desktop:
    `editor-autosave.json` in the data folder; the web: `ddi.editor.v1`
    in local storage), forgotten by a save or by leaving; opening that
    song again recovers it, unsaved, and says so.

@@ -198,7 +198,11 @@ they were drawn at.
 - **P13. Render on demand.** rAF stops when nothing moves, but the pad
   poll keeps running while a pad is connected and wakes a frame on an
   edge; on desktop `ControlFlow::Wait`, with gilrs on a thread waking the
-  loop through an `EventLoopProxy`.
+  loop through an `EventLoopProxy`. A screen with something to do later
+  while nothing moves (the editor's autosave) gives a deadline
+  (`Screen::wake_at`) instead of frames until it: the idle shell sets a
+  timer (`Ui::idle_wake`; desktop's `WaitUntil`, a timeout on the web)
+  and the UI's clock moves on by the time idle, so the frame meets it.
 
 Left out for now (2026-10-15): portrait layouts (phones held upright),
 which StepMania themes never have either; to take up after the desktop
@@ -484,7 +488,7 @@ window follow):
 - **`ui/` (`ddi-ui`)**, platform-free, on `ddi-actor`. `Ui::handle(event)`
   returns `Outcome { consumed, requests }` synchronously (`consumed` tells
   the web shell when to `preventDefault`); `update(dt)`, `draw(measure)`
-  into `Drawn`, `needs_redraw()` for rendering on demand.
+  into `Drawn`, `needs_redraw()` and `wake_in()` for rendering on demand.
 - **Gestures (P2).** Activation as the HTML standard has it: a key press
   but Escape, a mouse press, a touch or pen release (a mouse release
   within 1 s of its press). `Ui::new` says whether gestures are required

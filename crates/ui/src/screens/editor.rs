@@ -1794,12 +1794,15 @@ impl Screen for EditorScreen {
     }
 
     fn animating(&self) -> bool {
+        // Frames come while the field glides or follows the music.
+        self.listening || (self.shown - self.editor.borrow().cursor().0 as f64).abs() > 0.01
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        // The autosave, while changes are not kept.
         let e = self.editor.borrow();
-        // Frames come while the field glides or follows the music, and
-        // until changes not kept are autosaved.
-        self.listening
-            || (self.shown - e.cursor().0 as f64).abs() > 0.01
-            || (e.is_dirty() && e.revision() != self.autosaved.0 && self.host.is_some())
+        (e.is_dirty() && e.revision() != self.autosaved.0 && self.host.is_some())
+            .then_some(self.autosaved.1 + autosave::EVERY)
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {

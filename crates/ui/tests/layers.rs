@@ -328,3 +328,69 @@ fn the_chrome_stays_on_top_and_takes_only_its_pointers() {
         "{log:?}"
     );
 }
+
+/// A screen with something to do `.0` seconds after it is built,
+/// nothing moving meanwhile.
+struct Due(f64, Log);
+
+impl Screen for Due {
+    fn name(&self) -> &str {
+        "due"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        self.0 += cx.time();
+        Actor::new(Kind::Frame(vec![]))
+    }
+
+    fn update(&mut self, _dt: f32, _root: &mut Actor, cx: &mut Cx) {
+        if cx.time() >= self.0 {
+            self.0 = f64::INFINITY;
+            self.1.borrow_mut().push("due".into());
+        }
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        Some(self.0)
+    }
+}
+
+#[test]
+fn an_idle_shell_wakes_for_a_deadline_of_the_top_screen() {
+    let log = Log::default();
+    let mut h = Harness::new([1280.0, 720.0], [1280.0, 720.0], 1.0, TextMode::Own);
+    h.push(Due(2.0, log.clone()));
+    h.run_on_demand(0.5);
+    // Idle until it: the shell's wait is the time left.
+    assert!(!h.ui.needs_redraw());
+    let left = h.ui.wake_in().unwrap();
+    assert!(left > 1.0 && left <= 2.0, "{left}");
+    let mut since = None;
+    assert_eq!(h.ui.idle_wake(&mut since, 10.0), Some(10.0 + left));
+    // Woken early (another event): the same time.
+    assert_eq!(h.ui.idle_wake(&mut since, 10.5), Some(10.0 + left));
+    assert!(log.borrow().is_empty());
+    // Then a frame meets it, and nothing is left to wait for.
+    assert_eq!(h.ui.idle_wake(&mut since, 10.0 + left), None);
+    assert_eq!(since, None);
+    assert!(h.ui.needs_redraw());
+    h.frame(1.0 / 60.0);
+    assert_eq!(log.borrow().len(), 1);
+    assert_eq!(h.ui.wake_in(), None);
+    assert!(!h.ui.needs_redraw());
+    // The harness, as the shells: no frames until it is due.
+    let log = Log::default();
+    let mut h = Harness::new([1280.0, 720.0], [1280.0, 720.0], 1.0, TextMode::Own);
+    h.push(Due(3.0, log.clone()));
+    let drawn = h.run_on_demand(2.9);
+    assert!(log.borrow().is_empty());
+    let drawn = drawn + h.run_on_demand(0.5);
+    assert_eq!(log.borrow().len(), 1);
+    assert!(drawn <= 2, "{drawn} frames");
+    // A covered screen waits.
+    h.push(Due(1.0, log.clone()));
+    h.push(Base("over"));
+    h.run_on_demand(3.0);
+    assert_eq!(h.ui.wake_in(), None, "covered");
+    assert_eq!(log.borrow().len(), 1);
+}

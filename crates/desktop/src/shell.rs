@@ -104,6 +104,10 @@ pub struct Shell {
     retry_at: Option<Instant>,
     start: Instant,
     last: Option<Instant>,
+    /// Frames stopped (idle) since, [`crate::clock`]'s seconds: the UI's
+    /// clock is told how long when a screen's deadline comes
+    /// ([`Ui::idle_wake`]).
+    idle_since: Option<f64>,
     pub frames: u64,
     /// Redraws asked for, and skipped while occluded.
     pub asked: u64,
@@ -275,6 +279,7 @@ impl Shell {
             retry_at: None,
             start: Instant::now(),
             last: None,
+            idle_since: None,
             frames: 0,
             asked: 0,
             occluded_skips: 0,
@@ -645,6 +650,7 @@ impl Shell {
             .last
             .map_or(1.0 / 60.0, |l| (now - l).as_secs_f32().min(0.25));
         self.last = Some(now);
+        self.idle_since = None;
         self.ui.update(dt);
         let r = self.ui.take_requests();
         self.run(r);
@@ -827,6 +833,25 @@ impl Shell {
                 .broadcast(Message::new(theme_screens::notices::NOTICES_CHANGED));
         }
         self.play.watcher.checked.map(|c| c + crate::devices::EVERY)
+    }
+
+    /// Idle: the loop wakes when a screen's deadline comes
+    /// ([`Ui::idle_wake`], on [`crate::clock`]'s seconds).
+    fn wake_ui(&mut self, event_loop: &ActiveEventLoop) {
+        let now = crate::clock::now().0;
+        let Some(at) = self
+            .ui
+            .idle_wake(&mut self.idle_since, now)
+            .and_then(|t| std::time::Duration::try_from_secs_f64(t).ok())
+            .and_then(|t| crate::clock::epoch().checked_add(t))
+        else {
+            return;
+        };
+        match event_loop.control_flow() {
+            ControlFlow::WaitUntil(t) if t <= at => {}
+            ControlFlow::Poll => {}
+            _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+        }
     }
 
     /// The mouse pointer hidden on a key's or a pad's press, shown again
@@ -1351,6 +1376,7 @@ impl ApplicationHandler for Shell {
         if self.occluded || !(self.ui.needs_redraw() || self.loaded || field) {
             // Idle: the next frame starts its clock afresh.
             self.last = None;
+            self.wake_ui(event_loop);
         }
         self.ask();
     }

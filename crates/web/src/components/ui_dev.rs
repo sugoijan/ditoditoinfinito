@@ -219,6 +219,11 @@ pub(crate) struct Host {
     files: HtmlInputElement,
     raf: Option<AnimationFrame>,
     last_ms: Option<f64>,
+    /// Frames stopped (idle) since, seconds on the performance timeline,
+    /// and the timer that wakes them for a screen's deadline
+    /// ([`ddi_ui::Ui::idle_wake`]).
+    idle_since: Option<f64>,
+    wake: Option<gloo::timers::callback::Timeout>,
     frames: u64,
     requests: VecDeque<String>,
     audio: Option<WebAudio>,
@@ -745,6 +750,8 @@ fn new_host(
         files,
         raf: None,
         last_ms: None,
+        idle_since: None,
+        wake: None,
         frames: 0,
         requests: VecDeque::new(),
         audio: None,
@@ -1609,10 +1616,31 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
     // frame, drawn again only when it changes).
     let field = h.field_preview.is_some() && (!h.field_still() || h.field_busy > 0);
     if !h.ui.needs_redraw() && !h.loading && !field {
-        // Idle: the next frame starts its clock afresh.
+        // Idle: the next frame starts its clock afresh, and a screen's
+        // deadline wakes frames (the UI needs one once it is met).
         h.last_ms = None;
-        return;
+        let now = crate::web::clock::PerformanceClock::now_ms() / 1000.0;
+        let mut since = h.idle_since;
+        let at = h.ui.idle_wake(&mut since, now);
+        h.idle_since = since;
+        h.wake = at.map(|at| {
+            let weak = Rc::downgrade(rc);
+            let ms = ((at - now) * 1000.0).ceil().clamp(0.0, f64::from(u32::MAX));
+            gloo::timers::callback::Timeout::new(ms as u32, move || {
+                if let Some(rc) = weak.upgrade() {
+                    if let Ok(mut h) = rc.try_borrow_mut() {
+                        h.wake = None;
+                    }
+                    schedule(&rc);
+                }
+            })
+        });
+        if !h.ui.needs_redraw() {
+            return;
+        }
     }
+    h.idle_since = None;
+    h.wake = None;
     let weak = Rc::downgrade(rc);
     h.raf = Some(request_animation_frame(move |time_ms| {
         let Some(rc) = weak.upgrade() else { return };

@@ -33,6 +33,8 @@ pub struct Harness {
     pub frames: usize,
     /// Whether the last event sent was consumed ([`crate::Outcome`]).
     pub consumed: bool,
+    /// When frames stopped, seconds ([`Harness::run_on_demand`]).
+    idle_since: Option<f64>,
 }
 
 impl Harness {
@@ -59,6 +61,7 @@ impl Harness {
             now: 1000.0,
             frames: 0,
             consumed: false,
+            idle_since: None,
         };
         h.send(UiEvent::Resize { size, ratio });
         h
@@ -82,6 +85,7 @@ impl Harness {
     /// One frame of `dt` seconds: update, draw, the frame's requests.
     pub fn frame(&mut self, dt: f32) -> Vec<UiRequest> {
         self.now += f64::from(dt) * 1000.0;
+        self.idle_since = None;
         self.ui.update(dt);
         self.drawn = self.ui.draw(&mut self.measure);
         self.frames += 1;
@@ -99,7 +103,8 @@ impl Harness {
     }
 
     /// Frames at [`FPS`] only while the UI says it needs them, at most
-    /// `seconds`; how many were drawn.
+    /// `seconds`, waking at [`crate::Ui::wake_in`] as the shells do; how
+    /// many were drawn.
     pub fn run_on_demand(&mut self, seconds: f32) -> usize {
         let n = (seconds * FPS).round() as usize;
         let mut drawn = 0;
@@ -108,7 +113,9 @@ impl Harness {
                 self.frame(1.0 / FPS);
                 drawn += 1;
             } else {
+                self.idle_since.get_or_insert(self.now / 1000.0);
                 self.now += 1000.0 / f64::from(FPS);
+                self.ui.idle_wake(&mut self.idle_since, self.now / 1000.0);
             }
         }
         drawn

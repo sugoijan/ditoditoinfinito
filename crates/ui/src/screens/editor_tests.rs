@@ -486,6 +486,36 @@ fn unsaved_changes_are_autosaved_every_few_seconds() {
 }
 
 #[test]
+fn the_autosave_wakes_the_shell_instead_of_drawing_until_it() {
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    let autosaves = |s: &Setup| {
+        s.host
+            .calls
+            .borrow()
+            .iter()
+            .filter(|c| **c == EditorCall::Autosave)
+            .count()
+    };
+    s.h.run(6.0);
+    s.h.key("Digit1", "1");
+    s.h.run(0.5);
+    assert_eq!(autosaves(&s), 1);
+    assert_eq!(s.h.ui.wake_in(), None, "nothing left to keep");
+    // A change soon after: kept five seconds after the last autosave,
+    // with no frames meanwhile.
+    s.h.key("Digit2", "2");
+    s.h.run_on_demand(1.0);
+    assert_eq!(autosaves(&s), 1);
+    assert!(!s.h.ui.needs_redraw(), "idle while waiting");
+    let wait = s.h.ui.wake_in().expect("woken for the autosave");
+    assert!((3.0..5.0).contains(&wait), "{wait}");
+    let drawn = s.h.run_on_demand(4.5);
+    assert_eq!(autosaves(&s), 2);
+    assert!(drawn <= 2, "{drawn} frames");
+    assert_eq!(s.h.ui.wake_in(), None);
+}
+
+#[test]
 fn song_select_opens_the_editor_with_e() {
     use crate::screens::select::{SelectCall, SelectScreen, SharedFeed};
     let env = env();

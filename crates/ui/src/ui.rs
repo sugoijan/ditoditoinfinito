@@ -624,10 +624,10 @@ impl Ui {
     /// Whether a frame is needed: input arrived or a screen asked for
     /// something since the last draw, a layer is coming in or leaving, an
     /// actor moves on the top screen or above it (covered screens wait),
-    /// a held direction may repeat or a press may become a long press.
-    /// Otherwise the shell may stop its frames until the next event (P13).
+    /// a held direction may repeat, a press may become a long press or a
+    /// screen's deadline came. Otherwise the shell may stop its frames
+    /// until the next event or [`Ui::wake_in`] (P13).
     pub fn needs_redraw(&self) -> bool {
-        let top = self.layers.iter().rposition(|l| !l.overlay).unwrap_or(0);
         self.dirty
             || self.repeater.holding()
             || self.pointers.iter().any(|p| p.tracker.waiting())
@@ -635,9 +635,57 @@ impl Ui {
                 .layers
                 .iter()
                 .any(|l| !matches!(l.phase, Phase::Active))
-            || self.layers[top.min(self.layers.len())..]
+            || self
+                .awake()
                 .iter()
                 .any(|l| l.screen.animating() || l.root.in_motion())
+            || self.wake_in() == Some(0.0)
+    }
+
+    /// The top screen and the overlays above it: covered screens wait.
+    fn awake(&self) -> &[Layer] {
+        let top = self.layers.iter().rposition(|l| !l.overlay).unwrap_or(0);
+        &self.layers[top.min(self.layers.len())..]
+    }
+
+    /// Seconds until a screen has something to do though nothing moves
+    /// ([`Screen::wake_at`]), none past: an idle shell asks for a frame
+    /// once that long has passed and it told [`Ui::idle_for`] so.
+    pub fn wake_in(&self) -> Option<f64> {
+        self.awake()
+            .iter()
+            .filter_map(|l| l.screen.wake_at())
+            .filter(|at| at.is_finite())
+            .min_by(f64::total_cmp)
+            .map(|at| (at - self.time).max(0.0))
+    }
+
+    /// The shell drew no frames for `seconds` (idle, nothing moving): the
+    /// clock moves on by as much, so the screens' deadlines are met
+    /// ([`Ui::wake_in`]). Nothing else is stepped.
+    pub fn idle_for(&mut self, seconds: f64) {
+        if seconds.is_finite() && seconds > 0.0 {
+            self.time += seconds;
+        }
+    }
+
+    /// An idle shell's wait for [`Ui::wake_in`], in seconds on the shell's
+    /// own clock: frames stopped at `since` (`now` if not yet set; a frame
+    /// clears it). When to wake; at or past it, the clock moves on by the
+    /// time idle ([`Ui::idle_for`]), `since` is cleared and the UI needs
+    /// a frame.
+    pub fn idle_wake(&mut self, since: &mut Option<f64>, now: f64) -> Option<f64> {
+        let from = *since.get_or_insert(now);
+        if self.needs_redraw() {
+            return None;
+        }
+        let at = from + self.wake_in()?;
+        if now < at {
+            return Some(at);
+        }
+        self.idle_for(now - from);
+        *since = None;
+        None
     }
 
     /// The layers, bottom first (not the chrome).
