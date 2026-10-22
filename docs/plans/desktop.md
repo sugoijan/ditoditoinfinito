@@ -109,8 +109,10 @@ under it in section 7:
    The follow-up run below supports late·2 windowed; in fullscreen
    (2026-10-22) late pacing missed, and now falls back where it keeps
    missing. In fullscreen also `--pacing late --in-flight 2
-   --pacing-report` (late·2 alone, as a play runs by default). What to
-   look for: "Fullscreen in the model" in section 3.
+   --pacing-report` (late·2 alone, as a play runs by default), once
+   entering fullscreen before Start and once clicking it mid-play. What
+   to look for: "Fullscreen in the model" and "The late·2-alone run" in
+   section 3.
 
 ## Goals
 
@@ -552,8 +554,10 @@ come), so it never waits in the acquire:
 - **The schedule.** The next frame starts at the last frame's refresh
   plus a period, minus the budget: the 95th percentile of the last 120
   frames' costs plus a margin. A frame's cost runs from its planned
-  start to its present's return with the waits left out, so it holds
-  the timer's lateness, the loop's turn, the UI's update, the play's
+  start (or the frame before's end, where that came later: no timer was
+  set, and counting from the plan charged a frame the one before's
+  overrun) to its present's return with the waits left out, so it holds
+  the timer's lateness (up to the largest budget, below), the loop's turn, the UI's update, the play's
   tick and drawing and the present call. On macOS winit's `WaitUntil`
   is a `CFRunLoopTimer`; when it fires, `about_to_wait` asks for the
   redraw, `request_redraw` wakes the run loop and `RedrawRequested`
@@ -589,7 +593,15 @@ come), so it never waits in the acquire:
   threshold: a compositor's stalls, which blocking frames miss too, come
   on under 0.5 % of refreshes windowed (15 in 1200 is then a one in 10⁴
   chance); in the fullscreen model late·2 misses on about 1.5 % with its
-  margin at its cap, late·1 on about 3 %.
+  margin at its cap, late·1 on about 3 %. Not counted (since the
+  late·2-alone run below): a miss whose frame woke later than the
+  largest budget late pacing gives (the costs' 95th percentile and the
+  margin at its cap), a stall of the loop that no margin answers and
+  blocking meets as well, which also moves neither the margin nor its
+  floor (and adds no more than that budget to the costs); and any miss
+  in a new surface's first 2 s from its first frame, a transition (macOS
+  names the fullscreen surface as its animation starts) not being the
+  surface late pacing will meet.
 - **The predicted presentation** for late pacing is the estimated
   target refresh on the grid, handed to the play (`Host::present_at`
   → `View::present_at`). Blocking keeps the session's prediction,
@@ -850,6 +862,65 @@ alone for the whole song, says whether a normal play falls back to
 block·2 (smooth, a refresh more latency) or keeps late·2's 1.7 drops a
 second.
 
+**The late·2-alone run (2026-10-22).** `--play beatucada --chart 0
+--auto --start --pacing late --in-flight 2 --pacing-report`, CADisplayLink
+at 120 Hz. Fullscreen was clicked as the window opened, which
+interrupted the play (a hidden window did then), and the play was
+started again in fullscreen. Late·2 fell back after 0.6 s of its frames
+(99 % of its 12237 frames blocked) on 19 acquire misses; the missed
+frames had 6.98 ms to spare and woke 45.64 ms late (medians), and the
+late frames as a whole woke 47.79 / 52.44 / 55.46 ms late (p50 / p95 /
+max). The fallback then held for the whole song: no later size change
+undid it. About 70 late frames in 0.6 s, each "woken" about 48 ms late,
+cannot all have been held that long; what the pacer called lateness was
+mostly its own. A stall (the transition held the loop, as the
+interruption says) put tens of milliseconds into the costs' 95th
+percentile, so the next frames' planned starts lay before the frame
+before had even ended; each frame started at once, and the time since
+that plan counted as its lateness, a cost, which kept the budget up
+(with the margin at its cap, a whole refresh for late·2, it barely came
+down),
+the frames back to back as blocking ones are and the acquires' waits
+read as misses. The margin, already capped, made each one count. No
+margin answers that, and blocking would not have avoided the stall.
+
+What changed: a frame's lateness counts from the later of its planned
+start and the frame before's end; lateness counts into the costs only up
+to the largest budget (the costs' 95th percentile plus the margin's
+cap), so a stall raises the budget a cap at most and lateness that keeps
+coming still gets learned, a few frames a step; a miss whose frame woke
+later than that largest budget is a stall: it moves neither the margin
+nor its floor, is no miss in the window that makes misses frequent, and
+counts toward no fallback; and misses in a new surface's first 2 s count
+toward none either. The report counts the stalls ("acquire misses after
+a stall"). Simulated (the loop held 48 ms after each frame for half a
+second right after the surface changes, then five seconds, three seeds
+each): before, 230 to 340 of the next 600 frames "woke" over 10 ms late
+and the budget stayed at 46 ms, and with late·2's margin already capped
+in fullscreen up to 14 misses in those five seconds came with frames
+that woke late (one short of falling back, which the run's restart
+crossed); after, none woke over 5 ms late, the budget was back to 10 ms,
+none fell back, in a window, a window going fullscreen and fullscreen
+with the margin capped. A window whose loop is held 40–52 ms four times
+a second for a minute took the floor to its 8.33 ms cap in five runs of
+six; now 5.50 ms (12 of 21 misses stalls). A resize whose transition
+misses every frame for 1.9 s (a deadline beyond late·2's cap) fell back
+without the settling and does not with it. Late·1 in fullscreen still
+falls back (7.3 s alone in the model, 6.6 without the settling); the
+fullscreen model is left as it was (late·2 falls back there after about
+14–19 s, more than measured: 24 misses in 2472 frames, no fallback in
+21 s), since `tests/pacing.rs` judges a play through that fallback.
+
+Next run: the same command, once entering fullscreen before Start and
+once clicking fullscreen mid-play. Late·2 should not fall back in its
+first seconds, if at all; "woke late ms" should
+stay near a millisecond (the stall's own frames aside, at most a few);
+"acquire misses after a stall" counts the transition's misses with late
+wakes, and "missed: spare · woke late" should no longer show tens of
+milliseconds of lateness. A fallback with stalls near zero and misses
+with on-time wakes would be the fullscreen deadline itself, as for
+late·1.
+
 The hundreds of block target gaps **do not establish repeated refreshes**.
 `target_after` rounds each present up to a refresh and assumes a full
 queue. Small jitter across a refresh boundary can assign consecutive
@@ -886,8 +957,8 @@ return to present), how late the timer woke, input read → estimated shown and
 frame start → estimated shown (to the refresh the grid gives the frame),
 inferred target gaps and collisions (consecutive frames assigned the same
 or an earlier refresh), targets later or earlier than predicted before
-building, acquire-inferred misses (late only), whether and when a late
-column fell back to blocking (and the share of its frames since), probes
+building, acquire-inferred misses (late only) and those of them after a stall,
+whether and when a late column fell back to blocking (and the share of its frames since), probes
 and the margin. With `--pacing` or `--in-flight` the report runs that
 column alone.
 Boundary jitter can pair target gaps with collisions at a steady present
@@ -922,7 +993,10 @@ the first frame, a compositor that keeps drawables (one in flight
 repeats, two do not), fullscreen's direct presentation (late·1 and
 late·2 fall back, the report says so), a window never falls back (ten
 minutes of late·2), a drawable kept past half a refresh is no miss,
-leaving fullscreen undoes the fallback; `display_link.rs`: a `CVDisplayLink` run with no
+leaving fullscreen undoes the fallback, a stalled transition is no
+reason to block (no lateness of the pacer's own making after it, in a
+window, going fullscreen and in fullscreen), stalls of the loop teach
+nothing, a new surface's misses count after it settles; `display_link.rs`: a `CVDisplayLink` run with no
 window ticks at the display's rate on the host clock, and
 `CACurrentMediaTime` is the host clock. A review's simulation (phase
 shifts, 60 ↔ 120 Hz, a 3 s stall, late releases) ran on it too. `crates/desktop/tests/pacing.rs`: every bundled chart autoplayed with its

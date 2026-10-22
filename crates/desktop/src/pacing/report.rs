@@ -108,7 +108,8 @@ pub struct Figures {
     pub present: [f64; 2],
     /// Acquire's return to present (ms): mean, p95, max.
     pub build: [f64; 3],
-    /// Late pacing's wake after its planned start (ms): p50, p95, max.
+    /// Late pacing's wake after its planned start, or after the frame
+    /// before ended where that came later (ms): p50, p95, max.
     pub late: [f64; 3],
     /// The clock and input read to the inferred refresh target
     /// (ms): mean, p50, p95. Not observed presentation latency.
@@ -124,6 +125,10 @@ pub struct Figures {
     pub overruns: usize,
     pub early: usize,
     pub latch_misses: usize,
+    /// Of those, misses whose frame woke later than any budget covers (a
+    /// stall of the loop): they taught nothing and counted toward no
+    /// fallback.
+    pub stalls: usize,
     /// Frames late pacing ran as blocking frames, having fallen back
     /// (share), and when it first did (s into the column's frames).
     pub fallback: f64,
@@ -316,6 +321,7 @@ impl Report {
         f.overruns = rs.iter().filter(|(r, _)| r.overrun).count();
         f.early = rs.iter().filter(|(r, _)| r.early).count();
         f.latch_misses = rs.iter().filter(|(r, _)| r.latch_miss).count();
+        f.stalls = rs.iter().filter(|(r, _)| r.miss_stall).count();
         f.fallback = rs.iter().filter(|(r, _)| r.fallback).count() as f64 / rs.len() as f64;
         // Counted in the column's own time (its turns end to end).
         let mut at = 0.0;
@@ -474,6 +480,21 @@ impl Report {
         );
         head(
             &mut out,
+            "acquire misses after a stall (woke too late)",
+            columns
+                .iter()
+                .zip(&figures)
+                .map(|(c, f)| {
+                    if f.frames == 0 || c.mode != Mode::Late {
+                        "-".into()
+                    } else {
+                        f.stalls.to_string()
+                    }
+                })
+                .collect(),
+        );
+        head(
+            &mut out,
             "late fell back to block (frames · after s)",
             columns
                 .iter()
@@ -509,6 +530,9 @@ impl Report {
              \x20        are inferred from late pacing's acquire waits, unavailable for block.\n\
              \x20        A late column that fell back blocked from then on, as many in flight\n\
              \x20        (its figures mix both): misses no margin could answer kept coming.\n\
+             \x20        A miss after a stall is one whose frame woke later than any budget\n\
+             \x20        covers (the loop held up): it moves no margin and counts toward no\n\
+             \x20        fallback; nor do misses in a new surface's first two seconds.\n\
              \x20        Keys and pads are polled just before a frame starts, and a blocking\n\
              \x20        frame then waits in the acquire: \"frame start → shown\" is closer to\n\
              \x20        what a press waits for than \"input read → shown\", which flatters block.\n\

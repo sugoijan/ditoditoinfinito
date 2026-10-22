@@ -308,6 +308,10 @@ pub struct Loop {
     pub records: Vec<Record>,
     /// A display link gives the pacer the refreshes (a fixed display).
     pub link: bool,
+    /// The loop is held this long (s) after each frame before it runs
+    /// again, whether it sleeps or not (an event loop stalled: macOS's
+    /// fullscreen transition).
+    pub stall: f64,
 }
 
 impl Loop {
@@ -329,9 +333,11 @@ impl Loop {
             surface.images = pacer.in_flight() as usize + 1;
         }
         self.tick(pacer, surface);
+        let held = self.t + self.stall;
         if let Next::At(w) = pacer.next(self.t) {
             self.t = self.t.max(w + late(i));
         }
+        self.t = self.t.max(held);
         self.tick(pacer, surface);
         pacer.begin(self.t);
         self.t += BEFORE;

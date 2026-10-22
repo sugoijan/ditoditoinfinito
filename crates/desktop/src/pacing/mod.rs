@@ -15,7 +15,8 @@
 //! bounds its estimated queue by the configured frames in flight.
 //!
 //! The budget includes the 95th percentile of 120 frame costs (including
-//! wake lateness) and a margin for GPU/compositor time. Repeated inferred
+//! wake lateness, up to the largest budget) and a margin for
+//! GPU/compositor time. Repeated inferred
 //! misses raise the margin's floor; an isolated stall does not. The floor
 //! survives songs and falls after quiet periods, more slowly if a reduction
 //! soon causes another miss. Two frames in flight allow a margin up to one
@@ -28,7 +29,11 @@
 //! Misses that keep coming with the margin at its cap make late pacing
 //! block (as many frames in flight) for the surface it met them on, until
 //! the window's size or fullscreen state changes (`docs/plans/desktop.md`,
-//! "Frame pacing").
+//! "Frame pacing"). A miss whose frame woke later than any budget would
+//! have covered is a stall of the loop (macOS's fullscreen transition), no
+//! evidence about the margin or the surface: it moves nothing and never
+//! counts toward the fallback; nor do misses in a new surface's first
+//! seconds.
 //!
 //! Late pacing gives the play its estimated target refresh. Blocking
 //! keeps the session's prediction; queue depth and delayed drawable
@@ -110,6 +115,11 @@ const LINK_STALE: f64 = 0.1;
 /// late·1 on about 3 %.
 const FALLBACK_FRAMES: u64 = 1200;
 const FALLBACK_MISSES: usize = 15;
+/// A new surface's first seconds (from its first frame), whose misses do
+/// not count toward the fallback: a transition to it (macOS's fullscreen
+/// animation, after the resize that names the new surface) is not the
+/// surface late pacing will meet.
+const SURFACE_SETTLE: f64 = 2.0;
 
 /// Where a frame's refresh times came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -473,9 +483,10 @@ struct Frame {
     predicted: f64,
     latch_miss: bool,
     /// The missed frame's time to spare at its present and how late it
-    /// woke.
+    /// woke, and whether that was a stall.
     miss_spare: Option<f64>,
     miss_late: Option<f64>,
+    miss_stall: bool,
 }
 
 /// What one frame did (for the report).
@@ -485,7 +496,8 @@ pub struct Record {
     /// A probe (late pacing): started right after the frame before.
     pub probe: bool,
     pub begin: f64,
-    /// How late it started after its planned start (late pacing; s).
+    /// How late it started after its planned start, or after the frame
+    /// before ended where that came later (late pacing; s).
     pub late: Option<f64>,
     /// Time spent in the acquire (s).
     pub blocked: f64,
@@ -512,6 +524,10 @@ pub struct Record {
     /// (s): a large spare is the compositor's doing, a late wake ours.
     pub miss_spare: Option<f64>,
     pub miss_late: Option<f64>,
+    /// That frame woke later than any budget would have covered (a stall
+    /// of the loop): the miss taught nothing and did not count toward the
+    /// fallback.
+    pub miss_stall: bool,
     /// The grid was locked.
     pub locked: bool,
     pub period: f64,
@@ -555,9 +571,10 @@ pub struct Pacer {
     /// Late frames that made their refresh: when, and the time they had
     /// to spare (their refresh minus their present).
     made: VecDeque<(f64, f64)>,
-    /// The last frames' (when, time to spare, how late they woke), until
-    /// an acquire `in_flight` frames on says whether they made it.
-    pending: VecDeque<(f64, f64, f64)>,
+    /// The last frames (when, time to spare, how late they woke, and
+    /// whether later than any budget covers), until an acquire `in_flight`
+    /// frames on says whether they made it.
+    pending: VecDeque<(f64, f64, f64, bool)>,
     /// Recent misses (host s).
     misses: VecDeque<f64>,
     /// Frames run late, and those of them that missed with the margin at
@@ -572,6 +589,9 @@ pub struct Pacer {
     fallen: [Option<f64>; 2],
     /// The surface it fell back on: its size and whether fullscreen.
     surface: Option<(u32, u32, bool)>,
+    /// Misses count toward the fallback from this time (host s; infinite
+    /// until a new surface's first frame).
+    settled: f64,
     /// When the next burst starts, its frames left and their returns.
     burst_at: f64,
     burst_left: u32,
@@ -583,6 +603,8 @@ pub struct Pacer {
     pub faster_found: u32,
     /// Times late pacing fell back to blocking frames.
     pub fallbacks: u32,
+    /// Misses whose frame woke later than any budget covers.
+    pub stalls: u32,
 }
 
 impl Default for Pacer {
@@ -617,6 +639,7 @@ impl Pacer {
             other: (MARGIN, MARGIN),
             fallen: [None; 2],
             surface: None,
+            settled: f64::NEG_INFINITY,
             burst_at: f64::INFINITY,
             burst_left: 0,
             burst: Vec::new(),
@@ -624,6 +647,7 @@ impl Pacer {
             latch_misses: 0,
             faster_found: 0,
             fallbacks: 0,
+            stalls: 0,
         }
     }
 
@@ -684,13 +708,17 @@ impl Pacer {
 
     /// The surface's size and whether it is fullscreen. Another one undoes
     /// a fallback: what late pacing met may not be there (fullscreen's
-    /// direct presentation left, a window resized).
+    /// direct presentation left, a window resized). Its first
+    /// [`SURFACE_SETTLE`] seconds count toward no fallback: macOS names the
+    /// fullscreen surface as its transition starts, and the loop then
+    /// stalls (the maintainer's late·2 run, 2026-10-22).
     pub fn set_surface(&mut self, size: (u32, u32), fullscreen: bool) {
         let key = (size.0, size.1, fullscreen);
         if self.surface != Some(key) {
             self.surface = Some(key);
             self.fallen = [None; 2];
             self.stuck = [VecDeque::new(), VecDeque::new()];
+            self.settled = f64::INFINITY;
         }
     }
 
@@ -862,7 +890,7 @@ impl Pacer {
         // The frame `in_flight` back made its refresh.
         if !self.frame.latch_miss
             && self.pending.len() >= self.in_flight as usize
-            && let Some((t, s, _)) = self.pending.pop_front()
+            && let Some((t, s, _, _)) = self.pending.pop_front()
         {
             self.made.push_back((t, s));
         }
@@ -895,8 +923,15 @@ impl Pacer {
         // The frame that missed: the oldest not yet known to have made it.
         let culprit = self.pending.front().copied();
         self.pending.clear();
-        self.frame.miss_spare = culprit.map(|(_, s, _)| s);
-        self.frame.miss_late = culprit.map(|(_, _, l)| l);
+        self.frame.miss_spare = culprit.map(|(_, s, _, _)| s);
+        self.frame.miss_late = culprit.map(|(_, _, l, _)| l);
+        // It woke later than any budget covers: the loop stalled (macOS's
+        // fullscreen transition held it 46 ms a frame), which no margin
+        // answers and blocking meets as well. Nothing is learned from it,
+        // and it is no miss in the window that makes misses frequent.
+        let stall = culprit.is_some_and(|(_, _, _, s)| s);
+        self.frame.miss_stall = stall;
+        self.stalls += u32::from(stall);
         // A deadline the margin and its floor must cover, unless a frame
         // lately made its refresh with less time to spare and misses are
         // not coming fast (a hiccup: a higher margin would not have saved
@@ -905,22 +940,25 @@ impl Pacer {
             self.misses.pop_front();
         }
         let frequent = !self.misses.is_empty();
-        self.misses.push_back(end);
         let hiccup = !frequent
-            && culprit.is_some_and(|(_, s, _)| self.made.iter().any(|(_, m)| *m < s - SPARE_NOISE));
+            && culprit
+                .is_some_and(|(_, s, _, _)| self.made.iter().any(|(_, m)| *m < s - SPARE_NOISE));
         // The margin can grow no further. Misses a margin cannot answer
         // (a deadline beyond the cap, frames held back until their
         // drawable comes free too late) take it there in a few.
         let stuck = self.margin >= cap - 1e-9;
-        if !hiccup {
-            if self.lowered.is_some_and(|t| end - t <= TOO_FAR) {
-                self.hold = (self.hold * 2.0).min(FLOOR_HOLD_MAX);
+        if !stall {
+            self.misses.push_back(end);
+            if !hiccup {
+                if self.lowered.is_some_and(|t| end - t <= TOO_FAR) {
+                    self.hold = (self.hold * 2.0).min(FLOOR_HOLD_MAX);
+                }
+                self.lowered = None;
+                self.floor = (self.floor + FLOOR_STEP).min(cap);
+                self.margin = (self.margin.max(self.floor) + MARGIN_STEP).min(cap);
             }
-            self.lowered = None;
-            self.floor = (self.floor + FLOOR_STEP).min(cap);
-            self.margin = (self.margin.max(self.floor) + MARGIN_STEP).min(cap);
+            self.floor_since = end;
         }
-        self.floor_since = end;
         // Shown now (one in flight), or the frame queued behind it a
         // refresh later (two); the wait ended the time the compositor
         // keeps a drawable after that refresh.
@@ -929,7 +967,7 @@ impl Pacer {
         self.prev_target = Some(shown - p);
         self.last_target = Some(shown);
         let k = self.in_flight as usize - 1;
-        if stuck {
+        if stuck && !stall && end >= self.settled {
             let at = self.late_frames[k];
             let recent = &mut self.stuck[k];
             while recent.front().is_some_and(|f| at - f >= FALLBACK_FRAMES) {
@@ -966,8 +1004,22 @@ impl Pacer {
     pub fn presented(&mut self, sample: f64, start: f64, end: f64) -> Record {
         let f = self.frame;
         let build = start - f.acquire.1;
-        let late = f.scheduled.map(|s| (f.begin - s).max(0.0));
-        let cost = (f.acquire.0 - f.begin) + (end - f.acquire.1) + late.unwrap_or(0.0);
+        // How late it woke: after its planned start, or after the frame
+        // before ended where that came later (no timer was set; counting
+        // from the plan would charge it the frame before's overrun, which
+        // its own cost already holds, and after a stall keep the budget
+        // high on lateness of its own making).
+        let late = f
+            .scheduled
+            .map(|s| (f.begin - s.max(self.last_end.unwrap_or(s))).max(0.0));
+        // The largest budget late pacing gives a frame: a wake later than
+        // that is a stall no margin answers, and its cost counts no more
+        // than that (lateness that keeps coming still raises the quantile,
+        // by up to the cap a few frames at a time).
+        let most = self.costs.quantile(0.95).max(0.000_5) + self.cap();
+        let stalled = late.is_some_and(|l| l > most);
+        let cost =
+            (f.acquire.0 - f.begin) + (end - f.acquire.1) + late.map_or(0.0, |l| l.min(most));
         self.costs.push(cost);
         self.builds.push(end - f.acquire.1);
         let locked = self.grid.locked_at(end);
@@ -985,7 +1037,7 @@ impl Pacer {
         }
         if self.late() && locked && !overrun {
             self.pending
-                .push_back((end, target - start, late.unwrap_or(0.0)));
+                .push_back((end, target - start, late.unwrap_or(0.0), stalled));
         } else {
             self.pending.clear();
         }
@@ -1005,6 +1057,9 @@ impl Pacer {
             self.margin = self.floor + (self.margin - self.floor) * k;
         }
         self.last_end = Some(end);
+        if self.settled == f64::INFINITY {
+            self.settled = end + SURFACE_SETTLE;
+        }
         self.prev_target = self.last_target;
         self.last_target = Some(target);
         Record {
@@ -1024,6 +1079,7 @@ impl Pacer {
             latch_miss: f.latch_miss,
             miss_spare: f.miss_spare,
             miss_late: f.miss_late,
+            miss_stall: f.miss_stall,
             locked,
             period: self.grid.period,
             measured: self.grid.measured,

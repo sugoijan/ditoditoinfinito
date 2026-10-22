@@ -1054,3 +1054,167 @@ fn leaving_fullscreen_undoes_the_fallback() {
     let late_frames = windowed.iter().filter(|r| r.late.is_some()).count();
     assert!(late_frames > windowed.len() * 9 / 10, "{late_frames}");
 }
+
+/// Late·2 on a 120 Hz display link: `pre` s in a window (or in fullscreen,
+/// its margin at its cap), then a new surface on which the loop is held
+/// `stall` s after each frame for half a second (macOS's fullscreen
+/// transition: the maintainer's late·2-alone run, 2026-10-22, read misses
+/// whose frames woke 46 ms late), then `after` s of `to`. The pacer, its
+/// frames, and the first after the stall.
+fn stalled_transition(
+    from_fullscreen: bool,
+    to: Compositor,
+    fullscreen: bool,
+    stall: f64,
+    pre: f64,
+    after: f64,
+    seed: u64,
+) -> (Pacer, Vec<Record>, usize) {
+    let c = if from_fullscreen {
+        Compositor::DIRECT
+    } else {
+        Compositor::WINDOWED
+    };
+    let (mut surface, mut pacer, mut l) = on(c, Mode::Late, 2);
+    if !from_fullscreen {
+        pacer.set_surface((1512, 982), false);
+    }
+    let (mut cost, mut late) = light(seed);
+    l.until(pre, &mut pacer, &mut surface, &mut cost, &mut late);
+    if fullscreen {
+        pacer.set_surface((3008, 1692), true);
+    } else {
+        pacer.set_surface((1600, 1000), false);
+    }
+    to.apply(&mut surface);
+    l.stall = stall;
+    l.until(pre + 0.5, &mut pacer, &mut surface, &mut cost, &mut late);
+    l.stall = 0.0;
+    let from = l.records.len();
+    l.until(
+        pre + 0.5 + after,
+        &mut pacer,
+        &mut surface,
+        &mut cost,
+        &mut late,
+    );
+    (pacer, l.records, from)
+}
+
+#[test]
+fn a_stalled_transition_is_no_reason_to_block() {
+    // Before, after a stall of ~10 frames the costs' quantile held the
+    // stall (a 46 ms budget) and each frame after it counted as lateness
+    // the time since a start planned before the frame before had ended:
+    // 230 to 340 of the next 600 frames "woke" over 10 ms late, the budget
+    // kept itself up, and with the margin at its cap up to 14 misses in
+    // five seconds came with frames that woke late (the run fell back
+    // after 0.6 s on 19 of them).
+    for (name, from_fullscreen, c, fullscreen) in [
+        ("window", false, Compositor::WINDOWED, false),
+        ("window to fullscreen", false, Compositor::DIRECT, true),
+        (
+            "fullscreen, margin at its cap",
+            true,
+            Compositor::DIRECT,
+            true,
+        ),
+    ] {
+        for seed in [151, 162, 173] {
+            let (pacer, records, from) =
+                stalled_transition(from_fullscreen, c, fullscreen, 0.048, 3.0, 5.0, seed);
+            let rs = &records[from..];
+            let misses = rs.iter().filter(|r| r.latch_miss).count();
+            let woke = rs
+                .iter()
+                .filter_map(|r| r.late)
+                .filter(|l| *l > 0.005)
+                .count();
+            let late = rs.iter().filter(|r| r.late.is_some()).count();
+            eprintln!(
+                "{name} ({seed}): {} frames after the stall, {late} late, {woke} woke over 5 ms late, {misses} misses, {} stalls; margin {:.2}, floor {:.2}, budget {:.2} ms",
+                rs.len(),
+                pacer.stalls,
+                pacer.margin() * 1000.0,
+                pacer.floor() * 1000.0,
+                pacer.budget() * 1000.0
+            );
+            assert_eq!(pacer.fallbacks, 0, "{name} {seed}");
+            assert_eq!(woke, 0, "{name} {seed}");
+            assert_eq!(late, rs.len(), "{name} {seed}");
+            assert!(pacer.budget() < 0.012, "{name} {seed}");
+        }
+    }
+}
+
+#[test]
+fn stalls_of_the_loop_teach_nothing() {
+    // A window whose loop is held 40 to 52 ms now and then (four times a
+    // second on average): a miss whose frame woke later than any budget
+    // covers raises neither the margin nor its floor. Before, these took
+    // the floor to its 8.33 ms cap in a minute (in five of six runs; 5.50
+    // ms now, from the misses with frames that woke on time).
+    let (mut surface, mut pacer, mut l) = on(Compositor::WINDOWED, Mode::Late, 2);
+    pacer.set_surface((1512, 982), false);
+    let (mut cost, mut late) = light(181);
+    let mut n = Noise::new(186);
+    let mut next = 3.0;
+    while l.t < 63.0 {
+        l.stall = 0.0;
+        if l.t >= next {
+            l.stall = 0.040 + 0.012 * n.uniform();
+            next += 0.25 * (0.5 + n.uniform());
+        }
+        l.step(&mut pacer, &mut surface, &mut cost, &mut late, None);
+    }
+    let flagged = l.records.iter().filter(|r| r.miss_stall).count();
+    eprintln!(
+        "{} misses, {} stalls; floor {:.2}, margin {:.2} ms",
+        pacer.latch_misses,
+        pacer.stalls,
+        pacer.floor() * 1000.0,
+        pacer.margin() * 1000.0
+    );
+    assert_eq!(flagged, pacer.stalls as usize);
+    assert!(pacer.stalls >= 5, "{}", pacer.stalls);
+    assert!(pacer.floor() < 0.007, "{}", pacer.floor());
+    assert_eq!(pacer.fallbacks, 0);
+}
+
+#[test]
+fn a_new_surface_settles_before_its_misses_count() {
+    // A resize whose transition wants frames 9 ms before the refresh for
+    // 1.9 s (beyond late·2's cap: every frame misses) before the window's
+    // compositor is back: those misses take the margin to its cap but do
+    // not make late pacing block on a surface it never met.
+    let (mut surface, mut pacer, mut l) = on(Compositor::WINDOWED, Mode::Late, 2);
+    pacer.set_surface((1512, 982), false);
+    let (mut cost, mut late) = light(201);
+    l.until(3.0, &mut pacer, &mut surface, &mut cost, &mut late);
+    pacer.set_surface((1600, 1000), false);
+    let mut transition = Compositor::WINDOWED;
+    transition.latch = 0.009;
+    transition.apply(&mut surface);
+    let from = l.records.len();
+    l.until(4.9, &mut pacer, &mut surface, &mut cost, &mut late);
+    let misses = l.records[from..].iter().filter(|r| r.latch_miss).count();
+    Compositor::WINDOWED.apply(&mut surface);
+    l.until(15.0, &mut pacer, &mut surface, &mut cost, &mut late);
+    eprintln!(
+        "{misses} misses in the transition; margin {:.2} ms",
+        pacer.margin() * 1000.0
+    );
+    assert!(misses >= FALLBACK_MISSES, "{misses}");
+    assert_eq!(pacer.fallbacks, 0);
+    // Late·1 in fullscreen, which falls back (rightly, measured), does so
+    // still, no sooner than the new surface's first seconds have passed.
+    let (mut surface, mut pacer, mut l) = on(Compositor::DIRECT, Mode::Late, 1);
+    let (mut cost, mut late) = light(191);
+    while !pacer.fallen_back() && l.t < 30.0 {
+        l.step(&mut pacer, &mut surface, &mut cost, &mut late, None);
+    }
+    let at = l.records.last().unwrap().end - l.records[0].end;
+    eprintln!("late·1 in fullscreen fell back after {at:.2} s");
+    assert!(pacer.fallen_back());
+    assert!((SURFACE_SETTLE..10.0).contains(&at), "{at}");
+}

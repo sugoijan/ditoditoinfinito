@@ -116,8 +116,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
   done; scripted backgrounds readied off the event loop (2026-10-22).
   Late pacing falls back to blocking where it keeps missing (fullscreen,
   measured, simulated and rerun 2026-10-22: late·1 falls back, late·2
-  halves its misses without); left: a whole fullscreen song of late·2,
-  Windows (a hardware run, the helper's build).
+  halves its misses without); a whole fullscreen song of late·2 fell back
+  on a fullscreen transition's stall, which no longer counts; left: that
+  run again, Windows (a hardware run, the helper's build).
 - [Packaging and releases](packaging.md) (2026-10-21): done; the release
   workflow's first run waits for a tag. An ad hoc signed `.app` (zip,
   `.dmg`), a Linux tarball and a Windows zip, built for draft releases
