@@ -114,7 +114,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Desktop parity](desktop.md) (2026-10-16): in progress. Steps 7.0–7.9
   done; scripted backgrounds readied off the event loop (2026-10-22).
   Late pacing falls back to blocking where it keeps missing (fullscreen,
-  measured 2026-10-22, simulated since); left: that hardware rerun,
+  measured, simulated and rerun 2026-10-22: late·1 falls back, late·2
+  halves its misses without); left: a whole fullscreen song of late·2,
   Windows (a hardware run, the helper's build).
 - [Packaging and releases](packaging.md) (2026-10-21): done; the release
   workflow's first run waits for a tag. An ad hoc signed `.app` (zip,

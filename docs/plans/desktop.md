@@ -818,6 +818,38 @@ late·2 alone, as a play runs by default. Late·2 not falling back, with
 misses at windowed levels, would say the release's reading was the
 whole story; leaving fullscreen undoes a fallback.
 
+**The rerun (2026-10-22).** The same play after the change, windowed
+then fullscreen, both perfect, CADisplayLink at 120.00 Hz. Windowed is
+as before: neither late column fell back, late·2 with 6 target gaps and
+2 acquire misses, 4.58 ms frame start → estimated shown (p50). In
+fullscreen late·1 fell back after 1.2 s of its frames (94 % of them
+blocked, its figures block·1's), with the line on stderr. Late·2 did
+not fall back: its acquire misses and target gaps about halved (24 and
+45, from 44 and 85), 118.3 frames a second (116.5 before; 120 is every
+refresh), its margin at its 8.33 ms cap and frame start → estimated
+shown 11.23 ms mean (8.23 before). Frames a second, which "target gaps"
+cannot be for block, say what each column dropped in fullscreen:
+block·1 112.5 (about 7.5 refreshes a second without a new frame, 118.5
+in the first run), block·2 120.2 (none), late·2 118.3 (about 1.7).
+
+| Fullscreen, rerun | block·1 | block·2 | late·1 (fell back) | late·2 |
+|---|---:|---:|---:|---:|
+| Frames (seconds) | 2744 (24.4) | 2860 (23.8) | 2348 (20.9) | 2472 (20.9) |
+| Present interval mean / sd / max (ms) | 8.93 / 2.17 / 37.68 | 8.34 / 1.17 / 36.36 | 8.94 / 2.12 / 33.35 | 8.48 / 1.51 / 19.44 |
+| Frame start → estimated shown mean / p50 (ms) | 12.73 / 13.97 | 20.87 / 22.13 | 12.54 / 13.95 | 11.23 / 11.12 |
+| Target gaps · acquire misses | 712 · — | 578 · — | 585 · 15 | 45 · 24 |
+| Margin (ms) | — | — | 4.17 | 8.33 |
+
+The model was too hard on late·2: it misses on about 1 % of refreshes
+(24 of 2472, not all of them with the margin capped), against the
+model's 1.5 %, which fell back after 18.8 s. That is close to the
+fallback's 1.25 %: were all 24 counted, random misses at that rate
+would reach 15 in 1200 within a minute in nine plays out of ten. Next:
+`--pacing late --in-flight 2 --pacing-report` in fullscreen, late·2
+alone for the whole song, says whether a normal play falls back to
+block·2 (smooth, a refresh more latency) or keeps late·2's 1.7 drops a
+second.
+
 The hundreds of block target gaps **do not establish repeated refreshes**.
 `target_after` rounds each present up to a refresh and assumes a full
 queue. Small jitter across a refresh boundary can assign consecutive
