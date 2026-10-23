@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Maintainer checks for the workspace SDK and separate research probes; never fetches source songs/runtimes."""
+"""Maintainer checks for the workspace SDK, desktop probe and pack verifier; never fetches source songs/runtimes."""
 import argparse
 import os
 from pathlib import Path

@@ -306,9 +306,13 @@ Rust and the browser are implementation details, not advertised features.
 - `tools/danoni-dump/` the Dancing☆Onigiri URL-import SDK
   (`rust/`, a root workspace member), its confined Ruffle worker build inputs
   (`ruffle/`), desktop handoff probe (`desktop-probe/`) and independent chart verifier
-  (`pack-verify/`). The generated upstream Ruffle worker, probe and verifier
-  retain separate workspaces/locks; root Cargo checks cover the SDK/helper only
-  when selected (the app remains the default member). `just danoni-check`
+  (`pack-verify/`). The SDK, probe and verifier are root workspace members
+  sharing `Cargo.lock` (the probe links the desktop, so a separate lock went
+  stale with every game dependency change); only the generated upstream Ruffle
+  worker keeps its own workspace and lock. Root Cargo checks cover them only
+  when selected (the app remains the default member). CI's `danoni.yml` runs
+  on changes to the crates, the DanOni tools, the manifests or the lock, not on
+  documents, assets or the web shell's code alone. `just danoni-check`
   (Python 3, ffmpeg and native build prerequisites) runs their locked checks, synthetic tests and independent
   Opus decoder comparison; `--minimal` checks the SDK without native/codec
   features, including on Windows in CI. No live songs or runtime downloads

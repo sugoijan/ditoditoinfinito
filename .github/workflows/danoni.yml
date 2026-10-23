@@ -1,9 +1,23 @@
 name: DanOni SDK and desktop handoff
 
+# The SDK, the helper and the probe link the game's crates (the probe the
+# whole desktop, built without video), so a change to them or to the
+# dependencies runs this; documents, assets, the site, the video decoder and
+# the web shell's code alone do not.
 on:
   push:
     branches: [main]
+    paths: &paths
+      - .github/workflows/danoni.yml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - '!crates/web/**'
+      - crates/web/Cargo.toml
+      - tools/danoni-dump/**
+      - tools/danoni-importer/**
   pull_request:
+    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -15,8 +29,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-# The helper/SDK share the root workspace and lock. Dedicated jobs exercise
-# their feature combinations and the separate research probe/verifier. Cheap
+# The helper, the SDK, the probe and the verifier share the root workspace and
+# lock. Dedicated jobs exercise their feature combinations. Cheap
 # jobs use synthetic inputs; native-package downloads pinned public build inputs.
 jobs:
   # Linux confinement tests require Landlock ABI >= 6; a missing sandbox
@@ -35,10 +49,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: danoni
-          workspaces: |
-            . -> target
-            tools/danoni-dump/desktop-probe -> ../../../target
-            tools/danoni-dump/pack-verify -> ../../../target
       - name: ALSA and udev headers, independent audio decoder
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg

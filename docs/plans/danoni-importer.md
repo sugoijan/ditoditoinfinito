@@ -7,7 +7,9 @@ preparation. Supported native hosts are macOS and x86_64 Linux. The normal game
 binary links only the pure `ddi-importer-protocol`, URL validation and SHA-256;
 the acquisition SDK runs in the separate helper process. The helper and SDK
 are root workspace members sharing `Cargo.lock`; each requires Rust 1.99. The
-generated upstream Ruffle worker retains its separate workspace and pinned lock.
+desktop probe and the pack verifier joined them on 2026-10-23: their own locks
+went stale whenever the game's dependencies changed. The generated upstream
+Ruffle worker retains its separate workspace and pinned lock.
 
 The URL workflow includes the reviewed 2004 Kouhaku multi-song collection:
 both its HTML page and direct SWF use the same exact-content profile and the

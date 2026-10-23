@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(format!("Incomplete scan: {scan:?}").into());
         }
         let report = json!({"schema":"ddi-danoni-desktop-probe/1","passed":true,"input":"folders",
-            "probeLockSha256":ddi_danoni_export::assets::sha256(include_bytes!("../Cargo.lock")),
+            "probeLockSha256":ddi_danoni_export::assets::sha256(include_bytes!("../../../../Cargo.lock")),
             "folders":paths,"playback":audit(&songs)?,"managedImportTested":false});
         fs::write(
             root.join("report.json"),
@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let result = audit(&songs)?;
     let report = json!({"schema":"ddi-danoni-desktop-probe/1","passed":true,
-        "input":args[0],"probeLockSha256":ddi_danoni_export::assets::sha256(include_bytes!("../Cargo.lock")),"revision":revision,"imports":runs,"playback":result});
+        "input":args[0],"probeLockSha256":ddi_danoni_export::assets::sha256(include_bytes!("../../../../Cargo.lock")),"revision":revision,"imports":runs,"playback":result});
     fs::write(
         root.join("report.json"),
         serde_json::to_vec_pretty(&report)?,

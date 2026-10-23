@@ -4,8 +4,9 @@ The 2026-10-16 rebase makes a real desktop consumer available. The first step is
 an executable integration probe under `tools/danoni-dump/desktop-probe/`, linking
 `ddi-danoni-export` and `ddi-desktop` directly. It does not add the exporter to
 the game's workspace, change WASM dependencies, or add a URL control to the UI.
-The standalone lockfile records the combined dependency graph; no new
-third-party library is introduced. Production runtime attestation will need to
+The probe has been a root workspace member sharing `Cargo.lock` since
+2026-10-23 (its standalone lockfile went stale with every game dependency
+change); no new third-party library is introduced. Production runtime attestation will need to
 bind the final application graph, not just the SDK's own lockfile.
 Desktop video is disabled in the probe; the exported SSC/audio/banner path does
 not need the movie decoder.

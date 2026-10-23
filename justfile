@@ -76,7 +76,7 @@ test:
     @# The desktop's DanOni importer is built but not prepared (no JDK).
     @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
-# DanOni workspace SDK and separate research probe checks (Python 3 and ffmpeg; no live imports)
+# DanOni workspace SDK, desktop probe and pack verifier checks (Python 3 and ffmpeg; no live imports)
 danoni-check *args:
     @python3 tools/danoni-dump/check.py {{args}}
 

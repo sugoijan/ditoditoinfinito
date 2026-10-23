@@ -927,6 +927,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-danoni-desktop-probe"
+version = "0.1.0"
+dependencies = [
+ "ddi-danoni-export",
+ "ddi-desktop",
+ "ddi-library",
+ "ddi-platform",
+ "ddi-ui",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "ddi-danoni-export"
 version = "0.1.0"
 dependencies = [
@@ -969,6 +982,15 @@ dependencies = [
  "ddi-importer-protocol",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "ddi-danoni-pack-verify"
+version = "0.1.0"
+dependencies = [
+ "ddi-chart",
+ "ddi-engine",
+ "serde_json",
 ]
 
 [[package]]

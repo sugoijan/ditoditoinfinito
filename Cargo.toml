@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["tools/danoni-dump/desktop-probe", "tools/danoni-dump/pack-verify"]
-members = ["crates/*", "tools/danoni-importer", "tools/danoni-dump/rust", "video/protocol", "video/helper", "xtask"]
+members = ["crates/*", "tools/danoni-importer", "tools/danoni-dump/rust", "tools/danoni-dump/desktop-probe", "tools/danoni-dump/pack-verify", "video/protocol", "video/helper", "xtask"]
 # `app` is the game: built for wasm by Trunk (site/index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
 default-members = ["crates/app"]
