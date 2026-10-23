@@ -211,6 +211,8 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// `--play SONG [--chart N] [--auto | --auto=pad] [--start]` opens
 /// that chart's start prompt over song select (charts are played from
 /// song select too), `--start` starting it once the song is read;
+/// `--edit SONG [--chart N]` opens the chart editor on that chart over
+/// song select once the library has the song;
 /// `--calibrate visual|audio|combined` opens that calibration test's
 /// prompt (`--auto` autoplays it following the cue, `--bias MS` that
 /// late; leaving it opens calibration's menu); `--silent` opens no sound device at all
@@ -308,7 +310,7 @@ pub fn run() {
         None if args.iter().any(|a| a == "--dev") => "dev".into(),
         None if args
             .iter()
-            .any(|a| matches!(a.as_str(), "--play" | "--replay" | "--calibrate")) =>
+            .any(|a| matches!(a.as_str(), "--play" | "--replay" | "--calibrate" | "--edit")) =>
         {
             "select".into()
         }
@@ -337,7 +339,7 @@ pub fn run() {
     if let Some(s) = &songs
         && args
             .iter()
-            .any(|a| a == "--play" || a == "--calibrate" || a == "--replay")
+            .any(|a| matches!(a.as_str(), "--play" | "--calibrate" | "--replay" | "--edit"))
     {
         s.skip_offer();
     }
@@ -377,6 +379,21 @@ pub fn run() {
         r.auto_pad = auto_pad;
         r.bias = bias;
         *shell.play.requested.borrow_mut() = Some(r);
+    }
+    // `--edit <song> [--chart N]`: the chart editor on it (song select
+    // under it), once the library has the song.
+    if let Some(song) = args
+        .iter()
+        .position(|a| a == "--edit")
+        .and_then(|i| args.get(i + 1))
+        && let Some(songs) = &shell.songs
+    {
+        let chart = args
+            .iter()
+            .position(|a| a == "--chart")
+            .and_then(|i| args.get(i + 1)?.parse().ok())
+            .unwrap_or(0);
+        *songs.edit.borrow_mut() = Some((song.clone(), chart));
     }
     // `--replay <play id> [--results]`: a kept play's replay (its
     // prompt at once), or its results (`docs/plans/play-history.md`).

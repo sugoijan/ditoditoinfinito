@@ -66,6 +66,33 @@ pub fn pick(folder: bool) -> Vec<std::path::PathBuf> {
     }
 }
 
+thread_local! {
+    /// What the next [`pick_music`] returns instead of asking (tests).
+    static PICKED_MUSIC: std::cell::RefCell<Option<Option<std::path::PathBuf>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The music file the player picks for a new song (the chart editor's);
+/// `None` when cancelled.
+pub fn pick_music() -> Option<std::path::PathBuf> {
+    if let Some(picked) = PICKED_MUSIC.with(|p| p.borrow_mut().take()) {
+        return picked;
+    }
+    let extensions: Vec<String> = ddi_library::pack::AUDIO_EXTENSIONS
+        .iter()
+        .flat_map(|e| [e.to_string(), e.to_ascii_uppercase()])
+        .collect();
+    rfd::FileDialog::new()
+        .add_filter("Music", &extensions)
+        .pick_file()
+}
+
+/// Makes the next [`pick_music`] return `picked` without a dialog (tests;
+/// `None`: as if cancelled).
+pub fn inject_picked_music(picked: Option<std::path::PathBuf>) {
+    PICKED_MUSIC.with(|p| *p.borrow_mut() = Some(picked));
+}
+
 pub fn copy(text: &str) -> Result<(), String> {
     arboard::Clipboard::new()
         .and_then(|mut c| c.set_text(text.to_string()))

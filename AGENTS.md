@@ -74,7 +74,8 @@ Rust and the browser are implementation details, not advertised features.
   runs them on `Blob`s, desktop's library on its folders), FFR levels
   (`ffr.rs`: a song a level file, its folder its pack; the chart and
   music of a SWF, `swf.rs`), a stored song's entry after the chart
-  editor saved it (`edited.rs`). Pure, natively tested.
+  editor saved it or made it new (`edited.rs`), a music file's title
+  and artist from its tags (`tags.rs`). Pure, natively tested.
 - `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -205,7 +206,8 @@ Rust and the browser are implementation details, not advertised features.
   (`#/play?replay=<play id>`, `crates/web/src/replay.rs`), the chart
   editor at `#/edit?song=<id>&chart=<n>` (`components/edit_page.rs`;
   its session, saving and playtests `#/play?…&edit=1`,
-  `crates/web/src/editor.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
+  `crates/web/src/editor.rs`; new songs from Add songs,
+  `editor/new_song.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
@@ -244,7 +246,7 @@ Rust and the browser are implementation details, not advertised features.
   `CVDisplayLink`);
   calibration's menu and tests (`calibrate.rs`); the chart editor
   (`editor.rs`: song select's E, saving into the song's folder, its
-  playtests); the
+  playtests; new songs from a music file, `editor/new_song.rs`); the
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). Tested without a sound device
@@ -370,6 +372,7 @@ Rust and the browser are implementation details, not advertised features.
   `--songs DIR` (a folder for this run), `--sample`, `--screen
   start|select|results|options|calibration|credits`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
+  `--edit SONG [--chart N]` (the chart editor on it),
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its
   results),
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,

@@ -55,6 +55,7 @@ fn place() -> EditorPlace {
         export: Some("Download".into()),
         listen: true,
         playtest: true,
+        discard: None,
     }
 }
 
@@ -555,6 +556,111 @@ fn song_select_opens_the_editor_with_e() {
         [SelectCall::Edit { song, .. }] => assert_eq!(*song, id),
         other => panic!("{other:?}"),
     }
+}
+
+/// Add songs' "New song", where the shell offers editing: by keys from
+/// the pickers above it, by a tap; the dialog closes for the picker.
+#[test]
+fn add_songs_offers_a_new_song_where_editing_is() {
+    use crate::screens::select::{SelectCall, SelectScreen, SharedFeed};
+    for (size, design) in SIZES {
+        for editing in [false, true] {
+            let env = env();
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let sink = calls.clone();
+            let s = SelectScreen::new(
+                env.clone(),
+                crate::screens::sample::select(),
+                Some("some-things-must"),
+                Rc::new(|_, _, _, _| {}),
+                Rc::new(|_, _| {}),
+            )
+            .with_shell(
+                Rc::new(move |c, _| {
+                    if c == SelectCall::NewSong {
+                        sink.borrow_mut().push(c);
+                    }
+                }),
+                SharedFeed::default(),
+            );
+            let mut h = Harness::new(design, size, 1.0, TextMode::Mirror);
+            h.push(if editing { s.with_editing() } else { s });
+            h.run(0.5);
+            let add = if h.ui.bounds("Link.Add").is_some() {
+                "Link.Add"
+            } else {
+                "AddIcon"
+            };
+            h.tap(PointerKind::Mouse, add);
+            h.run(0.4);
+            assert!(h.ui.bounds("PickFolder").is_some(), "{size:?}");
+            let Some(b) = h.ui.bounds("NewSong") else {
+                assert!(!editing, "{size:?}");
+                continue;
+            };
+            assert!(editing, "{size:?}");
+            let close = h.ui.bounds("Close").unwrap();
+            assert!(b[3] <= close[1], "{size:?}: {b:?} over {close:?}");
+            assert!(
+                h.texts().iter().any(|t| t == "New song from a music file"),
+                "{size:?}"
+            );
+            // Keys: from the pickers down to it, Enter.
+            let mut seen = Vec::new();
+            while h.ui.focused() != Some("NewSong") && seen.len() < 4 {
+                h.key("ArrowDown", "ArrowDown");
+                seen.push(h.ui.focused().map(str::to_string));
+            }
+            assert_eq!(h.ui.focused(), Some("NewSong"), "{size:?}: {seen:?}");
+            h.key("ArrowUp", "ArrowUp");
+            assert_eq!(h.ui.focused(), Some("PickFolder"), "{size:?}");
+            h.key("ArrowDown", "ArrowDown");
+            h.key("Enter", "Enter");
+            h.run(0.4);
+            assert_eq!(&*calls.borrow(), &[SelectCall::NewSong], "{size:?}");
+            assert!(h.ui.bounds("PickFolder").is_none(), "closed");
+            assert!(!env.state.borrow().import_open);
+            // A tap does the same.
+            h.tap(PointerKind::Mouse, add);
+            h.run(0.4);
+            h.tap(PointerKind::Touch, "NewSong");
+            h.run(0.4);
+            assert_eq!(calls.borrow().len(), 2, "{size:?}");
+        }
+    }
+}
+
+/// A new song left before its first save: the question says the song
+/// goes; once saved, only the changes do.
+#[test]
+fn leaving_a_new_song_unsaved_says_it_is_not_kept() {
+    let env = env();
+    let host = Rc::new(Host::default());
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let place = EditorPlace {
+        confirm: None,
+        discard: Some("The new song is not kept.".into()),
+        ..place()
+    };
+    let e = crate::state::editor::new_song::NewSong::plan("tune.ogg", b"", |_| false).editor();
+    h.push(EditorScreen::new(env.clone(), e, place).with_host(host.clone()));
+    h.run(0.4);
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert!(h.texts().iter().any(|t| t.contains("new song is not kept")));
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Button.Save");
+    h.run(0.3);
+    assert!(matches!(
+        host.calls.borrow().last(),
+        Some(EditorCall::Save { .. })
+    ));
+    h.key("Digit1", "1");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert!(h.texts().iter().any(|t| t == "Leave without saving?"));
+    assert!(!h.texts().iter().any(|t| t.contains("not kept")));
 }
 
 /// Typed into the field being typed into (desktop's way: committed

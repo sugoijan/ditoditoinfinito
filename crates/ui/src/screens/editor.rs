@@ -116,6 +116,9 @@ pub struct EditorPlace {
     pub listen: bool,
     /// Playtests can be started.
     pub playtest: bool,
+    /// What leaving without saving loses besides the changes (a new
+    /// song never saved: the song); `None` once saved.
+    pub discard: Option<String>,
 }
 
 /// What the screen shows, for the shells' debug views and tests.
@@ -941,7 +944,10 @@ impl EditorScreen {
             ConfirmDialog::new(
                 self.env.clone(),
                 "Leave without saving?",
-                "The changes since the last save are lost.",
+                self.place
+                    .discard
+                    .as_deref()
+                    .unwrap_or("The changes since the last save are lost."),
                 "Leave",
                 leave,
             ),
@@ -1861,6 +1867,7 @@ impl Screen for EditorScreen {
                 (Some(Param::Int(r)), _) => {
                     let r = (*r >= 0).then_some(*r as u64);
                     self.editor.borrow_mut().mark_saved_at(r);
+                    self.place.discard = None;
                     self.say("Saved");
                 }
                 _ => {}

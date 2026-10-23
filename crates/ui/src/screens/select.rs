@@ -117,6 +117,10 @@ pub enum SelectCall {
         song: String,
         chart: usize,
     },
+    /// Make a new song from a music file the player picks (the shell's
+    /// picker; cancelled, nothing changes) and open the editor on it:
+    /// Add songs' "New song", where the shell offers editing.
+    NewSong,
 }
 
 /// The plays kept of a song's chart, as the plays list shows them (the
@@ -3522,7 +3526,8 @@ impl SelectScreen {
                 // Back on the wheel once the dialog closes.
                 cx.focus("Wheel");
                 cx.overlay(
-                    ImportDialog::new(self.env.clone(), self.import.clone(), self.shell.clone()),
+                    ImportDialog::new(self.env.clone(), self.import.clone(), self.shell.clone())
+                        .with_new_song(self.editing),
                     true,
                 );
                 self.status("add songs".into());

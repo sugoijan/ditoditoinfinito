@@ -347,6 +347,12 @@ fn child(dir: &Path, name: &str) -> Option<PathBuf> {
         .map(|e| e.path())
 }
 
+/// Where a song folder's songs are: its `Songs` for a StepMania root,
+/// else itself.
+pub fn songs_dir(folder: &Path) -> PathBuf {
+    child(folder, "Songs").unwrap_or_else(|| folder.to_path_buf())
+}
+
 /// A folder's name; a zip's without `.zip` (the web's `stem`).
 fn root_name(path: &Path, zip: bool) -> String {
     let name = path
@@ -1204,6 +1210,17 @@ impl Library {
     /// scan replaces only folder rows, so pending scan news cannot erase imports.
     pub fn set_managed(&mut self, songs: Vec<LibSong>) -> bool {
         self.managed_songs = songs;
+        self.merge_songs()
+    }
+
+    /// Songs read outside a scan (a new song's folder) in the list at
+    /// once, in place of those with their ids; `remove`: ids taken out.
+    /// A scan started after their folders changed lists them the same.
+    pub fn put_songs(&mut self, songs: Vec<LibSong>, remove: &[String]) -> bool {
+        self.folder_songs.retain(|s| {
+            !remove.contains(&s.entry.id) && !songs.iter().any(|n| n.entry.id == s.entry.id)
+        });
+        self.folder_songs.extend(songs);
         self.merge_songs()
     }
 

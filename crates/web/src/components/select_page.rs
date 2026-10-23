@@ -47,8 +47,14 @@ const PAD_CHECK_MS: u32 = 1000;
 /// What the zip and files input takes.
 const ACCEPT: &str = ".zip,.sm,.ssc,.dwi,.swf,.as,.beatbox,.txt,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv";
 
+/// The music a new song is made from (`SelectCall::NewSong`).
+const ACCEPT_MUSIC: &str = "audio/*,.ogg,.oga,.opus,.mp3,.wav,.flac";
+
 pub(crate) enum Msg {
     Library(Result<Library, String>),
+    /// The music picked for a new song, and the song made (its id).
+    Music(web_sys::File),
+    NewSong(Result<String, String>),
     Folders(Vec<(String, JsValue)>),
     Usage(Option<f64>),
     Persisted(Option<bool>),
@@ -76,6 +82,7 @@ struct Shared {
     host: RefCell<Option<Weak<RefCell<Host>>>>,
     folder_input: NodeRef,
     file_input: NodeRef,
+    music_input: NodeRef,
     /// The place saved last (to skip writing the same).
     place: RefCell<MenuPlace>,
     /// The imported packs' names, once a library load (the debug state).
@@ -164,6 +171,7 @@ impl Component for SelectPage {
             host: RefCell::new(None),
             folder_input: NodeRef::default(),
             file_input: NodeRef::default(),
+            music_input: NodeRef::default(),
             place: RefCell::new(MenuPlace::load()),
             packs: RefCell::new(Vec::new()),
             import_debug: RefCell::new(ImportDebug::now()),
@@ -286,6 +294,20 @@ impl Component for SelectPage {
                 }
                 return true;
             }
+            Msg::Music(file) => {
+                ctx.link()
+                    .send_future(async move { Msg::NewSong(crate::editor::new_song(file).await) });
+            }
+            Msg::NewSong(Ok(id)) => {
+                crate::select_preview::close();
+                crate::router::navigate(
+                    &crate::router::Route::Edit { song: id, chart: 0 }.to_hash(),
+                );
+            }
+            Msg::NewSong(Err(e)) => {
+                ctx.link()
+                    .send_message(Msg::Say(format!("The new song could not be made: {e}")));
+            }
             Msg::FromFolder(_, Err(e)) => import::report_error(e),
             Msg::FromFolder(origin, Ok(files)) => {
                 if import::start_from(files, origin) {
@@ -395,6 +417,23 @@ impl Component for SelectPage {
                 input(&shared.folder_input, true);
             }
             input(&shared.file_input, false);
+            // A new song's music: one file, opened in the editor.
+            let el = element(&panel, "input", "");
+            let _ = el.set_attribute("type", "file");
+            let _ = el.set_attribute("tabindex", "-1");
+            let _ = el.set_attribute("accept", ACCEPT_MUSIC);
+            shared.music_input.set(&el);
+            let (link, which) = (shared.link.clone(), shared.music_input.clone());
+            listeners.push(EventListener::new(&el, "change", move |_| {
+                let Some(el) = which.cast::<HtmlInputElement>() else {
+                    return;
+                };
+                let file = el.files().and_then(|f| f.get(0));
+                el.set_value("");
+                if let Some(file) = file {
+                    link.send_message(Msg::Music(file));
+                }
+            }));
             let status = element(root, "p", "import-status sr-only");
             let _ = status.set_attribute("role", "status");
             let _ = status.set_attribute("aria-live", "polite");
@@ -865,6 +904,13 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
         SelectCall::PickFiles => {
             let _ = storage::request_persist();
             if let Some(i) = shared.file_input.cast::<HtmlInputElement>() {
+                i.click();
+            }
+        }
+        // In the gesture: the picker opens only then.
+        SelectCall::NewSong => {
+            let _ = storage::request_persist();
+            if let Some(i) = shared.music_input.cast::<HtmlInputElement>() {
                 i.click();
             }
         }

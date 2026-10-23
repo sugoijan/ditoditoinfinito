@@ -496,6 +496,8 @@ pub struct ImportDialog {
     progress_phase: f32,
     progress_rect: [f32; 3],
     url_error: Option<String>,
+    /// "New song" ([`SelectCall::NewSong`]) is offered.
+    new_song: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -543,7 +545,15 @@ impl ImportDialog {
             progress_phase: 0.0,
             progress_rect: [0.0; 3],
             url_error: None,
+            new_song: false,
         }
+    }
+
+    /// Offers "New song": a song made from a music file, opened in the
+    /// chart editor.
+    pub fn with_new_song(mut self, on: bool) -> ImportDialog {
+        self.new_song = on;
+        self
     }
 
     fn urls(&self) -> bool {
@@ -797,6 +807,21 @@ impl ImportDialog {
             children.push(b);
         }
         y += if compact { 40.0 } else { 44.0 };
+        if self.new_song {
+            let mut b = button(
+                &self.env,
+                "NewSong",
+                "New song from a music file",
+                [x + 24.0 + bw + 5.0, y],
+                bw * 2.0 + 10.0,
+                "Button",
+            );
+            if busy {
+                look::run(&mut b, "diffusealpha,0.4");
+            }
+            children.push(b);
+            y += if compact { 40.0 } else { 44.0 };
+        }
         let option_height = if self.screen[1] < 480.0 { 28.0 } else { 34.0 };
         for (name, label, on) in self.options() {
             children.push(
@@ -1062,12 +1087,24 @@ impl Screen for ImportDialog {
                 .first()
                 .map(|(n, _, _)| format!("Option.{n}"))
                 .unwrap_or_else(|| "Report".into());
+            let below = if self.new_song {
+                "NewSong".to_string()
+            } else {
+                next.clone()
+            };
             for (name, other) in [("PickFolder", "PickFiles"), ("PickFiles", "PickFolder")] {
                 v.push(Focusable {
                     left: Some(other.into()),
                     right: Some(other.into()),
-                    down: Some(next.clone()),
+                    down: Some(below.clone()),
                     ..Focusable::new(name)
+                });
+            }
+            if self.new_song {
+                v.push(Focusable {
+                    up: Some("PickFolder".into()),
+                    down: Some(next.clone()),
+                    ..Focusable::new("NewSong")
                 });
             }
             v.extend(
@@ -1185,7 +1222,14 @@ impl Screen for ImportDialog {
                     "PickFiles" if !busy && self.tab == ImportTab::Files => {
                         self.call(SelectCall::PickFiles, cx)
                     }
-                    "PickFolder" | "PickFiles" => {}
+                    "NewSong" if !busy && self.new_song && self.tab == ImportTab::Files => {
+                        // The editor opens over song select once the music
+                        // is picked; this dialog is done either way.
+                        self.env.state.borrow_mut().import_open = false;
+                        cx.close(false);
+                        self.call(SelectCall::NewSong, cx);
+                    }
+                    "PickFolder" | "PickFiles" | "NewSong" => {}
                     "ImportDanoni" if self.tab == ImportTab::Danoni => self.submit(root, cx),
                     "CancelDanoni" if busy && self.view.borrow().danoni_cancel => {
                         self.call(SelectCall::CancelDanoni, cx)

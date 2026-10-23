@@ -22,6 +22,7 @@
 //! - [`swf`]: an FFR level's chart and music from its SWF; [`ffr`]: levels
 //!   found among files, read into songs.
 //! - [`edited`]: a stored song's entry after the chart editor saved it.
+//! - [`tags`]: a music file's title and artist, for a new song.
 
 pub mod avi;
 pub mod backgrounds;
@@ -39,6 +40,7 @@ pub mod scan;
 pub mod search;
 pub mod suggest;
 pub mod swf;
+pub mod tags;
 pub mod video;
 pub mod works;
 pub mod zip;

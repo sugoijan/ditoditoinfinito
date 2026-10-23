@@ -94,6 +94,7 @@ const THEME_NAMED: &[&str] = &[
     "Mod0",
     "PickFolder",
     "PickFiles",
+    "NewSong",
     "Option.copy",
     "Option.videos",
     "Option.details",

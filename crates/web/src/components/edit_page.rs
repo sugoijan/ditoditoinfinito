@@ -140,6 +140,8 @@ impl EditPage {
         });
         let status = if std::mem::take(&mut self.recovered) {
             "Unsaved changes recovered from the last time; leave without saving to drop them"
+        } else if crate::editor::fresh(&id) {
+            ddi_ui::state::editor::new_song::STATUS
         } else {
             ""
         };

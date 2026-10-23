@@ -56,6 +56,30 @@ pub fn entry_after_edit(
     Ok(entry)
 }
 
+/// The entry of a song the editor made new from a music file (the web
+/// stores it as an imported song): `id`, read from `text` as stored as
+/// `chart`, its music `music`.
+pub fn entry_for_new(
+    id: &str,
+    text: &str,
+    chart: RelPathBuf,
+    music: RelPathBuf,
+) -> Result<ManifestEntry, String> {
+    let song: Song = crate::scan::parse_simfile(text, "ssc").map_err(|e| e.to_string())?;
+    let (title, artist) = simfile_names(&song, "");
+    let meta = EntryMeta {
+        id: id.to_string(),
+        title,
+        artist,
+        chart,
+        music,
+        ..EntryMeta::default()
+    };
+    let mut entry = summarize(meta, &song);
+    crate::works::fill_chart_keys(&mut entry, &song);
+    Ok(entry)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +136,19 @@ mod tests {
             e.charts[0].digest, old.charts[0].digest,
             "a new tempo, a new chart"
         );
+    }
+
+    #[test]
+    fn a_new_song_with_an_empty_chart_is_listed() {
+        let text = "#VERSION:0.83;#TITLE:New;#ARTIST:Me;#MUSIC:tune.ogg;#OFFSET:0;#BPMS:0=120;\
+            #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Medium;#METER:1;#NOTES:\n0000\n;";
+        let e = entry_for_new("u-1", text, "chart.ssc".into(), "tune.ogg".into()).unwrap();
+        assert_eq!(
+            (e.id.as_str(), e.title.as_str(), e.artist.as_str()),
+            ("u-1", "New", "Me")
+        );
+        assert_eq!(e.music.as_str(), "tune.ogg");
+        assert_eq!(e.charts.len(), 1);
+        assert_eq!((e.charts[0].notes, e.bpm.as_str()), (0, "120"));
     }
 }

@@ -69,6 +69,9 @@ pub struct Songs {
     /// Calibration's tests autoplayed, and how late (`--auto`, `--bias`:
     /// the web's testing parameters).
     pub testing: Cell<(bool, f64)>,
+    /// The editor asked for by `--edit SONG [--chart N]`: opened once the
+    /// library knows the song ([`Songs::edit_ready`]).
+    pub edit: RefCell<Option<(String, usize)>>,
 }
 
 impl Songs {
@@ -97,6 +100,7 @@ impl Songs {
             play: Rc::default(),
             autoplay: Cell::new(false),
             testing: Cell::new((false, 0.0)),
+            edit: RefCell::default(),
         })
     }
 
@@ -155,6 +159,29 @@ impl Songs {
             wake,
         );
         *self.library.borrow_mut() = Some(library);
+    }
+
+    /// Songs read outside a scan in the list at once, and `remove`d ones
+    /// out (a new song made or taken away, `crate::editor::new_song`); a
+    /// scan follows.
+    pub fn put_songs(&self, songs: Vec<LibSong>, remove: &[String]) {
+        if let Some(l) = self.library.borrow_mut().as_mut() {
+            l.put_songs(songs, remove);
+        }
+        self.rescan(Vec::new());
+    }
+
+    /// The song and chart `--edit` asked for, once the library knows the
+    /// song (or has read every folder without it).
+    pub fn edit_ready(&self) -> Option<(String, usize)> {
+        let known = self.edit.borrow().as_ref().is_some_and(|(id, _)| {
+            crate::library::song(id).is_some() || self.bundled.iter().any(|e| &e.id == id)
+        });
+        if known || self.listed_all() {
+            self.edit.borrow_mut().take()
+        } else {
+            None
+        }
     }
 
     /// Scans again (`force`: these folders whole).
@@ -652,7 +679,8 @@ impl Songs {
             SelectCall::Open(_)
             | SelectCall::ImportOption(..)
             | SelectCall::Notice(_)
-            | SelectCall::Edit { .. } => {}
+            | SelectCall::Edit { .. }
+            | SelectCall::NewSong => {}
         }
     }
 }
@@ -702,6 +730,32 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                         cx.push(screen);
                     }
                     Err(e) => eprintln!("editor: {song}: {e}"),
+                }
+                return;
+            }
+            // A new song from a music file, in the editor.
+            if matches!(call, SelectCall::NewSong) {
+                match crate::editor::new_song::pick(&env, &songs) {
+                    Some(Ok(screen)) => {
+                        if let Some(p) = &sound {
+                            p.borrow_mut().pause();
+                        }
+                        songs.feed.borrow_mut().data = Some(songs.data());
+                        cx.broadcast(Message::new(FEED));
+                        cx.push(screen);
+                    }
+                    Some(Err(e)) => {
+                        songs
+                            .notices
+                            .borrow_mut()
+                            .push(ddi_ui::screens::data::Notice {
+                                text: format!("The new song could not be made: {e}"),
+                                link: None,
+                                error: true,
+                            });
+                        songs.send_notices(cx);
+                    }
+                    None => {}
                 }
                 return;
             }

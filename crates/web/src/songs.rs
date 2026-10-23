@@ -192,6 +192,10 @@ async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
     let mut songs = Vec::new();
     let mut unreadable = Vec::new();
     for (id, value) in db.entries(idb::SONGS).await? {
+        // A new song the editor is taking away.
+        if crate::editor::dropped(&id) {
+            continue;
+        }
         match value
             .as_string()
             .and_then(|json| serde_json::from_str::<ImportedSong>(&json).ok())

@@ -1323,6 +1323,15 @@ impl ApplicationHandler for Shell {
             // in the poll), never during a play.
             songs.rework(self.play.playing(), !self.play.idle());
             songs.poll(&mut self.ui);
+            // `--edit`: the editor once the library has the song.
+            if let Some((env, _)) = &self.theme
+                && let Some((id, chart)) = songs.edit_ready()
+            {
+                match crate::editor::screen(env, songs, &id, chart) {
+                    Ok(screen) => self.ui.push(screen),
+                    Err(e) => eprintln!("--edit {id}: {e}"),
+                }
+            }
             let invalidated = crate::library::take_invalidated_previews();
             if !invalidated.is_empty() {
                 self.sound.borrow_mut().invalidate(&invalidated);

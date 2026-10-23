@@ -18,6 +18,12 @@
 //! at once, on a context made inside that press; asked before the
 //! decode ends, it starts when it does (the context runs by then). A
 //! chart whose music is the file decoded already is not decoded again.
+//!
+//! A new song from a music file (`new_song`) is stored when it is made;
+//! left before its first save, it is taken away again.
+
+mod new_song;
+pub(crate) use new_song::create as new_song;
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -47,10 +53,15 @@ struct Session {
     editor: Rc<RefCell<Editor>>,
     /// The playtest asked for: the song as edited, the second it starts.
     playtest: Option<(Song, f64)>,
+    /// A new song not saved yet.
+    fresh: bool,
 }
 
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
+    /// New songs left unsaved, being taken away: the library leaves them
+    /// out meanwhile.
+    static DROPPED: RefCell<std::collections::HashSet<String>> = RefCell::default();
 }
 
 /// Song `id`'s editor if it is being edited.
@@ -71,9 +82,43 @@ pub(crate) fn begin(id: &str, editor: Editor) -> Rc<RefCell<Editor>> {
             id: id.to_string(),
             editor: editor.clone(),
             playtest: None,
+            fresh: false,
         })
     });
     editor
+}
+
+/// Starts editing new song `id` (stored already, never saved).
+fn begin_new(id: &str, editor: Editor) {
+    DROPPED.with(|d| d.borrow_mut().remove(id));
+    begin(id, editor);
+    SESSION.with(|s| {
+        if let Some(s) = s.borrow_mut().as_mut() {
+            s.fresh = true;
+        }
+    });
+}
+
+/// Song `id` is a new song being edited, not saved yet.
+pub(crate) fn fresh(id: &str) -> bool {
+    SESSION.with(|s| s.borrow().as_ref().is_some_and(|s| s.id == id && s.fresh))
+}
+
+/// Song `id` is a new song left unsaved, being taken away.
+pub(crate) fn dropped(id: &str) -> bool {
+    DROPPED.with(|d| d.borrow().contains(id))
+}
+
+/// New song `id` taken away (left unsaved): left out of the library
+/// at once, its stored record and files after.
+fn forget_new(id: &str) {
+    DROPPED.with(|d| d.borrow_mut().insert(id.to_string()));
+    let ids = vec![id.to_string()];
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(e) = crate::songs::delete_imported(&ids).await {
+            web_sys::console::warn_1(&format!("editor: the new song: {e}").into());
+        }
+    });
 }
 
 /// The playtest of song `id`: the song as edited and its start second.
@@ -102,9 +147,10 @@ fn forget_autosave() {
 /// What the web can do with song `id`.
 pub(crate) fn place(id: &str) -> EditorPlace {
     let imported = crate::songs::is_imported_id(id);
+    let fresh = fresh(id);
     EditorPlace {
         save: imported.then(|| "this browser's copy of the song".into()),
-        confirm: imported.then(|| {
+        confirm: (imported && !fresh).then(|| {
             "The song stored in this browser is replaced (the files it was imported from are \
              not changed)."
                 .into()
@@ -112,6 +158,7 @@ pub(crate) fn place(id: &str) -> EditorPlace {
         export: Some("Download".into()),
         listen: true,
         playtest: true,
+        discard: fresh.then(|| "The new song is not kept.".into()),
     }
 }
 
@@ -217,6 +264,11 @@ impl EditorHost for WebEditorHost {
                     let m = match save_imported(&id, &text).await {
                         Ok(()) => {
                             forget_autosave();
+                            SESSION.with(|s| {
+                                if let Some(s) = s.borrow_mut().as_mut().filter(|s| s.id == id) {
+                                    s.fresh = false;
+                                }
+                            });
                             Message::new(SAVED)
                                 .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64)))
                         }
@@ -293,6 +345,9 @@ impl EditorHost for WebEditorHost {
                 }
             }
             EditorCall::Leave => {
+                if fresh(&self.id) {
+                    forget_new(&self.id);
+                }
                 end();
                 forget_autosave();
                 self.listen.borrow_mut().stop();

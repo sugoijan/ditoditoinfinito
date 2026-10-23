@@ -16,6 +16,11 @@
 //! pack is read again after a save. The autosave
 //! (`ddi_ui::state::editor::autosave`) is `editor-autosave.json` in the
 //! data folder: opening its song again recovers it.
+//!
+//! A new song from a music file (`new_song`) gets a folder when it is
+//! made; left before its first save, the folder is removed again.
+
+pub mod new_song;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -132,6 +137,8 @@ struct Host {
     /// The `.old` was made this session.
     backed_up: Cell<bool>,
     listen: RefCell<Listen>,
+    /// A new song's folder, until its first save.
+    fresh: RefCell<Option<PathBuf>>,
 }
 
 /// Listening: the editor's own output, the music of a chart (decoded on
@@ -221,6 +228,7 @@ impl EditorHost for Host {
                         match save(editor.song(), &t.file, backup) {
                             Ok(()) => {
                                 self.backed_up.set(self.backed_up.get() || backup);
+                                self.fresh.borrow_mut().take();
                                 forget_autosave();
                                 // The song list reads the pack again.
                                 self.songs
@@ -273,6 +281,11 @@ impl EditorHost for Host {
             EditorCall::Leave => {
                 forget_autosave();
                 self.listen.borrow_mut().stop();
+                if let Some(dir) = self.fresh.borrow_mut().take() {
+                    new_song::forget(&self.songs, &self.id, &dir);
+                    self.songs.feed.borrow_mut().data = Some(self.songs.data());
+                    cx.broadcast(Message::new(FEED));
+                }
             }
             EditorCall::Listen { from } => {
                 let mut l = self.listen.borrow_mut();
@@ -309,35 +322,56 @@ pub fn screen(
         Some(a) => Editor::recover(a),
         None => read(id, chart)?,
     };
+    Ok(open(env, songs, id, editor, &status, None))
+}
+
+/// The editor on song `id` of the library as `editor` has it; `fresh`:
+/// a new song's folder, never saved (removed when left unsaved).
+pub fn open(
+    env: &Env,
+    songs: &Rc<Songs>,
+    id: &str,
+    editor: Editor,
+    status: &str,
+    fresh: Option<PathBuf>,
+) -> EditorScreen {
     let target = target(id);
     let place = EditorPlace {
         save: target.as_ref().map(|t| t.file.display().to_string()),
-        confirm: target.as_ref().filter(|t| t.overwrites).map(|t| {
-            let name = t
-                .file
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            format!(
-                "{} is replaced; the file as it was is kept beside it as {name}.old (at the \
+        confirm: target
+            .as_ref()
+            .filter(|t| t.overwrites && fresh.is_none())
+            .map(|t| {
+                let name = t
+                    .file
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                format!(
+                    "{} is replaced; the file as it was is kept beside it as {name}.old (at the \
                  first save each time the editor is opened).",
-                t.file.display()
-            )
-        }),
+                    t.file.display()
+                )
+            }),
         export: Some("Save a copy".into()),
         listen: true,
         playtest: true,
+        discard: fresh
+            .as_ref()
+            .map(|_| "The new song is not kept: its folder is removed.".into()),
     };
     let host = Host {
         songs: songs.clone(),
         id: id.to_string(),
         target,
-        backed_up: Cell::new(false),
+        // A new song's first file is not worth an `.old`.
+        backed_up: Cell::new(fresh.is_some()),
         listen: RefCell::new(Listen::new(id, editor.chart_index())),
+        fresh: RefCell::new(fresh),
     };
-    Ok(EditorScreen::new(env.clone(), editor, place)
+    EditorScreen::new(env.clone(), editor, place)
         .with_host(Rc::new(host))
-        .with_status(&status))
+        .with_status(status)
 }
 
 #[cfg(test)]

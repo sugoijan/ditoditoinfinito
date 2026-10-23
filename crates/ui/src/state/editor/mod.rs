@@ -17,6 +17,7 @@
 pub mod autosave;
 mod change;
 pub mod export;
+pub mod new_song;
 #[cfg(test)]
 mod tests;
 

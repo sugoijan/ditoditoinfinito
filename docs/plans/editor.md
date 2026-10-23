@@ -6,10 +6,9 @@ timing and notes in the game, try them at once, and keep them
 
 Status (2026-10-21): the writer, the editing model, the screen on both
 shells, listening, playtests, saving and the autosave are built (steps
-1, 2, 4, 6, 7, the listening of 5 and the song-select half of 8; see
+1, 2, 4, 6, 7, the listening of 5 and 8; see
 "Built" below); the field in the player's skin (3), the metronome,
-tap-to-tempo and the overview (5) and new songs from a music file are
-left ("Left").
+tap-to-tempo and the overview (5) are left ("Left").
 
 ## Scope of the first version
 
@@ -240,7 +239,29 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    song again recovers it, unsaved, and says so.
 8. **Entry points**: song select's E on both shells
    (`SelectScreen::with_editing`, `SelectCall::Edit`); the web's route
-   `#/edit?song=<id>&chart=<n>`.
+   `#/edit?song=<id>&chart=<n>`; desktop's `--edit SONG [--chart N]`
+   (the editor over song select once the library has the song, for
+   runs and screenshots). **New songs** (2026-10-23): Add songs' "New
+   song from a music file" (`SelectCall::NewSong`, where the shell
+   offers editing; keys, a pad and taps reach it as the pickers above
+   it) picks a music file (the web: a hidden file input clicked inside
+   the press; desktop: the system's dialog), names the song from the
+   file's tags (`ddi_library::tags`: ID3v2, Vorbis comments in Ogg and
+   FLAC, a WAV's `INFO`) or else its name, and makes it
+   (`ddi_ui::state::editor::new_song`): one empty chart at 120 BPM from
+   the music's start (`Editor::new_song`) in the pack `Dito Edits`, its
+   folder named after the title (numbered when taken). Desktop
+   (`crates/desktop/src/editor/new_song.rs`): the folder
+   `Dito Edits/<title>/` in the first song folder Options lists (in its
+   `Songs` for a StepMania root), the music copied in and
+   `<title>.ssc` written, read into the library at once. The web
+   (`crates/web/src/editor/new_song.rs`): an imported song in
+   IndexedDB, its music the file picked and its chart `chart.ssc`
+   (`ddi_library::edited::entry_for_new`). The editor opens on it
+   unsaved, so listening and playtests read it as any song's; its
+   first save asks nothing and keeps no `.old`; left before that, the
+   song is taken away again, as the question to leave says. Cancelling
+   the picker changes nothing.
 
 Verified: the native tests above; desktop offscreen
 (`crates/desktop/tests/editor_offscreen.rs`: the editor in the theme on
@@ -254,6 +275,21 @@ download, song select's E, an imported song saved and read back after a
 reload; listening started by a key under Chrome's user-activation
 autoplay policy, stopped on the grid; the autosave kept, recovered after
 a reload and dropped by leaving).
+
+New songs (2026-10-23): the harness (`editor_tests.rs`: Add songs'
+"New song" at the three sizes, by keys and taps, only where editing is
+offered; leaving a new song unsaved says it goes); desktop headless
+(`crates/desktop/tests/editor_new_song.rs`, the picked file injected:
+the picker cancelled, then a generated WAV named by its `INFO` made
+into a song from Add songs, listened to, charted by keys, playtested
+autoplayed and not kept, saved, listed by song select and opened again
+equal; a second one left unsaved and removed; `--edit` waiting for the
+library); headless Chrome and Firefox (`target/scratch/pw/new-song-web.mjs`,
+the file set on the page's input: the picker cancelled with nothing
+made, then a generated MP3 (Chrome) or Ogg Opus (Firefox) named by its
+tags made into a song, charted, playtested autoplayed and back, saved,
+listed by song select and opened again equal after a reload; a second
+one left unsaved and gone from the list).
 
 ## Decided here (the maintainer may change any)
 
@@ -295,6 +331,19 @@ a reload and dropped by leaving).
 - The web's listening may start after the press when the music was not
   decoded yet (its context runs by then); the maintainer's Safari check
   should cover a first press right after opening.
+- "New song" sits in Add songs (reached in both layouts, and where
+  songs come from); the start menu stays as `start-menu.md` has it.
+- A new song is made when its music is picked (its folder, or its
+  stored copy, with the music and an empty chart), so listening and
+  playtests work before a save; left before its first save it is
+  removed (desktop: its folder; the web: its stored song).
+- Desktop's new songs go in `Dito Edits` in the first song folder
+  Options lists, or in `Songs` in the data folder (then listed in
+  Options) when none is; the web's are imported songs of the pack
+  `Dito Edits`.
+- A new song's chart is the model's: one empty Medium dance-single
+  chart, meter 1, at 120 BPM with offset 0; its title and artist are
+  the music's tags, else the title is its file name (`_` as spaces).
 
 ## Left
 
@@ -302,10 +351,6 @@ a reload and dropped by leaving).
   scene paused at the cursor, `crates/render`), with offscreen tests.
 - **Step 5, the rest**: the metronome (calibration's click on the
   beats while listening), tap-to-tempo, the music's overview strip.
-- **New songs from a music file** (`Editor::new_song` exists): the
-  start menu's or song select's "New song" with a file picker on both
-  shells, and where its folder goes.
-- Desktop's `--edit SONG` flag for runs and screenshots.
 - Notes inside warps and overlapping holds from imported files are
   kept as read; the editor does not report them before a playtest.
 - Song-level `#LASTSECONDHINT` and other cache-only tags are not kept
