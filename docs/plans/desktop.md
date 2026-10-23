@@ -921,6 +921,19 @@ milliseconds of lateness. A fallback with stalls near zero and misses
 with on-time wakes would be the fullscreen deadline itself, as for
 late·1.
 
+**After the change (2026-10-23).** The same command twice: entering
+fullscreen before Start, and clicking fullscreen mid-play ("the window
+was hidden for 0.55 s: the play goes on"; woke late 546.66 ms at most,
+the transition, and no miss counted after a stall in either). Late·2
+fell back after 27.1 s and after 18.0 s of its frames, with 34 and 33
+acquire misses whose frames woke on time (0.45 ms, p50) and the margin
+at its cap: the fullscreen deadline itself, about 1 % of refreshes. The
+maintainer kept the fallback: in fullscreen a play ends up on block·2,
+no repeats and about 21 ms frame start to shown, against late·2's 11 ms
+and 1.7 repeats a second. The notes stay where they belong either way
+(each frame is drawn for the refresh it is shown at); what the
+fallback costs is how soon a press's flash and explosion show.
+
 The hundreds of block target gaps **do not establish repeated refreshes**.
 `target_after` rounds each present up to a refresh and assumes a full
 queue. Small jitter across a refresh boundary can assign consecutive
