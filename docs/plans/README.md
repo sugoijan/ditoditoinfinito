@@ -57,10 +57,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   2026-10-22). Left: their music against a real level's.
 - [The chart editor](editor.md) (2026-10-21): in progress. The
   `.ssc`/`.sm` writer, notes and timing with undo, the screen on both
-  shells (song select's E, `#/edit`), listening, playtests, saving and
-  the autosave, new songs
-  from a music file, the field in the player's skin (an edit and a
-  play view) done; the metronome, tap-to-tempo left.
+  shells (song select's E, `#/edit`), the field in the player's skin
+  (an edit and a play view), listening with the metronome, tap-to-tempo
+  and the music's overview, playtests, saving and the autosave, new
+  songs from a music file done.
 - [Additional charts without onigiri](chart-simplification.md)
   (2026-10-18): done. DanOni 5/7/9A/9B charts converted to Single, Solo,
   Double and Techno 8-panel, marked as assisted.

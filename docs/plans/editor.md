@@ -5,10 +5,10 @@ timing and notes in the game, try them at once, and keep them
 (`docs/plans/phase-10.md`, step 3).
 
 Status (2026-10-23): the writer, the editing model, the field in the
-player's skin, the screen on both shells, listening, playtests, saving
-and the autosave are built (steps 1–4, 6, 7, the listening of 5 and 8;
-see "Built" below); the metronome, tap-to-tempo and the overview (5)
-are left ("Left").
+player's skin, the screen on both shells, listening with the
+metronome, tap-to-tempo and the music's overview, playtests, saving
+and the autosave are built (steps 1–8; see "Built" below); what is
+left is under "Left".
 
 ## Scope of the first version
 
@@ -261,6 +261,36 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    editor opens (desktop on a thread at the output's rate; the web on an
    offline context), so the press plays it at once; the web makes its
    audio context inside that press.
+   The sound tools (2026-10-23; `ddi_session::listen::Cues`,
+   `ddi_ui::screens::editor`'s `sound`, `state::editor::tap` and
+   `overview`). **The metronome** (K, the menu, or a tap on the panel's
+   line) clicks calibration's click on every beat while listening (its
+   note's click on a measure's first beat by the time signatures, its
+   lead-in's on the others) and **the assist clap** (Shift K) claps the
+   play's clap on the rows of taps and hold and roll heads judged; both
+   are scheduled 0.3 s ahead on the audio clock at the context time the
+   music plays the beat's second (`TimingMap::seconds_at`, as a note on
+   it is judged: through BPM changes, stops, delays, and one click for a
+   warp's beats), so they are heard with the music, and are told again
+   when the song, the chart or the sounds change while listening. They
+   are the editor's state (`Editor::sounds`), not the settings.
+   **Tap-to-tempo**: Y tapped along; the BPM is a least squares line
+   through the last 24 taps against beat numbers from their gaps (each
+   gap rounded to the median gap: a skipped beat counts two, an extra
+   tap none), the farthest tap a fifth of a beat off the line left out
+   and the line fitted again; a pause of 2 s starts again. While
+   listening each tap also has the second heard, and the run says where
+   a beat was heard, from which the offset that puts the nearest beat
+   there (to the millisecond). Shift Y (or a tap on the panel's line)
+   sets the BPM at the cursor, the menu also the BPM and the offset, one
+   undo each (`Editor::set_tapped_tempo`). **The overview**: the
+   music's RMS in up to 4,096 bins of at least 10 ms, on a 30 dB scale
+   under the loudest, made once from the music decoded for listening
+   (desktop on a thread, the web from the `AudioBuffer` a block at a
+   time, its MP3 lead kept), drawn as a strip at the field's right edge
+   with the rows in view and the cursor; a tap or a drag on it moves the
+   cursor there (listening stops). The screen asks the shell for it
+   every 0.25 s while it is being made (`EditorHost::overview_coming`).
 6. **Playtest**: `EditorCall::Playtest` hands the shell the song as
    edited and a start 2 s before the cursor (`PLAYTEST_LEAD`);
    `SessionConfig::start` starts the session there (earlier notes
@@ -325,6 +355,26 @@ download, song select's E, an imported song saved and read back after a
 reload; listening started by a key under Chrome's user-activation
 autoplay policy, stopped on the grid; the autosave kept, recovered after
 a reload and dropped by leaving).
+
+The sound tools (2026-10-23): `listen.rs`'s tests on a fake clock (the
+clicks' scheduled times are the beats' heard times through a BPM
+change, a stop, a delay, a warp and a 3/4; the claps on the rows
+judged; cues changed while listening go on from what was scheduled);
+`tap.rs` (jitter, a stray tap, a skipped beat, a double tap, a pause,
+the offset from taps heard, one undo); `overview.rs`; the harness
+(`editor_sound_tests.rs`: the toggles told to the shell while
+listening, taps by keys at their time stamps, the offset from taps
+while listening, the overview asked for until it comes and a tap and a
+drag on the strip at the three sizes, the panel's lines above its
+buttons); desktop offscreen (`crates/desktop/tests/editor_sound.rs`:
+the overview made on its thread and drawn, the metronome on while
+listening headless, a click on the strip); headless Chrome (under the
+user-activation autoplay policy) and Firefox
+(`target/scratch/pw/editor-sound.mjs`: the overview, clicks scheduled
+on Beatucada's beats a little ahead of what is heard, accented on the
+measures, claps once turned on while listening, taps estimating
+122 BPM, Shift Y and its undo, a click on the strip;
+`__DDI_DEBUG.editorCues`).
 
 New songs (2026-10-23): the harness (`editor_tests.rs`: Add songs'
 "New song" at the three sizes, by keys and taps, only where editing is
@@ -395,6 +445,16 @@ one left unsaved and gone from the list).
 - The web's listening may start after the press when the music was not
   decoded yet (its context runs by then); the maintainer's Safari check
   should cover a first press right after opening.
+- The metronome clicks quarter-note beats (StepMania's beats) and
+  accents a measure's first by the time signatures; the field's
+  measure numbers stay four beats.
+- The metronome and the clap are kept with the editor while it is open
+  (the web's across a playtest), not in the settings; they start off.
+- Tap-to-tempo's BPM is applied to the hundredth; its offset only from
+  the menu (it moves the whole grid), Shift Y sets the BPM alone.
+- The overview spans from the music's start (or beat 0 before it) to
+  its end (or the last note after it); on a small screen the panel
+  shows one line of the sound tools at most (the menu has the rest).
 - "New song" sits in Add songs (reached in both layouts, and where
   songs come from); the start menu stays as `start-menu.md` has it.
 - A new song is made when its music is picked (its folder, or its
@@ -411,8 +471,6 @@ one left unsaved and gone from the list).
 
 ## Left
 
-- **Step 5, the rest**: the metronome (calibration's click on the
-  beats while listening), tap-to-tempo, the music's overview strip.
 - Notes inside warps and overlapping holds from imported files are
   kept as read; the editor does not report them before a playtest.
 - Song-level `#LASTSECONDHINT` and other cache-only tags are not kept

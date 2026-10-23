@@ -25,13 +25,13 @@ pub mod new_song;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 use ddi_chart::Song;
 use ddi_chart::formats::sm_write;
 use ddi_library::pack::ChartFormat;
 use ddi_library::path::RelPathBuf;
-use ddi_session::listen::Listener;
+use ddi_session::listen::{Cues, Listener};
 use ddi_ui::Cx;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::Env;
@@ -39,9 +39,10 @@ use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen,
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::{FEED, SelectCall};
 use ddi_ui::state::editor::autosave::Autosave;
+use ddi_ui::state::editor::overview::{Builder, Overview};
 use ddi_ui::state::editor::{Editor, export};
 
-use crate::audio::Audio;
+use crate::audio::{Audio, Sound};
 use crate::play::load::Loading;
 
 use crate::songs::Songs;
@@ -151,6 +152,9 @@ struct Listen {
     /// The music file being read.
     loading: Option<(RelPathBuf, Loading)>,
     listener: Listener<Audio>,
+    /// The music's overview, once made from it on a thread.
+    overview: Option<Rc<Overview>>,
+    making: Option<mpsc::Receiver<Overview>>,
 }
 
 impl Listen {
@@ -160,6 +164,8 @@ impl Listen {
             id: id.to_string(),
             loading: None,
             listener: Listener::default(),
+            overview: None,
+            making: None,
         };
         l.load(chart);
         l
@@ -173,7 +179,34 @@ impl Listen {
             let rate = self.audio.sample_rate();
             let loading = Loading::start(&self.id, Some(chart), rate, false, None, None);
             self.loading = Some((file, loading));
+            (self.overview, self.making) = (None, None);
         }
+    }
+
+    /// The overview of `music`, made on a thread.
+    fn make_overview(&mut self, music: Sound) {
+        let (tx, rx) = mpsc::channel();
+        let made = std::thread::Builder::new()
+            .name("ddi-editor-overview".into())
+            .spawn(move || {
+                let mut b = Builder::new(f64::from(music.rate), music.frames(), 0.0);
+                b.add_interleaved(0, &music.data, usize::from(music.channels));
+                let _ = tx.send(b.finish());
+            });
+        self.making = made.is_ok().then_some(rx);
+    }
+
+    /// The overview, once made.
+    fn overview(&mut self) -> Option<Rc<Overview>> {
+        self.poll();
+        if let Some(rx) = &self.making {
+            match rx.try_recv() {
+                Ok(o) => (self.overview, self.making) = (Some(Rc::new(o)), None),
+                Err(mpsc::TryRecvError::Disconnected) => self.making = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        self.overview.clone()
     }
 
     /// Takes in the music once read; plays it if it was waited for.
@@ -186,6 +219,7 @@ impl Listen {
         };
         match result {
             Ok(loaded) => {
+                self.make_overview(loaded.music.clone());
                 if let Err(e) =
                     self.listener
                         .music_ready(&file, loaded.music, Some(&mut self.audio))
@@ -293,9 +327,11 @@ impl EditorHost for Host {
                 // This chart's music, which may be another file.
                 l.load(editor.chart_index());
                 l.poll();
+                l.listener.set_cues(Cues::of(editor));
                 l.ask(from);
             }
             EditorCall::Stop => self.listen.borrow_mut().stop(),
+            EditorCall::Cues => self.listen.borrow_mut().listener.set_cues(Cues::of(editor)),
         }
     }
 
@@ -303,7 +339,17 @@ impl EditorHost for Host {
         let l = &mut *self.listen.borrow_mut();
         l.audio.tick();
         l.poll();
+        l.listener.cue(&mut l.audio);
         l.listener.time(&l.audio)
+    }
+
+    fn overview(&self) -> Option<Rc<Overview>> {
+        self.listen.borrow_mut().overview()
+    }
+
+    fn overview_coming(&self) -> bool {
+        let l = self.listen.borrow();
+        l.loading.is_some() || l.making.is_some()
     }
 
     fn skin_field(&self) -> Option<SkinField> {

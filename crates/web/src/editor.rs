@@ -34,10 +34,11 @@ use ddi_library::manifest::ManifestEntry;
 use ddi_library::pack::ChartFormat;
 use ddi_library::path::RelPathBuf;
 use ddi_platform::storage::{self, Area};
-use ddi_session::listen::Listener;
+use ddi_session::listen::{Cues, Listener};
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, SAVED};
 use ddi_ui::state::editor::autosave::{self, Autosave};
+use ddi_ui::state::editor::overview::{Builder, Overview};
 use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::{Cx, UiRequest};
 use wasm_bindgen::{JsCast, JsValue};
@@ -179,6 +180,9 @@ pub(crate) struct Listen {
     /// The song's entry once read: which file each chart's music is.
     entry: Option<ManifestEntry>,
     listener: Listener<WebAudio>,
+    /// The music's overview once decoded, and the decodes under way.
+    overview: Option<Rc<Overview>>,
+    reads: u32,
 }
 
 impl Listen {
@@ -205,10 +209,34 @@ impl Listen {
         let Some(decoder) = decoder.or_else(|| AudioDecoder::offline(48_000.0)) else {
             return;
         };
+        {
+            let mut l = this.borrow_mut();
+            l.reads += 1;
+            l.overview = None;
+        }
         let (this, id) = (this.clone(), id.to_string());
         wasm_bindgen_futures::spawn_local(async move {
+            let decoded = Listen::decode(&this, &id, chart, known, decoder).await;
+            this.borrow_mut().reads -= 1;
+            if let Some(buffer) = decoded {
+                let overview = overview_of(&buffer);
+                this.borrow_mut().overview = Some(Rc::new(overview));
+            }
+        });
+    }
+
+    /// [`Listen::read`]'s decode: the music handed to the listener, and
+    /// for the overview when it is the chart's.
+    async fn decode(
+        this: &Rc<RefCell<Listen>>,
+        id: &str,
+        chart: usize,
+        known: Option<RelPathBuf>,
+        decoder: AudioDecoder,
+    ) -> Option<web_sys::AudioBuffer> {
+        {
             let mut file = known;
-            let decoded = match crate::songs::load_song(&id, chart).await {
+            let decoded = match crate::songs::load_song(id, chart).await {
                 Ok(loaded) => {
                     {
                         let mut l = this.borrow_mut();
@@ -217,7 +245,7 @@ impl Listen {
                             // chart is asked for, or its read reads it.
                             let f = loaded.entry.music_for(chart).to_owned();
                             if l.chart != Some(chart) || !l.listener.read(&f) {
-                                return;
+                                return None;
                             }
                             file = Some(f);
                         }
@@ -231,19 +259,22 @@ impl Listen {
             let l = &mut *this.borrow_mut();
             match (decoded, &file) {
                 (Ok(buffer), Some(file)) => {
+                    let kept = buffer.clone();
                     if let Err(e) = l.listener.music_ready(file, buffer, l.audio.as_mut()) {
                         web_sys::console::warn_1(&format!("editor: listening: {e}").into());
                     }
+                    (l.chart == Some(chart)).then_some(kept)
                 }
-                (Ok(_), None) => {}
+                (Ok(_), None) => None,
                 (Err(e), _) => {
                     web_sys::console::warn_1(&format!("editor: the music: {e}").into());
                     if file.is_some() || l.chart == Some(chart) {
                         l.listener.music_failed(file.as_deref());
                     }
+                    None
                 }
             }
-        });
+        }
     }
 
     fn stop(&mut self) {
@@ -331,6 +362,7 @@ impl EditorHost for WebEditorHost {
                 }
                 let s = crate::settings::Settings::load();
                 let l = &mut *l;
+                l.listener.set_cues(Cues::of(editor));
                 if let Some(audio) = l.audio.as_mut()
                     && let Err(e) = l.listener.ask(audio, from, s.volume, s.audio_offset)
                 {
@@ -338,6 +370,7 @@ impl EditorHost for WebEditorHost {
                 }
             }
             EditorCall::Stop => self.listen.borrow_mut().stop(),
+            EditorCall::Cues => self.listen.borrow_mut().listener.set_cues(Cues::of(editor)),
             EditorCall::Autosave => {
                 let a = editor.autosave(&self.id, storage::now_ms());
                 if let Err(e) = storage::save(Area::Local, autosave::KEY, &a) {
@@ -358,7 +391,17 @@ impl EditorHost for WebEditorHost {
 
     fn music_time(&self) -> Option<f64> {
         let l = &mut *self.listen.borrow_mut();
-        l.listener.time(l.audio.as_ref()?)
+        let audio = l.audio.as_mut()?;
+        l.listener.cue(audio);
+        l.listener.time(audio)
+    }
+
+    fn overview(&self) -> Option<Rc<Overview>> {
+        self.listen.borrow().overview.clone()
+    }
+
+    fn overview_coming(&self) -> bool {
+        self.listen.borrow().reads > 0
     }
 
     fn skin_field(&self) -> Option<ddi_ui::screens::editor_field::SkinField> {
@@ -374,6 +417,59 @@ impl EditorHost for WebEditorHost {
     ) {
         crate::editor_field::show(picture, editor);
     }
+}
+
+/// The overview of `buffer`, read a block at a time (its lead: where
+/// its first sample is heard).
+fn overview_of(buffer: &web_sys::AudioBuffer) -> Overview {
+    let frames = buffer.length() as usize;
+    let mut b = Builder::new(
+        f64::from(buffer.sample_rate()),
+        frames,
+        crate::web::audio::lead(buffer),
+    );
+    let mut block = vec![0.0f32; 1 << 16];
+    for channel in 0..buffer.number_of_channels() as i32 {
+        let mut at = 0;
+        while at < frames {
+            let n = block.len().min(frames - at);
+            if buffer
+                .copy_from_channel_with_start_in_channel(&mut block[..n], channel, at as u32)
+                .is_err()
+            {
+                break;
+            }
+            b.add(at, &block[..n]);
+            at += n;
+        }
+    }
+    b.finish()
+}
+
+/// The page's debug state: what the cues scheduled, as
+/// `window.__DDI_DEBUG.editorCues` (`accents`, `beats`, `claps`, and the
+/// last one's `kind`, `song` second and context time `at`).
+pub(crate) fn debug(listen: &Rc<RefCell<Listen>>) -> ui_dev::DebugFn {
+    let listen = Rc::downgrade(listen);
+    Box::new(move |obj| {
+        let Some(listen) = listen.upgrade() else {
+            return;
+        };
+        let n = listen.borrow().listener.scheduled;
+        let o = js_sys::Object::new();
+        let set = |k: &str, v: JsValue| {
+            let _ = js_sys::Reflect::set(&o, &k.into(), &v);
+        };
+        set("accents", n.accents.into());
+        set("beats", n.beats.into());
+        set("claps", n.claps.into());
+        if let Some((cue, song, at)) = n.last {
+            set("kind", format!("{cue:?}").into());
+            set("song", song.into());
+            set("at", at.into());
+        }
+        let _ = js_sys::Reflect::set(obj, &"editorCues".into(), &o);
+    })
 }
 
 /// `text` downloaded as `name` (inside the press: a link clicked).

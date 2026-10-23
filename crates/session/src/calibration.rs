@@ -409,6 +409,25 @@ pub fn song(mode: CalMode) -> Song {
     }
 }
 
+/// The click on a note: its loudness and pitch (the editor's metronome
+/// clicks it on each measure's first beat, `crate::listen`).
+pub const NOTE_CLICK: (f32, f32) = (0.9, 1000.0);
+/// The softer click on a lead-in beat (the metronome's on other beats).
+pub const BEAT_CLICK: (f32, f32) = (0.35, 660.0);
+
+/// One click at `rate`, `(amp, hz)`: 30 ms of a sine dying away fast,
+/// loud from its first sample (the beat).
+pub fn click(rate: f32, (amp, hz): (f32, f32)) -> Vec<f32> {
+    let n = (rate * 0.03) as usize;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / rate;
+            let env = (-t * 300.0).exp();
+            (t * hz * std::f32::consts::TAU).sin() * env * amp
+        })
+        .collect()
+}
+
 /// The click track's samples at `rate`: a sharp click at every note (and
 /// a softer one on each lead-in beat), 1 s of silence after the last note.
 pub fn click_samples(rate: f32, song: &Song) -> Vec<f32> {
@@ -416,23 +435,18 @@ pub fn click_samples(rate: f32, song: &Song) -> Vec<f32> {
     let total = (LEAD_IN_BEATS + GROUPS * 4) as f64 * beat + 1.0;
     let len = (total * rate as f64) as usize;
     let mut data = vec![0.0f32; len];
-    let mut click = |at: f64, amp: f32, hz: f32| {
+    let (soft, sharp) = (click(rate, BEAT_CLICK), click(rate, NOTE_CLICK));
+    let mut add = |at: f64, click: &[f32]| {
         let start = (at * rate as f64) as usize;
-        let n = (rate * 0.03) as usize;
-        for i in 0..n {
-            let Some(v) = data.get_mut(start + i) else {
-                break;
-            };
-            let t = i as f32 / rate;
-            let env = (-t * 300.0).exp();
-            *v += (t * hz * std::f32::consts::TAU).sin() * env * amp;
+        for (v, c) in data.iter_mut().skip(start).zip(click) {
+            *v += c;
         }
     };
     for b in 0..LEAD_IN_BEATS {
-        click(b as f64 * beat, 0.35, 660.0);
+        add(b as f64 * beat, &soft);
     }
     for n in &song.charts[0].notes {
-        click(song.timing.seconds_at(n.tick), 0.9, 1000.0);
+        add(song.timing.seconds_at(n.tick), &sharp);
     }
     data
 }

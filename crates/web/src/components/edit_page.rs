@@ -138,6 +138,7 @@ impl EditPage {
             ui: self.host.clone(),
             listen,
         });
+        let debug = crate::editor::debug(&host.listen);
         let status = if std::mem::take(&mut self.recovered) {
             "Unsaved changes recovered from the last time; leave without saving to drop them"
         } else if crate::editor::fresh(&id) {
@@ -151,7 +152,7 @@ impl EditPage {
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
         ui.set_focus_ring(false);
         ui.push(screen);
-        match ui_dev::start_ui(&el, ui, Some(theme), None) {
+        match ui_dev::start_ui(&el, ui, Some(theme), Some(debug)) {
             Ok(started) => {
                 *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
                 let link = ctx.link().clone();

@@ -29,6 +29,8 @@
 //! save; Delete deletes the selection, M mirrors it, [ ] or Alt ↑↓ move
 //! it by the snap; − and = zoom; V the view, F the compact field;
 //! Escape leaves (asking when unsaved).
+//! K turns the metronome on or off, Shift K the assist clap; Y is tapped
+//! along to the music, Shift Y sets the BPM tapped ([`sound`]).
 //! A controller moves and changes the snap with its directions, listens
 //! with Start and opens the menu with Select. A pointer places a note
 //! with a tap on a lane and a hold with a drag along one, moves the
@@ -52,6 +54,7 @@ use crate::look::{Spec, call, quad};
 use crate::message::{Message, Param};
 use crate::nav::MenuAction;
 use crate::screen::{Cx, Handled, Input, Screen};
+use crate::state::editor::overview::Overview;
 use crate::state::editor::{
     ChartInfo, Editor, MEASURE, NoteTool, Retime, Segment, SegmentKind, SongInfo, autosave,
     trim_number,
@@ -95,6 +98,11 @@ pub enum EditorCall {
     /// [`autosave::EVERY`] seconds while there are unsaved changes; a
     /// save that ends well, or leaving, forgets it.
     Autosave,
+    /// What sounds along the music changed while it plays (the editor's
+    /// [`Editor::sounds`], or what they come from: the song, the chart;
+    /// `ddi_session::listen::Cues::of`). A listen asked for reads them
+    /// too.
+    Cues,
 }
 
 /// The shell's side of the editor.
@@ -105,6 +113,17 @@ pub trait EditorHost {
     /// stopped.
     fn music_time(&self) -> Option<f64> {
         None
+    }
+
+    /// The music's overview, once made from the music decoded for
+    /// listening (`state::editor::overview`).
+    fn overview(&self) -> Option<Rc<Overview>> {
+        None
+    }
+
+    /// The overview is being made: the screen asks again soon.
+    fn overview_coming(&self) -> bool {
+        false
     }
 
     /// The shell draws the field in the player's skin, as
@@ -169,6 +188,14 @@ pub struct EditorView {
     pub plates: bool,
     /// A beat's height at the cursor line, virtual pixels.
     pub beat_h: f32,
+    /// The metronome and the assist clap are on ([`Editor::sounds`]).
+    pub metronome: bool,
+    pub clap: bool,
+    /// The taps of tap-to-tempo, and the BPM they say.
+    pub taps: usize,
+    pub tapped: Option<f64>,
+    /// The music's overview's bins (0 until it is made).
+    pub overview: usize,
 }
 
 /// A note's plate color by its beat (StepMania's editor's: 4th red, 8th
@@ -230,6 +257,8 @@ struct Geometry {
     field: [f32; 4],
     /// The panel's.
     panel: [f32; 4],
+    /// The music's overview's strip ([`sound`]).
+    overview: [f32; 4],
     /// The lanes' left edge, a lane's width.
     lanes_x: f32,
     lane_w: f32,
@@ -279,6 +308,8 @@ pub struct EditorScreen {
     /// The revision last kept by the autosave, and when (the UI's
     /// seconds).
     autosaved: (Option<u64>, f64),
+    /// The metronome's, the taps' and the overview's ([`sound`]).
+    sound: sound::SoundTools,
     /// The field's view, and whether the notes are on plates (the
     /// compact field) where the shell draws the skin.
     view: FieldView,
@@ -324,6 +355,7 @@ impl EditorScreen {
             scroll: 0.0,
             status: String::new(),
             autosaved: (None, 0.0),
+            sound: sound::SoundTools::default(),
             view: FieldView::Edit,
             plates: false,
             skin: None,
@@ -410,6 +442,7 @@ impl EditorScreen {
                 [margin * 2.0 + fw, head + margin, pw, h],
             )
         };
+        let (field, overview) = sound::carve(field, compact);
         let ruler = if compact { 44.0 } else { 64.0 };
         let markers = if compact { 90.0 } else { 150.0 };
         // The lanes in the middle of the room the ruler and the markers
@@ -439,6 +472,7 @@ impl EditorScreen {
             compact,
             field,
             panel,
+            overview,
             lanes_x,
             lane_w,
             line_y: field[1] + field[3] * 0.28,
@@ -502,6 +536,8 @@ impl EditorScreen {
             header(&self.env, g.size[0], &title),
         ];
         children.push(self.field());
+        children.push(self.overview_strip());
+        children.push(self.overview_marks());
         children.push(self.panel());
         let (f, texts) = self.footer();
         children.push(f);
@@ -957,6 +993,9 @@ impl EditorScreen {
             400,
             "Text",
         );
+        for (name, text, color) in self.sound_lines() {
+            push(&mut c, name, &text, 400, color);
+        }
         let at = e.segments_at(cursor);
         if !at.is_empty() {
             let s: Vec<String> = at.iter().map(Segment::describe).collect();
@@ -1071,6 +1110,9 @@ impl EditorScreen {
                 if let Some(old) = hit::find_mut(root, "FieldLayer") {
                     *old = self.field();
                 }
+                if let Some(old) = hit::find_mut(root, "OverviewMarks") {
+                    *old = self.overview_marks();
+                }
                 self.drawn = Some((self.shown, self.version));
                 self.send_picture();
                 if let Some(view) = &mut self.env.state.borrow_mut().editor {
@@ -1088,7 +1130,14 @@ impl EditorScreen {
             let field = self.field();
             let panel = self.panel();
             let (footer, texts) = self.footer();
-            for (name, a) in [("FieldLayer", field), ("Panel", panel), ("Footer", footer)] {
+            let (strip, marks) = (self.overview_strip(), self.overview_marks());
+            for (name, a) in [
+                ("FieldLayer", field),
+                ("Overview", strip),
+                ("OverviewMarks", marks),
+                ("Panel", panel),
+                ("Footer", footer),
+            ] {
                 if let Some(old) = hit::find_mut(root, name) {
                     *old = a;
                 }
@@ -1142,6 +1191,11 @@ impl EditorScreen {
             view: self.view.name().into(),
             plates: !self.skin_drawn(),
             beat_h: self.mapping(e.timing()).beat_height(e.timing()),
+            metronome: e.sounds().metronome,
+            clap: e.sounds().clap,
+            taps: self.sound.taps.len(),
+            tapped: self.sound.taps.estimate().map(|t| t.bpm),
+            overview: self.sound.overview.as_ref().map_or(0, |o| o.levels.len()),
         });
     }
 
@@ -1166,6 +1220,7 @@ impl EditorScreen {
             self.listening = true;
             // The cursor's own row passes too.
             self.passed_to = Some(self.editor.borrow().cursor().0 as f64 - 0.5);
+            self.listen_started();
             self.call(EditorCall::Listen { from }, cx);
             self.say("Listening");
         }
@@ -1299,6 +1354,9 @@ impl EditorScreen {
             items.push(("play-start", "Play from start".into()));
             items.push(("auto", "Autoplay from cursor".into()));
         }
+        drop(e);
+        self.sound_items(&mut items);
+        let e = self.editor.borrow();
         items.push(("undo", "Undo".into()));
         items.push(("redo", "Redo".into()));
         items.push(("tool", format!("Tool: {}", e.tool().name())));
@@ -1358,6 +1416,9 @@ impl EditorScreen {
 
     /// What the menu's action `id` does.
     fn action(&mut self, id: &str, cx: &mut Cx) {
+        if self.sound_action(id) {
+            return;
+        }
         match id {
             "listen" => self.listen(cx),
             "play" => self.playtest(true, false, cx),
@@ -1828,6 +1889,10 @@ impl EditorScreen {
                 "c" => self.open_chart(cx),
                 "v" => self.toggle_view(),
                 "f" => self.toggle_plates(),
+                "k" => self.toggle_sound(shift),
+                "y" if shift => self.apply_tap(false),
+                "y" if !k.repeat => self.tap(k.time, cx),
+                "y" => {}
                 _ => return Handled::No,
             },
         }
@@ -1873,6 +1938,18 @@ impl EditorScreen {
                     _ => {}
                 }
             }
+            return Handled::Yes;
+        }
+        if t.within("Overview") || t.within("OverviewMarks") {
+            self.overview_pointer(gesture, pos, cx);
+            return Handled::Yes;
+        }
+        if *gesture == Gesture::Tap && t.within("Panel.Sounds") {
+            self.toggle_sound(false);
+            return Handled::Yes;
+        }
+        if *gesture == Gesture::Tap && t.within("Panel.Tap") {
+            self.apply_tap(false);
             return Handled::Yes;
         }
         if !t.within("FieldLayer") {
@@ -2192,8 +2269,13 @@ impl Screen for EditorScreen {
     fn wake_at(&self) -> Option<f64> {
         // The autosave, while changes are not kept.
         let e = self.editor.borrow();
-        (e.is_dirty() && e.revision() != self.autosaved.0 && self.host.is_some())
-            .then_some(self.autosaved.1 + autosave::EVERY)
+        let autosave = (e.is_dirty() && e.revision() != self.autosaved.0 && self.host.is_some())
+            .then_some(self.autosaved.1 + autosave::EVERY);
+        // And the overview, while the shell makes it.
+        match (autosave, self.sound_wake()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
@@ -2207,6 +2289,7 @@ impl Screen for EditorScreen {
             self.autosaved = (revision, cx.time());
             self.call(EditorCall::Autosave, cx);
         }
+        self.sound_update(cx);
         if self.listening {
             match self.host.as_ref().and_then(|h| h.music_time()) {
                 Some(t) => {
@@ -2333,6 +2416,13 @@ impl Screen for EditorScreen {
         handled
     }
 }
+
+#[path = "editor_sound.rs"]
+mod sound;
+
+#[cfg(test)]
+#[path = "editor_sound_tests.rs"]
+mod sound_tests;
 
 #[cfg(test)]
 #[path = "editor_tests.rs"]

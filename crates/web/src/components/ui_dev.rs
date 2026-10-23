@@ -2367,6 +2367,9 @@ fn publish(h: &Host) {
                     "Button.Play",
                     "FieldLayer",
                     "Cursor",
+                    "OverviewPlate",
+                    "Panel.Sounds",
+                    "Panel.Tap",
                     "Value",
                     "Ok",
                     "Cancel",
@@ -2571,6 +2574,11 @@ fn publish(h: &Host) {
                 set(&v, "listening", e.listening.into());
                 set(&v, "shown", e.shown.into());
                 set(&v, "segments", strings(&e.segments));
+                set(&v, "metronome", e.metronome.into());
+                set(&v, "clap", e.clap.into());
+                set(&v, "taps", (e.taps as f64).into());
+                set(&v, "tapped", e.tapped.map_or(JsValue::NULL, JsValue::from));
+                set(&v, "overview", (e.overview as f64).into());
                 set(&v, "view", e.view.as_str().into());
                 set(&v, "plates", e.plates.into());
                 set(&v, "beatHeight", e.beat_h.into());

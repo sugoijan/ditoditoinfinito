@@ -18,6 +18,8 @@ pub mod autosave;
 mod change;
 pub mod export;
 pub mod new_song;
+pub mod overview;
+pub mod tap;
 #[cfg(test)]
 mod tests;
 
@@ -261,6 +263,17 @@ pub struct Editor {
     /// The chart's layout ([`Editor::layout`]), made again when an edit
     /// or another chart may change it.
     layout: Layout,
+    sounds: Sounds,
+}
+
+/// What sounds along the music while the editor listens (not an edit:
+/// kept while the editor is open).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Sounds {
+    /// A click on every beat, louder on a measure's first.
+    pub metronome: bool,
+    /// The assist clap on the rows of notes.
+    pub clap: bool,
 }
 
 impl Editor {
@@ -290,6 +303,7 @@ impl Editor {
             saved,
             held: None,
             layout,
+            sounds: Sounds::default(),
         }
     }
 
@@ -369,6 +383,14 @@ impl Editor {
 
     pub fn set_tool(&mut self, tool: NoteTool) {
         self.tool = tool;
+    }
+
+    pub fn sounds(&self) -> Sounds {
+        self.sounds
+    }
+
+    pub fn set_sounds(&mut self, sounds: Sounds) {
+        self.sounds = sounds;
     }
 
     pub fn clip(&self) -> Option<&Clip> {
@@ -789,6 +811,35 @@ impl Editor {
         if seconds.is_finite() {
             self.edit_timing(retime, |t| t.offset_seconds = seconds);
         }
+    }
+
+    /// The timing a tempo tapped ([`tap`]) makes: `bpm` as the BPM at
+    /// the cursor and, with `heard` (a song second a tapped beat was
+    /// heard at), the offset that puts the beat nearest it there (to
+    /// the millisecond: what a tap can tell). `None`: a BPM refused as
+    /// [`Editor::set_segment`] refuses it.
+    pub fn tapped_timing(&self, bpm: f64, heard: Option<f64>) -> Option<TimingMap> {
+        let segment = tidy_segment(Segment::Bpm(bpm))?;
+        let mut t = self.timing().clone();
+        remove_segment(&mut t, SegmentKind::Bpm, self.cursor);
+        put_segment(&mut t, self.cursor, segment);
+        tidy_timing(&mut t);
+        if let Some(heard) = heard.filter(|h| h.is_finite()) {
+            let beat = t.beat_at(heard).round();
+            let offset = t.offset_seconds + t.seconds_at_beat(beat) - heard;
+            t.offset_seconds = (offset * 1000.0).round() / 1000.0;
+        }
+        Some(t)
+    }
+
+    /// Sets [`Editor::tapped_timing`]; one edit. Returns whether it was
+    /// taken.
+    pub fn set_tapped_tempo(&mut self, bpm: f64, heard: Option<f64>, retime: Retime) -> bool {
+        let Some(after) = self.tapped_timing(bpm, heard) else {
+            return false;
+        };
+        self.edit_timing(retime, |t| *t = after);
+        true
     }
 
     /// Gives the chart its own timing (a copy of the song's), or puts it
