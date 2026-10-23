@@ -98,10 +98,11 @@ fn the_editor_draws_a_bundled_song() {
         let i = ((y * 1280 + x) * 4) as usize;
         [pixels[i], pixels[i + 1], pixels[i + 2]]
     };
-    // Something drawn on the field (notes, lines) and the ground dark.
+    // Something drawn on the field (notes, lines) and the ground dark
+    // (the lanes right of the audio view's column).
     let lit = (100..700)
         .step_by(4)
-        .flat_map(|y| (60..400).step_by(4).map(move |x| (x, y)))
+        .flat_map(|y| (60..700).step_by(4).map(move |x| (x, y)))
         .filter(|&(x, y)| at(x, y).iter().any(|&c| c > 150))
         .count();
     assert!(lit > 50, "the field is drawn: {lit}");

@@ -2368,6 +2368,9 @@ fn publish(h: &Host) {
                     "FieldLayer",
                     "Cursor",
                     "OverviewPlate",
+                    "AudioColumn",
+                    "AudioPicture",
+                    "Button.Audio",
                     "Panel.Sounds",
                     "Panel.Tap",
                     "Value",
@@ -2585,6 +2588,24 @@ fn publish(h: &Host) {
                 let (skin, frames) = crate::editor_field::status();
                 set(&v, "skin", skin.map_or(JsValue::NULL, |s| s.into()));
                 set(&v, "fieldFrames", (frames as f64).into());
+                let a = &e.audio;
+                let audio = js_sys::Object::new();
+                set(&audio, "ready", a.ready.into());
+                set(&audio, "coming", a.coming.into());
+                set(&audio, "shown", a.shown.into());
+                set(&audio, "mode", a.mode.as_str().into());
+                set(&audio, "layout", a.layout.as_str().into());
+                let numbers = |v: &[f32]| {
+                    v.iter()
+                        .map(|x| JsValue::from(*x))
+                        .collect::<js_sys::Array>()
+                        .into()
+                };
+                set(&audio, "rect", numbers(&a.rect));
+                set(&audio, "onsets", numbers(&a.onsets));
+                set(&audio, "painted", (a.painted as f64).into());
+                set(&audio, "micros", a.micros.into());
+                set(&v, "audioView", audio.into());
                 v.into()
             }),
         );

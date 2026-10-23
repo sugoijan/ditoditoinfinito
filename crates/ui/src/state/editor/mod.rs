@@ -14,6 +14,7 @@
 //! instead keeps them where they are heard, moving each to the tick
 //! nearest its old time (re-syncing a chart).
 
+pub mod audio;
 pub mod autosave;
 mod change;
 pub mod export;

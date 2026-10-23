@@ -159,8 +159,12 @@ impl EditPage {
                 ui_dev::attach_gfx(started.0.clone(), move |e| {
                     link.send_message(Msg::Failed(e))
                 });
-                // The field in the player's skin, drawn before the 2D pass.
-                ui_dev::set_frame_hook(&started.0, Some(crate::editor_field::hook()));
+                // The field in the player's skin and the audio view's
+                // picture, before the 2D pass.
+                ui_dev::set_frame_hook(
+                    &started.0,
+                    Some(crate::editor_audio::hook(crate::editor_field::hook())),
+                );
                 self.started = Some(started);
             }
             Err(e) => ctx.link().send_message(Msg::Failed(e)),

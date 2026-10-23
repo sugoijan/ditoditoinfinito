@@ -217,16 +217,53 @@ impl ScrollState {
     pub fn y_displayed(&self, note_displayed_beat: f64, note_seconds: f64) -> f32 {
         // StepMania's order: distance (with `#SPEEDS` for beat spacing),
         // then the scroll action, then the speed multiplier.
+        self.arrows(self.distance(note_displayed_beat, note_seconds))
+    }
+
+    /// A note's distance before the scroll action and the multiplier:
+    /// beats (with `#SPEEDS`) for an x-mod, beats at the c-mod's tempo
+    /// for a c-mod. Between the timing's changes it moves with the
+    /// note's second in a straight line.
+    pub fn distance(&self, note_displayed_beat: f64, note_seconds: f64) -> f64 {
         match self.options.speed {
-            SpeedMod::XMod(mult) => {
-                let d = (note_displayed_beat - self.displayed_beat) * self.speed_ratio;
-                (self.options.scroll_action.adjust(d) * mult) as f32
-            }
-            SpeedMod::CMod(bpm) => {
-                let d = (note_seconds - self.song_time) * bpm / 60.0;
-                self.options.scroll_action.adjust(d) as f32
+            SpeedMod::XMod(_) => (note_displayed_beat - self.displayed_beat) * self.speed_ratio,
+            SpeedMod::CMod(bpm) => (note_seconds - self.song_time) * bpm / 60.0,
+        }
+    }
+
+    /// The arrow heights a [`ScrollState::distance`] is drawn at: the
+    /// scroll action, then the multiplier.
+    pub fn arrows(&self, d: f64) -> f32 {
+        let adjusted = self.options.scroll_action.adjust(d);
+        match self.options.speed {
+            SpeedMod::XMod(mult) => (adjusted * mult) as f32,
+            SpeedMod::CMod(_) => adjusted as f32,
+        }
+    }
+
+    /// The distance drawn `arrows` arrow heights away ([`ScrollState::arrows`]
+    /// undone: every scroll action draws farther notes farther).
+    pub fn distance_at(&self, arrows: f64) -> f64 {
+        let adjusted = match self.options.speed {
+            SpeedMod::XMod(mult) if mult != 0.0 => arrows / mult,
+            SpeedMod::XMod(_) => return 0.0,
+            SpeedMod::CMod(_) => arrows,
+        };
+        let action = self.options.scroll_action;
+        if action == ScrollAction::Normal || adjusted <= 0.0 {
+            return adjusted;
+        }
+        // Bisection: an action moves a note at most this far.
+        let (mut lo, mut hi) = (0.0, adjusted + ACCEL_CLAMP + WAVE_MAGNITUDE + 1.0);
+        for _ in 0..64 {
+            let mid = (lo + hi) / 2.0;
+            if action.adjust(mid) < adjusted {
+                lo = mid;
+            } else {
+                hi = mid;
             }
         }
+        (lo + hi) / 2.0
     }
 }
 
@@ -433,5 +470,33 @@ mod tests {
         let boost = ScrollAction::Boost.adjust(3.0) as f32;
         assert!((at(ScrollAction::Boost, 1.0) - boost).abs() < 1e-5);
         assert!((at(ScrollAction::Boost, 2.0) - 2.0 * boost).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_distance_is_found_again_from_its_arrows() {
+        let t = TimingMap::constant(120.0, 0.0);
+        for scroll_action in [
+            ScrollAction::Normal,
+            ScrollAction::Boost,
+            ScrollAction::Brake,
+            ScrollAction::Wave,
+        ] {
+            for speed in [SpeedMod::XMod(1.5), SpeedMod::CMod(300.0)] {
+                let opts = ScrollOptions {
+                    speed,
+                    reverse: false,
+                    scroll_action,
+                };
+                let s = ScrollState::at(opts, &t, 1.0);
+                for d in [-3.0, -0.25, 0.0, 0.1, 1.0, 4.5, 12.0, 40.0] {
+                    let a = f64::from(s.arrows(d));
+                    let back = s.distance_at(a);
+                    assert!(
+                        (back - d).abs() < 1e-4,
+                        "{scroll_action:?} {speed:?} {d}: {back}"
+                    );
+                }
+            }
+        }
     }
 }

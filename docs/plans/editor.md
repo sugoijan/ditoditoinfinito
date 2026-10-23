@@ -6,8 +6,8 @@ timing and notes in the game, try them at once, and keep them
 
 Status (2026-10-23): the writer, the editing model, the field in the
 player's skin, the screen on both shells, listening with the
-metronome, tap-to-tempo and the music's overview, playtests, saving
-and the autosave are built (steps 1–8; see "Built" below); what is
+metronome, tap-to-tempo, the music's overview and the audio view,
+playtests, saving and the autosave are built (steps 1–8; see "Built" below); what is
 left is under "Left".
 
 ## Scope of the first version
@@ -48,8 +48,9 @@ left is under "Left".
   being read, not written), `.dwi` writing.
 - Keysounds, attacks, `#BGCHANGES` editing (kept as they are, written
   back unchanged), lyrics.
-- Waveform display beyond a simple overview (the first version shows the
-  music's amplitude per beat row; spectrograms later).
+- Audio display beyond the overview strip and the audio view (a
+  waveform and a spectrogram on the field's rows, "The audio view"
+  below): onset or beat markers found in the music, zoomed spectra.
 - Automatic BPM detection, automatic note generation, chart statistics
   (density graphs come from the song list's existing data where cheap).
 - Multiplayer editing, a separate editor application (SkinCraft is one
@@ -391,6 +392,126 @@ tags made into a song, charted, playtested autoplayed and back, saved,
 listed by song select and opened again equal after a reload; a second
 one left unsaved and gone from the list).
 
+**The audio view** (2026-10-23; `ddi_ui::state::editor::audio`,
+`ddi_ui::screens::editor`'s `audio`, `ddi_render::editor_audio`): the
+music's waveform and spectrogram beside the lanes, time down the field
+as the notes are, so a transient and its beat's line read together:
+when the BPM and the offset are right, a kick's onset is on its
+beat's line. **One analysis** (`audio::Builder`, sans IO) is made from
+the music decoded for listening, the very samples listening plays and
+with the same start (the web's MP3 lead, `ddi_platform::mp3::align`),
+so second `s` is the same sample heard and drawn; it is fed the
+samples in order and stepped in slices, and makes the same analysis
+in any slices (tested). Desktop runs it whole on the thread that made
+the overview (about 75 ms for a 12 s song); the web reads the
+`AudioBuffer` a block at a time and steps it 4 ms an animation frame.
+The overview is now made in the same pass (from the mid channel), so
+there is no second pass and no second decode. **The waveform**: the
+mid channel kept to the sample as 16-bit (2 bytes a sample) with a
+min/max/sum-of-squares pyramid of blocks of 16, 256, 4,096… (half a
+byte a sample); a row's least and greatest sample and RMS come from
+whole blocks and the samples at its ends, exact at any zoom down to a
+sample. **The spectrogram**: a Hann window of the power of two nearest
+21.3 ms (1,024 at 44.1 and 48 kHz) every 5 ms (240 samples at 48 kHz),
+a frame's time its window's middle (zero outside the music), our own
+radix-2 transform (a real one through a complex one of half the
+size), 128 log-spaced bands from 30 Hz to 12 kHz (each the energy of
+its bins; a band narrower than a bin, the bins' in proportion), a byte
+each: 96 dB under full scale to full scale, drawn 70 dB under the
+song's loudest band to it. A row spanning frames shows their loudest
+per band; a row shorter than a hop, the frames either side of its
+middle in proportion. Memory: a 5-minute song at 48 kHz keeps about
+36 MB for the waveform and 7.7 MB for the spectrogram (its decoded
+stereo music for listening is 115 MB); the raw samples are kept
+rather than a coarser level so a 192nd's rows (about 0.4 ms) stay
+exact. **The mapping is the field's**: each pixel row is the span of
+song seconds between its edges as the field's own `Mapping` has them
+(`audio::row_spans`): between the timing's changes (`audio::knots`: a
+change's row before and after a delay or a stop on it, a warp's ends)
+a second moves to a row in a straight line, found from two seconds
+inside each piece; the play view's scroll action (Boost, Brake, Wave)
+bends it after, undone exactly (`ScrollState::distance_at`), so rows
+are exact at any zoom and place, in both views, Reverse too. In the
+edit view (and an x-mod's play view) a stop or a delay has no height:
+its seconds are all in its row (the hit that starts a stop shows on
+its row, the rest of the stop folded in), marked by a line across the
+column; a warp's beats have no seconds (shaded); a c-mod's play view
+gives a stop its height. **Placement**: a column at the field's left
+(the side away from the panel), spectrogram (low to high left to
+right) then the waveform nearest the lanes, inside the field's rows,
+with the grid's lines at the snap, the measures and the cursor line
+drawn across it; where the field has no room beside the lanes (the
+compact layouts, 844×390 and 390×844) it is drawn behind the lanes at
+40 % and starts hidden. Colors from the theme (`Editor.Audio.Ramp1`–`5`:
+the ground up through violet, magenta, the accent and gold to near
+white; `Editor.Audio.Wave`, `Editor.Audio.Rms`). **Keys**: W shows or
+hides it, Shift W shows the waveform, the spectrogram or both, in turn;
+the menu has both, and the panel a line ("Audio: waveform and
+spectrogram (W)", a tap toggles); kept with the screen as V and F are.
+A tap on the column moves the cursor to its row (as left of the lanes),
+the wheel scrolls. **Drawing**: the screen paints an RGBA picture of
+the column at its whole physical pixels (`audio::AudioPicture`) only
+when the mapping, the timing, the place, what it shows or the analysis
+changed, and hands it to the shell (`EditorHost::show_audio`), which
+writes it into the texture the 2D pass shows as `editor-audio`
+(`ddi_render::editor_audio::AudioTexture`; desktop in `Gpu::draw_over`,
+the web in the editor page's frame hook beside the field's); the
+buffer of the picture before last is painted over again. Nothing is
+painted between changes; while listening, every frame: in the edit
+view the rows move as one, so rows painted are kept by their place on
+the field's grid of rows (ticks) and only the rows coming into view
+are painted, the picture placed on the whole pixel nearest (at most
+half a pixel from the field's place; a picture at rest is painted
+whole, exact); the play view is painted whole each frame. **Cost**
+(measured): the rows' seconds 7–20 µs; painting a whole full-height
+column at a ratio of 2 (320×1,168) 290–450 µs natively in the desktop
+profile, 370–540 µs in the release (size-optimized) one; while
+listening in the edit view, a 161×584 column 75 µs median on
+desktop's offscreen test (test profile, 0.5 ms painted whole), 0.1 ms
+median (0.4 ms at most) in headless Chrome and 1 ms (4 ms at most) in
+Playwright's Firefox, whose wasm ran everything about nine times
+slower than Chrome's here (its MP3 alignment too); a whole picture
+2.6 ms in Chrome, 9 ms in that Firefox. The debug state
+(`EditorView::audio`, the web's `editor.audioView`: `ready`, `coming`,
+`shown`, `mode`, `layout` column/behind, `rect`, `onsets` (the rows
+where the waveform rises past half the loudest after a quiet row, in
+the music's order), `painted`, `micros`).
+Verified: `audio.rs`'s tests (the transform; a full-scale sine near the
+top of its band; the pyramid against the samples; a click at its
+second in the waveform, and a short tick's loudest frame within half a
+hop of it, after an MP3-like lead; sliced equals whole; empty music);
+`editor_audio_tests.rs` (clicks at 128 BPM from an offset of 0.123 s,
+170 BPM from beat 16, a 0.4 s stop at beat 24, a click inside the
+stop, the music led by 25.1 ms: each click's onset row is its beat's
+row within a pixel at rows of 1 and 0.5 pixels, in the edit view at 22,
+88, 352 and 1,152 pixels a beat and in the play view at 1x, 3x, C450,
+2x Reverse Boost and 1.5x Brake, with no other onset; the stop's
+seconds in its row alone in the edit view, the click inside it on its
+own row in a C300 play view; rows tiling the seconds; at 1280×720 the
+column left of the lanes with its picture on whole pixels, the cursor
+line on its click's onset, Shift W's three modes, W hiding and showing
+it, the panel's line, the menu; a tap on the column, the wheel;
+painted every frame while listening and not between changes; the play
+view; at 844×390 and 390×844 hidden at first, W showing it behind the
+lanes translucent, a tap there a lane's; no music, no view);
+desktop offscreen (`crates/desktop/tests/editor_audio.rs`: a song
+folder of clicks read by the library, analyzed on its thread, drawn on
+the GPU: each click's onset in the picture's waveform within 1.5 px of
+its beat's line in the edit and the play view, the grid's beat lines
+drawn across the column, the debug onsets the picture's, painted each
+frame while listening; the analysis of 12 s in about 75 ms);
+headless Chrome (WebGPU) and Firefox (WebGL2,
+`target/scratch/pw/editor-audio.mjs`): Beatucada's column (analyzed
+about 2 s after opening in Chrome, 16 s in Playwright's Firefox, at
+4 ms a frame), Shift W and W, a click on the column moving the cursor
+without a note, painted every frame while listening, the play view;
+and a new song from a generated MP3 of clicks on 120 BPM's beats (the
+new song's own timing): every click's onset at the same distance from
+its beat's line (spread 0 px) at 96 and 704 pixels a beat, the
+onset's row holding the 51.18 ms `__DDI_MP3` reports (the Info frame
+and LAME's delay, as StepMania hears the file). Not verified: by ear,
+Safari, real Firefox's speed.
+
 ## Decided here (the maintainer may change any)
 
 - The writer's module is `formats::sm_write` (it writes both formats).
@@ -468,6 +589,17 @@ one left unsaved and gone from the list).
 - A new song's chart is the model's: one empty Medium dance-single
   chart, meter 1, at 120 BPM with offset 0; its title and artist are
   the music's tags, else the title is its file name (`_` as spaces).
+
+- The audio view is the field's mapping exactly; a stop's (or a
+  delay's) seconds are folded into its row in the edit view rather
+  than left out, so the hit that starts a stop shows on its beat;
+  marked across the column.
+- The audio view starts shown where the field has room beside the
+  lanes, hidden where it would be drawn behind them; W and Shift W
+  are kept with the screen, not the settings.
+- The analysis keeps the mid channel to the sample (16-bit) for the
+  waveform; the spectrogram uses a Hann window of about 21 ms every
+  5 ms in 128 log bands, our own small transform (no new crate).
 
 ## Left
 

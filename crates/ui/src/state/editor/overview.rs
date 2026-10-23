@@ -12,7 +12,7 @@ pub const MIN_BIN: f64 = 0.01;
 const RANGE_DB: f32 = 30.0;
 
 /// The music's loudness, bin by bin.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Overview {
     /// The song second the first bin starts at.
     pub start: f64,

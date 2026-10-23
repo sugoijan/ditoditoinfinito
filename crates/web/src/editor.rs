@@ -18,6 +18,9 @@
 //! at once, on a context made inside that press; asked before the
 //! decode ends, it starts when it does (the context runs by then). A
 //! chart whose music is the file decoded already is not decoded again.
+//! The music decoded is analyzed for the overview and the audio view
+//! (`ddi_ui::state::editor::audio`) a few milliseconds each animation
+//! frame, its MP3 lead kept, so what is drawn is what is heard.
 //!
 //! A new song from a music file (`new_song`) is stored when it is made;
 //! left before its first save, it is taken away again.
@@ -37,8 +40,8 @@ use ddi_platform::storage::{self, Area};
 use ddi_session::listen::{Cues, Listener};
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, SAVED};
+use ddi_ui::state::editor::audio::{Analysis, Builder};
 use ddi_ui::state::editor::autosave::{self, Autosave};
-use ddi_ui::state::editor::overview::{Builder, Overview};
 use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::{Cx, UiRequest};
 use wasm_bindgen::{JsCast, JsValue};
@@ -180,9 +183,13 @@ pub(crate) struct Listen {
     /// The song's entry once read: which file each chart's music is.
     entry: Option<ManifestEntry>,
     listener: Listener<WebAudio>,
-    /// The music's overview once decoded, and the decodes under way.
-    overview: Option<Rc<Overview>>,
+    /// The music's analysis once made, the decodes and the analysis
+    /// under way (a newer read stops an older analysis).
+    analysis: Option<Rc<Analysis>>,
     reads: u32,
+    analyzing: u32,
+    /// Reads begun.
+    begun: u64,
 }
 
 impl Listen {
@@ -209,19 +216,25 @@ impl Listen {
         let Some(decoder) = decoder.or_else(|| AudioDecoder::offline(48_000.0)) else {
             return;
         };
-        {
+        let read = {
             let mut l = this.borrow_mut();
             l.reads += 1;
-            l.overview = None;
-        }
+            l.begun += 1;
+            l.analysis = None;
+            l.begun
+        };
         let (this, id) = (this.clone(), id.to_string());
         wasm_bindgen_futures::spawn_local(async move {
             let decoded = Listen::decode(&this, &id, chart, known, decoder).await;
+            this.borrow_mut().analyzing += 1;
             this.borrow_mut().reads -= 1;
             if let Some(buffer) = decoded {
-                let overview = overview_of(&buffer);
-                this.borrow_mut().overview = Some(Rc::new(overview));
+                let stale = || this.borrow().begun != read;
+                if let Some(a) = analyze(&buffer, stale).await.filter(|_| !stale()) {
+                    this.borrow_mut().analysis = Some(Rc::new(a));
+                }
             }
+            this.borrow_mut().analyzing -= 1;
         });
     }
 
@@ -396,12 +409,21 @@ impl EditorHost for WebEditorHost {
         l.listener.time(audio)
     }
 
-    fn overview(&self) -> Option<Rc<Overview>> {
-        self.listen.borrow().overview.clone()
+    fn audio(&self) -> Option<Rc<Analysis>> {
+        self.listen.borrow().analysis.clone()
     }
 
-    fn overview_coming(&self) -> bool {
-        self.listen.borrow().reads > 0
+    fn audio_coming(&self) -> bool {
+        let l = self.listen.borrow();
+        l.reads > 0 || l.analyzing > 0
+    }
+
+    fn show_audio(&self, picture: Option<&ddi_ui::screens::editor::audio::AudioPicture>) {
+        crate::editor_audio::show(picture);
+    }
+
+    fn clock(&self) -> Option<f64> {
+        Some(now_ms() / 1000.0)
     }
 
     fn skin_field(&self) -> Option<ddi_ui::screens::editor_field::SkinField> {
@@ -419,31 +441,69 @@ impl EditorHost for WebEditorHost {
     }
 }
 
-/// The overview of `buffer`, read a block at a time (its lead: where
-/// its first sample is heard).
-fn overview_of(buffer: &web_sys::AudioBuffer) -> Overview {
+/// Milliseconds a frame the analysis takes at most.
+const ANALYSIS_BUDGET_MS: f64 = 4.0;
+
+/// The page's clock, milliseconds.
+fn now_ms() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
+}
+
+/// Until the next animation frame.
+async fn next_frame() {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        if let Some(w) = web_sys::window() {
+            let _ = w.request_animation_frame(&resolve);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+/// The analysis of `buffer` (its lead: where its first sample is
+/// heard), its samples read a block at a time and analyzed
+/// [`ANALYSIS_BUDGET_MS`] each animation frame; `None` once `stale`
+/// says another read began.
+async fn analyze(buffer: &web_sys::AudioBuffer, stale: impl Fn() -> bool) -> Option<Analysis> {
     let frames = buffer.length() as usize;
     let mut b = Builder::new(
         f64::from(buffer.sample_rate()),
         frames,
         crate::web::audio::lead(buffer),
     );
-    let mut block = vec![0.0f32; 1 << 16];
-    for channel in 0..buffer.number_of_channels() as i32 {
-        let mut at = 0;
-        while at < frames {
-            let n = block.len().min(frames - at);
-            if buffer
-                .copy_from_channel_with_start_in_channel(&mut block[..n], channel, at as u32)
-                .is_err()
-            {
-                break;
+    let channels = (buffer.number_of_channels() as usize).max(1);
+    let mut blocks = vec![vec![0.0f32; 1 << 15]; channels];
+    loop {
+        let until = now_ms() + ANALYSIS_BUDGET_MS;
+        while now_ms() < until {
+            let at = b.fed();
+            if at < frames {
+                let n = blocks[0].len().min(frames - at);
+                for (c, block) in blocks.iter_mut().enumerate() {
+                    if buffer
+                        .copy_from_channel_with_start_in_channel(
+                            &mut block[..n],
+                            c as i32,
+                            at as u32,
+                        )
+                        .is_err()
+                    {
+                        block[..n].fill(0.0);
+                    }
+                }
+                let planar: Vec<&[f32]> = blocks.iter().map(|b| &b[..n]).collect();
+                b.add_planar(&planar);
             }
-            b.add(at, &block[..n]);
-            at += n;
+            if b.step(8) {
+                return Some(b.finish());
+            }
+        }
+        next_frame().await;
+        if stale() {
+            return None;
         }
     }
-    b.finish()
 }
 
 /// The page's debug state: what the cues scheduled, as

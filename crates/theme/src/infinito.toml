@@ -90,6 +90,16 @@ numbers_weight = 800
 "Graph.Bar" = "#ffe55a"
 "Graph.Point" = "#8ef2ff"
 "Graph.Axis" = "#3a3542"
+# The chart editor's audio view: the spectrogram's ramp from the ground
+# (quiet) up through violet, magenta, the accent and gold to near white
+# (the song's loudest), and the waveform's cool blue with its RMS.
+"Editor.Audio.Ramp1" = "#331761"
+"Editor.Audio.Ramp2" = "#a8297f"
+"Editor.Audio.Ramp3" = "#ff6ea0"
+"Editor.Audio.Ramp4" = "#ffd166"
+"Editor.Audio.Ramp5" = "#fff4dc"
+"Editor.Audio.Wave" = "#73adffd9"
+"Editor.Audio.Rms" = "#d2e8ff"
 
 [metrics]
 "TitleMenu.Width" = 380

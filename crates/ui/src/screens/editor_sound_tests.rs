@@ -8,7 +8,7 @@ use ddi_chart::Tick;
 use super::*;
 use crate::look::Plain;
 use crate::screens::{COMPACT, DESIGN};
-use crate::state::editor::overview::Builder;
+use crate::state::editor::audio::Builder;
 use crate::testing::Harness;
 use crate::{Modifiers, PointerKind, TextMode};
 
@@ -16,7 +16,7 @@ use crate::{Modifiers, PointerKind, TextMode};
 struct Host {
     calls: RefCell<Vec<EditorCall>>,
     time: Cell<Option<f64>>,
-    overview: RefCell<Option<Rc<Overview>>>,
+    audio: RefCell<Option<Rc<Analysis>>>,
     coming: Cell<bool>,
 }
 
@@ -34,11 +34,11 @@ impl EditorHost for Host {
         self.time.get()
     }
 
-    fn overview(&self) -> Option<Rc<Overview>> {
-        self.overview.borrow().clone()
+    fn audio(&self) -> Option<Rc<Analysis>> {
+        self.audio.borrow().clone()
     }
 
-    fn overview_coming(&self) -> bool {
+    fn audio_coming(&self) -> bool {
         self.coming.get()
     }
 }
@@ -225,13 +225,13 @@ fn taps_while_listening_set_the_offset_too() {
     assert!((e.timing().seconds_at(Tick::from_beats(1)) - 0.7).abs() < 1e-12);
 }
 
-fn overview() -> Overview {
+fn analysis() -> Analysis {
     // 30 s at 100 Hz: quiet, loud from 10 s.
     let mut b = Builder::new(100.0, 3000, 0.0);
     let data: Vec<f32> = (0..3000)
         .map(|i| if i < 1000 { 0.01 } else { 0.5 })
         .collect();
-    b.add(0, &data);
+    b.add_interleaved(&data, 1);
     b.finish()
 }
 
@@ -248,7 +248,7 @@ fn the_overview_comes_from_the_shell_and_jumps_the_cursor() {
         assert_eq!(view(&s).overview, 0);
         let wait = s.h.ui.wake_in().expect("woken for the overview");
         assert!(wait <= 0.25, "{wait}");
-        *s.host.overview.borrow_mut() = Some(Rc::new(overview()));
+        *s.host.audio.borrow_mut() = Some(Rc::new(analysis()));
         s.host.coming.set(false);
         s.h.run_on_demand(0.5);
         assert_eq!(view(&s).overview, 3000);

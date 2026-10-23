@@ -47,7 +47,8 @@ Rust and the browser are implementation details, not advertised features.
   way) and the chart editor's field in the player's skin
   (`crates/render/src/editor_field.rs`: a play's frame paused at the
   cursor, the skin's clock at rest; `ddi_ui::screens::editor_field`
-  places its notes and the overlay over it); StepMania's named
+  places its notes and the overlay over it; its audio view's picture,
+  `crates/render/src/editor_audio.rs`); StepMania's named
   background effects drawn from `ddi_library::backgrounds::BgDraw`
   (`crates/render/src/background.rs`) and a song's scripts' actors as quads
   in the background frame (`crates/render/src/scripted.rs`). No platform
@@ -106,7 +107,9 @@ Rust and the browser are implementation details, not advertised features.
   history and its replays, `crates/ui/src/state/history/`, and when its
   stale plays are judged again, `reworker.rs`; stored through
   `ddi_platform::storage`, which each shell installs), the chart
-  editor's model (`crates/ui/src/state/editor/`: edits with undo) and
+  editor's model (`crates/ui/src/state/editor/`: edits with undo; the
+  music's waveform and spectrogram, `audio.rs`, which its audio view,
+  `screens/editor_audio.rs`, draws on the field's rows) and
   screen (`crates/ui/src/screens/editor.rs`, `docs/plans/editor.md`) and
   the developer screen both shells run (`crates/ui/src/dev.rs`). Pure,
   natively tested.

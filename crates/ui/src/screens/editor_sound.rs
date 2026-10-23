@@ -5,9 +5,8 @@
 //! the offset the taps heard), and the music's overview: a strip at the
 //! field's right edge, the song's start at its top, its loudness, the
 //! rows in view and the cursor; a tap or a drag on it moves the cursor
-//! there.
-
-use std::rc::Rc;
+//! there. The overview is the music's analysis' (`state::editor::audio`,
+//! which the audio view draws too).
 
 use ddi_actor::Actor;
 use ddi_chart::{TICKS_PER_BEAT, Tick};
@@ -20,20 +19,19 @@ use crate::state::editor::Sounds;
 use crate::state::editor::overview::Overview;
 use crate::state::editor::tap::{Estimate, TapTempo};
 
-/// How often the screen asks for the overview while the shell makes it,
-/// seconds.
+/// How often the screen asks for the music's analysis while the shell
+/// makes it, seconds.
 const POLL: f64 = 0.25;
 
 /// The sound tools' state on the screen.
 #[derive(Default)]
 pub(super) struct SoundTools {
     pub(super) taps: TapTempo,
-    pub(super) overview: Option<Rc<Overview>>,
     /// What the cues were last given for while listening: the revision,
     /// the chart, the sounds.
     cued: Option<(Option<u64>, usize, Sounds)>,
     /// The UI's seconds at the last update, and whether the shell was
-    /// making the overview then.
+    /// making the analysis then.
     now: f64,
     awaiting: bool,
 }
@@ -57,6 +55,11 @@ fn rounded(bpm: f64) -> f64 {
 }
 
 impl EditorScreen {
+    /// The music's overview, once its analysis is made.
+    pub(super) fn overview(&self) -> Option<&Overview> {
+        self.audio.analysis.as_deref().map(|a| &a.overview)
+    }
+
     fn cue_key(&self) -> (Option<u64>, usize, Sounds) {
         let e = self.editor.borrow();
         (e.revision(), e.chart_index(), e.sounds())
@@ -204,22 +207,12 @@ impl EditorScreen {
         true
     }
 
-    /// Each update: the overview once the shell has it, and the cues
-    /// told again when what they come from changed while listening.
+    /// Each update: the music's analysis once the shell has it, and the
+    /// cues told again when what they come from changed while listening.
     pub(super) fn sound_update(&mut self, cx: &mut Cx) {
         self.sound.now = cx.time();
-        let overview = self.host.as_ref().and_then(|h| h.overview());
-        let same = match (&overview, &self.sound.overview) {
-            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
-            (None, None) => true,
-            _ => false,
-        };
-        self.sound.awaiting =
-            overview.is_none() && self.host.as_ref().is_some_and(|h| h.overview_coming());
-        if !same {
-            self.sound.overview = overview;
-            self.changed();
-        }
+        self.audio_update();
+        self.sound.awaiting = self.audio.coming;
         if self.listening {
             let key = self.cue_key();
             if self.sound.cued != Some(key) {
@@ -240,7 +233,7 @@ impl EditorScreen {
         let e = self.editor.borrow();
         let t = e.timing();
         let start = t.seconds_at(Tick::ZERO).min(0.0);
-        let music = self.sound.overview.as_ref().map_or(0.0, |o| o.end());
+        let music = self.overview().map_or(0.0, |o| o.end());
         let end = music.max(t.seconds_at(e.end())).max(start + 1.0);
         (start, end)
     }
@@ -257,7 +250,7 @@ impl EditorScreen {
         );
         call(&mut plate, "xy", &[x + w / 2.0, y + h / 2.0]);
         c.push(plate);
-        if let Some(o) = &self.sound.overview {
+        if let Some(o) = self.overview() {
             let (s0, s1) = self.overview_span();
             let n = (h / 3.0).floor().clamp(16.0, 400.0) as usize;
             let bar_h = h / n as f32;

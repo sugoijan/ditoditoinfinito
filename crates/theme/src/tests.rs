@@ -358,6 +358,12 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     let _ = theme.color("Background");
     // An ITG FA+ play's white Fantastics (the sample plays ITG).
     let _ = theme.color("Judgement.W1White");
+    // The chart editor's audio view (the editor is not run here).
+    for i in 1..=5 {
+        let _ = theme.color(&format!("Editor.Audio.Ramp{i}"));
+    }
+    let _ = theme.color("Editor.Audio.Wave");
+    let _ = theme.color("Editor.Audio.Rms");
     // Which design a window gets: short or narrow, the compact one.
     assert_eq!(screens::design_for(&*theme, [390.0, 844.0]), COMPACT);
     assert_eq!(screens::design_for(&*theme, [844.0, 390.0]), COMPACT);

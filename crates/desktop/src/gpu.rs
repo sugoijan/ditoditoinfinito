@@ -100,6 +100,8 @@ pub struct Gpu {
     pub movie: crate::preview_movie::PreviewMovieHost,
     /// The chart editor's field in the player's skin.
     pub editor: crate::editor_field::EditorFieldHost,
+    /// The chart editor's audio view.
+    pub editor_audio: crate::editor_audio::EditorAudioHost,
 }
 
 impl Gpu {
@@ -115,6 +117,7 @@ impl Gpu {
             field: Default::default(),
             movie: Default::default(),
             editor: Default::default(),
+            editor_audio: Default::default(),
         }
     }
 
@@ -201,6 +204,8 @@ impl Gpu {
         // The editor's field, when its picture changed.
         self.editor
             .draw(&self.device, &self.queue, &mut encoder, &mut self.painter);
+        self.editor_audio
+            .draw(&self.device, &self.queue, &mut self.painter);
         // Song select's preview movie's frame, the same way.
         self.movie.draw(
             &self.device,

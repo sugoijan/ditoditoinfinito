@@ -38,8 +38,8 @@ use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen, SAVED};
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::{FEED, SelectCall};
+use ddi_ui::state::editor::audio::{Analysis, Builder};
 use ddi_ui::state::editor::autosave::Autosave;
-use ddi_ui::state::editor::overview::{Builder, Overview};
 use ddi_ui::state::editor::{Editor, export};
 
 use crate::audio::{Audio, Sound};
@@ -141,6 +141,8 @@ struct Host {
     listen: RefCell<Listen>,
     /// A new song's folder, until its first save.
     fresh: RefCell<Option<PathBuf>>,
+    /// The clock [`EditorHost::clock`] counts from.
+    started: std::time::Instant,
 }
 
 /// Listening: the editor's own output, the music of a chart (decoded on
@@ -152,9 +154,10 @@ struct Listen {
     /// The music file being read.
     loading: Option<(RelPathBuf, Loading)>,
     listener: Listener<Audio>,
-    /// The music's overview, once made from it on a thread.
-    overview: Option<Rc<Overview>>,
-    making: Option<mpsc::Receiver<Overview>>,
+    /// The music's analysis (the overview, the audio view's waveform
+    /// and spectrogram), once made from it on a thread.
+    analysis: Option<Rc<Analysis>>,
+    making: Option<mpsc::Receiver<Analysis>>,
 }
 
 impl Listen {
@@ -164,7 +167,7 @@ impl Listen {
             id: id.to_string(),
             loading: None,
             listener: Listener::default(),
-            overview: None,
+            analysis: None,
             making: None,
         };
         l.load(chart);
@@ -179,34 +182,35 @@ impl Listen {
             let rate = self.audio.sample_rate();
             let loading = Loading::start(&self.id, Some(chart), rate, false, None, None);
             self.loading = Some((file, loading));
-            (self.overview, self.making) = (None, None);
+            (self.analysis, self.making) = (None, None);
         }
     }
 
-    /// The overview of `music`, made on a thread.
-    fn make_overview(&mut self, music: Sound) {
+    /// The analysis of `music` (the very samples listening plays, its
+    /// first at second 0), made whole on a thread.
+    fn analyze(&mut self, music: Sound) {
         let (tx, rx) = mpsc::channel();
         let made = std::thread::Builder::new()
-            .name("ddi-editor-overview".into())
+            .name("ddi-editor-audio".into())
             .spawn(move || {
                 let mut b = Builder::new(f64::from(music.rate), music.frames(), 0.0);
-                b.add_interleaved(0, &music.data, usize::from(music.channels));
+                b.add_interleaved(&music.data, usize::from(music.channels));
                 let _ = tx.send(b.finish());
             });
         self.making = made.is_ok().then_some(rx);
     }
 
-    /// The overview, once made.
-    fn overview(&mut self) -> Option<Rc<Overview>> {
+    /// The analysis, once made.
+    fn analysis(&mut self) -> Option<Rc<Analysis>> {
         self.poll();
         if let Some(rx) = &self.making {
             match rx.try_recv() {
-                Ok(o) => (self.overview, self.making) = (Some(Rc::new(o)), None),
+                Ok(a) => (self.analysis, self.making) = (Some(Rc::new(a)), None),
                 Err(mpsc::TryRecvError::Disconnected) => self.making = None,
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
-        self.overview.clone()
+        self.analysis.clone()
     }
 
     /// Takes in the music once read; plays it if it was waited for.
@@ -219,7 +223,7 @@ impl Listen {
         };
         match result {
             Ok(loaded) => {
-                self.make_overview(loaded.music.clone());
+                self.analyze(loaded.music.clone());
                 if let Err(e) =
                     self.listener
                         .music_ready(&file, loaded.music, Some(&mut self.audio))
@@ -343,13 +347,21 @@ impl EditorHost for Host {
         l.listener.time(&l.audio)
     }
 
-    fn overview(&self) -> Option<Rc<Overview>> {
-        self.listen.borrow_mut().overview()
+    fn audio(&self) -> Option<Rc<Analysis>> {
+        self.listen.borrow_mut().analysis()
     }
 
-    fn overview_coming(&self) -> bool {
+    fn audio_coming(&self) -> bool {
         let l = self.listen.borrow();
         l.loading.is_some() || l.making.is_some()
+    }
+
+    fn show_audio(&self, picture: Option<&ddi_ui::screens::editor::audio::AudioPicture>) {
+        crate::editor_audio::show(picture);
+    }
+
+    fn clock(&self) -> Option<f64> {
+        Some(self.started.elapsed().as_secs_f64())
     }
 
     fn skin_field(&self) -> Option<SkinField> {
@@ -425,6 +437,7 @@ pub fn open(
         backed_up: Cell::new(fresh.is_some()),
         listen: RefCell::new(Listen::new(id, editor.chart_index())),
         fresh: RefCell::new(fresh),
+        started: std::time::Instant::now(),
     };
     EditorScreen::new(env.clone(), editor, place)
         .with_host(Rc::new(host))
