@@ -351,7 +351,7 @@ impl EditorHost for WebEditorHost {
                 };
                 cx.request(UiRequest::Navigate(route.to_hash()));
             }
-            EditorCall::Listen { from } => {
+            EditorCall::Listen { from } | EditorCall::Record { from, .. } => {
                 let mut l = self.listen.borrow_mut();
                 // Inside the press: the context made and resumed now.
                 if l.audio.is_none() {
@@ -375,9 +375,14 @@ impl EditorHost for WebEditorHost {
                 }
                 let s = crate::settings::Settings::load();
                 let l = &mut *l;
-                l.listener.set_cues(Cues::of(editor));
+                l.listener
+                    .set_cues(ddi_session::listen::cues_for(&call, editor));
+                // The output's offset, as a play on it takes.
+                let offset = l.audio.as_ref().map_or(s.audio_offset, |a| {
+                    s.audio_offset_for(Some(&a.fingerprint()))
+                });
                 if let Some(audio) = l.audio.as_mut()
-                    && let Err(e) = l.listener.ask(audio, from, s.volume, s.audio_offset)
+                    && let Err(e) = l.listener.ask(audio, from, s.volume, offset)
                 {
                     web_sys::console::warn_1(&format!("editor: listening: {e}").into());
                 }
@@ -407,6 +412,24 @@ impl EditorHost for WebEditorHost {
         let audio = l.audio.as_mut()?;
         l.listener.cue(audio);
         l.listener.time(audio)
+    }
+
+    fn heard_at(&self, host: f64) -> Option<f64> {
+        self.listen
+            .borrow()
+            .listener
+            .heard_at(ddi_platform::HostTime(host))
+    }
+
+    fn record_input(
+        &self,
+        layout: &ddi_chart::Layout,
+    ) -> Option<ddi_ui::screens::editor::RecordInput> {
+        Some(ddi_session::listen::record_input(
+            &crate::settings::Settings::load(),
+            layout,
+            &crate::web::gamepad::page_pads(),
+        ))
     }
 
     fn audio(&self) -> Option<Rc<Analysis>> {

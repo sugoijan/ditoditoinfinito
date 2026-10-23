@@ -35,7 +35,9 @@ use ddi_session::listen::{Cues, Listener};
 use ddi_ui::Cx;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::Env;
-use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen, SAVED};
+use ddi_ui::screens::editor::{
+    EditorCall, EditorHost, EditorPlace, EditorScreen, RecordInput, SAVED,
+};
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::{FEED, SelectCall};
 use ddi_ui::state::editor::audio::{Analysis, Builder};
@@ -240,10 +242,9 @@ impl Listen {
 
     fn ask(&mut self, from: f64) {
         let s = crate::store::settings_cached();
-        if let Err(e) = self
-            .listener
-            .ask(&mut self.audio, from, s.volume, s.audio_offset)
-        {
+        // The output's offset, as a play on it takes.
+        let offset = s.audio_offset_for(self.audio.fingerprint().as_ref());
+        if let Err(e) = self.listener.ask(&mut self.audio, from, s.volume, offset) {
             eprintln!("editor: listening: {e}");
         }
     }
@@ -326,12 +327,13 @@ impl EditorHost for Host {
                     cx.broadcast(Message::new(FEED));
                 }
             }
-            EditorCall::Listen { from } => {
+            EditorCall::Listen { from } | EditorCall::Record { from, .. } => {
                 let mut l = self.listen.borrow_mut();
                 // This chart's music, which may be another file.
                 l.load(editor.chart_index());
                 l.poll();
-                l.listener.set_cues(Cues::of(editor));
+                l.listener
+                    .set_cues(ddi_session::listen::cues_for(&call, editor));
                 l.ask(from);
             }
             EditorCall::Stop => self.listen.borrow_mut().stop(),
@@ -345,6 +347,21 @@ impl EditorHost for Host {
         l.poll();
         l.listener.cue(&mut l.audio);
         l.listener.time(&l.audio)
+    }
+
+    fn heard_at(&self, host: f64) -> Option<f64> {
+        self.listen
+            .borrow()
+            .listener
+            .heard_at(ddi_platform::HostTime(host))
+    }
+
+    fn record_input(&self, layout: &ddi_chart::Layout) -> Option<RecordInput> {
+        Some(ddi_session::listen::record_input(
+            &crate::store::settings_cached(),
+            layout,
+            &crate::input::connected_pads(),
+        ))
     }
 
     fn audio(&self) -> Option<Rc<Analysis>> {

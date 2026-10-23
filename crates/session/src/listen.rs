@@ -14,11 +14,21 @@
 //! beat's second is the one the engine judges a note on it at
 //! (`TimingMap::seconds_at`: after a delay on its row, before a stop),
 //! so the clicks follow BPM changes, stops, delays and warps.
+//!
+//! Recording (`ddi_ui::state::editor::record`) listens with a count-in
+//! ([`Cues::with_count_in`]) and asks the second a press was heard at
+//! ([`Listener::heard_at`]): the play's song clock
+//! (`ddi_engine::clock::SongClock`) turns its time stamp into it as a
+//! play judges a press.
 
-use ddi_chart::{Note, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
+use ddi_chart::{Layout, Note, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
+use ddi_engine::ConnectedPad;
+use ddi_engine::clock::{ClockOptions, SongClock};
 use ddi_library::path::{RelPath, RelPathBuf};
-use ddi_platform::AudioBackend;
+use ddi_platform::{AudioBackend, HostTime};
+use ddi_ui::screens::editor::{EditorCall, RecordInput};
 use ddi_ui::state::editor::Editor;
+use ddi_ui::state::settings::Settings;
 
 use crate::calibration::{BEAT_CLICK, NOTE_CLICK, click};
 use crate::sounds::{CLAP_LOOKAHEAD, clap};
@@ -48,6 +58,9 @@ pub struct Cues {
     beats: Option<TimingMap>,
     /// The assist clap's rows, song seconds, in order, once each.
     claps: Vec<f64>,
+    /// A recording's count-in: the beats of this timing before this
+    /// song second click with the metronome off.
+    count_in: Option<(TimingMap, f64)>,
 }
 
 impl Cues {
@@ -74,6 +87,23 @@ impl Cues {
         Cues {
             beats: metronome.then(|| timing.clone()),
             claps,
+            count_in: None,
+        }
+    }
+
+    /// With a count-in: `timing`'s beats before song second `until`
+    /// click whether the metronome is on or not.
+    pub fn with_count_in(mut self, timing: &TimingMap, until: f64) -> Cues {
+        self.count_in = Some((timing.clone(), until));
+        self
+    }
+
+    /// The timing the clicks are on, and the second they end at.
+    fn clicks(&self) -> Option<(&TimingMap, f64)> {
+        match (&self.beats, &self.count_in) {
+            (Some(t), _) => Some((t, f64::INFINITY)),
+            (None, Some((t, until))) => Some((t, *until)),
+            (None, None) => None,
         }
     }
 
@@ -84,7 +114,7 @@ impl Cues {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.beats.is_none() && self.claps.is_empty()
+        self.clicks().is_none() && self.claps.is_empty()
     }
 }
 
@@ -118,9 +148,8 @@ struct Schedule {
 impl Schedule {
     fn at(cues: &Cues, until: f64) -> Schedule {
         let beat = cues
-            .beats
-            .as_ref()
-            .map_or(0, |t| (t.beat_at(until).floor() as i64 - 1).max(0));
+            .clicks()
+            .map_or(0, |(t, _)| (t.beat_at(until).floor() as i64 - 1).max(0));
         Schedule {
             beat,
             clap: cues.claps.partition_point(|&s| s < until),
@@ -179,6 +208,8 @@ pub struct Listener<A: AudioBackend> {
     sounds: Option<CueSounds<A::Buffer>>,
     /// What the cues scheduled so far.
     pub scheduled: Scheduled,
+    /// The song second heard at a host time, as a play's clock has it.
+    clock: SongClock,
 }
 
 /// A listen asked for: from that song second, at that volume and audio
@@ -201,6 +232,7 @@ impl<A: AudioBackend> Default for Listener<A> {
             schedule: Schedule::at(&Cues::default(), 0.0),
             sounds: None,
             scheduled: Scheduled::default(),
+            clock: SongClock::new(ClockOptions::default()),
         }
     }
 }
@@ -279,13 +311,14 @@ impl<A: AudioBackend> Listener<A> {
         let Some(music) = &self.music else {
             return Ok(());
         };
-        self.playing = Some(Listening::start(
-            audio,
-            music,
-            ask.from,
-            ask.volume,
-            ask.audio_offset,
-        )?);
+        let p = Listening::start(audio, music, ask.from, ask.volume, ask.audio_offset)?;
+        self.clock = SongClock::new(ClockOptions {
+            audio_offset: ask.audio_offset,
+            ..ClockOptions::default()
+        });
+        self.clock.update(audio.now());
+        self.clock.start(p.start, p.from);
+        self.playing = Some(p);
         // A beat on the second it starts from is heard too.
         self.schedule = Schedule::at(&self.cues, ask.from - 1e-9);
         self.cue(audio);
@@ -319,11 +352,11 @@ impl<A: AudioBackend> Listener<A> {
         let sounds = self.sounds.get_or_insert_with(|| CueSounds::new(audio));
         let s = &mut self.schedule;
         let mut due = Vec::new();
-        if let Some(t) = &self.cues.beats {
+        if let Some((t, until)) = self.cues.clicks() {
             for _ in 0..MAX_BEATS {
                 let tick = Tick::from_beats(s.beat);
                 let at = t.seconds_at(tick);
-                if at >= horizon {
+                if at >= horizon || at >= until {
                     break;
                 }
                 s.beat += 1;
@@ -374,8 +407,19 @@ impl<A: AudioBackend> Listener<A> {
         let t = self.playing.as_ref().and_then(|p| p.time(audio));
         if t.is_none() {
             self.playing = None;
+        } else {
+            self.clock.update(audio.now());
         }
         t
+    }
+
+    /// The song second heard at host time `host` while the music plays
+    /// (`None` before it starts or once it stopped): as a play hears a
+    /// press stamped then (the context time less the output's latency
+    /// and the audio offset, `SongClock::song_time_at_host`).
+    pub fn heard_at(&self, host: HostTime) -> Option<f64> {
+        self.playing.filter(|_| self.waiting.is_none())?;
+        Some(self.clock.song_time_at_host(host))
     }
 
     /// Stops what plays, and the listen waiting.
@@ -384,6 +428,36 @@ impl<A: AudioBackend> Listener<A> {
             p.stop(audio);
         }
         self.waiting = None;
+    }
+}
+
+/// The cues of the listen `call` asks for (a listen or a recording):
+/// the editor's sounds, and a recording's count-in.
+pub fn cues_for(call: &EditorCall, editor: &Editor) -> Cues {
+    let cues = Cues::of(editor);
+    match call {
+        EditorCall::Record { count_in, .. } => cues.with_count_in(editor.timing(), *count_in),
+        _ => cues,
+    }
+}
+
+/// What recording reads lanes from: what a play of a chart of `layout`
+/// would (`play::play_bindings` over `settings`' bindings, the
+/// controllers `connected`), and the menus' bindings for a controller's
+/// Back and Select.
+pub fn record_input(
+    settings: &Settings,
+    layout: &Layout,
+    connected: &[ConnectedPad],
+) -> RecordInput {
+    RecordInput {
+        lanes: crate::play::play_bindings(&settings.controls, layout, connected),
+        controls: settings.controls.clone(),
+        standard: connected
+            .iter()
+            .filter(|p| p.standard)
+            .map(|p| p.id.clone())
+            .collect(),
     }
 }
 
@@ -537,6 +611,48 @@ mod tests {
         assert_eq!(audio.played[1], (start + 1.5, 0.0));
         clock.set(start + 0.02 + 1.0);
         assert!((l.time(&audio).unwrap() + 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_press_is_heard_at_its_time_stamp_as_a_play_hears_it() {
+        let clock = Rc::new(Cell::new(3.0));
+        let mut audio = Fake::new(&clock);
+        let file = RelPath::new("a.ogg");
+        let mut l = Listener::<Fake>::default();
+        assert_eq!(l.heard_at(HostTime(3.0)), None, "nothing plays");
+        l.read(file);
+        l.ask(&mut audio, 4.0, 1.0, 0.01).unwrap();
+        assert_eq!(l.heard_at(HostTime(3.0)), None, "the music not read yet");
+        l.music_ready(file, 60.0, Some(&mut audio)).unwrap();
+        let start = 3.0 + LOOKAHEAD;
+        // Heard past the output's latency (0.02) and the offset.
+        for now in [start + 0.5, start + 7.25] {
+            clock.set(now);
+            let heard = l.time(&audio).unwrap();
+            let at = l.heard_at(HostTime(now)).unwrap();
+            assert!((at - heard).abs() < 1e-9, "{at} {heard}");
+            assert!((at - (4.0 + now - start - 0.03)).abs() < 1e-9);
+            // A press stamped a frame ago.
+            let before = l.heard_at(HostTime(now - 0.016)).unwrap();
+            assert!((at - before - 0.016).abs() < 1e-9);
+        }
+        l.stop(&mut audio);
+        assert_eq!(l.heard_at(HostTime(clock.get())), None);
+    }
+
+    #[test]
+    fn a_count_in_clicks_the_beats_before_the_start_with_the_metronome_off() {
+        let t = timing();
+        let beat = |b: i64| t.seconds_at(Tick::from_beats(b));
+        let cues = Cues::new(&t, &[], false, false).with_count_in(&t, beat(4));
+        let heard = listen_with(cues, beat(0), 3.5);
+        let want: Vec<(Cue, f64)> = (0..4)
+            .map(|b| (if b == 0 { Cue::Accent } else { Cue::Beat }, beat(b)))
+            .collect();
+        assert!(near(&heard, &want), "{heard:?}");
+        // With the metronome on, the beats go on.
+        let cues = Cues::new(&t, &[], true, false).with_count_in(&t, beat(4));
+        assert_eq!(listen_with(cues, beat(0), 3.5).len(), 8);
     }
 
     #[test]

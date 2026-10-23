@@ -34,6 +34,9 @@
 //! or hides the audio view (the music's waveform and spectrogram beside
 //! the lanes, on the field's rows), Shift W cycles what it shows
 //! ([`audio`]).
+//! R records the lanes played along to the music from the cursor (over
+//! the selection when there is one), on the snap's rows; Shift R adds to
+//! the notes there; R, Escape or a tap stops ([`record`]).
 //! A controller moves and changes the snap with its directions, listens
 //! with Start and opens the menu with Select. A pointer places a note
 //! with a tap on a lane and a hold with a drag along one, moves the
@@ -78,6 +81,13 @@ pub enum EditorCall {
     Listen {
         from: f64,
     },
+    /// Play the music from song second `from` to record along to it
+    /// (inside the press, as `Listen`): the metronome clicks before
+    /// `count_in` even when it is off.
+    Record {
+        from: f64,
+        count_in: f64,
+    },
     Stop,
     /// Save the song where it came from (the shell broadcasts [`SAVED`]).
     Save {
@@ -115,6 +125,20 @@ pub trait EditorHost {
     /// The song second heard while the music plays, `None` once it
     /// stopped.
     fn music_time(&self) -> Option<f64> {
+        None
+    }
+
+    /// The song second heard at host time `host` (seconds on the clock
+    /// keys' and controllers' time stamps are on) while the music plays,
+    /// as a play judges a press then (`ddi_session::listen::Listener::
+    /// heard_at`).
+    fn heard_at(&self, _host: f64) -> Option<f64> {
+        None
+    }
+
+    /// What recording reads lanes from: a play's bindings for `layout`
+    /// ([`RecordInput`]); `None`: the default keys.
+    fn record_input(&self, _layout: &ddi_chart::Layout) -> Option<RecordInput> {
         None
     }
 
@@ -211,6 +235,8 @@ pub struct EditorView {
     pub tapped: Option<f64>,
     /// The music's overview's bins (0 until it is made).
     pub overview: usize,
+    /// The take being recorded, else the last ([`record`]).
+    pub record: Option<RecordView>,
     /// The audio view ([`audio`]).
     pub audio: audio::AudioDebug,
 }
@@ -330,6 +356,8 @@ pub struct EditorScreen {
     autosaved: (Option<u64>, f64),
     /// The metronome's, the taps' and the overview's ([`sound`]).
     sound: sound::SoundTools,
+    /// Recording's ([`record`]).
+    record: record::Recorder,
     /// The audio view's ([`audio`]).
     audio: audio::AudioView,
     /// The field's view, and whether the notes are on plates (the
@@ -378,6 +406,7 @@ impl EditorScreen {
             status: String::new(),
             autosaved: (None, 0.0),
             sound: sound::SoundTools::default(),
+            record: record::Recorder::default(),
             audio: audio::AudioView::default(),
             view: FieldView::Edit,
             plates: false,
@@ -658,6 +687,7 @@ impl EditorScreen {
         if !self.geo.compact {
             if self.place.listen {
                 hints.push((vec!["SPACE"], "Listen"));
+                hints.push((vec!["R"], "Record"));
             }
             if self.place.playtest {
                 hints.push((vec!["P"], "Play"));
@@ -934,6 +964,7 @@ impl EditorScreen {
             c.push(left(m, mx, y + k as f32 * 14.0));
         }
         self.audio_marks(&m, timing, &mut c);
+        c.extend(self.record_layer(&m, timing));
         // The cursor line, and the row it is on.
         let cursor_y = y_of(e.cursor().0 as f64);
         self.audio_line_at(&mut c, cursor_y, 2.0, with_alpha(env.color("Accent"), 0.95));
@@ -1242,6 +1273,7 @@ impl EditorScreen {
             tapped: self.sound.taps.estimate().map(|t| t.bpm),
             overview: self.overview().map_or(0, |o| o.levels.len()),
             audio: self.audio_debug(),
+            record: self.record_view(),
         });
     }
 
@@ -1277,10 +1309,14 @@ impl EditorScreen {
         if !self.listening {
             return;
         }
+        let heard = self.heard;
         self.listening = false;
         (self.heard, self.passed_to) = (None, None);
         self.events.clear();
         self.call(EditorCall::Stop, cx);
+        if self.end_record(heard) {
+            return;
+        }
         let tick = Tick(self.shown.round() as i64);
         self.edit(|e| {
             let t = e.snap_tick(tick);
@@ -1292,7 +1328,7 @@ impl EditorScreen {
     /// While listening in the skin: its events of the notes the music
     /// passed since the last frame (the last few kept).
     fn pass_notes(&mut self, seconds: f64) {
-        if !self.skin_drawn() {
+        if !self.skin_drawn() || self.recording() {
             return;
         }
         let from = self.passed_to.unwrap_or(self.shown);
@@ -1401,6 +1437,7 @@ impl EditorScreen {
             items.push(("auto", "Autoplay from cursor".into()));
         }
         drop(e);
+        self.record_items(&mut items);
         self.sound_items(&mut items);
         let e = self.editor.borrow();
         items.push(("undo", "Undo".into()));
@@ -1463,6 +1500,9 @@ impl EditorScreen {
 
     /// What the menu's action `id` does.
     fn action(&mut self, id: &str, cx: &mut Cx) {
+        if self.record_action(id, cx) {
+            return;
+        }
         if self.sound_action(id) || self.audio_action(id) {
             return;
         }
@@ -1937,6 +1977,7 @@ impl EditorScreen {
                 "v" => self.toggle_view(),
                 "f" => self.toggle_plates(),
                 "k" => self.toggle_sound(shift),
+                "r" if !k.repeat => self.record(shift, cx),
                 "w" => self.toggle_audio(shift),
                 "y" if shift => self.apply_tap(false),
                 "y" if !k.repeat => self.tap(k.time, cx),
@@ -2310,6 +2351,11 @@ impl Screen for EditorScreen {
         true
     }
 
+    fn raw_input(&self) -> bool {
+        // Recording: keys and controls as they are, the lanes a play's.
+        self.recording()
+    }
+
     fn animating(&self) -> bool {
         // Frames come while the field glides or follows the music.
         self.listening || (self.shown - self.editor.borrow().cursor().0 as f64).abs() > 0.01
@@ -2346,6 +2392,7 @@ impl Screen for EditorScreen {
                     self.shown = beat * TICKS_PER_BEAT as f64;
                     self.heard = Some(t);
                     self.pass_notes(t);
+                    self.record_update(t, cx);
                 }
                 None => self.stop_listening(cx),
             }
@@ -2397,6 +2444,11 @@ impl Screen for EditorScreen {
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if self.recording() {
+            let handled = self.record_input_event(input, cx);
+            self.refresh(root, cx);
+            return handled;
+        }
         let handled = match input {
             Input::Menu { action, .. } => {
                 let shift = self.shift;
@@ -2468,6 +2520,14 @@ impl Screen for EditorScreen {
 
 #[path = "editor_sound.rs"]
 mod sound;
+
+#[path = "editor_record.rs"]
+mod record;
+pub use record::{RecordInput, RecordView};
+
+#[cfg(test)]
+#[path = "editor_record_tests.rs"]
+mod record_tests;
 
 #[path = "editor_audio.rs"]
 pub mod audio;

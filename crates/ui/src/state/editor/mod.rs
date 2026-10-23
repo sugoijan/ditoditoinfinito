@@ -20,6 +20,7 @@ mod change;
 pub mod export;
 pub mod new_song;
 pub mod overview;
+pub mod record;
 pub mod tap;
 #[cfg(test)]
 mod tests;

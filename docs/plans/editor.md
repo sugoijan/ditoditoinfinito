@@ -7,7 +7,9 @@ timing and notes in the game, try them at once, and keep them
 Status (2026-10-23): the writer, the editing model, the field in the
 player's skin, the screen on both shells, listening with the
 metronome, tap-to-tempo, the music's overview and the audio view,
-playtests, saving and the autosave are built (steps 1–8; see "Built" below); what is
+note record,
+playtests, saving
+and the autosave are built (steps 1–8; see "Built" below); what is
 left is under "Left".
 
 ## Scope of the first version
@@ -392,6 +394,84 @@ tags made into a song, charted, playtested autoplayed and back, saved,
 listed by song select and opened again equal after a reload; a second
 one left unsaved and gone from the list).
 
+**Note record** (2026-10-23; `ddi_ui::state::editor::record`,
+`ddi_ui::screens::editor`'s `record`, `ddi_session::listen`). R plays
+the music from a measure before the cursor (by the time signature
+there; not before the song's start) with a count-in, the metronome's
+click on the pre-roll's beats whether it is on or not
+(`Cues::with_count_in`), then the metronome and the clap as toggled;
+the field follows the second heard as when listening; on the web the
+press starts the music (`EditorCall::Record`, handled as `Listen`).
+With a selection it records over the selection alone and stops by
+itself once no press could land in it. The lanes are the play's
+bindings for the chart's layout, keys and controllers
+(`ddi_session::listen::record_input` over `play::play_bindings` and
+the controllers connected: desktop's `input::connected_pads`, the
+web's `gamepad::page_pads`); while recording the screen takes keys and
+controls as they are (`Screen::raw_input`), so bound keys are lanes
+even when they are the editor's (the arrows); R, Escape, Backspace,
+Space or Enter when not bound, a controller's Back or Select, or a tap
+stop it; nothing else does anything. Each press's time stamp (desktop's
+OS-stamped keys, the pads' thread's stamps, the web's `timeStamp`)
+becomes the second heard as a play judges a press: the listen keeps an
+`ddi_engine::clock::SongClock` started with the music and updated each
+frame (the output's latency and the audio offset taken off once,
+`Listener::heard_at`), then the beat by `TimingMap::beat_at` (a press
+in a stop or a delay on its beat, past a warp after it), then the
+snap's nearest row, the later of two as near; a row in a warp moves to
+the first after it. Presses outside the rows recorded (in the pre-roll
+less half a snap, past a selection) are ignored. A press held longer
+than 0.3 s is a hold from its row to the release's nearest (at least a
+snap long, growing while held; a roll with the roll tool). The notes
+show tinted at their rows as they come, the skin's receptor flashes.
+Stopped, the take is one change: R replaces (the notes whose heads are
+in the rows recorded, from the start row to the row it stopped on or
+the selection's end, are taken away first), Shift R adds (a note
+recorded on a taken cell is left out, a hold over a later note ends a
+snap before it); the cursor goes to the row it stopped on; the panel
+says the notes recorded and the presses' mean and spread from their
+rows ("12 notes recorded · 12 ms late on average, ±9 ms"), and the
+debug state `record` (`active`, `mode`, `start`, `notes`, `presses`,
+`meanMs`, `spreadMs`, `rows`). The menu has both for controllers and
+phones. Listening and recording take the audio offset of the output's
+profile when the settings have one (`Settings::audio_offset_for`, what
+`play_options` takes), else the default.
+From StepMania 5.1's editor (`src/ScreenEdit.cpp`, read for behavior
+only): `InputRecord` puts a tap at `Quantize(GetBeat(), snap)`
+(`RageUtil.h`: half rounds up) and ignores rows outside the range; a
+tap on a row of a hold recorded before takes the hold's place
+(`IsHoldNoteAtRow` counts its tail); `Update` makes a hold of a press
+held more than `record_hold_seconds` (`record_hold_default`, 0.3 s),
+its ends quantized the same way and clamped to the range; only taps,
+holds and rolls are recorded whatever note type is chosen (rolls while
+its roll key is held: here the roll tool), so the mine, lift and fake
+tools record taps and holds; `TransitionEditState` records over a copy
+of the chart and, when recording ends, clears the range and copies the
+take in, so StepMania keeps the notes there (our Shift R); R
+replacing them is our choice. StepMania's lead-in is a second
+(`EditRecordModeLeadIn`) without a count-in; record from the cursor
+ends at the chart's last note, ours when stopped.
+Verified: `record_tests.rs` (every snap from 4th to 192nd through a
+BPM change, a stop, a delay and a warp, 0.4 of a snap early and late;
+in a stop, a delay, before a warp; ties; 12ths and 24ths; the hold
+threshold 0.01 s under and over, a release stamped before a frame saw
+it held; rolls; mines record taps; a tap on a recorded hold's tail;
+replace and add; a selection's bounds and end; the pre-roll's half
+snap; a 3/4 pre-roll; one undo; the mean and spread); `listen.rs`
+(`heard_at` against the second heard and a press stamped a frame
+before, the count-in's clicks with the metronome off); the harness
+(`editor_record_tests.rs`, at 1280×720, 844×390 and 390×844: R asks
+for the music from the pre-roll, stamped arrows become notes on the
+8ths' rows and a hold, the arrows neither move the cursor nor change
+the snap, Escape stops without leaving, one undo; Shift R adds, a
+controller's d-pad records and its B (Back) stops, a tap and R stop,
+other keys do nothing; a selection stops by itself at its end; the
+menu); desktop headless (`crates/desktop/tests/editor_record.rs`: on a
+fake clock, keys stamped and a fake controller's edges routed raw by
+the shell, an audio offset of 50 ms in the settings: eight presses
+through a BPM change and a stop land on their rows, the mean off the
+grid is the presses' own to 0.01 ms, saved and read back).
+
 **The audio view** (2026-10-23; `ddi_ui::state::editor::audio`,
 `ddi_ui::screens::editor`'s `audio`, `ddi_render::editor_audio`): the
 music's waveform and spectrogram beside the lanes, time down the field
@@ -559,8 +639,10 @@ Safari, real Firefox's speed.
   removed chart's tags come back in their places on undo.
 - Changing a song's music file name in the editor plays the old file in
   playtests and listening until saved (both read the library's entry).
-- Listening takes off the settings' default audio offset, not a device
-  profile's (the editor does not ask which device plays).
+- Listening and recording take off the audio offset of the output's
+  profile when the settings have one, else the default (the web's
+  context may not know its latency at its first press: then the
+  profile may not be found, and the default is taken).
 - One autosave slot, the last song edited; recovered without asking
   (leaving without saving drops it).
 - The web's listening may start after the press when the music was not
@@ -582,6 +664,10 @@ Safari, real Firefox's speed.
   stored copy, with the music and an empty chart), so listening and
   playtests work before a save; left before its first save it is
   removed (desktop: its folder; the web: its stored song).
+- Note record: R replaces the notes in the rows recorded, Shift R adds
+  (StepMania's record keeps them); a measure's pre-roll with a
+  count-in; recording from the cursor runs until stopped; mine, lift
+  and fake tools record taps and holds as StepMania does.
 - Desktop's new songs go in `Dito Edits` in the first song folder
   Options lists, or in `Songs` in the data folder (then listed in
   Options) when none is; the web's are imported songs of the pack
@@ -589,7 +675,6 @@ Safari, real Firefox's speed.
 - A new song's chart is the model's: one empty Medium dance-single
   chart, meter 1, at 120 BPM with offset 0; its title and artist are
   the music's tags, else the title is its file name (`_` as spaces).
-
 - The audio view is the field's mapping exactly; a stop's (or a
   delay's) seconds are folded into its row in the edit view rather
   than left out, so the hit that starts a stop shows on its beat;

@@ -670,9 +670,7 @@ impl Settings {
     pub fn play_options(&self, devices: Option<&ddi_platform::DeviceProfile>) -> PlayOptions {
         let (audio_offset, visual_offset) = match devices {
             Some(d) => (
-                self.audio_profile(&d.audio.id)
-                    .map(|p| p.offset)
-                    .unwrap_or(self.audio_offset),
+                self.audio_offset_for(Some(&d.audio)),
                 self.display_profile(&d.display.id)
                     .map(|p| p.offset)
                     .unwrap_or(self.visual_offset),
@@ -707,6 +705,14 @@ impl Settings {
         self.lane_cover.sudden = cover.sudden;
         self.lane_cover.hidden = cover.hidden;
         self.lane_cover != before
+    }
+
+    /// The audio offset a play on output `audio` takes: its profile's
+    /// when known, else the default.
+    pub fn audio_offset_for(&self, audio: Option<&ddi_platform::DeviceFingerprint>) -> f64 {
+        audio
+            .and_then(|a| self.audio_profile(&a.id))
+            .map_or(self.audio_offset, |p| p.offset)
     }
 
     pub fn audio_profile(&self, id: &str) -> Option<&OffsetProfile> {

@@ -341,6 +341,28 @@ impl Drop for Hub {
     }
 }
 
+thread_local! {
+    /// The pads of the page's UI ([`Gamepads::for_page`]).
+    static PAGE: RefCell<Weak<Hub>> = const { RefCell::new(Weak::new()) };
+}
+
+/// The pads connected to the page's UI, as a play reads them (the chart
+/// editor's recording binds its lanes with them).
+pub(crate) fn page_pads() -> Vec<ddi_engine::ConnectedPad> {
+    let Some(hub) = PAGE.with(|p| p.borrow().upgrade()) else {
+        return Vec::new();
+    };
+    Gamepads(hub)
+        .pads()
+        .into_iter()
+        .map(|p| ddi_engine::ConnectedPad {
+            id: p.id,
+            index: p.index,
+            standard: p.standard,
+        })
+        .collect()
+}
+
 /// Polls every gamepad; cheap to clone (shared state).
 #[derive(Clone)]
 pub(crate) struct Gamepads(Rc<Hub>);
@@ -438,6 +460,11 @@ impl Gamepads {
     /// Drops queued edges (e.g. presses made before a session started).
     pub(crate) fn clear(&self) {
         self.0.state.borrow_mut().queue.clear();
+    }
+
+    /// These are the page's pads ([`page_pads`]).
+    pub(crate) fn for_page(&self) {
+        PAGE.with(|p| *p.borrow_mut() = Rc::downgrade(&self.0));
     }
 
     pub(crate) fn pads(&self) -> Vec<PadInfo> {

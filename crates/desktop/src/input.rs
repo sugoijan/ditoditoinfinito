@@ -7,7 +7,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use ddi_engine::ControlBindings;
+use ddi_engine::{ConnectedPad, ControlBindings};
 use ddi_platform::{DeviceId, HostTime, RawInput};
 use ddi_ui::Ui;
 use ddi_ui::event::{MenuEvent, UiEvent};
@@ -17,6 +17,18 @@ use winit::platform::scancode::PhysicalKeyExtScancode;
 
 use crate::keyboard::{DesktopKeyboard, Stamps};
 use crate::pads::{FakePad, PadEvent, PadOut, Pads};
+
+thread_local! {
+    /// The controllers connected as last read (the editor's recording
+    /// reads its lanes with them, as a play).
+    static CONNECTED: std::cell::RefCell<Vec<ConnectedPad>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The controllers connected as last read.
+pub fn connected_pads() -> Vec<ConnectedPad> {
+    CONNECTED.with(|c| c.borrow().clone())
+}
 
 #[derive(Default)]
 pub struct Input {
@@ -99,6 +111,7 @@ impl Input {
             return Vec::new();
         }
         let connected = pads.connected();
+        CONNECTED.with(|c| c.borrow_mut().clone_from(&connected));
         self.standard = connected
             .iter()
             .filter(|p| p.standard)

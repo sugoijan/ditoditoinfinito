@@ -154,12 +154,25 @@ pub fn set_headless(on: bool) {
 /// A host clock in nanoseconds, from any thread (a test's fake one).
 pub type HostClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
+/// The clock every [`Audio::new`] runs on under [`set_headless`]
+/// (`None`: the host's).
+static HEADLESS_CLOCK: std::sync::Mutex<Option<HostClock>> = std::sync::Mutex::new(None);
+
+/// Under [`set_headless`], [`Audio::new`] runs on `clock` (a test's fake
+/// one) from now on.
+pub fn set_headless_clock(clock: Option<HostClock>) {
+    if let Ok(mut c) = HEADLESS_CLOCK.lock() {
+        *c = clock;
+    }
+}
+
 impl Audio {
     /// Opens the default output at master volume `master` (none under
     /// [`set_headless`]: [`Audio::headless`] instead).
     pub fn new(master: f32) -> Audio {
         if HEADLESS.load(Ordering::Relaxed) {
-            return Audio::headless(master, None);
+            let clock = HEADLESS_CLOCK.lock().ok().and_then(|c| c.clone());
+            return Audio::headless(master, clock);
         }
         let mut audio = Audio::silent(master);
         audio.error = None;

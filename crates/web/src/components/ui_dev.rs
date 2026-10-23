@@ -685,6 +685,7 @@ pub(crate) fn start_ui(
     theme_listeners(&host, &mut listeners);
     let pads = Gamepads::new();
     if let Some(p) = &pads {
+        p.for_page();
         // Edges go to the listener alone: nothing drains a queue here.
         p.set_queue(false);
         let weak = Rc::downgrade(&host);
@@ -2585,6 +2586,32 @@ fn publish(h: &Host) {
                 set(&v, "view", e.view.as_str().into());
                 set(&v, "plates", e.plates.into());
                 set(&v, "beatHeight", e.beat_h.into());
+                set(
+                    &v,
+                    "record",
+                    e.record.as_ref().map_or(JsValue::NULL, |r| {
+                        let o = js_sys::Object::new();
+                        set(&o, "active", r.active.into());
+                        set(&o, "mode", r.mode.as_str().into());
+                        set(&o, "start", (r.start as f64).into());
+                        set(&o, "notes", (r.notes as f64).into());
+                        set(&o, "presses", (r.presses as f64).into());
+                        let ms = |v: Option<f64>| v.map_or(JsValue::NULL, JsValue::from);
+                        set(&o, "meanMs", ms(r.mean_ms));
+                        set(&o, "spreadMs", ms(r.spread_ms));
+                        let rows = js_sys::Array::new();
+                        for &(tick, lane, end) in &r.rows {
+                            let row = js_sys::Array::of3(
+                                &(tick as f64).into(),
+                                &f64::from(lane).into(),
+                                &end.map_or(JsValue::NULL, |e| (e as f64).into()),
+                            );
+                            rows.push(&row);
+                        }
+                        set(&o, "rows", rows.into());
+                        o.into()
+                    }),
+                );
                 let (skin, frames) = crate::editor_field::status();
                 set(&v, "skin", skin.map_or(JsValue::NULL, |s| s.into()));
                 set(&v, "fieldFrames", (frames as f64).into());

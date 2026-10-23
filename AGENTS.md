@@ -110,7 +110,9 @@ Rust and the browser are implementation details, not advertised features.
   editor's model (`crates/ui/src/state/editor/`: edits with undo; the
   music's waveform and spectrogram, `audio.rs`, which its audio view,
   `screens/editor_audio.rs`, draws on the field's rows) and
-  screen (`crates/ui/src/screens/editor.rs`, `docs/plans/editor.md`) and
+  screen (`crates/ui/src/screens/editor.rs`, `docs/plans/editor.md`;
+  its note record, `state/editor/record.rs`, takes a press's time stamp
+  as a play judges it, `ddi_session::listen::Listener::heard_at`) and
   the developer screen both shells run (`crates/ui/src/dev.rs`). Pure,
   natively tested.
 - `crates/theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
