@@ -24,8 +24,9 @@ class Packaging(unittest.TestCase):
         data = json.loads(subprocess.check_output(
             ['cargo', 'metadata', '--locked', '--format-version', '1', '--no-deps'], cwd=root))
         members = {p['name'] for p in data['packages'] if p['id'] in data['workspace_members']}
-        self.assertTrue({'ddi-danoni-export', 'ddi-danoni-importer'} <= members)
-        self.assertFalse({'ddi-ruffle-probe', 'ddi-danoni-desktop-probe', 'ddi-danoni-pack-verify'} & members)
+        self.assertTrue({'ddi-danoni-export', 'ddi-danoni-importer', 'ddi-danoni-desktop-probe',
+                         'ddi-danoni-pack-verify'} <= members)
+        self.assertNotIn('ddi-ruffle-probe', members)
         defaults = {p['name'] for p in data['packages'] if p['id'] in data['workspace_default_members']}
         self.assertEqual(defaults, {'ditoditoinfinito'})
         for target in ('aarch64-apple-darwin', 'wasm32-unknown-unknown', 'x86_64-pc-windows-msvc'):
