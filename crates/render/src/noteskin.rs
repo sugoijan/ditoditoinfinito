@@ -2740,7 +2740,7 @@ mod tests {
         }
         let mut f = frame(0.1, None);
         f.beat = 1.0;
-        let mut hold = note.clone();
+        let mut hold = note;
         hold.kind = SpriteKind::HoldHead {
             tail_y: 2.0,
             active: true,
