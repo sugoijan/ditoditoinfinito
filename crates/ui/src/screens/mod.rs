@@ -57,6 +57,7 @@ pub mod credits;
 pub mod data;
 pub mod editor;
 pub mod editor_dialogs;
+pub mod editor_field;
 pub mod folders_offer;
 pub mod notices;
 pub mod options;

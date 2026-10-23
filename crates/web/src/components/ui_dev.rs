@@ -2571,6 +2571,12 @@ fn publish(h: &Host) {
                 set(&v, "listening", e.listening.into());
                 set(&v, "shown", e.shown.into());
                 set(&v, "segments", strings(&e.segments));
+                set(&v, "view", e.view.as_str().into());
+                set(&v, "plates", e.plates.into());
+                set(&v, "beatHeight", e.beat_h.into());
+                let (skin, frames) = crate::editor_field::status();
+                set(&v, "skin", skin.map_or(JsValue::NULL, |s| s.into()));
+                set(&v, "fieldFrames", (frames as f64).into());
                 v.into()
             }),
         );

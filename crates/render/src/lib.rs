@@ -16,6 +16,7 @@ pub mod background;
 pub mod color;
 pub mod cosmic;
 pub mod draw2d;
+pub mod editor_field;
 pub mod field_preview;
 mod gaussian;
 mod gpu;

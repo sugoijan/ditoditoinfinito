@@ -6,11 +6,17 @@
 //! shell loads the song, saves it, plays its music and its playtests
 //! ([`EditorHost`]).
 //!
-//! The field is drawn with the menus' actors (notes as their lanes'
-//! arrows on plates colored by their beat, as StepMania's editor
-//! colors them), not the play's renderer: the same on both shells and
-//! in the headless harness. Notes in the player's skin are left for
-//! later (the plan's step 3).
+//! A shell that can ([`EditorHost::skin_field`]) draws the notes in the
+//! player's noteskin as play draws them, paused at the cursor
+//! ([`editor_field`]); the screen draws over them what must read
+//! exactly: the grid, a tick at each note's row, the tails, the
+//! selection, the markers and the cursor line. Rows are evenly spaced
+//! by beat (the edit view, at the zoom; raised at dense snaps so the
+//! rows stay a third of a note apart), or where play has them (the
+//! play view, V: the player's speed, the timing's changes, Reverse).
+//! Elsewhere (the harness), and as the compact field (F), notes are
+//! their lanes' arrows on plates colored by their beat, as StepMania's
+//! editor colors them, drawn with the menus' actors.
 //!
 //! Keys, after StepMania's editor: ↑↓ move by the snap (Shift selects),
 //! ←→ change the snap, Page Up/Down a measure, Home/End the start and the
@@ -21,7 +27,8 @@
 //! cursor; B its BPM; I the song, C the chart; Tab the menu; ⌘/Ctrl Z
 //! undo (with Shift redo), C, X, V, A copy, cut, paste, select all, S
 //! save; Delete deletes the selection, M mirrors it, [ ] or Alt ↑↓ move
-//! it by the snap; − and = zoom; Escape leaves (asking when unsaved).
+//! it by the snap; − and = zoom; V the view, F the compact field;
+//! Escape leaves (asking when unsaved).
 //! A controller moves and changes the snap with its directions, listens
 //! with Start and opens the menu with Select. A pointer places a note
 //! with a tap on a lane and a hold with a drag along one, moves the
@@ -36,6 +43,7 @@ use ddi_chart::{DisplayBpm, Glyph, NoteKind, Quantization, TICKS_PER_BEAT, Tick}
 use ddi_engine::transform::Turn;
 
 use super::editor_dialogs::{ActionsDialog, PickFn, SubmitFn, ValueDialog};
+use super::editor_field::{self, FieldPicture, FieldView, Mapping, SkinField};
 use super::options_dialogs::ConfirmDialog;
 use super::{Env, footer, frame, ground, header, left, right};
 use crate::gesture::{Gesture, WheelKind};
@@ -98,6 +106,19 @@ pub trait EditorHost {
     fn music_time(&self) -> Option<f64> {
         None
     }
+
+    /// The shell draws the field in the player's skin, as
+    /// [`EditorHost::show_field`] says, with this scroll; `None`: the
+    /// screen draws the notes on plates.
+    fn skin_field(&self) -> Option<SkinField> {
+        None
+    }
+
+    /// What the shell draws for the field from now on (into the texture
+    /// [`editor_field::SOURCE`]); `None`: nothing (the plates drawn, the
+    /// screen gone). Told only when it changes, with the song (whose
+    /// chart a skin's Lua is told of).
+    fn show_field(&self, _picture: Option<&FieldPicture>, _editor: &Editor) {}
 }
 
 /// What the shell can do with the song.
@@ -141,6 +162,13 @@ pub struct EditorView {
     pub segments: Vec<String>,
     /// The tick drawn at the cursor line (it glides to the cursor).
     pub shown: f64,
+    /// "edit" or "play" ([`FieldView`]).
+    pub view: String,
+    /// The notes are drawn on plates (the compact field, or a shell
+    /// that draws no skin).
+    pub plates: bool,
+    /// A beat's height at the cursor line, virtual pixels.
+    pub beat_h: f32,
 }
 
 /// A note's plate color by its beat (StepMania's editor's: 4th red, 8th
@@ -208,6 +236,12 @@ struct Geometry {
     /// Where the cursor line is, from the top.
     line_y: f32,
     beat_h: f32,
+    /// The field in the surface's physical pixels (whole ones: the
+    /// skin's texture), where the virtual screen's origin is in them,
+    /// and physical pixels a virtual one.
+    pixels: [f32; 4],
+    origin: [f32; 2],
+    scale: f32,
 }
 
 /// A drag along a lane (a hold being drawn).
@@ -245,6 +279,23 @@ pub struct EditorScreen {
     /// The revision last kept by the autosave, and when (the UI's
     /// seconds).
     autosaved: (Option<u64>, f64),
+    /// The field's view, and whether the notes are on plates (the
+    /// compact field) where the shell draws the skin.
+    view: FieldView,
+    plates: bool,
+    /// The shell draws the skin, with this scroll.
+    skin: Option<SkinField>,
+    /// The skin's texture, the picture the shell was given last.
+    texture: u32,
+    pictured: Option<FieldPicture>,
+    /// While listening: the second heard, the tick the music's notes
+    /// were passed to, and the skin's events (numbered by `seq`).
+    heard: Option<f64>,
+    passed_to: Option<f64>,
+    events: Vec<ddi_engine::frame::SkinEvent>,
+    seq: u64,
+    /// The editor was left: the shell draws no field any more.
+    left: bool,
 }
 
 impl EditorScreen {
@@ -273,6 +324,16 @@ impl EditorScreen {
             scroll: 0.0,
             status: String::new(),
             autosaved: (None, 0.0),
+            view: FieldView::Edit,
+            plates: false,
+            skin: None,
+            texture: 0,
+            pictured: None,
+            heard: None,
+            passed_to: None,
+            events: Vec::new(),
+            seq: 0,
+            left: false,
         }
     }
 
@@ -283,8 +344,14 @@ impl EditorScreen {
     }
 
     pub fn with_host(mut self, host: Rc<dyn EditorHost>) -> EditorScreen {
+        self.skin = host.skin_field();
         self.host = Some(host);
         self
+    }
+
+    /// The notes are drawn by the shell in the player's skin.
+    fn skin_drawn(&self) -> bool {
+        self.skin.is_some() && !self.plates
     }
 
     /// The song being edited, shared with the shell.
@@ -352,7 +419,20 @@ impl EditorScreen {
         let lane_w = (room / lanes).clamp(18.0, widest);
         let lanes_x = field[0] + ruler + ((room - lane_w * lanes) / 2.0).max(0.0);
         let base = if compact { 56.0 } else { 88.0 };
-        let beat_h = base * 2f32.powi(self.zoom_steps);
+        let mut beat_h = base * 2f32.powi(self.zoom_steps);
+        if self.skin_drawn() {
+            let step = self.editor.borrow().step();
+            beat_h = beat_h.max(editor_field::least_beat_height(step, lane_w));
+        }
+        // The skin's texture on whole pixels.
+        let scale = cx.viewport().scale * zoom;
+        let origin = cx.viewport().to_physical([0.0, 0.0]);
+        let px = |v: f32, o: f32| (o + v * scale).round();
+        let (x0, y0) = (px(field[0], origin[0]), px(field[1], origin[1]));
+        let (x1, y1) = (
+            px(field[0] + field[2], origin[0]),
+            px(field[1] + field[3], origin[1]),
+        );
         Geometry {
             size,
             zoom,
@@ -363,22 +443,50 @@ impl EditorScreen {
             lane_w,
             line_y: field[1] + field[3] * 0.28,
             beat_h,
+            pixels: [x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)],
+            origin,
+            scale,
         }
     }
 
-    /// The y of `tick` with `shown` at the cursor line.
-    fn y_of(&self, tick: f64) -> f32 {
-        let g = &self.geo;
-        g.line_y + ((tick - self.shown) / TICKS_PER_BEAT as f64) as f32 * g.beat_h
+    /// The tick at `y` on the field (the play view: the row drawn
+    /// nearest, to a 16th).
+    pub(super) fn tick_at_y(&self, y: f32) -> f64 {
+        let e = self.editor.borrow();
+        let m = self.mapping(e.timing());
+        match m.play {
+            Some(_) => m.row_at(e.timing(), y, TICKS_PER_BEAT / 4).0 as f64,
+            None => m.shown + f64::from((y - m.line_y) / m.beat_h) * TICKS_PER_BEAT as f64,
+        }
     }
 
-    fn tick_at_y(&self, y: f32) -> f64 {
+    /// Where ticks are on the field, `shown` at the cursor line: in the
+    /// view's spacing.
+    fn mapping(&self, timing: &ddi_chart::TimingMap) -> Mapping {
         let g = &self.geo;
-        self.shown + f64::from((y - g.line_y) / g.beat_h) * TICKS_PER_BEAT as f64
+        match (self.view, self.skin.map(|s| s.scroll)) {
+            (FieldView::Play, scroll) => {
+                let seconds = self
+                    .heard
+                    .unwrap_or_else(|| editor_field::shown_seconds(timing, self.shown));
+                Mapping::play(
+                    scroll.unwrap_or_default(),
+                    timing,
+                    seconds,
+                    [g.field[1], g.field[1] + g.field[3]],
+                    g.line_y,
+                    self.shown,
+                    g.beat_h,
+                    g.lane_w,
+                )
+            }
+            (FieldView::Edit, _) => Mapping::edit(g.line_y, self.shown, g.beat_h, g.lane_w),
+        }
     }
 
     fn tree(&mut self, cx: &mut Cx) -> Actor {
         self.geo = self.geometry(cx);
+        self.attach_texture(cx);
         let g = self.geo;
         let title = {
             let e = self.editor.borrow();
@@ -401,7 +509,70 @@ impl EditorScreen {
         call(&mut root, "zoom", &[g.zoom]);
         self.env.state.borrow_mut().hints = texts;
         self.drawn = Some((self.shown, self.version));
+        self.send_picture();
         root
+    }
+
+    /// The skin's texture, as long as the field is drawn.
+    fn attach_texture(&mut self, cx: &mut Cx) {
+        if self.skin_drawn() {
+            let [_, _, w, h] = self.geo.pixels;
+            self.texture = cx.texture(editor_field::SOURCE, w.max(h));
+        }
+    }
+
+    /// Tells the shell what to draw for the field when it changed
+    /// (nothing once the editor is left).
+    fn send_picture(&mut self) {
+        let picture = (self.skin_drawn() && !self.left).then(|| self.picture());
+        if picture != self.pictured {
+            if let Some(h) = &self.host {
+                h.show_field(picture.as_ref(), &self.editor.borrow());
+            }
+            self.pictured = picture;
+        }
+    }
+
+    /// What the shell draws: the notes in view as a play paused at the
+    /// moment shown (running while the music plays), in the texture's
+    /// pixels.
+    fn picture(&self) -> FieldPicture {
+        let g = self.geo;
+        let e = self.editor.borrow();
+        let timing = e.timing();
+        let m = self.mapping(timing);
+        let [_, fy, _, fh] = g.field;
+        let lanes = e.lanes() as usize;
+        let seconds = self
+            .heard
+            .unwrap_or_else(|| editor_field::shown_seconds(timing, self.shown));
+        let holding = if self.listening {
+            editor_field::holding(e.chart(), lanes, self.shown)
+        } else {
+            vec![None; lanes]
+        };
+        let frame = editor_field::frame(e.chart(), timing, &m, fy, fy + fh, seconds, &holding);
+        let [px, py, _, _] = g.pixels;
+        let ground = self.env.color("Ground");
+        let plate = self.env.color("Plate");
+        let a = plate[3] * 0.55;
+        let mix = |k: usize| ground[k] * (1.0 - a) + plate[k] * a;
+        FieldPicture {
+            rect: g.pixels,
+            layout: e.layout().id.clone(),
+            arrow: g.lane_w * g.scale,
+            left: g.origin[0] + g.lanes_x * g.scale - px,
+            receptor_y: g.origin[1] + m.line_y * g.scale - py,
+            reverse: m.dir() < 0.0,
+            frame,
+            running: self.listening,
+            events: if self.listening {
+                self.events.clone()
+            } else {
+                Vec::new()
+            },
+            background: [mix(0), mix(1), mix(2), 1.0],
+        }
     }
 
     fn footer(&self) -> (Actor, Vec<String>) {
@@ -426,12 +597,17 @@ impl EditorScreen {
         footer(&self.env, self.geo.size, &hints, "", &[])
     }
 
-    /// The field: its plate, the beat grid, the selection, the notes, the
-    /// markers and the cursor line.
+    /// The field: its plate, the beat grid, the selection, the notes
+    /// (the skin's picture under the rest, or plates), the markers and
+    /// the cursor line.
     fn field(&self) -> Actor {
         let g = self.geo;
         let env = &self.env;
         let e = self.editor.borrow();
+        let timing = e.timing();
+        let m = self.mapping(timing);
+        let y_of = |t: f64| m.y(timing, t);
+        let skin = self.skin_drawn();
         let layout = e.layout();
         let lanes = layout.lane_count();
         let [fx, fy, fw, fh] = g.field;
@@ -439,9 +615,21 @@ impl EditorScreen {
         let mut plate = quad("Field", [fw, fh], with_alpha(env.color("Plate"), 0.55));
         call(&mut plate, "xy", &[fx + fw / 2.0, fy + fh / 2.0]);
         c.push(plate);
+        if skin {
+            // The shell's picture, on the whole pixels it is drawn at.
+            let [px, py, pw, ph] = g.pixels;
+            let (x, y) = ((px - g.origin[0]) / g.scale, (py - g.origin[1]) / g.scale);
+            let (w, h) = (pw / g.scale, ph / g.scale);
+            let mut picture = Actor::new(Kind::Sprite(ddi_actor::Sprite::quad([w, h])));
+            if let Kind::Sprite(s) = &mut picture.kind {
+                s.texture = self.texture;
+            }
+            call(&mut picture, "xy", &[x + w / 2.0, y + h / 2.0]);
+            c.push(picture);
+        }
         let lanes_w = g.lane_w * lanes as f32;
         for l in 0..lanes {
-            if l % 2 == 1 {
+            if l % 2 == 1 && !skin {
                 let mut band = quad("", [g.lane_w, fh], [1.0, 1.0, 1.0, 0.025]);
                 call(
                     &mut band,
@@ -451,12 +639,37 @@ impl EditorScreen {
                 c.push(band);
             }
         }
-        let first = self.tick_at_y(fy).floor() as i64 - 1;
-        let last = self.tick_at_y(fy + fh).ceil() as i64 + 1;
+        let (first, last) = m.span(timing, fy, fy + fh);
+        // Warps and fakes (no note in them is judged): shaded.
+        if skin {
+            let regions = timing
+                .warps
+                .iter()
+                .map(|w| (w.tick, w.length, [0.95, 0.35, 0.35, 0.14]))
+                .chain(
+                    timing
+                        .fakes
+                        .iter()
+                        .map(|f| (f.tick, f.length, [0.6, 0.6, 0.7, 0.16])),
+                );
+            for (tick, length, color) in regions {
+                let (y0, y1) = (y_of(tick.0 as f64), y_of((tick.0 + length.0) as f64));
+                let (y0, y1) = (y0.min(y1).max(fy), y0.max(y1).min(fy + fh));
+                if y1 > y0 {
+                    let mut band = quad("", [lanes_w, y1 - y0], color);
+                    call(
+                        &mut band,
+                        "xy",
+                        &[g.lanes_x + lanes_w / 2.0, (y0 + y1) / 2.0],
+                    );
+                    c.push(band);
+                }
+            }
+        }
         // The selection.
         if let Some((a, b)) = e.selection() {
-            let (y0, y1) = (self.y_of(a.0 as f64), self.y_of(b.0 as f64));
-            let (y0, y1) = (y0.max(fy), y1.min(fy + fh));
+            let (y0, y1) = (y_of(a.0 as f64), y_of(b.0 as f64));
+            let (y0, y1) = (y0.min(y1).max(fy), y0.max(y1).min(fy + fh));
             if y1 >= y0 {
                 let mut band = quad(
                     "Selection",
@@ -474,12 +687,11 @@ impl EditorScreen {
         // The grid: measures, beats, and the snap's lines when they are
         // far enough apart.
         let step = e.step();
-        let snap_px = step as f32 / TICKS_PER_BEAT as f32 * g.beat_h;
+        let beat_h = m.beat_height(timing);
+        let snap_px = step as f32 / TICKS_PER_BEAT as f32 * beat_h;
         let grid_step = if snap_px >= 6.0 { step } else { TICKS_PER_BEAT };
-        let start = first.div_euclid(grid_step).max(0) * grid_step;
-        let mut t = start;
-        while t <= last {
-            let y = self.y_of(t as f64);
+        for t in m.rows(timing, fy - 2.0, fy + fh + 2.0, grid_step) {
+            let y = y_of(t as f64);
             let (alpha, h) = if t % MEASURE == 0 {
                 (0.55, 2.0)
             } else if t % TICKS_PER_BEAT == 0 {
@@ -493,78 +705,142 @@ impl EditorScreen {
             if t % MEASURE == 0 {
                 let m = env.numbers("", &(t / MEASURE).to_string(), 13.0, "Muted");
                 c.push(right(m, g.lanes_x - 10.0, y));
-            } else if t % TICKS_PER_BEAT == 0 && g.beat_h >= 40.0 {
+            } else if t % TICKS_PER_BEAT == 0 && beat_h >= 40.0 {
                 let b = env.text("", &trim_number(Tick(t).beat()), 10.0, 400, "Muted");
                 let mut b = right(b, g.lanes_x - 10.0, y);
                 call(&mut b, "diffusealpha", &[0.6]);
                 c.push(b);
             }
-            t += grid_step;
         }
-        // Holds' bodies first, then the heads over them.
-        let size = (g.lane_w * 0.82).min(44.0);
-        let head_h = (size * 0.62).max(12.0);
         let visible = e
             .chart()
             .notes
             .iter()
-            .filter(|n| n.end_tick().0 >= first && n.tick.0 <= last);
-        let mut heads = Vec::new();
-        for n in visible {
-            let x = g.lanes_x + (f32::from(n.lane) + 0.5) * g.lane_w;
-            let y = self.y_of(n.tick.0 as f64);
-            if let Some(end) = n.kind.hold_end() {
-                let y1 = self.y_of(end.0 as f64).min(fy + fh + 4.0);
-                let y0 = y.max(fy - 4.0);
-                let roll = matches!(n.kind, NoteKind::RollHead { .. });
-                let color = if roll {
-                    [0.95, 0.75, 0.25, 0.55]
-                } else {
-                    [0.45, 0.85, 0.5, 0.55]
+            .enumerate()
+            .filter(|(_, n)| n.end_tick().0 >= first && n.tick.0 <= last);
+        if skin {
+            // Over the skin's notes: a tick at each one's row in its
+            // lane's gutter, a line at each tail, what the art cannot
+            // say (fake, lift) as a badge.
+            for (i, n) in visible {
+                let x0 = g.lanes_x + f32::from(n.lane) * g.lane_w;
+                let y = y_of(n.tick.0 as f64);
+                let color = match n.kind {
+                    NoteKind::Mine => [0.95, 0.4, 0.4, 1.0],
+                    _ => quant_color(env, n.tick.quantization()),
                 };
-                let mut body = quad("", [size * 0.55, (y1 - y0).max(1.0)], color);
-                call(&mut body, "xy", &[x, (y0 + y1) / 2.0]);
-                c.push(body);
-                let mut tail = quad("", [size * 0.75, 4.0], with_alpha(color, 0.9));
-                call(&mut tail, "xy", &[x, self.y_of(end.0 as f64)]);
-                c.push(tail);
+                let tick_w = (g.lane_w * 0.16).max(4.0);
+                let mut tick = quad(&format!("Row.{i}"), [tick_w, 2.0], color);
+                call(&mut tick, "xy", &[x0 + tick_w / 2.0, y]);
+                c.push(tick);
+                if let Some(end) = n.kind.hold_end() {
+                    let roll = matches!(n.kind, NoteKind::RollHead { .. });
+                    let color = if roll {
+                        [0.95, 0.75, 0.25, 0.95]
+                    } else {
+                        [0.45, 0.85, 0.5, 0.95]
+                    };
+                    let mut tail = quad("", [g.lane_w * 0.7, 2.0], color);
+                    call(&mut tail, "xy", &[x0 + g.lane_w / 2.0, y_of(end.0 as f64)]);
+                    c.push(tail);
+                }
+                let badge = match n.kind {
+                    NoteKind::Fake => Some("F"),
+                    NoteKind::Lift => Some("L"),
+                    _ => None,
+                };
+                if let Some(b) = badge {
+                    let size = (g.lane_w * 0.28).clamp(9.0, 14.0);
+                    let mut back = quad("", [size + 4.0, size + 2.0], [0.0, 0.0, 0.0, 0.7]);
+                    let at = [x0 + g.lane_w - size / 2.0 - 3.0, y - g.lane_w * 0.3];
+                    call(&mut back, "xy", &at);
+                    call(&mut back, "cornerradius", &[3.0]);
+                    c.push(back);
+                    let mut t = env.text("", b, size, 700, "Text");
+                    call(&mut t, "xy", &at);
+                    c.push(t);
+                }
             }
-            heads.push((x, y, n));
-        }
-        for (x, y, n) in heads {
-            let lane = layout.lanes.get(n.lane as usize);
-            let (plate_color, text) = match n.kind {
-                NoteKind::Mine => ([0.25, 0.25, 0.28, 1.0], "✕"),
-                _ => (
-                    quant_color(env, n.tick.quantization()),
-                    lane.map_or("●", |l| glyph_text(&l.glyph)),
-                ),
-            };
-            let alpha = if matches!(n.kind, NoteKind::Fake) {
-                0.45
-            } else {
-                1.0
-            };
-            let mut p = quad("", [size, head_h], with_alpha(plate_color, alpha));
-            call(&mut p, "xy", &[x, y]);
-            call(&mut p, "cornerradius", &[head_h * 0.3]);
-            c.push(p);
-            let mut glyph = env.text("", text, (head_h * 0.9).min(24.0), 700, "Text");
-            call(&mut glyph, "xy", &[x, y]);
-            if matches!(n.kind, NoteKind::Mine) {
-                call(&mut glyph, "diffuse", &[1.0, 0.35, 0.35, 1.0]);
+        } else {
+            // Holds' bodies first, then the heads over them.
+            let size = (g.lane_w * 0.82).min(44.0);
+            let head_h = (size * 0.62).max(12.0);
+            let mut heads = Vec::new();
+            for (_, n) in visible {
+                let x = g.lanes_x + (f32::from(n.lane) + 0.5) * g.lane_w;
+                let y = y_of(n.tick.0 as f64);
+                if let Some(end) = n.kind.hold_end() {
+                    let yt = y_of(end.0 as f64);
+                    let y1 = yt.max(y).min(fy + fh + 4.0);
+                    let y0 = yt.min(y).max(fy - 4.0);
+                    let roll = matches!(n.kind, NoteKind::RollHead { .. });
+                    let color = if roll {
+                        [0.95, 0.75, 0.25, 0.55]
+                    } else {
+                        [0.45, 0.85, 0.5, 0.55]
+                    };
+                    let mut body = quad("", [size * 0.55, (y1 - y0).max(1.0)], color);
+                    call(&mut body, "xy", &[x, (y0 + y1) / 2.0]);
+                    c.push(body);
+                    let mut tail = quad("", [size * 0.75, 4.0], with_alpha(color, 0.9));
+                    call(&mut tail, "xy", &[x, yt]);
+                    c.push(tail);
+                }
+                heads.push((x, y, n));
             }
-            c.push(glyph);
-            if matches!(n.kind, NoteKind::Lift) {
-                let mut bar = quad("", [size, 3.0], [1.0, 1.0, 1.0, 0.9]);
-                call(&mut bar, "xy", &[x, y - head_h / 2.0 - 2.0]);
-                c.push(bar);
+            for (x, y, n) in heads {
+                let lane = layout.lanes.get(n.lane as usize);
+                let (plate_color, text) = match n.kind {
+                    NoteKind::Mine => ([0.25, 0.25, 0.28, 1.0], "✕"),
+                    _ => (
+                        quant_color(env, n.tick.quantization()),
+                        lane.map_or("●", |l| glyph_text(&l.glyph)),
+                    ),
+                };
+                let alpha = if matches!(n.kind, NoteKind::Fake) {
+                    0.45
+                } else {
+                    1.0
+                };
+                let mut p = quad("", [size, head_h], with_alpha(plate_color, alpha));
+                call(&mut p, "xy", &[x, y]);
+                call(&mut p, "cornerradius", &[head_h * 0.3]);
+                c.push(p);
+                let mut glyph = env.text("", text, (head_h * 0.9).min(24.0), 700, "Text");
+                call(&mut glyph, "xy", &[x, y]);
+                if matches!(n.kind, NoteKind::Mine) {
+                    call(&mut glyph, "diffuse", &[1.0, 0.35, 0.35, 1.0]);
+                }
+                c.push(glyph);
+                if matches!(n.kind, NoteKind::Lift) {
+                    let mut bar = quad("", [size, 3.0], [1.0, 1.0, 1.0, 0.9]);
+                    call(&mut bar, "xy", &[x, y - head_h / 2.0 - 2.0]);
+                    c.push(bar);
+                }
+            }
+            // Receptors: the lanes' arrows, faint, at the cursor line.
+            for (i, l) in layout.lanes.iter().enumerate() {
+                let mut r = env.text("", glyph_text(&l.glyph), 14.0, 700, "Muted");
+                call(
+                    &mut r,
+                    "xy",
+                    &[
+                        g.lanes_x + (i as f32 + 0.5) * g.lane_w,
+                        m.line_y - head_h * m.dir(),
+                    ],
+                );
+                call(&mut r, "diffusealpha", &[0.35]);
+                c.push(r);
             }
         }
         // The timing's markers at the right of the lanes.
         let mx = g.lanes_x + lanes_w + 10.0;
         let mut on_row: Vec<(i64, usize)> = Vec::new();
         for (tick, seg) in e.segments_in(Tick(first), Tick(last)) {
+            let y = y_of(tick.0 as f64);
+            if y < fy - 20.0 || y > fy + fh + 20.0 {
+                continue;
+            }
             let k = match on_row.iter_mut().find(|(t, _)| *t == tick.0) {
                 Some((_, k)) => {
                     *k += 1;
@@ -581,7 +857,7 @@ impl EditorScreen {
             };
             let mut m = env.text("", &seg.describe(), 12.0, 600, color);
             super::select_dialogs::wrap(&mut m, fx + fw - mx - 4.0);
-            c.push(left(m, mx, self.y_of(tick.0 as f64) + k as f32 * 14.0));
+            c.push(left(m, mx, y + k as f32 * 14.0));
         }
         // The cursor line, and the row it is on.
         let mut line = quad(
@@ -592,20 +868,9 @@ impl EditorScreen {
         call(
             &mut line,
             "xy",
-            &[g.lanes_x + lanes_w / 2.0, self.y_of(e.cursor().0 as f64)],
+            &[g.lanes_x + lanes_w / 2.0, y_of(e.cursor().0 as f64)],
         );
         c.push(line);
-        // Receptors: the lanes' arrows, faint, at the cursor line.
-        for (i, l) in layout.lanes.iter().enumerate() {
-            let mut r = env.text("", glyph_text(&l.glyph), 14.0, 700, "Muted");
-            call(
-                &mut r,
-                "xy",
-                &[g.lanes_x + (i as f32 + 0.5) * g.lane_w, g.line_y - head_h],
-            );
-            call(&mut r, "diffusealpha", &[0.35]);
-            c.push(r);
-        }
         let mut f = frame("FieldLayer", c);
         f.clip = Some([fx, fy, fx + fw, fy + fh]);
         f
@@ -678,6 +943,7 @@ impl EditorScreen {
             400,
             "Text",
         );
+        push(&mut c, "Button.View", &self.view_line(), 400, "Accent");
         let bpm = e.timing().bpm_at_beat(cursor.beat());
         let own = if e.has_own_timing() {
             " (chart's own timing)"
@@ -767,6 +1033,30 @@ impl EditorScreen {
         frame("Panel", c)
     }
 
+    /// The panel's line saying how the field is drawn (a tap changes
+    /// the view).
+    fn view_line(&self) -> String {
+        let mut s = match self.view {
+            FieldView::Edit => "Edit view".to_string(),
+            FieldView::Play => {
+                let scroll = self.skin.map(|s| s.scroll).unwrap_or_default();
+                let speed = match scroll.speed {
+                    ddi_engine::scroll::SpeedMod::XMod(x) => format!("{}x", trim_number(x)),
+                    ddi_engine::scroll::SpeedMod::CMod(b) => format!("C{}", trim_number(b)),
+                };
+                let reverse = if scroll.reverse { ", reverse" } else { "" };
+                format!("Play view · {speed}{reverse}")
+            }
+        };
+        if self.plates && self.skin.is_some() {
+            s.push_str(" · compact");
+        }
+        if !self.geo.compact {
+            s.push_str(" (V)");
+        }
+        s
+    }
+
     /// Draws the field and the panel again when something changed; the
     /// field alone when only it moved (a glide, the music heard).
     fn refresh(&mut self, root: &mut Actor, cx: &mut Cx) {
@@ -777,10 +1067,12 @@ impl EditorScreen {
                 return;
             }
             if self.geometry(cx) == self.geo {
+                self.attach_texture(cx);
                 if let Some(old) = hit::find_mut(root, "FieldLayer") {
                     *old = self.field();
                 }
                 self.drawn = Some((self.shown, self.version));
+                self.send_picture();
                 if let Some(view) = &mut self.env.state.borrow_mut().editor {
                     view.shown = self.shown;
                 }
@@ -792,6 +1084,7 @@ impl EditorScreen {
             *root = self.tree(cx);
             root.finish_tweening();
         } else {
+            self.attach_texture(cx);
             let field = self.field();
             let panel = self.panel();
             let (footer, texts) = self.footer();
@@ -802,13 +1095,21 @@ impl EditorScreen {
             }
             self.env.state.borrow_mut().hints = texts;
             self.drawn = Some((self.shown, self.version));
+            self.send_picture();
         }
         self.publish();
     }
 
-    /// The editor leaves: the debug view no longer shows it.
-    fn gone(&self) {
+    /// The editor leaves: the debug view no longer shows it, the shell
+    /// draws no field.
+    fn gone(&mut self) {
         self.env.state.borrow_mut().editor = None;
+        self.left = true;
+        if self.pictured.take().is_some()
+            && let Some(h) = &self.host
+        {
+            h.show_field(None, &self.editor.borrow());
+        }
     }
 
     fn publish(&self) {
@@ -838,6 +1139,9 @@ impl EditorScreen {
                 .map(Segment::describe)
                 .collect(),
             shown: self.shown,
+            view: self.view.name().into(),
+            plates: !self.skin_drawn(),
+            beat_h: self.mapping(e.timing()).beat_height(e.timing()),
         });
     }
 
@@ -860,6 +1164,8 @@ impl EditorScreen {
         } else {
             let from = self.editor.borrow().cursor_seconds();
             self.listening = true;
+            // The cursor's own row passes too.
+            self.passed_to = Some(self.editor.borrow().cursor().0 as f64 - 0.5);
             self.call(EditorCall::Listen { from }, cx);
             self.say("Listening");
         }
@@ -871,6 +1177,8 @@ impl EditorScreen {
             return;
         }
         self.listening = false;
+        (self.heard, self.passed_to) = (None, None);
+        self.events.clear();
         self.call(EditorCall::Stop, cx);
         let tick = Tick(self.shown.round() as i64);
         self.edit(|e| {
@@ -878,6 +1186,28 @@ impl EditorScreen {
             e.set_cursor(t, false);
         });
         self.say("");
+    }
+
+    /// While listening in the skin: its events of the notes the music
+    /// passed since the last frame (the last few kept).
+    fn pass_notes(&mut self, seconds: f64) {
+        if !self.skin_drawn() {
+            return;
+        }
+        let from = self.passed_to.unwrap_or(self.shown);
+        let mut passed = editor_field::passed(
+            self.editor.borrow().chart(),
+            from,
+            self.shown,
+            seconds,
+            &mut self.seq,
+        );
+        self.events.append(&mut passed);
+        let keep = 64;
+        if self.events.len() > keep {
+            self.events.drain(..self.events.len() - keep);
+        }
+        self.passed_to = Some(self.shown.max(from));
     }
 
     fn playtest(&mut self, from_cursor: bool, auto: bool, cx: &mut Cx) {
@@ -995,6 +1325,25 @@ impl EditorScreen {
                 items.push(("export-sm", format!("{label} (.sm)")));
             }
         }
+        items.push((
+            "view",
+            match self.view {
+                FieldView::Edit => "Play view",
+                FieldView::Play => "Edit view",
+            }
+            .into(),
+        ));
+        if self.skin.is_some() {
+            items.push((
+                "plates",
+                if self.plates {
+                    "Field in the skin"
+                } else {
+                    "Compact field"
+                }
+                .into(),
+            ));
+        }
         items.push(("leave", "Leave the editor".into()));
         drop(e);
         let items = items
@@ -1030,8 +1379,35 @@ impl EditorScreen {
             "export" => self.call(EditorCall::Export { sm: false }, cx),
             "export-sm" => self.call(EditorCall::Export { sm: true }, cx),
             "leave" => self.back(cx),
+            "view" => self.toggle_view(),
+            "plates" => self.toggle_plates(),
             _ => {}
         }
+    }
+
+    /// The edit view (rows by beat) or the play view (as play has them).
+    fn toggle_view(&mut self) {
+        self.view = match self.view {
+            FieldView::Edit => FieldView::Play,
+            FieldView::Play => FieldView::Edit,
+        };
+        self.say(match self.view {
+            FieldView::Edit => "Edit view: rows evenly by beat",
+            FieldView::Play => "Play view: as play draws it",
+        });
+    }
+
+    /// The notes on plates (the compact field) or in the skin.
+    fn toggle_plates(&mut self) {
+        if self.skin.is_none() {
+            return;
+        }
+        self.plates = !self.plates;
+        self.say(if self.plates {
+            "Compact field"
+        } else {
+            "Field in the skin"
+        });
     }
 
     fn next_tool(&mut self, by: i32) {
@@ -1450,6 +1826,8 @@ impl EditorScreen {
                 "b" => self.ask_segment(SegmentKind::Bpm, cx),
                 "i" => self.open_song(cx),
                 "c" => self.open_chart(cx),
+                "v" => self.toggle_view(),
+                "f" => self.toggle_plates(),
                 _ => return Handled::No,
             },
         }
@@ -1464,9 +1842,15 @@ impl EditorScreen {
         let lanes = self.editor.borrow().lanes();
         let l = ((p[0] - g.lanes_x) / g.lane_w).floor();
         let lane = (l >= 0.0 && l < f32::from(lanes)).then_some(l as u8);
-        let tick = self.tick_at_y(p[1]);
-        let snapped = self.editor.borrow().snap_tick(Tick(tick.round() as i64));
-        (lane, snapped)
+        let e = self.editor.borrow();
+        let timing = e.timing();
+        let m = self.mapping(timing);
+        let tick = match m.play {
+            // The play view: the row drawn nearest.
+            Some(_) => m.row_at(timing, p[1], e.step()),
+            None => Tick(self.tick_at_y(p[1]).round() as i64),
+        };
+        (lane, e.snap_tick(tick))
     }
 
     fn pointer(
@@ -1483,6 +1867,7 @@ impl EditorScreen {
             if *gesture == Gesture::Tap {
                 match name {
                     "Menu" => self.open_menu(cx),
+                    "View" => self.toggle_view(),
                     "Save" => self.save(cx),
                     "Play" => self.playtest(true, false, cx),
                     _ => {}
@@ -1827,6 +2212,8 @@ impl Screen for EditorScreen {
                 Some(t) => {
                     let beat = self.editor.borrow().timing().beat_at(t);
                     self.shown = beat * TICKS_PER_BEAT as f64;
+                    self.heard = Some(t);
+                    self.pass_notes(t);
                 }
                 None => self.stop_listening(cx),
             }
@@ -1917,8 +2304,11 @@ impl Screen for EditorScreen {
                     WheelKind::Notch => delta[1].signum() as i64,
                     WheelKind::Precise => {
                         self.scroll += delta[1];
-                        let px = self.editor.borrow().step() as f32 / TICKS_PER_BEAT as f32
-                            * self.geo.beat_h;
+                        let px = {
+                            let e = self.editor.borrow();
+                            let beat_h = self.mapping(e.timing()).beat_height(e.timing());
+                            e.step() as f32 / TICKS_PER_BEAT as f32 * beat_h
+                        };
                         let n = (self.scroll / px.max(4.0)).trunc();
                         self.scroll -= n * px.max(4.0);
                         n as i64

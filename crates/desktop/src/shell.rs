@@ -503,6 +503,7 @@ impl Shell {
         }
         if let (Some(s), Some(field)) = (&mut self.surface, field) {
             s.gpu.field = field;
+            s.gpu.editor = crate::editor_field::EditorFieldHost::for_new_device();
         }
         self.ui.broadcast(Message::new("DeviceRecovered"));
         self.pending = false;
@@ -683,7 +684,7 @@ impl Shell {
         let field = self
             .surface
             .as_ref()
-            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy())
+            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy() || s.gpu.editor.busy())
             || self.play.playing()
             || self.play.prompt_changed();
         if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
@@ -1455,7 +1456,7 @@ impl ApplicationHandler for Shell {
         let field = self
             .surface
             .as_ref()
-            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy())
+            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy() || s.gpu.editor.busy())
             || self.play.playing();
         if self.play.playing() && !self.occluded {
             match self.pace() {

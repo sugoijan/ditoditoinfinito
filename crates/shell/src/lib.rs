@@ -12,10 +12,13 @@
 //! - [`stage`]: a Dancing☆Onigiri work's layers' textures, over a content
 //!   each shell decodes its own way;
 //! - [`scripted`]: a song's scripted backgrounds and foregrounds, their
-//!   images' textures (the same contents) and quads.
+//!   images' textures (the same contents) and quads;
+//! - [`editor_field`]: the chart editor's field in the player's skin,
+//!   its skin and its place.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
+pub mod editor_field;
 pub mod scripted;
 pub mod stage;
 

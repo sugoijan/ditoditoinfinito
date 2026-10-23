@@ -13,6 +13,7 @@ mod component;
 mod components;
 mod crash;
 mod editor;
+mod editor_field;
 mod field_preview;
 mod game_loop;
 mod history;

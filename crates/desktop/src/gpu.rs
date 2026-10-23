@@ -98,6 +98,8 @@ pub struct Gpu {
     pub field: crate::field_preview::Field,
     /// Song select's preview movie (`#PREVIEWVID`).
     pub movie: crate::preview_movie::PreviewMovieHost,
+    /// The chart editor's field in the player's skin.
+    pub editor: crate::editor_field::EditorFieldHost,
 }
 
 impl Gpu {
@@ -112,6 +114,7 @@ impl Gpu {
             images: crate::images::Loader::new(),
             field: Default::default(),
             movie: Default::default(),
+            editor: Default::default(),
         }
     }
 
@@ -194,6 +197,9 @@ impl Gpu {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ui") });
         // The field preview's frame, before the painter shows it.
         self.field
+            .draw(&self.device, &self.queue, &mut encoder, &mut self.painter);
+        // The editor's field, when its picture changed.
+        self.editor
             .draw(&self.device, &self.queue, &mut encoder, &mut self.painter);
         // Song select's preview movie's frame, the same way.
         self.movie.draw(

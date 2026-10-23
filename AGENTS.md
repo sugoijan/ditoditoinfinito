@@ -44,7 +44,10 @@ Rust and the browser are implementation details, not advertised features.
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
   play draws it into a texture the 2D pass shows) and song select's
   preview movie's picture (`crates/render/src/movie_picture.rs`, the same
-  way); StepMania's named
+  way) and the chart editor's field in the player's skin
+  (`crates/render/src/editor_field.rs`: a play's frame paused at the
+  cursor, the skin's clock at rest; `ddi_ui::screens::editor_field`
+  places its notes and the overlay over it); StepMania's named
   background effects drawn from `ddi_library::backgrounds::BgDraw`
   (`crates/render/src/background.rs`) and a song's scripts' actors as quads
   in the background frame (`crates/render/src/scripted.rs`). No platform

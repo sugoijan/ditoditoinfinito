@@ -36,6 +36,7 @@ use ddi_ui::Cx;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen, SAVED};
+use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::{FEED, SelectCall};
 use ddi_ui::state::editor::autosave::Autosave;
 use ddi_ui::state::editor::{Editor, export};
@@ -303,6 +304,16 @@ impl EditorHost for Host {
         l.audio.tick();
         l.poll();
         l.listener.time(&l.audio)
+    }
+
+    fn skin_field(&self) -> Option<SkinField> {
+        Some(ddi_shell::editor_field::skin_field(
+            &crate::store::settings_cached(),
+        ))
+    }
+
+    fn show_field(&self, picture: Option<&FieldPicture>, editor: &Editor) {
+        crate::editor_field::show(picture, editor);
     }
 }
 

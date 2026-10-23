@@ -4,11 +4,11 @@ The last item of phase 10 (`docs/PLAN.md`, section 5): edit a song's
 timing and notes in the game, try them at once, and keep them
 (`docs/plans/phase-10.md`, step 3).
 
-Status (2026-10-21): the writer, the editing model, the screen on both
-shells, listening, playtests, saving and the autosave are built (steps
-1, 2, 4, 6, 7, the listening of 5 and 8; see
-"Built" below); the field in the player's skin (3), the metronome,
-tap-to-tempo and the overview (5) are left ("Left").
+Status (2026-10-23): the writer, the editing model, the field in the
+player's skin, the screen on both shells, listening, playtests, saving
+and the autosave are built (steps 1–4, 6, 7, the listening of 5 and 8;
+see "Built" below); the metronome, tap-to-tempo and the overview (5)
+are left ("Left").
 
 ## Scope of the first version
 
@@ -186,6 +186,56 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    sequences over the bundled songs undone to the song and redone, the
    song read back after every sequence, and a song read back from its
    written file edited the same.
+3. **The field in the player's skin** (2026-10-23;
+   `ddi_ui::screens::editor_field`, `ddi_render::editor_field`,
+   `ddi_shell::editor_field`): the shell draws the chart as play draws
+   it, paused at the cursor: the screen hands it a play's frame of the
+   notes in view (`FieldPicture`: their `y` in arrow heights, the
+   field's geometry in the texture's pixels, whether the music plays)
+   whenever it changes (`EditorHost::show_field`), and the renderer
+   draws it with the player's noteskin (the one a play of the chart
+   would use, `Settings::play_skin`, readied with its parameters and the
+   chart's Lua environment; read on a thread on desktop, in slices on
+   the web) into a texture the 2D pass shows under `editor-field`, with
+   no HUD, as Options' field preview is drawn. Over it the screen draws
+   what must read exactly: the grid at the snap, measure and beat
+   numbers, a tick in each note's lane at its row, a line at each
+   hold's and roll's tail, badges for fakes and lifts, warps and fake
+   regions shaded, the selection, the markers and the cursor line, all
+   from lane and row, never from the art; pointers find lanes and rows
+   the same way. One mapping from ticks to the screen places both.
+   **Two views**: the edit view (default) spaces rows evenly by beat
+   at the editor's zoom (− and =), whatever the timing does, and raises
+   the zoom at dense snaps so the snap's rows stay at least a third of
+   a note apart (the art keeps its size); the play view (V, the menu,
+   or a tap on the panel's view line) is the moment as play draws it:
+   the player's speed, BPM changes, stops, scrolls, speed segments,
+   Boost and the like, Reverse (the line as far from the bottom as it
+   is from the top in the edit view, later notes above it). Editing
+   works in both. **The skin is tamed**: its clock is held at rest
+   (two seconds in, beat 0: no receptor pulse, no explosions or glow)
+   except while the music plays, when it runs with the second heard
+   and the notes passing the line are hit as an autoplay hits them
+   (`editor_field::passed`); a note's colors come from its own beat.
+   **Cost**: only the notes whose span shows are in the frame, and a
+   frame is drawn (the skin's Lua run) only when the picture changed
+   or a skin came: nothing between changes, every frame while the music
+   plays. **The compact field** (F, the menu) draws notes on plates
+   with the menus' actors as before, at the zoom without the raise;
+   the same plates are drawn where the shell draws no skin (the
+   harness). Tests: the mapping and frames (`editor_field.rs`), the
+   screen with a shell that draws the skin (`editor_skin_tests.rs`:
+   every note's tick at its picture row in both views, Reverse, a tap
+   on a row in the play view, the zoom at 192nds, the compact field,
+   listening's events, leaving), and offscreen
+   (`crates/desktop/tests/editor_skin_offscreen.rs`: a tap's art on its
+   row with the built-in arrows and Dito in the edit view and in an
+   x-mod and a c-mod play view across a BPM change and a stop, and
+   moving exactly as its row moves with Delta, Peters-DDR and the
+   CF_CHROME models; the edit view equal to the play view at one tempo
+   when the zoom is the speed; the editor on a bundled song drawing the
+   skin's texture only for a change, the play view and the compact
+   field).
 4. **The screen** (`ddi_ui::screens::editor`, dialogs in
    `editor_dialogs.rs`): the field (lanes, the beat grid at the snap,
    measure and beat numbers, notes as their lanes' arrows on plates
@@ -309,9 +359,23 @@ one left unsaved and gone from the list).
 - An `.sm` (or `.dwi`) song saved on desktop gets a `.ssc` beside it,
   the old file untouched; saving over a `.ssc` asks first and keeps
   `.old` once each time the editor is opened.
-- The field is drawn with the menus' actors, not the play renderer with
-  the player's skin: the same picture on both shells and in the
-  harness; the skin can come later without changing the model.
+- The field is drawn by the play renderer in the player's skin, the
+  timing marked over it by the menus' actors (the overlay is what is
+  exact; the art is where play puts it, by its own anchor); the plates
+  drawn with the menus' actors stay as the compact field and where a
+  shell draws no skin (the harness).
+- The edit view spaces rows by beat whatever the timing (StepMania's
+  editor) and is the default; the play view shows the moment as play
+  does, with the player's speed and Reverse.
+- At dense snaps the edit view's zoom is raised (rows a third of a
+  note apart) rather than the art shrunk.
+- The skin's clock rests (two seconds in, beat 0) while the music does
+  not play, so a note looks the same wherever the cursor is; while it
+  plays, notes passing the line are hit as by an autoplay (W1).
+- The skin's Lua is told the chart as the editor opened it (its BPMs
+  and the like); edits do not read the skin again.
+- V toggles the view and F the compact field (StepMania's editor has
+  neither key).
 - Lanes are the number keys (StepMania's editor); holds grow while a
   lane key is held and the cursor moves; Tab or a pad's Select opens a
   menu of every action for controllers and phones.
@@ -347,8 +411,6 @@ one left unsaved and gone from the list).
 
 ## Left
 
-- **Step 3**: the field in the player's skin and speed (the play
-  scene paused at the cursor, `crates/render`), with offscreen tests.
 - **Step 5, the rest**: the metronome (calibration's click on the
   beats while listening), tap-to-tempo, the music's overview strip.
 - Notes inside warps and overlapping holds from imported files are

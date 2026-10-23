@@ -26,6 +26,7 @@ pub mod clock;
 pub mod devices;
 pub mod display_link;
 pub mod editor;
+pub mod editor_field;
 pub mod field_preview;
 pub mod gpu;
 pub mod history;

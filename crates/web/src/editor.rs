@@ -360,6 +360,20 @@ impl EditorHost for WebEditorHost {
         let l = &mut *self.listen.borrow_mut();
         l.listener.time(l.audio.as_ref()?)
     }
+
+    fn skin_field(&self) -> Option<ddi_ui::screens::editor_field::SkinField> {
+        Some(ddi_shell::editor_field::skin_field(
+            &crate::settings::Settings::load(),
+        ))
+    }
+
+    fn show_field(
+        &self,
+        picture: Option<&ddi_ui::screens::editor_field::FieldPicture>,
+        editor: &Editor,
+    ) {
+        crate::editor_field::show(picture, editor);
+    }
 }
 
 /// `text` downloaded as `name` (inside the press: a link clicked).
