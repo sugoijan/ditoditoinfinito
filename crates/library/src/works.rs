@@ -294,7 +294,7 @@ pub fn plan<S: AsRef<str>>(
         }
         seen.insert(id.clone(), label.to_string());
         let mut song = song.clone();
-        song.add_no_onigiri_charts();
+        song.add_chart_versions();
         out.songs.push(WorkSong {
             id,
             pack: pack.clone(),
@@ -385,7 +385,7 @@ pub fn song_of(w: &Work, music_no: usize) -> Result<Song, String> {
         .position(|m| *m == music_no)
         .map(|k| {
             let mut song = import.songs[k].clone();
-            song.add_no_onigiri_charts();
+            song.add_chart_versions();
             song
         })
         .ok_or_else(|| format!("the work has no music number {music_no}"))
@@ -436,7 +436,7 @@ mod tests {
         let mut entry = crate::manifest::summarize(Default::default(), &song);
         entry.variants_version = 0;
         let original = entry.charts[0].clone();
-        song.add_no_onigiri_charts();
+        song.add_chart_versions();
         super::fill_chart_keys(&mut entry, &song);
         assert_eq!(entry.charts.len(), 2);
         assert_eq!(entry.charts[0].index, original.index);

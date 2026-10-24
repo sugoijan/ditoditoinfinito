@@ -168,6 +168,9 @@ impl Song {
             Some(crate::simplify::Derivation::WithoutOnigiri { .. }) => {
                 h.section("without-onigiri", 1)
             }
+            Some(crate::simplify::Derivation::WithoutCenter { .. }) => {
+                h.section("without-center", 1)
+            }
             None => {}
         }
         h.section("notes", chart.notes.len());

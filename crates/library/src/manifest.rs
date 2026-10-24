@@ -141,8 +141,10 @@ fn is_zero_version(value: &u32) -> bool {
     *value == 0
 }
 
-/// Current metadata for additional chart versions in imported manifests.
-pub const VARIANTS_VERSION: u32 = 1;
+/// Current metadata for additional chart versions in imported manifests
+/// (2: pump charts without their centers; 1: Dancing☆Onigiri charts
+/// without their onigiri).
+pub const VARIANTS_VERSION: u32 = 2;
 
 impl ManifestEntry {
     /// Whether the song is a Dancing☆Onigiri work's (its chart stored as
@@ -184,7 +186,7 @@ impl ManifestEntry {
                 || self
                     .charts
                     .iter()
-                    .any(|c| ddi_chart::simplify::without_onigiri(&c.layout).is_some()))
+                    .any(|c| ddi_chart::simplify::has_versions(&c.layout)))
     }
 }
 
@@ -203,7 +205,7 @@ pub(crate) fn chart_variants_version(song: &Song) -> u32 {
         || song
             .charts
             .iter()
-            .any(|c| ddi_chart::simplify::without_onigiri(&c.layout).is_some());
+            .any(|c| ddi_chart::simplify::has_versions(&c.layout));
     if relevant && song.chart_variants_current() {
         VARIANTS_VERSION
     } else {

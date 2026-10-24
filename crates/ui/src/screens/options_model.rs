@@ -489,6 +489,15 @@ impl OptionsModel {
                      the original charts stay available.",
             ),
             choice(
+                "simplify_center",
+                "Without center",
+                &["Off", "On"],
+                s.simplify_center as usize,
+                "Adds separate Pump charts to Single and Double without the center notes, \
+                     each pad turned an eighth clockwise. Only these versions are marked as \
+                     assisted; the original charts stay available.",
+            ),
+            choice(
                 "no_jumps",
                 "No jumps",
                 &["Off", "On"],
@@ -1400,6 +1409,7 @@ impl OptionsModel {
             "cut" => s.transform.cut = at(&CUTS, i),
             "no_jumps" => s.transform.no_jumps = on,
             "simplify_onigiri" => s.simplify_onigiri = on,
+            "simplify_center" => s.simplify_center = on,
             "no_holds" => s.transform.no_holds = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),
             "ruleset" => {

@@ -9,8 +9,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use ddi_chart::formats::sm::parse_simfile;
 use ddi_library::manifest::{EntryMeta, Manifest, summarize};
+// The library's reading: generated versions appended, as the shells list them.
+use ddi_library::scan::parse_simfile;
 use serde::Deserialize;
 
 fn repo_root() -> PathBuf {

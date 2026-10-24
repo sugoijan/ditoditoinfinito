@@ -123,7 +123,7 @@ impl StoredWork {
             .position(|m| *m == self.music)
             .map(|k| {
                 let mut song = import.songs[k].clone();
-                song.add_no_onigiri_charts();
+                song.add_chart_versions();
                 song
             })
             .ok_or_else(|| format!("the work has no music number {}", self.music))

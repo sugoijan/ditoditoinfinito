@@ -286,6 +286,52 @@ fn a_play_reads_its_charts_music_and_the_lyrics() {
     assert_eq!(lyrics, ["hello"]);
 }
 
+/// A pump chart is listed with its version without centers after the
+/// originals, and a play of that version reads it turned onto Single.
+#[test]
+fn pump_charts_are_listed_and_played_without_their_centers() {
+    let root = scratch("pump-center");
+    let ssc = "#VERSION:0.83;#TITLE:P;#MUSIC:song.wav;#BPMS:0=120;\n\
+               #NOTEDATA:;#STEPSTYPE:pump-single;#DIFFICULTY:Hard;#METER:9;\
+               #NOTES:\n10100\n00010\n01001\n00100\n;\n\
+               #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Easy;#METER:1;\
+               #NOTES:\n1000\n0000\n0000\n0000\n;\n";
+    write(
+        &root,
+        &[
+            ("Pack/S/s.ssc", ssc.as_bytes()),
+            ("Pack/S/song.wav", &wav(3.0)),
+        ],
+    );
+    let (songs, report, _) = scan(std::slice::from_ref(&root), None, &[]);
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    let charts: Vec<_> = songs[0]
+        .entry
+        .charts
+        .iter()
+        .map(|c| (c.index, c.layout.as_str(), c.derivation.is_some()))
+        .collect();
+    assert_eq!(
+        charts,
+        [
+            (1, "dance-single", false),
+            (0, "pump-single", false),
+            (2, "dance-single", true),
+        ]
+    );
+    register_for_tests(&songs);
+    let id = songs[0].entry.id.clone();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let loaded = crate::play::load::load_with(&id, Some(2), 48_000, false, None, &cancel).unwrap();
+    let chart = &loaded.song.charts[2];
+    assert_eq!(
+        chart.derivation,
+        Some(ddi_chart::simplify::Derivation::WithoutCenter { source: 0 })
+    );
+    let lanes: Vec<u8> = chart.notes.iter().map(|n| n.lane).collect();
+    assert_eq!(lanes, [0, 3, 1, 2]);
+}
+
 #[test]
 fn the_cache_reuses_what_did_not_change() {
     let root = scratch("cache");

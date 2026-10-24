@@ -40,6 +40,10 @@ pub struct Settings {
     pub transform: TransformOptions,
     /// Offer additional DanOni charts without their onigiri lane.
     pub simplify_onigiri: bool,
+    /// Offer additional dance charts made from pump charts without their
+    /// centers (on by default; settings stored before it was kept get it
+    /// on, the struct's defaults filling what they lack).
+    pub simplify_center: bool,
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub appearance: Appearance,
@@ -296,6 +300,7 @@ impl Default for Settings {
             scroll_action: ScrollAction::Normal,
             transform: TransformOptions::default(),
             simplify_onigiri: false,
+            simplify_center: true,
             appearance: Appearance::Visible,
             lane_cover: LaneCover::default(),
             noteskin: None,
@@ -797,19 +802,23 @@ impl Settings {
     }
 
     /// The key the play history keeps a chart's bests under, from what
-    /// the song list knows of the chart: its layout, whether it is a
+    /// the song list knows of the chart: its layout, its provenance,
+    /// whether it is a
     /// Dancing☆Onigiri work's or an FFR level's, and the excessive setting
     /// such a work's chart gives ([`chart_excessive`]). The same as
     /// `ruleset_for(chart)`'s key's `best_key` (a test holds them equal).
     pub fn best_key_for(
         &self,
         layout: &str,
+        derivation: Option<&ddi_chart::simplify::Derivation>,
         danoni: bool,
         ffr: bool,
         excessive: Option<bool>,
     ) -> ddi_engine::rules::RulesetKey {
         let chart = ddi_chart::Chart {
-            derivation: None,
+            // A generated version's game (a pump chart's without centers
+            // ticks its holds) is part of its rules.
+            derivation: derivation.cloned(),
             layout: layout.to_string(),
             difficulty: ddi_chart::Difficulty::Edit,
             meter: 0,
@@ -979,6 +988,10 @@ mod tests {
         let s = Settings::load();
         assert_eq!(s.speed, 10.0);
         assert!(s.reverse);
+        // Stored before it was kept, and before the onigiri's: on, as new
+        // settings have it.
+        assert!(s.simplify_center && Settings::default().simplify_center);
+        assert!(!s.simplify_onigiri);
         assert_eq!(s.note_colors(), NoteColors::Vivid);
         assert_eq!(s.old_note_colors, None);
         assert!(s.skin_params.is_empty());
@@ -1109,6 +1122,30 @@ mod tests {
             ffr: true,
             ..plain.clone()
         };
+        let pump = Chart {
+            layout: "pump-single".into(),
+            ..plain.clone()
+        };
+        // A pump chart's version without centers: drawn as dance, its
+        // holds still ticked as its game's.
+        let centerless = Chart {
+            derivation: Some(ddi_chart::simplify::Derivation::WithoutCenter { source: 0 }),
+            ..plain.clone()
+        };
+        assert_eq!(
+            Settings::default()
+                .ruleset_for(&centerless)
+                .key()
+                .best_key(),
+            Settings::default().ruleset_for(&pump).key().best_key()
+        );
+        assert_ne!(
+            Settings::default()
+                .ruleset_for(&centerless)
+                .key()
+                .best_key(),
+            Settings::default().ruleset_for(&plain).key().best_key()
+        );
         for mode in [
             RulesetMode::Original,
             RulesetMode::AllDanoni,
@@ -1134,10 +1171,13 @@ mod tests {
                     work(Vec::new()),
                     plain.clone(),
                     level.clone(),
+                    pump.clone(),
+                    centerless.clone(),
                 ] {
                     let play = s.ruleset_for(&chart).key().best_key();
                     let list = s.best_key_for(
                         &chart.layout,
+                        chart.derivation.as_ref(),
                         chart.danoni.is_some(),
                         chart.ffr,
                         chart_excessive(&chart),

@@ -743,8 +743,8 @@ impl RulesetMode {
 /// How the StepMania presets keep holds (`docs/plans/pump.md`).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HoldStyle {
-    /// Ticked on pump charts (StepMania's pump game), dance-style on the
-    /// rest.
+    /// Ticked on pump charts (StepMania's pump game) and their versions
+    /// without centers ([`Chart::pump_game`]), dance-style on the rest.
     #[default]
     ByGame,
     /// Held to the end, one O.K. or N.G. (StepMania's dance game).
@@ -759,7 +759,7 @@ impl HoldStyle {
     /// Whether `chart`'s holds are ticked.
     pub fn ticks(self, chart: &Chart) -> bool {
         match self {
-            HoldStyle::ByGame => chart.layout.starts_with("pump-"),
+            HoldStyle::ByGame => chart.pump_game(),
             HoldStyle::Dance => false,
             HoldStyle::Ticked => true,
         }

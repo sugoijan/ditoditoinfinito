@@ -36,7 +36,7 @@ pub fn parse_simfile(
     extension: &str,
 ) -> Result<ddi_chart::Song, ddi_chart::formats::ParseError> {
     let mut song = ddi_chart::formats::sm::parse_simfile(text, extension)?;
-    song.add_no_onigiri_charts();
+    song.add_chart_versions();
     Ok(song)
 }
 
@@ -709,6 +709,52 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn pump_simfiles_gain_center_free_charts_after_their_originals() {
+        let chart = |steps: &str, row: &str| {
+            format!(
+                "#NOTEDATA:;#STEPSTYPE:{steps};#DIFFICULTY:Hard;#METER:8;\
+                 #NOTES:{row}\n{row};"
+            )
+        };
+        let text = format!(
+            "#VERSION:0.83;#TITLE:Pump;#BPMS:0=120;#TICKCOUNTS:0=4;{}{}{}{}",
+            chart("pump-single", "11100"),
+            chart("dance-single", "1001"),
+            chart("pump-halfdouble", "110001"),
+            chart("pump-double", "0010000101"),
+        );
+        // As a song imported before was listed: its originals only.
+        let original = ddi_chart::formats::sm::parse_ssc(&text).unwrap();
+        let mut old = summarize(Default::default(), &original);
+        old.variants_version = 1;
+        assert!(old.needs_chart_variants());
+        let song = parse_simfile(&text, "ssc").unwrap();
+        assert_eq!(song.charts[..4], original.charts[..]);
+        let made: Vec<_> = song.charts[4..]
+            .iter()
+            .map(|c| (c.derivation.as_ref().map(|d| d.source()), c.layout.as_str()))
+            .collect();
+        assert_eq!(
+            made,
+            [
+                (Some(0), "dance-single"),
+                (Some(2), "dance-single"),
+                (Some(3), "dance-double"),
+            ]
+        );
+        let entry = summarize(Default::default(), &song);
+        assert!(!entry.needs_chart_variants());
+        let upgraded = crate::manifest::with_chart_variants(&old, &song);
+        assert!(!upgraded.needs_chart_variants());
+        assert_eq!(&upgraded.charts[..old.charts.len()], old.charts);
+        assert_eq!(upgraded.charts.len(), 7);
+        for c in &upgraded.charts {
+            assert_eq!(c.digest, Some(song.chart_digest(c.index)));
+        }
+        assert!(upgraded.charts[4..].iter().all(|c| c.derivation.is_some()));
+    }
 
     #[test]
     fn exported_danoni_simfiles_keep_originals_and_gain_versioned_charts() {

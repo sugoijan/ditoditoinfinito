@@ -114,12 +114,13 @@ fn shows(c: &ChartInfo, settings: &Settings) -> bool {
     match c.derivation {
         None => true,
         Some(ddi_chart::simplify::Derivation::WithoutOnigiri { .. }) => settings.simplify_onigiri,
+        Some(ddi_chart::simplify::Derivation::WithoutCenter { .. }) => settings.simplify_center,
     }
 }
 
 /// The best keys worked out so far in one [`select_data`], by what
 /// [`Settings::best_key_for`] reads of a chart.
-type BestKeys<'a> = HashMap<(&'a str, bool, bool, Option<bool>), RulesetKey>;
+type BestKeys<'a> = HashMap<(&'a str, bool, bool, bool, Option<bool>), RulesetKey>;
 
 /// The player's best on a chart under the rules the settings choose for
 /// it. Original charts show unassisted bests; generated charts show their
@@ -134,9 +135,22 @@ fn best_of<'a>(
     let digest = chart.digest?;
     let danoni = entry.is_danoni_work();
     let ffr = ddi_library::ffr::is_level_chart(&entry.chart);
+    // A pump chart's version without centers keeps its game's holds.
+    let pump = chart
+        .derivation
+        .as_ref()
+        .is_some_and(ddi_chart::simplify::Derivation::pump_game);
     let ruleset = keys
-        .entry((chart.layout.as_str(), danoni, ffr, chart.excessive))
-        .or_insert_with(|| settings.best_key_for(&chart.layout, danoni, ffr, chart.excessive))
+        .entry((chart.layout.as_str(), pump, danoni, ffr, chart.excessive))
+        .or_insert_with(|| {
+            settings.best_key_for(
+                &chart.layout,
+                chart.derivation.as_ref(),
+                danoni,
+                ffr,
+                chart.excessive,
+            )
+        })
         .clone();
     let key = BestKey {
         digest,
@@ -333,7 +347,7 @@ mod tests {
             "|musicTitle=Test,Artist|musicUrl=test.ogg|blankFrame=0|difData=5,Hard,3.5|left_data=60|space_data=90|right_data=120|",
             DosFlags::default(),
         )).unwrap().songs.remove(0);
-        song.add_no_onigiri_charts();
+        song.add_chart_versions();
         let mut entry = ddi_library::manifest::summarize(
             ddi_library::manifest::EntryMeta {
                 id: "test".into(),
@@ -405,6 +419,68 @@ mod tests {
             .results()
             .assist
         );
+    }
+
+    #[test]
+    fn center_free_versions_show_by_default_and_keep_their_holds_ticked() {
+        use ddi_engine::player::Player;
+        let text = "#TITLE:Pump;#OFFSET:0;#BPMS:0=120;\n\
+            #NOTES:\n pump-single:\n:\n Hard:\n 9:\n 0,0,0,0,0:\n\
+            10100\n00010\n02000\n03001\n;\n";
+        let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
+        assert_eq!(song.charts.len(), 2);
+        let mut entry = ddi_library::manifest::summarize(
+            ddi_library::manifest::EntryMeta {
+                id: "pump".into(),
+                chart: "pump.sm".into(),
+                ..Default::default()
+            },
+            &song,
+        );
+        entry.length = 90.0;
+        let songs = [Listed {
+            entry,
+            pack: Some("Test".into()),
+            pack_banner: None,
+            banner: None,
+            background: None,
+            jacket: None,
+            cd_title: None,
+            removable: true,
+        }];
+        let mut settings = Settings::default();
+        let styles = |settings: &Settings| {
+            let data = select_data(
+                &songs,
+                &|_| false,
+                settings,
+                &History::default(),
+                &MenuPlace::default(),
+            );
+            let mut charts: Vec<_> = data.songs[0]
+                .charts
+                .iter()
+                .map(|c| (c.style.clone(), c.index))
+                .collect();
+            charts.sort();
+            charts
+        };
+        assert_eq!(
+            styles(&settings),
+            [
+                ("dance-single".to_string(), 1),
+                ("pump-single".to_string(), 0)
+            ]
+        );
+        for (index, assisted, notes) in [(0, false, 5), (1, true, 4)] {
+            let rules = settings.ruleset_for(&song.charts[index]);
+            assert!(rules.judge.hold.is_ticked(), "{index}");
+            let player = Player::new(&song, index, rules, settings.play_options(None));
+            assert_eq!(player.results().assist, assisted);
+            assert_eq!(player.judge().notes().len(), notes);
+        }
+        settings.simplify_center = false;
+        assert_eq!(styles(&settings), [("pump-single".to_string(), 0)]);
     }
 
     fn entry(id: &str, layout: &str) -> ManifestEntry {

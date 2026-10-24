@@ -577,10 +577,15 @@ Options sample); Start is silent. See `docs/plans/start-menu.md`.
 
 - Options → Notes → Simplify → Without onigiri (`simplify_onigiri`)
   exposes additional versions of DanOni 5/7/9A/9B charts in Single,
-  Solo, Double and Techno 8-panel (`techno-single8`). See
+  Solo, Double and Techno 8-panel (`techno-single8`); Without center
+  (`simplify_center`, on by default) versions of pump single and
+  half-double charts in Single and pump double in Double, the center
+  removed and each pad turned an eighth clockwise, their holds still
+  ticked as pump's (`Chart::pump_game`). See
   `docs/plans/chart-simplification.md`.
 - Generated charts carry `Chart::derivation` and are appended after all
-  originals, independently of the display setting. Preserve original
+  originals (every onigiri-free version before every center-free one),
+  independently of the display setting. Preserve original
   chart indexes, digests and files. Only the generated chart gets the
   assisted mark from this feature; the existing transform options keep
   their behavior.
@@ -588,7 +593,8 @@ Options sample); Start is silent. See `docs/plans/start-menu.md`.
   Keep chart provenance in manifests, bests and replay resolution. Old
   browser imports upgrade their metadata from stored chart data; desktop
   invalidates its library cache when the metadata changes.
-- Simfiles used by the library and play load through
+- Simfiles used by the library, play and the bundled songs' index
+  (`xtask gen-songs`) load through
   `ddi_library::scan::parse_simfile`, which appends generated versions too;
   the format importers preserve source charts, including SSC exports.
 

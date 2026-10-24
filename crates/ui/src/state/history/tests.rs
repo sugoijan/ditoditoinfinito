@@ -180,7 +180,7 @@ fn converted_onigiri_plays_keep_their_own_identity_assist_flag_and_replay() {
         DosFlags::default(),
     )).unwrap().songs.remove(0);
     let original_digest = song.chart_digest(0);
-    song.add_no_onigiri_charts();
+    song.add_chart_versions();
     let mut history = History::default();
     for (index, assisted, taps) in [(0, false, 3), (1, true, 2)] {
         let (log, results) = play(&song, index, &itg(), Some(0.0));
@@ -207,6 +207,63 @@ fn converted_onigiri_plays_keep_their_own_identity_assist_flag_and_replay() {
             .keys()
             .any(|k| k.digest == song.chart_digest(1) && k.assist)
     );
+}
+
+#[test]
+fn center_free_pump_plays_are_assisted_ticked_and_replayed() {
+    // A tap on the center beside each step, and a long hold on up-left.
+    let text = "#TITLE:Pump;#OFFSET:0;#BPMS:0=120;#TICKCOUNTS:0=4;
+#NOTES:
+     pump-single:
+     :
+     Hard:
+     9:
+     0,0,0,0,0:
+10100
+02000
+00110
+00001
+,
+00000
+03000
+00100
+10001
+;
+";
+    let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
+    assert_eq!(song.charts.len(), 2);
+    let settings = crate::state::settings::Settings::default();
+    let mut history = History::default();
+    let mut keys = Vec::new();
+    for (index, assisted) in [(0, false), (1, true)] {
+        let rules = settings.ruleset_for(&song.charts[index]).key();
+        assert!(rules.build(&song.charts[index]).judge.hold.is_ticked());
+        let (log, results) = play(&song, index, &rules, Some(0.0));
+        assert_eq!(results.assist, assisted);
+        // Every step at the top tier and every checkpoint hit.
+        let t = &results.tally;
+        assert_eq!(t.taps[1..].iter().sum::<u32>(), 0, "{t:?}");
+        assert!(t.checkpoint_hit > 0 && t.checkpoint_miss == 0, "{t:?}");
+        let rec = record(&song, index, &rules, index as f64, false);
+        let (entry, summary) = new_entry(format!("p{index}"), &rec, &log, &results).unwrap();
+        history.add(entry.id.clone(), summary);
+        let watched = Replay::from_entry(&entry).unwrap().results(&song).unwrap();
+        assert_eq!(watched.assist, assisted);
+        assert_eq!(watched.tally, results.tally);
+        assert_eq!(rework(&entry, &song).unwrap().assist, assisted);
+        keys.push((song.chart_digest(index), rules.best_key(), assisted));
+    }
+    assert_ne!(keys[0].0, keys[1].0);
+    let bests = history.bests();
+    for (digest, ruleset, assist) in keys {
+        assert!(
+            bests
+                .keys()
+                .any(|k| k.digest == digest && k.ruleset == ruleset && k.assist == assist)
+        );
+    }
+    // The ghost's best: the version's own, assisted.
+    assert!(history.best_of_play(&song, 1, &settings).is_some());
 }
 
 #[test]
