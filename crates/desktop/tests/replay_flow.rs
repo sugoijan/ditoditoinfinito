@@ -89,7 +89,7 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
         loop {
             host.poll(ui, &env, Some(dev()), 48_000);
             ui.update(0.05);
-            if host.prompt_step() == Some(PromptStep::Ready) {
+            if host.prompt_ready() {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));

@@ -73,7 +73,7 @@ fn a_lost_device_and_an_interruption_ready_the_play_again() {
     let plain = texture.create_view(&Default::default());
     let until_ready = |host: &mut Host, ui: &mut ddi_ui::Ui| {
         let mut waited = 0;
-        while host.prompt_step() != Some(PromptStep::Ready) {
+        while !host.prompt_ready() {
             host.poll(ui, &env, Some(dev()), 48_000);
             ui.update(0.05);
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -92,9 +92,10 @@ fn a_lost_device_and_an_interruption_ready_the_play_again() {
     };
     *host.requested.borrow_mut() = Some(Request::song("beatucada", 2, true));
     until_ready(&mut host, &mut ui);
-    // Lost at the prompt: it loads again before Start is offered.
+    // Lost at the prompt: it loads again behind Start.
     host.device_lost();
-    assert!(matches!(host.prompt_step(), Some(PromptStep::Loading(_))));
+    assert_eq!(host.prompt_step(), Some(PromptStep::Ready));
+    assert!(!host.prompt_ready());
     assert_eq!(host.backgrounds(), 0);
     until_ready(&mut host, &mut ui);
     key(&mut ui, "Enter", "Enter");
@@ -127,7 +128,7 @@ fn a_lost_device_and_an_interruption_ready_the_play_again() {
     key(&mut ui, "Enter", "Enter");
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     assert!(!host.playing());
-    assert!(matches!(host.prompt_step(), Some(PromptStep::Loading(_))));
+    assert_eq!(host.prompt_step(), Some(PromptStep::Ready));
     until_ready(&mut host, &mut ui);
     key(&mut ui, "Enter", "Enter");
     host.poll(&mut ui, &env, Some(dev()), 48_000);

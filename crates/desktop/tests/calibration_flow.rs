@@ -124,7 +124,7 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     press(&mut ui, &env, "button:run:visual");
     // Its prompt, ready once its skin is read.
     let mut waited = 0;
-    while host.prompt_step() != Some(PromptStep::Ready) {
+    while !host.prompt_ready() {
         host.poll(&mut ui, &env, Some(dev()), 48_000);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(10));

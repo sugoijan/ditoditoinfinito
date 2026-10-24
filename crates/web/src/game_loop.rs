@@ -223,8 +223,8 @@ impl GameLoop {
         }
     }
 
-    pub(crate) fn enter_background(&mut self, from: f32, reduced: bool) {
-        self.entrance = Some(ddi_actor::background::Entrance::new(from, reduced));
+    pub(crate) fn enter_background(&mut self, from: ddi_actor::background::Reveal, reduced: bool) {
+        self.entrance = Some(ddi_actor::background::Entrance::resume(from, reduced));
     }
 
     pub(crate) fn set_session(&mut self, session: PlaySession) {

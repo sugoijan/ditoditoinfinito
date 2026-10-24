@@ -2535,6 +2535,18 @@ fn publish(h: &Host) {
             st.app_toast.as_deref().map_or(JsValue::NULL, |s| s.into()),
         );
         set(&o, "pageItems", strings(&st.page_items));
+        // The start prompt (`docs/plans/start-prompt.md`).
+        set(
+            &o,
+            "prompt",
+            st.prompt.as_ref().map_or(JsValue::NULL, |p| {
+                let v = js_sys::Object::new();
+                set(&v, "loading", p.loading.into());
+                set(&v, "label", p.label.into());
+                set(&v, "waiting", strings(&p.waiting));
+                v.into()
+            }),
+        );
         set(&o, "autoplay", st.autoplay.into());
         set(&o, "pageFocus", st.page_focus.into());
         // Song select's plays list: its rows and the chosen one.

@@ -443,6 +443,18 @@ pub fn prepare_authoring(
 
 /// A skin read on a thread of its own; dropped, its answer is let go (a
 /// pick passed over).
+/// `DDI_SKIN_DELAY_MS`: a play's skin takes this much longer to read, a
+/// testing aid for the start prompt's loading in the background
+/// (`docs/plans/start-prompt.md`; the web's `__DDI_SKIN_DELAY_MS`).
+fn test_delay() {
+    if let Some(ms) = std::env::var("DDI_SKIN_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(ms.min(60_000)));
+    }
+}
+
 pub struct Reading {
     rx: std::sync::mpsc::Receiver<Option<Read>>,
 }
@@ -470,6 +482,7 @@ impl Reading {
         wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Reading {
         Reading::spawn(crate::library::all_folders(), layout, wake, |skins| {
+            test_delay();
             ddi_shell::first_there(wants, &crate::library::noteskins::choices(skins))
         })
     }

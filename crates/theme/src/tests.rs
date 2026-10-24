@@ -327,6 +327,13 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     ));
     p.run(0.3);
     assert_eq!(state.borrow().screen, "prompt");
+    // Its loading screen.
+    let mut p = harness([1280.0, 720.0], DESIGN);
+    p.push(sample::prompt_screen(
+        &env,
+        screens::prompt::PromptStep::Loading("loading…".into()),
+    ));
+    p.run(0.6);
     // The compact layout.
     let mut c = harness([844.0, 390.0], COMPACT);
     c.push(sample::select_screen(&env, None));
@@ -1425,7 +1432,6 @@ fn the_prompt_fits_every_size_at_every_step() {
     let env = env(&theme);
     let steps = [
         (PromptStep::Ready, vec!["Start", "Back"]),
-        (PromptStep::Loading("preparing audio…".into()), vec!["Back"]),
         (
             PromptStep::Access {
                 folder: "A pack with a rather long folder name (2026)".into(),
@@ -1529,6 +1535,22 @@ fn the_prompt_fits_every_size_at_every_step() {
                 let px = css(h.ui.bounds(b).unwrap());
                 assert!(px >= 30.0, "{size:?} {step:?} {b}: {px} CSS px");
             }
+        }
+        // The loading screen: no card, its label on the screen.
+        let mut h = harness(size, design);
+        h.push(sample::prompt_screen(
+            &env,
+            PromptStep::Loading("loading…".into()),
+        ));
+        h.run(0.6);
+        let vp = h.ui.viewport().screen;
+        assert!(h.ui.bounds("Card").is_none(), "{size:?}");
+        for n in ["LoadingText", "LoadingDot2"] {
+            let r = h.ui.bounds(n).unwrap_or_else(|| panic!("{size:?}: no {n}"));
+            assert!(
+                r[0] >= 0.0 && r[1] >= 0.0 && r[2] <= vp.width && r[3] <= vp.height,
+                "{size:?} {n}: {r:?} in {vp:?}"
+            );
         }
     }
 }

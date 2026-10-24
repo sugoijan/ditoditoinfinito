@@ -80,6 +80,12 @@ struct Readied {
     stage: Option<Receiver<super::stage::Read>>,
     /// The song's scripted backgrounds, readied while the prompt is up.
     scripts: SongScripts,
+    /// Start was pressed (or a new device's choice made): the play
+    /// begins once everything is ready, the loading screen up meanwhile
+    /// (`docs/plans/start-prompt.md`).
+    started: bool,
+    /// Everything the play waits for is ready (as of the last poll).
+    ready: bool,
 }
 
 /// A song's scripted backgrounds (`super::scripts`): readied once for
@@ -327,13 +333,10 @@ impl Host {
     pub fn device_lost(&mut self) {
         match &mut self.stage {
             Stage::Idle => {}
+            // The play waits for the song's drawing again (Start stays).
             Stage::Prompt(r) => {
                 r.drop_view();
-                // Start waits for the song's drawing again.
-                let mut p = r.prompt.borrow_mut();
-                if matches!(p.step, PromptStep::Ready) {
-                    p.set_step(PromptStep::Loading("loading…".into()));
-                }
+                r.ready = false;
             }
             Stage::Results(r) => r.drop_view(),
             Stage::Playing(r, ..) => {
@@ -344,11 +347,11 @@ impl Host {
     }
 
     /// The prompt waits for something that wakes no one (the play's
-    /// sound to start running, the scripts' Lua to run its next slices):
-    /// the loop looks again shortly.
+    /// sound to start running, the scripts' Lua to run its next slices,
+    /// the pictures' wait): the loop looks again shortly.
     pub fn wants_poll(&self) -> bool {
         matches!(&self.stage, Stage::Prompt(r)
-            if matches!(&r.prompt.borrow().step, PromptStep::Loading(what) if what == "preparing audio…")
+            if (!r.ready && r.error.is_none() && r.request.refused.is_none() && r.card.is_none())
                 || matches!(&r.scripts, SongScripts::Loading(l) if l.running()))
     }
 
@@ -370,6 +373,21 @@ impl Host {
         }
     }
 
+    /// The prompt offers Start and everything the play waits for is
+    /// ready: Start plays at once (tests).
+    pub fn prompt_ready(&self) -> bool {
+        matches!(&self.stage, Stage::Prompt(r)
+            if r.ready && r.prompt.borrow().step == PromptStep::Ready)
+    }
+
+    /// What the prompt still loads (tests).
+    pub fn prompt_waiting(&self) -> Vec<String> {
+        match &self.stage {
+            Stage::Prompt(r) => r.prompt.borrow().waiting.clone(),
+            _ => Vec::new(),
+        }
+    }
+
     /// The prompt changed since this was last asked: a frame shows it.
     pub fn prompt_changed(&mut self) -> bool {
         let Stage::Prompt(r) = &self.stage else {
@@ -379,9 +397,12 @@ impl Host {
         std::mem::replace(&mut self.prompt_seen, v) != v
     }
 
-    /// Puts `r`'s prompt up; its buttons choose for the next poll.
-    fn push_prompt(&self, ui: &mut Ui, env: &Env, r: &Readied) {
+    /// Puts `r`'s prompt up; its buttons choose for the next poll. Start
+    /// is asked for again (after an interruption, a test's outcome).
+    fn push_prompt(&self, ui: &mut Ui, env: &Env, r: &mut Readied) {
         *self.choice.borrow_mut() = None;
+        r.started = false;
+        r.prompt.borrow_mut().done = false;
         let (choice, state, devices) =
             (self.choice.clone(), r.prompt.clone(), self.devices.clone());
         // A test, an autoplay or a replay starts without asking about
@@ -391,6 +412,9 @@ impl Host {
         let act: PromptFn = Rc::new(move |c, cx| {
             let step = state.borrow().step.clone();
             match &c {
+                // Start: the play begins at the next poll, or the loading
+                // screen shows until everything is ready (the screen stays
+                // until then, `PromptState::finish`).
                 PromptChoice::Start => {
                     if step != PromptStep::Ready {
                         return;
@@ -406,13 +430,19 @@ impl Host {
                             return;
                         }
                     }
-                    cx.close(false);
+                    state
+                        .borrow_mut()
+                        .set_step(PromptStep::Loading("loading…".into()));
                 }
                 // After an interruption: the prompt readies the play
                 // again (Start then plays, new devices asked about).
                 PromptChoice::Retry => {}
                 PromptChoice::Back => cx.close(true),
-                PromptChoice::Device(id) => cx.close(id == "calibrate"),
+                PromptChoice::Device(id) if id == "calibrate" => cx.close(true),
+                // The offsets chosen: then as Start.
+                PromptChoice::Device(_) => state
+                    .borrow_mut()
+                    .set_step(PromptStep::Loading("loading…".into())),
                 // A test's card: saving and again stay on it.
                 PromptChoice::Action(id) => match id.as_str() {
                     "save" | "again" => {}
@@ -437,13 +467,14 @@ impl Host {
             let prompt: SharedPrompt = Rc::new(RefCell::new(PromptState {
                 info: first_info(&r),
                 base: r.backdrop.clone(),
+                // Start at once: what the play needs loads behind it.
                 step: match &r.refused {
                     Some(why) => PromptStep::Error(format!("This replay cannot be watched. {why}")),
-                    None => PromptStep::Loading("loading…".into()),
+                    None => PromptStep::Ready,
                 },
                 ..PromptState::default()
             }));
-            let readied = Readied {
+            let mut readied = Readied {
                 // Started once the library knows the song (a folder's
                 // songs come with its scan).
                 loading: None,
@@ -464,12 +495,14 @@ impl Host {
                 stage: None,
                 view_made: None,
                 scripts: SongScripts::Unread,
+                started: false,
+                ready: false,
             };
             // A kept play's results: at once, judged again from its log.
             if readied.request.view_results && readied.request.refused.is_none() {
                 self.stage = self.show_kept_results(readied, ui, env);
             } else {
-                self.push_prompt(ui, env, &readied);
+                self.push_prompt(ui, env, &mut readied);
                 self.stage = Stage::Prompt(Box::new(readied));
             }
         }
@@ -503,11 +536,13 @@ impl Host {
                         }
                         Stage::Idle
                     }
-                    Some(PromptChoice::Start) => self.start(r, ui, env),
+                    Some(PromptChoice::Start) => {
+                        r.started = true;
+                        self.start_if_ready(r, ui, env)
+                    }
                     Some(PromptChoice::Retry) => {
-                        r.prompt
-                            .borrow_mut()
-                            .set_step(PromptStep::Loading("preparing audio…".into()));
+                        r.started = false;
+                        r.prompt.borrow_mut().set_step(PromptStep::Ready);
                         if let Some(v) = r.view.as_mut() {
                             v.start();
                         }
@@ -526,10 +561,14 @@ impl Host {
                             self.open_menu(ui, env);
                             Stage::Idle
                         } else {
-                            self.start(r, ui, env)
+                            r.started = true;
+                            self.start_if_ready(r, ui, env)
                         }
                     }
                     Some(PromptChoice::Action(id)) => self.card_action(r, &id, ui, env),
+                    Some(PromptChoice::Allow) | None if r.started => {
+                        self.start_if_ready(r, ui, env)
+                    }
                     Some(PromptChoice::Allow) | None => Stage::Prompt(r),
                 }
             }
@@ -551,11 +590,15 @@ impl Host {
                         let settings = r.request.settings();
                         r.skin = read_skin(&loaded, &r.request, &settings, self.wake.clone());
                     }
-                    // The sound opens again; Start once it runs.
-                    r.prompt
-                        .borrow_mut()
-                        .set_step(PromptStep::Loading("preparing audio…".into()));
-                    self.push_prompt(ui, env, &r);
+                    // The sound opens again behind the prompt.
+                    r.started = false;
+                    r.ready = false;
+                    {
+                        let mut p = r.prompt.borrow_mut();
+                        p.done = false;
+                        p.set_step(PromptStep::Ready);
+                    }
+                    self.push_prompt(ui, env, &mut r);
                     if let Some(v) = r.view.as_mut() {
                         v.start();
                     }
@@ -601,9 +644,9 @@ impl Host {
             }
             "again" => {
                 r.card = None;
-                r.prompt
-                    .borrow_mut()
-                    .set_step(PromptStep::Loading("preparing audio…".into()));
+                r.started = false;
+                r.ready = false;
+                r.prompt.borrow_mut().set_step(PromptStep::Ready);
                 if let Some(v) = r.view.as_mut() {
                     v.start();
                 }
@@ -647,6 +690,7 @@ impl Host {
     /// taken in as they come, its sound opened; the prompt says where it
     /// is, and offers Start once all is ready.
     fn ready(&mut self, r: &mut Readied, dev: Option<Device<'_>>, ui: &Ui) {
+        r.ready = false;
         // A replay refused: the prompt says why, nothing loads.
         if r.request.refused.is_some() {
             return;
@@ -721,6 +765,9 @@ impl Host {
             }
         }
         let (Some(loaded), Some(dev)) = (r.loaded.clone(), dev) else {
+            if r.loaded.is_none() {
+                r.prompt.borrow_mut().set_waiting(vec!["song".into()]);
+            }
             return;
         };
         let settings = r.request.settings();
@@ -816,27 +863,55 @@ impl Host {
             .audio
             .as_ref()
             .is_some_and(|(a, at)| a.running() || at.elapsed() >= SOUND_WAIT);
+        // What the play waits for (the scripts too: they never load
+        // during a play); Start never does.
+        let scripts = matches!(r.scripts, SongScripts::Unread | SongScripts::Loading(_));
+        let waiting: Vec<String> = [
+            (r.skin.is_some(), "noteskin"),
+            (!images_done, "pictures"),
+            (scripts, "scripts"),
+            (!sound, "audio"),
+        ]
+        .into_iter()
+        .filter(|(w, _)| *w)
+        .map(|(_, n)| n.to_string())
+        .collect();
+        r.ready = waiting.is_empty();
         let mut p = r.prompt.borrow_mut();
         p.set_picture(picture);
-        if matches!(p.step, PromptStep::Loading(_)) {
-            // Start waits for the scripts as it did when they loaded
-            // with the view: they never load during a play.
-            let scripts = matches!(r.scripts, SongScripts::Unread | SongScripts::Loading(_));
-            p.set_step(if r.skin.is_some() || !images_done || scripts {
-                PromptStep::Loading("loading…".into())
-            } else if sound {
-                PromptStep::Ready
-            } else {
-                PromptStep::Loading("preparing audio…".into())
-            });
-        }
+        p.set_waiting(waiting);
     }
 
-    /// Starts the play (the prompt took itself down).
+    /// Start was pressed: the play begins if everything is ready, else
+    /// the loading screen shows until it is (looked at again each poll).
+    fn start_if_ready(&mut self, mut r: Box<Readied>, ui: &mut Ui, env: &Env) -> Stage {
+        let step = r.prompt.borrow().step.clone();
+        if !matches!(step, PromptStep::Ready | PromptStep::Loading(_)) {
+            // An error came meanwhile: it shows, nothing starts.
+            r.started = false;
+            return Stage::Prompt(r);
+        }
+        if r.ready && r.loaded.is_some() {
+            return self.start(r, ui, env);
+        }
+        if step == PromptStep::Ready {
+            r.prompt
+                .borrow_mut()
+                .set_step(PromptStep::Loading("loading…".into()));
+        }
+        Stage::Prompt(r)
+    }
+
+    /// Starts the play, the prompt taken down.
     fn start(&mut self, mut r: Box<Readied>, ui: &mut Ui, env: &Env) -> Stage {
         let Some(loaded) = r.loaded.clone() else {
             return Stage::Idle;
         };
+        // The backdrop's entrance where the prompt left it, then the
+        // screen goes before the play's first frame.
+        let entrance = r.prompt.borrow().entrance();
+        r.prompt.borrow_mut().finish();
+        ui.update(0.0);
         let settings = r.request.settings();
         let audio = match r.audio.take() {
             Some((a, _)) => a,
@@ -875,7 +950,7 @@ impl Host {
                     // offset moves them too.
                     v.set_played_song(play.song(), &play.loaded);
                     v.start();
-                    v.enter_background(r.prompt.borrow().reveal, env.reduced());
+                    v.enter_background(entrance, env.reduced());
                 }
                 // A work's back and mask layers, on the song as played
                 // (its offset moves them too), with the backgrounds.
@@ -902,7 +977,7 @@ impl Host {
             }
             Err(e) => {
                 r.prompt.borrow_mut().set_step(PromptStep::Error(e));
-                self.push_prompt(ui, env, &r);
+                self.push_prompt(ui, env, &mut r);
                 Stage::Prompt(r)
             }
         }
@@ -996,7 +1071,7 @@ impl Host {
                         let mut r = r;
                         r.prompt.borrow_mut().set_step(card.step());
                         r.card = Some(card);
-                        self.push_prompt(ui, env, &r);
+                        self.push_prompt(ui, env, &mut r);
                         Stage::Prompt(r)
                     }
                     _ => {
@@ -1014,8 +1089,9 @@ impl Host {
             }
             Ended::Interrupted => {
                 self.log.push(format!("interrupted {}", play.request.song));
+                let mut r = r;
                 r.prompt.borrow_mut().set_step(PromptStep::Interrupted);
-                self.push_prompt(ui, env, &r);
+                self.push_prompt(ui, env, &mut r);
                 Stage::Prompt(r)
             }
         };
@@ -1166,7 +1242,7 @@ impl Host {
     /// A kept play's results (`--replay ID --results`, song select's
     /// plays list): judged again from its log on its chart, read now; its
     /// replay offered.
-    fn show_kept_results(&mut self, r: Readied, ui: &mut Ui, env: &Env) -> Stage {
+    fn show_kept_results(&mut self, mut r: Readied, ui: &mut Ui, env: &Env) -> Stage {
         let Some(rp) = r.request.replay.clone() else {
             return Stage::Idle;
         };
@@ -1180,7 +1256,7 @@ impl Host {
                 r.prompt.borrow_mut().set_step(PromptStep::Error(format!(
                     "This play's results cannot be shown. {e}"
                 )));
-                self.push_prompt(ui, env, &r);
+                self.push_prompt(ui, env, &mut r);
                 return Stage::Prompt(Box::new(r));
             }
         };

@@ -1,8 +1,12 @@
 //! The start prompt (`docs/plans/ui-core.md`, step 6.4), one screen for
 //! both shells: the song, its chart and the mods it will play with over
-//! its picture, until the player starts or goes back; or what is still
-//! loading, the linked folder the browser asks about again, the devices
-//! not calibrated yet, an interrupted play or why the song cannot play.
+//! its picture, until the player starts or goes back; or the linked folder
+//! the browser asks about again, the devices not calibrated yet, an
+//! interrupted play or why the song cannot play. Start never waits for
+//! what the play needs: the shell readies it behind the prompt, and a
+//! Start that comes first shows the loading screen ([`PromptStep::Loading`]:
+//! "Loading" over the play's own background, whose entrance runs there)
+//! until the play begins (`docs/plans/start-prompt.md`).
 //!
 //! The shell says what to show through [`PromptState`] (shared, its
 //! `version` bumped on every change: the screen builds itself again) and
@@ -77,10 +81,13 @@ pub struct PromptPicture {
 /// What the prompt is at.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum PromptStep {
-    /// Something still loads ("loading…", "preparing audio…"); Back
-    /// leaves.
+    /// The loading screen: Start was pressed before everything the play
+    /// needs was ready ("loading…", "preparing audio…", for tests); the
+    /// card gives way to "Loading" over the play's background, whose
+    /// entrance runs here. Back leaves.
     Loading(String),
-    /// Start plays.
+    /// Start plays (or shows the loading screen first: the shell says),
+    /// whatever still loads in the background ([`PromptState::waiting`]).
     #[default]
     Ready,
     /// A linked song's folder needs the browser's permission again
@@ -128,6 +135,16 @@ pub enum PromptChoice {
     Action(String),
 }
 
+/// What the prompt shows, for tests (`ThemeState::prompt`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PromptView {
+    /// The loading screen is up, and says "Loading" (past its delay).
+    pub loading: bool,
+    pub label: bool,
+    /// What the shell said still loads ([`PromptState::waiting`]).
+    pub waiting: Vec<String>,
+}
+
 /// What the shell shows; `version` goes up with every change.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PromptState {
@@ -144,6 +161,16 @@ pub struct PromptState {
     pub base: Option<String>,
     /// Current visual position, sampled by Start to continue an early entrance.
     pub reveal: f32,
+    /// How far the loading screen took the last unblur (0 → 1): the play
+    /// continues from here with [`PromptState::entrance`].
+    pub clarity: f32,
+    /// What still loads, by the shell's names (`song`, `noteskin`,
+    /// `audio`, `pictures`, `scripts`), for tests; empty: all is ready.
+    /// Not shown, so a change does not bump the version.
+    pub waiting: Vec<String>,
+    /// The shell started the play: the screen closes itself at its next
+    /// frame (desktop, where the prompt is a screen over song select).
+    pub done: bool,
     pub version: u64,
 }
 
@@ -180,6 +207,27 @@ impl PromptState {
         if self.base != source {
             self.base = source;
             self.version += 1;
+        }
+    }
+
+    pub fn set_waiting(&mut self, waiting: Vec<String>) {
+        self.waiting = waiting;
+    }
+
+    /// The play started: the screen goes.
+    pub fn finish(&mut self) {
+        if !self.done {
+            self.done = true;
+            self.version += 1;
+        }
+    }
+
+    /// Where the backdrop's entrance is, for the play to continue it
+    /// (`ddi_actor::background::Entrance::resume`).
+    pub fn entrance(&self) -> ddi_actor::background::Reveal {
+        ddi_actor::background::Reveal {
+            position: self.reveal,
+            clarity: self.clarity,
         }
     }
 
@@ -309,6 +357,20 @@ pub struct PromptScreen {
     faded: bool,
     reveal_time: f32,
     picture_source: Option<String>,
+    /// The loading screen: how long it has shown, and its backdrop's
+    /// entrance (from where the prompt's was, again from the start for a
+    /// picture that comes meanwhile).
+    loading: Option<Loading>,
+    /// The last card built, which the loading screen fades out.
+    card_shown: Option<Actor>,
+}
+
+/// The loading screen's clocks.
+#[derive(Clone, Copy, Debug)]
+struct Loading {
+    shown: f32,
+    entrance: f32,
+    from: f32,
 }
 
 /// The card's text sizes.
@@ -333,6 +395,8 @@ impl PromptScreen {
             faded: false,
             reveal_time: 0.0,
             picture_source: None,
+            loading: None,
+            card_shown: None,
         }
     }
 
@@ -375,20 +439,31 @@ impl PromptScreen {
         call(&mut field, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
         let mut children = vec![field];
         children.push(picture(&env, screen, &state, cx));
-        let (card, buttons) = self.card(&state);
-        self.buttons = buttons;
-        children.push(card);
-        let keys = !state.touch && matches!(state.step, PromptStep::Ready | PromptStep::Loading(_));
-        if keys {
-            let hints: &[(&[&str], &str)] = if state.step == PromptStep::Ready {
-                &[(&["ENTER"], "Start"), (&["ESC"], "Back")]
-            } else {
-                &[(&["ESC"], "Back")]
-            };
+        if matches!(state.step, PromptStep::Loading(_)) {
+            // The loading screen: the card fading out (while it does),
+            // then the label alone.
+            self.buttons = Vec::new();
+            let shown = self.loading.map_or(0.0, |l| l.shown);
+            if let Some(card) = &self.card_shown
+                && shown < LOADING_FADE
+                && !self.env.reduced()
+            {
+                children.push(card.clone());
+            }
+            children.push(loading_label(&env, screen));
+            env.state.borrow_mut().hints = Vec::new();
+        } else {
+            let (card, buttons) = self.card(&state);
+            self.buttons = buttons;
+            self.card_shown = Some(card.clone());
+            children.push(card);
+        }
+        if !state.touch && state.step == PromptStep::Ready {
+            let hints: &[(&[&str], &str)] = &[(&["ENTER"], "Start"), (&["ESC"], "Back")];
             let (f, texts) = footer(&env, screen, hints, "", &[]);
             env.state.borrow_mut().hints = texts;
             children.push(f);
-        } else {
+        } else if !matches!(state.step, PromptStep::Loading(_)) {
             env.state.borrow_mut().hints = Vec::new();
         }
         let mut root = Actor::new(Kind::Frame(children));
@@ -462,10 +537,8 @@ impl PromptScreen {
         // The step.
         let mut buttons: Vec<(String, String, &str)> = Vec::new();
         match &state.step {
-            PromptStep::Loading(what) => {
-                line(&mut c, "Status", what, BODY + 3.0, 700, "Text", &mut y);
-                buttons.push(("Back".into(), "Back".into(), "Button"));
-            }
+            // Not a card: the loading screen (`tree`).
+            PromptStep::Loading(_) => {}
             PromptStep::Ready => {
                 let status = if state.touch {
                     "Tap to start"
@@ -663,11 +736,65 @@ impl PromptScreen {
         let step = self.built_step;
         *root = self.tree(cx);
         root.finish_tweening();
+        // The loading screen's card fades out from where it is.
+        if let Some(l) = self.loading
+            && l.shown < LOADING_FADE
+            && let Some(card) = crate::hit::find_mut(root, "Prompt")
+        {
+            let a = 1.0 - l.shown / LOADING_FADE;
+            look::run(
+                card,
+                &format!(
+                    "diffusealpha,{a};linear,{};diffusealpha,0",
+                    LOADING_FADE - l.shown
+                ),
+            );
+        }
+        self.show_loading(root);
         // The same step (a resize, a line changed): the focus stays; a new
         // one focuses its own first button.
         let keep = focused.filter(|f| step == Some(before) && self.buttons.contains(f));
         if let Some(f) = keep.or_else(|| self.buttons.first().cloned()) {
             cx.focus(f);
+        }
+    }
+
+    /// The loading screen's label, shown once [`LOADING_DELAY`] passed
+    /// (fading in, but under reduced motion), its dots stepping.
+    fn show_loading(&self, root: &mut Actor) {
+        let Some(l) = self.loading else {
+            return;
+        };
+        let reduced = self.env.reduced();
+        let alpha = if l.shown < LOADING_DELAY {
+            0.0
+        } else if reduced {
+            1.0
+        } else {
+            ((l.shown - LOADING_DELAY) / LOADING_FADE).min(1.0)
+        };
+        if let Some(f) = crate::hit::find_mut(root, "Loading") {
+            call(f, "diffusealpha", &[alpha]);
+        }
+        let step = if reduced { DOT_STEP_REDUCED } else { DOT_STEP };
+        let dots = (((l.shown - LOADING_DELAY).max(0.0) / step) as usize) % 4;
+        for i in 0..3 {
+            if let Some(d) = crate::hit::find_mut(root, &format!("LoadingDot{i}")) {
+                call(d, "diffusealpha", &[if i < dots { 1.0 } else { 0.0 }]);
+            }
+        }
+    }
+
+    /// What tests read of the prompt (`__DDI_DEBUG.ui.theme.prompt`).
+    fn publish_view(&self) {
+        let view = PromptView {
+            loading: self.loading.is_some(),
+            label: self.loading.is_some_and(|l| l.shown >= LOADING_DELAY),
+            waiting: self.state.borrow().waiting.clone(),
+        };
+        let mut st = self.env.state.borrow_mut();
+        if st.prompt.as_ref() != Some(&view) {
+            st.prompt = Some(view);
         }
     }
 
@@ -700,8 +827,9 @@ impl Drop for PromptScreen {
     /// Gone (closed by the shell, or the stack let go): song select says
     /// what it does again once nothing is over it.
     fn drop(&mut self) {
+        let mut st = self.env.state.borrow_mut();
+        st.prompt = None;
         if self.over && self.built != u64::MAX {
-            let mut st = self.env.state.borrow_mut();
             st.over = st.over.saturating_sub(1);
         }
     }
@@ -723,72 +851,65 @@ fn pbutton(
     b
 }
 
-/// A continuous blurred base, with a copy emerging into the content frame.
+/// A continuous blurred base, with a copy emerging into the content frame;
+/// on the loading screen its last unblur too (a sharp copy under the
+/// blurred ones, as the play's renderer draws it), so the play opens on
+/// what is already there.
 fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Actor {
-    use ddi_actor::background::{BASE_SIDE, CONTENT_SIDE, Reveal};
-    let image = |name: &str,
-                 rect: [f32; 4],
-                 source: &str,
-                 side: f32,
-                 tint: f32,
-                 alpha: f32,
-                 cx: &mut Cx| {
+    use ddi_actor::background::{BASE_SIDE, CONTENT_SIDE, Reveal, frame_rect};
+    let image = |name: &str, rect: [f32; 4], texture: u32, tint: f32, alpha: f32| {
         let [x, y, w, h] = rect;
         let mut s = named(Kind::Sprite(Sprite::quad([w, h])), name);
         if let Kind::Sprite(sp) = &mut s.kind {
-            sp.texture = cx.blurred_texture(source, side);
+            sp.texture = texture;
             sp.fit = ddi_actor::Fit::Cover;
         }
         call(&mut s, "xy", &[x + w / 2.0, y + h / 2.0]);
         call(&mut s, "diffuse", &[tint, tint, tint, alpha]);
         s
     };
+    let clarity = state.clarity.clamp(0.0, 1.0);
     let mut children = Vec::new();
     if let Some(base) = &state.base {
-        children.push(image(
-            "Base",
-            [0.0, 0.0, w, h],
-            base,
-            BASE_SIDE,
-            1.0,
-            env.metric("Backdrop.Alpha", ddi_actor::background::BASE_ALPHA),
-            cx,
-        ));
+        // A song without a picture plays on its ground alone: the loading
+        // screen lets the song list's base go as the play would.
+        let fade = if state.picture.is_none() {
+            1.0 - clarity
+        } else {
+            1.0
+        };
+        if fade > 0.0 {
+            let texture = cx.blurred_texture(base, BASE_SIDE);
+            children.push(image(
+                "Base",
+                [0.0, 0.0, w, h],
+                texture,
+                1.0,
+                env.metric("Backdrop.Alpha", ddi_actor::background::BASE_ALPHA) * fade,
+            ));
+        }
     }
     if let Some(p) = &state.picture {
         let progress = state.reveal.clamp(0.0, 1.0);
-        let rect = Reveal {
+        let reveal = Reveal {
             position: progress,
-            clarity: 0.0,
-        }
-        .rect(w, h, p.frame);
+            clarity,
+        };
+        let rect = reveal.rect(w, h, p.frame);
         let b = ddi_actor::background::BASE_ALPHA
             + (p.brightness.clamp(0.0, 1.0) - ddi_actor::background::BASE_ALPHA) * progress;
-        let [_, strong_alpha, soft_alpha] = Reveal {
-            position: progress,
-            clarity: 0.0,
+        // The three opacities compose to the copy's opacity over the base.
+        let [sharp, strong_alpha, soft_alpha] = reveal.alphas();
+        if sharp > 0.0 {
+            // Decoded once for the frame's size, wherever the copy is.
+            let [_, _, fw, fh] = frame_rect(w, h, p.frame);
+            let texture = cx.texture(&p.source, fw.max(fh));
+            children.push(image("Sharp", rect, texture, b, sharp));
         }
-        .alphas();
-        children.push(image(
-            "ContentStrong",
-            rect,
-            &p.source,
-            BASE_SIDE,
-            b,
-            strong_alpha,
-            cx,
-        ));
-        // The two opacity weights sum to the copy's opacity over the base.
-
-        children.push(image(
-            "Picture",
-            rect,
-            &p.source,
-            CONTENT_SIDE,
-            b,
-            soft_alpha,
-            cx,
-        ));
+        let texture = cx.blurred_texture(&p.source, BASE_SIDE);
+        children.push(image("ContentStrong", rect, texture, b, strong_alpha));
+        let texture = cx.blurred_texture(&p.source, CONTENT_SIDE);
+        children.push(image("Picture", rect, texture, b, soft_alpha));
         if let Some(([mid, width], dark)) = p.filter
             && dark > 0.0
         {
@@ -803,6 +924,41 @@ fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Act
     }
     frame("Backdrop", children)
 }
+
+/// The loading screen's "Loading" and its dots, in the lower right corner
+/// (`Prompt.Loading`), hidden until [`LOADING_DELAY`] has passed.
+fn loading_label(env: &Env, [w, h]: [f32; 2]) -> Actor {
+    let size = env.metric("Prompt.Loading.Size", 15.0);
+    let margin = env.metric("Margin", 32.0);
+    let label = "Loading";
+    let dot = look::mono_width(".", size);
+    let x = w - margin - look::mono_width(label, size) - 3.0 * dot;
+    let y = h - margin;
+    let mut children = vec![left(
+        env.text("LoadingText", label, size, 600, "Muted"),
+        x,
+        y,
+    )];
+    for i in 0..3 {
+        children.push(left(
+            env.text(&format!("LoadingDot{i}"), ".", size, 600, "Muted"),
+            x + look::mono_width(label, size) + dot * i as f32,
+            y,
+        ));
+    }
+    let mut f = frame("Loading", children);
+    call(&mut f, "diffusealpha", &[0.0]);
+    f
+}
+
+/// How long the loading screen waits before it says "Loading" (the
+/// backdrop's unblur), seconds: a short wait looks like the entrance alone.
+const LOADING_DELAY: f32 = ddi_actor::background::PLAY_SECONDS;
+/// The label's fade in, and the card's fade out, seconds.
+const LOADING_FADE: f32 = 0.15;
+/// How often the dots step, seconds (reduced motion: slower).
+const DOT_STEP: f32 = 0.4;
+const DOT_STEP_REDUCED: f32 = 1.0;
 
 impl Screen for PromptScreen {
     fn name(&self) -> &str {
@@ -829,11 +985,17 @@ impl Screen for PromptScreen {
         // a frame builds it, whatever the step.
         let st = self.state.borrow();
         matches!(st.step, PromptStep::Loading(_))
+            || st.done
             || st.version != self.built
             || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // The shell started the play: gone.
+        if self.state.borrow().done {
+            cx.close(false);
+            return;
+        }
         // Fades in from the first frame, taking keys at once: built into
         // the tree, the fade would be the screen's entrance, which holds
         // input back (a quick Enter or Escape was lost). None under
@@ -844,6 +1006,7 @@ impl Screen for PromptScreen {
                 look::run(card, &format!("diffusealpha,0;linear,{t};diffusealpha,1"));
             }
         }
+        let reduced = self.env.reduced();
         let source = self
             .state
             .borrow()
@@ -855,23 +1018,66 @@ impl Screen for PromptScreen {
             self.picture_source = source;
             self.reveal_time = 0.0;
         }
-        if self.picture_source.is_some() {
-            let duration = ddi_actor::background::PROMPT_SECONDS;
-            let before = self.reveal_time;
-            self.reveal_time = if self.env.reduced() {
-                duration
-            } else {
-                (self.reveal_time + dt).min(duration)
-            };
-            self.state.borrow_mut().reveal =
-                ddi_actor::background::ease(self.reveal_time / duration);
-            // Built again only while it moves: any other change bumps the
-            // version, which builds the whole tree below.
-            if new_source || self.reveal_time != before {
-                let state = self.state.borrow();
-                if let Some(backdrop) = crate::hit::find_mut(root, "Backdrop") {
-                    *backdrop = picture(&self.env, self.screen, &state, cx);
+        let loading = matches!(self.state.borrow().step, PromptStep::Loading(_));
+        let moved = if loading {
+            // The loading screen: the entrance the play would run at its
+            // first frame, run here (`Reveal::continuing`), from where
+            // the prompt's was; a picture that comes meanwhile enters
+            // from the start.
+            let before = self.state.borrow().entrance();
+            let l = match self.loading {
+                Some(mut l) => {
+                    l.shown += dt;
+                    l.entrance += dt;
+                    if new_source {
+                        l.entrance = 0.0;
+                        l.from = 0.0;
+                    }
+                    l
                 }
+                None => Loading {
+                    shown: 0.0,
+                    entrance: 0.0,
+                    from: if new_source { 0.0 } else { before.position },
+                },
+            };
+            self.loading = Some(l);
+            let now = ddi_actor::background::Reveal::continuing(
+                ddi_actor::background::Reveal {
+                    position: l.from,
+                    clarity: 0.0,
+                },
+                l.entrance,
+                reduced,
+            );
+            let mut st = self.state.borrow_mut();
+            st.reveal = now.position;
+            st.clarity = now.clarity;
+            new_source || now != before
+        } else {
+            self.loading = None;
+            self.state.borrow_mut().clarity = 0.0;
+            if self.picture_source.is_some() {
+                let duration = ddi_actor::background::PROMPT_SECONDS;
+                let before = self.reveal_time;
+                self.reveal_time = if reduced {
+                    duration
+                } else {
+                    (self.reveal_time + dt).min(duration)
+                };
+                self.state.borrow_mut().reveal =
+                    ddi_actor::background::ease(self.reveal_time / duration);
+                new_source || self.reveal_time != before
+            } else {
+                false
+            }
+        };
+        // Built again only while it moves: any other change bumps the
+        // version, which builds the whole tree below.
+        if moved {
+            let state = self.state.borrow();
+            if let Some(backdrop) = crate::hit::find_mut(root, "Backdrop") {
+                *backdrop = picture(&self.env, self.screen, &state, cx);
             }
         }
         let vp = cx.viewport().screen;
@@ -879,14 +1085,37 @@ impl Screen for PromptScreen {
         if resized || self.state.borrow().version != self.built {
             self.rebuild(root, cx);
             self.publish();
+        } else {
+            self.show_loading(root);
         }
         if self.env.state.borrow().screen != "prompt" {
             self.publish();
         }
+        self.publish_view();
     }
 
     fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
         let step = self.state.borrow().step.clone();
+        // The loading screen: Back leaves; Start or a tap reach the shell
+        // (a pad's start waiting for a gesture takes it); nothing else.
+        if matches!(step, PromptStep::Loading(_)) {
+            match input {
+                Input::Menu {
+                    action: MenuAction::Back,
+                    repeat: false,
+                } => self.choose(PromptChoice::Back, cx),
+                Input::Menu {
+                    action: MenuAction::Start,
+                    repeat: false,
+                }
+                | Input::Pointer {
+                    gesture: Gesture::Tap,
+                    ..
+                } => self.choose(PromptChoice::Start, cx),
+                _ => {}
+            }
+            return Handled::Yes;
+        }
         match input {
             Input::Menu { repeat: true, .. } => Handled::Yes,
             Input::Menu {
@@ -896,14 +1125,12 @@ impl Screen for PromptScreen {
                 self.choose(PromptChoice::Back, cx);
                 Handled::Yes
             }
-            // A press while the audio readies: the shell may need it (a
-            // pad's start the browser did not count). Ready, Start starts
-            // whatever has the focus (the step may have turned Ready since
-            // the last frame, Back still focused).
+            // Start starts, unless Back has the focus (then the menu's
+            // default activates it).
             Input::Menu {
                 action: MenuAction::Start,
                 ..
-            } if matches!(step, PromptStep::Loading(_) | PromptStep::Ready) => {
+            } if step == PromptStep::Ready && cx.focused() != Some("Back") => {
                 self.choose(PromptChoice::Start, cx);
                 Handled::Yes
             }
@@ -935,7 +1162,7 @@ impl Screen for PromptScreen {
                 target,
                 gesture: Gesture::Tap,
                 ..
-            } if matches!(step, PromptStep::Ready | PromptStep::Loading(_))
+            } if step == PromptStep::Ready
                 && !target
                     .as_ref()
                     .is_some_and(|t| self.buttons.iter().any(|b| t.within(b))) =>
@@ -958,8 +1185,18 @@ mod tests {
 
     type Seen = Rc<RefCell<Vec<(PromptChoice, bool)>>>;
 
+    thread_local! {
+        static LAST_ENV: RefCell<Option<Env>> = const { RefCell::new(None) };
+    }
+
     fn prompt(state: &SharedPrompt) -> (Harness, Seen) {
+        prompt_with(state, false)
+    }
+
+    fn prompt_with(state: &SharedPrompt, reduced: bool) -> (Harness, Seen) {
         let env = Env::new(Rc::new(look::Plain), Rc::new(|s: &str| s.to_string()));
+        env.reduced_motion.set(reduced);
+        LAST_ENV.with(|e| *e.borrow_mut() = Some(env.clone()));
         let seen: Seen = Rc::default();
         let act: PromptFn = {
             let seen = seen.clone();
@@ -1019,9 +1256,11 @@ mod tests {
             .borrow_mut()
             .set_step(PromptStep::Loading("preparing audio…".into()));
         let (mut h, seen) = prompt(&state);
-        assert!(h.texts().iter().any(|t| t == "preparing audio…"));
+        // The loading screen: no card, no buttons.
         assert!(h.ui.actor("Start").is_none());
-        // A press while it loads still reaches the shell.
+        assert!(h.ui.actor("Card").is_none());
+        // A press while it loads still reaches the shell (a pad's start
+        // waiting for a gesture takes it).
         h.key("Enter", "Enter");
         assert_eq!(seen.borrow().last(), Some(&(PromptChoice::Start, true)));
         state.borrow_mut().set_step(PromptStep::Access {
@@ -1066,23 +1305,128 @@ mod tests {
     }
 
     #[test]
-    fn start_starts_when_ready_whatever_has_the_focus() {
+    fn enter_starts_unless_back_has_the_focus() {
         let state = SharedPrompt::default();
-        state
-            .borrow_mut()
-            .set_step(PromptStep::Loading("loading…".into()));
         let (mut h, seen) = prompt(&state);
-        assert_eq!(h.ui.focused(), Some("Back"));
-        // Ready, and Start before a frame has built it: Start, not Back.
-        state.borrow_mut().set_step(PromptStep::Ready);
+        assert_eq!(h.ui.focused(), Some("Start"));
         h.key("Enter", "Enter");
         assert_eq!(
             seen.borrow().last().map(|s| &s.0),
             Some(&PromptChoice::Start)
         );
-        // Built: the focus is on Start.
+        h.key("ArrowLeft", "ArrowLeft");
+        assert_eq!(h.ui.focused(), Some("Back"));
+        h.key("Enter", "Enter");
+        assert_eq!(
+            seen.borrow().last().map(|s| &s.0),
+            Some(&PromptChoice::Back)
+        );
+    }
+
+    fn picture() -> PromptPicture {
+        PromptPicture {
+            source: "play:picture".into(),
+            aspect: 4.0 / 3.0,
+            frame: Some(4.0 / 3.0),
+            brightness: 0.75,
+            filter: Some(([0.5, 0.3], 0.4)),
+        }
+    }
+
+    #[test]
+    fn the_loading_screen_runs_the_plays_entrance_and_says_loading_late() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_picture(Some(picture()));
+        let (mut h, seen) = prompt(&state);
+        h.run(0.5);
+        assert_eq!(state.borrow().reveal, 1.0);
+        assert_eq!(state.borrow().clarity, 0.0);
+        // Start pressed before all was ready: the shell's loading step.
+        state
+            .borrow_mut()
+            .set_step(PromptStep::Loading("loading…".into()));
         h.run(0.1);
-        assert_eq!(h.ui.focused(), Some("Start"));
+        assert!(view().loading && !view().label);
+        let c = state.borrow().clarity;
+        assert!(c > 0.0 && c < 1.0, "{c}");
+        // The sharp copy under the blurred ones, as the play draws them.
+        assert!(h.ui.actor("Sharp").is_some());
+        // Its buttons go with the card fading out.
+        LAST_ENV.with(|e| {
+            assert!(
+                e.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .borrow()
+                    .page_items
+                    .is_empty()
+            )
+        });
+        // Settled: the play's first frame continues from nothing left.
+        h.run(0.35);
+        assert_eq!(
+            state.borrow().entrance(),
+            ddi_actor::background::Reveal::default()
+        );
+        assert!(view().label);
+        assert!(h.texts().iter().any(|t| t == "Loading"));
+        // Only Back and Start (for the shell) do anything.
+        h.key("KeyA", "a");
+        h.key("ArrowDown", "ArrowDown");
+        assert!(seen.borrow().is_empty() || seen.borrow().last().unwrap().0 == PromptChoice::Start);
+        h.key("Escape", "Escape");
+        assert_eq!(
+            seen.borrow().last().map(|s| &s.0),
+            Some(&PromptChoice::Back)
+        );
+        // The shell started the play: the screen goes.
+        state.borrow_mut().finish();
+        h.run(0.05);
+        assert!(h.ui.layers().is_empty());
+    }
+
+    /// What the last prompt made published.
+    fn view() -> PromptView {
+        LAST_ENV.with(|e| {
+            e.borrow()
+                .as_ref()
+                .and_then(|e: &Env| e.state.borrow().prompt.clone())
+                .unwrap_or_default()
+        })
+    }
+
+    #[test]
+    fn a_song_without_a_picture_loses_the_lists_base_on_the_loading_screen() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_base(Some("cached:menu".into()));
+        let (mut h, _) = prompt(&state);
+        assert!(h.ui.actor("Base").is_some());
+        state
+            .borrow_mut()
+            .set_step(PromptStep::Loading("loading…".into()));
+        h.run(0.5);
+        // The play's own ground alone, as the play draws it.
+        assert!(h.ui.actor("Base").is_none());
+        assert!(h.ui.actor("Ground").is_some());
+    }
+
+    #[test]
+    fn under_reduced_motion_the_loading_screen_settles_at_once() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_picture(Some(picture()));
+        let (mut h, _) = prompt_with(&state, true);
+        state
+            .borrow_mut()
+            .set_step(PromptStep::Loading("loading…".into()));
+        h.run(0.02);
+        assert_eq!(
+            state.borrow().entrance(),
+            ddi_actor::background::Reveal::default()
+        );
+        // The label after its delay, its dots a second each.
+        h.run(0.4);
+        assert!(view().label);
     }
 
     #[test]
@@ -1208,11 +1552,8 @@ mod tests {
         assert!(h.ui.actor("Base").is_some());
         assert!(h.ui.actor("Picture").is_none());
         state.borrow_mut().set_picture(Some(PromptPicture {
-            source: "play:picture".into(),
-            aspect: 4.0 / 3.0,
-            frame: Some(4.0 / 3.0),
-            brightness: 0.75,
             filter: None,
+            ..picture()
         }));
         h.run(0.15);
         let progress = state.borrow().reveal;

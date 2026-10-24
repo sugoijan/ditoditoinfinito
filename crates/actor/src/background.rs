@@ -53,14 +53,34 @@ impl Reveal {
     }
 
     pub fn playing(from: f32, elapsed: f32, reduced: bool) -> Self {
-        let t = if reduced {
+        Self::continuing(
+            Self {
+                position: from,
+                clarity: 0.0,
+            },
+            elapsed,
+            reduced,
+        )
+    }
+
+    /// The entrance into the play from `from`, `elapsed` seconds on: what
+    /// is left of the unblur takes its share of [`PLAY_SECONDS`], the
+    /// framed copy reaching its place with it. A start prompt's loading
+    /// screen runs it (`docs/plans/start-prompt.md`); the play's first
+    /// frame continues from where that left it, nothing at all after a
+    /// wait.
+    pub fn continuing(from: Reveal, elapsed: f32, reduced: bool) -> Self {
+        let p = from.position.clamp(0.0, 1.0);
+        let c = from.clarity.clamp(0.0, 1.0);
+        let left = 1.0 - c;
+        let t = if reduced || left <= 0.0 {
             1.0
         } else {
-            ease(elapsed / PLAY_SECONDS)
+            ease(elapsed / (PLAY_SECONDS * left))
         };
         Self {
-            position: from.clamp(0.0, 1.0) + (1.0 - from.clamp(0.0, 1.0)) * t,
-            clarity: t,
+            position: p + (1.0 - p) * t,
+            clarity: c + left * t,
         }
     }
 
@@ -107,12 +127,23 @@ pub fn cover_uv(w: f32, h: f32, iw: f32, ih: f32) -> [f32; 4] {
 /// A shell's transition, starting at its first drawn play frame.
 #[derive(Clone, Copy, Debug)]
 pub struct Entrance {
-    from: f32,
+    from: Reveal,
     started: Option<f64>,
     reduced: bool,
 }
 impl Entrance {
     pub fn new(from: f32, reduced: bool) -> Self {
+        Self::resume(
+            Reveal {
+                position: from,
+                clarity: 0.0,
+            },
+            reduced,
+        )
+    }
+    /// Continues from where the prompt's loading screen left the backdrop
+    /// ([`Reveal::continuing`]).
+    pub fn resume(from: Reveal, reduced: bool) -> Self {
         Self {
             from,
             started: None,
@@ -121,7 +152,7 @@ impl Entrance {
     }
     pub fn sample(&mut self, now: f64) -> Reveal {
         let start = *self.started.get_or_insert(now);
-        Reveal::playing(self.from, (now - start).max(0.0) as f32, self.reduced)
+        Reveal::continuing(self.from, (now - start).max(0.0) as f32, self.reduced)
     }
 }
 
@@ -147,6 +178,18 @@ mod tests {
         assert_eq!(entrance.sample(100.0), Reveal::playing(0.3, 0.0, false));
         let later = entrance.sample(100.0 + f64::from(PLAY_SECONDS));
         assert_eq!(later, Reveal::default());
+        // After the prompt's loading screen: the rest only, or nothing.
+        let half = Reveal {
+            position: 0.65,
+            clarity: 0.5,
+        };
+        assert_eq!(Reveal::continuing(half, 0.0, false), half);
+        assert_eq!(
+            Reveal::continuing(half, PLAY_SECONDS / 2.0, false),
+            Reveal::default()
+        );
+        let mut settled = Entrance::resume(Reveal::default(), false);
+        assert_eq!(settled.sample(5.0), Reveal::default());
     }
     #[test]
     fn the_copy_contracts_into_the_fixed_frame() {

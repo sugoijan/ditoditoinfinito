@@ -4,8 +4,11 @@
 //!
 //! Until the play starts the canvas shows the start prompt, the UI core's
 //! screen (`ddi_ui::screens::prompt`, step 6.4) on the page's canvas as the
-//! results are: the song over its picture, what still loads, the linked
-//! folder to allow, the devices not calibrated yet, an interruption. Its
+//! results are: the song over its picture, the linked folder to allow, the
+//! devices not calibrated yet, an interruption. Start is offered at once;
+//! what the play needs loads behind it, and a Start that comes first
+//! shows the loading screen until it is all there
+//! ([`GameCanvas::try_begin`], `docs/plans/start-prompt.md`). Its
 //! choices come back inside the key, click, tap or pad press that made them
 //! ([`PromptShell::choose`]): the audio context is made and resumed there,
 //! and a linked folder asked for there, with no `await` before.
@@ -62,6 +65,11 @@ const PROMPT_GUARD_MS: f64 = 500.0;
 /// screen asks for a real gesture, ms.
 const PAD_START_WAIT_MS: u32 = 1500;
 
+/// How long a play started early waits for the song's pictures and
+/// scripts after the song was read, ms (desktop's `PICTURES_WAIT`): then
+/// it plays with what came, the rest coming during the play as before.
+const PICTURES_WAIT_MS: f64 = 5000.0;
+
 /// What the screen plays.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SongSource {
@@ -88,6 +96,11 @@ pub(crate) struct Loaded {
     pub(crate) entry: Option<ddi_library::manifest::ManifestEntry>,
     /// Its banner as a texture source (`crate::web::textures`).
     pub(crate) banner: Option<String>,
+    /// The pictures the load decodes for it ([`Msg::BackgroundLoaded`]
+    /// each, decoded or not), and whether its scripts' answer comes
+    /// ([`Msg::ScriptsLoaded`]): a play started early waits for them.
+    pub(crate) pictures: usize,
+    pub(crate) scripts: bool,
 }
 
 /// What the start prompt shows behind it: the opening still's or the
@@ -315,6 +328,18 @@ pub(crate) struct GameCanvas {
     early_audio: Option<WebAudio>,
     /// The music decodes before Start.
     predecoding: bool,
+    /// Start came before the song or the GPU was there: the context made
+    /// in its gesture (and whether from a pad), until they are.
+    held_start: Option<(Result<WebAudio, String>, bool)>,
+    /// Start came while the music decodes on song select's context: the
+    /// play goes on once it has (`Msg::Predecoded`).
+    start_on_predecode: bool,
+    /// The song's pictures decoded or given up so far, its scripts'
+    /// answer, and when the song was read (ms), for a play started early
+    /// ([`GameCanvas::assets_ready`]).
+    pictures_seen: usize,
+    scripts_seen: bool,
+    song_at: f64,
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
     /// A song's results, the theme's screen on the canvas (step 6.1).
@@ -367,6 +392,9 @@ pub(crate) struct PromptShell {
     /// The music decoded before Start, and its context, while it waits
     /// for Start ([`Msg::Predecoded`]).
     predecoded: RefCell<Option<(WebAudio, AudioBuffer)>>,
+    /// Song select's context while the music decodes on it (or waits for
+    /// the song to): Start then goes on with it.
+    early_ctx: RefCell<Option<web_sys::AudioContext>>,
     /// When the results' Retry brought the start prompt back (ms, the
     /// page's clock): a tap right after it is the Retry's, not a start.
     retried_at: std::cell::Cell<f64>,
@@ -387,22 +415,29 @@ impl PromptShell {
                     }
                     return;
                 }
+                // Pressed already (the loading screen), or not on offer.
                 if self.state.borrow().step != PromptStep::Ready {
                     return;
                 }
-                // The music decoded already, on the context song select
-                // handed over: it starts, resumed inside this gesture (or
-                // running, for a pad's press).
-                if let Some((early, _)) = self.predecoded.borrow().as_ref()
-                    && (cx.in_gesture()
-                        || early.context().state() == web_sys::AudioContextState::Running)
+                // The music decoded already, or decoding, on the context
+                // song select handed over: it starts, resumed inside this
+                // gesture (or running, for a pad's press or the countdown),
+                // once all is ready.
+                let early = self
+                    .predecoded
+                    .borrow()
+                    .as_ref()
+                    .map(|(a, _)| a.context().clone())
+                    .or_else(|| self.early_ctx.borrow().clone());
+                if let Some(early) = early
+                    && (cx.in_gesture() || early.state() == web_sys::AudioContextState::Running)
                 {
                     if cx.in_gesture() {
-                        let _ = early.context().resume();
+                        let _ = early.resume();
                     }
                     self.state
                         .borrow_mut()
-                        .set_step(PromptStep::Loading("preparing audio…".into()));
+                        .set_step(PromptStep::Loading("loading…".into()));
                     send(Msg::BeginDecoded);
                     return;
                 }
@@ -428,7 +463,7 @@ impl PromptShell {
                 }
                 self.state
                     .borrow_mut()
-                    .set_step(PromptStep::Loading("preparing audio…".into()));
+                    .set_step(PromptStep::Loading("loading…".into()));
                 send(Msg::Begin(Box::new(audio), from_pad));
             }
             PromptChoice::Back => send(Msg::BackRequested),
@@ -463,6 +498,12 @@ enum Stage {
     /// Waiting for the user gesture.
     Idle,
     Decoding,
+    /// Decoded, the devices settled, waiting for what the play still
+    /// needs (the loading screen, `docs/plans/start-prompt.md`).
+    Waiting {
+        audio: WebAudio,
+        buffer: AudioBuffer,
+    },
     /// Audio decoded, but at least one device has no calibration profile.
     NewDevice {
         audio: WebAudio,
@@ -521,6 +562,8 @@ impl Component for GameCanvas {
                     has_background: false,
                     entry: None,
                     banner: None,
+                    pictures: 0,
+                    scripts: false,
                 };
                 let link = ctx.link().clone();
                 ctx.link().send_future(async move {
@@ -582,9 +625,8 @@ impl Component for GameCanvas {
                 .borrow_mut()
                 .set_base(crate::web::screen::song_backdrop(id));
         }
-        prompt_state
-            .borrow_mut()
-            .set_step(PromptStep::Loading("loading…".into()));
+        // Start at once: the song loads behind it.
+        prompt_state.borrow_mut().set_step(PromptStep::Ready);
         // Song select's context, for this play (not a replay's).
         let early_audio = match &ctx.props().source {
             SongSource::Song { id, chart } if ctx.props().replay.is_none() => {
@@ -598,6 +640,7 @@ impl Component for GameCanvas {
             access: RefCell::new(None),
             pad_ctx: RefCell::new(None),
             predecoded: RefCell::new(None),
+            early_ctx: RefCell::new(early_audio.as_ref().map(|a| a.context().clone())),
             retried_at: std::cell::Cell::new(f64::NEG_INFINITY),
         });
         GameCanvas {
@@ -635,6 +678,11 @@ impl Component for GameCanvas {
             skin_loading: false,
             early_audio,
             predecoding: false,
+            held_start: None,
+            start_on_predecode: false,
+            pictures_seen: 0,
+            scripts_seen: false,
+            song_at: 0.0,
             video_line: None,
             prompt: None,
             prompt_state,
@@ -736,6 +784,8 @@ impl GameCanvas {
                 game.set_debug_element(self.debug.cast::<HtmlElement>());
                 *self.game.borrow_mut() = Some(*game);
                 self.apply_background();
+                // A Start that came first goes on.
+                self.resume_start(ctx);
                 // The prompt draws (`sync_prompt`); the play's frames start
                 // with the play.
                 true
@@ -775,7 +825,9 @@ impl GameCanvas {
                     }));
                 }
                 self.song = Status::Ready(song);
+                self.song_at = js_sys::Date::now();
                 self.predecode(ctx);
+                self.resume_start(ctx);
                 if self.refused.is_none() && self.replay.as_ref().is_some_and(|r| r.view_results) {
                     self.show_kept_results(ctx);
                 }
@@ -819,6 +871,7 @@ impl GameCanvas {
                 false
             }
             Msg::BackgroundLoaded(what, image) => {
+                self.pictures_seen += 1;
                 if let Some(image) = image {
                     // The prompt's picture: the still, else the background
                     // (as the play opens on them), kept under its own name.
@@ -833,7 +886,7 @@ impl GameCanvas {
                     self.backgrounds.push((what, image));
                     self.apply_background();
                 }
-                false
+                self.try_begin(ctx)
             }
             Msg::StageContentLoaded(source, content) => {
                 if let Some((bitmap, size)) = content {
@@ -853,8 +906,9 @@ impl GameCanvas {
             }
             Msg::ScriptsLoaded(loaded) => {
                 self.scripts = Some(loaded);
+                self.scripts_seen = true;
                 self.apply_background();
-                false
+                self.try_begin(ctx)
             }
             Msg::MovieLoaded(name, blob, format, probe) => {
                 self.movies.push((name, blob, format, probe));
@@ -873,9 +927,13 @@ impl GameCanvas {
                     old.close();
                 }
                 self.apply_background();
-                false
+                self.try_begin(ctx)
             }
             Msg::VideoTick => {
+                // A play started early: the pictures' wait may be over.
+                if self.try_begin(ctx) {
+                    return true;
+                }
                 if !matches!(self.stage, Stage::Idle) {
                     return false;
                 }
@@ -923,9 +981,8 @@ impl GameCanvas {
             }
             Msg::BackRequested => {
                 // During play the session owns the cancel gesture; the
-                // results their own keys.
-                if matches!(self.stage, Stage::Playing | Stage::Decoding) || self.results.is_some()
-                {
+                // results their own keys. The loading screen leaves.
+                if matches!(self.stage, Stage::Playing) || self.results.is_some() {
                     return false;
                 }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
@@ -937,16 +994,35 @@ impl GameCanvas {
             Msg::Begin(audio, from_pad) => {
                 // Started on a context of its own: the one decoded on goes.
                 self.shell.predecoded.take();
+                // Before the song or the GPU: kept until they come.
+                if matches!(self.stage, Stage::Idle)
+                    && self.held_start.is_none()
+                    && !matches!(
+                        (&self.song, &self.gfx),
+                        (Status::Ready(_), Status::Ready(_))
+                    )
+                {
+                    self.held_start = Some((*audio, from_pad));
+                    return true;
+                }
                 self.start(ctx, *audio, from_pad)
             }
             Msg::BeginDecoded => {
-                let ready = matches!(
-                    (&self.stage, &self.song, &self.gfx),
-                    (Stage::Idle, Status::Ready(_), Status::Ready(_))
-                );
-                if !ready {
+                if !matches!(self.stage, Stage::Idle) {
                     return false;
                 }
+                let ready = matches!(
+                    (&self.song, &self.gfx),
+                    (Status::Ready(_), Status::Ready(_))
+                ) && self.shell.predecoded.borrow().is_some();
+                if !ready {
+                    // Once the music has decoded (and the song and the GPU
+                    // are there): `resume_start`.
+                    self.start_on_predecode = true;
+                    self.resume_start(ctx);
+                    return true;
+                }
+                self.start_on_predecode = false;
                 let Some((audio, buffer)) = self.shell.predecoded.take() else {
                     return false;
                 };
@@ -962,6 +1038,7 @@ impl GameCanvas {
             }
             Msg::Predecoded(r) => {
                 self.predecoding = false;
+                self.shell.early_ctx.take();
                 match r {
                     Ok((audio, buffer)) if matches!(self.stage, Stage::Idle) => {
                         self.shell.predecoded.replace(Some((audio, buffer)));
@@ -970,6 +1047,7 @@ impl GameCanvas {
                     // Decoded again at Start, which says what went wrong.
                     Err(e) => web_sys::console::warn_1(&e.into()),
                 }
+                self.resume_start(ctx);
                 true
             }
             Msg::PadPress(id, control) => {
@@ -1006,6 +1084,8 @@ impl GameCanvas {
             Msg::NeedsGesture => {
                 self.shell.pad_ctx.borrow_mut().take();
                 self.stage = Stage::Idle;
+                self.held_start = None;
+                self.start_on_predecode = false;
                 self.needs_gesture = true;
                 true
             }
@@ -1047,7 +1127,8 @@ impl GameCanvas {
                 if self.replay.is_none() {
                     self.register_devices(None, None);
                 }
-                self.begin_session(ctx, audio, buffer);
+                self.stage = Stage::Waiting { audio, buffer };
+                self.try_begin(ctx);
                 true
             }
             Msg::DeviceContinue {
@@ -1063,7 +1144,8 @@ impl GameCanvas {
                     return false;
                 };
                 self.register_devices(copy_audio_from.as_deref(), copy_display_from.as_deref());
-                self.begin_session(ctx, audio, buffer);
+                self.stage = Stage::Waiting { audio, buffer };
+                self.try_begin(ctx);
                 true
             }
             Msg::DeviceCalibrate => {
@@ -1207,6 +1289,8 @@ impl GameCanvas {
                 }
                 // The prompt again (`sync_prompt`).
                 self.stage = Stage::Idle;
+                self.held_start = None;
+                self.start_on_predecode = false;
                 true
             }
             Msg::SaveCalibration => {
@@ -1415,6 +1499,7 @@ impl GameCanvas {
             return;
         };
         if song.music_bytes.is_none() {
+            self.shell.early_ctx.take();
             return;
         }
         self.predecoding = true;
@@ -1429,6 +1514,99 @@ impl GameCanvas {
                 .await;
             Msg::Predecoded(r.map(|b| (audio, b)))
         });
+    }
+
+    /// A Start that came before what it needs goes on once it is there:
+    /// the context made in its gesture decodes once the song and the GPU
+    /// are; song select's once the music decoded on it (gone with a decode
+    /// that failed: one of the page's own then, started if the page may).
+    fn resume_start(&mut self, ctx: &Context<Self>) {
+        if !matches!(self.stage, Stage::Idle) {
+            return;
+        }
+        let there = matches!(
+            (&self.song, &self.gfx),
+            (Status::Ready(_), Status::Ready(_))
+        );
+        if !there {
+            return;
+        }
+        if let Some((audio, from_pad)) = self.held_start.take() {
+            self.start(ctx, audio, from_pad);
+            return;
+        }
+        if !self.start_on_predecode || self.predecoding {
+            return;
+        }
+        if self.shell.predecoded.borrow().is_some() {
+            self.handle(ctx, Msg::BeginDecoded);
+            return;
+        }
+        if self.shell.early_ctx.borrow().is_some() {
+            // The decode has not begun (the song came just now).
+            return;
+        }
+        self.start_on_predecode = false;
+        if !crate::web::autoplay::may_start() {
+            self.handle(ctx, Msg::NeedsGesture);
+            return;
+        }
+        let audio = WebAudio::new();
+        if let Ok(a) = &audio {
+            a.resume_now();
+            *self.shell.pad_ctx.borrow_mut() = Some(a.context().clone());
+        }
+        self.start(ctx, audio, true);
+    }
+
+    /// What the play still waits for (`__DDI_DEBUG.prompt.waiting`).
+    fn waiting_for(&self) -> Vec<&'static str> {
+        let mut w = Vec::new();
+        let waited = js_sys::Date::now() - self.song_at >= PICTURES_WAIT_MS;
+        match &self.song {
+            Status::Pending => w.push("song"),
+            Status::Ready(song) if !waited => {
+                if self.pictures_seen < song.pictures {
+                    w.push("pictures");
+                }
+                if song.scripts && !self.scripts_seen {
+                    w.push("scripts");
+                }
+            }
+            _ => {}
+        }
+        if matches!(self.gfx, Status::Pending) {
+            w.push("graphics");
+        }
+        if self.skin_loading {
+            w.push("noteskin");
+        }
+        let decoded =
+            self.shell.predecoded.borrow().is_some() || matches!(self.stage, Stage::Waiting { .. });
+        if !decoded {
+            w.push("audio");
+        }
+        w
+    }
+
+    /// Everything the play waits for but the music is there (or waited
+    /// for long enough: the pictures and the scripts).
+    fn assets_ready(&self) -> bool {
+        self.waiting_for().iter().all(|w| *w == "audio")
+    }
+
+    /// The music decoded and the devices settled: the play begins once
+    /// all else is ready ([`GameCanvas::assets_ready`]); whether it did.
+    fn try_begin(&mut self, ctx: &Context<Self>) -> bool {
+        if !matches!(self.stage, Stage::Waiting { .. }) || !self.assets_ready() {
+            return false;
+        }
+        let Stage::Waiting { audio, buffer } = std::mem::replace(&mut self.stage, Stage::Decoding)
+        else {
+            return false;
+        };
+        self.begin_session(ctx, audio, buffer);
+        true
     }
 
     fn refresh_hz(&self) -> f64 {
@@ -1657,7 +1835,7 @@ impl GameCanvas {
                     game.set_background_schedule(schedule);
                     game.set_session(session);
                     game.enter_background(
-                        self.prompt_state.borrow().reveal,
+                        self.prompt_state.borrow().entrance(),
                         self.settings
                             .reduced_motion
                             .reduced(crate::components::ui_dev::system_reduced()),
@@ -1688,6 +1866,7 @@ impl GameCanvas {
                 self.stage,
                 Stage::Idle
                     | Stage::Decoding
+                    | Stage::Waiting { .. }
                     | Stage::NewDevice { .. }
                     | Stage::Interrupted
                     | Stage::Error(_)
@@ -1718,8 +1897,10 @@ impl GameCanvas {
         }
         let picture = self.prompt_picture(ctx);
         let info = self.prompt_info(ctx);
+        let waiting = self.waiting_for().into_iter().map(String::from).collect();
         let changed = {
             let mut st = self.prompt_state.borrow_mut();
+            st.set_waiting(waiting);
             let before = st.version;
             st.set_info(info);
             st.set_step(step);
@@ -1768,8 +1949,11 @@ impl GameCanvas {
                     None => format!("This song has no chart {chart}."),
                 })
             }
-            (Status::Pending, _) => PromptStep::Loading("loading…".into()),
-            (_, Stage::Decoding) => PromptStep::Loading("preparing audio…".into()),
+            // Start pressed: the loading screen until the play begins.
+            (_, Stage::Idle) if self.held_start.is_some() || self.start_on_predecode => {
+                PromptStep::Loading("loading…".into())
+            }
+            (_, Stage::Decoding | Stage::Waiting { .. }) => PromptStep::Loading("loading…".into()),
             (
                 _,
                 Stage::NewDevice {
@@ -1820,10 +2004,7 @@ impl GameCanvas {
                 ),
                 SongSource::Song { .. } => PromptStep::Ready,
             },
-            (_, Stage::Idle) if self.skin_loading => {
-                PromptStep::Loading("loading the noteskin…".into())
-            }
-            (_, Stage::Idle) if self.predecoding => PromptStep::Loading("preparing audio…".into()),
+            // Start, whatever still loads.
             _ => PromptStep::Ready,
         }
     }
@@ -1984,6 +2165,12 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
     };
     set(&p, "step", step.into());
     set(&p, "reveal", st.reveal.into());
+    set(&p, "clarity", st.clarity.into());
+    let waiting = js_sys::Array::new();
+    for w in &st.waiting {
+        waiting.push(&w.as_str().into());
+    }
+    set(&p, "waiting", waiting.into());
     if let PromptStep::Error(e) = &st.step {
         set(&p, "error", e.as_str().into());
     }
@@ -2843,7 +3030,16 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     });
                 }
             }
+            // What the load decodes: the still (when it keeps one), the
+            // song background and the changes' images.
+            let pictures = if show_background {
+                usize::from(still_keeps) + 1 + bg_images.len()
+            } else {
+                0
+            };
             Rc::new(Loaded {
+                pictures,
+                scripts: true,
                 title: loaded.entry.title.clone(),
                 subtitle: loaded.entry.artist.clone(),
                 bg_images,
@@ -2886,8 +3082,23 @@ fn noteskin_ready(
     let layout = song.layout_of(c)?;
     let wants = ddi_shell::play_skins(settings, song, c, &layout, shift)?;
     Some(async move {
+        if let Some(ms) = test_skin_delay() {
+            gloo::timers::future::TimeoutFuture::new(ms).await;
+        }
         crate::noteskins::prepare_first(wants, &layout)
             .await
             .map(Box::new)
     })
+}
+
+/// `window.__DDI_SKIN_DELAY_MS`: a play's noteskin takes this much longer
+/// to ready, a testing aid for the start prompt's loading in the
+/// background (`docs/plans/start-prompt.md`; desktop's
+/// `DDI_SKIN_DELAY_MS`).
+fn test_skin_delay() -> Option<u32> {
+    let w = web_sys::window()?;
+    let v = js_sys::Reflect::get(&w, &"__DDI_SKIN_DELAY_MS".into()).ok()?;
+    v.as_f64()
+        .filter(|ms| ms.is_finite() && *ms > 0.0)
+        .map(|ms| ms.min(60_000.0) as u32)
 }

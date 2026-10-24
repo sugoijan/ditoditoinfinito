@@ -157,8 +157,9 @@ numbers_weight = 800
 "Results.Panels.X" = 464
 "Results.Panels.Width" = 784
 "Results.Bar.Y" = 584
-# The start prompt's card.
+# The start prompt's card, and its loading screen's "Loading" (lower right).
 "Prompt.Width" = 560
+"Prompt.Loading.Size" = 15
 # Options.
 "Options.Rail.Width" = 208
 "Options.Rows.X" = 272

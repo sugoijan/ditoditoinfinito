@@ -65,7 +65,7 @@ fn the_prompt_names_the_song_over_its_picture() {
         host.poll(&mut ui, &env, Some(dev), 48_000);
         ui.update(0.05);
         let s = env.state.borrow();
-        if host.prompt_step() == Some(PromptStep::Ready) && s.backdrop.is_some() {
+        if host.prompt_ready() && s.backdrop.is_some() {
             break;
         }
         drop(s);
@@ -138,7 +138,7 @@ fn the_prompt_names_the_song_over_its_picture() {
     assert!(host.idle());
     *host.requested.borrow_mut() = Some(asked);
     let mut waited = 0;
-    while host.prompt_step() != Some(PromptStep::Ready) {
+    while !host.prompt_ready() {
         let dev = Device {
             device: &gpu.device,
             queue: &gpu.queue,

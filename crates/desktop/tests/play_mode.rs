@@ -15,7 +15,6 @@ use ddi_desktop::play::host::Device;
 use ddi_desktop::play::view::Formats;
 use ddi_platform::HostTime;
 use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::prompt::PromptStep;
 
 const SIZE: [u32; 2] = [640, 360];
 
@@ -73,7 +72,7 @@ fn play_mode_ends_with_the_play() {
     for round in 0..2 {
         *shell.play.requested.borrow_mut() = Some(Request::song("beatucada", 2, true));
         let mut waited = 0;
-        while shell.play.prompt_step() != Some(PromptStep::Ready) {
+        while !shell.play.prompt_ready() {
             shell.play.poll(&mut shell.ui, &env, Some(dev()), 48_000);
             shell.sync_play_mode();
             shell.ui.update(0.05);

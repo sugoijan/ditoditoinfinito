@@ -352,8 +352,8 @@ impl View {
     }
 
     /// Continue the prompt's visual entrance from the first drawn play frame.
-    pub fn enter_background(&mut self, from: f32, reduced: bool) {
-        self.entrance = Some(ddi_actor::background::Entrance::new(from, reduced));
+    pub fn enter_background(&mut self, from: ddi_actor::background::Reveal, reduced: bool) {
+        self.entrance = Some(ddi_actor::background::Entrance::resume(from, reduced));
     }
 
     /// Restart skin commands and the movies' guard for a new play.

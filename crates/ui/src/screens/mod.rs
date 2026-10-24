@@ -224,6 +224,8 @@ pub struct ThemeState {
     pub plays_selected: Option<String>,
     /// The chart editor, while it is up.
     pub editor: Option<editor::EditorView>,
+    /// The start prompt, while it is up.
+    pub prompt: Option<prompt::PromptView>,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

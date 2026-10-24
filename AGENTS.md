@@ -98,7 +98,9 @@ Rust and the browser are implementation details, not advertised features.
   desktop), and a headless harness; the theme's screens
   (`crates/ui/src/screens/`: start menu, song select, results, options, the pages for
   calibration's menu and the credits, the app's notices as the UI's
-  chrome, the play's start prompt, `prompt.rs`) with their sample
+  chrome, the play's start prompt, `prompt.rs`: Start never waits for
+  what loads behind it, a loading screen after Start until the play is
+  ready, `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
   flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and
@@ -600,7 +602,9 @@ Options sample); Start is silent. See `docs/plans/start-menu.md`.
 
 Song select → pre-start → play backgrounds share `crates/actor/src/background.rs`:
 a cover-fitted Gaussian base at 0.2 over #05020d, with a framed content copy
-entering over 450 ms and finishing its unblur over 300 ms after Start.
+entering over 450 ms and finishing its unblur over 300 ms after Start (on
+the prompt's loading screen when the play is not ready yet, the play then
+continuing from where it left the backdrop, `Entrance::resume`).
 Reduced motion settles immediately; early Start samples the current visual
 position without delaying audio. The play base follows current image/video
 layers even for a screen-sized frame. Static filters are reused; direct RGB

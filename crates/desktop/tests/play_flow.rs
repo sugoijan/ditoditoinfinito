@@ -18,7 +18,6 @@ use ddi_desktop::play::view::Formats;
 use ddi_platform::HostTime;
 use ddi_platform::history::MemoryPlayStore;
 use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::prompt::PromptStep;
 use ddi_ui::state::history::Plays;
 
 const SIZE: [u32; 2] = [960, 540];
@@ -89,7 +88,7 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
     loop {
         host.poll(&mut ui, &env, Some(dev()), 48_000);
         ui.update(0.05);
-        if host.prompt_step() == Some(PromptStep::Ready) {
+        if host.prompt_ready() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
