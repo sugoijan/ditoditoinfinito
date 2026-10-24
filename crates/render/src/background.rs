@@ -124,6 +124,21 @@ impl Backdrop {
         self.first.iter().chain(&self.second).all(Option::is_none)
     }
 
+    /// Whether a background shows: a draw that is not transparent, of an
+    /// image or movie that is there (`loaded`: a texture registered for
+    /// the id, which a picture that failed to load never got) or black
+    /// under a song's scripts. The plain backdrop is the field's own
+    /// color, not a background: what the field filter darkens is a
+    /// background under the lanes, and over the plain ground alone it
+    /// draws nothing (`docs/plans/overlays.md`, "Field filter").
+    pub fn shows(&self, loaded: impl Fn(usize) -> bool) -> bool {
+        self.first
+            .iter()
+            .chain(&self.second)
+            .flatten()
+            .any(|d| d.color[3] > 0.0 && d.id != PLAIN && (d.id == BLACK || loaded(d.id)))
+    }
+
     /// Every draw, back to front: the black base under the first layer
     /// when it draws, the first layer's, the second's.
     fn draws(&self) -> Draws {
@@ -781,6 +796,12 @@ impl BackgroundPipeline {
             .map(|i| [i.width as u32, i.height as u32])
     }
 
+    /// Whether `backdrop` shows a background with the images and movies
+    /// registered now ([`Backdrop::shows`]).
+    pub fn shows(&self, backdrop: &Backdrop) -> bool {
+        backdrop.shows(|id| self.images.get(id).is_some())
+    }
+
     /// Lets every registered image and movie go (their ids are free
     /// again); the solids stay.
     pub fn clear_images(&mut self) {
@@ -1305,6 +1326,27 @@ mod tests {
         let d = only_second.draws();
         assert!(d[0].is_none());
         assert_eq!(d[1 + LAYER_DRAWS].map(|d| d.id), Some(PLAIN));
+    }
+
+    #[test]
+    fn a_background_shows_only_where_a_picture_draws() {
+        let loaded = |id: usize| id < 3;
+        // Nothing, the plain backdrop, a picture never loaded, one
+        // faded out: no background.
+        assert!(!Backdrop::default().shows(loaded));
+        assert!(!Backdrop::image(PLAIN).shows(loaded));
+        assert!(!Backdrop::image(7).shows(loaded));
+        let mut faded = Backdrop::image(1);
+        faded.first[0].as_mut().unwrap().color[3] = 0.0;
+        assert!(!faded.shows(loaded));
+        // A loaded picture, on either layer; black under a song's scripts.
+        assert!(Backdrop::image(1).shows(loaded));
+        assert!(Backdrop::image(BLACK).shows(loaded));
+        let mut second = LayerDraws::default();
+        second[0] = Some(BgDraw::cover(2));
+        let mut first = LayerDraws::default();
+        first[0] = Some(BgDraw::cover(PLAIN));
+        assert!(Backdrop { first, second }.shows(loaded));
     }
 
     #[test]

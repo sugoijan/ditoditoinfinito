@@ -852,7 +852,7 @@ impl OptionsModel {
                     "Field filter",
                     &["Off", "40%", "60%", "80%"],
                     filter,
-                    "Dims the area behind the lanes.",
+                    "Dims the song's background behind the lanes.",
                 ),
                 menus,
                 choice(

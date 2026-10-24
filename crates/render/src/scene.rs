@@ -233,7 +233,10 @@ pub struct RenderOptions {
     /// works); otherwise every note follows `note_colors`.
     pub chart_colors: bool,
     /// Darkening behind the lanes, `0..=1` of perceived brightness removed
-    /// (0 = none).
+    /// (0 = none). [`crate::Renderer::render`] draws it only over a
+    /// background (the backdrop's pictures at a brightness above 0, a
+    /// work's back layers, a song's scripts): over the plain ground alone
+    /// the lanes and the screen around them are one color.
     pub field_filter: f32,
     /// Draw only the field (receptors, holds, notes, explosions: a
     /// noteskin's, or the built-in arrows where it has none), as placed by

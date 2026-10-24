@@ -94,7 +94,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   worker; desktop's in `native-video.md`.
 - [Overlays](overlays.md) (2026-10-14): done: DanOni's back and mask
   layers, `#BGCHANGES2` (decision 48), StepMania's named background
-  effects and transitions (2026-10-21). Scripted backgrounds and
+  effects and transitions (2026-10-21); the field filter drawn only
+  over a background (2026-10-24). Scripted backgrounds and
   `#FGCHANGES` in their own plan.
 - [Scripted backgrounds and `#FGCHANGES`](scripted-backgrounds.md)
   (2026-10-21): first slice done (folders with a `default.lua`, behind

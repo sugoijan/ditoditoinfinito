@@ -187,6 +187,61 @@ one above the edge), `SlideLeft` halfway, and a second-layer
 `OverlayAdd` of grey over red (255, 128, 128), the autoplay all top
 tier.
 
+## Field filter (2026-10-24)
+
+The field filter (Options → Field filter, default 40 %) darkens a
+background behind the lanes, as DDR's does, so the notes read over a
+busy picture. It is drawn only where a background is drawn: a song
+without one plays on one ground, the lanes the screen's own color (the
+theme's ground, `#05020d`, `ddi_actor::background::GROUND`), the way the
+maintainer asked (2026-10-24: before, such a song showed a dark blue
+screen with a black band behind the lanes, (5, 2, 13) around them and
+(2, 1, 4) in them at the defaults, black at 100 %). The renderer decides
+each frame, on both shells and every backend (`Renderer::render`,
+`filter_path`; WebGPU, WebGL2's offscreen path, desktop's wgpu):
+
+- **A background** is a draw of the backdrop that is not transparent, of
+  an image or movie whose texture is there, at a brightness above 0
+  (`Backdrop::shows`), or black under a song's scripts, or a work's back
+  layers or a song's scripts' quads (`stage_back`). The plain backdrop
+  (`BgImage::Plain`, the second layer's stand-in for a missing song
+  background) is the field's own color, not a background.
+- **So there is none**, and no band: a song with no `#BACKGROUND` and no
+  changes; a background file that is missing or fails to decode (no
+  texture is registered for it); the time before a song's first change
+  when it has no song background (the band then comes with the first
+  picture, in the backdrop's shaders, fading in with it); backgrounds'
+  brightness at 0 (Off), which shows no background, so it looks the same
+  as a song without one (before, it kept the band over the ground too); a
+  Dancing☆Onigiri work while none of its back layers draw (its layers are
+  its background; their band is the quad over them, as before).
+- **Calibration** already drew neither (`RenderOptions::for_calibration`);
+  the chart editor's field draws no background and no filter; Options'
+  field preview stands its plate in for a background, so it shows the
+  band, and none at brightness 0, as play now does.
+- **The way there stays smooth**: song select shows the ground for such
+  a song (no picture, no base), the start prompt draws its band only over
+  a picture (`PromptPicture::filter`) on `Play.Field`, the same ground,
+  and the play now opens on that ground with no band appearing at Start.
+  A song with a background is drawn exactly as before, its band in the
+  backdrop's shaders when its first layer draws and nothing lies between,
+  else the quad.
+
+Checked: native tests (`filter_path`, `Backdrop::shows`); offscreen on
+desktop (`crates/desktop/tests/no_background_offscreen.rs`): songs with
+no background and a missing one at 40 %/40 %, 100 %/100 % and brightness
+off read (5, 2, 13) beside the field and inside the band; a song whose
+first change comes at 4 s reads the ground at 1 s and its picture
+banded at 5 s ((80, 72, 64) beside, (48, 43, 38) in the band), as a
+pictured song does; the bundled songs' pictures with a background at
+brightness above 0 are byte for byte as before. On the web, a release
+build in headless Chrome (WebGPU, and WebGL2 with `gfx=gl`) and
+Playwright's Firefox (WebGL2): Into My Dream (its `#BACKGROUND` not
+bundled) at 40 %/40 % and 100 %/80 %, and Beatucada with brightness
+off, read (5, 2, 13) beside the field and in the band on the start
+prompt and in play; Beatucada at the defaults keeps its band ((74, 82,
+94) beside, (48, 53, 57) in it) on every backend; no console errors.
+
 ## Status (2026-10-14)
 
 Done, steps 1 to 5 (Dancing☆Onigiri's back and mask layers), and step 6's

@@ -599,7 +599,12 @@ Reduced motion settles immediately; early Start samples the current visual
 position without delaying audio. The play base follows current image/video
 layers even for a screen-sized frame. Static filters are reused; direct RGB
 movie uploads must call `Renderer::background_texture_changed`, while YUV
-and NV12 upload methods invalidate their own filtered copies.
+and NV12 upload methods invalidate their own filtered copies. The field
+filter darkens only a drawn background (`Renderer::render`'s
+`filter_path`, `Backdrop::shows`): a song without one, a picture that
+never loaded, the time before a first change, or brightness Off plays on
+the one #05020d ground with no band, as the prompt shows it
+(`docs/plans/overlays.md`, "Field filter").
 
 ## Timing model (do not break)
 

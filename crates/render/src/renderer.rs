@@ -445,17 +445,14 @@ impl Renderer {
                 opts.reverse,
             ),
         };
-        // The field filter dims the backdrop in its own shaders (encoded
-        // values multiplied, as the 2D pass dims the start prompt's
-        // picture) when nothing lies between them; else (back layers, no
-        // image) a dark quad over everything under the field, blended in
-        // the target's light.
-        let band = (opts.field_filter > 0.0
-            && opts.background > 0.0
-            && opts.backdrop.first.iter().any(Option::is_some)
-            && self.stage_back.is_empty()
-            && !layout.lanes.is_empty())
-        .then(|| {
+        let layers = !self.stage_back.is_empty();
+        let path = filter_path(
+            opts.field_filter,
+            !layout.lanes.is_empty(),
+            layers || (opts.background > 0.0 && self.background.shows(&opts.backdrop)),
+            !layers && opts.backdrop.first.iter().any(Option::is_some),
+        );
+        let band = (path == FilterPath::Shaders).then(|| {
             let [mid, w] = scene::filter_band(&geo, scene::field_span(layout));
             (
                 [mid - w / 2.0, mid + w / 2.0],
@@ -463,7 +460,7 @@ impl Renderer {
             )
         });
         let mut scene_opts = opts;
-        if band.is_some() {
+        if path != FilterPath::Quad {
             scene_opts.field_filter = 0.0;
         }
         // Render targets first: the frame samples them as drawn now.
@@ -753,6 +750,43 @@ fn passes(
     out
 }
 
+/// How a frame draws the field filter ([`RenderOptions::field_filter`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FilterPath {
+    /// Not at all: no filter, no lanes, or nothing behind the field for
+    /// it to darken (a song without a background, backgrounds off, a
+    /// picture that never loaded, before a song's first change): the
+    /// lanes lie on the same ground as the screen around them.
+    None,
+    /// In the backdrop's own shaders (encoded values multiplied, as the
+    /// 2D pass dims the start prompt's picture): a background with
+    /// nothing between it and the field.
+    Shaders,
+    /// A dark quad over everything under the field, blended in the
+    /// target's light: a work's back layers or a song's scripts lie
+    /// between, or the second layer draws alone.
+    Quad,
+}
+
+/// [`FilterPath`] for a filter of `amount` under a field that has lanes
+/// (`lanes`), where a background lies `behind` it (the backdrop's
+/// pictures, [`Backdrop::shows`](crate::Backdrop::shows), at a brightness
+/// above 0, or a work's back layers or a song's scripts) and the
+/// backdrop's shaders can draw it (`in_shaders`: its first layer draws,
+/// over black, and no back layers lie between). The filter darkens a
+/// background behind the lanes: over the plain ground alone it would
+/// draw a dark field on a dark screen, so it is left out
+/// (`docs/plans/overlays.md`, "Field filter").
+fn filter_path(amount: f32, lanes: bool, behind: bool, in_shaders: bool) -> FilterPath {
+    if amount <= 0.0 || !lanes || !behind {
+        FilterPath::None
+    } else if in_shaders {
+        FilterPath::Shaders
+    } else {
+        FilterPath::Quad
+    }
+}
+
 /// A pass drawing to `target`, with `depth` (the stencil) if given.
 fn begin_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
@@ -792,6 +826,22 @@ mod tests {
     }
 
     const NONE: &dyn Fn(std::ops::Range<u32>) -> bool = &|_| false;
+
+    #[test]
+    fn the_field_filter_darkens_only_a_background() {
+        use FilterPath::*;
+        // A background on the first layer alone: in its shaders; under
+        // back layers, or on the second layer alone: a quad over it.
+        assert_eq!(filter_path(0.4, true, true, true), Shaders);
+        assert_eq!(filter_path(0.4, true, true, false), Quad);
+        // Nothing behind the field (no background, backgrounds off, the
+        // plain backdrop alone), no filter or no lanes: none, the lanes
+        // on the screen's ground.
+        assert_eq!(filter_path(0.4, true, false, true), None);
+        assert_eq!(filter_path(1.0, true, false, false), None);
+        assert_eq!(filter_path(0.0, true, true, true), None);
+        assert_eq!(filter_path(0.4, false, true, true), None);
+    }
 
     #[test]
     fn a_runs_rectangle_covers_its_quads_on_the_target() {
