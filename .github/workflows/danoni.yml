@@ -57,7 +57,7 @@ jobs:
         run: command -v ffmpeg || brew install ffmpeg
       - name: Web app with importer feature keeps the native SDK out
         if: runner.os == 'Linux'
-        run: cargo check --locked -p ditoditoinfinito --target wasm32-unknown-unknown --features danoni-importer
+        run: cargo check --locked -p ddi --target wasm32-unknown-unknown --features danoni-importer
       - name: SDK, desktop lifecycle and SSC/Opus playback
         run: python3 tools/danoni-dump/check.py
       - name: Native IPC client, protocol and helper (no worker preparation)
@@ -132,19 +132,19 @@ jobs:
           cargo run --locked -p xtask -- gen-songs
           cargo run --locked -p xtask -- gen-noteskins
           cargo run --locked -p xtask -- gen-credits
-          cargo build --locked -p ditoditoinfinito --no-default-features --features danoni-importer
-          python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfinito --output "$RUNNER_TEMP/ddi-package"
+          cargo build --locked -p ddi --no-default-features --features danoni-importer
+          python3 tools/danoni-importer/build.py package --app target/debug/ddi --output "$RUNNER_TEMP/ddi-package"
       - name: Relocate and check actual app/client with no developer commands on PATH
         run: |
           mv "$RUNNER_TEMP/ddi-package" "$RUNNER_TEMP/relocated game"
           mkdir "$RUNNER_TEMP/empty-path"
           cd "$RUNNER_TEMP/relocated game"
-          PATH="$RUNNER_TEMP/empty-path" DDI_HOME="$PWD/target/scratch/home" ./ditoditoinfinito --danoni-importer-check > smoke.json
+          PATH="$RUNNER_TEMP/empty-path" DDI_HOME="$PWD/target/scratch/home" ./ddi --danoni-importer-check > smoke.json
           python3 -c 'import json; result=json.load(open("smoke.json")); assert result["ready"] and result["bundledSongs"] > 0'
           python3 - <<'PY'
           import json, pathlib, subprocess, os
           root = pathlib.Path.cwd()
-          info = json.loads(subprocess.check_output([root / 'ditoditoinfinito', '--danoni-bundle-info']))
+          info = json.loads(subprocess.check_output([root / 'ddi', '--danoni-bundle-info']))
           env = dict(os.environ, PATH=str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'empty-path'))
           subprocess.run([root / 'danoni-importer' / info['id'] / 'bin/ddi-danoni-importer', '--check-bundle'], env=env, check=True)
           PY

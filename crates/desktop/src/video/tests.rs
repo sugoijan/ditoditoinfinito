@@ -126,39 +126,30 @@ fn the_helper_is_found_beside_the_executable() {
     std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
     std::fs::write(&staged, b"#!").unwrap();
     for exe in [
-        "ws/target/debug/ditoditoinfinito",
+        "ws/target/debug/ddi",
         "ws/target/debug/deps/video-0123",
         "ws/target/debug/examples/screenshot",
     ] {
         assert_eq!(helper_near(&root.join(exe)), Some(staged.clone()), "{exe}");
     }
     // Another profile's is not borrowed, nor anything above `target`.
-    assert_eq!(
-        helper_near(&root.join("ws/target/desktop/ditoditoinfinito")),
-        None
-    );
+    assert_eq!(helper_near(&root.join("ws/target/desktop/ddi")), None);
     let above = root.join("ws/video").join(&name);
     std::fs::create_dir_all(above.parent().unwrap()).unwrap();
     std::fs::write(&above, b"#!").unwrap();
-    assert_eq!(
-        helper_near(&root.join("ws/target/desktop/ditoditoinfinito")),
-        None
-    );
+    assert_eq!(helper_near(&root.join("ws/target/desktop/ddi")), None);
     // A package: beside the executable.
     let packaged = root.join("app/video").join(&name);
     std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
     std::fs::write(&packaged, b"#!").unwrap();
-    assert_eq!(
-        helper_near(&root.join("app/ditoditoinfinito")),
-        Some(packaged)
-    );
-    assert_eq!(helper_near(&root.join("bin/ditoditoinfinito")), None);
+    assert_eq!(helper_near(&root.join("app/ddi")), Some(packaged));
+    assert_eq!(helper_near(&root.join("bin/ddi")), None);
     // A macOS app: in its helpers.
     let bundled = root.join("Game.app/Contents/Helpers/video").join(&name);
     std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
     std::fs::write(&bundled, b"#!").unwrap();
     assert_eq!(
-        helper_near(&root.join("Game.app/Contents/MacOS/ditoditoinfinito")),
+        helper_near(&root.join("Game.app/Contents/MacOS/ddi")),
         Some(bundled)
     );
     std::fs::remove_dir_all(&root).unwrap();

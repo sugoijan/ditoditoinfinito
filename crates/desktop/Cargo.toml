@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "DitoDitoInfinito: the desktop shell (a window running the UI core; run through the `ditoditoinfinito` crate)"
+description = "DitoDitoInfinito: the desktop shell (a window running the UI core; run through the `ddi` crate)"
 
 [dependencies]
 ddi-actor.workspace = true

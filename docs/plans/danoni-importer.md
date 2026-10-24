@@ -50,8 +50,8 @@ against 2 GiB RSS. Default/web/Windows checks invoke no helper preparation tools
 cargo run -p xtask -- gen-songs
 cargo run -p xtask -- gen-noteskins
 cargo run -p xtask -- gen-credits
-cargo build -p ditoditoinfinito
-python3 tools/package/package.py folder --app target/debug/ditoditoinfinito --output /tmp/ddi-package
+cargo build -p ddi
+python3 tools/package/package.py folder --app target/debug/ddi --output /tmp/ddi-package
 ```
 
 The app keeps video and the importer enabled by default (`--no-default-features

@@ -111,7 +111,7 @@ mod tests {
     fn an_app_bundle_adds_its_helpers_and_resources() {
         let app = Path::new("/Applications/Dito Dito Infinito.app/Contents");
         assert_eq!(
-            package_dirs(&app.join("MacOS/ditoditoinfinito")),
+            package_dirs(&app.join("MacOS/ddi")),
             [
                 app.join("MacOS"),
                 app.join("Helpers"),
@@ -120,11 +120,11 @@ mod tests {
         );
         // A plain folder, even one named MacOS outside a bundle.
         assert_eq!(
-            package_dirs(Path::new("/games/ddi/ditoditoinfinito")),
+            package_dirs(Path::new("/games/ddi/ddi")),
             [PathBuf::from("/games/ddi")]
         );
         assert_eq!(
-            package_dirs(Path::new("/games/MacOS/ditoditoinfinito")),
+            package_dirs(Path::new("/games/MacOS/ddi")),
             [PathBuf::from("/games/MacOS")]
         );
     }

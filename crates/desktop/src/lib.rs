@@ -198,7 +198,7 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
-/// Runs the desktop app: `ditoditoinfinito [--screen select|results|options|credits|calibration |
+/// Runs the desktop app: `ddi [--screen select|results|options|credits|calibration |
 /// --dev | --widgets] [--seconds N] [--volume V] [--fake-pad SCRIPT]`,
 /// the theme's screens on sample data in a window (options on the stored
 /// settings), song select unless `--screen` names another (`--dev`: the

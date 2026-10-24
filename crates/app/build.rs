@@ -45,7 +45,7 @@ fn main() {
     icon(&mut res, &manifest.join("../../tools/package/icon.svg"));
     let version = std::env::var("CARGO_PKG_VERSION").unwrap();
     res.push(RT_VERSION, 1, 0x0030, &version_info(&version));
-    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("ditoditoinfinito.res");
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("ddi.res");
     std::fs::write(&out, &res.0).unwrap();
     println!("cargo:rustc-link-arg-bins={}", out.display());
 }
@@ -164,9 +164,9 @@ fn version_info(version: &str) -> Vec<u8> {
     let strings = [
         ("FileDescription", PRODUCT),
         ("FileVersion", version),
-        ("InternalName", "ditoditoinfinito"),
+        ("InternalName", "ddi"),
         ("LegalCopyright", COPYRIGHT),
-        ("OriginalFilename", "ditoditoinfinito.exe"),
+        ("OriginalFilename", "ddi.exe"),
         ("ProductName", PRODUCT),
         ("ProductVersion", version),
     ]

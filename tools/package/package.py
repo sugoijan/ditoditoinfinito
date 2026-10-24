@@ -34,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 NAME = 'Dito Dito Infinito'
 ARCHIVE = 'DitoDitoInfinito'
 BUNDLE_ID = 'dev.sugoijan.ditoditoinfinito'
-EXE = 'ditoditoinfinito'
+EXE = 'ddi'
 HELPER = 'ddi-video-helper'
 
 
@@ -358,7 +358,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     for command in ['folder', 'dist']:
         p = sub.add_parser(command)
-        p.add_argument('--app', required=True, type=Path, help='the built executable (target/desktop/ditoditoinfinito)')
+        p.add_argument('--app', required=True, type=Path, help='the built executable (target/desktop/ddi)')
         if command == 'folder':
             p.add_argument('--output', required=True, type=Path, help='a fresh directory')
         else:

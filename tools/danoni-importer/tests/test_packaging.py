@@ -28,11 +28,11 @@ class Packaging(unittest.TestCase):
                          'ddi-danoni-pack-verify'} <= members)
         self.assertNotIn('ddi-ruffle-probe', members)
         defaults = {p['name'] for p in data['packages'] if p['id'] in data['workspace_default_members']}
-        self.assertEqual(defaults, {'ditoditoinfinito'})
+        self.assertEqual(defaults, {'ddi'})
         for target in ('aarch64-apple-darwin', 'wasm32-unknown-unknown', 'x86_64-pc-windows-msvc'):
             for features in ([], ['--features', 'danoni-importer']):
                 tree = subprocess.check_output(
-                    ['cargo', 'tree', '--locked', '-p', 'ditoditoinfinito', '--target', target,
+                    ['cargo', 'tree', '--locked', '-p', 'ddi', '--target', target,
                      '--edges', 'normal', '--prefix', 'none', *features], cwd=root, text=True)
                 self.assertNotIn('ddi-danoni-export ', tree)
                 self.assertNotIn('ddi-danoni-importer ', tree)

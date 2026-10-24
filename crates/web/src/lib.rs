@@ -1,7 +1,7 @@
 //! The web shell: our theme's screens on one wgpu canvas and device for
 //! the whole app (pages as components of our own, `component`), Web
 //! Audio, settings in `localStorage`, songs in IndexedDB. Compiles for `wasm32-unknown-unknown` only; the
-//! `ditoditoinfinito` crate (`app/`) starts it there, and the desktop
+//! `ddi` crate (`app/`) starts it there, and the desktop
 //! shell everywhere else. Built natively (an editor's analysis, a
 //! workspace-wide `cargo check`) it is empty.
 #![cfg(target_arch = "wasm32")]

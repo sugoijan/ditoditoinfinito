@@ -9,7 +9,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>Dito Dito Infinito</string>
 	<key>CFBundleExecutable</key>
-	<string>ditoditoinfinito</string>
+	<string>ddi</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>

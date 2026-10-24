@@ -18,7 +18,7 @@ cp "$here/share/icons/hicolor/scalable/apps/$id.svg" "$icon"
 # The Desktop Entry specification's Exec quoting (\ " ` $ escaped inside
 # quotes), then its string escape (every \ doubled) and % as %%; awk takes
 # the path from the environment, so no character is special to it.
-EXE=$(printf '%s' "$here/ditoditoinfinito" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g' -e 's/%/%%/g') \
+EXE=$(printf '%s' "$here/ddi" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g' -e 's/%/%%/g') \
     awk '/^Exec=/ { print "Exec=\"" ENVIRON["EXE"] "\""; next } { print }' \
     "$here/share/applications/$id.desktop" > "$entry"
 if command -v update-desktop-database >/dev/null 2>&1; then

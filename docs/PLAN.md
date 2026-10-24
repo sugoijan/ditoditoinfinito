@@ -194,7 +194,7 @@ DitoDitoInfinito/
     lua/          ddi-lua       StepMania's Lua for skins, sandboxed
     session/      ddi-session   one play session for both shells (play, calibration, backgrounds' rules)   [lib, both]
     shell/        ddi-shell     what both shells do between settings and renderer (field options, a work's layers' textures)   [lib, both]
-    app/          ditoditoinfinito  the game: starts `web` on wasm, `desktop` natively [bin]
+    app/          ddi           the game: starts `web` on wasm, `desktop` natively [bin]
     web/          ddi-web       web shell, web-sys platform impls, canvas host     [lib, wasm32]
     desktop/      ddi-desktop   winit + wgpu + cpal + gilrs, movies in a sandboxed helper   [lib, native]
     opus-worker/  ddi-opus-worker  the web's Ogg Opus fallback decoder   [bin, wasm32 worker]

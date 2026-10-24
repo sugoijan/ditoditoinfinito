@@ -54,7 +54,7 @@ The relocatable folder (`package.py folder`, formerly `build.py
 package`, which still forwards here):
 
 ```
-ditoditoinfinito(.exe)
+ddi(.exe)
 assets/                 bundled songs, skins, fonts, indexes, credits/credits-desktop.json
 video/                  ddi-video-helper, its notice, ffmpeg.json, FFmpeg's and zlib's
                         source archives, helper-source/ (the LGPL's relinking route)
@@ -67,7 +67,7 @@ macOS, `Dito Dito Infinito.app`:
 ```
 Contents/Info.plist             tools/package/macos/Info.plist, versions filled in
 Contents/PkgInfo
-Contents/MacOS/ditoditoinfinito
+Contents/MacOS/ddi
 Contents/Helpers/video/ddi-video-helper
 Contents/Resources/AppIcon.icns
 Contents/Resources/assets/  video/ (notice, sources)  danoni-importer/<id>/
@@ -197,7 +197,7 @@ keeps the archives as the run's artifacts only):
   CMake, pkg-config and the ALSA/udev/Vulkan packages as `danoni.yml`'s
   native lane installs them; the importer's and the helper's FFmpeg caches
   under the same keys as `danoni.yml` and `deploy.yml` (a tag's run
-  restores main's); `cargo build --locked -p ditoditoinfinito --profile
+  restores main's); `cargo build --locked -p ddi --profile
   desktop` (fat LTO); `package.py dist`; the archives uploaded.
 - `release` (tags only, `contents: write`): the archives and a
   `SHA256SUMS.txt` attached to a draft release (`gh release create
@@ -208,6 +208,11 @@ keeps the archives as the run's artifacts only):
 
 - **Bundle id `dev.sugoijan.ditoditoinfinito`**, from the site's domain
   (sugoijan.dev); the same id names the Linux desktop entry and icon.
+- **The executable is `ddi`** (`ddi.exe`), the app crate's package and
+  binary named as the other `ddi-*` crates (`ditoditoinfinito` until
+  2026-10-24). The bundle id, the desktop entry's id, the settings',
+  data and cache folders and the export file names keep the long name,
+  so a renamed build finds what an older one kept.
 - **The icon is the site's favicon** (`site/seo/favicon.svg`, first-party)
   redrawn on the macOS icon grid (`tools/package/icon.svg`: an 824-unit
   tile with a 100-unit margin), rendered by `sips` and `iconutil` at
@@ -327,7 +332,7 @@ The icon, the window and the console (later on 2026-10-21, the same Mac):
   tools, `DDI_VIDEO_NATIVE=1`) once it has run on Windows hardware;
   SmartScreen will warn about an unsigned download; the checks below.
 - **The maintainer's checks on Windows** (none could run here; the
-  release build's `ditoditoinfinito.exe`, or `cargo build --profile
+  release build's `ddi.exe`, or `cargo build --profile
   desktop`, whose build script draws the icon on a Windows host):
   1. Explorer shows the arrow icon on the `.exe` at every view size, and
      its Properties → Details the description, versions, product name,
@@ -335,14 +340,14 @@ The icon, the window and the console (later on 2026-10-21, the same Mac):
   2. The running game's title bar, taskbar button and Alt+Tab show the
      icon (sharp enough at 100% and at 150% or 200% scale), and a
      taskbar pin keeps it.
-  3. From cmd: `ditoditoinfinito.exe --danoni-bundle-info` prints
+  3. From cmd: `ddi.exe --danoni-bundle-info` prints
      `{"enabled":false}` in that window (after the prompt, which cmd
      shows again at once for a GUI program: Enter redraws it);
-     `start /wait ditoditoinfinito.exe --silent --seconds 3` prints the
+     `start /wait ddi.exe --silent --seconds 3` prints the
      run's report before the prompt returns. The same in PowerShell
-     (`Start-Process -Wait -NoNewWindow .\ditoditoinfinito.exe -ArgumentList
+     (`Start-Process -Wait -NoNewWindow .\ddi.exe -ArgumentList
      '--silent','--seconds','3'`), and in Windows Terminal.
-  4. Redirected, unchanged: `ditoditoinfinito.exe --danoni-bundle-info >
+  4. Redirected, unchanged: `ddi.exe --danoni-bundle-info >
      out.txt` writes the file and nothing to the console; `... | more`
      the same through the pipe; `2> err.txt` alone keeps stdout away
      from the console too (one redirected handle leaves both alone).

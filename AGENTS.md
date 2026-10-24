@@ -184,7 +184,7 @@ Rust and the browser are implementation details, not advertised features.
   the web's `ImageBitmap`, desktop's RGBA rows) and a song's scripts'
   (`crates/shell/src/scripted.rs`). Platform-free (native
   and wasm), natively tested.
-- `crates/app/` the game (`ditoditoinfinito`, the workspace's default member):
+- `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`site/index.html`, with the page's
   styles, boot script and SEO data beside it in `site/`),
@@ -362,7 +362,7 @@ Rust and the browser are implementation details, not advertised features.
   Python 3.11+ at build time). The first build fetches pinned public
   build inputs; no runtime tools or maintainer configuration are needed by the
   result. `python3 tools/package/package.py folder --app
-  target/debug/ditoditoinfinito --output /tmp/ddi-package` prepares a fresh
+  target/debug/ddi --output /tmp/ddi-package` prepares a fresh
   relocatable folder (`build.py package` forwards to it). Keep its assets, notices, optional full video payload and
   `danoni-importer/` beside the executable. `--danoni-bundle-info` and
   `--danoni-importer-check` inspect it without a window or sound device. The app

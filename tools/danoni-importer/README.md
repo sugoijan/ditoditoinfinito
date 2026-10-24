@@ -33,10 +33,10 @@ a development helper executable alone.
 After generating the song/noteskin indexes and building the app, run:
 
 ```
-python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfinito --output /tmp/ddi-package
+python3 tools/danoni-importer/build.py package --app target/debug/ddi --output /tmp/ddi-package
 ```
 
-Move the whole output directory, then run `./ditoditoinfinito
+Move the whole output directory, then run `./ddi
 --danoni-importer-check` there to exercise the actual client/helper handshake.
 See [the distribution guide](../../docs/plans/danoni-importer.md) for platform
 prerequisites, video compliance payload, exact notices and build-only cache

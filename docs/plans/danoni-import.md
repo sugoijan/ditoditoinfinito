@@ -45,7 +45,7 @@ cargo run --locked -p xtask -- gen-songs
 cargo run --locked -p xtask -- gen-noteskins
 cargo build --locked --profile desktop --no-default-features --features danoni-importer
 python3 tools/danoni-importer/build.py package \
-  --app target/desktop/ditoditoinfinito --output target/package
+  --app target/desktop/ddi --output target/package
 ```
 
 The ordinary app retains video by default. A video-enabled distribution must also
@@ -69,7 +69,7 @@ The game links the small platform-free `ddi-importer-protocol` crate, not the SD
 Its compiled bundle id and manifest hash identify an immutable directory:
 
 ```text
-ditoditoinfinito
+ddi
 assets/
 danoni-importer/<content-id>/
   manifest.json

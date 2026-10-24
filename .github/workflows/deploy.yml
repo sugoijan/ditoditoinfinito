@@ -63,7 +63,7 @@ jobs:
           cargo run -p xtask -- gen-noteskins
           cargo run -p xtask -- gen-credits --check
       - name: Native tests
-        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ddi -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
   # The desktop shell on the three systems it is for, with and without
   # background movies (the `video` feature: the sandboxed FFmpeg helper,

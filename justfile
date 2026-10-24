@@ -25,12 +25,12 @@ animation scenario="docs/screenshots/animation.json" output="docs/screenshots/re
 
 # Check the web app for wasm32
 app-check:
-    @cargo check -p ditoditoinfinito -p ddi-opus-worker --target wasm32-unknown-unknown
+    @cargo check -p ddi -p ddi-opus-worker --target wasm32-unknown-unknown
 
 # Check the platform-independent crates natively (the desktop without
 # preparing its DanOni importer: DDI_IMPORTER_TEST_ONLY)
 core-check:
-    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-opus-worker -p ddi-desktop -p ditoditoinfinito -p xtask
+    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-opus-worker -p ddi-desktop -p ddi -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint
@@ -64,8 +64,8 @@ package:
     @cargo run -q -p xtask -- gen-songs
     @cargo run -q -p xtask -- gen-noteskins
     @cargo run -q -p xtask -- gen-credits
-    @cargo build --locked -p ditoditoinfinito --profile desktop
-    @python3 tools/package/package.py dist --app target/desktop/ditoditoinfinito --output-dir target/dist
+    @cargo build --locked -p ddi --profile desktop
+    @python3 tools/package/package.py dist --app target/desktop/ddi --output-dir target/dist
 
 # Run native unit tests
 test:
@@ -74,7 +74,7 @@ test:
     @cargo run -q -p xtask -- gen-songs
     @cargo run -q -p xtask -- gen-noteskins
     @# The desktop's DanOni importer is built but not prepared (no JDK).
-    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ddi -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
 # DanOni workspace SDK, desktop probe and pack verifier checks (Python 3 and ffmpeg; no live imports)
 danoni-check *args:
