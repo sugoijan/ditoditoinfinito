@@ -27,12 +27,13 @@ struct Pipe {
 }
 impl Pipe {
     fn spawn(executable: &Path) -> Result<Self, String> {
-        let child = Command::new(executable)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Cannot start the packaged importer: {e}"))?;
+        let child = crate::os::spawn(
+            Command::new(executable)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .map_err(|e| format!("Cannot start the packaged importer: {e}"))?;
         // Establish ownership before fallible pipe/thread setup. A partial setup
         // failure must kill and reap the child, rather than merely dropping it.
         let stderr = Arc::new(Mutex::new(VecDeque::new()));

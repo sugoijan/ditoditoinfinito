@@ -102,3 +102,21 @@ pub fn copy(text: &str) -> Result<(), String> {
 pub fn paste() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }
+
+/// Starts `command`, trying again while its executable is busy. Linux
+/// refuses to run a file another process holds open for writing, and a
+/// just-written file is held briefly by any child forked in between that
+/// has not reached its exec yet (tests write stand-in helpers while other
+/// tests start processes).
+pub fn spawn(command: &mut Command) -> std::io::Result<std::process::Child> {
+    let mut tries = 0;
+    loop {
+        match command.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 10 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(10 * tries));
+            }
+            spawned => return spawned,
+        }
+    }
+}

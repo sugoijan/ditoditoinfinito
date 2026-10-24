@@ -360,8 +360,7 @@ fn spawn_child(path: &Path, arena: &SharedArena) -> Result<Spawned, String> {
             Ok(())
         });
     }
-    let mut child = command
-        .spawn()
+    let mut child = crate::os::spawn(&mut command)
         .map_err(|e| format!("cannot start the video decoder ({}): {e}", path.display()))?;
     let stdin = child.stdin.take().ok_or("no pipe to the video decoder")?;
     let stdout = child
