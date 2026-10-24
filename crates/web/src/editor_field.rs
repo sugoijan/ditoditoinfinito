@@ -10,10 +10,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
+use ddi_render::Renderer;
 use ddi_render::editor_field::{EditorField, SOURCE};
 use ddi_render::field_preview::SkinWant;
 use ddi_render::noteskin::NoteskinPlay;
-use ddi_render::{ColorScheme, Renderer};
 use ddi_ui::screens::editor_field::FieldPicture;
 use ddi_ui::state::editor::Editor;
 
@@ -28,7 +28,7 @@ use crate::web::gfx::Gfx;
 struct Shown {
     picture: Option<FieldPicture>,
     want: Option<(SkinWant, ddi_noteskin::lua::Env)>,
-    colors: ColorScheme,
+    colors: ddi_shell::editor_field::NoteColors,
     read_for: Option<(String, bool)>,
     changed: bool,
 }

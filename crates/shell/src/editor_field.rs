@@ -41,12 +41,12 @@ pub fn geometry(picture: &FieldPicture) -> FieldGeometry {
     }
 }
 
-/// The renderer's frame of `picture` (its layout `layout`) in
-/// `note_colors` ([`note_colors`]).
+/// The renderer's frame of `picture` (its layout `layout`) in `colors`
+/// ([`note_colors`]).
 pub fn draw<'a>(
     picture: &'a FieldPicture,
     layout: &'a Layout,
-    note_colors: ColorScheme,
+    colors: NoteColors,
 ) -> FieldDraw<'a> {
     FieldDraw {
         frame: &picture.frame,
@@ -54,14 +54,28 @@ pub fn draw<'a>(
         geometry: geometry(picture),
         running: picture.running,
         events: &picture.events,
-        note_colors,
+        note_colors: colors.scheme,
+        chart_colors: colors.chart,
         background: picture.background,
     }
 }
 
+/// How the field's notes are colored where the skin leaves it to the
+/// game (the built-in arrows'): a play's [`crate::render_options`]'
+/// `note_colors` and `chart_colors`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NoteColors {
+    pub scheme: ColorScheme,
+    /// A song's own colors (Dito's `ChartColors`).
+    pub chart: bool,
+}
+
 /// The note colors the field is drawn in under `settings` (a play's).
-pub fn note_colors(settings: &Settings) -> ColorScheme {
-    note_scheme(settings.note_colors())
+pub fn note_colors(settings: &Settings) -> NoteColors {
+    NoteColors {
+        scheme: note_scheme(settings.note_colors()),
+        chart: settings.chart_colors(),
+    }
 }
 
 /// The texture's size, whole pixels.
@@ -144,5 +158,29 @@ mod tests {
         assert!(skin_field(&settings).scroll.reverse);
         let want = skin(&settings, Some(editor.chart()), &picture);
         assert!(want.reverse && want.layout == "dance-single");
+    }
+
+    #[test]
+    fn the_notes_are_colored_as_a_plays() {
+        // A song's own colors: drawn by the built-in arrows (no skin),
+        // in the chart's colors, as in play.
+        let mut settings = Settings::default();
+        settings.set_dito_param(
+            ddi_noteskin::bundled::dito::CHART_COLORS,
+            ddi_ui::state::settings::ParamValue::Bool(true),
+        );
+        let play = crate::render_options(&settings);
+        let colors = note_colors(&settings);
+        assert_eq!(
+            (colors.scheme, colors.chart),
+            (play.note_colors, play.chart_colors)
+        );
+        assert!(colors.chart);
+        let defaults = note_colors(&Settings::default());
+        let play = crate::render_options(&Settings::default());
+        assert_eq!(
+            (defaults.scheme, defaults.chart),
+            (play.note_colors, play.chart_colors)
+        );
     }
 }

@@ -274,7 +274,11 @@ fn a_notes_art_sits_on_its_row() {
             for shown in [0.0, 48.0] {
                 let m = mapping(&timing, shown, scroll, 72.0);
                 let note = with_note(192);
-                let p = picture(&note, &timing, &m);
+                let mut p = picture(&note, &timing, &m);
+                // One beat for both places: the notes' animation follows
+                // the cursor's beat (`notes_are_colored_as_the_play_at_
+                // the_cursor`), the place alone is looked at here.
+                p.frame.beat = 0.0;
                 let row = p.y(m.arrows(&timing, Tick(192)));
                 // The overlay's tick for that note is at its row.
                 assert!(
@@ -283,7 +287,9 @@ fn a_notes_art_sits_on_its_row() {
                     m.y(&timing, 192.0)
                 );
                 let with = gpu.draw(&mut field, &p);
-                let without = gpu.draw(&mut field, &picture(&empty, &timing, &m));
+                let mut empty_p = picture(&empty, &timing, &m);
+                empty_p.frame.beat = 0.0;
+                let without = gpu.draw(&mut field, &empty_p);
                 keep(&with, SIZE, &format!("editor-skin-{name}-{view}-{shown}"));
                 let (y, span, weight) = changed_middle(&with, &without, columns)
                     .unwrap_or_else(|| panic!("{name} {view}: the note is drawn"));
@@ -475,4 +481,111 @@ fn the_editor_shows_the_skin_and_its_compact_field() {
         differs(&again, &compact) > 1000,
         "the plates are not the skin"
     );
+}
+
+#[test]
+fn notes_are_colored_as_the_play_at_the_cursor() {
+    common::indexes();
+    let Some(gpu) = Gpu::new() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    if ddi_desktop::library::noteskins::bundled().is_empty() {
+        eprintln!("no bundled noteskins' index: skipped");
+        return;
+    }
+    let editor = Editor::new_song(None, "Field");
+    // A tempo change and a stop: the beat at a row is the play's.
+    let mut timing = TimingMap::constant(120.0, 0.0);
+    timing.bpms.push(ddi_chart::BpmSegment {
+        tick: Tick::from_beats(3),
+        bpm: 170.0,
+    });
+    timing.stops.push(ddi_chart::StopSegment {
+        tick: Tick::from_beats(5),
+        seconds: 0.4,
+    });
+    // 16ths, 8ths and 4ths over three measures.
+    let notes: Vec<Note> = (0..16)
+        .map(|i| Note::new(Tick(i * 12), (i % 4) as u8, NoteKind::Tap))
+        .chain((0..8).map(|i| Note::new(Tick(192 + i * 24), (i % 4) as u8, NoteKind::Tap)))
+        .chain((0..4).map(|i| Note::new(Tick(384 + i * 48), (i % 4) as u8, NoteKind::Tap)))
+        .collect();
+    let chart = Chart {
+        notes,
+        ..editor.chart().clone()
+    };
+    // Below the receptors (whose beat pulse stays at rest).
+    let below = ((LINE + ARROW) as u32 * SIZE[0] * 4) as usize;
+    let worst = |a: &[u8], b: &[u8]| {
+        a[below..]
+            .iter()
+            .zip(&b[below..])
+            .map(|(x, y)| x.abs_diff(*y))
+            .max()
+            .unwrap_or(0)
+    };
+    let vivid = ddi_shell::editor_field::NoteColors {
+        scheme: ddi_render::ColorScheme::Vivid,
+        chart: false,
+    };
+    // Dito's and Peters-DDR's vivid colors, a raster skin whose notes
+    // animate by the beat and the built-in arrows in the Vivid scheme.
+    let skins: [Option<&str>; 4] = [
+        Some(ddi_noteskin::bundled::DITO),
+        Some(ddi_noteskin::bundled::PETERS_DDR),
+        Some("bundled:dance/delta"),
+        None,
+    ];
+    for key in skins {
+        let (mut field, name) = gpu.field(key, &chart, &editor);
+        let mut draw = |p: &FieldPicture| {
+            let layout = ddi_shell::editor_field::layout(p);
+            let d = ddi_shell::editor_field::draw(p, &layout, vivid);
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            field.draw(&gpu.device, &gpu.queue, &mut encoder, SIZE, &d);
+            gpu.read(field.texture().expect("drawn"), encoder)
+        };
+        let scroll = ScrollOptions {
+            speed: SpeedMod::XMod(1.5),
+            ..Default::default()
+        };
+        for (view, play) in [("edit", None), ("play", Some(scroll))] {
+            let mut moved = false;
+            let mut first = None;
+            for shown in [0.0, 48.0, 90.0, 168.0, 240.0, 252.0] {
+                let m = mapping(&timing, shown, play, 96.0);
+                let mut p = picture(&chart, &timing, &m);
+                // The play's beat when that row is at the receptors.
+                let seconds = shown_seconds(&timing, shown);
+                let beat = ddi_engine::scroll::ScrollState::at(scroll, &timing, seconds).beat();
+                assert_eq!(p.frame.beat, beat, "{name} {view} {shown}");
+                let rest = draw(&p);
+                // The play's path: the skin's clock and the notes at
+                // the frame's moment.
+                p.running = true;
+                let running = draw(&p);
+                keep(&rest, SIZE, &format!("colors-{name}-{view}-{shown}"));
+                keep(
+                    &running,
+                    SIZE,
+                    &format!("colors-{name}-{view}-{shown}-play"),
+                );
+                let d = worst(&rest, &running);
+                assert!(d <= 2, "{name} {view} at {shown}: the notes differ by {d}");
+                // The same notes at beat 0, as the editor drew them at
+                // rest before: the colors moved with the cursor.
+                if shown == 0.0 {
+                    first = Some((p.clone(), rest));
+                } else if let Some((at0, _)) = &first {
+                    let mut p0 = p.clone();
+                    p0.running = false;
+                    p0.frame.beat = at0.frame.beat;
+                    moved |= worst(&draw(&p0), &rest) > 24;
+                }
+            }
+            // (Delta's notes shimmer on a three-beat cycle, as in play.)
+            assert!(moved, "{name} {view}: the notes follow the cursor's beat");
+        }
+    }
 }

@@ -219,7 +219,13 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    (two seconds in, beat 0: no receptor pulse, no explosions or glow)
    except while the music plays, when it runs with the second heard
    and the notes passing the line are hit as an autoplay hits them
-   (`editor_field::passed`); a note's colors come from its own beat.
+   (`editor_field::passed`). The notes are drawn at the cursor's beat
+   all the same: their animation and the colors it picks (Vivid's
+   cycle, Rainbow's flow, a skin's beat-based frames) are the play's
+   when that row reaches the receptors, as StepMania's editor draws its
+   notes at its cursor's beat (`ScreenEdit::DrawPrimitives`,
+   `src/ScreenEdit.cpp:2020-2058` at 5.1's `825467b`); a song's own
+   colors are drawn as play draws them (Dito's `ChartColors`).
    **Cost**: only the notes whose span shows are in the frame, and a
    frame is drawn (the skin's Lua run) only when the picture changed
    or a skin came: nothing between changes, every frame while the music
@@ -621,8 +627,12 @@ Safari, real Firefox's speed.
 - At dense snaps the edit view's zoom is raised (rows a third of a
   note apart) rather than the art shrunk.
 - The skin's clock rests (two seconds in, beat 0) while the music does
-  not play, so a note looks the same wherever the cursor is; while it
-  plays, notes passing the line are hit as by an autoplay (W1).
+  not play, so its receptors and Lua stay still; the notes are drawn
+  at the cursor's beat, as play has them at that moment (a vivid
+  note's color moves with the cursor, as in StepMania's editor; at
+  beat 0 every picture showed the colors of a measure's first beat).
+  While it plays, notes passing the line are hit as by an autoplay
+  (W1).
 - The skin's Lua is told the chart as the editor opened it (its BPMs
   and the like); edits do not read the skin again.
 - V toggles the view and F the compact field (StepMania's editor has

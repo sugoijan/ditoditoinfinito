@@ -8,13 +8,21 @@
 //! every backend: offscreen in a float format, encoded at the end.
 //!
 //! The skin is tamed: while the music does not play, its clock is held
-//! at rest ([`REST`] seconds in, beat 0; the receptors' and notes' own
-//! animations still, no explosions), so a note looks the same wherever
-//! the cursor is and only its own beat colors it; once the music stops
-//! the skin starts over and is played to rest again. While it plays, the
-//! frames' clock and events (the notes passing, as an autoplay hits
-//! them) run the skin as in play. A frame is drawn only when the shell
-//! asks: the editor's picture changed.
+//! at rest ([`REST`] seconds in, beat 0: its Lua's and actors' own
+//! animations still, the receptors' beat pulse among them, no
+//! explosions); once the music stops the skin starts over and is played
+//! to rest again. The notes are drawn as the play's frame at the cursor
+//! draws them all the same: their animation frame and the colors it
+//! picks (Vivid's cycle, a beat-based sprite's frame, Rainbow's flow,
+//! the built-in arrows' schemes) at the cursor's beat, the beat a play
+//! is at when that row reaches the receptors. StepMania's editor does
+//! the same: it draws its notes with the song's beat set to its cursor's
+//! (`ScreenEdit::DrawPrimitives`, `src/ScreenEdit.cpp:2020-2058` at
+//! 5.1's `825467b`, which `NoteDisplay::SetActiveFrame` reads), so as
+//! the cursor moves a vivid note's color moves as it would in play.
+//! While the music plays, the frames' clock and events (the notes
+//! passing, as an autoplay hits them) run the skin as in play. A frame
+//! is drawn only when the shell asks: the editor's picture changed.
 
 use ddi_chart::Layout;
 use ddi_engine::frame::{Frame, SkinEvent};
@@ -50,6 +58,9 @@ pub struct FieldDraw<'a> {
     pub running: bool,
     pub events: &'a [SkinEvent],
     pub note_colors: ColorScheme,
+    /// Notes in the colors the chart gives them, as a play's
+    /// [`RenderOptions::chart_colors`].
+    pub chart_colors: bool,
     /// Under the field: encoded RGBA.
     pub background: [f32; 4],
 }
@@ -197,7 +208,7 @@ impl EditorField {
             self.generation += 1;
         }
         let reverse = d.geometry.direction < 0.0;
-        let still;
+        let mut still;
         let frame = if d.running {
             self.settled = false;
             if let Some(p) = &mut self.noteskin {
@@ -205,16 +216,16 @@ impl EditorField {
             }
             d.frame
         } else {
+            still = rest(d.frame);
             if let Some(p) = &mut self.noteskin {
                 if !self.settled {
                     Self::settle(p, d.frame, reverse);
                 }
-                still = rest(d.frame);
                 p.update(&still, std::iter::empty(), reverse);
-            } else {
-                still = rest(d.frame);
             }
             self.settled = true;
+            // The skin's clock at rest, its notes at the cursor's beat.
+            still.beat = d.frame.beat;
             &still
         };
         let [r, g, b, a] = d.background;
@@ -227,6 +238,7 @@ impl EditorField {
         let opts = RenderOptions {
             reverse,
             note_colors: d.note_colors,
+            chart_colors: d.chart_colors,
             background: 0.0,
             preview: Some(Preview {
                 geometry: d.geometry,

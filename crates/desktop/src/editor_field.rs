@@ -9,9 +9,9 @@
 use std::cell::RefCell;
 
 use ddi_chart::Layout;
+use ddi_render::Painter;
 use ddi_render::editor_field::{EditorField, SOURCE};
 use ddi_render::field_preview::SkinWant;
-use ddi_render::{ColorScheme, Painter};
 use ddi_ui::screens::editor_field::FieldPicture;
 use ddi_ui::state::editor::Editor;
 
@@ -22,7 +22,7 @@ use ddi_ui::state::editor::Editor;
 struct Shown {
     picture: Option<FieldPicture>,
     want: Option<(SkinWant, ddi_noteskin::lua::Env)>,
-    colors: ColorScheme,
+    colors: ddi_shell::editor_field::NoteColors,
     read_for: Option<(String, bool)>,
     changed: bool,
 }
