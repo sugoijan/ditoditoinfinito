@@ -1526,6 +1526,19 @@ fn the_prompt_fits_every_size_at_every_step() {
                 );
             }
             assert!(h.ui.actor("Picture").is_some());
+            // The play options, on the card (Start offered).
+            if *step == PromptStep::Ready {
+                for n in ["Opt.speed.Light", "Opt.noteskin.Light", "Opt.noteskin.Up"] {
+                    let r = h.ui.bounds(n).unwrap_or_else(|| panic!("{size:?}: no {n}"));
+                    assert!(
+                        r[0] >= card[0] - 1.0
+                            && r[2] <= card[2] + 1.0
+                            && r[1] >= card[1] - 1.0
+                            && r[3] <= card[3] + 1.0,
+                        "{size:?} {n}: {r:?} in {card:?}"
+                    );
+                }
+            }
             // Readable on a phone: CSS pixels of the status line and the
             // buttons.
             let css = |r: [f32; 4]| (r[3] - r[1]) * size[0] / vp.width;

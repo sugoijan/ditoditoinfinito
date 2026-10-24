@@ -2355,9 +2355,20 @@ fn publish(h: &Host) {
             names.extend(st.page_items.iter().cloned());
             names.push("Multiplayer".into());
         } else if st.screen == "prompt" {
-            // The start prompt's buttons, by name (`Start`, `Device.defaults`).
+            // The start prompt's buttons, by name (`Start`, `Device.defaults`),
+            // its play options' rows (`Opt.<id>`, their `.Down` and `.Up`)
+            // and `SaveOptions`.
             names.extend(st.page_items.iter().cloned());
             names.push("Card".into());
+            names.push("SaveOptions".into());
+            if let Some(p) = &st.prompt {
+                for o in &p.options {
+                    let id = o.split('=').next().unwrap_or_default();
+                    for part in ["", ".Down", ".Up"] {
+                        names.push(format!("Opt.{id}{part}"));
+                    }
+                }
+            }
         } else if st.screen == "editor" {
             // The chart editor's buttons, field and dialogs (a list's
             // `Item.<id>` in `page_items`).
@@ -2549,6 +2560,9 @@ fn publish(h: &Host) {
                     p.countdown.map_or(JsValue::NULL, |s| s.into()),
                 );
                 set(&v, "countdownState", p.countdown_state.as_str().into());
+                set(&v, "options", strings(&p.options));
+                set(&v, "optionsDiffer", p.options_differ.into());
+                set(&v, "saved", p.options_saved.into());
                 set(&v, "waiting", strings(&p.waiting));
                 v.into()
             }),

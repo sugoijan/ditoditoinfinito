@@ -287,6 +287,9 @@ pub struct Play {
     pub graphics: String,
     /// The play's id once kept (its replay).
     pub play_id: Option<String>,
+    /// The start prompt's play options it ran with, over the stored
+    /// settings (`ddi_ui::screens::prompt_options`): kept with it.
+    pub overrides: ddi_ui::screens::prompt_options::PlayOverrides,
 }
 
 /// A seed for the Shuffle turn.
@@ -369,6 +372,7 @@ impl Play {
             saved: Rc::default(),
             graphics: String::new(),
             play_id: None,
+            overrides: Default::default(),
         })
     }
 
@@ -436,7 +440,9 @@ impl Play {
         let Some(plays) = plays else {
             return;
         };
-        let settings = Settings::load();
+        // The settings as stored, the prompt's play options over them.
+        let mut settings = Settings::load();
+        self.overrides.apply(&mut settings);
         // Whole milliseconds, as the web's `Date.now()`.
         let time = epoch_ms().round();
         let played = ddi_session::record::Played {
@@ -448,7 +454,11 @@ impl Play {
                 ddi_platform::storage::Area::Local,
                 ddi_ui::state::settings::KEY,
             )
-            .and_then(|s| serde_json::from_str(&s).ok()),
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .map(|mut v| {
+                self.overrides.apply_json(&mut v);
+                v
+            }),
             devices: self.session.devices.as_ref(),
             refresh_hz: self.refresh_hz,
             graphics: self.graphics.clone(),

@@ -245,6 +245,9 @@ pub struct OptionsModel {
     /// The layout the field's preview shows (not saved; `None`: the
     /// style chosen).
     pub preview_layout: Option<String>,
+    /// Changes are not saved (the start prompt's play options,
+    /// `super::prompt_options`).
+    pub transient: bool,
 }
 
 impl OptionsModel {
@@ -255,6 +258,7 @@ impl OptionsModel {
             world,
             notice: String::new(),
             preview_layout: None,
+            transient: false,
         };
         m.follow_style();
         m
@@ -1524,7 +1528,7 @@ impl OptionsModel {
         let changed = self.settings != before
             || self.bind_layout.id != layout_before
             || id == "preview_layout";
-        if self.settings != before {
+        if self.settings != before && !self.transient {
             self.settings.save();
         }
         changed

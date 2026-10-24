@@ -69,10 +69,10 @@ Start countdown: Off, 3 s (default, also for settings stored before it),
 5 s, 10 s. There is no switch on song select or the prompt.
 
 It runs from when the prompt shows Start, on the prompt of a play chosen
-in song select, and is shown on the status line ("Starting in 3 · Enter
-starts now, any other key waits"; on touch screens "tap Start to start
-now, anywhere else to wait") with a thin bar under Start that empties
-(none under reduced motion). At zero it presses Start for the player
+in song select, and is shown on the status line ("Starting in 3", and
+under it "Enter starts now · any other key waits"; on touch screens "Tap
+Start to start now, anywhere else to wait") with a thin bar under Start
+that empties (none under reduced motion). At zero it presses Start for the player
 (the loading screen follows if loading is not done).
 
 - **Skips it** (starts now): Enter, Space or Numpad Enter; a pad's
@@ -111,20 +111,27 @@ for a tap or key as for a pad's Start (`NeedsGesture`).
 Rows under the chart, as StepMania's player options come before each song
 (`ScreenPlayerOptions`): Speed, Reverse, Turn, Appearance, Lane cover and
 Arrows (the noteskin that draws the chart: the pump skin row for a pump
-layout when pump skins exist). These are the options a player changes
-between songs; rules, timing and the display stay in Options (a ruleset
-changes how the play is scored and its bests, a choice for a session, not
-a song). Left and Right (or ◀ ▶, or a tap on the value) change the focused
-row; Up and Down move between the rows and the buttons, Start keeps the
-focus first.
+layout when pump skins exist; shown once every skin is listed, so a skin
+from a folder not read yet never reads as Dito). These are the options a
+player changes between songs; rules, timing and the display stay in
+Options (a ruleset changes how the play is scored and its bests, a choice
+for a session, not a song). They sit under a faint "THIS PLAY" heading, in
+two columns where the card is wide (read down the first, then the
+second), else one. Left and Right (or ◀ ▶) change the focused row, held
+ones repeating, clamped as Options' rows are; a tap on the row cycles it.
+Start keeps the focus first; Up from the buttons reaches "Save as default"
+(when shown) and the last row, Up and Down go through the rows in reading
+order, and Enter still starts from a row. Only on a song's prompt: a
+replay is drawn with its own settings, a test with the game's.
 
 They come from Options' own rows and logic (`OptionsModel` without
 saving), so names, choices and ranges match. A change applies to this play
 and the results' Retry, never to the stored settings; the summary line,
 the picture's filter band and the noteskin (read again, its Lua with the
 new direction) follow. When a row differs from the stored settings a
-discreet "Save as default" sits under them; it writes those rows (and only
-those) to the settings and says so.
+discreet "Save as default" button sits on the heading's line; it writes
+those rows (and only those) over the settings stored now and then says
+"Saved as default" there until the next change.
 
 The play runs with the stored settings and these over them
 (`PlayOverrides`), and records them so: the settings snapshot in the play
@@ -144,8 +151,19 @@ those played, bests and the results' mod line are the play's.
   same way (read once a load starts). `__DDI_DEBUG.ui.theme.prompt`:
   `countdown` (seconds left, or null), `countdownState` (`running`,
   `cancelled`, `done`, `off`), `loading` (the loading screen shows),
-  `options` (`id=value`), `optionsDiffer`, `saved`; `__DDI_DEBUG.prompt`
-  `waiting` (what still loads).
+  `label` (it says "Loading"), `options` (`id=value`), `optionsDiffer`,
+  `saved`, `waiting`; `__DDI_DEBUG.prompt` `waiting` (what still loads; a
+  change wakes a frame so it is current), `clarity`. The rows' places are
+  `ui.rects["Opt.<id>"]`, `.Down`, `.Up` and `SaveOptions`.
+- Headless Chrome (WebGPU and `gfx=gl`) and Playwright's Firefox, scripts
+  kept in `target/scratch/prestart/` (`step1.mjs`: Start during a 3 s skin
+  delay, the loading screen's picture pixel-equal to the play's first
+  frames around the field; `step2.mjs`: the countdown left alone, skipped,
+  cancelled by a key and by a click, none on a direct address, and with
+  `gesture` under `--autoplay-policy=document-user-activation-required`;
+  `step3.mjs`: options changed by keys and the mouse, played, kept in the
+  record, not stored, saved; `step3b.mjs`: the noteskin changed on the
+  prompt read again and played).
 
 ## Steps
 

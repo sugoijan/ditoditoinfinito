@@ -37,7 +37,7 @@ use std::rc::Rc;
 use ddi_actor::{Actor, Kind, Sprite};
 
 use super::select_dialogs::{wrap, wrap_lines};
-use super::{Env, footer, frame, left};
+use super::{Env, footer, frame, left, right};
 use crate::gesture::Gesture;
 use crate::look::{self, Spec, call, named, quad};
 use crate::nav::{Focusable, MenuAction};
@@ -133,6 +133,14 @@ pub enum PromptChoice {
     Device(String),
     /// A card's action, by its id.
     Action(String),
+    /// A play option to value `index`, for this play
+    /// (`super::prompt_options::PlayOptions::change`).
+    Option {
+        id: String,
+        index: usize,
+    },
+    /// Keep the play options as the defaults.
+    SaveOptions,
 }
 
 /// What the prompt shows, for tests (`ThemeState::prompt`).
@@ -145,6 +153,11 @@ pub struct PromptView {
     /// (`off`, `running`, `cancelled`, `done`).
     pub countdown: Option<f32>,
     pub countdown_state: String,
+    /// The play options (`id=value`), whether they differ from the
+    /// stored settings, and whether they were just saved.
+    pub options: Vec<String>,
+    pub options_differ: bool,
+    pub options_saved: bool,
     /// What the shell said still loads ([`PromptState::waiting`]).
     pub waiting: Vec<String>,
 }
@@ -180,6 +193,12 @@ pub struct PromptState {
     /// `Settings::start_countdown`); `None`: it waits for Start. Enter
     /// skips it, any other input cancels it ([`countdown_input`]).
     pub countdown: Option<f32>,
+    /// The play options this play runs with (`super::prompt_options`),
+    /// whether they differ from the stored settings, and whether they were
+    /// just saved as the defaults; none: not offered (a replay, a test).
+    pub options: Vec<super::data::OptionDef>,
+    pub options_differ: bool,
+    pub options_saved: bool,
     pub version: u64,
 }
 
@@ -215,6 +234,15 @@ impl PromptState {
     pub fn set_base(&mut self, source: Option<String>) {
         if self.base != source {
             self.base = source;
+            self.version += 1;
+        }
+    }
+
+    pub fn set_options(&mut self, rows: Vec<super::data::OptionDef>, differ: bool, saved: bool) {
+        if self.options != rows || self.options_differ != differ || self.options_saved != saved {
+            self.options = rows;
+            self.options_differ = differ;
+            self.options_saved = saved;
             self.version += 1;
         }
     }
@@ -388,6 +416,9 @@ pub struct PromptScreen {
     start_at: std::cell::Cell<Option<[f32; 3]>>,
     /// A press that cancelled the countdown: its tap does not start.
     swallow_tap: bool,
+    /// The play options' rows (`Opt.<id>`) and their `SaveOptions`, as
+    /// built.
+    controls: Vec<String>,
 }
 
 /// Where the countdown is (`docs/plans/start-prompt.md`).
@@ -490,6 +521,16 @@ struct Loading {
 const TITLE: f32 = 28.0;
 const BODY: f32 = 15.0;
 const SMALL: f32 = 13.0;
+/// A play option's row's height.
+const OPTION_ROW: f32 = 28.0;
+
+/// The prompt's play options as tests read them (`id=value`).
+fn st_options(st: &PromptState) -> Vec<String> {
+    st.options
+        .iter()
+        .map(|o| format!("{}={}", o.id, o.value()))
+        .collect()
+}
 
 impl PromptScreen {
     pub fn new(env: Env, state: SharedPrompt, act: PromptFn) -> PromptScreen {
@@ -514,6 +555,67 @@ impl PromptScreen {
             countdown_shown: 0,
             start_at: std::cell::Cell::new(None),
             swallow_tap: false,
+            controls: Vec::new(),
+        }
+    }
+
+    /// The focused play option's row lit, the others not.
+    fn light(&self, root: &mut Actor, focused: Option<&str>) {
+        let [r, g, b, _] = self.env.color("Text");
+        for name in self.controls.iter().filter(|n| n.starts_with("Opt.")) {
+            let a = if focused == Some(name.as_str()) {
+                0.08
+            } else {
+                0.004
+            };
+            if let Some(l) = crate::hit::find_mut(root, &format!("{name}.Light")) {
+                call(l, "diffuse", &[r, g, b, a]);
+            }
+        }
+    }
+
+    /// Whether a target is on one of the prompt's controls (a button, a
+    /// row, Save).
+    fn on_control(&self, target: Option<&crate::hit::Target>) -> bool {
+        target.is_some_and(|t| {
+            self.buttons
+                .iter()
+                .chain(&self.controls)
+                .any(|b| t.within(b))
+        })
+    }
+
+    /// A play option changed by `by` (Left, Right, ◀ ▶), or cycled (a tap
+    /// on its row); clamped as Options' rows are.
+    fn change_option(&self, id: &str, by: i32, wrap: bool, cx: &mut Cx) {
+        let Some(o) = self
+            .state
+            .borrow()
+            .options
+            .iter()
+            .find(|o| o.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        let n = o.values().len() as i32;
+        if n == 0 {
+            return;
+        }
+        let to = o.index as i32 + by;
+        let to = if wrap {
+            to.rem_euclid(n)
+        } else {
+            to.clamp(0, n - 1)
+        } as usize;
+        if to != o.index {
+            self.choose(
+                PromptChoice::Option {
+                    id: id.to_string(),
+                    index: to,
+                },
+                cx,
+            );
         }
     }
 
@@ -582,6 +684,7 @@ impl PromptScreen {
             // The loading screen: the card fading out (while it does),
             // then the label alone.
             self.buttons = Vec::new();
+            self.controls = Vec::new();
             let shown = self.loading.map_or(0.0, |l| l.shown);
             if let Some(card) = &self.card_shown
                 && shown < LOADING_FADE
@@ -592,8 +695,9 @@ impl PromptScreen {
             children.push(loading_label(&env, screen));
             env.state.borrow_mut().hints = Vec::new();
         } else {
-            let (card, buttons) = self.card(&state);
+            let (card, buttons, controls) = self.card(&state);
             self.buttons = buttons;
+            self.controls = controls;
             self.card_shown = Some(card.clone());
             children.push(card);
         }
@@ -612,8 +716,9 @@ impl PromptScreen {
         root
     }
 
-    /// The card in the middle, and its buttons (the first focused).
-    fn card(&self, state: &PromptState) -> (Actor, Vec<String>) {
+    /// The card in the middle, its buttons (the first focused), and the
+    /// play options' rows and their Save.
+    fn card(&self, state: &PromptState) -> (Actor, Vec<String>, Vec<String>) {
         let env = &self.env;
         let [sw, sh] = self.screen;
         // A phone sideways: wider, so fewer lines and buttons lie on it.
@@ -671,6 +776,92 @@ impl PromptScreen {
         }
         if !i.mods.is_empty() {
             line(&mut c, "Mods", &i.mods, SMALL, 400, "Muted", &mut y);
+        }
+        // The play options (while Start is offered): this play's,
+        // Options' own rows.
+        let mut controls: Vec<String> = Vec::new();
+        if state.step == PromptStep::Ready && !state.options.is_empty() {
+            y += 14.0;
+            let head = look::tracked(
+                env.text("OptionsHeading", "THIS PLAY", 11.0, 600, "Faint"),
+                120,
+            );
+            c.push(left(head, 24.0, y + 9.0));
+            if state.options_differ {
+                let label = "Save as default";
+                let bw = look::mono_width(label, 13.0) + 24.0;
+                let mut b = look::component_or(
+                    &*env.look,
+                    "Button",
+                    "Button",
+                    &Spec::new([bw, 26.0], label),
+                );
+                b.name = "SaveOptions".into();
+                call(&mut b, "xy", &[w - 24.0 - bw / 2.0, y + 9.0]);
+                c.push(b);
+                controls.push("SaveOptions".into());
+            } else if state.options_saved {
+                c.push(right(
+                    env.text("OptionsSaved", "Saved as default", 12.0, 400, "Muted"),
+                    w - 24.0,
+                    y + 9.0,
+                ));
+            }
+            y += 22.0;
+            // Two columns where the card is wide (read down the first,
+            // then the second, as Up and Down go), else one.
+            let cols = if inner >= 470.0 { 2 } else { 1 };
+            let gap = 20.0;
+            let colw = (inner - gap * (cols - 1) as f32) / cols as f32;
+            let per = state.options.len().div_ceil(cols);
+            let label_w = state
+                .options
+                .iter()
+                .map(|o| look::mono_width(&o.label, 14.0))
+                .fold(0.0, f32::max)
+                .min(colw * 0.45);
+            let vw = (colw - label_w - 52.0).clamp(60.0, 200.0);
+            let top = y;
+            for (k, o) in state.options.iter().enumerate() {
+                let name = format!("Opt.{}", o.id);
+                let (col, at) = (k / per, k % per);
+                let x0 = 24.0 + col as f32 * (colw + gap);
+                let vx = x0 + colw - vw - 44.0;
+                let mid = OPTION_ROW / 2.0;
+                let mut light = quad(
+                    &format!("{name}.Light"),
+                    [colw + 12.0, OPTION_ROW - 2.0],
+                    [1.0, 1.0, 1.0, 0.004],
+                );
+                call(&mut light, "cornerradius", &[6.0]);
+                call(&mut light, "xy", &[x0 + colw / 2.0, mid]);
+                let mut label = env.text(&format!("{name}.Label"), &o.label, 14.0, 400, "Muted");
+                call(&mut label, "maxwidth", &[(vx - x0 - 4.0).max(40.0)]);
+                let mut value = env.text(&format!("{name}.Value"), o.value(), 14.0, 600, "Text");
+                call(&mut value, "maxwidth", &[vw]);
+                call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
+                let arrow = |part: &str, glyph: &str, x: f32| {
+                    let mut hit = quad(&format!("{name}.{part}"), [26.0, OPTION_ROW], [0.0; 4]);
+                    call(&mut hit, "xy", &[x, mid]);
+                    let mut g = env.text("", glyph, 12.0, 400, "Accent");
+                    call(&mut g, "xy", &[x, mid]);
+                    frame("", vec![hit, g])
+                };
+                let mut row = frame(
+                    &name,
+                    vec![
+                        light,
+                        left(label, x0, mid),
+                        arrow("Down", "◀", vx + 9.0),
+                        value,
+                        arrow("Up", "▶", vx + 22.0 + vw + 13.0),
+                    ],
+                );
+                call(&mut row, "y", &[top + at as f32 * OPTION_ROW]);
+                c.push(row);
+                controls.push(name);
+            }
+            y = top + per as f32 * OPTION_ROW;
         }
         y += 14.0;
         // The step.
@@ -887,7 +1078,11 @@ impl PromptScreen {
         call(&mut card, "zoom", &[zoom]);
         let top = ((sh - if state.touch { 0.0 } else { 40.0 }) - h * zoom) / 2.0;
         call(&mut card, "xy", &[(sw - w * zoom) / 2.0, top.max(8.0)]);
-        (card, buttons.into_iter().map(|(n, _, _)| n).collect())
+        (
+            card,
+            buttons.into_iter().map(|(n, _, _)| n).collect(),
+            controls,
+        )
     }
 
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
@@ -913,7 +1108,9 @@ impl PromptScreen {
         self.show_loading(root);
         // The same step (a resize, a line changed): the focus stays; a new
         // one focuses its own first button.
-        let keep = focused.filter(|f| step == Some(before) && self.buttons.contains(f));
+        let keep = focused.filter(|f| {
+            step == Some(before) && (self.buttons.contains(f) || self.controls.contains(f))
+        });
         if let Some(f) = keep.or_else(|| self.buttons.first().cloned()) {
             cx.focus(f);
         }
@@ -999,6 +1196,9 @@ impl PromptScreen {
                 Countdown::Done => "done",
             }
             .into(),
+            options: st_options(&self.state.borrow()),
+            options_differ: self.state.borrow().options_differ,
+            options_saved: self.state.borrow().options_saved,
             waiting: self.state.borrow().waiting.clone(),
         };
         let mut st = self.env.state.borrow_mut();
@@ -1183,8 +1383,43 @@ impl Screen for PromptScreen {
         root
     }
 
+    /// The buttons (Start first, focused first), then the play options'
+    /// rows top to bottom and their Save; Up from the buttons goes up
+    /// through Save and the rows, Down back.
     fn focusables(&self) -> Vec<Focusable> {
-        self.buttons.iter().map(Focusable::new).collect()
+        let rows: Vec<&String> = self
+            .controls
+            .iter()
+            .filter(|n| n.starts_with("Opt."))
+            .collect();
+        let save = self.controls.iter().find(|n| *n == "SaveOptions");
+        let above_buttons = save.or(rows.last().copied()).cloned();
+        let mut out: Vec<Focusable> = self
+            .buttons
+            .iter()
+            .map(|b| {
+                let mut f = Focusable::new(b);
+                f.up = above_buttons.clone();
+                f
+            })
+            .collect();
+        for (i, r) in rows.iter().enumerate() {
+            let mut f = Focusable::new(*r);
+            f.up = i.checked_sub(1).map(|j| rows[j].clone());
+            f.down = rows
+                .get(i + 1)
+                .map(|r| (*r).clone())
+                .or_else(|| save.cloned())
+                .or_else(|| self.buttons.first().cloned());
+            out.push(f);
+        }
+        if let Some(s) = save {
+            let mut f = Focusable::new(s);
+            f.up = rows.last().map(|r| (*r).clone());
+            f.down = self.buttons.first().cloned();
+            out.push(f);
+        }
+        out
     }
 
     /// Frames while something loads (the shell's lines change), so they
@@ -1303,6 +1538,8 @@ impl Screen for PromptScreen {
         if self.env.state.borrow().screen != "prompt" {
             self.publish();
         }
+        let focused = cx.focused().map(str::to_string);
+        self.light(root, focused.as_deref());
         self.publish_view();
     }
 
@@ -1347,14 +1584,55 @@ impl Screen for PromptScreen {
                         gesture: Gesture::Press | Gesture::Tap | Gesture::LongPress,
                         ..
                     } = input
-                        && !target
-                            .as_ref()
-                            .is_some_and(|t| self.buttons.iter().any(|b| t.within(b)))
+                        && !self.on_control(target.as_ref())
                     {
                         self.swallow_tap = true;
                     }
                 }
                 CountdownInput::Ignore => {}
+            }
+        }
+        // The play options' rows: Left and Right change the focused one
+        // (held, repeating), a tap on ◀ ▶ steps it, on the row cycles it.
+        if step == PromptStep::Ready {
+            let row = cx
+                .focused()
+                .and_then(|f| f.strip_prefix("Opt."))
+                .map(str::to_string);
+            if let (
+                Input::Menu {
+                    action: action @ (MenuAction::Left | MenuAction::Right),
+                    ..
+                },
+                Some(id),
+            ) = (input, &row)
+            {
+                let by = if *action == MenuAction::Left { -1 } else { 1 };
+                self.change_option(id, by, false, cx);
+                return Handled::Yes;
+            }
+            if let Input::Pointer {
+                target: Some(t),
+                gesture: Gesture::Tap,
+                ..
+            } = input
+                && let Some(name) = self
+                    .controls
+                    .iter()
+                    .find(|n| n.starts_with("Opt.") && t.within(n))
+                    .cloned()
+            {
+                let id = &name["Opt.".len()..];
+                let (by, wrap) = if t.within(&format!("{name}.Down")) {
+                    (-1, false)
+                } else if t.within(&format!("{name}.Up")) {
+                    (1, false)
+                } else {
+                    (1, true)
+                };
+                cx.focus(name.clone());
+                self.change_option(id, by, wrap, cx);
+                return Handled::Yes;
             }
         }
         match input {
@@ -1371,7 +1649,9 @@ impl Screen for PromptScreen {
             Input::Menu {
                 action: MenuAction::Start,
                 ..
-            } if step == PromptStep::Ready && cx.focused() != Some("Back") => {
+            } if step == PromptStep::Ready
+                && !matches!(cx.focused(), Some("Back" | "SaveOptions")) =>
+            {
                 self.choose(PromptChoice::Start, cx);
                 Handled::Yes
             }
@@ -1381,6 +1661,7 @@ impl Screen for PromptScreen {
                     "Back" => Some(PromptChoice::Back),
                     "Allow" => Some(PromptChoice::Allow),
                     "Retry" => Some(PromptChoice::Retry),
+                    "SaveOptions" => Some(PromptChoice::SaveOptions),
                     n => n
                         .strip_prefix("Device.")
                         .map(|id| PromptChoice::Device(id.to_string()))
@@ -1403,11 +1684,7 @@ impl Screen for PromptScreen {
                 target,
                 gesture: Gesture::Tap,
                 ..
-            } if step == PromptStep::Ready
-                && !target
-                    .as_ref()
-                    .is_some_and(|t| self.buttons.iter().any(|b| t.within(b))) =>
-            {
+            } if step == PromptStep::Ready && !self.on_control(target.as_ref()) => {
                 if !std::mem::take(&mut self.swallow_tap) {
                     self.choose(PromptChoice::Start, cx);
                 }
@@ -1918,6 +2195,102 @@ mod tests {
         assert!(h.ui.actor("CountdownBar").is_none());
         h.run(3.0);
         assert_eq!(starts(&seen), [false]);
+    }
+
+    #[test]
+    fn the_play_options_are_navigable_and_say_what_changes() {
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        use super::super::prompt_options::PlayOptions;
+        let state = SharedPrompt::default();
+        let options = Rc::new(RefCell::new(PlayOptions::new(
+            crate::state::settings::Settings::default(),
+            "dance-single",
+            super::super::data::Platform::Web,
+        )));
+        options
+            .borrow_mut()
+            .set_noteskins(vec![("dito".into(), "Dito".into())], true);
+        options.borrow().show(&mut state.borrow_mut());
+        state.borrow_mut().set_countdown(Some(3.0));
+        // The shell: options applied (this play's), saved when asked.
+        let env = Env::new(Rc::new(look::Plain), Rc::new(|s: &str| s.to_string()));
+        LAST_ENV.with(|e| *e.borrow_mut() = Some(env.clone()));
+        let seen: Seen = Rc::default();
+        let act: PromptFn = {
+            let (seen, state, options) = (seen.clone(), state.clone(), options.clone());
+            Rc::new(move |c, cx: &mut Cx| {
+                match &c {
+                    PromptChoice::Option { id, index } => {
+                        options.borrow_mut().change(id, *index);
+                        options.borrow().show(&mut state.borrow_mut());
+                    }
+                    PromptChoice::SaveOptions => {
+                        options.borrow_mut().save();
+                        options.borrow().show(&mut state.borrow_mut());
+                    }
+                    _ => {}
+                }
+                seen.borrow_mut().push((c, cx.in_gesture()))
+            })
+        };
+        let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+        h.push(PromptScreen::new(env, state.clone(), act));
+        h.run(0.3);
+        assert_eq!(
+            view().options,
+            [
+                "speed=×2.5",
+                "reverse=Off",
+                "turn=Off",
+                "appearance=Normal",
+                "lane_cover=Off",
+                "noteskin=Dito"
+            ]
+        );
+        assert_eq!(h.ui.focused(), Some("Start"));
+        // Up from Start: the last row, then up the rows.
+        h.key("ArrowUp", "ArrowUp");
+        assert_eq!(h.ui.focused(), Some("Opt.noteskin"));
+        // Navigating stopped the countdown.
+        assert_eq!(view().countdown_state, "cancelled");
+        for _ in 0..5 {
+            h.key("ArrowUp", "ArrowUp");
+        }
+        assert_eq!(h.ui.focused(), Some("Opt.speed"));
+        h.key("ArrowRight", "ArrowRight");
+        h.run(0.05);
+        assert_eq!(view().options[0], "speed=×2.75");
+        assert!(view().options_differ);
+        // ◀ ▶ step a row, a tap on it cycles it.
+        h.tap(PointerKind::Mouse, "Opt.reverse.Up");
+        h.run(0.05);
+        assert_eq!(view().options[1], "reverse=On");
+        h.tap(PointerKind::Mouse, "Opt.turn.Label");
+        h.run(0.05);
+        assert_eq!(view().options[2], "turn=Mirror");
+        assert_eq!(h.ui.focused(), Some("Opt.turn"));
+        // Not saved: the stored settings are as they were.
+        assert_eq!(crate::state::settings::Settings::load().speed, 2.5);
+        // Save as default: under the rows, Enter there saves, not starts.
+        h.key("ArrowDown", "ArrowDown");
+        h.key("ArrowDown", "ArrowDown");
+        h.key("ArrowDown", "ArrowDown");
+        h.key("ArrowDown", "ArrowDown");
+        assert_eq!(h.ui.focused(), Some("SaveOptions"));
+        h.key("Enter", "Enter");
+        h.run(0.05);
+        assert!(view().options_saved && !view().options_differ);
+        let s = crate::state::settings::Settings::load();
+        assert_eq!((s.speed, s.reverse), (2.75, true));
+        assert!(!seen.borrow().iter().any(|(c, _)| *c == PromptChoice::Start));
+        assert!(h.texts().iter().any(|t| t == "Saved as default"));
+        // Then Start, from where the focus went.
+        h.key("ArrowDown", "ArrowDown");
+        h.key("Enter", "Enter");
+        assert_eq!(
+            seen.borrow().last().map(|s| &s.0),
+            Some(&PromptChoice::Start)
+        );
     }
 
     #[test]

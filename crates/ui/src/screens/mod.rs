@@ -71,6 +71,7 @@ pub mod page;
 mod page_tests;
 pub mod play;
 pub mod prompt;
+pub mod prompt_options;
 pub mod results;
 pub mod sample;
 pub mod select;

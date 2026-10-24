@@ -100,7 +100,8 @@ Rust and the browser are implementation details, not advertised features.
   calibration's menu and the credits, the app's notices as the UI's
   chrome, the play's start prompt, `prompt.rs`: Start never waits for
   what loads behind it, a loading screen after Start until the play is
-  ready, `docs/plans/start-prompt.md`) with their sample
+  ready, a countdown on song select's plays, and this play's options,
+  `prompt_options.rs`, `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
   flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and

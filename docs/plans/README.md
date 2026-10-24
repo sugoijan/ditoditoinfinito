@@ -111,10 +111,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
 ## UI and desktop
 
 - [The start prompt, loading in the background](start-prompt.md)
-  (2026-10-24): in progress. Start never waits for the noteskin or the
-  rest (a loading screen after an early Start), the countdown to Start on
-  song select's plays done (decision 61). Left: play options on the
-  prompt.
+  (2026-10-24): done (decision 61). Start never waits for the noteskin
+  or the rest (a loading screen after an early Start), the countdown to
+  Start on song select's plays, this play's options on the prompt (Speed,
+  Reverse, Turn, Appearance, Lane cover, the noteskin; Save as default).
 - [Start menu and returning between screens](start-menu.md) (2026-10-20):
   implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
   Options, silent return from song select and desktop Quit.

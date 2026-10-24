@@ -532,9 +532,13 @@ pub fn calibration_screen(env: &Env) -> super::page::PageScreen {
 }
 
 /// The start prompt for Some Things Must's Hard chart at `step`, over
-/// its background, the choices ignored (the developer routes, tests).
+/// its background, its play options changed (never saved), the other
+/// choices ignored (the developer routes, tests).
 pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::prompt::PromptScreen {
-    use super::prompt::{PromptInfo, PromptPicture, PromptScreen, PromptState, chart_line};
+    use super::prompt::{
+        PromptChoice, PromptInfo, PromptPicture, PromptScreen, PromptState, chart_line,
+    };
+    use super::prompt_options::PlayOptions;
     let info = PromptInfo {
         title: "Some Things Must (OutFox Edit)".into(),
         artist: "Sevish".into(),
@@ -556,7 +560,31 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
         }),
         ..PromptState::default()
     }));
-    PromptScreen::new(env.clone(), state, Rc::new(|_, _| {}))
+    let mut options = PlayOptions::new(
+        crate::state::settings::Settings::default(),
+        "dance-single",
+        super::data::Platform::Web,
+    );
+    options.set_noteskins(
+        vec![
+            ("dito".into(), "Dito".into()),
+            ("bundled:dance/Peters-DDR".into(), "Peters-DDR".into()),
+        ],
+        true,
+    );
+    options.show(&mut state.borrow_mut());
+    let options = Rc::new(std::cell::RefCell::new(options));
+    let shown = state.clone();
+    PromptScreen::new(
+        env.clone(),
+        state,
+        Rc::new(move |c, _| {
+            if let PromptChoice::Option { id, index } = c {
+                options.borrow_mut().change(&id, index);
+                options.borrow().show(&mut shown.borrow_mut());
+            }
+        }),
+    )
 }
 
 /// What the sample's options do when changed: reduced motion is the

@@ -57,6 +57,7 @@ use ddi_ui::screens::prompt::{
     PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep, SharedPrompt,
     chart_line, mods_line, new_device_step,
 };
+use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 
 /// How long after the results' Retry a start is not taken (ms).
 const PROMPT_GUARD_MS: f64 = 500.0;
@@ -212,12 +213,17 @@ pub(crate) enum Msg {
     ),
     /// Time to look at the video decoder's download again (start prompt).
     VideoTick,
-    /// The chosen noteskin is being readied: Start waits for it (a skin
+    /// The chosen noteskin is being readied: the play waits for it (a skin
     /// readied mid-play would wait for the next play).
     NoteskinLoading,
     /// The chosen noteskin, readied for the chart's layout (`None`: the
-    /// built-in arrows).
-    NoteskinLoaded(Option<Box<crate::noteskins::Prepared>>),
+    /// built-in arrows), by the load it was asked for in (one after the
+    /// prompt's options changed it goes to a later one).
+    NoteskinLoaded(u64, Option<Box<crate::noteskins::Prepared>>),
+    /// The prompt's play options changed (`PromptShell::choose`).
+    OptionsChanged,
+    /// The skins one can choose, for the options' skin row.
+    PromptSkins(Result<crate::noteskins::Choices, String>),
     /// The chart's best play, read for its ghost (`Settings::ghost`).
     GhostLoaded(Result<ddi_platform::history::PlayEntry, String>),
     /// A replay's skin looked for once its song was read (its folder
@@ -308,6 +314,16 @@ pub(crate) struct GameCanvas {
     )>,
     /// The video decoder's download, for the start prompt.
     video_line: Option<String>,
+    /// The start prompt's play options (none for a replay or a test), the
+    /// ones the settings and the skin were readied with, the skin's load
+    /// (its [`Msg::NoteskinLoaded`] answers the latest only), and whether
+    /// the skin is to be read again once the song is (they changed before
+    /// it was read), or dropped for the built-in arrows.
+    options: Option<Rc<RefCell<PlayOptions>>>,
+    applied: PlayOverrides,
+    skin_load: u64,
+    skin_stale: bool,
+    skin_none: bool,
     /// The start prompt on the canvas while the play has not started (or
     /// was interrupted), what it shows, and what its choices reach.
     prompt: Option<crate::components::ui_dev::Embedded>,
@@ -398,6 +414,8 @@ pub(crate) struct PromptShell {
     /// When the results' Retry brought the start prompt back (ms, the
     /// page's clock): a tap right after it is the Retry's, not a start.
     retried_at: std::cell::Cell<f64>,
+    /// The prompt's play options, changed in the call.
+    options: Option<Rc<RefCell<PlayOptions>>>,
 }
 
 impl PromptShell {
@@ -477,6 +495,21 @@ impl PromptShell {
             }
             PromptChoice::Retry => send(Msg::Retry),
             PromptChoice::Action(id) => send(Msg::CardAction(id)),
+            // This play's options, at once; the page readies what they
+            // change.
+            PromptChoice::Option { id, index } => {
+                if let Some(o) = &self.options {
+                    o.borrow_mut().change(&id, index);
+                    o.borrow().show(&mut self.state.borrow_mut());
+                    send(Msg::OptionsChanged);
+                }
+            }
+            PromptChoice::SaveOptions => {
+                if let Some(o) = &self.options {
+                    o.borrow_mut().save();
+                    o.borrow().show(&mut self.state.borrow_mut());
+                }
+            }
             PromptChoice::Device(id) => send(match id.as_str() {
                 "calibrate" => Msg::DeviceCalibrate,
                 other => Msg::DeviceContinue {
@@ -568,7 +601,7 @@ impl Component for GameCanvas {
                 let link = ctx.link().clone();
                 ctx.link().send_future(async move {
                     if let Some(skin) = skin {
-                        link.send_message(Msg::NoteskinLoaded(skin.await));
+                        link.send_message(Msg::NoteskinLoaded(0, skin.await));
                     }
                     Msg::SongLoaded(Ok(Rc::new(loaded)))
                 });
@@ -644,7 +677,25 @@ impl Component for GameCanvas {
                 .borrow_mut()
                 .set_countdown(Some(play_settings.start_countdown));
         }
+        // A song's prompt offers this play's options (not a replay's, drawn
+        // with its own, nor a test's); the skins for its skin row come
+        // from storage.
+        let options = match &ctx.props().source {
+            SongSource::Song { .. } if replay.is_none() => {
+                let o = PlayOptions::new(
+                    play_settings.clone(),
+                    "",
+                    ddi_ui::screens::data::Platform::Web,
+                );
+                o.show(&mut prompt_state.borrow_mut());
+                ctx.link()
+                    .send_future(async { Msg::PromptSkins(crate::noteskins::choices().await) });
+                Some(Rc::new(RefCell::new(o)))
+            }
+            _ => None,
+        };
         let shell = Rc::new(PromptShell {
+            options: options.clone(),
             link: ctx.link().clone(),
             state: prompt_state.clone(),
             access: RefCell::new(None),
@@ -688,6 +739,11 @@ impl Component for GameCanvas {
             skin_loading: false,
             early_audio,
             predecoding: false,
+            options,
+            applied: PlayOverrides::default(),
+            skin_load: 0,
+            skin_stale: false,
+            skin_none: false,
             held_start: None,
             start_on_predecode: false,
             pictures_seen: 0,
@@ -834,8 +890,24 @@ impl GameCanvas {
                         "This chart changed since the play: its replay would be wrong.".into()
                     }));
                 }
+                // The options' skin row is the chart's layout's.
+                if let (Some(o), SongSource::Song { chart, .. }) =
+                    (&self.options, &ctx.props().source)
+                    && let Some(layout) = song
+                        .song
+                        .charts
+                        .get(*chart)
+                        .and_then(|c| song.song.layout_of(c))
+                {
+                    o.borrow_mut().set_layout(&layout.id);
+                    o.borrow().show(&mut self.prompt_state.borrow_mut());
+                }
                 self.song = Status::Ready(song);
                 self.song_at = js_sys::Date::now();
+                // Options changed before the song was read: its skin again.
+                if std::mem::take(&mut self.skin_stale) {
+                    self.restart_skin(ctx);
+                }
                 self.predecode(ctx);
                 self.resume_start(ctx);
                 if self.refused.is_none() && self.replay.as_ref().is_some_and(|r| r.view_results) {
@@ -929,8 +1001,17 @@ impl GameCanvas {
                 self.skin_loading = true;
                 false
             }
-            Msg::NoteskinLoaded(prepared) => {
+            Msg::NoteskinLoaded(load, prepared) => {
+                // An earlier load's, the options having changed the skin
+                // since: not this play's.
+                if load != self.skin_load {
+                    if let Some(p) = prepared {
+                        p.close();
+                    }
+                    return false;
+                }
                 self.skin_loading = false;
+                self.skin_none = prepared.is_none();
                 // A second load (after asking for a folder) replaces one
                 // not handed over yet.
                 if let Some(old) = std::mem::replace(&mut self.noteskin, prepared) {
@@ -938,6 +1019,18 @@ impl GameCanvas {
                 }
                 self.apply_background();
                 self.try_begin(ctx)
+            }
+            Msg::OptionsChanged => self.options_changed(ctx),
+            Msg::PromptSkins(Ok(c)) => {
+                if let Some(o) = &self.options {
+                    o.borrow_mut().set_noteskins(c.skins, c.complete);
+                    o.borrow().show(&mut self.prompt_state.borrow_mut());
+                }
+                true
+            }
+            Msg::PromptSkins(Err(e)) => {
+                web_sys::console::warn_1(&e.into());
+                false
             }
             Msg::VideoTick => {
                 // A play started early: the pictures' wait may be over.
@@ -1667,7 +1760,66 @@ impl GameCanvas {
     /// The settings the play runs with: the stored ones, or a replay's
     /// over them (`Replay::settings`).
     fn play_settings(&self) -> Settings {
-        play_settings(self.replay.as_deref())
+        let mut s = play_settings(self.replay.as_deref());
+        if let Some(o) = &self.options {
+            o.borrow().over(&mut s);
+        }
+        s
+    }
+
+    /// The prompt's play options changed: the play's settings follow, and
+    /// the skin is readied again when they change it (its key, or the
+    /// direction its Lua is told); the prompt's summary and filter band
+    /// follow (`sync_prompt`).
+    fn options_changed(&mut self, ctx: &Context<Self>) -> bool {
+        let Some(now) = self.options.as_ref().map(|o| o.borrow().overrides()) else {
+            return false;
+        };
+        if now == self.applied || !matches!(self.stage, Stage::Idle) {
+            return false;
+        }
+        let before = std::mem::replace(&mut self.applied, now.clone());
+        self.settings = self.play_settings();
+        let skin = before.noteskin != now.noteskin
+            || before.pump_noteskin != now.pump_noteskin
+            || before.reverse != now.reverse;
+        if skin {
+            if matches!(self.song, Status::Ready(_)) {
+                self.restart_skin(ctx);
+            } else {
+                self.skin_stale = true;
+            }
+        }
+        true
+    }
+
+    /// Readies the chart's skin again with the play's settings (a load
+    /// of its own: an earlier one's answer is not taken).
+    fn restart_skin(&mut self, ctx: &Context<Self>) {
+        let (Status::Ready(song), SongSource::Song { id, chart }) =
+            (&self.song, &ctx.props().source)
+        else {
+            return;
+        };
+        self.skin_load += 1;
+        let load = self.skin_load;
+        let shift = ddi_session::play::song_shift(&self.settings, id, self.kept(), false);
+        match noteskin_ready(&self.settings, &song.song, *chart, shift) {
+            Some(skin) => {
+                self.skin_loading = true;
+                ctx.link()
+                    .send_future(async move { Msg::NoteskinLoaded(load, skin.await) });
+            }
+            // The built-in arrows: none to ready.
+            None => {
+                self.skin_loading = false;
+                self.skin_none = true;
+                if let Some(old) = self.noteskin.take() {
+                    old.close();
+                }
+                self.apply_background();
+            }
+        }
     }
 
     /// The chart's best play under the rules it is played by, read for
@@ -1732,6 +1884,9 @@ impl GameCanvas {
             }
             if let Some(p) = self.noteskin.take() {
                 game.set_noteskin(Some(p.play), p.images, p.key);
+            } else if std::mem::take(&mut self.skin_none) {
+                // The built-in arrows (a skin readied before goes).
+                game.set_noteskin(None, Vec::new(), String::new());
             }
         }
     }
@@ -1913,6 +2068,9 @@ impl GameCanvas {
         let waiting = self.waiting_for().into_iter().map(String::from).collect();
         let changed = {
             let mut st = self.prompt_state.borrow_mut();
+            // Not drawn, but read by tests (`__DDI_DEBUG.prompt`): a frame
+            // publishes it.
+            let waited = st.waiting != waiting;
             st.set_waiting(waiting);
             let before = st.version;
             st.set_info(info);
@@ -1920,7 +2078,7 @@ impl GameCanvas {
             st.set_notes(notes);
             st.set_touch(self.touch);
             st.set_picture(picture);
-            st.version != before
+            st.version != before || waited
         };
         if self.prompt.is_none() {
             self.open_prompt();
@@ -2257,11 +2415,16 @@ impl GameCanvas {
             chart,
             settings: &self.settings,
             // As stored, so fields this version does not know are kept.
+            // With the prompt's play options over them, as played.
             stored_settings: ddi_platform::storage::get(
                 ddi_platform::storage::Area::Local,
                 ddi_ui::state::settings::KEY,
             )
-            .and_then(|s| serde_json::from_str(&s).ok()),
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .map(|mut v| {
+                self.applied.apply_json(&mut v);
+                v
+            }),
             devices: self.devices.as_ref(),
             refresh_hz: self.start_refresh,
             graphics: crate::web::screen::current()
@@ -3074,7 +3237,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart, shift)
         {
             link.send_message(Msg::NoteskinLoading);
-            link.send_future(async move { Msg::NoteskinLoaded(skin.await) });
+            link.send_future(async move { Msg::NoteskinLoaded(0, skin.await) });
         }
         Msg::SongLoaded(r)
     });

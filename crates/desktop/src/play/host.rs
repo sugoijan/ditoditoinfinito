@@ -23,6 +23,7 @@ use ddi_ui::screens::prompt::{
     PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptScreen, PromptState, PromptStep,
     SharedPrompt, chart_line, mods_line, new_device_step,
 };
+use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen, stored_panels};
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
@@ -86,6 +87,13 @@ struct Readied {
     started: bool,
     /// Everything the play waits for is ready (as of the last poll).
     ready: bool,
+    /// The play options on the prompt (`ddi_ui::screens::prompt_options`;
+    /// none for a test or a replay), the ones its drawing was readied
+    /// with, and the song folders' skins for its skin row, listed on a
+    /// thread.
+    options: Option<Rc<RefCell<PlayOptions>>>,
+    applied: PlayOverrides,
+    skins: Option<Receiver<Vec<(String, String)>>>,
 }
 
 /// A song's scripted backgrounds (`super::scripts`): readied once for
@@ -102,6 +110,16 @@ enum SongScripts {
 }
 
 impl Readied {
+    /// The settings the play runs with: the request's, the prompt's play
+    /// options over them.
+    fn settings(&self) -> Settings {
+        let mut s = self.request.settings();
+        if let Some(o) = &self.options {
+            o.borrow().over(&mut s);
+        }
+        s
+    }
+
     /// The song's drawing let go (a lost device): its scripts are kept.
     fn drop_view(&mut self) {
         if let Some(mut v) = self.view.take()
@@ -405,6 +423,7 @@ impl Host {
         r.prompt.borrow_mut().done = false;
         let (choice, state, devices) =
             (self.choice.clone(), r.prompt.clone(), self.devices.clone());
+        let options = r.options.clone();
         // A test, an autoplay or a replay starts without asking about
         // devices.
         let ask_devices =
@@ -450,6 +469,22 @@ impl Host {
                     _ => cx.close(true),
                 },
                 PromptChoice::Allow => return,
+                // This play's options, at once; the poll readies what
+                // they change (`Host::ready`).
+                PromptChoice::Option { id, index } => {
+                    if let Some(o) = &options {
+                        o.borrow_mut().change(id, *index);
+                        o.borrow().show(&mut state.borrow_mut());
+                    }
+                    return;
+                }
+                PromptChoice::SaveOptions => {
+                    if let Some(o) = &options {
+                        o.borrow_mut().save();
+                        o.borrow().show(&mut state.borrow_mut());
+                    }
+                    return;
+                }
             }
             *choice.borrow_mut() = Some(c);
         });
@@ -503,7 +538,40 @@ impl Host {
                 scripts: SongScripts::Unread,
                 started: false,
                 ready: false,
+                options: None,
+                applied: PlayOverrides::default(),
+                skins: None,
             };
+            // A song's prompt offers this play's options (not a test's, a
+            // replay's: it is drawn with its own); the skins the song
+            // folders hold come from a thread.
+            if readied.request.calibration.is_none()
+                && readied.request.replay.is_none()
+                && readied.request.refused.is_none()
+            {
+                let mut o = PlayOptions::new(
+                    readied.request.settings(),
+                    "",
+                    ddi_ui::screens::data::Platform::Desktop,
+                );
+                let bundled = crate::library::noteskins::bundled();
+                o.set_noteskins(crate::library::noteskins::choices(&bundled), false);
+                o.show(&mut readied.prompt.borrow_mut());
+                readied.options = Some(Rc::new(RefCell::new(o)));
+                let (tx, rx) = mpsc::channel();
+                let folders = crate::library::all_folders();
+                let wake = self.wake.clone();
+                let _ = std::thread::Builder::new()
+                    .name("ddi-prompt-skins".into())
+                    .spawn(move || {
+                        let skins = crate::library::noteskins::all(&folders);
+                        let _ = tx.send(crate::library::noteskins::choices(&skins));
+                        if let Some(w) = wake {
+                            w();
+                        }
+                    });
+                readied.skins = Some(rx);
+            }
             // A kept play's results: at once, judged again from its log.
             if readied.request.view_results && readied.request.refused.is_none() {
                 self.stage = self.show_kept_results(readied, ui, env);
@@ -572,10 +640,23 @@ impl Host {
                         }
                     }
                     Some(PromptChoice::Action(id)) => self.card_action(r, &id, ui, env),
-                    Some(PromptChoice::Allow) | None if r.started => {
+                    // (The options are applied in the prompt's call.)
+                    Some(
+                        PromptChoice::Allow
+                        | PromptChoice::Option { .. }
+                        | PromptChoice::SaveOptions,
+                    )
+                    | None
+                        if r.started =>
+                    {
                         self.start_if_ready(r, ui, env)
                     }
-                    Some(PromptChoice::Allow) | None => Stage::Prompt(r),
+                    Some(
+                        PromptChoice::Allow
+                        | PromptChoice::Option { .. }
+                        | PromptChoice::SaveOptions,
+                    )
+                    | None => Stage::Prompt(r),
                 }
             }
             Stage::Results(r) => match self.after.take() {
@@ -593,7 +674,7 @@ impl Host {
                     if let (Some(v), Some(loaded)) = (r.view.as_ref(), r.loaded.clone())
                         && v.noteskin().is_some_and(|n| n.lua_failure().is_some())
                     {
-                        let settings = r.request.settings();
+                        let settings = r.settings();
                         r.skin = read_skin(&loaded, &r.request, &settings, self.wake.clone());
                     }
                     // The sound opens again behind the prompt.
@@ -707,7 +788,7 @@ impl Host {
                 r.loaded = Some(Rc::new(super::load::calibration(mode, r.rate)));
             } else if known || r.asked.elapsed().as_secs() >= 30 {
                 // A song never listed fails its load after a while.
-                let s = r.request.settings();
+                let s = r.settings();
                 let movies = cfg!(feature = "video")
                     && s.bg_brightness > 0.0
                     && s.video != ddi_ui::state::settings::VideoMode::Off;
@@ -749,6 +830,14 @@ impl Host {
         if r.error.is_some() {
             return;
         }
+        // The song folders' skins, for the options' skin row.
+        if let (Some(rx), Some(o)) = (&r.skins, &r.options)
+            && let Ok(skins) = rx.try_recv()
+        {
+            o.borrow_mut().set_noteskins(skins, true);
+            o.borrow().show(&mut r.prompt.borrow_mut());
+            r.skins = None;
+        }
         // The sound opens while the rest is readied.
         if r.audio.is_none() {
             r.audio = Some((self.open_audio(), Instant::now()));
@@ -757,7 +846,7 @@ impl Host {
         // here a turn a poll (the prompt keeps drawing).
         if let Some(loaded) = &r.loaded {
             if matches!(r.scripts, SongScripts::Unread) {
-                let settings = r.request.settings();
+                let settings = r.settings();
                 r.scripts =
                     match super::scripts::ScriptLoad::start(loaded, &settings, self.wake.clone()) {
                         Some(l) => SongScripts::Loading(Box::new(l)),
@@ -776,7 +865,7 @@ impl Host {
             }
             return;
         };
-        let settings = r.request.settings();
+        let settings = r.settings();
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, dev.formats);
             view.set_song(&loaded, &settings);
@@ -801,6 +890,37 @@ impl Host {
             r.prompt
                 .borrow_mut()
                 .set_info(full_info(&r.request, &loaded, &settings));
+            // The options' skin row is the chart's layout's.
+            if let Some(o) = &r.options {
+                if let Some(layout) = loaded
+                    .song
+                    .charts
+                    .get(r.request.chart)
+                    .and_then(|c| loaded.song.layout_of(c))
+                {
+                    o.borrow_mut().set_layout(&layout.id);
+                }
+                o.borrow().show(&mut r.prompt.borrow_mut());
+                r.applied = o.borrow().overrides();
+            }
+        }
+        // The play options changed on the prompt: the skin read again
+        // when they change it (its key, or the direction its Lua is
+        // told), the summary as it now is.
+        if let Some(o) = &r.options {
+            let now = o.borrow().overrides();
+            if now != r.applied {
+                let before = std::mem::replace(&mut r.applied, now.clone());
+                let skin = before.noteskin != now.noteskin
+                    || before.pump_noteskin != now.pump_noteskin
+                    || before.reverse != now.reverse;
+                if skin {
+                    r.skin = read_skin(&loaded, &r.request, &settings, self.wake.clone());
+                }
+                r.prompt
+                    .borrow_mut()
+                    .set_info(full_info(&r.request, &loaded, &settings));
+            }
         }
         let Some(view) = r.view.as_mut() else {
             return;
@@ -920,7 +1040,7 @@ impl Host {
         r.prompt.borrow_mut().countdown = None;
         r.prompt.borrow_mut().finish();
         ui.update(0.0);
-        let settings = r.request.settings();
+        let settings = r.settings();
         let audio = match r.audio.take() {
             Some((a, _)) => a,
             None => self.open_audio(),
@@ -952,6 +1072,12 @@ impl Host {
         ) {
             Ok(mut play) => {
                 play.graphics = self.graphics.clone();
+                // Kept with the play's options as they were.
+                play.overrides = r
+                    .options
+                    .as_ref()
+                    .map(|o| o.borrow().overrides())
+                    .unwrap_or_default();
                 if let Some(v) = r.view.as_mut() {
                     v.refresh_hint = self.refresh_hint;
                     // The background changes on the song as played: its
