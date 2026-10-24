@@ -560,7 +560,13 @@ maintainer to confirm in Safari. A play opened from song select takes
 song select's context, running from that press (or an earlier one), and
 its start prompt decodes the music on it, so Start only starts the sound
 (`select_preview::hand_over`, `web::audio::keep_for_play`); a play opened
-any other way makes its context at Start, as before.
+any other way makes its context at Start, as before. That prompt counts
+down to Start (Options → Display → Start countdown, 3 s by default): its
+automatic Start is no gesture, so it runs only where song select handed
+over a running context (never on a direct `#/play?…`, a replay, a
+playtest or calibration), and where that context does not run any more
+the prompt asks for a tap or key, as for a pad's Start
+(`docs/plans/start-prompt.md`).
 
 In calibration the autoplayer
 follows the physical cue (heard audio, or drawn arrows in the muted test), not

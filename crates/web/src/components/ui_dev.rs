@@ -2543,6 +2543,12 @@ fn publish(h: &Host) {
                 let v = js_sys::Object::new();
                 set(&v, "loading", p.loading.into());
                 set(&v, "label", p.label.into());
+                set(
+                    &v,
+                    "countdown",
+                    p.countdown.map_or(JsValue::NULL, |s| s.into()),
+                );
+                set(&v, "countdownState", p.countdown_state.as_str().into());
                 set(&v, "waiting", strings(&p.waiting));
                 v.into()
             }),

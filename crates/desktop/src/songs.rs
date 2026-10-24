@@ -695,6 +695,8 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
             let mut request =
                 crate::play::Request::song(&song.id, chart.index, songs.autoplay.get());
             request.backdrop = song.background.clone();
+            // Chosen here: the prompt counts down (`Settings::start_countdown`).
+            request.countdown = true;
             *songs.play.borrow_mut() = Some(request);
         })
     };

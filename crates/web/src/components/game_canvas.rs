@@ -634,6 +634,16 @@ impl Component for GameCanvas {
             }
             _ => None,
         };
+        // Song select's play, its context handed over and running: the
+        // prompt counts down to Start, which then only starts the sound on
+        // it. Not where Start must make the context (a direct address, a
+        // replay, a playtest, calibration): an automatic Start is no
+        // gesture (`docs/plans/start-prompt.md`).
+        if early_audio.is_some() && !ctx.props().edit {
+            prompt_state
+                .borrow_mut()
+                .set_countdown(Some(play_settings.start_countdown));
+        }
         let shell = Rc::new(PromptShell {
             link: ctx.link().clone(),
             state: prompt_state.clone(),
@@ -1728,6 +1738,9 @@ impl GameCanvas {
 
     fn begin_session(&mut self, ctx: &Context<Self>, audio: WebAudio, buffer: AudioBuffer) {
         self.apply_background();
+        // The prompt's next showing (a retry, an interruption) waits for
+        // Start.
+        self.prompt_state.borrow_mut().countdown = None;
         let Status::Ready(song) = &self.song else {
             return;
         };

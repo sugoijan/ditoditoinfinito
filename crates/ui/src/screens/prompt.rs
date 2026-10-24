@@ -141,6 +141,10 @@ pub struct PromptView {
     /// The loading screen is up, and says "Loading" (past its delay).
     pub loading: bool,
     pub label: bool,
+    /// The countdown's seconds left while it runs, and where it is
+    /// (`off`, `running`, `cancelled`, `done`).
+    pub countdown: Option<f32>,
+    pub countdown_state: String,
     /// What the shell said still loads ([`PromptState::waiting`]).
     pub waiting: Vec<String>,
 }
@@ -171,6 +175,11 @@ pub struct PromptState {
     /// The shell started the play: the screen closes itself at its next
     /// frame (desktop, where the prompt is a screen over song select).
     pub done: bool,
+    /// Seconds the prompt counts down from when it offers Start, then
+    /// presses it for the player (a play chosen in song select,
+    /// `Settings::start_countdown`); `None`: it waits for Start. Enter
+    /// skips it, any other input cancels it ([`countdown_input`]).
+    pub countdown: Option<f32>,
     pub version: u64,
 }
 
@@ -206,6 +215,14 @@ impl PromptState {
     pub fn set_base(&mut self, source: Option<String>) {
         if self.base != source {
             self.base = source;
+            self.version += 1;
+        }
+    }
+
+    pub fn set_countdown(&mut self, seconds: Option<f32>) {
+        let seconds = seconds.filter(|s| *s > 0.0);
+        if self.countdown != seconds {
+            self.countdown = seconds;
             self.version += 1;
         }
     }
@@ -363,6 +380,102 @@ pub struct PromptScreen {
     loading: Option<Loading>,
     /// The last card built, which the loading screen fades out.
     card_shown: Option<Actor>,
+    countdown: Countdown,
+    /// The whole seconds the status line says, while it counts down.
+    countdown_shown: u32,
+    /// Where the Start button is on the card (its centre's x, its bottom,
+    /// its width), for the countdown's bar.
+    start_at: std::cell::Cell<Option<[f32; 3]>>,
+    /// A press that cancelled the countdown: its tap does not start.
+    swallow_tap: bool,
+}
+
+/// Where the countdown is (`docs/plans/start-prompt.md`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Countdown {
+    /// Not begun (begins when Start is first offered, if asked for).
+    Off,
+    /// Seconds left, of how many.
+    Running(f32, f32),
+    /// Something other than Start was pressed: Start waits.
+    Cancelled,
+    /// It pressed Start, or Start was pressed.
+    Done,
+}
+
+/// What an input does to a running countdown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CountdownInput {
+    /// Starts now (Enter, a pad's Start, Start tapped).
+    Skip,
+    /// Start waits (any other fresh press, a tap elsewhere, navigation).
+    Cancel,
+    /// Not the player's choice (releases, repeats, hover, the wheel,
+    /// focus changes, Back, which leaves anyway).
+    Ignore,
+}
+
+/// Keys that alone are no choice (switching windows, a shortcut begun).
+fn modifier_only(key: &str) -> bool {
+    matches!(
+        key,
+        "Shift"
+            | "Control"
+            | "Alt"
+            | "AltGraph"
+            | "Meta"
+            | "OS"
+            | "Super"
+            | "Hyper"
+            | "Fn"
+            | "FnLock"
+            | "CapsLock"
+            | "NumLock"
+            | "ScrollLock"
+    )
+}
+
+/// How `input` counts for a running countdown: Enter, Space, a pad's
+/// confirm or Start (the menu's Start) and a tap or click on Start skip it;
+/// any other fresh key (but a modifier alone), a menu direction or Select,
+/// a press, tap, long press or drag anywhere but on Start, and any other
+/// button cancel it; releases, the OS's and our own repeats, hover, the
+/// wheel (a trackpad's inertia from song select's list), focus changes and
+/// Back (which leaves) do neither. The press that chose the song was song
+/// select's: only its release and repeats can reach the prompt.
+pub fn countdown_input(input: &Input) -> CountdownInput {
+    use CountdownInput::*;
+    match input {
+        Input::Menu { repeat: true, .. } => Ignore,
+        Input::Menu {
+            action: MenuAction::Start,
+            ..
+        } => Skip,
+        Input::Menu {
+            action: MenuAction::Back,
+            ..
+        } => Ignore,
+        Input::Menu { .. } => Cancel,
+        Input::Key(k) if k.down && !k.repeat && !modifier_only(&k.key) => Cancel,
+        Input::Key(_) => Ignore,
+        Input::Pointer {
+            target,
+            gesture: Gesture::Press | Gesture::Tap | Gesture::LongPress | Gesture::DragStart,
+            ..
+        } => {
+            if target.as_ref().is_some_and(|t| t.within("Start")) {
+                Ignore
+            } else {
+                Cancel
+            }
+        }
+        Input::Pointer { .. } => Ignore,
+        Input::Activate { name } if name == "Start" => Skip,
+        Input::Activate { name } if name == "Back" => Ignore,
+        Input::Activate { .. } => Cancel,
+        Input::Raw(e) if e.pressed => Cancel,
+        _ => Ignore,
+    }
 }
 
 /// The loading screen's clocks.
@@ -397,9 +510,35 @@ impl PromptScreen {
             picture_source: None,
             loading: None,
             card_shown: None,
+            countdown: Countdown::Off,
+            countdown_shown: 0,
+            start_at: std::cell::Cell::new(None),
+            swallow_tap: false,
         }
     }
 
+    /// The countdown's seconds left, while it runs.
+    fn counting(&self) -> Option<(f32, f32)> {
+        match self.countdown {
+            Countdown::Running(left, of) => Some((left, of)),
+            _ => None,
+        }
+    }
+
+    /// The countdown's bar under Start: as long as the time left, from the
+    /// left (none under reduced motion).
+    fn countdown_bar(&self) -> Option<Actor> {
+        let (left, of) = self.counting()?;
+        let [x, bottom, w] = self.start_at.get()?;
+        if self.env.reduced() {
+            return None;
+        }
+        let f = (left / of).clamp(0.0, 1.0);
+        let mut bar = quad("CountdownBar", [w * f, 3.0], self.env.color("Accent"));
+        call(&mut bar, "cornerradius", &[1.5]);
+        call(&mut bar, "xy", &[x - w / 2.0 + w * f / 2.0, bottom + 6.0]);
+        Some(bar)
+    }
     /// Shown over song select, as its other screens are (it says what it
     /// does again once none is).
     pub fn over_select(mut self) -> PromptScreen {
@@ -540,12 +679,24 @@ impl PromptScreen {
             // Not a card: the loading screen (`tree`).
             PromptStep::Loading(_) => {}
             PromptStep::Ready => {
-                let status = if state.touch {
-                    "Tap to start"
+                if let Some((left, _)) = self.counting() {
+                    let n = left.ceil().max(1.0) as u32;
+                    let status = format!("Starting in {n}");
+                    line(&mut c, "Status", &status, BODY + 3.0, 700, "Text", &mut y);
+                    let how = if state.touch {
+                        "Tap Start to start now, anywhere else to wait"
+                    } else {
+                        "Enter starts now · any other key waits"
+                    };
+                    line(&mut c, "Countdown", how, SMALL, 400, "Muted", &mut y);
                 } else {
-                    "Press Enter, or Start on a controller, or click to start"
-                };
-                line(&mut c, "Status", status, BODY + 3.0, 700, "Text", &mut y);
+                    let status = if state.touch {
+                        "Tap to start"
+                    } else {
+                        "Press Enter, or Start on a controller, or click to start"
+                    };
+                    line(&mut c, "Status", status, BODY + 3.0, 700, "Text", &mut y);
+                }
                 buttons.push(("Start".into(), "Start".into(), "PlayButton"));
                 buttons.push(("Back".into(), "Back".into(), "Button"));
             }
@@ -670,6 +821,9 @@ impl PromptScreen {
             // The first (focused) rightmost, as results put Retry.
             let mut x = w - 24.0;
             for ((name, label, kind), bw) in buttons.iter().zip(&widths) {
+                if name == "Start" {
+                    self.start_at.set(Some([x - bw / 2.0, y + bh, *bw]));
+                }
                 c.push(pbutton(
                     env,
                     bh,
@@ -694,6 +848,9 @@ impl PromptScreen {
                 if let [a, b] = row[..] {
                     for (j, x) in [(a, 24.0 + half / 2.0), (b, w - 24.0 - half / 2.0)] {
                         let (name, label, kind) = &buttons[j];
+                        if name == "Start" {
+                            self.start_at.set(Some([x, y + bh, half]));
+                        }
                         c.push(pbutton(env, bh, name, label, [x, y + bh / 2.0], half, kind));
                     }
                 } else {
@@ -711,6 +868,9 @@ impl PromptScreen {
             y -= 10.0;
         }
         let h = y + 24.0;
+        if let Some(bar) = self.countdown_bar() {
+            c.push(bar);
+        }
         let mut children = vec![env.component(
             "Dialog",
             "Panel",
@@ -785,11 +945,60 @@ impl PromptScreen {
         }
     }
 
+    /// The countdown: begun the first time Start is offered (when the
+    /// shell asks for one), counted while it is, Start pressed at zero
+    /// (outside any gesture: the shell knows what it may start then).
+    fn tick_countdown(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        let (ready, asked) = {
+            let st = self.state.borrow();
+            (st.step == PromptStep::Ready, st.countdown)
+        };
+        if !ready {
+            return;
+        }
+        match self.countdown {
+            Countdown::Off => {
+                if let Some(s) = asked {
+                    self.countdown = Countdown::Running(s, s);
+                    self.countdown_shown = s.ceil() as u32;
+                    self.rebuild(root, cx);
+                }
+            }
+            Countdown::Running(left, of) => {
+                let left = left - dt;
+                if left <= 0.0 {
+                    self.countdown = Countdown::Done;
+                    self.rebuild(root, cx);
+                    self.choose(PromptChoice::Start, cx);
+                    return;
+                }
+                self.countdown = Countdown::Running(left, of);
+                let shown = left.ceil() as u32;
+                if shown != std::mem::replace(&mut self.countdown_shown, shown) {
+                    self.rebuild(root, cx);
+                } else if let Some(bar) = self.countdown_bar()
+                    && let Some(old) = crate::hit::find_mut(root, "CountdownBar")
+                {
+                    *old = bar;
+                }
+            }
+            Countdown::Cancelled | Countdown::Done => {}
+        }
+    }
+
     /// What tests read of the prompt (`__DDI_DEBUG.ui.theme.prompt`).
     fn publish_view(&self) {
         let view = PromptView {
             loading: self.loading.is_some(),
             label: self.loading.is_some_and(|l| l.shown >= LOADING_DELAY),
+            countdown: self.counting().map(|(left, _)| left),
+            countdown_state: match self.countdown {
+                Countdown::Off => "off",
+                Countdown::Running(..) => "running",
+                Countdown::Cancelled => "cancelled",
+                Countdown::Done => "done",
+            }
+            .into(),
             waiting: self.state.borrow().waiting.clone(),
         };
         let mut st = self.env.state.borrow_mut();
@@ -986,6 +1195,8 @@ impl Screen for PromptScreen {
         let st = self.state.borrow();
         matches!(st.step, PromptStep::Loading(_))
             || st.done
+            || self.counting().is_some()
+            || (self.countdown == Countdown::Off && st.countdown.is_some())
             || st.version != self.built
             || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
     }
@@ -1072,6 +1283,7 @@ impl Screen for PromptScreen {
                 false
             }
         };
+        self.tick_countdown(dt, root, cx);
         // Built again only while it moves: any other change bumps the
         // version, which builds the whole tree below.
         if moved {
@@ -1094,7 +1306,7 @@ impl Screen for PromptScreen {
         self.publish_view();
     }
 
-    fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         let step = self.state.borrow().step.clone();
         // The loading screen: Back leaves; Start or a tap reach the shell
         // (a pad's start waiting for a gesture takes it); nothing else.
@@ -1115,6 +1327,35 @@ impl Screen for PromptScreen {
                 _ => {}
             }
             return Handled::Yes;
+        }
+        // The countdown: skipped (the press goes on to start), or
+        // cancelled (the press does what it does, a tap anywhere does not
+        // start then).
+        if self.counting().is_some() {
+            match countdown_input(input) {
+                CountdownInput::Skip => {
+                    self.countdown = Countdown::Done;
+                    self.publish_view();
+                }
+                CountdownInput::Cancel => {
+                    self.countdown = Countdown::Cancelled;
+                    self.rebuild(root, cx);
+                    self.publish_view();
+                    // On the background: its tap does not start.
+                    if let Input::Pointer {
+                        target,
+                        gesture: Gesture::Press | Gesture::Tap | Gesture::LongPress,
+                        ..
+                    } = input
+                        && !target
+                            .as_ref()
+                            .is_some_and(|t| self.buttons.iter().any(|b| t.within(b)))
+                    {
+                        self.swallow_tap = true;
+                    }
+                }
+                CountdownInput::Ignore => {}
+            }
         }
         match input {
             Input::Menu { repeat: true, .. } => Handled::Yes,
@@ -1157,7 +1398,7 @@ impl Screen for PromptScreen {
                 }
             }
             // A tap anywhere but a button starts (the web's prompt was one
-            // big button), or is the press meant to start while loading.
+            // big button), but the one that stopped the countdown.
             Input::Pointer {
                 target,
                 gesture: Gesture::Tap,
@@ -1167,7 +1408,9 @@ impl Screen for PromptScreen {
                     .as_ref()
                     .is_some_and(|t| self.buttons.iter().any(|b| t.within(b))) =>
             {
-                self.choose(PromptChoice::Start, cx);
+                if !std::mem::take(&mut self.swallow_tap) {
+                    self.choose(PromptChoice::Start, cx);
+                }
                 Handled::Yes
             }
             _ => Handled::No,
@@ -1531,6 +1774,150 @@ mod tests {
                 (PromptChoice::Action("again".into()), true)
             ]
         );
+    }
+
+    /// A prompt counting down from `seconds`.
+    fn counting(seconds: f32) -> (SharedPrompt, Harness, Seen) {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_countdown(Some(seconds));
+        let (h, seen) = prompt(&state);
+        (state, h, seen)
+    }
+
+    fn starts(seen: &Seen) -> Vec<bool> {
+        seen.borrow()
+            .iter()
+            .filter(|(c, _)| *c == PromptChoice::Start)
+            .map(|(_, g)| *g)
+            .collect()
+    }
+
+    #[test]
+    fn the_countdown_presses_start_at_zero_outside_a_gesture() {
+        let (state, mut h, seen) = counting(3.0);
+        // Begun when Start showed (0.3 s ago): 2.7 s left.
+        let v = view();
+        assert_eq!(v.countdown_state, "running");
+        assert!((v.countdown.unwrap() - 2.7).abs() < 0.05, "{v:?}");
+        assert!(h.texts().iter().any(|t| t == "Starting in 3"));
+        assert!(h.ui.actor("CountdownBar").is_some());
+        h.run(1.0);
+        assert!(h.texts().iter().any(|t| t == "Starting in 2"));
+        assert!(starts(&seen).is_empty());
+        h.run(2.0);
+        // Not a gesture: the shell decides what may start now.
+        assert_eq!(starts(&seen), [false]);
+        assert_eq!(view().countdown_state, "done");
+        // Once.
+        h.run(4.0);
+        assert_eq!(starts(&seen).len(), 1);
+        let _ = state;
+    }
+
+    #[test]
+    fn enter_a_pads_start_or_start_tapped_skip_the_countdown() {
+        for how in 0..3 {
+            let (_, mut h, seen) = counting(3.0);
+            match how {
+                0 => drop(h.key("Enter", "Enter")),
+                1 => drop(h.pad(MenuAction::Start, true)),
+                _ => drop(h.tap(PointerKind::Mouse, "Start")),
+            }
+            assert_eq!(starts(&seen), [true], "{how}");
+            assert_eq!(view().countdown_state, "done");
+            h.run(4.0);
+            assert_eq!(starts(&seen).len(), 1, "{how}: once");
+        }
+    }
+
+    #[test]
+    fn any_other_press_cancels_the_countdown_and_start_waits() {
+        type Press = fn(&mut Harness);
+        let presses: [(&str, Press); 6] = [
+            ("a letter", |h| drop(h.key("KeyA", "a"))),
+            ("a direction", |h| drop(h.key("ArrowDown", "ArrowDown"))),
+            ("Tab", |h| drop(h.key("Tab", "Tab"))),
+            ("a pad's direction", |h| {
+                h.pad(MenuAction::Down, true);
+                h.pad(MenuAction::Down, false);
+            }),
+            ("a click on the background", |h| {
+                drop(h.tap_at(PointerKind::Mouse, [40.0, 40.0]))
+            }),
+            ("a tap on the background", |h| {
+                drop(h.tap_at(PointerKind::Touch, [40.0, 40.0]))
+            }),
+        ];
+        for (what, press) in presses {
+            let (_, mut h, seen) = counting(3.0);
+            press(&mut h);
+            assert_eq!(view().countdown_state, "cancelled", "{what}");
+            // The press that stopped it started nothing.
+            h.run(4.0);
+            assert!(starts(&seen).is_empty(), "{what}: {:?}", seen.borrow());
+            assert!(
+                h.texts().iter().any(|t| t.starts_with("Press Enter")),
+                "{what}"
+            );
+            assert!(h.ui.actor("CountdownBar").is_none(), "{what}");
+            // Start then waits for Start, as without a countdown.
+            h.key("Enter", "Enter");
+            assert_eq!(starts(&seen), [true], "{what}");
+        }
+    }
+
+    #[test]
+    fn releases_repeats_hover_the_wheel_and_modifiers_leave_the_countdown_running() {
+        use crate::event::KeyEvent;
+        let (_, mut h, seen) = counting(3.0);
+        // The press that chose the song: its release and the OS's repeats.
+        h.key_up("Enter", "Enter");
+        let mut repeat = KeyEvent::down("Enter", "Enter");
+        repeat.repeat = true;
+        h.send(UiEvent::Key(repeat));
+        let mut repeat = KeyEvent::down("KeyA", "a");
+        repeat.repeat = true;
+        h.send(UiEvent::Key(repeat));
+        h.pad(MenuAction::Start, false);
+        // A modifier alone, the mouse moving, the wheel.
+        h.key("ShiftLeft", "Shift");
+        h.key("MetaLeft", "Meta");
+        h.hover([600.0, 300.0]);
+        h.hover([640.0, 360.0]);
+        h.wheel_lines([640.0, 360.0], [0.0, 3.0]);
+        h.run(0.1);
+        assert_eq!(view().countdown_state, "running");
+        assert!(starts(&seen).is_empty());
+        h.run(3.0);
+        assert_eq!(starts(&seen), [false]);
+    }
+
+    #[test]
+    fn back_leaves_while_it_counts_and_no_countdown_was_asked_for() {
+        let (_, mut h, seen) = counting(3.0);
+        h.key("Escape", "Escape");
+        assert_eq!(
+            seen.borrow().last().map(|s| &s.0),
+            Some(&PromptChoice::Back)
+        );
+        // None asked for: Start waits.
+        let state = SharedPrompt::default();
+        let (mut h, seen) = prompt(&state);
+        h.run(5.0);
+        assert!(starts(&seen).is_empty());
+        assert_eq!(view().countdown_state, "off");
+        assert!(h.ui.actor("CountdownBar").is_none());
+    }
+
+    #[test]
+    fn under_reduced_motion_the_countdown_shows_its_number_alone() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_countdown(Some(3.0));
+        let (mut h, seen) = prompt_with(&state, true);
+        assert!(h.texts().iter().any(|t| t == "Starting in 3"));
+        assert!(h.ui.actor("CountdownBar").is_none());
+        h.run(3.0);
+        assert_eq!(starts(&seen), [false]);
     }
 
     #[test]

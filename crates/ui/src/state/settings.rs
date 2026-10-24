@@ -19,6 +19,9 @@ use serde::{Deserialize, Serialize};
 /// Where the settings are kept.
 pub const KEY: &str = "ddi.settings.v1";
 
+/// The start prompt's countdowns Options offers, seconds (0: off).
+pub const START_COUNTDOWNS: [f32; 4] = [0.0, 3.0, 5.0, 10.0];
+
 /// Song offsets closer to zero than this (half a millisecond) are dropped.
 const SONG_OFFSET_EPSILON: f64 = 0.0005;
 
@@ -149,6 +152,10 @@ pub struct Settings {
     /// system says, or always, or never.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub reduced_motion: ReducedMotion,
+    /// Seconds a song chosen in song select waits on its start prompt
+    /// before it starts by itself; 0: it waits for Start
+    /// ([`START_COUNTDOWNS`], `docs/plans/start-prompt.md`).
+    pub start_countdown: f32,
     /// The results' panels the player chose ("Overview", "Timing",
     /// "Song"; one a ruleset does not offer falls back to its default).
     pub results_panels: String,
@@ -333,6 +340,7 @@ impl Default for Settings {
             assist_clap: false,
             mine_sound: true,
             reduced_motion: ReducedMotion::Auto,
+            start_countdown: 3.0,
             results_panels: "Overview".into(),
             debug: false,
             graphics: Graphics::Auto,
@@ -584,6 +592,18 @@ impl Settings {
         if !self.speed.is_finite() {
             self.speed = defaults.speed;
         }
+        // One of the choices Options offers (a hand edit: the nearest).
+        if !self.start_countdown.is_finite() {
+            self.start_countdown = defaults.start_countdown;
+        }
+        self.start_countdown = START_COUNTDOWNS
+            .into_iter()
+            .min_by(|a, b| {
+                (a - self.start_countdown)
+                    .abs()
+                    .total_cmp(&(b - self.start_countdown).abs())
+            })
+            .unwrap_or(0.0);
         self.speed = self.speed.clamp(0.25, 10.0);
         for v in [&mut self.audio_offset, &mut self.visual_offset] {
             *v = if v.is_finite() {

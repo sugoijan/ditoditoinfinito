@@ -464,9 +464,15 @@ impl Host {
         if let Some(r) = requested
             && matches!(self.stage, Stage::Idle)
         {
+            // Song select's: counting down to Start.
+            let countdown = r
+                .countdown
+                .then(|| r.settings().start_countdown)
+                .filter(|s| *s > 0.0);
             let prompt: SharedPrompt = Rc::new(RefCell::new(PromptState {
                 info: first_info(&r),
                 base: r.backdrop.clone(),
+                countdown,
                 // Start at once: what the play needs loads behind it.
                 step: match &r.refused {
                     Some(why) => PromptStep::Error(format!("This replay cannot be watched. {why}")),
@@ -908,8 +914,10 @@ impl Host {
             return Stage::Idle;
         };
         // The backdrop's entrance where the prompt left it, then the
-        // screen goes before the play's first frame.
+        // screen goes before the play's first frame. Its next showing
+        // (a retry, an interruption) waits for Start.
         let entrance = r.prompt.borrow().entrance();
+        r.prompt.borrow_mut().countdown = None;
         r.prompt.borrow_mut().finish();
         ui.update(0.0);
         let settings = r.request.settings();

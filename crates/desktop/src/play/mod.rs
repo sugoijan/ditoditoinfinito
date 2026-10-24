@@ -65,6 +65,10 @@ pub struct Request {
     pub edited: Option<std::sync::Arc<ddi_chart::Song>>,
     /// Song second to start at (a playtest from the editor's cursor).
     pub start: Option<f64>,
+    /// Chosen in song select: the prompt counts down to Start
+    /// (`Settings::start_countdown`, `docs/plans/start-prompt.md`); not
+    /// for `--play`, replays, playtests or calibration.
+    pub countdown: bool,
 }
 
 impl Request {
@@ -84,6 +88,7 @@ impl Request {
             ghost: None,
             edited: None,
             start: None,
+            countdown: false,
         }
     }
 
@@ -103,6 +108,7 @@ impl Request {
             ghost: None,
             edited: None,
             start: None,
+            countdown: false,
         }
     }
 

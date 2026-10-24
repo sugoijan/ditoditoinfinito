@@ -23,7 +23,7 @@ use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN, BUNDLED, BackgroundFrame, DITO, FIELD_FILTERS, Graphics, PadBindings, ParamValue,
-    ReducedMotion, Settings, VideoMode, slider_to_volume, volume_to_slider,
+    ReducedMotion, START_COUNTDOWNS, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
@@ -865,6 +865,17 @@ impl OptionsModel {
                 ),
                 menus,
                 choice(
+                    "start_countdown",
+                    "Start countdown",
+                    &["Off", "3 s", "5 s", "10 s"],
+                    START_COUNTDOWNS
+                        .iter()
+                        .position(|c| (c - s.start_countdown).abs() < 0.01)
+                        .unwrap_or(0),
+                    "A song chosen in song select starts by itself after this long. Enter (or \
+                     Start) starts it at once, any other key or a tap waits.",
+                ),
+                choice(
                     "graphics",
                     "Graphics",
                     &["Automatic", "WebGL2"],
@@ -1452,6 +1463,9 @@ impl OptionsModel {
             "background_frame" => s.background_frame = at(&FRAMES, i),
             "field_filter" => s.field_filter = FIELD_FILTERS.get(i).copied().unwrap_or(0.0),
             "reduced_motion" => s.reduced_motion = at(&REDUCED_MOTION, i),
+            "start_countdown" => {
+                s.start_countdown = START_COUNTDOWNS.get(i).copied().unwrap_or(0.0)
+            }
             "graphics" => s.graphics = at(&GRAPHICS, i),
             "debug" => s.debug = on,
             "fast_pad_poll" => s.fast_pad_poll = on,
@@ -2127,6 +2141,21 @@ mod tests {
 
     /// Pump skins get a row of their own, which draws the pump layouts
     /// only; dance's row never lists them.
+    #[test]
+    fn the_start_countdown_defaults_to_three_seconds_and_takes_the_offered_ones() {
+        let mut m = model();
+        assert_eq!(find(&m.data(), "start_countdown").value(), "3 s");
+        m.change("start_countdown", 0);
+        assert_eq!(m.settings.start_countdown, 0.0);
+        assert_eq!(find(&m.data(), "start_countdown").value(), "Off");
+        // Stored before it: on, at 3 s; a hand edit: the nearest offered.
+        let s: Settings = serde_json::from_str(r#"{"speed": 2.0}"#).unwrap();
+        assert_eq!(s.start_countdown, 3.0);
+        let mut s: Settings = serde_json::from_str(r#"{"start_countdown": 4.2}"#).unwrap();
+        s.sanitize();
+        assert_eq!(s.start_countdown, 5.0);
+    }
+
     #[test]
     fn pump_skins_are_chosen_for_the_pump_layouts() {
         let mut m = model();
