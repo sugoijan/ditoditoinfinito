@@ -76,7 +76,10 @@ struct State {
 }
 
 thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State { volume: 0.8, ..State::default() });
+    static STATE: RefCell<State> = RefCell::new(State {
+        volume: ddi_ui::state::settings::DEFAULT_VOLUME,
+        ..State::default()
+    });
 }
 
 /// In a gesture's handler: the context made, or resumed.

@@ -131,7 +131,7 @@ pub struct Settings {
     /// Seconds added to the rendered time only.
     pub visual_offset: f64,
     /// Music gain, 0..=1 (amplitude, not loudness; the options slider maps
-    /// it through [`volume_to_slider`]).
+    /// it through [`volume_to_slider`]). [`DEFAULT_VOLUME`] until chosen.
     pub volume: f32,
     /// A clap on every row of notes, on the beat (StepMania's assist
     /// clap; off by default).
@@ -174,6 +174,11 @@ pub struct Settings {
     /// device calibration can fix. Zero entries are not stored.
     pub song_offsets: BTreeMap<String, f64>,
 }
+
+/// The music's gain in a fresh profile: 69% on the volume slider (about
+/// −10 dB; full volume was too loud to start at). Settings already stored
+/// keep theirs.
+pub const DEFAULT_VOLUME: f32 = 0.69 * 0.69 * 0.69;
 
 /// Volume slider position (0..=1) for a gain. Loudness is perceived
 /// roughly logarithmically, so equal slider steps should be roughly equal
@@ -324,7 +329,7 @@ impl Default for Settings {
             stepmania: StepManiaOptions::default(),
             audio_offset: 0.0,
             visual_offset: 0.0,
-            volume: 0.8,
+            volume: DEFAULT_VOLUME,
             assist_clap: false,
             mine_sound: true,
             reduced_motion: ReducedMotion::Auto,
@@ -978,6 +983,19 @@ mod tests {
         };
         imported.sanitize();
         assert_eq!(imported.noteskin.as_deref(), Some("dance/peters-ddr-note"));
+    }
+
+    #[test]
+    fn a_fresh_profile_starts_at_69_percent_and_a_stored_volume_stays() {
+        assert_eq!((volume_to_slider(DEFAULT_VOLUME) * 100.0).round(), 69.0);
+        // Nothing stored, or settings stored before the volume was kept:
+        // the default.
+        assert_eq!(Settings::default().volume, DEFAULT_VOLUME);
+        let s: Settings = serde_json::from_str(r#"{"speed": 2.0}"#).unwrap();
+        assert_eq!(s.volume, DEFAULT_VOLUME);
+        // A volume stored (the old default among them) is the player's.
+        let s: Settings = serde_json::from_str(r#"{"volume": 0.8}"#).unwrap();
+        assert_eq!(s.volume, 0.8);
     }
 
     #[test]

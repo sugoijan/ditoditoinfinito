@@ -105,7 +105,9 @@ desktop's `--screen`. Where the build differs from the mockups:
 - **Accent buttons' focus:** the ring inside the plate, in the label's
   color (an accent ring around an accent plate barely shows).
 - **The volume** is a slider row: a thin track, the accent fill, a
-  light knob, the value and the dB note after it.
+  light knob, the value and the dB note after it. A fresh profile
+  starts at 69% (−10 dB, `settings::DEFAULT_VOLUME`); stored settings
+  keep their volume.
 - **The compact threshold** is 480 CSS pixels of height
   (`Compact.Below`) or 600 of width (`Compact.Narrower`: a portrait
   phone gets the compact layout, scaled to its width).

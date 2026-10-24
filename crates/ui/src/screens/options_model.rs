@@ -2218,7 +2218,14 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), n);
         assert_eq!(find(&d, "speed").value(), "×2.5");
-        assert_eq!(find(&d, "volume").note, "-2 dB");
+        // A fresh profile's volume: 69% exactly, a step from 68% and 70%.
+        assert_eq!(find(&d, "volume").value(), "69%");
+        assert_eq!(find(&d, "volume").note, "-10 dB");
+        for (i, shown) in [(68, "68%"), (70, "70%"), (69, "69%")] {
+            m.change("volume", i);
+            assert_eq!(find(&m.data(), "volume").value(), shown);
+        }
+        assert!((m.settings.volume - Settings::default().volume).abs() < 1e-6);
         // Every choice row, every value: applied and shown again.
         for o in d.sections.iter().flat_map(|s| &s.options) {
             if matches!(o.kind, OptionKind::Actions(_)) || o.id == "bind_layout" {
