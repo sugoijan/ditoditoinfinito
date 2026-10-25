@@ -233,7 +233,12 @@ export, base64 included (5,004 such short plays export to 40 MB).
    1,041-note chart's 2,098 edges), `PlayLog::shifted` (another audio
    offset), `replay` and `replay_with`, and `PlayTiming` (the timeline and
    life, exact, 7 bytes a judgement; a tap's offset is kept to the
-   microsecond in `Results::timeline`). `RulesetKey` (id, the holds as
+   microsecond in `Results::timeline`; since 2026-10-25, version 2, each
+   judgement's note's place in the beat, `Judged::beat`, in its kind
+   byte's upper four bits, for the results' By beat panel: no byte more.
+   Version 1 still reads, its places unknown, and a replay's check
+   compares it with the play judged again without them,
+   `PlayTiming::agrees`). `RulesetKey` (id, the holds as
    played, Dancing☆Onigiri's options with the excessive setting in
    effect; `best_key` drops the gauge),
    `Ruleset::key`, `RulesetKey::build`, `JUDGE_VERSION = 1`. Every replay

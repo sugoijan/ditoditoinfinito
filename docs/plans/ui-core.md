@@ -848,7 +848,8 @@ Done, 6.1 results (2026-10-15):
   ruleset's windows coloring the histogram, the gauge's danger line on
   the life graph, misses on the offsets, and the layout's lanes (4, 5, 6,
   8, 10 and Dancing☆Onigiri's, by name when they fit, by symbol when
-  not). Panel sets (Overview, Timing, Song) are the ruleset's to offer
+  not), and the notes' places in the beat (By beat, 2026-10-25,
+  `docs/plans/theme.md`). Panel sets (Overview, Timing, Song) are the ruleset's to offer
   (one list for all today) and the player's to choose, kept in
   `Settings::results_panels`. Keys as the mockup and StepMania's
   evaluation screen have them: Start (Enter, a pad's Start) goes to the
@@ -1422,7 +1423,7 @@ Done after 6.4 part one's review (2026-10-16):
   which holds saved settings. Plays started with it are autoplays as
   `&auto=1` is: flagged in the history, not counted, their results say
   so. **Results on a phone:** one scrolled column (score, the chosen
-  set's panels, the notes) under a bar with Back and the panel pills,
+  set's panels, the notes) under a bar with Back and the panel sets' tabs,
   the offset and the buttons fixed at the bottom; sideways the score
   beside the panels.
 - **Song select upright on a phone** (390×844, 360×740; it had the

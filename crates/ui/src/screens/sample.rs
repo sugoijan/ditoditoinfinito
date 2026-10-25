@@ -359,18 +359,31 @@ pub fn results() -> ResultsData {
         .unwrap_or_default();
     let mut rng = Rng(0x2545_f491_4f6c_dd1d);
     let length = song.length;
-    // 282 hits about −2.1 ms with σ 9.8, one miss at 95 s.
+    // 282 hits about −2.1 ms with σ 9.8, one miss at 95 s; on the beat,
+    // 8ths and 16ths, a few 12ths and 24ths.
+    let beat = |i: usize| {
+        use ddi_chart::Quantization::*;
+        Some(match (i % 8, i % 24) {
+            (0 | 4, _) => N4,
+            (2 | 6, _) => N8,
+            (_, 7) => N12,
+            (_, 15) => N24,
+            _ => N16,
+        })
+    };
     let mut hits: Vec<Hit> = (0..282)
         .map(|i| Hit {
             time: 4.0 + (length - 10.0) * i as f32 / 282.0,
             offset: Some(-2.1 + rng.normal() * 9.8),
             lane: rng.below(4) as u8,
+            beat: beat(i),
         })
         .collect();
     hits.push(Hit {
         time: 95.0,
         offset: None,
         lane: 2,
+        beat: beat(1),
     });
     hits.sort_by(|a, b| a.time.total_cmp(&b.time));
     // Life: rising, a dip to 71 % around the miss, recovering.

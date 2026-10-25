@@ -98,7 +98,7 @@ desktop's `--screen`. Where the build differs from the mockups:
   mockups' sideways column, where it closes the song's side).
 - **Results on a phone** (2026-10-16): upright the layout is 480 wide
   zoomed to the width, sideways the screen as it is; a bar at the top
-  (Back "‹", "Results", the panel pills), one scrolled column (the score
+  (Back "‹", "Results", the panel sets' tabs), one scrolled column (the score
   column, the chosen set's panels stacked, the notes; sideways the
   panels beside the score), the offset and the buttons at the bottom
   (two rows upright).
@@ -274,6 +274,21 @@ the right holding the charts as buttons and a large Play button.
 
   The numbers are a sample ITG play. The panels need the per-hit record
   that step 6.1 adds to the engine.
+
+  **Since 2026-10-25** (the maintainer's request): the panel sets are
+  tabs over the panels (`Tab`: a muted label, bright over an accent
+  underline when selected; a line under the strip), no "Panels" label;
+  on a phone in the bar as before. The life panel's note is the largest
+  drop: the largest fall within 4 s (`results::DROP_WINDOW`; a lowest
+  never says more than where an ITG gauge starts, 50%), at when it
+  began, the fall shaded on the graph ("no drop" when it never fell). A
+  By beat panel takes By lane's place in Overview and joins Timing: a
+  row per place in the beat of the notes (4th, 8th, 12th, 16th, … in
+  that order), its notes, the mean as a tick and a standard deviation
+  either way as a bar on the timing panels' scale over the best window,
+  and the numbers; places with fewer than 5 notes (or 2% of them), and
+  past the room the least played, go together into Other (a single one
+  keeps its name). By lane stays in Song.
 - **Options.**
   - **Left:** sections.
   - **Middle:** option rows as StepMania lays them out. The label is on

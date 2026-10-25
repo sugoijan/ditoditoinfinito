@@ -318,7 +318,7 @@ impl Replay {
         let with_record = self.record.judge_version == JUDGE_VERSION;
         if with_record {
             match &self.timing {
-                Some(t) if *t != PlayTiming::from_results(watched) => {
+                Some(t) if !t.agrees(&PlayTiming::from_results(watched)) => {
                     problems.push("its judgements or life are not the play's".into())
                 }
                 _ => {}

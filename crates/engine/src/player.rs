@@ -167,6 +167,10 @@ pub struct Judged {
     /// The lane played (after a turn).
     pub lane: u8,
     pub kind: JudgeEventKind,
+    /// Its note's place in the beat; `None` for a stray press, and where
+    /// a record kept from before it was kept does not say.
+    #[serde(default)]
+    pub beat: Option<ddi_chart::Quantization>,
 }
 
 impl Results {
@@ -753,6 +757,7 @@ impl Player {
                 time: ev.song_time as f32,
                 lane: ev.lane,
                 kind,
+                beat: ev.note_index.map(|_| ev.tick.quantization()),
             });
             if let JudgeEventKind::Tap(j, delta) = ev.kind
                 && j != Judgement::Miss

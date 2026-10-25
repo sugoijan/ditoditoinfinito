@@ -2,7 +2,7 @@
 //! from the library, the engine's records and the settings; the
 //! developer routes from [`super::sample`]).
 
-use ddi_chart::Difficulty;
+use ddi_chart::{Difficulty, Quantization};
 
 /// The difficulties in their order (StepMania's `Difficulty` enum).
 pub const DIFFICULTIES: [Difficulty; 6] = Difficulty::ALL;
@@ -383,6 +383,62 @@ pub struct Hit {
     pub time: f32,
     pub offset: Option<f32>,
     pub lane: u8,
+    /// Its note's place in the beat (a 4th on the beat, an 8th between);
+    /// `None` where a play kept from before it was kept does not say.
+    pub beat: Option<Quantization>,
+}
+
+/// The hits of one place in the beat (or of several rare ones, "Other"),
+/// as the by-beat panel shows them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BeatGroup {
+    /// "4th", "16th", "Other".
+    pub name: String,
+    /// Its notes: hit and missed.
+    pub count: u32,
+    pub misses: u32,
+    /// The hits' mean offset and its standard deviation, ms.
+    pub mean: f32,
+    pub sd: f32,
+}
+
+/// A place in the beat as the results name it ("4th", "32nd").
+pub fn beat_name(q: Quantization) -> &'static str {
+    match q {
+        Quantization::N4 => "4th",
+        Quantization::N8 => "8th",
+        Quantization::N12 => "12th",
+        Quantization::N16 => "16th",
+        Quantization::N24 => "24th",
+        Quantization::N32 => "32nd",
+        Quantization::N48 => "48th",
+        Quantization::N64 => "64th",
+        Quantization::N192 => "192nd",
+    }
+}
+
+/// The places in the beat in rhythmic order.
+const BEATS: [Quantization; 9] = [
+    Quantization::N4,
+    Quantization::N8,
+    Quantization::N12,
+    Quantization::N16,
+    Quantization::N24,
+    Quantization::N32,
+    Quantization::N48,
+    Quantization::N64,
+    Quantization::N192,
+];
+
+/// The mean and standard deviation of `v` (0 and 0 for none).
+fn mean_sd(v: &[f32]) -> (f32, f32) {
+    if v.is_empty() {
+        return (0.0, 0.0);
+    }
+    let n = v.len() as f32;
+    let mean = v.iter().sum::<f32>() / n;
+    let var = v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n;
+    (mean, var.sqrt())
 }
 
 /// A judgement window of the histogram: how early and how late (ms,
@@ -414,6 +470,8 @@ pub enum PanelKind {
     Offsets,
     /// Hits short of the best tier, by lane.
     Lanes,
+    /// The hits' offsets by their notes' places in the beat.
+    Beats,
 }
 
 /// A set of panels the player picks ("Overview": all four).
@@ -492,13 +550,92 @@ impl ResultsData {
     /// The mean and standard deviation of the hits' offsets, ms.
     pub fn timing(&self) -> (f32, f32) {
         let v: Vec<f32> = self.hits.iter().filter_map(|h| h.offset).collect();
-        if v.is_empty() {
-            return (0.0, 0.0);
+        mean_sd(&v)
+    }
+
+    /// The hits by their notes' places in the beat, in rhythmic order, at
+    /// most `rows`: a place with fewer than `fewest` notes, and past the
+    /// room the least played, go together into "Other" (last; named as
+    /// the place when it is only one), so every note whose place is known
+    /// is counted.
+    pub fn beat_groups(&self, rows: usize, fewest: u32) -> Vec<BeatGroup> {
+        let notes = |q: Quantization| self.hits.iter().filter(move |h| h.beat == Some(q));
+        let counts: Vec<(Quantization, u32)> = BEATS
+            .iter()
+            .map(|&q| (q, notes(q).count() as u32))
+            .filter(|&(_, n)| n > 0)
+            .collect();
+        let mut kept: Vec<(Quantization, u32)> = counts
+            .iter()
+            .copied()
+            .filter(|&(_, n)| n >= fewest)
+            .collect();
+        // Room for the kept and, when any is merged, Other: the least
+        // played go first (of two as played, the finer).
+        while !kept.is_empty() && kept.len() + usize::from(kept.len() < counts.len()) > rows.max(1)
+        {
+            let least = (0..kept.len())
+                .min_by_key(|&i| (kept[i].1, std::cmp::Reverse(i)))
+                .unwrap();
+            kept.remove(least);
         }
-        let n = v.len() as f32;
-        let mean = v.iter().sum::<f32>() / n;
-        let var = v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n;
-        (mean, var.sqrt())
+        let kept: Vec<Quantization> = kept.into_iter().map(|(q, _)| q).collect();
+        let group = |name: &str, qs: &[Quantization]| {
+            let hits: Vec<&Hit> = self
+                .hits
+                .iter()
+                .filter(|h| h.beat.is_some_and(|b| qs.contains(&b)))
+                .collect();
+            let offsets: Vec<f32> = hits.iter().filter_map(|h| h.offset).collect();
+            let (mean, sd) = mean_sd(&offsets);
+            BeatGroup {
+                name: name.to_string(),
+                count: hits.len() as u32,
+                misses: (hits.len() - offsets.len()) as u32,
+                mean,
+                sd,
+            }
+        };
+        let mut out: Vec<BeatGroup> = kept.iter().map(|&q| group(beat_name(q), &[q])).collect();
+        let rest: Vec<Quantization> = counts
+            .iter()
+            .map(|c| c.0)
+            .filter(|q| !kept.contains(q))
+            .collect();
+        match rest.as_slice() {
+            [] => {}
+            [one] => out.push(group(beat_name(*one), &[*one])),
+            _ => out.push(group("Other", &rest)),
+        }
+        out
+    }
+
+    /// The largest fall of life within `window` seconds: how much (a
+    /// fraction of the gauge), from when, to when; `None` when it never
+    /// fell. Life holds between its points.
+    pub fn steepest_drop(&self, window: f32) -> Option<(f32, f32, f32)> {
+        let life = &self.life;
+        let mut best: Option<(f32, f32, f32)> = None;
+        for (i, &(t, v)) in life.iter().enumerate() {
+            // The highest the gauge stood in the window before it: its
+            // points in it, and the value held from before it.
+            let mut high: Option<(f32, f32)> = None;
+            for &(pt, pv) in life[..i].iter().rev() {
+                let at = pt.max(t - window);
+                if high.is_none_or(|(_, hv)| pv > hv) {
+                    high = Some((at, pv));
+                }
+                if pt <= t - window {
+                    break;
+                }
+            }
+            if let Some((from, hv)) = high
+                && hv - v > best.map_or(0.0, |b| b.0)
+            {
+                best = Some((hv - v, from, t));
+            }
+        }
+        best
     }
 }
 
@@ -592,6 +729,100 @@ mod tests {
             notes: 1,
             ..Default::default()
         }
+    }
+
+    fn hits(beats: &[(Quantization, usize)]) -> Vec<Hit> {
+        beats
+            .iter()
+            .flat_map(|&(q, n)| {
+                (0..n).map(move |i| Hit {
+                    time: i as f32,
+                    offset: (i > 0).then_some(if q == Quantization::N16 { -10.0 } else { 2.0 }),
+                    lane: 0,
+                    beat: Some(q),
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn beats_go_in_rhythmic_order_the_rare_and_the_least_played_together() {
+        use Quantization::*;
+        let d = ResultsData {
+            hits: hits(&[(N16, 40), (N4, 100), (N8, 60), (N12, 3), (N24, 2)]),
+            ..Default::default()
+        };
+        let names = |g: &[BeatGroup]| {
+            g.iter()
+                .map(|g| (g.name.clone(), g.count))
+                .collect::<Vec<_>>()
+        };
+        let g = d.beat_groups(7, 5);
+        assert_eq!(
+            names(&g),
+            [
+                ("4th".into(), 100),
+                ("8th".into(), 60),
+                ("16th".into(), 40),
+                ("Other".into(), 5)
+            ]
+        );
+        // Each row's first note missed; 16ths 10 ms early.
+        assert_eq!((g[2].misses, g[2].mean, g[2].sd), (1, -10.0, 0.0));
+        // Room for three: the 16ths join Other.
+        assert_eq!(
+            names(&d.beat_groups(3, 5)),
+            [
+                ("4th".into(), 100),
+                ("8th".into(), 60),
+                ("Other".into(), 45)
+            ]
+        );
+        // One rare place keeps its name.
+        let d = ResultsData {
+            hits: hits(&[(N4, 10), (N12, 2)]),
+            ..Default::default()
+        };
+        assert_eq!(
+            names(&d.beat_groups(7, 5)),
+            [("4th".into(), 10), ("12th".into(), 2)]
+        );
+        // A play kept before the places were: none.
+        let mut d = d;
+        for h in &mut d.hits {
+            h.beat = None;
+        }
+        assert!(d.beat_groups(7, 5).is_empty());
+    }
+
+    #[test]
+    fn the_largest_drop_is_the_largest_fall_within_the_window() {
+        let d = |life: &[(f32, f32)]| ResultsData {
+            life: life.to_vec(),
+            ..Default::default()
+        };
+        // A slow fall of 40% over 20 s, then 20% in a second.
+        let slow: Vec<(f32, f32)> = (0..=20)
+            .map(|t| (t as f32, 1.0 - 0.02 * t as f32))
+            .collect();
+        let mut life = slow.clone();
+        life.extend([(30.0, 0.6), (31.0, 0.4), (40.0, 0.5)]);
+        let (drop, from, to) = d(&life).steepest_drop(4.0).unwrap();
+        assert!(
+            (drop - 0.2).abs() < 1e-5 && from == 30.0 && to == 31.0,
+            "{drop} {from} {to}"
+        );
+        // The slow fall alone: 4 s of it, from the window's start.
+        let (drop, from, to) = d(&slow).steepest_drop(4.0).unwrap();
+        assert!(
+            (drop - 0.08).abs() < 1e-5 && to - from == 4.0,
+            "{drop} {from} {to}"
+        );
+        // A value held from before the window counts at the window's start.
+        let (drop, from, _) = d(&[(0.0, 1.0), (10.0, 0.7)]).steepest_drop(4.0).unwrap();
+        assert!((drop - 0.3).abs() < 1e-5 && from == 6.0, "{drop} {from}");
+        // Never falling: none.
+        assert_eq!(d(&[(0.0, 0.5), (5.0, 0.8)]).steepest_drop(4.0), None);
     }
 
     #[test]

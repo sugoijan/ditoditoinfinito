@@ -73,6 +73,15 @@ pub struct ResultsActions {
     pub panels: Option<PanelsFn>,
 }
 
+/// The life panel's largest drop is the largest fall within this many
+/// seconds (the maintainer's choice: one bad burst, not the lowest point).
+pub const DROP_WINDOW: f32 = 4.0;
+
+/// The panel sets' tabs: their height, and the room they take above the
+/// panels.
+const TAB_H: f32 = 30.0;
+const TABS_ROOM: f32 = 40.0;
+
 /// The offset editor's buttons focus moves through after the bar's.
 const OFFSET_BUTTONS: [&str; 4] = ["OffsetDown", "OffsetUp", "UseMean", "ResetOffset"];
 
@@ -182,7 +191,7 @@ impl ResultsScreen {
             m + 52.0,
             top / 2.0,
         ));
-        children.push(self.panel_pills(screen));
+        children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([m + 150.0, top / 2.0]) {
             children.push(b);
         }
@@ -230,13 +239,7 @@ impl ResultsScreen {
         };
         let ph = if sideways { 190.0 } else { 200.0 };
         for kind in kinds {
-            let rect = [px, py, pw, ph];
-            children.push(match kind {
-                PanelKind::Timing => self.timing_panel(rect, false),
-                PanelKind::Life => self.life_panel(rect),
-                PanelKind::Offsets => self.offsets_panel(rect),
-                PanelKind::Lanes => self.lanes_panel(rect),
-            });
+            children.push(self.panel_of(kind, [px, py, pw, ph]));
             py += ph + gap;
         }
         let mut end = py.max(score_h);
@@ -299,7 +302,12 @@ impl ResultsScreen {
                 84.0,
                 env.metric("Results.Score.Width", 400.0),
             ],
-            [panels_x, 84.0, panels_w, bar_y - 24.0 - 84.0],
+            [
+                panels_x,
+                84.0 + TABS_ROOM,
+                panels_w,
+                bar_y - 24.0 - 84.0 - TABS_ROOM,
+            ],
             bar_y,
         )
     }
@@ -313,7 +321,7 @@ impl ResultsScreen {
         children.push(self.panels_actor(panels));
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
         children.push(header(&env, screen[0], "RESULTS"));
-        children.push(self.panel_pills(screen));
+        children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
         }
@@ -612,15 +620,20 @@ impl ResultsScreen {
             }
         };
         for (kind, rect) in kinds.into_iter().zip(rects) {
-            let large = rect[2] > 600.0;
-            children.push(match kind {
-                PanelKind::Timing => self.timing_panel(rect, large),
-                PanelKind::Life => self.life_panel(rect),
-                PanelKind::Offsets => self.offsets_panel(rect),
-                PanelKind::Lanes => self.lanes_panel(rect),
-            });
+            children.push(self.panel_of(kind, rect));
         }
         frame("Panels", children)
+    }
+
+    /// A panel of `kind` in `rect`.
+    fn panel_of(&self, kind: PanelKind, rect: [f32; 4]) -> Actor {
+        match kind {
+            PanelKind::Timing => self.timing_panel(rect, rect[2] > 600.0),
+            PanelKind::Life => self.life_panel(rect),
+            PanelKind::Offsets => self.offsets_panel(rect),
+            PanelKind::Lanes => self.lanes_panel(rect),
+            PanelKind::Beats => self.beats_panel(rect),
+        }
     }
 
     /// How far either way the timing panels reach (ms): the hits' spread,
@@ -742,16 +755,34 @@ impl ResultsScreen {
     fn life_panel(&self, rect: [f32; 4]) -> Actor {
         let env = &self.env;
         let [_, _, w, h] = rect;
-        let lowest = self
+        // The largest fall in a few seconds: a bad burst, even where life
+        // came back after it (a lowest would mostly say where it began).
+        let drop = self
             .data
-            .life
-            .iter()
-            .map(|&(_, v)| v)
-            .fold(1.0f32, f32::min);
-        let note = format!("lowest {:.0}%", lowest * 100.0);
+            .steepest_drop(DROP_WINDOW)
+            .filter(|&(d, _, _)| d >= 0.005);
+        let note = match drop {
+            Some((d, from, _)) => format!(
+                "largest drop {:.0}% at {}",
+                d * 100.0,
+                super::data::clock(from)
+            ),
+            None => "no drop".to_string(),
+        };
         let len = self.length();
         let inner = [14.0, 40.0, w - 28.0, h - 40.0 - 30.0];
         let [ix, iy, iw, ih] = inner;
+        // Where it fell, faintly behind the line.
+        let mut band = Vec::new();
+        if let Some((_, from, to)) = drop {
+            let px = |t: f32| ix + iw * (t / len).clamp(0.0, 1.0);
+            let (a, b) = (px(from), px(to).max(px(from) + 2.0));
+            let mut color = env.color("Danger");
+            color[3] *= 0.18;
+            let mut q = quad("Life.Drop", [b - a, ih], color);
+            call(&mut q, "xy", &[(a + b) / 2.0, iy + ih / 2.0]);
+            band.push(q);
+        }
         // As steps: life holds until it changes.
         let mut steps = Vec::with_capacity(self.data.life.len() * 2 + 1);
         for (i, &(t, v)) in self.data.life.iter().enumerate() {
@@ -763,14 +794,15 @@ impl ResultsScreen {
         if let Some(&(_, v)) = self.data.life.last() {
             steps.push((len, v));
         }
-        let mut c = vec![graph::line_graph(
+        let mut c = band;
+        c.push(graph::line_graph(
             "Life.Graph",
             &*env.look,
             &steps,
             [0.0, len],
             [0.0, 1.0],
             inner,
-        )];
+        ));
         // The gauge's danger line, dashed.
         if let Some(d) = self.data.danger.filter(|d| *d > 0.0 && *d < 1.0) {
             let dy = iy + ih * (1.0 - d);
@@ -912,6 +944,99 @@ impl ResultsScreen {
         self.panel("Lanes", &format!("By lane · not {best_name}"), "", rect, c)
     }
 
+    /// The hits by their notes' places in the beat: a row each (the rare
+    /// ones together), its count, its mean and spread on the timing
+    /// panels' scale, the best window behind them, and the numbers.
+    fn beats_panel(&self, rect: [f32; 4]) -> Actor {
+        let env = &self.env;
+        let [_, _, w, h] = rect;
+        let [ix, iy, iw, ih] = [14.0, 40.0, w - 28.0, h - 40.0 - 12.0];
+        let row = 26.0;
+        let rows = ((ih / row).floor() as usize).clamp(1, 7);
+        let known = self.data.hits.iter().filter(|h| h.beat.is_some()).count() as u32;
+        let groups = self.data.beat_groups(rows, (known / 50).max(5));
+        let mut c = Vec::new();
+        if groups.is_empty() {
+            let why = if self.data.hits.is_empty() {
+                "No notes were judged."
+            } else {
+                "This play was kept before notes' places in the beat were."
+            };
+            let mut t = env.text("Beats.Empty", why, 13.0, 400, "Muted");
+            if let Kind::Text(tx) = &mut t.kind {
+                tx.max_width = iw;
+                tx.ellipsis = true;
+            }
+            c.push(left(t, ix, iy + ih / 2.0));
+            return self.panel("Beats", "By beat", "", rect, c);
+        }
+        let range = self.range();
+        let (track_x, track_w) = (ix + 104.0, (iw - 104.0 - 104.0).max(40.0));
+        let px = |ms: f32| track_x + track_w * ((ms + range) / (2.0 * range)).clamp(0.0, 1.0);
+        // The rows centered in the room, the best window's band and the
+        // zero line behind them all.
+        let top = iy + (ih - row * groups.len() as f32) / 2.0;
+        let span = row * groups.len() as f32;
+        if let Some(win) = self.data.windows.first() {
+            let (a, b) = (px(-win.early), px(win.late));
+            let mut band = quad("Window", [b - a, span], env.color("Window"));
+            call(&mut band, "xy", &[(a + b) / 2.0, top + span / 2.0]);
+            c.push(band);
+        }
+        c.push(graph::segment(
+            [px(0.0), top],
+            [px(0.0), top + span],
+            1.0,
+            env.color("Graph.Axis"),
+        ));
+        for (i, g) in groups.iter().enumerate() {
+            let y = top + row * (i as f32 + 0.5);
+            c.push(left(
+                env.text(&format!("Beat{i}"), &g.name, 13.0, 600, "Secondary"),
+                ix,
+                y,
+            ));
+            c.push(right(
+                env.numbers(
+                    &format!("BeatCount{i}"),
+                    &g.count.to_string(),
+                    12.0,
+                    "Muted",
+                ),
+                track_x - 12.0,
+                y,
+            ));
+            if g.count > g.misses {
+                // The spread (a standard deviation either way), the mean
+                // across it.
+                let (a, b) = (
+                    px(g.mean - g.sd),
+                    px(g.mean + g.sd).max(px(g.mean - g.sd) + 2.0),
+                );
+                let mut color = env.color("Graph.Point");
+                color[3] *= 0.45;
+                let mut spread = quad("", [b - a, 6.0], color);
+                call(&mut spread, "xy", &[(a + b) / 2.0, y]);
+                call(&mut spread, "cornerradius", &[3.0]);
+                c.push(spread);
+                let mut mean = quad("", [2.0, 14.0], env.color("Graph.Point"));
+                call(&mut mean, "xy", &[px(g.mean), y]);
+                c.push(mean);
+            }
+            let stats = if g.count > g.misses {
+                format!("{} · σ {:.1}", signed(g.mean, 1), g.sd)
+            } else {
+                "—".to_string()
+            };
+            c.push(right(
+                env.numbers(&format!("BeatStats{i}"), &stats, 12.0, "Muted"),
+                ix + iw,
+                y,
+            ));
+        }
+        self.panel("Beats", "By beat", "mean · σ ms", rect, c)
+    }
+
     fn bottom_bar(&self, [x, y, w, h]: [f32; 4]) -> Actor {
         let env = &self.env;
         // Upright on a phone: the editor on a row of its own, the buttons
@@ -1050,41 +1175,54 @@ impl ResultsScreen {
         v
     }
 
-    fn panel_pills(&self, screen: [f32; 2]) -> Actor {
+    /// The panel sets as tabs: over the panels, left to right with a
+    /// line under them (on a phone, in the bar, from its right).
+    fn panel_tabs(&self) -> Actor {
         let env = &self.env;
-        let mut x = screen[0] - env.metric("Margin", 32.0);
+        let sizes: Vec<f32> = self
+            .data
+            .panel_sets
+            .iter()
+            .map(|s| look::mono_width(&s.name, 13.0) + 24.0)
+            .collect();
+        let gap = 4.0;
+        let (mut x, y) = if self.compact {
+            let total = sizes.iter().sum::<f32>() + gap * sizes.len().saturating_sub(1) as f32;
+            (
+                self.screen[0] - self.compact_bars().2 - total,
+                self.compact_bars().0 / 2.0,
+            )
+        } else {
+            let (_, [px, py, ..], _) = self.places();
+            (px, py - TABS_ROOM + TAB_H / 2.0)
+        };
         let mut c = Vec::new();
-        for (i, set) in self.data.panel_sets.iter().enumerate().rev() {
-            let name = set.name.as_str();
-            let w = look::mono_width(name, 13.0) + 24.0;
-            let mut pill =
-                look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, 30.0], name));
-            pill.name = format!("PanelSet{i}");
-            let w = super::extent(&mut pill, [w, 30.0])[0];
-            let py = if self.compact {
-                self.compact_bars().0 / 2.0
-            } else {
-                32.0
-            };
-            call(&mut pill, "xy", &[x - w / 2.0, py]);
+        if !self.compact && !sizes.is_empty() {
+            let (_, [px, py, pw, _], _) = self.places();
+            let mut line = quad("TabsLine", [pw, 1.0], env.color("Line2"));
+            call(&mut line, "xy", &[px + pw / 2.0, py - TABS_ROOM + TAB_H]);
+            c.push(line);
+        }
+        for (i, (set, &w)) in self.data.panel_sets.iter().zip(&sizes).enumerate() {
+            let mut tab = look::component_or(
+                &*env.look,
+                "Tab",
+                "Button",
+                &Spec::new([w, TAB_H], set.name.as_str()),
+            );
+            tab.name = format!("PanelSet{i}");
+            call(&mut tab, "xy", &[x + w / 2.0, y]);
             crate::widgets::play(
-                &mut pill,
+                &mut tab,
                 if i == self.data.panel_set {
                     "Selected"
                 } else {
                     "Available"
                 },
             );
-            pill.finish_tweening();
-            x -= w + 8.0;
-            c.push(pill);
-        }
-        if !self.data.panel_sets.is_empty() && !self.compact {
-            c.push(right(
-                env.text("PanelsLabel", "Panels", 13.0, 400, "Muted"),
-                x,
-                32.0,
-            ));
+            tab.finish_tweening();
+            x += w + gap;
+            c.push(tab);
         }
         frame("PanelSets", c)
     }
@@ -1115,9 +1253,9 @@ impl ResultsScreen {
                 *p = fresh;
             }
         }
-        let pills = self.panel_pills(self.screen);
+        let tabs = self.panel_tabs();
         if let Some(p) = hit::find_mut(root, "PanelSets") {
-            *p = pills;
+            *p = tabs;
         }
         if let Some(f) = &self.actions.panels {
             f(&self.data.panel_sets[i].name);

@@ -2735,6 +2735,18 @@ fn js_debug(
     set(&r, "lanes", lanes.into());
     set(&r, "hits", (d.hits.len() as f64).into());
     set(&r, "lifePoints", (d.life.len() as f64).into());
+    // Every place in the beat, none merged: "16th 96 −11.2 σ 9.9".
+    let beats = js_sys::Array::new();
+    for g in d.beat_groups(usize::MAX, 1) {
+        beats.push(&format!("{} {} {:.1} σ {:.1}", g.name, g.count, g.mean, g.sd).into());
+    }
+    set(&r, "beats", beats.into());
+    set(
+        &r,
+        "largestDrop",
+        d.steepest_drop(ddi_ui::screens::results::DROP_WINDOW)
+            .map_or(JsValue::NULL, |(drop, _, _)| f64::from(drop).into()),
+    );
     set(&r, "windows", (d.windows.len() as f64).into());
     set(&r, "danger", d.danger.map_or(JsValue::NULL, |v| v.into()));
     set(&r, "panels", st.panels.as_str().into());

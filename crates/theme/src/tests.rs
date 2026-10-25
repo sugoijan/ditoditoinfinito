@@ -329,8 +329,12 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     h.key("Enter", "Enter");
     h.run(0.5);
     assert_eq!(state.borrow().screen, "results");
-    h.key("ArrowRight", "ArrowRight");
-    h.run(0.2);
+    // Every panel set (the last has the lanes), once keys are taken.
+    h.run(ddi_ui::screens::results::SETTLE);
+    for _ in 0..2 {
+        h.key("ArrowRight", "ArrowRight");
+        h.run(0.2);
+    }
     h.key("Escape", "Escape");
     h.run(0.5);
     h.tap(PointerKind::Mouse, "Link.Options");

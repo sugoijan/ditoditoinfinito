@@ -35,6 +35,8 @@
 //!   `ChartButton` (centered; `Button`): `Meter`, `Assist`; the same
 //!   commands, and `Assisted` or `Original` (a generated version's mark).
 //!   `PlayButton`, `IconButton`, `StyleButton` (centered; `Button`).
+//!   `Tab` (centered; `Button`): `Label`, `Underline`; `Selected`,
+//!   `Available` (the results' panel sets).
 //! - `Results.Judgement` (`List.Row`): `Name`, `Bar` (as long as the
 //!   row's `Spec` is wide, zoomed by the share), `Count`; its color's
 //!   name as a command (`Judgement.W1`). `Results.Score` (`Panel`):

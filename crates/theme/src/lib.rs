@@ -970,6 +970,39 @@ impl Infinito {
         frame("", vec![border, title, hint])
     }
 
+    /// A tab (the results' panel sets): its label, muted until selected,
+    /// then bright over an accent underline; a ring while focused.
+    fn tab(&self, spec: &Spec) -> Actor {
+        let [w, h] = spec.size;
+        let plate_ = quad("Plate", [w, h], [0.0; 4]);
+        let mut label = self.text("Label", &spec.text, 13.0, 600, "Muted");
+        self.colored(&mut label, "Selected", "Text");
+        self.colored(&mut label, "Available", "Muted");
+        let mut line = round(
+            plate(
+                "Underline",
+                [-w / 2.0 + 6.0, h / 2.0 - 2.0],
+                [w - 12.0, 2.0],
+                self.c("Accent"),
+            ),
+            1.0,
+        );
+        hide(&mut line);
+        command_of(&mut line, "Selected", "diffusealpha,1");
+        command_of(&mut line, "Available", "diffusealpha,0");
+        let mut ring = outline_r(
+            "Ring",
+            [-w / 2.0 - 2.0, -h / 2.0 - 2.0, w + 4.0, h + 4.0],
+            2.0,
+            self.c("Accent"),
+            6.0,
+        );
+        hide(&mut ring);
+        command_of(&mut ring, "GainFocus", "diffusealpha,1");
+        command_of(&mut ring, "LoseFocus", "diffusealpha,0");
+        frame("", vec![ring, plate_, label, line, extent([w, h])])
+    }
+
     fn chart_button(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let (pulse, mut ring) = self.halo([-w / 2.0, -h / 2.0, w, h]);
@@ -1271,6 +1304,7 @@ impl Look for Infinito {
                 command_of(&mut ring, "LoseFocus", "diffusealpha,0");
                 frame("", vec![ring, p, label, extent([lw, h])])
             }
+            "Tab" => self.tab(spec),
             "KeyHint" => self.key_hint(spec),
             "Toggle" => {
                 let mut f = self.option_row(spec, true);

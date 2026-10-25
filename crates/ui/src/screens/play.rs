@@ -83,10 +83,13 @@ pub fn panel_sets() -> Vec<PanelSet> {
                 PanelKind::Timing,
                 PanelKind::Life,
                 PanelKind::Offsets,
-                PanelKind::Lanes,
+                PanelKind::Beats,
             ],
         ),
-        set("Timing", &[PanelKind::Timing, PanelKind::Offsets]),
+        set(
+            "Timing",
+            &[PanelKind::Timing, PanelKind::Offsets, PanelKind::Beats],
+        ),
         set("Song", &[PanelKind::Life, PanelKind::Lanes]),
     ]
 }
@@ -230,6 +233,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                 time: j.time,
                 offset: (!t.is_miss()).then_some((delta * 1000.0) as f32),
                 lane: j.lane,
+                beat: j.beat,
             }),
             _ => None,
         })
@@ -724,6 +728,7 @@ mod tests {
             time,
             lane,
             kind: JudgeEventKind::Tap(j, delta),
+            beat: Some(ddi_chart::Quantization::N8),
         };
         r.timeline = vec![
             tap(1.0, 0, Judgement::W1, -0.004),
@@ -733,6 +738,7 @@ mod tests {
                 time: 3.0,
                 lane: 2,
                 kind: JudgeEventKind::Held,
+                beat: Some(ddi_chart::Quantization::N4),
             },
         ];
         let layout = single();
@@ -743,6 +749,7 @@ mod tests {
         assert_eq!(d.hits[1].lane, 3);
         assert!((d.hits[0].offset.unwrap() + 4.0).abs() < 1e-3);
         assert_eq!(d.hits[2].offset, None);
+        assert_eq!(d.hits[2].beat, Some(ddi_chart::Quantization::N8));
         assert_eq!(d.life, [(0.0, 0.5), (10.0, 0.6)]);
     }
 

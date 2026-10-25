@@ -9,7 +9,7 @@
 //! edges at their times and updates once at the end judges exactly what
 //! the play did.
 
-use ddi_chart::Song;
+use ddi_chart::{Quantization, Song};
 use serde::{Deserialize, Serialize};
 
 use crate::cover::{CoverChange, CoverMode, LaneCover};
@@ -77,8 +77,25 @@ impl std::error::Error for LogError {}
 /// covers' changes after them.
 const LOG_VERSION: u8 = 1;
 const LOG_VERSION_COVERS: u8 = 2;
-/// The timing's binary format.
-const TIMING_VERSION: u8 = 1;
+/// The timing's binary format: 1, then 2 with each judgement's place in
+/// the beat in its kind byte's upper bits.
+const TIMING_VERSION_1: u8 = 1;
+const TIMING_VERSION: u8 = 2;
+/// A timing entry's kind byte: the kind below these bits, the place in
+/// the beat above them (0 none, else its place in [`BEATS`] plus one).
+const KIND_BITS: u32 = 4;
+/// The places in the beat as the timing numbers them.
+const BEATS: [Quantization; 9] = [
+    Quantization::N4,
+    Quantization::N8,
+    Quantization::N12,
+    Quantization::N16,
+    Quantization::N24,
+    Quantization::N32,
+    Quantization::N48,
+    Quantization::N64,
+    Quantization::N192,
+];
 /// In a log entry, a lane this high is followed by the lane itself.
 const WIDE_LANE: u8 = 15;
 /// A log entry's bits below its time: the lane (four) and the press.
@@ -401,10 +418,29 @@ impl PlayTiming {
         }
     }
 
+    /// Whether `fresh` (the play judged again) is the play this timing
+    /// kept: the same, but for the places in the beat this one does not
+    /// say (kept before they were, [`TIMING_VERSION_1`]).
+    pub fn agrees(&self, fresh: &PlayTiming) -> bool {
+        self.life == fresh.life
+            && self.timeline.len() == fresh.timeline.len()
+            && self
+                .timeline
+                .iter()
+                .zip(&fresh.timeline)
+                .all(|(kept, now)| {
+                    Judged {
+                        beat: kept.beat.or(now.beat),
+                        ..*kept
+                    } == *now
+                })
+    }
+
     /// The binary form, exact: a version byte; the number of judgements,
     /// then per judgement its time (the step from the one before in the
     /// float's own precision, a signed varint), its lane, a byte of its
-    /// kind (a tap's tier, or the event) and for a tap its offset in
+    /// kind (a tap's tier, or the event; its note's place in the beat in
+    /// the upper four bits) and for a tap its offset in
     /// microseconds (a signed varint; a checkpoint row its counts and
     /// lanes); then the life's changes, time and life each as a step the
     /// same way. About seven bytes a judgement.
@@ -418,23 +454,28 @@ impl PlayTiming {
             put_signed(&mut out, t - last);
             last = t;
             out.push(j.lane);
+            let beat = j
+                .beat
+                .and_then(|b| BEATS.iter().position(|&q| q == b))
+                .map_or(0, |i| i as u8 + 1)
+                << KIND_BITS;
             match j.kind {
                 JudgeEventKind::Tap(tier, delta) => {
-                    out.push(tier.index() as u8);
+                    out.push(beat | tier.index() as u8);
                     put_signed(&mut out, micros(delta));
                 }
-                JudgeEventKind::Held => out.push(HELD),
-                JudgeEventKind::LetGo => out.push(LET_GO),
-                JudgeEventKind::HitMine => out.push(HIT_MINE),
-                JudgeEventKind::AvoidShock => out.push(AVOID_SHOCK),
-                JudgeEventKind::HitShock => out.push(HIT_SHOCK),
-                JudgeEventKind::Boo => out.push(BOO),
+                JudgeEventKind::Held => out.push(beat | HELD),
+                JudgeEventKind::LetGo => out.push(beat | LET_GO),
+                JudgeEventKind::HitMine => out.push(beat | HIT_MINE),
+                JudgeEventKind::AvoidShock => out.push(beat | AVOID_SHOCK),
+                JudgeEventKind::HitShock => out.push(beat | HIT_SHOCK),
+                JudgeEventKind::Boo => out.push(beat | BOO),
                 JudgeEventKind::Checkpoint {
                     held,
                     missed,
                     lanes,
                 } => {
-                    out.push(CHECKPOINT);
+                    out.push(beat | CHECKPOINT);
                     put_varint(&mut out, u64::from(held));
                     put_varint(&mut out, u64::from(missed));
                     put_varint(&mut out, lanes);
@@ -456,7 +497,7 @@ impl PlayTiming {
     pub fn decode(bytes: &[u8]) -> Result<PlayTiming, LogError> {
         let mut r = Reader { bytes, at: 0 };
         let version = r.byte().map_err(|_| LogError::Empty)?;
-        if version != TIMING_VERSION {
+        if version != TIMING_VERSION && version != TIMING_VERSION_1 {
             return Err(LogError::Version(version));
         }
         let n = r.count(3)?;
@@ -466,7 +507,18 @@ impl PlayTiming {
             last = last.checked_add(r.signed()?).ok_or(LogError::Overflow)?;
             let time = from_ordered(last)?;
             let lane = r.byte()?;
-            let kind = match r.byte()? {
+            let byte = r.byte()?;
+            // Version 1 kept no place in the beat: its kinds are whole bytes.
+            let (kind, beat) = if version == TIMING_VERSION_1 {
+                (byte, None)
+            } else {
+                let beat = match byte >> KIND_BITS {
+                    0 => None,
+                    b => Some(*BEATS.get(usize::from(b) - 1).ok_or(LogError::Kind(byte))?),
+                };
+                (byte & ((1 << KIND_BITS) - 1), beat)
+            };
+            let kind = match kind {
                 tier @ 0..=5 => JudgeEventKind::Tap(
                     Judgement::from_index(usize::from(tier)).ok_or(LogError::Kind(tier))?,
                     from_micros(r.signed()?),
@@ -487,7 +539,12 @@ impl PlayTiming {
                 }
                 other => return Err(LogError::Kind(other)),
             };
-            timeline.push(Judged { time, lane, kind });
+            timeline.push(Judged {
+                time,
+                lane,
+                kind,
+                beat,
+            });
         }
         let n = r.count(2)?;
         let mut life = Vec::with_capacity(n);
@@ -649,11 +706,13 @@ mod tests {
                     time: 0.0123,
                     lane: 1,
                     kind: JudgeEventKind::Tap(Judgement::W2, to_microsecond(-0.031_234_56)),
+                    beat: Some(Quantization::N16),
                 },
                 Judged {
                     time: 0.0123,
                     lane: 2,
                     kind: JudgeEventKind::Tap(Judgement::Miss, to_microsecond(0.181_5)),
+                    beat: Some(Quantization::N192),
                 },
                 Judged {
                     time: 7.25,
@@ -663,20 +722,46 @@ mod tests {
                         missed: 1,
                         lanes: u64::MAX,
                     },
+                    beat: Some(Quantization::N4),
                 },
                 Judged {
                     time: 5.0,
                     lane: 9,
                     kind: JudgeEventKind::HitShock,
+                    beat: None,
                 },
             ],
             life: vec![[0.0, 0.5], [0.0123, 0.4917], [7.25, 1.0]],
         };
         let bytes = t.encode();
         assert_eq!(PlayTiming::decode(&bytes), Ok(t.clone()));
-        // One judgement at 0 in lane 0 of a kind there is not.
-        let bad = [TIMING_VERSION, 1, 0, 0, 99, 0];
-        assert_eq!(PlayTiming::decode(&bad), Err(LogError::Kind(99)));
+        // One judgement at 0 in lane 0 of a kind there is not, or of a
+        // place in the beat there is not.
+        let bad = [TIMING_VERSION, 1, 0, 0, 15, 0];
+        assert_eq!(PlayTiming::decode(&bad), Err(LogError::Kind(15)));
+        let bad = [TIMING_VERSION, 1, 0, 0, 0xf1, 0];
+        assert_eq!(PlayTiming::decode(&bad), Err(LogError::Kind(0xf1)));
+        // Version 1, kept before the places in the beat: its kind bytes
+        // whole, the places unknown, agreeing with the play judged again.
+        let old = PlayTiming {
+            timeline: t
+                .timeline
+                .iter()
+                .map(|j| Judged { beat: None, ..*j })
+                .collect(),
+            life: t.life.clone(),
+        };
+        let old_bytes = {
+            let mut b = old.encode();
+            b[0] = TIMING_VERSION_1;
+            b
+        };
+        assert_eq!(PlayTiming::decode(&old_bytes), Ok(old.clone()));
+        assert!(old.agrees(&t));
+        assert!(t.agrees(&t));
+        let mut moved = t.clone();
+        moved.timeline[0].beat = Some(Quantization::N8);
+        assert!(!t.agrees(&moved));
         assert_eq!(
             PlayTiming::decode(&bytes[..bytes.len() - 1]),
             Err(LogError::Truncated)
