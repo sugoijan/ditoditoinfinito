@@ -117,11 +117,15 @@ fn a_skin_picked_shows_once_read() {
             None,
         ),
     ];
-    for (settings, want) in picks {
+    for (i, (settings, want)) in picks.into_iter().enumerate() {
         field.set_settings(&settings);
         let mut frames = 0;
         loop {
             frame(&mut field);
+            if i == 0 && field.reading() {
+                // Nothing before the first skin, not the built-in arrows.
+                assert_eq!(field.frames(), 0);
+            }
             frames += 1;
             if field.skin_name().as_deref() == want && !field.reading() {
                 break;

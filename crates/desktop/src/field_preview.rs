@@ -5,7 +5,7 @@
 //! noteskin play would draw its layout with (`Settings::noteskin_for`:
 //! the pump skin for pump layouts), readied natively as play readies it
 //! (`crate::play::skins`) and shown from the next frame after a pick, as
-//! the web's preview does.
+//! the web's preview does. Nothing is drawn until the first skin is in.
 
 use std::time::Instant;
 
@@ -30,6 +30,10 @@ pub struct Field {
     /// The skin wanted, read on its thread (a newer pick lets an older
     /// read go).
     reading: Option<(SkinWant, crate::play::skins::Reading, Layout)>,
+    /// The skin first wanted was shown (or none was wanted): until then
+    /// nothing is drawn, the panel's placeholder showing, never the
+    /// built-in arrows on the way to the skin.
+    settled: bool,
 }
 
 impl Default for Field {
@@ -43,6 +47,7 @@ impl Default for Field {
             registered: None,
             start: Instant::now(),
             reading: None,
+            settled: false,
         }
     }
 }
@@ -178,14 +183,18 @@ impl Field {
             self.shown = Some(want.clone());
             self.reading = None;
         }
-        let size = [w.round().max(1.0) as u32, h.round().max(1.0) as u32];
-        preview.draw(
-            device,
-            queue,
-            encoder,
-            size,
-            self.start.elapsed().as_secs_f64(),
-        );
+        self.settled |= self.wanted.is_none() || self.shown == self.wanted;
+        if self.settled {
+            let size = [w.round().max(1.0) as u32, h.round().max(1.0) as u32];
+            preview.draw(
+                device,
+                queue,
+                encoder,
+                size,
+                self.start.elapsed().as_secs_f64(),
+            );
+        }
+        // Before a first frame, no texture: the placeholder.
         if self.registered != Some(preview.generation()) {
             painter.set_external_image(device, SOURCE, preview.texture());
             self.registered = Some(preview.generation());

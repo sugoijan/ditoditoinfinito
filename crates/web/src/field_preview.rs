@@ -4,7 +4,8 @@
 //! the preview's options built from the settings (`ddi_shell`, as a play
 //! has its own), loads the noteskin play would use (in slices, off the
 //! frame, as play loads it) and puts it on the preview once ready, and
-//! makes the preview again on a new device.
+//! makes the preview again on a new device. Nothing is drawn until the
+//! first skin is in.
 //!
 //! A screen showing it (Options) says where each frame, in canvas
 //! pixels; [`FieldPreviewHost::draw`] records the preview's frame into
@@ -43,6 +44,10 @@ pub(crate) struct FieldPreviewHost {
     load_number: Rc<Cell<u64>>,
     /// What the shell last read the settings for (ms).
     read_ms: f64,
+    /// The skin first wanted was shown (or none was wanted): until then
+    /// nothing is drawn, the panel's placeholder showing, never the
+    /// built-in arrows on the way to the skin.
+    settled: bool,
     pub(crate) status: String,
 }
 
@@ -75,6 +80,7 @@ impl FieldPreviewHost {
             ready: None,
             load_number: Rc::default(),
             read_ms: f64::NEG_INFINITY,
+            settled: false,
             status: "built-in arrows".into(),
         }
     }
@@ -127,8 +133,12 @@ impl FieldPreviewHost {
             self.show_skin(gfx, want, prepared);
         }
         self.load_skin(gfx, host);
-        self.preview
-            .draw(&gfx.device, &gfx.queue, encoder, size, now_ms / 1000.0);
+        self.settled |= self.wanted.is_none() || self.shown == self.wanted;
+        if self.settled {
+            self.preview
+                .draw(&gfx.device, &gfx.queue, encoder, size, now_ms / 1000.0);
+        }
+        // Before a first frame, no texture: the placeholder.
         let generation = self.preview.generation();
         if self.registered != Some(generation) {
             let texture = self.preview.texture();
