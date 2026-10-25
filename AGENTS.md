@@ -624,7 +624,7 @@ Options sample); Start is silent. See `docs/plans/start-menu.md`.
   pump double in Double, the center removed and each pad turned an
   eighth clockwise, their holds still ticked as pump's
   (`Chart::pump_game`). Notes → Convert (`convert_pump_single`,
-  `convert_five_keys`, off by default) converts pump single and 5 keys
+  `convert_five_keys`, on by default) converts pump single and 5 keys
   to each other, every lane kept (the center on the onigiri), not
   assisted (`Derivation::assisted`), each played by its original's
   rules. Song select marks every generated version

@@ -397,8 +397,10 @@ mod tests {
             &History::default(),
             &MenuPlace::default(),
         );
-        assert_eq!(data.songs[0].charts.len(), 1);
+        // The original, and (by default) its conversion to pump single.
+        assert_eq!(data.songs[0].charts.len(), 2);
         assert_eq!(data.songs[0].charts[0].style, "danoni-5");
+        assert_eq!(data.songs[0].charts[1].style, "pump-single");
         settings.simplify_onigiri = true;
         let data = select_data(
             &songs,
@@ -407,7 +409,7 @@ mod tests {
             &History::default(),
             &MenuPlace::default(),
         );
-        assert_eq!(data.songs[0].charts.len(), 2);
+        assert_eq!(data.songs[0].charts.len(), 3);
         assert!(data.styles.iter().any(|s| s.id == "dance-single"));
         assert!(data.styles.iter().any(|s| s.id == "danoni-5"));
         assert_eq!(
@@ -492,6 +494,7 @@ mod tests {
             styles(&settings),
             [
                 ("dance-single".to_string(), 1),
+                ("danoni-5".to_string(), 2),
                 ("pump-single".to_string(), 0)
             ]
         );
@@ -503,7 +506,10 @@ mod tests {
             assert_eq!(player.judge().notes().len(), notes);
         }
         settings.simplify_center = CenterVersions::Off;
-        assert_eq!(styles(&settings), [("pump-single".to_string(), 0)]);
+        assert_eq!(
+            styles(&settings),
+            [("danoni-5".to_string(), 2), ("pump-single".to_string(), 0)]
+        );
     }
 
     #[test]
@@ -600,10 +606,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let mut settings = Settings::default();
-        assert!(!settings.convert_pump_single && !settings.convert_five_keys);
-        assert_eq!(keys(&settings), []);
-        settings.convert_pump_single = true;
+        assert!(settings.convert_pump_single && settings.convert_five_keys);
         assert_eq!(keys(&settings), [(2, Some("From Pump single"), false)]);
+        settings.convert_pump_single = false;
+        assert_eq!(keys(&settings), []);
     }
 
     fn entry(id: &str, layout: &str) -> ManifestEntry {

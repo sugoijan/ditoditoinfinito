@@ -208,8 +208,8 @@ Notes → Convert:
 
 | Row (`Settings`) | Adds | Default |
 | --- | --- | --- |
-| Pump on 5 keys (`convert_pump_single`) | every pump single chart on 5 keys (`Derivation::FromPumpSingle`) | Off |
-| 5 keys on Pump (`convert_five_keys`) | every 5-key chart on pump single (`Derivation::FromFiveKeys`) | Off |
+| Pump on 5 keys (`convert_pump_single`) | every pump single chart on 5 keys (`Derivation::FromPumpSingle`) | On |
+| 5 keys on Pump (`convert_five_keys`) | every 5-key chart on pump single (`Derivation::FromFiveKeys`) | On |
 
 **Lanes.** The corners are turned as Without center turns them, the
 center put on the onigiri:
