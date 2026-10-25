@@ -16,6 +16,7 @@ ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-lua.workspace = true
 wgpu = { workspace = true, features = ["wgsl"] }
+naga = { workspace = true, features = ["wgsl-in", "glsl-out"] }
 glyphon.workspace = true
 bytemuck.workspace = true
 

@@ -3,20 +3,22 @@
 //! song folders' `NoteSkins/`, `crate::library::noteskins`), built for the
 //! chart's layout through its Lua when it has some (`ddi-noteskin`'s
 //! loader, `lunita`) or natively, its images decoded (PNG and the rest
-//! through `image`, SVG through `resvg`). The web's `noteskins.rs` does
-//! the same with the browser's decoders; the two passes (which images the
+//! through `image`, SVG through `ddi_noteskin::raster`, several at once).
+//! The web's `noteskins.rs` does the same with the browser's decoders and
+//! its SVG worker, which draws as this does; the two passes (which images the
 //! actors use, then the actors with the images' sizes) are its.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use ddi_chart::Layout;
-use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE};
+use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes};
 use ddi_noteskin::bundled::Index;
 use ddi_noteskin::import::{MAX_TEXT, MAX_TEXTS};
 use ddi_noteskin::lua::Env;
+use ddi_noteskin::report::{ImageCost, ImageReport, Outcome};
 use ddi_noteskin::{Folder, Skin};
-use ddi_render::noteskin::NoteskinPlay;
+use ddi_render::noteskin::{NoteskinPlay, SameDocuments};
 
 use super::view::Rgba;
 use crate::library::noteskins::{DiskSkin, read_index};
@@ -31,6 +33,8 @@ pub struct Prepared {
     pub play: NoteskinPlay,
     /// Its textures' images, by texture index (`None`: built-in art).
     pub images: Vec<Option<Rgba>>,
+    /// What its images cost (`docs/plans/noteskin-svg.md`, step 3).
+    pub report: ImageReport,
 }
 
 /// A skin's folder as the loader reads it: its files and bounded texts.
@@ -105,12 +109,19 @@ fn bundled_folder(index: &Index, skin: &DiskSkin) -> Option<Folder> {
 /// SVG's own, drawn at four times that).
 pub fn decode_image(path: &Path) -> Result<(Rgba, (u32, u32)), String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    if path
-        .extension()
+    decode_bytes(&bytes, is_svg(path))
+}
+
+fn is_svg(path: &Path) -> bool {
+    path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
-    {
-        return decode_svg(&bytes);
+}
+
+/// [`decode_image`] of a file's bytes.
+fn decode_bytes(bytes: &[u8], svg: bool) -> Result<(Rgba, (u32, u32)), String> {
+    if svg {
+        return decode_svg(bytes);
     }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
@@ -142,47 +153,68 @@ pub fn decode_image(path: &Path) -> Result<(Rgba, (u32, u32)), String> {
     ))
 }
 
-/// An SVG checked (`ddi_noteskin::svg`, the subset browsers and resvg
-/// draw alike) and rasterised at [`SVG_SCALE`] times its size.
-pub fn decode_svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
-    if bytes.len() > ddi_noteskin::svg::MAX_SVG {
-        return Err("the SVG is too large".into());
-    }
-    let text = std::str::from_utf8(bytes).map_err(|_| "the SVG is not text")?;
-    let size = ddi_noteskin::svg::check(text)?;
-    let longest = size.0.max(size.1) as f32;
-    let scale = (SVG_SCALE as f32).min(MAX_IMAGE_SIDE as f32 / longest.max(1.0));
-    let (w, h) = (
-        ((size.0 as f32 * scale).round() as u32).max(1),
-        ((size.1 as f32 * scale).round() as u32).max(1),
+/// The scale skins' SVGs are drawn at ([`ddi_noteskin::build::svg_scale`]
+/// for the window's screen, [`set_screen_height`]), as `f64` bits; four
+/// times their size until a window says (tests, tools).
+static SVG_SCALE_BITS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(ddi_noteskin::build::SVG_SCALE.to_bits());
+
+/// The window's screen is `height` device pixels tall: skins loaded from
+/// now on draw their SVGs for it (one already loaded keeps its own).
+pub fn set_screen_height(height: u32) {
+    SVG_SCALE_BITS.store(
+        ddi_noteskin::build::svg_scale(height).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
     );
-    let data = rasterize_svg(text, w, h)?;
-    Ok((Rgba { size: [w, h], data }, size))
 }
 
-/// SVG `text` drawn at `w`×`h` pixels (stretched to them): RGBA rows,
-/// not premultiplied.
-pub fn rasterize_svg(text: &str, w: u32, h: u32) -> Result<Vec<u8>, String> {
-    let tree = resvg::usvg::Tree::from_str(text, &resvg::usvg::Options::default())
-        .map_err(|e| e.to_string())?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h).ok_or("an empty SVG")?;
-    let tree_size = tree.size();
-    let transform = resvg::tiny_skia::Transform::from_scale(
-        w as f32 / tree_size.width(),
-        h as f32 / tree_size.height(),
-    );
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    // tiny-skia's pixels are premultiplied; images are not.
-    let mut data = pixmap.take();
-    for px in data.as_chunks_mut::<4>().0 {
-        let a = px[3];
-        if a != 0 && a != 255 {
-            for c in &mut px[..3] {
-                *c = ((u32::from(*c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8;
-            }
+fn svg_scale() -> f64 {
+    f64::from_bits(SVG_SCALE_BITS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// An SVG checked (`ddi_noteskin::svg`) and rasterised at the scale the
+/// screen needs ([`set_screen_height`]), as the web's SVG worker draws it
+/// (`ddi_noteskin::raster`).
+pub fn decode_svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
+    let d = ddi_noteskin::raster::decode(bytes, svg_scale())?;
+    Ok((
+        Rgba {
+            size: [d.size.0, d.size.1],
+            data: d.pixels,
+        },
+        d.own,
+    ))
+}
+
+/// The pixels decoding the image at `path` keeps ([`decode_image`]'s
+/// size), read from its header or, for an SVG, its root; `None` when it
+/// cannot be read (decoding it would fail too).
+fn image_pixels(path: &Path) -> Option<u64> {
+    let (w, h) = if is_svg(path) {
+        let bytes = std::fs::read(path).ok()?;
+        if bytes.len() > ddi_noteskin::svg::MAX_SVG {
+            return None;
         }
-    }
-    Ok(data)
+        ddi_noteskin::svg::check_svg(std::str::from_utf8(&bytes).ok()?)
+            .ok()?
+            .raster_size(svg_scale())
+    } else {
+        let size = image::ImageReader::open(path)
+            .ok()?
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()?;
+        ddi_noteskin::svg::raster_size(size, 1.0)
+    };
+    Some(u64::from(w) * u64::from(h))
+}
+
+/// Where an image to decode comes from: a file of the skin, or a
+/// component's part made from one (`ddi_noteskin::component::part_svg`).
+enum ImageSource {
+    File(std::path::PathBuf),
+    Svg(String),
 }
 
 /// A hash seed for a skin's VMs.
@@ -243,7 +275,10 @@ pub struct Read {
     record_failures: bool,
     sizes: ProbeSizes,
     decoded: HashMap<(usize, String), Rgba>,
+    /// Parts' documents drawn, each once.
+    documents: SameDocuments,
     pixels: u64,
+    report: ImageReport,
 }
 
 /// Reads skin `key` for `layout` (`env` for its Lua), among `skins`: its
@@ -332,7 +367,9 @@ fn read_inner(
         record_failures,
         sizes,
         decoded: HashMap::new(),
+        documents: SameDocuments::default(),
         pixels: 0,
+        report: ImageReport::default(),
     };
     r.decode();
     Some(r)
@@ -340,30 +377,174 @@ fn read_inner(
 
 impl Read {
     /// The images the last pass asked for, decoded (the skin's pixels
-    /// capped).
+    /// capped): admitted in turn while the skin's pixels are under
+    /// [`MAX_PIXELS`] (each one's from its header), then decoded on
+    /// several threads.
     fn decode(&mut self) {
-        for (i, path) in self.sizes.take_asked() {
-            if self.decoded.contains_key(&(i, path.clone())) {
+        // Component files: their components read, every part drawn as an
+        // image of its own (`ddi_noteskin::component`).
+        let mut generated: Vec<(usize, String, String)> = Vec::new();
+        for (i, path) in self.sizes.take_asked_components() {
+            let read = self
+                .dirs
+                .get(i)
+                .and_then(|dir| ddi_library::path::RelPath::new(&path).to_path(dir))
+                .ok_or_else(|| "its path leaves its folder".to_string())
+                .and_then(|file| std::fs::read_to_string(file).map_err(|e| e.to_string()));
+            let found = read.and_then(|text| {
+                let read = ddi_noteskin::component::part_documents(&path, &text)?;
+                generated.extend(read.documents.into_iter().map(|(p, doc)| (i, p, doc)));
+                Ok(read.components)
+            });
+            if let Err(e) = &found {
+                eprintln!(
+                    "noteskin {}: {path}: {e}",
+                    self.names.get(i).map_or("", |n| n)
+                );
+            }
+            self.sizes.components.insert((i, path), found);
+        }
+        let mut admitted = Vec::new();
+        // Parts whose documents another's is: `(part, that one's)`.
+        let mut copies = Vec::new();
+        let asked = self.sizes.take_asked();
+        let generated = generated.into_iter().map(|(i, p, doc)| (i, p, Some(doc)));
+        for (i, path, doc) in asked
+            .into_iter()
+            .map(|(i, p)| (i, p, None))
+            .chain(generated)
+        {
+            if self.decoded.contains_key(&(i, path.clone())) || self.documents.is_copy(i, &path) {
                 continue;
             }
             let (Some(dir), Some(name)) = (self.dirs.get(i), self.names.get(i)) else {
                 continue;
             };
-            if self.pixels >= MAX_PIXELS {
-                eprintln!("noteskin {name}: {path} left out: its images are too large together");
+            let mut cost = ImageCost::left_out(name, &path);
+            // A part of a document drawn already costs nothing more.
+            if let Some(first) = doc
+                .as_ref()
+                .and_then(|d| self.documents.first_of(i, &path, d))
+            {
+                cost.svg = true;
+                self.report.images.push(cost);
+                copies.push((i, path, first, self.report.images.len() - 1));
                 continue;
             }
-            let Some(file) = ddi_library::path::RelPath::new(&path).to_path(dir) else {
-                eprintln!("noteskin {name}: {path}: path leaves its folder");
+            if self.pixels >= MAX_PIXELS {
+                eprintln!("noteskin {name}: {path} left out: its images are too large together");
+                self.report.images.push(cost);
                 continue;
-            };
-            match decode_image(&file) {
-                Ok((rgba, size)) => {
-                    self.pixels += u64::from(rgba.size[0]) * u64::from(rgba.size[1]);
-                    self.sizes.sizes.insert((i, path.clone()), size);
-                    self.decoded.insert((i, path), rgba);
+            }
+            // A gradient's ramp a material samples: drawn from its file.
+            let doc = doc.or_else(|| {
+                let (file, _) = ddi_noteskin::component::split_ramp_path(&path)?;
+                let text = ddi_library::path::RelPath::new(file)
+                    .to_path(dir)
+                    .and_then(|f| std::fs::read_to_string(f).ok());
+                match text.map(|t| ddi_noteskin::component::derived_svg(&path, &t)) {
+                    Some(Some(Ok(doc))) => Some(doc),
+                    other => {
+                        let why = match other {
+                            Some(Some(Err(e))) => e,
+                            _ => "its file could not be read".into(),
+                        };
+                        eprintln!("noteskin {name}: {path}: {why}");
+                        None
+                    }
                 }
-                Err(e) => eprintln!("noteskin {name}: {path}: {e}"),
+            });
+            let source = match doc {
+                Some(doc) => {
+                    cost.svg = true;
+                    if let Ok(c) = ddi_noteskin::svg::check_svg(&doc) {
+                        let (w, h) = c.raster_size(svg_scale());
+                        self.pixels += u64::from(w) * u64::from(h);
+                    }
+                    ImageSource::Svg(doc)
+                }
+                None => {
+                    let Some(file) = ddi_library::path::RelPath::new(&path).to_path(dir) else {
+                        eprintln!("noteskin {name}: {path}: path leaves its folder");
+                        cost.outcome = Outcome::Failed("its path leaves its folder".into());
+                        self.report.images.push(cost);
+                        continue;
+                    };
+                    if let Some(pixels) = image_pixels(&file) {
+                        self.pixels += pixels;
+                    }
+                    ImageSource::File(file)
+                }
+            };
+            self.report.images.push(cost);
+            admitted.push((i, path, source, self.report.images.len() - 1));
+        }
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .clamp(1, 8)
+            .min(admitted.len());
+        let mut decoded: Vec<_> = std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..threads)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut out = Vec::new();
+                        loop {
+                            let n = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some((_, _, source, _)) = admitted.get(n) else {
+                                return out;
+                            };
+                            let (bytes, svg) = match source {
+                                ImageSource::File(file) => (std::fs::read(file), is_svg(file)),
+                                ImageSource::Svg(doc) => (Ok(doc.as_bytes().to_vec()), true),
+                            };
+                            let hash = bytes
+                                .as_ref()
+                                .map(|b| ddi_noteskin::report::hash(b))
+                                .unwrap_or_default();
+                            // A decoder that panics on a broken file
+                            // fails that file only.
+                            let result = bytes.map_err(|e| e.to_string()).and_then(|b| {
+                                std::panic::catch_unwind(|| decode_bytes(&b, svg))
+                                    .unwrap_or_else(|_| Err("its decoder failed".into()))
+                            });
+                            out.push((n, hash, result));
+                        }
+                    })
+                })
+                .collect();
+            workers
+                .into_iter()
+                .flat_map(|w| w.join().unwrap_or_default())
+                .collect()
+        });
+        decoded.sort_by_key(|(n, _, _)| *n);
+        for (n, hash, result) in decoded {
+            let (i, path, _, at) = &admitted[n];
+            let cost = &mut self.report.images[*at];
+            cost.hash = hash;
+            match result {
+                Ok((rgba, size)) => {
+                    cost.own = size;
+                    cost.decoded = (rgba.size[0], rgba.size[1]);
+                    cost.outcome = Outcome::Kept;
+                    self.sizes.sizes.insert((*i, path.clone()), size);
+                    self.decoded.insert((*i, path.clone()), rgba);
+                }
+                Err(e) => {
+                    eprintln!("noteskin {}: {path}: {e}", self.names[*i]);
+                    cost.outcome = Outcome::Failed(e);
+                }
+            }
+        }
+        // A part of a document drawn already: as that one came out, its
+        // image that one's (`NoteskinPlay::take_images`).
+        for (i, path, first, at) in copies {
+            let name = self.names.get(i).map_or("", String::as_str);
+            if self.report.copy_outcome(at, name, &first)
+                && let Some(size) = self.sizes.sizes.get(&(i, first)).copied()
+            {
+                self.sizes.sizes.insert((i, path), size);
             }
         }
         self.sizes.probe = false;
@@ -408,18 +589,58 @@ pub fn build(mut r: Read, layout: &Layout) -> Option<Prepared> {
         let skin = Skin::load(&r.folders, &r.game, &r.name).ok()?;
         play = NoteskinPlay::new(&skin, layout, &r.sizes, true);
     }
-    let play = play?;
-    let images = play.images_for(&r.decoded);
+    let mut play = play?;
+    let (mut images, same) = play.take_images(&mut r.decoded, &r.documents.same);
+    share_images(&mut play, &mut images, &r.names, &mut r.report, same);
     for n in &play.notes {
         eprintln!("noteskin {}: {n}", r.name);
     }
+    eprintln!("noteskin {}: {}", r.name, r.report.summary());
     Some(Prepared {
         load_error: r.lua_error,
         key: r.key,
         strike: r.strike,
         play,
         images,
+        report: r.report,
     })
+}
+
+/// Lets each image whose pixels an earlier one has go, its texture given
+/// that one's (`NoteskinPlay::share_textures`), and says so in `report`
+/// for those and for `same`, the textures of one document
+/// (`NoteskinPlay::take_images`).
+fn share_images(
+    play: &mut NoteskinPlay,
+    images: &mut [Option<Rgba>],
+    names: &[String],
+    report: &mut ImageReport,
+    same: Vec<(usize, usize)>,
+) {
+    let pixels = play.share_textures(
+        |i| {
+            let image = images.get(i)?.as_ref()?;
+            Some(ddi_noteskin::report::pixels_hash(image.size, &image.data))
+        },
+        |a, b| match (&images[a], &images[b]) {
+            (Some(a), Some(b)) => a.size == b.size && a.data == b.data,
+            _ => false,
+        },
+    );
+    let keys = play.texture_keys();
+    let path = |i: usize| match keys.get(i) {
+        Some(ddi_noteskin::build::TextureKey::Skin {
+            dir: ddi_noteskin::Dir::Folder(f),
+            path,
+        }) => Some((names.get(*f)?.as_str(), path.as_str())),
+        _ => None,
+    };
+    for (i, with) in same.into_iter().chain(pixels) {
+        images[i] = None;
+        if let (Some((skin, path)), Some((_, with))) = (path(i), path(with)) {
+            report.share(skin, path, with);
+        }
+    }
 }
 
 /// Readies skin `key` for `layout` (`env` for its Lua), among `skins`,

@@ -162,6 +162,16 @@ impl Skin<'_> {
         }
     }
 
+    /// The buttons the skin declares it draws (`[Global] Buttons`).
+    pub fn declared_buttons(&self) -> impl Iterator<Item = &str> {
+        self.metrics
+            .get("Global", "Buttons")
+            .unwrap_or("")
+            .split(',')
+            .map(str::trim)
+            .filter(|b| !b.is_empty())
+    }
+
     /// The `buttons` the chain has elements of, in order, then Down's
     /// elements unturned.
     fn own_or_down(&self, buttons: &[Button]) -> Vec<LaneButton> {
@@ -177,8 +187,17 @@ impl Skin<'_> {
     /// Whether a folder of the chain has elements of button `name` at its
     /// top, where `GetPath(name, element)` finds them (`Center Tap
     /// Note.png`, a `Center Receptor/` folder); not art its Lua reaches by
-    /// another name (`_center tap note model.txt`).
+    /// another name (`_center tap note model.txt`). Or whether the skin
+    /// declares it draws that button (`[Global] Buttons=Onigiri,Center`, our
+    /// extension: a skin whose Lua draws a button through its redirects and
+    /// components, with no file of that name).
     fn has_button_elements(&self, name: &str) -> bool {
+        if self
+            .declared_buttons()
+            .any(|b| b.eq_ignore_ascii_case(name))
+        {
+            return true;
+        }
         let prefix = format!("{name} ");
         self.chain.iter().any(|&d| {
             self.folder(d).is_some_and(|f| {
@@ -780,6 +799,28 @@ mod tests {
         ];
         let skin = Skin::load(&folders, "dance", "s").unwrap();
         assert_eq!(skin.lane_button(onigiri).unwrap().button, Button::Center);
+        // Declared by the skin, with no file of that name (its Lua draws
+        // them): the onigiri, else the centre.
+        assert_eq!(
+            lane(&[("metrics.ini", "[Global]\nButtons=Onigiri, Center\n")]),
+            Button::Onigiri
+        );
+        assert_eq!(
+            lane(&[("metrics.ini", "[Global]\nButtons=Center\n")]),
+            Button::Center
+        );
+        let declared = [folder(
+            "dance",
+            "s",
+            &[("metrics.ini", "[Global]\nButtons=Onigiri,Center\n")],
+        )];
+        let skin = Skin::load(&declared, "dance", "s").unwrap();
+        let buttons: Vec<Button> = skin
+            .lane_buttons(onigiri)
+            .iter()
+            .map(|b| b.button)
+            .collect();
+        assert_eq!(buttons, [Button::Onigiri, Button::Center, Button::Down]);
         let giko = ddi_chart::Lane {
             glyph: Glyph::Giko,
             ..onigiri.clone()

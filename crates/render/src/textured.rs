@@ -1,10 +1,11 @@
 //! Instanced textured quads and triangles, for noteskins: one draw per run
-//! with the same texture, blend, wrapping and mask.
+//! with the same texture, blend, wrapping, mask and material.
 
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::material::{self, MaterialFrame, MaterialParams, MaterialQuad};
 use crate::stencil::{self, Kind, Mask};
 
 /// How a quad blends: StepMania's `BlendMode`s
@@ -89,6 +90,9 @@ pub struct TexQuad {
     /// interpolated over the shape; `None`: `color` alone.
     pub gradient: Option<[[f32; 4]; 4]>,
     pub mask: Mask,
+    /// Painted by a material over the texture's alpha (a quad's shape
+    /// only), rather than the texture's colors.
+    pub material: Option<MaterialQuad>,
 }
 
 impl TexQuad {
@@ -104,6 +108,7 @@ impl TexQuad {
             wrap: false,
             gradient: None,
             mask: Mask::None,
+            material: None,
         }
     }
 }
@@ -195,13 +200,18 @@ struct Instance {
     c1: [f32; 4],
     c2: [f32; 4],
     c3: [f32; 4],
+    /// A material's quad: the unit square to material coordinates; its
+    /// origin, phase and seed; its value.
+    material_axes: [f32; 4],
+    material_origin: [f32; 4],
+    material_value: [f32; 4],
 }
 
 impl Instance {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 11] = wgpu::vertex_attr_array![
+    const ATTRIBUTES: [wgpu::VertexAttribute; 14] = wgpu::vertex_attr_array![
         0 => Float32x4, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Uint32,
         5 => Float32x2, 6 => Float32x4, 7 => Float32x2, 8 => Float32x4, 9 => Float32x4,
-        10 => Float32x4
+        10 => Float32x4, 11 => Float32x4, 12 => Float32x4, 13 => Float32x4
     ];
 }
 
@@ -212,6 +222,27 @@ const TRIANGLE: u32 = 4;
 const BLANK: u32 = 8;
 const PROJECTED: u32 = 32;
 const GRADIENT: u32 = 64;
+/// A material's parameters' slot, in the mode's bits 8 to 15.
+const SLOT_SHIFT: u32 = 8;
+
+/// `material.wgsl`'s uniforms: the clocks and the target's size, then the
+/// parameters' slots.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct MaterialHeader {
+    clock: [f32; 4],
+    size: [f32; 4],
+}
+
+const MATERIAL_UNIFORMS: usize =
+    std::mem::size_of::<MaterialHeader>() + material::SLOTS * std::mem::size_of::<MaterialParams>();
+
+/// A material's shader and the pipelines made from it.
+struct MaterialShader {
+    module: wgpu::ShaderModule,
+    pipelines: Pipelines,
+    gamma: Option<Pipelines>,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -220,7 +251,12 @@ struct Globals {
     translate: [f32; 2],
 }
 
+#[derive(Clone)]
 struct Texture {
+    /// Its views (the plain one with a plain view's passes), for the
+    /// materials' images.
+    view: wgpu::TextureView,
+    plain_view: Option<wgpu::TextureView>,
     clamp: wgpu::BindGroup,
     repeat: wgpu::BindGroup,
     /// Through the texture's plain view (its texels as encoded), for the
@@ -234,6 +270,9 @@ struct Batch {
     blend: QuadBlend,
     wrap: bool,
     mask: Mask,
+    material: Option<u32>,
+    /// A material's images.
+    images: [u32; 2],
     start: u32,
     end: u32,
 }
@@ -297,6 +336,23 @@ impl Pipelines {
     }
 }
 
+/// What the last frame prepared drew ([`TexturedPipeline::stats`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QuadStats {
+    /// Instances uploaded.
+    pub quads: u32,
+    /// Runs of one texture, blend, wrapping and mask: a draw each (one
+    /// more each past a buffer's worth of instances).
+    pub runs: u32,
+    /// Quads clearing the mask.
+    pub stencil_clears: u32,
+    /// Pipelines made while preparing frames, since this was made: each
+    /// a stall in the frame that first needs it.
+    pub pipelines_made: u32,
+    /// Instances painted by a material.
+    pub material_quads: u32,
+}
+
 pub struct TexturedPipeline {
     shader: wgpu::ShaderModule,
     layout: wgpu::PipelineLayout,
@@ -332,6 +388,29 @@ pub struct TexturedPipeline {
     /// The pipelines drawing into them, with their alpha and without
     /// (an `ActorFrameTexture` without an alpha buffer stays opaque).
     target_pipelines: [Pipelines; 2],
+    stats: QuadStats,
+    /// Materials, by [`MaterialQuad::material`] ([`material::HOLD_WAVE`]
+    /// first), their uniforms, and the layout their pipelines share.
+    materials: Vec<MaterialShader>,
+    material_layout: wgpu::PipelineLayout,
+    material_buffer: wgpu::Buffer,
+    material_group: wgpu::BindGroup,
+    /// The materials' images' bind groups, by images and plain view, and
+    /// their layout.
+    image_layout: wgpu::BindGroupLayout,
+    image_groups: HashMap<([u32; 2], bool), wgpu::BindGroup>,
+    /// The skins' materials registered, by their shader's source's hash
+    /// (the source, and the id).
+    by_source: HashMap<u64, (String, u32)>,
+    /// Textures packed into an atlas page ([`TexturedPipeline::pack`]):
+    /// by texture id, the page's id and the rectangle there (texture
+    /// fractions); the pages, by format.
+    atlas: Vec<Option<(u32, [f32; 4])>>,
+    pages: Vec<Page>,
+    /// The textures registered, kept to be copied into a page.
+    sources: Vec<Option<wgpu::Texture>>,
+    /// This frame's materials' uniforms, for the next upload.
+    material_uniforms: Vec<u8>,
 }
 
 /// A texture quads are drawn into, with what draws it.
@@ -379,6 +458,45 @@ impl TexturedPipeline {
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
+        let (material_buffer, material_bind_layout, material_group) = crate::gpu::uniform_group(
+            device,
+            "ddi-textured-materials",
+            MATERIAL_UNIFORMS,
+            wgpu::ShaderStages::FRAGMENT,
+        );
+        let image = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let image_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ddi-textured-material-images-bgl"),
+            entries: &[
+                image(0),
+                image(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let material_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ddi-textured-material-layout"),
+            bind_group_layouts: &[
+                Some(&globals_layout),
+                Some(&texture_layout),
+                Some(&material_bind_layout),
+                Some(&image_layout),
+            ],
+            immediate_size: 0,
+        });
         let plain_textures = plain_textures && gamma.is_some();
         let sampler = |mode| {
             device.create_sampler(&wgpu::SamplerDescriptor {
@@ -419,10 +537,181 @@ impl TexturedPipeline {
             batches: Vec::new(),
             targets: Vec::new(),
             target_pipelines: [Pipelines::new(), Pipelines::new()],
+            stats: QuadStats::default(),
+            materials: Vec::new(),
+            material_layout,
+            material_buffer,
+            material_group,
+            image_layout,
+            image_groups: HashMap::new(),
+            by_source: HashMap::new(),
+            atlas: Vec::new(),
+            pages: Vec::new(),
+            sources: Vec::new(),
+            material_uniforms: Vec::new(),
         };
         let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
+        let wave = material::compile(material::HOLD_WAVE_SOURCE).expect("the wave compiles");
+        let id = p.add_material(device, &wave, &[QuadBlend::Normal]);
+        debug_assert_eq!(id, material::HOLD_WAVE);
         p
+    }
+
+    /// Registers a material ([`material::compile`]), its pipelines made
+    /// now for `blends`, with and without the mask (any other is made when
+    /// a frame first needs it): the id its quads name.
+    pub fn add_material(
+        &mut self,
+        device: &wgpu::Device,
+        compiled: &material::Compiled,
+        blends: &[QuadBlend],
+    ) -> u32 {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ddi-textured-material"),
+            source: wgpu::ShaderSource::Wgsl(compiled.source.as_str().into()),
+        });
+        let id = self.materials.len();
+        self.materials.push(MaterialShader {
+            module,
+            pipelines: Pipelines::new(),
+            gamma: self.gamma.as_ref().map(|_| Pipelines::new()),
+        });
+        for &blend in blends {
+            for kind in [None, Some(Kind::Level), Some(Kind::Masked)] {
+                for gamma in [false, true] {
+                    self.ensure_pipeline(device, Some(id as u32), (blend, kind), gamma);
+                }
+            }
+        }
+        id as u32
+    }
+
+    /// A skin's material ([`material::compile`]) registered once for its
+    /// source, its pipelines made for normal and additive blending: its id.
+    pub fn skin_material(&mut self, device: &wgpu::Device, compiled: &material::Compiled) -> u32 {
+        if let Some((source, id)) = self.by_source.get(&compiled.key)
+            && *source == compiled.source
+        {
+            return *id;
+        }
+        let id = self.add_material(device, compiled, &[QuadBlend::Normal, QuadBlend::Add]);
+        self.by_source
+            .insert(compiled.key, (compiled.source.clone(), id));
+        id
+    }
+
+    /// A note layer's own materials (`skins`) registered, and its quads
+    /// naming them ([`material::LOCAL`]) given their ids; a quad naming
+    /// none is drawn without a material.
+    pub fn name_skin_materials(
+        &mut self,
+        device: &wgpu::Device,
+        skins: &[material::Compiled],
+        quads: &mut [TexQuad],
+    ) {
+        let ids: Vec<u32> = skins
+            .iter()
+            .map(|c| self.skin_material(device, c))
+            .collect();
+        for q in quads {
+            if let Some(m) = &mut q.material
+                && m.material & material::LOCAL != 0
+            {
+                match ids.get((m.material & !material::LOCAL) as usize) {
+                    Some(&id) => m.material = id,
+                    None => q.material = None,
+                }
+            }
+        }
+    }
+
+    /// The materials' inputs of the next frame prepared.
+    pub fn set_materials(&mut self, frame: MaterialFrame<'_>) {
+        // Images are sampled in linear light through an sRGB texture's own
+        // view: where quads blend in linear light on an sRGB target.
+        let images_linear = self.gamma.is_none() && self.format.is_srgb();
+        let header = MaterialHeader {
+            clock: [
+                frame.beat,
+                frame.seconds,
+                if frame.linear { 1.0 } else { 0.0 },
+                if images_linear { 1.0 } else { 0.0 },
+            ],
+            size: [0.0; 4],
+        };
+        self.material_uniforms.clear();
+        self.material_uniforms
+            .extend_from_slice(bytemuck::bytes_of(&header));
+        let params = &frame.params[..frame.params.len().min(material::SLOTS)];
+        self.material_uniforms
+            .extend_from_slice(bytemuck::cast_slice(params));
+    }
+
+    /// The pipelines drawing through `material` (none: without one), to
+    /// a gamma target or not; `None` where there are none of those.
+    fn pipeline_set(&self, material: Option<u32>, gamma: bool) -> Option<&Pipelines> {
+        let (plain, with_gamma) = match material {
+            None => (&self.pipelines, &self.gamma),
+            Some(m) => {
+                let shader = &self.materials[m as usize];
+                (&shader.pipelines, &shader.gamma)
+            }
+        };
+        if gamma {
+            with_gamma.as_ref()
+        } else {
+            Some(plain)
+        }
+    }
+
+    /// [`TexturedPipeline::pipeline_set`], to add to.
+    fn pipeline_set_mut(&mut self, material: Option<u32>, gamma: bool) -> Option<&mut Pipelines> {
+        let (plain, with_gamma) = match material {
+            None => (&mut self.pipelines, &mut self.gamma),
+            Some(m) => {
+                let shader = &mut self.materials[m as usize];
+                (&mut shader.pipelines, &mut shader.gamma)
+            }
+        };
+        if gamma {
+            with_gamma.as_mut()
+        } else {
+            Some(plain)
+        }
+    }
+
+    /// Makes the pipeline of `key` for `material` (or the textured one)
+    /// when it is not made yet; whether it was.
+    fn ensure_pipeline(
+        &mut self,
+        device: &wgpu::Device,
+        material: Option<u32>,
+        key: (QuadBlend, Option<Kind>),
+        gamma: bool,
+    ) -> bool {
+        if self
+            .pipeline_set(material, gamma)
+            .is_none_or(|p| p.get(key).is_some())
+        {
+            return false;
+        }
+        let format = match (gamma, self.gamma_format) {
+            (true, Some(f)) => f,
+            _ => self.format,
+        };
+        let p = self.make_pipeline_for(
+            device,
+            material,
+            format,
+            blend_state(key.0),
+            key.1.map(stencil::state),
+            wgpu::ColorWrites::ALL,
+        );
+        if let Some(set) = self.pipeline_set_mut(material, gamma) {
+            set.insert(key, p);
+        }
+        true
     }
 
     /// A texture for [`TexturedPipeline::add_texture`], `width × height`,
@@ -456,6 +745,7 @@ impl TexturedPipeline {
             },
             wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
             if srgb && self.gamma.is_some() {
                 &plain
@@ -488,7 +778,104 @@ impl TexturedPipeline {
     pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> u32 {
         let t = self.bind(device, texture);
         self.textures.push(t);
+        self.sources.push(Some(texture.clone()));
         self.textures.len() as u32 - 1
+    }
+
+    /// Packs textures `ids` (a skin's images drawn whole or by frame,
+    /// never repeated: `NoteLayer::atlas_textures`) into atlas pages, each
+    /// once, by GPU copies recorded on `encoder`; quads drawing one then
+    /// draw from its page (their texture coordinates moved there), so a
+    /// skin's parts batch into a few draws instead of one each. A texture
+    /// too large for a page, with mipmaps or of another use stays alone.
+    pub fn pack(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, ids: &[u32]) {
+        /// The space kept between textures in a page.
+        const GAP: u32 = 2;
+        let side = device.limits().max_texture_dimension_2d.min(4096);
+        self.atlas.resize(self.textures.len(), None);
+        let mut todo: Vec<(u32, wgpu::Texture)> = ids
+            .iter()
+            .filter(|&&id| self.atlas.get(id as usize).is_some_and(Option::is_none))
+            .filter(|&&id| !self.targets.iter().any(|t| t.id == id))
+            .filter_map(|&id| {
+                let t = self.sources.get(id as usize)?.clone()?;
+                let fits = t.width() + GAP <= side / 2 && t.height() + GAP <= side / 2;
+                (fits && t.mip_level_count() == 1).then_some((id, t))
+            })
+            .collect();
+        if todo.is_empty() {
+            return;
+        }
+        // Tallest first, onto shelves.
+        todo.sort_by_key(|(id, t)| (std::cmp::Reverse(t.height()), *id));
+        for k in 0..todo.len() {
+            let (id, source) = &todo[k];
+            let (id, source) = (*id, source.clone());
+            let (w, h) = (source.width() + GAP, source.height() + GAP);
+            let format = source.format();
+            let place = self.pages.iter_mut().find_map(|p| {
+                (p.format == format)
+                    .then(|| p.place(w, h))
+                    .flatten()
+                    .map(|at| (p.id, at, p.side))
+            });
+            let (page, at, page_side) = match place {
+                Some(found) => found,
+                None => {
+                    // As large as what is left to place in this format needs.
+                    let left = todo[k..].iter().filter(|(_, t)| t.format() == format);
+                    let (area, tallest) = left.fold((0u64, 0u32), |(a, m), (_, t)| {
+                        let (tw, th) = (t.width() + GAP, t.height() + GAP);
+                        (a + u64::from(tw) * u64::from(th), m.max(tw).max(th))
+                    });
+                    let side = page_side(area, tallest, side);
+                    let texture = self.create_texture(device, side, side, format.is_srgb(), false);
+                    let page_id = self.add_texture(device, &texture);
+                    self.atlas.resize(self.textures.len(), None);
+                    let mut page = Page {
+                        id: page_id,
+                        format: texture.format(),
+                        side,
+                        shelf: [0; 3],
+                    };
+                    let at = page.place(w, h).expect("an empty page holds it");
+                    self.pages.push(page);
+                    (page_id, at, side)
+                }
+            };
+            let Some(Some(target)) = self.sources.get(page as usize) else {
+                continue;
+            };
+            encoder.copy_texture_to_texture(
+                source.as_image_copy(),
+                wgpu::TexelCopyTextureInfo {
+                    texture: target,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: at[0],
+                        y: at[1],
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                source.size(),
+            );
+            let s = page_side as f32;
+            self.atlas[id as usize] = Some((
+                page,
+                [
+                    at[0] as f32 / s,
+                    at[1] as f32 / s,
+                    (at[0] + source.width()) as f32 / s,
+                    (at[1] + source.height()) as f32 / s,
+                ],
+            ));
+            // The texture lives on in its page alone.
+            self.sources[id as usize] = None;
+            if let Some(page) = self.textures.get(page as usize).cloned() {
+                self.textures[id as usize] = page;
+            }
+        }
     }
 
     fn bind(&self, device: &wgpu::Device, texture: &wgpu::Texture) -> Texture {
@@ -511,7 +898,11 @@ impl TexturedPipeline {
         Texture {
             clamp: group(&view, &self.clamp),
             repeat: group(&view, &self.repeat),
-            plain: plain.map(|p| [group(&p, &self.clamp), group(&p, &self.repeat)]),
+            plain: plain
+                .as_ref()
+                .map(|p| [group(p, &self.clamp), group(p, &self.repeat)]),
+            view,
+            plain_view: plain,
         }
     }
 
@@ -519,6 +910,51 @@ impl TexturedPipeline {
     pub fn clear_textures(&mut self) {
         self.textures.clear();
         self.targets.clear();
+        self.image_groups.clear();
+        self.atlas.clear();
+        self.pages.clear();
+        self.sources.clear();
+    }
+
+    /// The bind group of a material's images (through their plain views
+    /// with `plain`), made when first needed.
+    fn ensure_images(&mut self, device: &wgpu::Device, images: [u32; 2], plain: bool) {
+        if self.image_groups.contains_key(&(images, plain)) {
+            return;
+        }
+        let view = |id: u32| {
+            let t = if id == UNTEXTURED {
+                self.blank.as_ref()
+            } else {
+                self.textures.get(id as usize).or(self.blank.as_ref())
+            }?;
+            Some(match (&t.plain_view, plain) {
+                (Some(p), true) => p,
+                _ => &t.view,
+            })
+        };
+        let (Some(a), Some(b)) = (view(images[0]), view(images[1])) else {
+            return;
+        };
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ddi-textured-material-images"),
+            layout: &self.image_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(a),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(b),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.repeat),
+                },
+            ],
+        });
+        self.image_groups.insert((images, plain), group);
     }
 
     /// A texture of `width × height` quads are drawn into
@@ -588,10 +1024,10 @@ impl TexturedPipeline {
         };
         let quads: Vec<TexQuad> = quads
             .iter()
-            .filter(|q| q.texture != id && q.mask == Mask::None)
+            .filter(|q| q.texture != id && q.mask == Mask::None && q.material.is_none())
             .copied()
             .collect();
-        build(&quads, &mut t.staging, &mut t.batches);
+        build(&quads, &self.atlas, &mut t.staging, &mut t.batches);
         t.pending = Some((alpha, preserve));
     }
 
@@ -621,7 +1057,14 @@ impl TexturedPipeline {
                     } else {
                         wgpu::ColorWrites::COLOR
                     };
-                    let p = self.make_pipeline_for(device, format, blend_state(blend), None, write);
+                    let p = self.make_pipeline_for(
+                        device,
+                        None,
+                        format,
+                        blend_state(blend),
+                        None,
+                        write,
+                    );
                     self.target_pipelines[usize::from(alpha)].insert((blend, None), p);
                 }
             }
@@ -696,36 +1139,30 @@ impl TexturedPipeline {
         self.textures.len()
     }
 
-    /// The pipeline drawing `blend` with the stencil state of `kind` to
-    /// the target (`gamma`: its plain view).
-    fn make_pipeline(
-        &self,
-        device: &wgpu::Device,
-        gamma: bool,
-        blend: wgpu::BlendState,
-        depth_stencil: Option<wgpu::DepthStencilState>,
-    ) -> wgpu::RenderPipeline {
-        let format = match (gamma, self.gamma_format) {
-            (true, Some(f)) => f,
-            _ => self.format,
-        };
-        self.make_pipeline_for(device, format, blend, depth_stencil, wgpu::ColorWrites::ALL)
-    }
-
-    /// The pipeline drawing `blend` to `format`, writing `write`.
+    /// The pipeline drawing `blend` to `format`, writing `write`, with
+    /// `material`'s shader or the textured one.
     fn make_pipeline_for(
         &self,
         device: &wgpu::Device,
+        material: Option<u32>,
         format: wgpu::TextureFormat,
         blend: wgpu::BlendState,
         depth_stencil: Option<wgpu::DepthStencilState>,
         write: wgpu::ColorWrites,
     ) -> wgpu::RenderPipeline {
+        let (module, layout, fragment) = match material {
+            Some(m) => (
+                &self.materials[m as usize].module,
+                &self.material_layout,
+                "fs_material",
+            ),
+            None => (&self.shader, &self.layout, "fs_main"),
+        };
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ddi-textured-pipeline"),
-            layout: Some(&self.layout),
+            layout: Some(layout),
             vertex: wgpu::VertexState {
-                module: &self.shader,
+                module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[Some(wgpu::VertexBufferLayout {
@@ -735,8 +1172,8 @@ impl TexturedPipeline {
                 })],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &self.shader,
-                entry_point: Some("fs_main"),
+                module,
+                entry_point: Some(fragment),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
@@ -784,42 +1221,63 @@ impl TexturedPipeline {
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
         let mut instances = std::mem::take(&mut self.staging);
-        build(quads, &mut instances, &mut self.batches);
+        build(quads, &self.atlas, &mut instances, &mut self.batches);
         // The pipelines this frame's runs need: in passes with the stencil
         // too once a quad uses the mask.
         self.masked = quads.iter().any(|q| q.mask != Mask::None);
         for i in 0..self.batches.len() {
-            let (blend, mask) = (self.batches[i].blend, self.batches[i].mask);
+            let b = self.batches[i];
+            if b.material
+                .is_some_and(|m| m as usize >= self.materials.len())
+            {
+                continue;
+            }
             // Outside a pass with the stencil only what tests no mask;
             // inside one, with the mask's state, once a quad uses the mask.
-            let plain = (mask == Mask::None).then_some((blend, None));
-            let stenciled = self.masked.then(|| (blend, Some(mask.stencil(0).0)));
+            let plain = (b.mask == Mask::None).then_some((b.blend, None));
+            let stenciled = self.masked.then(|| (b.blend, Some(b.mask.stencil(0).0)));
             for key in [plain, stenciled].into_iter().flatten() {
                 for gamma in [false, true] {
-                    let set = if gamma {
-                        self.gamma.as_ref()
-                    } else {
-                        Some(&self.pipelines)
-                    };
-                    if set.is_none_or(|p| p.get(key).is_some()) {
-                        continue;
-                    }
-                    let p = self.make_pipeline(
-                        device,
-                        gamma,
-                        blend_state(key.0),
-                        key.1.map(stencil::state),
-                    );
-                    match (gamma, self.gamma.as_mut()) {
-                        (true, Some(g)) => g.insert(key, p),
-                        _ => self.pipelines.insert(key, p),
+                    if self.ensure_pipeline(device, b.material, key, gamma) {
+                        self.stats.pipelines_made += 1;
                     }
                 }
             }
         }
+        let plains: &[bool] = if self.gamma.is_some() {
+            &[false, true]
+        } else {
+            &[false]
+        };
+        for i in 0..self.batches.len() {
+            let b = self.batches[i];
+            if b.material.is_some() {
+                for &plain in plains {
+                    self.ensure_images(device, b.images, plain);
+                }
+            }
+        }
+        if self.batches.iter().any(|b| b.material.is_some()) {
+            // The target's size, then the uniforms as they were set.
+            if self.material_uniforms.len() < std::mem::size_of::<MaterialHeader>() {
+                self.set_materials(MaterialFrame::default());
+            }
+            let size = [width, height, 0.0, 0.0];
+            self.material_uniforms[16..32].copy_from_slice(bytemuck::cast_slice(&size));
+            queue.write_buffer(&self.material_buffer, 0, &self.material_uniforms);
+        }
         self.instances
             .upload(device, queue, bytemuck::cast_slice(&instances));
+        self.stats.quads = instances.len() as u32;
+        self.stats.runs = self.batches.len() as u32;
+        self.stats.stencil_clears = quads.iter().filter(|q| q.mask == Mask::Clear).count() as u32;
+        self.stats.material_quads = quads.iter().filter(|q| q.material.is_some()).count() as u32;
         self.staging = instances;
+    }
+
+    /// What the last frame prepared drew.
+    pub fn stats(&self) -> QuadStats {
+        self.stats
     }
 
     /// Whether it can draw to a plain view of the target ([`TexturedPipeline::new`]).
@@ -847,7 +1305,9 @@ impl TexturedPipeline {
             return;
         }
         pass.set_bind_group(0, &self.globals_group, &[]);
-        let mut current: Option<(QuadBlend, Option<Kind>)> = None;
+        let mut current: Option<(Option<u32>, QuadBlend, Option<Kind>)> = None;
+        let mut materials_bound = false;
+        let mut images_bound: Option<[u32; 2]> = None;
         for b in &self.batches {
             let (start, end) = (b.start.max(range.start), b.end.min(range.end));
             let t = if b.texture == UNTEXTURED {
@@ -863,12 +1323,33 @@ impl TexturedPipeline {
             }
             let (kind, reference) = b.mask.stencil(0);
             let key = (b.blend, stencil.then_some(kind));
-            if current != Some(key) {
-                let Some(p) = pipelines.get(key) else {
+            if current != Some((b.material, key.0, key.1)) {
+                let set = match b.material {
+                    None => Some(pipelines),
+                    Some(m) => self
+                        .materials
+                        .get(m as usize)
+                        .map(|s| match (&s.gamma, gamma) {
+                            (Some(g), true) => g,
+                            _ => &s.pipelines,
+                        }),
+                };
+                let Some(p) = set.and_then(|s| s.get(key)) else {
                     continue;
                 };
                 pass.set_pipeline(p);
-                current = Some(key);
+                current = Some((b.material, key.0, key.1));
+                if b.material.is_some() && !materials_bound {
+                    pass.set_bind_group(2, &self.material_group, &[]);
+                    materials_bound = true;
+                }
+            }
+            if b.material.is_some() && images_bound != Some(b.images) {
+                let Some(group) = self.image_groups.get(&(b.images, gamma)) else {
+                    continue;
+                };
+                pass.set_bind_group(3, group, &[]);
+                images_bound = Some(b.images);
             }
             if stencil {
                 pass.set_stencil_reference(reference);
@@ -889,26 +1370,50 @@ impl TexturedPipeline {
 
 /// `quads`' instances, in order, and their runs of one texture, blend,
 /// wrapping and mask.
-fn build(quads: &[TexQuad], instances: &mut Vec<Instance>, batches: &mut Vec<Batch>) {
+fn build(
+    quads: &[TexQuad],
+    atlas: &[Option<(u32, [f32; 4])>],
+    instances: &mut Vec<Instance>,
+    batches: &mut Vec<Batch>,
+) {
     batches.clear();
     instances.clear();
     instances.reserve(quads.len());
     for q in quads {
         let at = instances.len() as u32;
+        // A packed texture is drawn from its page, its coordinates moved
+        // into its rectangle there.
+        let (texture, page) = match atlas.get(q.texture as usize).copied().flatten() {
+            Some((page, rect)) if !q.wrap => (page, Some(rect)),
+            _ => (q.texture, None),
+        };
+        let moved = |[u, v]: [f32; 2]| match page {
+            Some(r) => [r[0] + (r[2] - r[0]) * u, r[1] + (r[3] - r[1]) * v],
+            None => [u, v],
+        };
+        let moved4 = |uv: [f32; 4]| {
+            let [a, b] = moved([uv[0], uv[1]]);
+            let [c, d] = moved([uv[2], uv[3]]);
+            [a, b, c, d]
+        };
         match batches.last_mut() {
             Some(b)
-                if b.texture == q.texture
+                if b.texture == texture
                     && b.blend == q.blend
                     && b.wrap == q.wrap
-                    && b.mask == q.mask =>
+                    && b.mask == q.mask
+                    && b.material == q.material.map(|m| m.material)
+                    && b.images == q.material.map_or([UNTEXTURED; 2], |m| m.images) =>
             {
                 b.end += 1
             }
             _ => batches.push(Batch {
-                texture: q.texture,
+                texture,
                 blend: q.blend,
                 wrap: q.wrap,
                 mask: q.mask,
+                material: q.material.map(|m| m.material),
+                images: q.material.map_or([UNTEXTURED; 2], |m| m.images),
                 start: at,
                 end: at + 1,
             }),
@@ -916,8 +1421,20 @@ fn build(quads: &[TexQuad], instances: &mut Vec<Instance>, batches: &mut Vec<Bat
         let mode = if q.glow { GLOW } else { 0 }
             | if q.wrap { WRAP } else { 0 }
             | if q.texture == UNTEXTURED { BLANK } else { 0 }
-            | if q.gradient.is_some() { GRADIENT } else { 0 };
+            | if q.gradient.is_some() { GRADIENT } else { 0 }
+            | q.material
+                .map_or(0, |m| u32::from(m.slot.min(255)) << SLOT_SHIFT);
         let [c0, c1, c2, c3] = q.gradient.unwrap_or([q.color; 4]);
+        let m = q.material.unwrap_or(MaterialQuad {
+            material: 0,
+            slot: 0,
+            axes: [0.0; 4],
+            origin: [0.0; 2],
+            phase: 0.0,
+            seed: 0.0,
+            value: [0.0; 4],
+            images: [UNTEXTURED; 2],
+        });
         let base = Instance {
             axes: [0.0; 4],
             origin: [0.0; 2],
@@ -930,20 +1447,23 @@ fn build(quads: &[TexQuad], instances: &mut Vec<Instance>, batches: &mut Vec<Bat
             c1,
             c2,
             c3,
+            material_axes: m.axes,
+            material_origin: [m.origin[0], m.origin[1], m.phase, m.seed],
+            material_value: m.value,
         };
         instances.push(match q.shape {
             Shape::Quad { transform: m, uv } => Instance {
                 axes: [m[0], m[1], m[2], m[3]],
                 origin: [m[4], m[5]],
-                uv,
+                uv: moved4(uv),
                 ..base
             },
             Shape::Triangle { points: p, w, uv } => Instance {
                 axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
                 origin: p[2],
-                uv: [uv[0][0], uv[0][1], uv[1][0], uv[1][1]],
+                uv: moved4([uv[0][0], uv[0][1], uv[1][0], uv[1][1]]),
                 mode: mode | TRIANGLE,
-                uv2: uv[2],
+                uv2: moved(uv[2]),
                 w: [w[0], w[1], w[2], 1.0],
                 ..base
             },
@@ -951,7 +1471,7 @@ fn build(quads: &[TexQuad], instances: &mut Vec<Instance>, batches: &mut Vec<Bat
                 axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
                 origin: p[2],
                 corner: p[3],
-                uv,
+                uv: moved4(uv),
                 mode: mode | PROJECTED,
                 w,
                 ..base
@@ -960,10 +1480,57 @@ fn build(quads: &[TexQuad], instances: &mut Vec<Instance>, batches: &mut Vec<Bat
     }
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 140);
+const _: () = assert!(std::mem::size_of::<Instance>() == 188);
+
+/// An atlas page's side for textures of `area` pixels in all, the largest
+/// `largest` pixels on a side: a power of two holding them as shelves
+/// usually do (about two thirds full), from 256 to `most`.
+fn page_side(area: u64, largest: u32, most: u32) -> u32 {
+    let wanted = ((area as f64 * 1.5).sqrt().ceil() as u32)
+        .max(largest)
+        .max(256);
+    wanted.checked_next_power_of_two().unwrap_or(most).min(most)
+}
+
+/// An atlas page ([`TexturedPipeline::pack`]): its texture's id, format
+/// and side, and its current shelf's top, height and next free column.
+struct Page {
+    id: u32,
+    format: wgpu::TextureFormat,
+    side: u32,
+    shelf: [u32; 3],
+}
+
+impl Page {
+    /// A place for `w × h` pixels: on the current shelf, else on a new one
+    /// below; `None` when the page is full.
+    fn place(&mut self, w: u32, h: u32) -> Option<[u32; 2]> {
+        let [top, height, x] = self.shelf;
+        if x + w <= self.side && h <= height {
+            self.shelf[2] = x + w;
+            return Some([x, top]);
+        }
+        let below = top + height;
+        if below + h > self.side || w > self.side {
+            return None;
+        }
+        self.shelf = [below, h, w];
+        Some([0, below])
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn atlas_pages_are_as_large_as_their_textures_need() {
+        // A few small parts: a small page.
+        assert_eq!(super::page_side(12 * 130 * 130, 130, 4096), 1024);
+        assert_eq!(super::page_side(4 * 66 * 66, 66, 4096), 256);
+        // A skin's worth: the largest page the device allows.
+        assert_eq!(super::page_side(20_000_000, 400, 4096), 4096);
+        assert_eq!(super::page_side(20_000_000, 400, 2048), 2048);
+    }
+
     #[test]
     fn shader_validates() {
         let source = include_str!("textured.wgsl");

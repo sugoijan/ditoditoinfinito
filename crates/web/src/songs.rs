@@ -41,7 +41,21 @@ pub(crate) fn asset_url(path: &str) -> String {
 }
 
 pub(crate) async fn fetch_text(path: &str) -> Result<String, String> {
-    let resp = gloo::net::http::Request::get(&asset_url(path))
+    text_of(gloo::net::http::Request::get(&asset_url(path)), path).await
+}
+
+/// [`fetch_text`], revalidated with the server rather than taken from the
+/// HTTP cache as it is: the catalogues, which keep their URL across builds
+/// (a cached one would hide newly bundled songs or noteskins after an
+/// update, or name files by hashes gone since).
+pub(crate) async fn fetch_text_fresh(path: &str) -> Result<String, String> {
+    let request =
+        gloo::net::http::Request::get(&asset_url(path)).cache(web_sys::RequestCache::NoCache);
+    text_of(request, path).await
+}
+
+async fn text_of(request: gloo::net::http::RequestBuilder, path: &str) -> Result<String, String> {
+    let resp = request
         .send()
         .await
         .map_err(|e| format!("GET {path}: {e}"))?;
@@ -63,7 +77,7 @@ pub(crate) async fn fetch_bytes(path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) async fn load_manifest() -> Result<Manifest, String> {
-    let text = fetch_text("songs/index.json").await?;
+    let text = fetch_text_fresh("songs/index.json").await?;
     serde_json::from_str(&text).map_err(|e| format!("songs/index.json: {e}"))
 }
 

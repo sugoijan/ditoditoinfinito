@@ -735,6 +735,67 @@ impl LuaSkin {
             ));
         };
         let mut notes = converted.notes;
+        if let Some(lift) = converted.lift {
+            if !element.eq_ignore_ascii_case("tap lift") {
+                notes.push(format!("{element}: only a lift is a Lift"));
+                return Ok((
+                    Element {
+                        built: Built::Blank,
+                        notes,
+                    },
+                    colored,
+                ));
+            }
+            return Ok((
+                Element {
+                    built: Built::Lift(lift),
+                    notes,
+                },
+                colored,
+            ));
+        }
+        if let Some(long_note) = converted.long_note {
+            // A hold's or roll's body draws the whole long note.
+            let body = element.to_ascii_lowercase();
+            if !(body.starts_with("hold body") || body.starts_with("roll body")) {
+                notes.push(format!(
+                    "{element}: only a hold's or roll's body is a LongNote"
+                ));
+                return Ok((
+                    Element {
+                        built: Built::Blank,
+                        notes,
+                    },
+                    colored,
+                ));
+            }
+            return Ok((
+                Element {
+                    built: Built::LongNote(long_note),
+                    notes,
+                },
+                colored,
+            ));
+        }
+        if let Some(component) = converted.component {
+            if only_sprite {
+                notes.push(format!("{element} must be a Sprite, not a Component"));
+                return Ok((
+                    Element {
+                        built: Built::Blank,
+                        notes,
+                    },
+                    colored,
+                ));
+            }
+            return Ok((
+                Element {
+                    built: Built::Component(component),
+                    notes,
+                },
+                colored,
+            ));
+        }
         let Some((_, root_id)) = converted.root else {
             return Ok((
                 Element {

@@ -17,7 +17,7 @@ ddi-desktop.workspace = true
 # The Windows executable's icon, drawn from `tools/package/icon.svg`
 # (`build.rs`); on Windows hosts only, so other builds skip it.
 [target.'cfg(windows)'.build-dependencies]
-resvg = { version = "0.48.1", default-features = false }
+resvg.workspace = true
 
 [features]
 default = ["video", "danoni-importer"]

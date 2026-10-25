@@ -26,6 +26,11 @@ pub struct Bundled {
     /// through it, not listed on their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant_of: Option<String>,
+    /// Each of `folder.files`' content hash (`crate::report::hash`), in
+    /// the same order: the web fetches a file under its hash, so a new
+    /// build's file is never taken from an old one's cache.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hashes: Vec<String>,
 }
 
 /// The start of a bundled skin's key.

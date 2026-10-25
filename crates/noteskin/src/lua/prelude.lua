@@ -149,6 +149,16 @@ Def = setmetatable({}, {
 	end,
 })
 
+-- Bindings of a component's parts (`Def.Component`, our extension:
+-- `crate::component`): a property set from a clock, evaluated by the
+-- engine for every drawn note, with no Lua then.
+Bind = {
+	Linear = function(t) t._bind = "Linear"; return t end,
+	Steps = function(t) t._bind = "Steps"; return t end,
+	Curve = function(t) t._bind = "Curve"; return t end,
+	Random = function(t) t._bind = "Random"; return t end,
+}
+
 ActorUtil = {
 	IsRegisteredClass = function(c) return H.is_class(c) end,
 	GetFileType = function(path) return H.file_type(path) end,

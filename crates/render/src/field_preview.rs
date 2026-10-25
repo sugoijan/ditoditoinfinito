@@ -36,7 +36,7 @@
 //! values.
 
 use ddi_chart::Layout;
-use ddi_engine::demo::Demo;
+use ddi_engine::demo::{Demo, DemoFrame};
 use ddi_engine::player::PlayOptions;
 use ddi_engine::rules::{JudgeNames, RulesetKey, presets};
 
@@ -59,6 +59,13 @@ pub const BPM: f64 = 150.0;
 /// A gap between frames longer than this (seconds: a hidden page, a
 /// panel not shown) is a pause: the demo goes on from where it was.
 const PAUSE: f64 = 0.25;
+
+/// A seek further on than the demo's own step (`demo::MAX_STEP`) plays
+/// the last of these seconds before it again, a step a 30th of a second,
+/// so judgments' effects under way show as they would have (a snapshot of
+/// the preview, `docs/plans/noteskin-scene.md`).
+const WARM_UP: f64 = 1.0;
+const WARM_STEP: f64 = 1.0 / 30.0;
 
 /// What the preview shows: the options of play that change how the field
 /// looks.
@@ -188,6 +195,8 @@ pub struct FieldPreview {
     /// The demo's time, and the host's at the last frame.
     demo_time: f64,
     last: Option<f64>,
+    /// The demo's time at its last step (`None`: started again).
+    stepped: Option<f64>,
     /// Frames drawn, and textures made (a new one wants registering).
     frames: u64,
     generation: u64,
@@ -224,6 +233,7 @@ impl FieldPreview {
             plate,
             demo_time: 0.0,
             last: None,
+            stepped: None,
             frames: 0,
             generation: 0,
         };
@@ -269,6 +279,7 @@ impl FieldPreview {
         if let Some(p) = &mut self.noteskin {
             p.restart();
         }
+        self.stepped = None;
     }
 
     /// The renderer, for the shell to put a noteskin's textures on (as
@@ -293,9 +304,10 @@ impl FieldPreview {
         self.noteskin = play.map(|mut p| {
             p.set_srgb(self.renderer.skin_colors_linear());
             upload(&mut self.renderer, &mut p);
-            p.restart();
             p
         });
+        // At the same time, the effects under way played on the new skin.
+        self.replay();
     }
 
     /// The noteskin drawn, if any.
@@ -398,10 +410,14 @@ impl FieldPreview {
             return;
         };
         demo.set_autoplay(self.options.autoplay_flashes);
-        let step = demo.step(self.demo_time);
-        if let Some(p) = &mut self.noteskin {
-            p.update(&step.frame, step.events.iter(), reverse);
-        }
+        let step = step_to(
+            demo,
+            self.noteskin.as_mut(),
+            self.stepped,
+            self.demo_time,
+            reverse,
+        );
+        self.stepped = Some(self.demo_time);
         let o = &self.options;
         let opts = RenderOptions {
             reverse,
@@ -432,6 +448,34 @@ impl FieldPreview {
         );
         self.frames += 1;
     }
+}
+
+/// `demo` stepped to `to` from its last step (`from`; `None`: started
+/// again), `skin` updated on the way: past a jump, the last [`WARM_UP`]
+/// seconds a step at a time (the skin preview page's demo steps so too).
+pub fn step_to(
+    demo: &mut Demo,
+    mut skin: Option<&mut NoteskinPlay>,
+    from: Option<f64>,
+    to: f64,
+    reverse: bool,
+) -> DemoFrame {
+    let from = from.unwrap_or(0.0);
+    let mut step = |t: f64| {
+        let step = demo.step(t);
+        if let Some(p) = skin.as_deref_mut() {
+            p.update(&step.frame, step.events.iter(), reverse);
+        }
+        step
+    };
+    if to - from > ddi_engine::demo::MAX_STEP {
+        let mut t = from.max(to - WARM_UP);
+        while t < to - WARM_STEP / 2.0 {
+            step(t);
+            t += WARM_STEP;
+        }
+    }
+    step(to)
 }
 
 /// The plate behind the field, standing in for a song's background (the

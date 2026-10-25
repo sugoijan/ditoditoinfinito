@@ -226,6 +226,15 @@
               hint: "Try an up-to-date browser.",
             };
           }
+          // The game is built with wasm SIMD (.cargo/config.toml): a v128 const.
+          if (!WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]))) {
+            return {
+              ok: false,
+              code: "no-wasm-simd",
+              message: "Your browser doesn't support WebAssembly SIMD.",
+              hint: "Try an up-to-date browser (Safari 16.4 or later).",
+            };
+          }
           if (typeof window.fetch !== "function" || typeof Promise !== "function") {
             return {
               ok: false,
@@ -345,9 +354,11 @@
         };
       })();
     </script>
-    <link data-trunk rel="rust" href="../crates/app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+    <link data-trunk rel="rust" href="../crates/app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
     <!-- The Ogg Opus fallback decoder, a worker fetched only when the browser cannot decode Opus (PLAN.md decision 9); `xtask stage-opus` names its files by their hash. -->
-    <link data-trunk rel="rust" href="../crates/opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+    <link data-trunk rel="rust" href="../crates/opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
+    <!-- Skins' SVG images drawn as desktop draws them (docs/plans/noteskin-svg.md); `xtask stage-svg` names its files by their hash. -->
+    <link data-trunk rel="rust" href="../crates/svg-worker/Cargo.toml" data-bin="svg-worker" data-type="worker" data-wasm-opt="3" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
     <!-- Inlined, as everything the loader needs: nothing the first paint waits for comes from another fetch (`xtask check-boot`). -->
     <link data-trunk rel="inline" href="styles.css" />
     <link data-trunk rel="copy-file" href="seo/favicon.svg" />

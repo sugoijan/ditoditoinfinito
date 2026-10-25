@@ -1,5 +1,6 @@
 //! Image decoding by the browser (`createImageBitmap`), so no image decoder
-//! is compiled into the wasm.
+//! is compiled into the wasm; skins' SVG images are drawn by the SVG worker
+//! instead (`svg.rs`), as desktop draws them.
 //!
 //! Every bitmap here keeps its colors unmultiplied by its alpha
 //! (`premultiplyAlpha: "none"`): the textures are filled with
@@ -82,7 +83,7 @@ pub(crate) async fn decode_sized(
 
 /// A bitmap from `make`, given options asking for unmultiplied colors
 /// (`Some`), else, when the browser refuses that, the default (`None`).
-async fn bitmap(
+pub(crate) async fn bitmap(
     what: &str,
     make: impl Fn(Option<&ImageBitmapOptions>) -> Result<js_sys::Promise, wasm_bindgen::JsValue>,
 ) -> Result<ImageBitmap, String> {
@@ -110,25 +111,16 @@ async fn bitmap(
         .map_err(|e| js_err(what, e))
 }
 
-/// Rasterises an SVG (already checked, `ddi_noteskin::svg`) of `size`
-/// pixels at `scale` times that, keeping neither side above `max_side`.
-/// The browser draws it through an image element, which runs no script
-/// and loads nothing, onto a canvas of the final size, so the vector art
-/// is drawn at that size rather than scaled up.
-pub(crate) async fn rasterise_svg(
-    text: &str,
-    size: (u32, u32),
-    scale: f64,
-    max_side: u32,
-) -> Result<ImageBitmap, String> {
+/// Rasterises an SVG (already checked, `ddi_noteskin::svg`) with the
+/// browser, at `at` pixels: where the SVG worker
+/// (`svg.rs`) does not draw, and for tests comparing the two. The browser
+/// draws it through an image element, which runs no script and loads
+/// nothing, onto a canvas of the final size, so the vector art is drawn at
+/// that size rather than scaled up.
+pub(crate) async fn rasterise_svg(text: &str, at: (u32, u32)) -> Result<ImageBitmap, String> {
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
-    let longest = f64::from(size.0.max(size.1));
-    let scale = scale.min(f64::from(max_side) / longest);
-    let (w, h) = (
-        ((f64::from(size.0) * scale).round() as u32).max(1),
-        ((f64::from(size.1) * scale).round() as u32).max(1),
-    );
+    let (w, h) = at;
     let blob = super::files::bytes_blob(text.as_bytes(), "image/svg+xml")?;
     let url = super::files::object_url(&blob).ok_or("no object URL")?;
     let image: web_sys::HtmlImageElement = document

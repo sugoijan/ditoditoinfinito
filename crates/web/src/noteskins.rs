@@ -22,10 +22,11 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use ddi_chart::Layout;
-use ddi_noteskin::build::{MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE, TextureKey};
+use ddi_noteskin::build::{MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, TextureKey};
 use ddi_noteskin::lua::Env;
+use ddi_noteskin::report::{ImageCost, ImageReport, Outcome};
 use ddi_noteskin::{Dir, Folder, Skin};
-use ddi_render::noteskin::NoteskinPlay;
+use ddi_render::noteskin::{NoteskinPlay, SameDocuments};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Blob, ImageBitmap};
@@ -108,7 +109,7 @@ pub(crate) use ddi_noteskin::import::{MAX_TEXT, MAX_TEXTS, kept_text};
 pub(crate) fn kept_file(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".lua", ".txt", ".ini", ".redir",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".lua", ".wgsl", ".txt", ".ini", ".redir",
     ]
     .iter()
     .any(|e| lower.ends_with(e))
@@ -120,12 +121,21 @@ pub(crate) async fn bundled() -> Result<Vec<StoredSkin>, String> {
     if let Some(skins) = BUNDLED_SKINS.with(|b| b.borrow().clone()) {
         return Ok(with_session_stops(skins));
     }
-    let index = match crate::songs::fetch_text("noteskins/index.json").await {
+    // Revalidated each session: the files' hashes in it name them.
+    let index = match crate::songs::fetch_text_fresh("noteskins/index.json").await {
         Ok(text) => serde_json::from_str::<ddi_noteskin::bundled::Index>(&text)
             .map_err(|e| format!("noteskins/index.json: {e}")),
         Err(e) => Err(e),
     };
-    let skins: Vec<StoredSkin> = index?
+    let index = index?;
+    BUNDLED_HASHES.with_borrow_mut(|h| {
+        for b in &index.skins {
+            for (f, hash) in b.folder.files.iter().zip(&b.hashes) {
+                h.insert((b.path.clone(), f.clone()), hash.clone());
+            }
+        }
+    });
+    let skins: Vec<StoredSkin> = index
         .skins
         .into_iter()
         .map(|b| StoredSkin {
@@ -415,7 +425,11 @@ fn legacy_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
     for e in &elements {
         let el = build(skin, button, e, &mut textures, &probe);
         match el.built {
-            Built::Actor(_) | Built::Blank => own += 1,
+            Built::Actor(_)
+            | Built::Blank
+            | Built::Component(_)
+            | Built::LongNote(_)
+            | Built::Lift(_) => own += 1,
             Built::BuiltIn => why.extend(el.notes.into_iter().take(1)),
         }
     }
@@ -617,22 +631,56 @@ pub(crate) async fn lua_stopped(key: &str, why: &str) {
 }
 
 /// Decodes the images `sizes` noted in its probe that are not decoded
-/// yet, up to [`MAX_PIXELS`] in all; then `sizes` answers with theirs.
+/// yet, up to [`MAX_PIXELS`] in all (admitted in turn, an SVG's pixels
+/// known from its root before it is drawn); then `sizes` answers with
+/// theirs. The SVG images are drawn by the SVG workers, several at once
+/// (`web::svg`), as desktop draws them.
+#[allow(clippy::too_many_arguments)]
 async fn decode(
     db: Option<&Db>,
     stored: &[StoredSkin],
     sizes: &mut ProbeSizes,
     bitmaps: &mut HashMap<(usize, String), ImageBitmap>,
+    hashes: &mut HashMap<(usize, String), u64>,
+    documents: &mut SameDocuments,
     pixels: &mut u64,
+    report: &mut ImageReport,
     wanted: &Wanted,
+    scale: f64,
 ) {
+    let began = js_sys::Date::now();
+    // Component files: their components read, every part drawn as an SVG
+    // of its own with the others below (`ddi_noteskin::component`).
+    let mut generated: Vec<(usize, String, String)> = Vec::new();
+    for (i, path) in sizes.take_asked_components() {
+        let Some(skin) = stored.get(i) else {
+            continue;
+        };
+        let text = match skin_blob(db, skin, &path).await {
+            Some(blob) => svg_text(&blob).await.map(|(text, _)| text),
+            None => Err("not stored".to_string()),
+        };
+        let found = text.and_then(|text| {
+            let read = ddi_noteskin::component::part_documents(&path, &text)?;
+            generated.extend(read.documents.into_iter().map(|(p, doc)| (i, p, doc)));
+            Ok(read.components)
+        });
+        if let Err(e) = &found {
+            web_sys::console::warn_1(&format!("noteskin {}: {path}: {e}", skin.name).into());
+        }
+        sizes.components.insert((i, path), found);
+    }
     let asked = sizes.take_asked();
     // The bundled skins' files downloaded together, decoded in turn.
     for (i, path) in &asked {
         if let Some(dir) = stored.get(*i).and_then(|s| s.bundled.as_deref()) {
-            let _ = file_promise(dir, path);
+            // A gradient's ramp is drawn from its file.
+            let file =
+                ddi_noteskin::component::split_ramp_path(path).map_or(path.as_str(), |r| r.0);
+            let _ = file_promise(dir, file);
         }
     }
+    let mut svgs = Vec::new();
     for (i, path) in asked {
         // A load no longer wanted decodes no more.
         if !wanted() {
@@ -644,6 +692,17 @@ async fn decode(
         let Some(skin) = stored.get(i) else {
             continue;
         };
+        let svg = path.to_ascii_lowercase().ends_with(".svg");
+        report.images.push(ImageCost {
+            hash: skin
+                .bundled
+                .as_deref()
+                .and_then(|dir| bundled_hash(dir, &path))
+                .unwrap_or_default(),
+            ..ImageCost::left_out(&skin.name, &path)
+        });
+        let at_report = report.images.len() - 1;
+        let cost = &mut report.images[at_report];
         if *pixels >= MAX_PIXELS {
             web_sys::console::warn_1(
                 &format!(
@@ -654,44 +713,280 @@ async fn decode(
             );
             continue;
         }
-        let blob = match (&skin.bundled, db) {
-            (Some(dir), _) => fetch_blob(dir, &path).await,
-            (None, Some(db)) => db
-                .get(idb::FILES, &file_key(&skin.key(), &path))
-                .await
-                .ok()
-                .flatten()
-                .and_then(|v| v.dyn_into::<Blob>().ok()),
-            (None, None) => None,
-        };
-        let Some(blob) = blob else {
+        // A gradient's ramp a material samples: drawn from its file with
+        // the components' parts below.
+        if let Some((file, _)) = ddi_noteskin::component::split_ramp_path(&path) {
+            let text = match skin_blob(db, skin, file).await {
+                Some(blob) => svg_text(&blob).await.map(|(text, _)| text),
+                None => Err("not stored".to_string()),
+            };
+            match text.and_then(|t| {
+                ddi_noteskin::component::derived_svg(&path, &t).unwrap_or(Err("no ramp".into()))
+            }) {
+                Ok(doc) => {
+                    report.images.pop();
+                    generated.push((i, path, doc));
+                }
+                Err(e) => cost.outcome = Outcome::Failed(e),
+            }
+            continue;
+        }
+        let Some(blob) = skin_blob(db, skin, &path).await else {
             web_sys::console::warn_1(
                 &format!("noteskin {}: {path} is not stored", skin.name).into(),
             );
+            cost.outcome = Outcome::Failed("not stored".into());
             continue;
         };
-        let decoded = if path.to_ascii_lowercase().ends_with(".svg") {
-            svg_bitmap(&blob).await
-        } else {
-            crate::web::image::decode_sized(&blob, MAX_IMAGE_SIDE).await
-        };
-        match decoded {
+        if svg {
+            // Checked and its pixels counted now, drawn by the SVG
+            // workers with the others (collected below).
+            match svg_text(&blob).await {
+                Ok((text, checked)) => {
+                    if cost.hash.is_empty() {
+                        cost.hash = ddi_noteskin::report::hash(text.as_bytes());
+                    }
+                    let size = checked.size;
+                    cost.own = size;
+                    let at = checked.raster_size(scale);
+                    *pixels += u64::from(at.0) * u64::from(at.1);
+                    let drawing =
+                        (!browser_svg()).then(|| crate::web::svg::rasterise(text.clone(), at));
+                    svgs.push((i, path, text, size, at, drawing, at_report));
+                }
+                Err(e) => {
+                    web_sys::console::warn_1(
+                        &format!("noteskin {}: {path}: {e}", skin.name).into(),
+                    );
+                    cost.outcome = Outcome::Failed(e);
+                }
+            }
+            continue;
+        }
+        if cost.hash.is_empty()
+            && let Ok(buffer) = wasm_bindgen_futures::JsFuture::from(blob.array_buffer()).await
+        {
+            cost.hash = ddi_noteskin::report::hash(&js_sys::Uint8Array::new(&buffer).to_vec());
+        }
+        match crate::web::image::decode_sized(&blob, MAX_IMAGE_SIDE).await {
             Ok((bitmap, size)) => {
                 *pixels += u64::from(bitmap.width()) * u64::from(bitmap.height());
+                cost.own = size;
+                cost.decoded = (bitmap.width(), bitmap.height());
+                cost.outcome = Outcome::Kept;
                 sizes.sizes.insert((i, path.clone()), size);
                 bitmaps.insert((i, path), bitmap);
             }
             Err(e) => {
-                web_sys::console::warn_1(&format!("noteskin {}: {path}: {e}", skin.name).into())
+                web_sys::console::warn_1(&format!("noteskin {}: {path}: {e}", skin.name).into());
+                cost.outcome = Outcome::Failed(e);
             }
         }
+    }
+    // The components' parts, checked and counted as SVG files are; a part
+    // of a document drawn already not drawn again.
+    let mut copies = Vec::new();
+    for (i, path, text) in generated {
+        let Some(skin) = stored.get(i) else {
+            continue;
+        };
+        if bitmaps.contains_key(&(i, path.clone())) || documents.is_copy(i, &path) {
+            continue;
+        }
+        let first = documents.first_of(i, &path, &text);
+        report.images.push(ImageCost {
+            hash: ddi_noteskin::report::hash(text.as_bytes()),
+            svg: true,
+            ..ImageCost::left_out(&skin.name, &path)
+        });
+        let at_report = report.images.len() - 1;
+        if let Some(first) = first {
+            copies.push((i, path, first, at_report));
+            continue;
+        }
+        if *pixels >= MAX_PIXELS {
+            continue;
+        }
+        match ddi_noteskin::svg::check_svg(&text) {
+            Ok(checked) => {
+                report.images[at_report].own = checked.size;
+                let at = checked.raster_size(scale);
+                *pixels += u64::from(at.0) * u64::from(at.1);
+                let drawing =
+                    (!browser_svg()).then(|| crate::web::svg::rasterise(text.clone(), at));
+                svgs.push((i, path, text, checked.size, at, drawing, at_report));
+            }
+            Err(e) => report.images[at_report].outcome = Outcome::Failed(e),
+        }
+    }
+    let count = svgs.len();
+    let mut by_browser = 0;
+    let mut svgs = svgs.into_iter();
+    while let Some((i, path, text, size, at, drawing, at_report)) = svgs.next() {
+        if !wanted() {
+            // Given up: the drawings already asked for are let go as they
+            // come, their bitmaps closed.
+            for drawing in std::iter::once(drawing).chain(svgs.map(|s| s.5)).flatten() {
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Ok(v) = wasm_bindgen_futures::JsFuture::from(drawing).await
+                        && let Some((bitmap, _)) = crate::web::svg::drawn(&v)
+                    {
+                        bitmap.close();
+                    }
+                });
+            }
+            break;
+        }
+        // `Err((why, refused))`: refused by the worker (the image's fault).
+        let drawn: Result<_, (String, bool)> = match drawing {
+            Some(p) => wasm_bindgen_futures::JsFuture::from(p)
+                .await
+                .map_err(|e| match crate::web::svg::refusal(&e) {
+                    Some(why) => (why, true),
+                    None => (e.as_string().unwrap_or_else(|| format!("{e:?}")), false),
+                })
+                .and_then(|v| crate::web::svg::drawn(&v).ok_or_else(|| ("no bitmap".into(), false)))
+                .map(|(b, hash)| {
+                    if let Some(hash) = hash {
+                        hashes.insert((i, path.clone()), hash);
+                    }
+                    (b, Outcome::Kept)
+                }),
+            None => Err(("drawn by the browser (__DDI_SVG_BROWSER)".into(), false)),
+        };
+        // Where no SVG worker draws (its files missing), the browser does;
+        // an image a worker refused is refused, as desktop refuses it.
+        let drawn = match drawn {
+            Ok(b) => Ok(b),
+            Err((why, true)) => Err(why),
+            Err((e, false)) => {
+                if by_browser == 0 && !browser_svg() {
+                    web_sys::console::warn_1(
+                        &format!("noteskin {path}: {e}; its SVG images drawn by the browser")
+                            .into(),
+                    );
+                }
+                by_browser += 1;
+                crate::web::image::rasterise_svg(&text, at)
+                    .await
+                    .map(|b| (b, Outcome::ByBrowser))
+            }
+        };
+        let cost = &mut report.images[at_report];
+        match drawn {
+            Ok((bitmap, outcome)) => {
+                cost.decoded = (bitmap.width(), bitmap.height());
+                cost.outcome = outcome;
+                sizes.sizes.insert((i, path.clone()), size);
+                bitmaps.insert((i, path), bitmap);
+            }
+            Err(e) => {
+                let name = stored.get(i).map_or("", |s| s.name.as_str());
+                web_sys::console::warn_1(&format!("noteskin {name}: {path}: {e}").into());
+                cost.outcome = Outcome::Failed(e);
+            }
+        }
+    }
+    // A part of a document drawn already: as that one came out.
+    for (i, path, first, at) in copies {
+        let name = stored.get(i).map_or("", |s| s.name.as_str());
+        if report.copy_outcome(at, name, &first)
+            && let Some(size) = sizes.sizes.get(&(i, first)).copied()
+        {
+            sizes.sizes.insert((i, path), size);
+        }
+    }
+    if count > 0 {
+        svg_load(count, by_browser, js_sys::Date::now() - began);
     }
     sizes.probe = false;
 }
 
-/// An SVG image, checked and rasterised, with the size the skin sees (its
-/// own, as for a bitmap).
-async fn svg_bitmap(blob: &Blob) -> Result<(ImageBitmap, (u32, u32)), String> {
+/// `window.__DDI_SKIN_IMAGES`: the last skin loaded's image report
+/// (`{skin, summary, hash, pixels, budget, images}`), and its summary in the
+/// console.
+fn publish_report(name: &str, report: &ImageReport) {
+    web_sys::console::info_1(&format!("noteskin {name}: {}", report.summary()).into());
+    let Some(w) = web_sys::window() else {
+        return;
+    };
+    let json = serde_json::json!({
+        "skin": name,
+        "summary": report.summary(),
+        "hash": report.hash(),
+        "pixels": report.pixels(),
+        "budget": report.budget(),
+        "images": report.images,
+    });
+    if let Ok(value) = js_sys::JSON::parse(&json.to_string()) {
+        let _ = js_sys::Reflect::set(&w, &JsValue::from_str("__DDI_SKIN_IMAGES"), &value);
+    }
+}
+
+/// Tests set `window.__DDI_SVG_BROWSER` to draw skins' SVGs with the
+/// browser, as before the SVG worker, to compare the two.
+fn browser_svg() -> bool {
+    web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &JsValue::from_str("__DDI_SVG_BROWSER")).ok())
+        .is_some_and(|v| v.is_truthy())
+}
+
+/// `window.__DDI_SVG_LOADS`: each skin load's SVG images, how many the
+/// browser drew, and the time its images took to read and decode, ms.
+fn svg_load(images: usize, by_browser: usize, ms: f64) {
+    let Some(w) = web_sys::window() else {
+        return;
+    };
+    let key = JsValue::from_str("__DDI_SVG_LOADS");
+    let loads = js_sys::Reflect::get(&w, &key)
+        .ok()
+        .and_then(|v| v.dyn_into::<js_sys::Array>().ok())
+        .unwrap_or_else(|| {
+            let a = js_sys::Array::new();
+            let _ = js_sys::Reflect::set(&w, &key, &a);
+            a
+        });
+    let o = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&o, &"images".into(), &JsValue::from(images as u32));
+    let _ = js_sys::Reflect::set(&o, &"byBrowser".into(), &JsValue::from(by_browser as u32));
+    let _ = js_sys::Reflect::set(&o, &"ms".into(), &JsValue::from(ms));
+    loads.push(&o);
+}
+
+/// The scale skins' SVGs are drawn at for this screen
+/// ([`ddi_noteskin::build::svg_scale`]; its height in device pixels, the
+/// most a field can take), or for `arrows` a page draws at its own size
+/// (device pixels), whichever is larger.
+fn svg_scale(arrows: Option<f64>) -> f64 {
+    let height = web_sys::window()
+        .and_then(|w| {
+            let height = w.screen().ok()?.height().ok()?;
+            Some(f64::from(height) * w.device_pixel_ratio())
+        })
+        .unwrap_or(2160.0);
+    let screen = ddi_noteskin::build::svg_scale(height.round() as u32);
+    arrows.map_or(screen, |px| {
+        screen.max(ddi_noteskin::build::svg_scale_for_arrow(px))
+    })
+}
+
+/// A skin's file: a bundled skin's fetched, an imported one's from the
+/// library.
+async fn skin_blob(db: Option<&Db>, skin: &StoredSkin, path: &str) -> Option<Blob> {
+    match (&skin.bundled, db) {
+        (Some(dir), _) => fetch_blob(dir, path).await,
+        (None, Some(db)) => db
+            .get(idb::FILES, &file_key(&skin.key(), path))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.dyn_into::<Blob>().ok()),
+        (None, None) => None,
+    }
+}
+
+/// An SVG image's text, checked.
+async fn svg_text(blob: &Blob) -> Result<(String, ddi_noteskin::svg::Checked), String> {
     if blob.size() > ddi_noteskin::svg::MAX_SVG as f64 {
         return Err("the SVG is too large".into());
     }
@@ -700,9 +995,8 @@ async fn svg_bitmap(blob: &Blob) -> Result<(ImageBitmap, (u32, u32)), String> {
         .map_err(|_| "the SVG could not be read")?
         .as_string()
         .ok_or("the SVG could not be read")?;
-    let size = ddi_noteskin::svg::check(&text)?;
-    let bitmap = crate::web::image::rasterise_svg(&text, size, SVG_SCALE, MAX_IMAGE_SIDE).await?;
-    Ok((bitmap, size))
+    let checked = ddi_noteskin::svg::check_svg(&text)?;
+    Ok((text, checked))
 }
 
 /// A bundled skin's file `path`, from its folder `dir` under `noteskins/`.
@@ -719,13 +1013,18 @@ async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
 
 /// The promise of a bundled skin's file's `Blob` (its download started
 /// now, unless it already was): `null` when it could not be fetched, and
-/// then forgotten, for the next load to try again.
+/// then forgotten, for the next load to try again. Fetched under its
+/// content hash (`?v=`), so a new build's file never comes from an old
+/// one's cache.
 fn file_promise(dir: &str, path: &str) -> js_sys::Promise {
     let encoded: Vec<String> = format!("{dir}/{path}")
         .split('/')
         .map(|p| String::from(js_sys::encode_uri_component(p)))
         .collect();
-    let url = format!("noteskins/{}", encoded.join("/"));
+    let mut url = format!("noteskins/{}", encoded.join("/"));
+    if let Some(hash) = bundled_hash(dir, path) {
+        url.push_str(&format!("?v={hash}"));
+    }
     let mime = match path
         .rsplit('.')
         .next()
@@ -781,6 +1080,15 @@ thread_local! {
     /// The bundled skins' files fetched this session (or being fetched),
     /// by URL: a promise of each one's `Blob`.
     static FILES: RefCell<HashMap<String, js_sys::Promise>> = RefCell::new(HashMap::new());
+    /// The bundled skins' files' content hashes, by `(folder, path)`, from
+    /// the index.
+    static BUNDLED_HASHES: RefCell<HashMap<(String, String), String>> =
+        RefCell::new(HashMap::new());
+}
+
+/// A bundled skin's file's content hash, from the index.
+fn bundled_hash(dir: &str, path: &str) -> Option<String> {
+    BUNDLED_HASHES.with_borrow(|h| h.get(&(dir.to_string(), path.to_string())).cloned())
 }
 
 /// Readies the chosen skin in the background soon after the app starts
@@ -802,8 +1110,11 @@ pub(crate) fn warm() {
         let wanted: Wanted = Rc::new(|| true);
         let done = Rc::new(Cell::new(false));
         let mut images = Vec::new();
-        let prepared =
-            prepare_until(&key, &layout, env, &wanted, &done, None, Some(&mut images)).await;
+        let with = LoadWith {
+            images: Some(&mut images),
+            ..LoadWith::default()
+        };
+        let prepared = prepare_until(&key, &layout, env, &wanted, &done, with).await;
         done.set(true);
         if let Some(p) = prepared {
             p.close();
@@ -848,37 +1159,62 @@ pub(crate) async fn prepare_first(
     let stored = catalogue(db.as_ref()).await;
     let there = pickable(&stored);
     let (key, env) = ddi_shell::first_there(wants, &there)?;
-    load(&key, layout, env, Rc::new(|| true), Some((db, stored))).await
+    let with = LoadWith {
+        among: Some((db, stored)),
+        ..LoadWith::default()
+    };
+    load(&key, layout, env, Rc::new(|| true), with).await
 }
 
 /// The skins a load reads among: storage's, when it opens, and the
 /// bundled ones ([`catalogue`]).
 type Among = (Option<Db>, Vec<StoredSkin>);
 
+/// What a load reads among and draws for besides its skin
+/// ([`prepare_until`]).
+#[derive(Default)]
+struct LoadWith<'a> {
+    /// The skins it reads among, when they were read already.
+    among: Option<Among>,
+    /// Gets the bundled images of the skin's chain, `(folder, path)`
+    /// ([`warm`]).
+    images: Option<&'a mut Vec<(String, String)>>,
+    /// Arrows a page draws at its own size, device pixels: the skin's
+    /// SVGs drawn sharp for those too ([`svg_scale`]).
+    arrows: Option<f64>,
+}
+
 /// Readies skin `key` for `layout`, as [`prepare_first`], given up
 /// (`None`) as soon as it is no longer `wanted` (a preview stepping
 /// through skins): between its stages, between images, and inside the
 /// skin's Lua, which its clock ends ([`load_clock`]). A load given up never counts against the skin's
 /// Lua.
+/// `arrows`, for a page drawing its arrows at its own size (device pixels,
+/// `#/skin-preview`), has the skin's SVGs drawn sharp for those too.
 pub(crate) async fn prepare_while(
     key: &str,
     layout: &Layout,
     env: Env,
     wanted: Wanted,
+    arrows: Option<f64>,
 ) -> Option<Prepared> {
-    load(key, layout, env, wanted, None).await
+    let with = LoadWith {
+        arrows,
+        ..LoadWith::default()
+    };
+    load(key, layout, env, wanted, with).await
 }
 
-/// [`prepare_while`], among the skins `among` when they were read.
+/// [`prepare_while`], as `with` says.
 async fn load(
     key: &str,
     layout: &Layout,
     env: Env,
     wanted: Wanted,
-    among: Option<Among>,
+    with: LoadWith<'_>,
 ) -> Option<Prepared> {
     let done = Rc::new(Cell::new(false));
-    let prepared = prepare_until(key, layout, env, &wanted, &done, among, None).await;
+    let prepared = prepare_until(key, layout, env, &wanted, &done, with).await;
     // The skin's Lua keeps the clock for the play: the host's from now on.
     done.set(true);
     let given_up = !wanted();
@@ -909,17 +1245,21 @@ pub(crate) fn loads() -> (u64, u64) {
     LOADS.with(Cell::get)
 }
 
-/// [`load`]; `images`, when given, gets the bundled images of the skin's
-/// chain, `(folder, path)` ([`warm`]).
+/// [`load`].
 async fn prepare_until(
     key: &str,
     layout: &Layout,
     env: Env,
     wanted: &Wanted,
     done: &Rc<Cell<bool>>,
-    among: Option<Among>,
-    images: Option<&mut Vec<(String, String)>>,
+    with: LoadWith<'_>,
 ) -> Option<Prepared> {
+    let LoadWith {
+        among,
+        images,
+        arrows,
+    } = with;
+    let scale = svg_scale(arrows);
     let clock = || load_clock(wanted.clone(), done.clone());
     // A bundled skin plays without storage.
     let (db, mut stored) = match among {
@@ -1021,6 +1361,15 @@ async fn prepare_until(
     env.style = ddi_noteskin::lua::style_for(&chosen.game, layout).into();
     let seed = hash_seed();
     let mut lua_error = None;
+    // The SVG worker compiled while the first pass runs, for a skin with
+    // SVG images.
+    if folders.iter().any(|f| {
+        f.files
+            .iter()
+            .any(|p| p.to_ascii_lowercase().ends_with(".svg"))
+    }) {
+        crate::web::svg::warm();
+    }
     // First pass: which images the actors use.
     let mut sizes = ProbeSizes::probe();
     if with_lua {
@@ -1047,7 +1396,10 @@ async fn prepare_until(
         NoteskinPlay::new(&skin, layout, &sizes, true)?;
     }
     let mut bitmaps: HashMap<(usize, String), ImageBitmap> = HashMap::new();
+    let mut hashes: HashMap<(usize, String), u64> = HashMap::new();
+    let mut documents = SameDocuments::default();
     let mut pixels: u64 = 0;
+    let mut report = ImageReport::default();
     // Every image decoded so far is closed when the load is given up.
     let give_up = |bitmaps: &HashMap<(usize, String), ImageBitmap>| {
         for b in bitmaps.values() {
@@ -1060,8 +1412,12 @@ async fn prepare_until(
         &stored,
         &mut sizes,
         &mut bitmaps,
+        &mut hashes,
+        &mut documents,
         &mut pixels,
+        &mut report,
         wanted,
+        scale,
     )
     .await;
     if !wanted() {
@@ -1094,8 +1450,12 @@ async fn prepare_until(
                     &stored,
                     &mut sizes,
                     &mut bitmaps,
+                    &mut hashes,
+                    &mut documents,
                     &mut pixels,
+                    &mut report,
                     wanted,
+                    scale,
                 )
                 .await;
             }
@@ -1111,21 +1471,61 @@ async fn prepare_until(
     if play.is_none() && (!with_lua || lua_error.is_some()) {
         play = NoteskinPlay::new(&skin, layout, &sizes, true);
     }
-    let Some(play) = play else {
+    let Some(mut play) = play else {
         for b in bitmaps.values() {
             b.close();
         }
         return None;
     };
-    let images = play.images_for(&bitmaps);
-    for (_, b) in bitmaps.iter().filter(|(k, _)| {
-        !play.texture_keys().iter().any(|t| matches!(t, TextureKey::Skin { dir: Dir::Folder(i), path } if (*i, path) == (k.0, &k.1)))
-    }) {
+    let (mut images, same) = play.take_images(&mut bitmaps, &documents.same);
+    // An image of the same pixels as an earlier one (the SVG workers'
+    // hashes, by the part each image is) is closed, its texture given
+    // that one's.
+    let keys: Vec<_> = play
+        .texture_keys()
+        .iter()
+        .map(|k| match k {
+            TextureKey::Skin {
+                dir: Dir::Folder(f),
+                path,
+            } => Some((*f, path.clone())),
+            _ => None,
+        })
+        .collect();
+    let hash = |i: usize| {
+        let key = keys[i].as_ref()?;
+        images[i].as_ref()?;
+        match documents.same.get(key) {
+            Some(first) => hashes.get(&(key.0, first.clone())).copied(),
+            None => hashes.get(key).copied(),
+        }
+    };
+    let pixels = play.share_textures(hash, |_, _| true);
+    for (i, with) in same.into_iter().chain(pixels) {
+        // Closed unless another texture keeps the same bitmap (one of the
+        // same file mipmapped otherwise, given a copy of the handle).
+        if let Some(b) = images[i].take()
+            && !images
+                .iter()
+                .flatten()
+                .any(|other| js_sys::Object::is(other, &b))
+        {
+            b.close();
+        }
+        if let (Some((f, path)), Some((_, with))) = (&keys[i], &keys[with])
+            && let Some(skin) = stored.get(*f)
+        {
+            report.share(&skin.name, path, with);
+        }
+    }
+    // What no texture took.
+    for b in bitmaps.values() {
         b.close();
     }
     for n in &play.notes {
         web_sys::console::info_1(&format!("noteskin {}: {n}", chosen.name).into());
     }
+    publish_report(&chosen.name, &report);
     Some(Prepared {
         key: key.to_string(),
         play,

@@ -771,7 +771,12 @@ async fn build(
             let mut tree = Box::new(tree);
             lua.reclaim(&mut tree).then_some(tree)
         }
-        Built::BuiltIn | Built::Blank => None,
+        // A song's scripts draw no components (a skin's extension).
+        Built::BuiltIn
+        | Built::Blank
+        | Built::Component(_)
+        | Built::LongNote(_)
+        | Built::Lift(_) => None,
     })
 }
 

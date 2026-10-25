@@ -1,0 +1,7 @@
+# The web build uses wasm SIMD (`simd128`): the SVG worker's rasterizer is
+# about 1.5 times faster with it (docs/plans/noteskin-svg.md), and the video
+# module already needs it. Trunk cannot set flags for one worker only, so
+# the app and its workers all have it; browsers without wasm SIMD (Safari
+# before 16.4) are told the game cannot run (site/index.html's check).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

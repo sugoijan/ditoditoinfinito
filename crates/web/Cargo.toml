@@ -121,6 +121,7 @@ web-sys = { workspace = true, features = [
     "MessageEvent",
     "CanvasRenderingContext2d",
     "ImageData",
+    "RequestCache",
     "WebGl2RenderingContext",
     "WheelEvent",
     "HtmlTextAreaElement",

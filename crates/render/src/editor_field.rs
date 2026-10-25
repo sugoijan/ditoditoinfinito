@@ -288,6 +288,7 @@ mod tests {
     #[test]
     fn at_rest_the_clock_is_still() {
         let frame = Frame {
+            note_motion: Default::default(),
             song_time: 31.5,
             beat: 63.0,
             roll_window_seconds: 0.35,

@@ -1066,6 +1066,20 @@ impl GameLoop {
                     let _ = js_sys::Reflect::set(&o, &"problems".into(), &problems);
                     let _ =
                         js_sys::Reflect::set(&o, &"quads".into(), &(n.last_quads() as u32).into());
+                    // What its quads cost the last frame (`noteskin_cost`
+                    // measures the same on desktop).
+                    let stats = self.renderer.quad_stats();
+                    let gpu = js_sys::Object::new();
+                    for (key, value) in [
+                        ("instances", stats.quads),
+                        ("runs", stats.runs),
+                        ("stencil_clears", stats.stencil_clears),
+                        ("material_quads", stats.material_quads),
+                        ("pipelines_made", stats.pipelines_made),
+                    ] {
+                        let _ = js_sys::Reflect::set(&gpu, &key.into(), &value.into());
+                    }
+                    let _ = js_sys::Reflect::set(&o, &"gpu".into(), &gpu);
                     // The parameters' values its Lua reads.
                     let _ = js_sys::Reflect::set(
                         &o,

@@ -185,7 +185,9 @@ fn legacy_report(skin: &Skin<'_>) -> String {
             for color in LEGACY_NOTE_TYPES {
                 let el = build_colored(skin, *b, e, color, &mut textures, &AnySize);
                 match el.built {
-                    Built::Actor(_) => actors += 1,
+                    Built::Actor(_) | Built::Component(_) | Built::LongNote(_) | Built::Lift(_) => {
+                        actors += 1
+                    }
                     Built::BuiltIn => builtin += 1,
                     Built::Blank => blank += 1,
                 }
@@ -408,6 +410,9 @@ fn local_skins_lua() {
                                 }
                                 let k = match el.built {
                                     Built::Actor(_) => "actor",
+                                    Built::Component(_) | Built::LongNote(_) | Built::Lift(_) => {
+                                        "component"
+                                    }
                                     Built::BuiltIn => "builtin",
                                     Built::Blank => "blank",
                                 };

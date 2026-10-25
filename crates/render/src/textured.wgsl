@@ -43,6 +43,13 @@ struct Instance {
     @location(8) c1: vec4<f32>,
     @location(9) c2: vec4<f32>,
     @location(10) c3: vec4<f32>,
+    // A material's quad (`material.wgsl`): the unit square to material
+    // coordinates, as `axes` and `origin` map it to the screen; then its
+    // origin, phase and seed; then its value. Bits 8 to 15 of the mode:
+    // its parameters' slot.
+    @location(11) material_axes: vec4<f32>,
+    @location(12) material_origin: vec4<f32>,
+    @location(13) material_value: vec4<f32>,
 };
 
 struct VsOut {
@@ -52,6 +59,9 @@ struct VsOut {
     @location(2) @interpolate(flat) mode: u32,
     @location(3) @interpolate(flat) rect: vec4<f32>,
     @location(4) graded: vec4<f32>,
+    // Material coordinates, phase and seed; the value.
+    @location(5) material: vec4<f32>,
+    @location(6) @interpolate(flat) value: vec4<f32>,
 };
 
 @vertex
@@ -91,10 +101,13 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
         let t = c + vec2<f32>(0.5, 0.5);
         out.uv = vec2<f32>(mix(inst.uv.x, inst.uv.z, t.x), mix(inst.uv.y, inst.uv.w, t.y));
         out.graded = colors[which[vi]];
+        let at = inst.material_origin.xy + inst.material_axes.xy * c.x + inst.material_axes.zw * c.y;
+        out.material = vec4<f32>(at, inst.material_origin.zw);
     }
     out.color = inst.color;
     out.mode = inst.mode;
     out.rect = inst.uv;
+    out.value = inst.material_value;
     return out;
 }
 

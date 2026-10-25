@@ -190,7 +190,7 @@ fn load_skin(
     let current = h.load_number.clone();
     wasm_bindgen_futures::spawn_local(async move {
         let wanted: crate::noteskins::Wanted = Rc::new(move || current.get() == number);
-        let prepared = crate::noteskins::prepare_while(&key, &layout, env, wanted).await;
+        let prepared = crate::noteskins::prepare_while(&key, &layout, env, wanted, None).await;
         let Some(rc) = slot.upgrade() else {
             if let Some(p) = prepared {
                 p.close();

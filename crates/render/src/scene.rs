@@ -805,7 +805,7 @@ pub fn build_into(
     geo: &FieldGeometry,
     opts: RenderOptions,
     srgb_target: bool,
-    mut layer: Option<&mut dyn NoteLayer>,
+    mut layer: Option<&mut (dyn NoteLayer + '_)>,
     stage: (&[TexQuad], &[TexQuad]),
 ) {
     // A preview without receptors.
@@ -828,7 +828,7 @@ pub fn build_into(
     // (`docs/plans/overlays.md`).
     quads.extend_from_slice(stage.0);
     order.quads(quads.len());
-    let drawn = |layer: &Option<&mut dyn NoteLayer>, lane: usize, part: LayerPart| {
+    let drawn = |layer: &Option<&mut (dyn NoteLayer + '_)>, lane: usize, part: LayerPart| {
         layer.as_ref().is_some_and(|l| l.draws(lane, part))
     };
     let a = geo.arrow;
@@ -1303,6 +1303,7 @@ mod tests {
     fn frame(notes: Vec<NoteSprite>, appearance: Appearance) -> Frame {
         Frame {
             song_time: 0.0,
+            note_motion: Default::default(),
             roll_window_seconds: 0.0,
             beat: 0.0,
             lanes: 4,

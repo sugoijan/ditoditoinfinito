@@ -393,6 +393,11 @@ impl Renderer {
         self.srgb() && !self.skins_blend_encoded()
     }
 
+    /// What the last frame's skin quads drew.
+    pub fn quad_stats(&self) -> crate::textured::QuadStats {
+        self.textured.stats()
+    }
+
     /// Frames are drawn offscreen (WebGL2 with a skin drawn).
     pub fn offscreen(&self) -> bool {
         self.offscreen.is_some()
@@ -434,7 +439,7 @@ impl Renderer {
         layout: &Layout,
         names: &JudgeNames,
         opts: RenderOptions,
-        layer: Option<&mut dyn NoteLayer>,
+        mut layer: Option<&mut dyn NoteLayer>,
     ) {
         let geo = match opts.preview {
             Some(p) => p.geometry,
@@ -475,7 +480,7 @@ impl Renderer {
             &geo,
             scene_opts,
             self.srgb,
-            layer,
+            layer.as_deref_mut(),
             (&self.stage_back, &self.stage_mask),
         );
         if opts.preview.is_none()
@@ -515,6 +520,21 @@ impl Renderer {
         self.sprites
             .set_viewport(queue, width as f32, height as f32, frame.song_time as f32);
         self.sprites.upload(device, queue, &scene.instances);
+        // The skin's own materials registered (once each), its quads
+        // naming them by their ids.
+        if let Some(l) = layer.as_ref() {
+            self.textured
+                .name_skin_materials(device, l.skin_materials(), &mut scene.quads);
+            // Its parts packed into atlas pages (once each).
+            self.textured.pack(device, encoder, l.atlas_textures());
+        }
+        let linear = self.skin_colors_linear();
+        self.textured.set_materials(crate::material::MaterialFrame {
+            params: layer.as_ref().map_or(&[], |l| l.materials()),
+            beat: frame.beat as f32,
+            seconds: frame.song_time as f32,
+            linear,
+        });
         self.textured
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
@@ -855,6 +875,7 @@ mod tests {
             wrap: false,
             gradient: None,
             mask: Default::default(),
+            material: None,
         };
         // 20 × 10 at (100, 50), turned a quarter: 10 wide, 20 high.
         let turned = quad(Shape::Quad {

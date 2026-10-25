@@ -161,12 +161,13 @@ pub const MAX_TEXT: u64 = 1 << 20;
 pub const MAX_TEXTS: u64 = 32 << 20;
 
 /// Whether a skin's file is kept as text with the skin's record: its
-/// `metrics.ini`, other `.ini` files (animated textures), redirects, Lua and
-/// `.txt` files (3D models; what [`crate::Folder::texts`] holds).
+/// `metrics.ini`, other `.ini` files (animated textures), redirects, Lua,
+/// materials' WGSL (`docs/plans/noteskin-scene.md`) and `.txt` files (3D
+/// models; what [`crate::Folder::texts`] holds).
 pub fn kept_text(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [
-        ".ini", ".redir", ".lua", ".txt", ".sprite", ".actor", ".model", ".xml",
+        ".ini", ".redir", ".lua", ".wgsl", ".txt", ".sprite", ".actor", ".model", ".xml",
     ]
     .iter()
     .any(|e| lower.ends_with(e))

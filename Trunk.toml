@@ -57,6 +57,12 @@ stage = "post_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "stage-opus"]
 
+# The SVG worker's the same way (crates/web/src/web/svg.rs reads it).
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "stage-svg"]
+
 # The page draws its loader from its own first bytes: within the first
 # round trip compressed, nothing the first paint waits for fetched
 # (xtask/src/boot_check.rs). Last, on the page as it ships.

@@ -179,7 +179,7 @@ impl FieldPreviewHost {
         wasm_bindgen_futures::spawn_local(async move {
             let env = want.env(&layout);
             let wanted: crate::noteskins::Wanted = Rc::new(move || current.get() == number);
-            let prepared = crate::noteskins::prepare_while(&key, &layout, env, wanted).await;
+            let prepared = crate::noteskins::prepare_while(&key, &layout, env, wanted, None).await;
             let Some(rc) = host.upgrade() else {
                 if let Some(p) = prepared {
                     p.close();

@@ -23,6 +23,7 @@ mod gaussian;
 mod gpu;
 mod instances;
 pub mod lyrics;
+pub mod material;
 mod mipmaps;
 pub mod model;
 pub mod movie_picture;

@@ -16,6 +16,7 @@ pub mod bganimation;
 pub mod build;
 pub mod builtin;
 pub mod bundled;
+pub mod component;
 pub mod hints;
 pub mod import;
 pub mod ini;
@@ -26,6 +27,9 @@ pub mod metrics;
 pub mod model;
 pub mod notes;
 pub mod params;
+#[cfg(feature = "raster")]
+pub mod raster;
+pub mod report;
 pub mod skin;
 pub mod svg;
 

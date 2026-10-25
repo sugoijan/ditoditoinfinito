@@ -144,6 +144,7 @@ pub(crate) fn boot() {
         })
     });
     install_test_hook();
+    super::svg::install_test_hook();
     wasm_bindgen_futures::spawn_local(create());
 }
 

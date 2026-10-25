@@ -43,6 +43,18 @@ architecture, the decisions and the roadmap they belong to. Status as of
   their Lua and shown under Arrows; Dito's colors, songs' own colors,
   explosions and the lighter drawing (the Built-in choice retired into
   it) are its parameters.
+- [Noteskin SVG](noteskin-svg.md) (2026-10-24): in progress. One
+  rasterizer on both shells (a worker on the web), vello_cpu measured,
+  what images cost shown, bounded filters, raster quality apart from
+  logical size; its material steps taken over by the components plan.
+- [Noteskin components and materials](noteskin-scene.md) (2026-10-25):
+  in progress; step 1 done (materials as shaders: long notes about 30
+  times fewer quads), 2 done (components and bindings; SkinCraft's view of a part's bindings left), 3 done (a
+  skin's own materials), 4 done (long notes and
+  lifts), 5 done (explosions as instances). SVG components with named parts posed per note
+  from the engine's clocks, materials as the skin's own bounded WGSL
+  shaders; takes over the SVG plan's material and material-part
+  metadata steps.
 
 ## Charts, layouts and play
 

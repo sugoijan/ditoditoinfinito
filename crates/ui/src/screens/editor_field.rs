@@ -14,7 +14,8 @@
 use ddi_chart::{Chart, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
 use ddi_engine::appearance::Appearance;
 use ddi_engine::frame::{
-    Frame, HoldKind, NoteSprite, ReceptorState, SkinEvent, SkinEventKind, SkinNote, SpriteKind,
+    Frame, HoldKind, NoteMotion, NoteSprite, ReceptorState, SkinEvent, SkinEventKind, SkinNote,
+    SpriteKind,
 };
 use ddi_engine::rules::Judgement;
 use ddi_engine::scroll::{ScrollOptions, ScrollState};
@@ -368,6 +369,16 @@ pub fn frame(
     Frame {
         song_time: seconds,
         beat: timing.beat_at(seconds),
+        note_motion: m.play.map_or_else(
+            || {
+                let seconds_per_beat = (60.0 / timing.bpm_at_beat(timing.beat_at(seconds))) as f32;
+                NoteMotion {
+                    arrows_per_second: m.beat_h / m.lane_w / seconds_per_beat,
+                    seconds_per_beat,
+                }
+            },
+            |(scroll, _)| scroll.note_motion(timing),
+        ),
         roll_window_seconds: 0.35,
         lanes: lanes as u8,
         receptors: holding
@@ -574,6 +585,8 @@ mod tests {
         assert_eq!(f.notes.len(), 2);
         assert_eq!(f.notes[0].y, 0.0);
         assert_eq!(f.notes[1].y, 2.0);
+        assert_eq!(f.note_motion.seconds_per_beat, 0.5);
+        assert_eq!(f.note_motion.arrows_per_second, 4.0);
         assert!(matches!(
             f.notes[1].kind,
             SpriteKind::HoldHead { tail_y, .. } if tail_y == 4.0

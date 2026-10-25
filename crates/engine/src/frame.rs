@@ -193,11 +193,33 @@ pub struct NoteSprite {
     pub hold_life: f32,
 }
 
+/// How fast notes move here ([`crate::scroll::ScrollState::note_motion`]),
+/// what a lift's leading trail is sized by.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct NoteMotion {
+    /// Current local field speed in arrow heights per song second.
+    pub arrows_per_second: f32,
+    /// A beat's seconds at the tempo here; 0 where it stands still or
+    /// runs back.
+    pub seconds_per_beat: f32,
+}
+
+impl Default for NoteMotion {
+    fn default() -> Self {
+        Self {
+            arrows_per_second: 2.0,
+            seconds_per_beat: 0.5,
+        }
+    }
+}
+
 /// Snapshot of the play at one render time.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
     pub song_time: f64,
     pub beat: f64,
+    /// Presentation only: size time-based preparation trails in this field.
+    pub note_motion: NoteMotion,
     /// Active ruleset's scaled roll grace period, in song seconds, as judging uses it.
     /// Presentation only: noteskins may use it to cue repeated roll taps.
     pub roll_window_seconds: f64,

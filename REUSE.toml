@@ -296,3 +296,4 @@ SPDX-License-Identifier = "MIT"
 path = ["tools/danoni-importer/licenses/crates/symphonia*.txt"]
 SPDX-FileCopyrightText = "The Symphonia contributors"
 SPDX-License-Identifier = "MPL-2.0"
+

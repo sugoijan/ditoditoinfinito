@@ -49,7 +49,7 @@ const PHRASE_NOTES: &[(i64, u8, Kind)] = &[
     (288, 3, Kind::Tap),
     (312, 0, Kind::Tap),
     (336, 1, Kind::Tap),
-    (348, 2, Kind::Tap),
+    (348, 2, Kind::Lift),
     (360, 3, Kind::Tap),
 ];
 
@@ -60,6 +60,7 @@ enum Kind {
     Hold(i64),
     Roll(i64),
     Mine,
+    Lift,
 }
 
 /// The phrase on layouts other than four lanes: taps across the lanes,
@@ -79,6 +80,7 @@ fn phrase(lanes: u8) -> Vec<(i64, u8, Kind)> {
     out.push((576, lanes / 2, Kind::Mine));
     out.extend([0, lanes - 1].map(|lane| (672, lane, Kind::Mine)));
     out.extend((0..lanes).map(|lane| (768, lane, Kind::Mine)));
+    out.extend((0..lanes).map(|lane| (864 + i64::from(lane % 4) * 12, lane, Kind::Lift)));
     out
 }
 
@@ -101,6 +103,7 @@ pub fn song(layout: &str, bpm: f64) -> Option<Song> {
                     end: Tick(tick.0 + len),
                 },
                 Kind::Mine => NoteKind::Mine,
+                Kind::Lift => NoteKind::Lift,
             };
             notes.push(Note::new(tick, lane, kind));
         }
@@ -192,7 +195,7 @@ const TIMINGS: [Option<f64>; 12] = [
 /// A step further on than this (a page that was hidden) catches the play
 /// up without its events: a backlog of them at once would cost a skin's
 /// Lua a frame's worth of fuel many times over.
-const MAX_STEP: f64 = 0.25;
+pub const MAX_STEP: f64 = 0.25;
 
 /// One step of the demo.
 pub struct DemoFrame {

@@ -917,7 +917,7 @@ version = "0.1.0"
 dependencies = [
  "ddi-desktop",
  "ddi-web",
- "resvg",
+ "resvg 0.49.0",
 ]
 
 [[package]]
@@ -965,7 +965,7 @@ dependencies = [
  "libc",
  "ogg",
  "reqwest",
- "resvg",
+ "resvg 0.48.1",
  "robotstxt",
  "rubato",
  "rustfft",
@@ -1041,7 +1041,7 @@ dependencies = [
  "objc2-metal 0.3.2",
  "objc2-quartz-core 0.3.2",
  "objc2-video-toolbox",
- "resvg",
+ "resvg 0.49.0",
  "rfd",
  "rtrb",
  "serde",
@@ -1107,6 +1107,7 @@ dependencies = [
  "ddi-actor",
  "ddi-chart",
  "ddi-lua",
+ "resvg 0.49.0",
  "serde",
  "serde_json",
 ]
@@ -1146,6 +1147,7 @@ dependencies = [
  "ddi-noteskin",
  "ddi-platform",
  "glyphon",
+ "naga",
  "wgpu",
 ]
 
@@ -1178,6 +1180,17 @@ dependencies = [
  "ddi-session",
  "ddi-ui",
  "wgpu",
+]
+
+[[package]]
+name = "ddi-svg-worker"
+version = "0.1.0"
+dependencies = [
+ "ddi-noteskin",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -4123,7 +4136,22 @@ dependencies = [
  "rgb",
  "svgtypes",
  "tiny-skia 0.12.0",
- "usvg",
+ "usvg 0.48.1",
+]
+
+[[package]]
+name = "resvg"
+version = "0.49.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1572844b6727a1bf842190e9947641a68ac44bed83f50afb4bd1407a2564bee8"
+dependencies = [
+ "bytemuck",
+ "log",
+ "pico-args",
+ "rgb",
+ "svgtypes",
+ "tiny-skia 0.12.0",
+ "usvg 0.49.0",
 ]
 
 [[package]]
@@ -5507,6 +5535,25 @@ dependencies = [
  "unicode-script",
  "unicode-vo",
  "xmlwriter",
+]
+
+[[package]]
+name = "usvg"
+version = "0.49.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d09b73ee83641d390ad7ffd9000f347b16eb128e437675b6ff277ea5c7fcf22c"
+dependencies = [
+ "data-url",
+ "imagesize",
+ "kurbo",
+ "log",
+ "pico-args",
+ "roxmltree 0.21.1",
+ "simplecss",
+ "siphasher",
+ "strict-num",
+ "svgtypes",
+ "tiny-skia-path 0.12.0",
 ]
 
 [[package]]

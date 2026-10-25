@@ -19,7 +19,7 @@ ddi-library = { workspace = true, features = ["nfkd"] }
 ddi-platform = { workspace = true, features = ["decode-all"] }
 # The noteskins in song folders (`src/library/noteskins.rs`), readied
 # for a play with their Lua (`src/play/skins.rs`).
-ddi-noteskin.workspace = true
+ddi-noteskin = { workspace = true, features = ["raster"] }
 ddi-lua.workspace = true
 ddi-render.workspace = true
 # A Dancing☆Onigiri work's text layers drawn (`src/play/stage.rs`):
@@ -44,9 +44,6 @@ arboard = { version = "3.6.1", default-features = false, features = ["wayland-da
 # Banners and backgrounds: what StepMania reads (PNG, JPEG, GIF, BMP)
 # and WebP, which browsers show.
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
-# SVG noteskins (Dito, the default skin; `src/play/skins.rs`): the subset
-# `ddi_noteskin::svg` checks, rasterised; no text, fonts or raster images.
-resvg = { version = "0.48.1", default-features = false }
 # Sound (`src/audio/`): the output stream (ALSA on Linux, linked from
 # the system), and the lock-free rings to the mixer on its thread.
 cpal = "0.18.2"
@@ -128,6 +125,8 @@ libc = "0.2.190"
 [dev-dependencies]
 # This crate with its test-only parts (`sim`), for the integration tests.
 ddi-desktop = { path = ".", default-features = false, features = ["sim"] }
+# The DanOni skin's test draws the upstream art as it is.
+resvg.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 ddi-importer-protocol = { workspace = true, optional = true }

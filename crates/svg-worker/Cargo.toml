@@ -1,0 +1,30 @@
+[package]
+name = "ddi-svg-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the web's SVG rasterizer for noteskins, a worker drawing as desktop does"
+
+# Trunk builds it into the site as a worker (index.html, `data-type="worker"`);
+# the web shell starts a few while a skin's SVG images load
+# (docs/plans/noteskin-svg.md, step 1). Natively it is empty.
+[[bin]]
+name = "svg-worker"
+path = "src/main.rs"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ddi-noteskin = { workspace = true, features = ["raster"] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = [
+    "DedicatedWorkerGlobalScope",
+    "MessageEvent",
+    "ImageBitmap",
+    "ImageBitmapOptions",
+    "ImageData",
+    "PremultiplyAlpha",
+] }

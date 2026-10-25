@@ -507,7 +507,10 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
                 .try_borrow()
                 .map_or(true, |st| !st.closed && st.generation == generation)
         });
-        crate::noteskins::prepare_while(&options.skin, &layout, Default::default(), wanted).await
+        // Its SVGs drawn sharp at this page's arrow size (canvas pixels).
+        let arrows = Some(f64::from(options.size));
+        crate::noteskins::prepare_while(&options.skin, &layout, Default::default(), wanted, arrows)
+            .await
     };
     let mut st = state.borrow_mut();
     if st.closed || st.generation != generation {
@@ -679,6 +682,7 @@ fn still_frame(o: &PreviewOptions, layout: &Layout, beat: f64) -> Frame {
         .collect();
     Frame {
         song_time: beat * 60.0 / o.bpm,
+        note_motion: Default::default(),
         roll_window_seconds: 0.0,
         beat,
         lanes: count as u8,
@@ -722,20 +726,21 @@ fn draw(device: &mut Device, shown: &mut Shown, time_ms: f64) {
         Some((demo, last)) => {
             let seconds = beat * 60.0 / o.bpm;
             // A test going back in time: the demo again from the start.
-            if seconds < *last {
+            let from = if seconds < *last {
                 if let Some(d) = Demo::new(&o.layout, o.bpm, o.speed) {
                     *demo = d;
                 }
                 if let Some(p) = shown.play.as_mut() {
                     p.restart();
                 }
-            }
+                None
+            } else {
+                Some(*last)
+            };
             *last = seconds;
-            let step = demo.step(seconds);
-            if let Some(p) = shown.play.as_mut() {
-                p.update(&step.frame, step.events.iter(), false);
-            }
-            step.frame
+            // A jump plays its last second again: effects under way show.
+            ddi_render::field_preview::step_to(demo, shown.play.as_mut(), from, seconds, false)
+                .frame
         }
         None => {
             let frame = still_frame(o, &shown.layout, beat);

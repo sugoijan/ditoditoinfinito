@@ -67,10 +67,40 @@ pub const MAX_IMAGE_SIDE: u32 = 4096;
 /// and drawn by the built-in skin.
 pub const MAX_PIXELS: u64 = 64 << 20;
 
-/// How much finer than its own size an SVG is drawn: a skin's 64-pixel
-/// lane is drawn up to 160 device pixels wide (the arrow size's cap), so
-/// four times keeps it sharp there.
+#[cfg(test)]
+#[test]
+fn svg_scale_follows_the_screen() {
+    assert_eq!(svg_scale(1080), 108.0 / 64.0 * ZOOM_HEADROOM);
+    assert_eq!(svg_scale(2160), SVG_SCALE.min(160.0 / 64.0 * ZOOM_HEADROOM));
+    assert_eq!(svg_scale(200), 1.0);
+}
+
+/// How much finer than its own size an SVG is drawn at most: a skin's
+/// 64-pixel lane is drawn up to 160 device pixels wide (the arrow size's
+/// cap), so four times keeps it sharp there, actors zoomed past their lane
+/// too. What a screen needs is less ([`svg_scale`]).
 pub const SVG_SCALE: f64 = 4.0;
+
+/// How much larger than its lane an actor of a skin may be drawn and stay
+/// sharp (explosions and glows zoom).
+pub const ZOOM_HEADROOM: f64 = 1.25;
+
+/// How much finer than its own size an SVG is drawn for a screen
+/// `height` device pixels tall: the largest arrow the field draws there
+/// (a tenth of the height, from 24 to 160 pixels, as `ddi_render`'s
+/// `FieldGeometry` sizes it; a field never draws larger than the screen),
+/// over a skin's 64-pixel lane, with [`ZOOM_HEADROOM`]; from 1 to
+/// [`SVG_SCALE`]. Fewer pixels than four times on most screens, and
+/// sharper too, sprites having no mipmaps to scale down with.
+pub fn svg_scale(height: u32) -> f64 {
+    svg_scale_for_arrow((f64::from(height) / 10.0).clamp(24.0, 160.0))
+}
+
+/// [`svg_scale`] for arrows drawn `arrow` device pixels wide (a preview
+/// drawing its own size).
+pub fn svg_scale_for_arrow(arrow: f64) -> f64 {
+    (arrow / 64.0 * ZOOM_HEADROOM).clamp(1.0, SVG_SCALE)
+}
 
 /// A skin's image sizes for the shells' two-pass load: the first pass
 /// (the probe) answers 128 pixels square for every image of the skin's
@@ -84,6 +114,13 @@ pub struct ProbeSizes {
     pub probe: bool,
     /// The images asked for while probing.
     asked: std::cell::RefCell<Vec<(usize, String)>>,
+    /// Component files' components as read, by `(folder, path)`, and the
+    /// files asked for while probing.
+    pub components: std::collections::HashMap<
+        (usize, String),
+        Result<Vec<crate::component::SvgComponent>, String>,
+    >,
+    asked_components: std::cell::RefCell<Vec<(usize, String)>>,
 }
 
 impl ProbeSizes {
@@ -93,7 +130,20 @@ impl ProbeSizes {
             sizes: std::collections::HashMap::new(),
             probe: true,
             asked: std::cell::RefCell::new(Vec::new()),
+            components: std::collections::HashMap::new(),
+            asked_components: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// The component files asked for since the last call, sorted, each
+    /// once: the shell reads each ([`crate::component::part_documents`]),
+    /// draws its parts, and keeps what it found in
+    /// [`ProbeSizes::components`].
+    pub fn take_asked_components(&self) -> Vec<(usize, String)> {
+        let mut asked = self.asked_components.take();
+        asked.sort();
+        asked.dedup();
+        asked
     }
 
     /// The images asked for since the last call, sorted, each once.
@@ -120,6 +170,22 @@ impl Images for ProbeSizes {
     fn max_size(&self) -> u32 {
         MAX_IMAGE_SIDE
     }
+
+    fn components(
+        &self,
+        dir: Dir,
+        path: &str,
+    ) -> Option<Result<Vec<crate::component::SvgComponent>, String>> {
+        let Dir::Folder(i) = dir else {
+            return Some(Err("not a file of the skin".into()));
+        };
+        let key = (i, path.to_string());
+        if self.probe && !self.components.contains_key(&key) {
+            self.asked_components.borrow_mut().push(key);
+            return None;
+        }
+        self.components.get(&key).cloned()
+    }
 }
 
 /// What the builder needs to know about a skin's images (decoded by the
@@ -129,6 +195,18 @@ pub trait Images {
     fn size(&self, dir: Dir, path: &str) -> Option<(u32, u32)>;
     /// The GPU's largest texture side.
     fn max_size(&self) -> u32;
+    /// The components of an SVG file of the skin (`crate::component`),
+    /// their parts drawn as images at their [`part_path`]s; `None` while
+    /// they are not read yet.
+    ///
+    /// [`part_path`]: crate::component::part_path
+    fn components(
+        &self,
+        _dir: Dir,
+        _path: &str,
+    ) -> Option<Result<Vec<crate::component::SvgComponent>, String>> {
+        None
+    }
 }
 
 /// A built element.
@@ -144,6 +222,13 @@ pub enum Built {
     BuiltIn,
     /// Nothing is drawn.
     Blank,
+    /// Drawn by a component of the skin's SVG (`Def.Component`).
+    Component(crate::component::Component),
+    /// A hold's or roll's body element drawing the whole long note
+    /// (`Def.LongNote`).
+    LongNote(crate::component::LongNote),
+    /// A lift drawn by components (`Def.Lift`).
+    Lift(crate::component::Lift),
 }
 
 /// An element and what kept parts of it from being the skin's.
@@ -335,7 +420,10 @@ impl Builder<'_, '_> {
     fn part(&mut self, button: Button, element: &str, depth: u32) -> Actor {
         match self.element(button, element, depth + 1) {
             Built::Actor(a) => a,
-            Built::Blank => Actor::new(Kind::Actor),
+            // Components come from a skin's Lua only.
+            Built::Blank | Built::Component(_) | Built::LongNote(_) | Built::Lift(_) => {
+                Actor::new(Kind::Actor)
+            }
             Built::BuiltIn => self.builtin_sprite(fallback_art(element)),
         }
     }

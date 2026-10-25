@@ -13,6 +13,12 @@ serde.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-lua.workspace = true
+resvg = { workspace = true, optional = true }
+
+[features]
+# `raster`: SVG images drawn into pixels (desktop, the web's SVG worker;
+# the app's own wasm goes without it).
+raster = ["dep:resvg"]
 
 [dev-dependencies]
 ddi-lua.workspace = true

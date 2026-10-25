@@ -11,6 +11,9 @@
 //! a host limit), every element is the built-in skin's for the rest of
 //! the play ([`NoteskinPlay::lua_failure`]).
 
+mod hold_material;
+mod lift_material;
+
 use ddi_actor::{Actor, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
 use ddi_chart::Layout;
 use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, SpriteKind};
@@ -79,6 +82,24 @@ pub trait NoteLayer {
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
     );
+    /// The materials' parameters the quads given this frame name
+    /// ([`crate::material::MaterialQuad::slot`]).
+    fn materials(&self) -> &[crate::material::MaterialParams] {
+        &[]
+    }
+
+    /// The layer's own materials, which its quads name with
+    /// [`crate::material::LOCAL`] and their index.
+    fn skin_materials(&self) -> &[crate::material::Compiled] {
+        &[]
+    }
+
+    /// Registered textures its quads draw whole or by frame, never
+    /// repeating them: the renderer may pack them into an atlas
+    /// ([`crate::textured::TexturedPipeline::pack`]).
+    fn atlas_textures(&self) -> &[u32] {
+        &[]
+    }
 }
 
 /// One element of a lane.
@@ -87,6 +108,12 @@ enum Element {
     Actor(Box<Actor>),
     BuiltIn,
     Blank,
+    /// A component of the skin's SVG (`docs/plans/noteskin-scene.md`).
+    Component(Box<ddi_noteskin::component::Component>),
+    /// A hold's or roll's body drawing the whole long note (`Def.LongNote`).
+    LongNote(Box<ddi_noteskin::component::LongNote>),
+    /// A lift drawn by components (`Def.Lift`).
+    Lift(Box<ddi_noteskin::component::Lift>),
 }
 
 impl Element {
@@ -181,6 +208,14 @@ impl ColorSet {
         }
     }
 
+    fn all(&self) -> impl Iterator<Item = &Element> {
+        [&self.tap, &self.lift, &self.fake, &self.mine]
+            .into_iter()
+            .chain(self.hold.iter().flatten())
+            .chain(self.roll.iter().flatten())
+            .filter_map(Option::as_ref)
+    }
+
     fn all_mut(&mut self) -> impl Iterator<Item = &mut Element> {
         [
             &mut self.tap,
@@ -207,6 +242,17 @@ struct Lane {
     hold: HoldParts,
     roll: HoldParts,
     holding: Option<HoldKind>,
+    /// Since when (song seconds) it is held, and its last judgments: an
+    /// explosion component's instances (`docs/plans/noteskin-scene.md`).
+    holding_since: Option<f64>,
+    /// The last hold's instance after it ended (its name, start and end,
+    /// song seconds), drawn on for its component's `Duration`.
+    ended: Option<(&'static str, f64, f64)>,
+    hits: std::collections::VecDeque<Hit>,
+    /// What the lane's last press did, for its receptor component (`W1`
+    /// … `W5`, `None` for nothing hit, `HitMine`), as StepMania's
+    /// receptor commands are played.
+    step: Option<Hit>,
     /// Base orientation before lending the explosion tree to Lua.
     explosion_rotation: f32,
     /// The layout's scroll sign for the lane (-1: a lower-row lane).
@@ -214,6 +260,43 @@ struct Lane {
     /// The note elements of 8ths to 192nds, when the skin's Lua colors
     /// notes by `Var "Color"` (empty otherwise: every note is as the 4ths).
     colors: Vec<ColorSet>,
+}
+
+/// The parts' documents a shell draws, each once: a part whose document
+/// an earlier part's is is not drawn, its image that one's
+/// ([`NoteskinPlay::take_images`]). Parts of two components are often the
+/// same document (`ddi_noteskin::component::part_svg` keeps only what a
+/// part reaches).
+#[derive(Debug, Default)]
+pub struct SameDocuments {
+    first: std::collections::HashMap<(usize, String), String>,
+    /// Each part not drawn, by `(folder, path)`: the path of the part of
+    /// that folder whose image it is.
+    pub same: std::collections::HashMap<(usize, String), String>,
+}
+
+impl SameDocuments {
+    /// The part of folder `folder` drawn from `doc` already, if one is
+    /// (`path`'s image then that one's); else `path` is noted as its first.
+    pub fn first_of(&mut self, folder: usize, path: &str, doc: &str) -> Option<String> {
+        match self.first.get(&(folder, doc.to_string())) {
+            Some(first) if first == path => None,
+            Some(first) => {
+                self.same.insert((folder, path.to_string()), first.clone());
+                Some(first.clone())
+            }
+            None => {
+                self.first
+                    .insert((folder, doc.to_string()), path.to_string());
+                None
+            }
+        }
+    }
+
+    /// Whether `path` of `folder` is a part not drawn.
+    pub fn is_copy(&self, folder: usize, path: &str) -> bool {
+        self.same.contains_key(&(folder, path.to_string()))
+    }
 }
 
 /// A noteskin playing.
@@ -238,9 +321,15 @@ pub struct NoteskinPlay {
     textures: Textures,
     /// The renderer's id for each of [`NoteskinPlay::textures`].
     texture_ids: Vec<Option<u32>>,
+    /// Per texture, the earlier one whose image it shares (the same
+    /// pixels: [`NoteskinPlay::share_textures`]), given its id with it.
+    shared: Vec<Option<usize>>,
     next_seq: u64,
     started: bool,
     last_song_time: Option<f64>,
+    /// This frame's song seconds, beat and roll timing window
+    /// ([`NoteskinPlay::update`]), for components' clocks.
+    frame_time: (f64, f64, f64),
     timer: f32,
     /// Built-in substitutions and command errors, for the import report
     /// and the console.
@@ -261,6 +350,37 @@ pub struct NoteskinPlay {
     /// A skin in StepMania 3.9's format: its explosion rows take the
     /// score with the row's name (`ddi_noteskin::legacy`).
     legacy: bool,
+    /// This frame's materials' parameters, each once
+    /// ([`NoteskinPlay::material_slot`]).
+    materials: Vec<crate::material::MaterialParams>,
+    /// Each lane's last press and release, in song seconds, and whether
+    /// it is down: components' `press` and `release` clocks.
+    presses: Vec<LanePresses>,
+    /// The skin's materials, compiled (`PartMaterial::compiled` indexes them).
+    skin_materials: Vec<crate::material::Compiled>,
+    /// [`NoteLayer::atlas_textures`], once its textures are registered.
+    atlas: std::cell::OnceCell<Vec<u32>>,
+}
+
+/// A judgment an explosion component shows an instance for.
+#[derive(Clone, Copy, Debug)]
+struct Hit {
+    /// When, in song seconds.
+    at: f64,
+    /// `W1` … `W5`, `Held`, `HitMine` (a miss sets off none).
+    name: &'static str,
+    bright: bool,
+}
+
+/// The judgments a lane keeps for its explosion's instances.
+const MAX_HITS: usize = 8;
+
+/// A lane's last press and release ([`NoteskinPlay::presses`]).
+#[derive(Clone, Copy, Debug, Default)]
+struct LanePresses {
+    down: bool,
+    pressed: Option<f64>,
+    released: Option<f64>,
 }
 
 /// What [`NoteskinPlay::push_model`] reuses: a model's triangles seen,
@@ -391,6 +511,9 @@ fn to_element(
         Built::Actor(a) => Element::Actor(Box::new(a)),
         Built::BuiltIn => Element::BuiltIn,
         Built::Blank => Element::Blank,
+        Built::Component(c) => Element::Component(Box::new(c)),
+        Built::LongNote(n) => Element::LongNote(Box::new(n)),
+        Built::Lift(l) => Element::Lift(Box::new(l)),
     }
 }
 
@@ -421,6 +544,10 @@ impl Lane {
             hold,
             roll,
             holding: None,
+            holding_since: None,
+            ended: None,
+            hits: std::collections::VecDeque::new(),
+            step: None,
             explosion_rotation: 0.0,
             scroll_sign,
             colors: Vec::new(),
@@ -823,8 +950,13 @@ impl NoteskinPlay {
             // The note elements whose Lua read their color.
             let mut colored = Vec::new();
             let metrics = NoteDisplay::read(&lua.skin(), button.name());
-            for name in lane_elements(metrics.hold_use_dropped_state) {
-                let (built, read) = lua
+            // The bodies first: a `Def.LongNote` draws the whole long note,
+            // and its head, tail and caps are not asked for.
+            let mut bodies = std::collections::HashMap::new();
+            for name in
+                lane_elements(metrics.hold_use_dropped_state).filter(|n| n.contains(" Body "))
+            {
+                let loaded = lua
                     .element_colored_sliced(
                         button,
                         name,
@@ -834,6 +966,41 @@ impl NoteskinPlay {
                         pause.as_deref_mut(),
                     )
                     .await?;
+                bodies.insert(name, loaded);
+            }
+            let owned = |name: &str| {
+                let mut words = name.split(' ');
+                let (kind, part, state) = (words.next(), words.next(), words.next());
+                part != Some("Body")
+                    && matches!(part, Some("Head" | "Tail" | "Topcap" | "Bottomcap"))
+                    && bodies.iter().any(|(body, (built, _))| {
+                        matches!(built.built, Built::LongNote(_))
+                            && *body
+                                == format!("{} Body {}", kind.unwrap_or(""), state.unwrap_or(""))
+                    })
+            };
+            let skipped: Vec<&str> = lane_elements(metrics.hold_use_dropped_state)
+                .filter(|n| owned(n))
+                .collect();
+            for name in lane_elements(metrics.hold_use_dropped_state) {
+                if skipped.contains(&name) {
+                    elements.push(Element::Blank);
+                    continue;
+                }
+                let (built, read) = match bodies.remove(name) {
+                    Some(loaded) => loaded,
+                    None => {
+                        lua.element_colored_sliced(
+                            button,
+                            name,
+                            NOTE_COLORS[0],
+                            textures,
+                            images,
+                            pause.as_deref_mut(),
+                        )
+                        .await?
+                    }
+                };
                 if read && ColorSet::default().place(name).is_some() {
                     colored.push(name);
                 }
@@ -874,6 +1041,8 @@ impl NoteskinPlay {
         lua: Option<LuaSkin>,
     ) -> NoteskinPlay {
         let count = textures.keys().len();
+        let (mut lanes, mut notes) = (lanes, notes);
+        let skin_materials = compile_materials(&mut lanes, &mut notes);
         let mut play = NoteskinPlay {
             name,
             quads: std::cell::Cell::new(0),
@@ -889,6 +1058,7 @@ impl NoteskinPlay {
             lanes,
             textures,
             texture_ids: vec![None; count],
+            shared: vec![None; count],
             next_seq: 0,
             started: false,
             last_song_time: None,
@@ -902,6 +1072,11 @@ impl NoteskinPlay {
             lua_stop_taken: false,
             lua_fuel: (0, 0),
             legacy: false,
+            materials: Vec::new(),
+            presses: Vec::new(),
+            frame_time: (0.0, 0.0, 0.0),
+            skin_materials,
+            atlas: std::cell::OnceCell::new(),
         };
         play.notes.append(&mut play.problems.messages);
         play
@@ -963,23 +1138,59 @@ impl NoteskinPlay {
         self.textures.keys()
     }
 
-    /// Each texture's image among `images` (a skin's images as the shell
-    /// decoded them, by `(folder, path)`), by texture index: `None` for
-    /// the built-in art and an image not decoded.
-    pub fn images_for<T: Clone>(
-        &self,
-        images: &std::collections::HashMap<(usize, String), T>,
-    ) -> Vec<Option<T>> {
-        self.texture_keys()
-            .iter()
-            .map(|k| match k {
-                TextureKey::Skin {
-                    dir: ddi_noteskin::Dir::Folder(i),
-                    path,
-                } => images.get(&(*i, path.clone())).cloned(),
-                _ => None,
-            })
-            .collect()
+    /// Each texture's image, taken from `images` (a skin's images as the
+    /// shell decoded them, by `(folder, path)`), by texture index: `None`
+    /// for the built-in art and an image not decoded. `same` gives, for an
+    /// image not decoded because its document is another's (a part the
+    /// same as another component's), that one's: textures of one image are
+    /// given one id ([`NoteskinPlay::set_texture`]), the first of them
+    /// taking it. What no texture takes stays in `images`. Returns each
+    /// `(texture, the texture it shares)`, as
+    /// [`NoteskinPlay::share_textures`] does.
+    pub fn take_images<T: Clone>(
+        &mut self,
+        images: &mut std::collections::HashMap<(usize, String), T>,
+        same: &std::collections::HashMap<(usize, String), String>,
+    ) -> (Vec<Option<T>>, Vec<(usize, usize)>) {
+        let mut first: std::collections::HashMap<((usize, String), bool), usize> =
+            Default::default();
+        let mut took: std::collections::HashMap<(usize, String), usize> = Default::default();
+        let mut pairs = Vec::new();
+        let mut out: Vec<Option<T>> = Vec::with_capacity(self.texture_ids.len());
+        for (i, k) in self.textures.keys().iter().enumerate() {
+            let TextureKey::Skin {
+                dir: ddi_noteskin::Dir::Folder(f),
+                path,
+            } = k
+            else {
+                out.push(None);
+                continue;
+            };
+            let key = (*f, path.clone());
+            let source = match same.get(&key) {
+                Some(first) => (key.0, first.clone()),
+                None => key,
+            };
+            match first.entry((source.clone(), self.textures.mipmaps(i))) {
+                std::collections::hash_map::Entry::Occupied(j) => {
+                    self.shared[i] = Some(*j.get());
+                    pairs.push((i, *j.get()));
+                    out.push(None);
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(i);
+                    // An image a texture of another mipmapping took
+                    // already: copied.
+                    let image = match took.get(&source) {
+                        Some(&j) => out[j].clone(),
+                        None => images.remove(&source),
+                    };
+                    took.entry(source).or_insert(i);
+                    out.push(image);
+                }
+            }
+        }
+        (out, pairs)
     }
 
     /// Actual textures referenced by a lane's built actors, for authoring inspection. This
@@ -1073,16 +1284,168 @@ impl NoteskinPlay {
         self.textures.mipmaps(index)
     }
 
-    /// Tells which renderer texture stands for texture `index`.
+    /// The id texture `t` was given ([`NoteskinPlay::set_texture`]).
+    fn texture_id(&self, t: u32) -> Option<u32> {
+        self.texture_ids.get(t as usize).copied().flatten()
+    }
+
+    /// Tells which renderer texture stands for texture `index` (and for
+    /// those sharing its image).
     pub fn set_texture(&mut self, index: usize, id: u32) {
-        if let Some(slot) = self.texture_ids.get_mut(index) {
-            *slot = Some(id);
+        for (i, slot) in self.texture_ids.iter_mut().enumerate() {
+            if i == index || self.shared.get(i) == Some(&Some(index)) {
+                *slot = Some(id);
+            }
         }
+        self.atlas = std::cell::OnceCell::new();
+    }
+
+    /// Finds the textures whose images an earlier texture's has (`key`:
+    /// a hash of a texture's pixels, `None` for one not to share; `same`:
+    /// whether two are the same pixels), each then given the earlier
+    /// one's id by [`NoteskinPlay::set_texture`]: its own image need not
+    /// be uploaded. Only textures mipmapped alike share. Returns each
+    /// `(texture, the texture it shares)`.
+    pub fn share_textures(
+        &mut self,
+        key: impl Fn(usize) -> Option<u64>,
+        same: impl Fn(usize, usize) -> bool,
+    ) -> Vec<(usize, usize)> {
+        let mut first: std::collections::HashMap<(u64, bool), Vec<usize>> = Default::default();
+        let mut pairs = Vec::new();
+        for i in 0..self.texture_ids.len() {
+            let Some(k) = key(i) else {
+                continue;
+            };
+            let earlier = first.entry((k, self.textures.mipmaps(i))).or_default();
+            match earlier.iter().find(|&&j| same(j, i)) {
+                Some(&j) => {
+                    // Those sharing this one's share that one's.
+                    for s in &mut self.shared {
+                        if *s == Some(i) {
+                            *s = Some(j);
+                        }
+                    }
+                    self.shared[i] = Some(j);
+                    pairs.push((i, j));
+                }
+                None => earlier.push(i),
+            }
+        }
+        pairs
+    }
+
+    /// Its components' parts' images, as registered: drawn whole (a long
+    /// note's body tiles, which repeat, materials' images, sampled whole,
+    /// and models' mipmapped textures left out).
+    fn packable(&self) -> Vec<u32> {
+        let mut skin: Vec<u32> = Vec::new();
+
+        let parts = |c: &ddi_noteskin::component::Component, out: &mut Vec<u32>| {
+            for p in &c.parts {
+                out.extend(&p.textures);
+            }
+        };
+        let mut visit = |e: &Element| match e {
+            Element::Component(c) => parts(c, &mut skin),
+            Element::LongNote(n) => {
+                for c in [n.head.as_ref(), n.cap.as_ref()].into_iter().flatten() {
+                    parts(c, &mut skin);
+                }
+            }
+            Element::Lift(l) => {
+                parts(&l.head, &mut skin);
+                if let Some(t) = &l.trail {
+                    parts(t, &mut skin);
+                }
+            }
+            _ => {}
+        };
+        for e in self.lanes.iter().flat_map(Lane::every) {
+            visit(e);
+        }
+        // A texture also sampled whole by a material, or repeated as a
+        // long note's body, stays alone.
+        fn images_of(c: &ddi_noteskin::component::Component, alone: &mut Vec<u32>) {
+            for p in &c.parts {
+                if let Some(m) = &p.material {
+                    alone.extend(&m.images);
+                }
+            }
+        }
+        fn keep_alone(e: &Element, alone: &mut Vec<u32>) {
+            match e {
+                Element::Component(c) => images_of(c, alone),
+                Element::LongNote(n) => {
+                    for p in &n.body.parts {
+                        alone.extend(&p.textures);
+                    }
+                    for c in [n.head.as_ref(), n.cap.as_ref()].into_iter().flatten() {
+                        images_of(c, alone);
+                    }
+                    if let Some(m) = n.fill.as_ref().and_then(|f| f.material.as_ref()) {
+                        alone.extend(&m.images);
+                    }
+                }
+                Element::Lift(l) => {
+                    images_of(&l.head, alone);
+                    if let Some(m) = l.fill.as_ref().and_then(|f| f.material.as_ref()) {
+                        alone.extend(&m.images);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut alone: Vec<u32> = Vec::new();
+        for e in self.lanes.iter().flat_map(Lane::every) {
+            keep_alone(e, &mut alone);
+        }
+        skin.sort_unstable();
+        skin.dedup();
+        // A sprite hold's or roll's body repeats its texture (drawn
+        // wrapped), and an image of it may be a part's too
+        // ([`NoteskinPlay::share_textures`]): it stays whole. (Models'
+        // textures, the other wrapped, get mipmaps, shared with no part.)
+        for lane in &self.lanes {
+            let bodies = lane.hold.body.iter().chain(&lane.roll.body).chain(
+                lane.colors
+                    .iter()
+                    .flat_map(|c| c.hold[3].iter().chain(&c.roll[3]).flatten()),
+            );
+            for e in bodies {
+                if let Element::Actor(a) = e {
+                    alone.extend(a.textures());
+                }
+            }
+        }
+        skin.retain(|t| !alone.contains(t) && !self.textures.mipmaps(*t as usize));
+        // A shared image stays whole when any of its textures does.
+        let id = |t: &u32| self.texture_id(*t);
+        let alone: Vec<u32> = alone.iter().filter_map(id).collect();
+        let mut ids: Vec<u32> = skin.iter().filter_map(id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.retain(|i| !alone.contains(i));
+        ids
     }
 
     /// Whether the target is sRGB (colors are converted for it).
     pub fn set_srgb(&mut self, srgb: bool) {
         self.srgb = srgb;
+    }
+
+    /// The slot of a material's parameters this frame
+    /// ([`crate::material::MaterialQuad::slot`]): the same parameters the
+    /// same slot; `None` once every slot is taken.
+    fn material_slot(&mut self, params: crate::material::MaterialParams) -> Option<u16> {
+        if let Some(i) = self.materials.iter().position(|p| *p == params) {
+            return Some(i as u16);
+        }
+        if self.materials.len() >= crate::material::SLOTS {
+            return None;
+        }
+        self.materials.push(params);
+        Some(self.materials.len() as u16 - 1)
     }
 
     /// Quads the last frame drew.
@@ -1119,6 +1482,32 @@ impl NoteskinPlay {
         events: impl Iterator<Item = &'e SkinEvent>,
         reverse: bool,
     ) {
+        self.materials.clear();
+        self.frame_time = (frame.song_time, frame.beat, frame.roll_window_seconds);
+        // A seek back forgets presses that have not happened yet.
+        if self
+            .last_song_time
+            .is_some_and(|last| frame.song_time < last)
+        {
+            self.presses.clear();
+            for lane in &mut self.lanes {
+                lane.hits.clear();
+                lane.ended = None;
+                lane.step = None;
+            }
+        }
+        self.presses
+            .resize(frame.receptors.len(), LanePresses::default());
+        for (p, r) in self.presses.iter_mut().zip(&frame.receptors) {
+            if r.pressed != p.down {
+                if r.pressed {
+                    p.pressed = Some(frame.song_time);
+                } else {
+                    p.released = Some(frame.song_time);
+                }
+                p.down = r.pressed;
+            }
+        }
         for lane in &mut self.lanes {
             if let Element::Actor(a) = &lane.explosion {
                 lane.explosion_rotation = a.base_rotation[2];
@@ -1239,9 +1628,18 @@ impl NoteskinPlay {
             // the commands.
             let mut explode = |score: (&str, String),
                                b: bool,
-                               names: &[&str],
+                               names: &[&'static str; 3],
                                cmd: &mut Commands,
                                p: &mut Problems| {
+                // An explosion component's instance, by its score's name.
+                if lane.hits.len() == MAX_HITS {
+                    lane.hits.pop_front();
+                }
+                lane.hits.push_back(Hit {
+                    at: e.song_time,
+                    name: names[2],
+                    bright: b,
+                });
                 let mut params = vec![
                     (score.0, Param::Str(score.1)),
                     ("Column", Param::Int(column)),
@@ -1290,9 +1688,19 @@ impl NoteskinPlay {
                     &[("Autoplay", Param::Bool(e.autoplay))],
                     p,
                 ),
-                SkinEventKind::Step(Some(j)) => cmd.play(&mut lane.receptor, score_name(j), &[], p),
-                SkinEventKind::Step(None) => cmd.play(&mut lane.receptor, "None", &[], p),
-                SkinEventKind::StepMine => cmd.play(&mut lane.receptor, "HitMine", &[], p),
+                SkinEventKind::Step(_) | SkinEventKind::StepMine => {
+                    let name = match e.kind {
+                        SkinEventKind::Step(Some(j)) => score_name(j),
+                        SkinEventKind::Step(None) => "None",
+                        _ => "HitMine",
+                    };
+                    lane.step = Some(Hit {
+                        at: e.song_time,
+                        name,
+                        bright: false,
+                    });
+                    cmd.play(&mut lane.receptor, name, &[], p)
+                }
                 SkinEventKind::Tap {
                     judgement,
                     bright: b,
@@ -1342,7 +1750,12 @@ impl NoteskinPlay {
                     Some(HoldKind::Roll) => cmd.play(&mut lane.explosion, "RollOn", &[], p),
                     None => {}
                 }
+                if let Some(since) = lane.holding_since {
+                    let name = held_name(lane.holding);
+                    lane.ended = name.map(|name| (name, since, frame.song_time));
+                }
                 lane.holding = now;
+                lane.holding_since = now.map(|_| frame.song_time);
             }
         }
         let dt = match self.last_song_time {
@@ -1428,9 +1841,7 @@ impl NoteskinPlay {
         meshes.clear();
         meshes.extend(m.geometry.meshes.iter().map(|mesh| {
             match mesh.material.and_then(|i| m.materials.get(i)) {
-                Some(&(Some(t), color, _)) => {
-                    (self.texture_ids.get(t as usize).copied().flatten(), color)
-                }
+                Some(&(Some(t), color, _)) => (self.texture_id(t), color),
                 Some(&(None, color, _)) => (Some(UNTEXTURED), color),
                 None => (Some(UNTEXTURED), [0.9, 0.9, 0.9, 1.0]),
             }
@@ -1472,19 +1883,7 @@ impl NoteskinPlay {
         self.quads.set(self.quads.get() + 1);
         if q.depth.clear {
             // `clearzbuffer`: the mask cleared over the whole target.
-            out.push(TexQuad {
-                blend: QuadBlend::NoEffect,
-                mask: Mask::Clear,
-                // Opaque, so the alpha test keeps it; it draws no color.
-                ..TexQuad::new(
-                    Shape::Quad {
-                        transform: [1e6, 0.0, 0.0, 1e6, 0.0, 0.0],
-                        uv: [0.0, 0.0, 1.0, 1.0],
-                    },
-                    [1.0; 4],
-                    UNTEXTURED,
-                )
-            });
+            out.push(clear_quad());
         }
         let Some(mask) = actors2d::drawn_mask(q.depth, q.blend) else {
             return;
@@ -1523,25 +1922,16 @@ impl NoteskinPlay {
         let m = metrics.part(part);
         let mut offset = [0.0; 2];
         let mut padded = [1.0; 2];
-        let percent = || {
-            animation_percent(
-                m,
-                metrics.animation_is_beat_based,
-                frame.beat as f32,
-                frame.song_time as f32,
-                beat,
-            )
-        };
-        match &mut actor.kind {
-            Kind::Sprite(s) => {
-                let length: f32 = s.states.iter().map(|st| st.delay).sum();
-                s.set_seconds_into_animation(percent() * length);
-                padded = s.padded_to_image;
-            }
-            // Its textures' scroll and frames; a model's texture is
-            // stretched to its image (no padding to take out).
-            Kind::Model(model) => model.seconds = percent() * model.animation_length(),
-            _ => {}
+        let percent = animation_percent(
+            m,
+            metrics.animation_is_beat_based,
+            frame.beat as f32,
+            frame.song_time as f32,
+            beat,
+        );
+        set_note_animation(actor, percent, m.animation_on_children);
+        if let Kind::Sprite(s) = &actor.kind {
+            padded = s.padded_to_image;
         }
         if let Some(o) = color_offset(m, beat, false) {
             offset = [o[0] * padded[0], o[1] * padded[1]];
@@ -1573,6 +1963,12 @@ impl Lane {
         .into_iter()
         .chain(self.hold.all())
         .chain(self.roll.all())
+    }
+
+    /// Every element, the colors' too.
+    fn every(&self) -> impl Iterator<Item = &Element> {
+        self.elements()
+            .chain(self.colors.iter().flat_map(ColorSet::all))
     }
 
     /// Every element, the colors' too.
@@ -1622,6 +2018,195 @@ impl HoldParts {
     }
 }
 
+/// A note's seed for its materials, 0 to 1, the same every frame.
+fn note_seed(index: usize) -> f32 {
+    ((index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// The explosion a hold of `kind` shows while it lasts.
+fn held_name(kind: Option<HoldKind>) -> Option<&'static str> {
+    match kind? {
+        HoldKind::Hold => Some("Holding"),
+        HoldKind::Roll => Some("Rolling"),
+    }
+}
+
+/// An effect keeps its variation when older judgments leave the bounded queue.
+/// Fold both halves before converting to usize, also on 32-bit wasm.
+fn hit_seed(lane: usize, at: f64) -> f32 {
+    let bits = at.to_bits();
+    note_seed(((bits ^ (bits >> 32)) as u32 as usize) ^ lane.wrapping_mul(MAX_HITS))
+}
+
+/// Compiles the materials of the lanes' components
+/// ([`crate::material::compile`]), each source once, and points their parts
+/// at them; one that does not compile is said in `notes`, and its parts
+/// draw their own images.
+fn compile_materials(
+    lanes: &mut [Lane],
+    notes: &mut Vec<String>,
+) -> Vec<crate::material::Compiled> {
+    let mut compiled: Vec<crate::material::Compiled> = Vec::new();
+    let mut sources: Vec<(String, Option<u32>)> = Vec::new();
+    let mut visit = |e: &mut Element| {
+        let parts: Vec<&mut ddi_noteskin::component::Part> = match e {
+            Element::Component(c) => c.parts.iter_mut().collect(),
+            Element::LongNote(n) => {
+                let n = &mut **n;
+                let mut parts: Vec<_> = n.body.parts.iter_mut().collect();
+                for c in [n.head.as_mut(), n.cap.as_mut()].into_iter().flatten() {
+                    parts.extend(c.parts.iter_mut());
+                }
+                parts.extend(n.fill.as_mut());
+                parts
+            }
+            Element::Lift(l) => {
+                let l = &mut **l;
+                let mut parts: Vec<_> = l.head.parts.iter_mut().collect();
+                if let Some(t) = l.trail.as_mut() {
+                    parts.extend(t.parts.iter_mut());
+                }
+                parts.extend(l.fill.as_mut());
+                parts
+            }
+            _ => return,
+        };
+        for part in parts {
+            let Some(m) = part.material.as_deref_mut() else {
+                continue;
+            };
+            let index = match sources.iter().find(|(s, _)| *s == m.source) {
+                Some((_, index)) => *index,
+                None => {
+                    let index = match crate::material::compile(&m.source) {
+                        Ok(c) => {
+                            compiled.push(c);
+                            Some(compiled.len() as u32 - 1)
+                        }
+                        Err(e) => {
+                            notes.push(format!("{}: {e}", m.file));
+                            None
+                        }
+                    };
+                    sources.push((m.source.clone(), index));
+                    index
+                }
+            };
+            m.compiled = index;
+        }
+    };
+    for e in lanes.iter_mut().flat_map(Lane::elements_mut) {
+        visit(e);
+    }
+    compiled
+}
+
+/// `a` after `b`, as 2D affine maps `[m0, m1, m2, m3, m4, m5]` (`x' = m0 x
+/// + m2 y + m4`, `y' = m1 x + m3 y + m5`).
+fn affine_mul(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
+    [
+        a[0] * b[0] + a[2] * b[1],
+        a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3],
+        a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4],
+        a[1] * b[4] + a[3] * b[5] + a[5],
+    ]
+}
+
+/// A turn of `degrees`, clockwise on the screen (its y down), as actors
+/// turn.
+fn rotation(degrees: f32) -> [f32; 6] {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    [cos, sin, -sin, cos, 0.0, 0.0]
+}
+
+/// The blend of a long note's or a lift's layer drawn through `mask`:
+/// into the mask only (no color) when it writes or erases it.
+fn mask_blend(mask: Mask) -> QuadBlend {
+    if matches!(mask, Mask::Write | Mask::Erase) {
+        QuadBlend::NoEffect
+    } else {
+        QuadBlend::Normal
+    }
+}
+
+/// `q` turned over about the field's row `head` (a layer drawn down the
+/// lane, scrolling up) when `dir` is negative; a quad's shape only.
+fn mirror_about(mut q: TexQuad, head: f32, dir: f32) -> TexQuad {
+    if dir < 0.0
+        && let Shape::Quad {
+            ref mut transform, ..
+        } = q.shape
+    {
+        transform[1] *= -1.0;
+        transform[3] *= -1.0;
+        transform[5] = head - (transform[5] - head);
+    }
+    q
+}
+
+/// A quad clearing the mask over the whole target (opaque, so the alpha
+/// test keeps it; it draws no color). [`bound_clears`] shrinks it to what
+/// was drawn.
+fn clear_quad() -> TexQuad {
+    TexQuad {
+        mask: Mask::Clear,
+        blend: QuadBlend::NoEffect,
+        ..TexQuad::new(
+            Shape::Quad {
+                transform: [1e6, 0.0, 0.0, 1e6, 0.0, 0.0],
+                uv: [0.0, 0.0, 1.0, 1.0],
+            },
+            [1.0; 4],
+            UNTEXTURED,
+        )
+    }
+}
+
+/// Narrows the mask clears among `quads` (a long note's material passes)
+/// to the box the others cover: each then clears that note's pixels, not
+/// the whole target, every pass.
+fn bound_clears(quads: &mut [TexQuad]) {
+    let mut bounds = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
+    let mut add = |[x, y]: [f32; 2]| {
+        bounds = [
+            bounds[0].min(x),
+            bounds[1].min(y),
+            bounds[2].max(x),
+            bounds[3].max(y),
+        ];
+    };
+    for q in quads.iter().filter(|q| q.mask != Mask::Clear) {
+        match q.shape {
+            Shape::Quad { transform: m, .. } => {
+                for (cx, cy) in [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)] {
+                    add([m[0] * cx + m[2] * cy + m[4], m[1] * cx + m[3] * cy + m[5]]);
+                }
+            }
+            Shape::Projected { corners, .. } => corners.into_iter().for_each(&mut add),
+            Shape::Triangle { points, .. } => points.into_iter().for_each(&mut add),
+        }
+    }
+    // Nothing else drawn (or not a number): the clears stay as they are.
+    if !(bounds[0] <= bounds[2] && bounds[1] <= bounds[3]) {
+        return;
+    }
+    let [x0, y0] = [bounds[0].floor() - 1.0, bounds[1].floor() - 1.0];
+    let [x1, y1] = [bounds[2].ceil() + 1.0, bounds[3].ceil() + 1.0];
+    for q in quads.iter_mut().filter(|q| q.mask == Mask::Clear) {
+        q.shape = Shape::Quad {
+            transform: [x1 - x0, 0.0, 0.0, y1 - y0, (x0 + x1) * 0.5, (y0 + y1) * 0.5],
+            uv: [0.0, 0.0, 1.0, 1.0],
+        };
+    }
+}
+
 /// A sprite element's current frame: texture, rectangle (image fractions)
 /// and shown size in StepMania pixels.
 fn sprite_frame(element: &Element) -> Option<(u32, [f32; 4], [f32; 2])> {
@@ -1635,6 +2220,18 @@ fn sprite_frame(element: &Element) -> Option<(u32, [f32; 4], [f32; 2])> {
 }
 
 impl NoteLayer for NoteskinPlay {
+    fn materials(&self) -> &[crate::material::MaterialParams] {
+        &self.materials
+    }
+
+    fn skin_materials(&self) -> &[crate::material::Compiled] {
+        &self.skin_materials
+    }
+
+    fn atlas_textures(&self) -> &[u32] {
+        self.atlas.get_or_init(|| self.packable())
+    }
+
     fn draws(&self, lane: usize, part: LayerPart) -> bool {
         let Some(l) = self.lanes.get(lane) else {
             return false;
@@ -1674,6 +2271,7 @@ impl NoteLayer for NoteskinPlay {
     ) {
         self.camera = Camera::of(geo);
         self.column_actors(layout, geo, out, |l| &mut l.explosion);
+        self.explosion_instances(layout, geo, out);
     }
 
     /// `NoteDisplay::DrawHold`: top cap, body, bottom cap, then the tail and
@@ -1745,6 +2343,137 @@ impl NoteLayer for NoteskinPlay {
                     note.hold_life.clamp(0.0, 1.0),
                 )
             };
+            // A `Def.LongNote` draws the whole long note.
+            let parts = if roll { &lane.roll } else { &lane.hold };
+            if let Element::LongNote(ln) = &parts.body[state] {
+                let clocks = self.clocks(i, Some(note.beat));
+                let seed = note_seed(note.note_index);
+                let fill = match ln
+                    .fill
+                    .as_ref()
+                    .and_then(|f| Some((f, f.material.as_deref()?)))
+                {
+                    Some((f, mat)) => match (mat.compiled, self.material_slot(mat.params)) {
+                        (Some(index), Some(slot)) => {
+                            let image_id = |n: usize| {
+                                mat.images
+                                    .get(n)
+                                    .and_then(|&t| self.texture_id(t))
+                                    .unwrap_or(UNTEXTURED)
+                            };
+                            hold_material::Fill::Skin {
+                                quad: crate::material::MaterialQuad {
+                                    material: crate::material::LOCAL | index,
+                                    slot,
+                                    axes: [0.0; 4],
+                                    origin: [0.0; 2],
+                                    phase: f
+                                        .value(ddi_noteskin::component::Property::Phase, &clocks),
+                                    seed,
+                                    value: [0.0; 4],
+                                    images: [image_id(0), image_id(1)],
+                                },
+                                anchor: ln.anchor,
+                                origin: mat.origin,
+                            }
+                        }
+                        _ => hold_material::Fill::Nothing,
+                    },
+                    None => hold_material::Fill::Nothing,
+                };
+                let layers = hold_material::HoldLayers::of_long_note(ln, &clocks, fill);
+                // The head's parts: its band into the mask, its shadow
+                // outside the envelope, the rest over everything.
+                let mut head_draws = Vec::new();
+                if let Some(h) = &ln.head {
+                    self.draw_component(
+                        h,
+                        [x, head_y],
+                        k,
+                        (note.alpha, color_scale),
+                        seed,
+                        &clocks,
+                        &|p| match p.role.as_deref() {
+                            None => Some(Mask::None),
+                            Some("band") => Some(Mask::Write),
+                            Some("shadow") => Some(Mask::Outside),
+                            Some(_) => None,
+                        },
+                        &mut head_draws,
+                    );
+                }
+                self.material_hold(
+                    &layers,
+                    note,
+                    frame,
+                    geo,
+                    [x, head_y, tail_px, k, color_scale],
+                    &head_draws,
+                    out,
+                );
+                lane.swap_hold_colors(note_type, roll);
+                continue;
+            }
+            let material = if roll {
+                m.roll_material.map(|r| r.material)
+            } else {
+                m.hold_material
+            };
+            let pulse = if roll {
+                m.roll_material.map(|r| {
+                    r.opacity(long_note_animation_percent(
+                        m,
+                        m.part(Part::HoldBody),
+                        note,
+                        frame,
+                    ))
+                })
+            } else {
+                None
+            };
+            let parts = if roll { &mut lane.roll } else { &mut lane.hold };
+            if let Some(material) = material
+                && let Some(slot) = self.material_slot(hold_material::wave_params(material))
+                && let Some(layers) =
+                    hold_material::HoldLayers::of_sprites(parts, state, material, slot, pulse)
+            {
+                let mut head = std::mem::replace(&mut parts.head[state], Element::Blank);
+                let mut head_draws = Vec::new();
+                hold_material::head_phase(
+                    &mut head,
+                    animation_percent(
+                        m.part(Part::HoldHead),
+                        m.animation_is_beat_based,
+                        frame.beat as f32,
+                        frame.song_time as f32,
+                        note.beat,
+                    ),
+                );
+                self.note_actor(
+                    &mut head,
+                    m,
+                    Part::HoldHead,
+                    note.beat,
+                    (note.alpha, note.glow),
+                    frame,
+                    [x, head_y],
+                    k,
+                    color_scale,
+                    &mut head_draws,
+                );
+                parts.head[state] = head;
+                self.material_hold(
+                    &layers,
+                    note,
+                    frame,
+                    geo,
+                    [x, head_y, tail_px, k, color_scale],
+                    &head_draws,
+                    out,
+                );
+                lane.swap_hold_colors(note_type, roll);
+                continue;
+            }
             let parts = if roll { &mut lane.roll } else { &mut lane.hold };
             if parts.drawn() {
                 let layers: &[(usize, QuadBlend)] = if dropped_state {
@@ -1846,7 +2575,8 @@ impl NoteLayer for NoteskinPlay {
         self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
-        self.mine_links(frame, layout, geo, &mut lanes, out);
+        let mut electricity = Vec::new();
+        let joined = self.mine_links(frame, layout, geo, &mut lanes, out, &mut electricity);
         let mut order: Vec<&NoteSprite> = frame
             .notes
             .iter()
@@ -1868,27 +2598,100 @@ impl NoteLayer for NoteskinPlay {
             let note_type = note_type(note.beat);
             let at = [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)];
             let mut e = std::mem::replace(lane.note_slot(slot, note_type), Element::Blank);
+            if let Element::Lift(lift) = &e {
+                let dir = geo.lane_direction(l.scroll_sign);
+                self.component_lift(lift, i, note, frame, at, k, dir, out);
+                *lane.note_slot(slot, note_type) = e;
+                self.last_note_positions.insert(note.note_index, note.y);
+                continue;
+            }
+            if let Element::Component(c) = &e {
+                let clocks = self.clocks(i, Some(note.beat));
+                self.draw_component(
+                    c,
+                    at,
+                    k,
+                    (note.alpha, 1.0),
+                    note_seed(note.note_index),
+                    &clocks,
+                    &|_| Some(Mask::None),
+                    out,
+                );
+                *lane.note_slot(slot, note_type) = e;
+                self.last_note_positions.insert(note.note_index, note.y);
+                continue;
+            }
+            let split =
+                matches!(slot, Slot::Mine) && lane.metrics.mine_connect_rows && split_mine_rims(&e);
             let visibility = if matches!(slot, Slot::Mine) && lane.metrics.mine_connect_rows {
-                mine_layers(&mut e, false)
+                mine_layers(
+                    &mut e,
+                    if split {
+                        MineLayers::Base
+                    } else {
+                        MineLayers::Complete
+                    },
+                    joined.get(&note.note_index).copied().unwrap_or([false; 2]),
+                )
             } else {
                 None
             };
-            self.note_actor(
-                &mut e,
-                &lane.metrics,
-                part,
-                note.beat,
-                (note.alpha, note.glow),
-                frame,
-                at,
-                k,
-                1.0,
-                out,
-            );
+            let wave = match (slot, lane.metrics.lift_material) {
+                (Slot::Lift, Some(m)) => self.material_slot(hold_material::wave_params(m.material)),
+                _ => None,
+            };
+            if !(matches!(slot, Slot::Lift)
+                && self.material_lift(
+                    &mut e,
+                    &lane.metrics,
+                    note,
+                    frame,
+                    geo,
+                    at,
+                    k,
+                    geo.lane_direction(l.scroll_sign),
+                    wave,
+                    out,
+                ))
+            {
+                self.note_actor(
+                    &mut e,
+                    &lane.metrics,
+                    part,
+                    note.beat,
+                    (note.alpha, note.glow),
+                    frame,
+                    at,
+                    k,
+                    1.0,
+                    out,
+                );
+            }
             restore_mine_layers(&mut e, visibility);
+            if split {
+                let visibility = mine_layers(
+                    &mut e,
+                    MineLayers::Electricity,
+                    joined.get(&note.note_index).copied().unwrap_or([false; 2]),
+                );
+                self.note_actor(
+                    &mut e,
+                    &lane.metrics,
+                    part,
+                    note.beat,
+                    (note.alpha, note.glow),
+                    frame,
+                    at,
+                    k,
+                    1.0,
+                    &mut electricity,
+                );
+                restore_mine_layers(&mut e, visibility);
+            }
             *lane.note_slot(slot, note_type) = e;
             self.last_note_positions.insert(note.note_index, note.y);
         }
+        out.extend(electricity);
         self.lanes = lanes;
     }
 }
@@ -1939,15 +2742,36 @@ fn has_mine_link(element: &Element) -> bool {
     matches!(element, Element::Actor(a) if a.children().iter().any(|c| c.name == "MineLink"))
 }
 
-/// Keep the local effect for single mines; reserve just this child for bridges.
-fn mine_layers(element: &mut Element, link_only: bool) -> Option<Vec<bool>> {
+fn split_mine_rims(element: &Element) -> bool {
+    matches!(element, Element::Actor(a) if ["MineRimLeft","MineRimRight"].iter().all(|name| a.children().iter().any(|c| c.name == *name)))
+}
+#[derive(Clone, Copy)]
+enum MineLayers {
+    Complete,
+    Base,
+    Electricity,
+    Link,
+}
+
+/// Keep original visibility intact across the base, local and bridge passes.
+fn mine_layers(element: &mut Element, mode: MineLayers, joined: [bool; 2]) -> Option<Vec<bool>> {
     let Element::Actor(a) = element else {
         return None;
     };
     let index = a.children().iter().position(|c| c.name == "MineLink")?;
     let visibility = a.children().iter().map(|c| c.visible).collect();
     for (i, c) in a.children_mut().iter_mut().enumerate() {
-        if (i == index) != link_only {
+        let rim = c.name == "MineRimLeft" || c.name == "MineRimRight";
+        let keep = match mode {
+            MineLayers::Link => i == index,
+            MineLayers::Base => i != index && !rim,
+            MineLayers::Electricity => rim,
+            MineLayers::Complete => i != index,
+        };
+        if !keep
+            || (c.name == "MineRimLeft" && joined[0])
+            || (c.name == "MineRimRight" && joined[1])
+        {
             c.visible = false;
         }
     }
@@ -1970,7 +2794,9 @@ impl NoteskinPlay {
         geo: &FieldGeometry,
         lanes: &mut [Lane],
         out: &mut Vec<TexQuad>,
-    ) {
+        electricity: &mut Vec<TexQuad>,
+    ) -> std::collections::HashMap<usize, [bool; 2]> {
+        let mut joined = std::collections::HashMap::<usize, [bool; 2]>::new();
         let nodes = frame
             .notes
             .iter()
@@ -1995,12 +2821,15 @@ impl NoteskinPlay {
             .collect();
         let k = geo.arrow / 64.0;
         for [left, right] in aligned_mines(nodes, geo.arrow * 0.125, geo.arrow) {
+            joined.entry(left.note.note_index).or_default()[1] = true;
+            joined.entry(right.note.note_index).or_default()[0] = true;
             let dx = right.at[0] - left.at[0];
             let dy = right.at[1] - left.at[1];
             let length = dx.hypot(dy);
             let lane = &mut lanes[usize::from(left.note.lane)];
             let e = lane.note_slot(Slot::Mine, note_type(left.note.beat));
-            let visibility = mine_layers(e, true);
+            let split = split_mine_rims(e);
+            let visibility = mine_layers(e, MineLayers::Link, [false; 2]);
             if let Element::Actor(a) = e {
                 a.reset_placement();
                 a.set_note_colors(
@@ -2020,11 +2849,12 @@ impl NoteskinPlay {
                         (left.at[1] + right.at[1]) * 0.5,
                     ],
                     [0.0; 2],
-                    out,
+                    if split { electricity } else { out },
                 );
             }
             restore_mine_layers(e, visibility);
         }
+        joined
     }
 }
 
@@ -2078,13 +2908,239 @@ impl NoteskinPlay {
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
         for (i, lane) in lanes.iter_mut().enumerate() {
-            let (Some(l), Element::Actor(a)) = (layout.lanes.get(i), pick(lane)) else {
+            let Some(l) = layout.lanes.get(i) else {
                 continue;
             };
             let at = [geo.lane_x(l.column), geo.lane_receptor_y(l.scroll_sign)];
-            self.emit(a, [k, 0.0, 0.0, k, at[0], at[1]], [0.0; 2], out);
+            let explosion = std::ptr::eq(pick(lane), &lane.explosion);
+            let step = lane.step.filter(|h| h.at <= self.frame_time.0);
+            match pick(lane) {
+                Element::Actor(a) => self.emit(a, [k, 0.0, 0.0, k, at[0], at[1]], [0.0; 2], out),
+                // An explosion's component draws an instance a judgment
+                // ([`NoteskinPlay::explosion_instances`]).
+                Element::Component(_) if explosion => {}
+                Element::Component(c) => {
+                    // A receptor: its `hit` clock and `When` parts from
+                    // what the lane's last press did.
+                    let clocks = ddi_noteskin::component::Clocks {
+                        hit: step.map(|h| (self.frame_time.0 - h.at) as f32),
+                        ..self.clocks(i, None)
+                    };
+                    let shows = move |p: &ddi_noteskin::component::Part| {
+                        let shown = p.when.is_empty()
+                            || step.is_some_and(|h| p.shows_for(h.name, h.bright));
+                        shown.then_some(Mask::None)
+                    };
+                    self.draw_component(
+                        c,
+                        at,
+                        k,
+                        (1.0, 1.0),
+                        i as f32 * 0.618_034,
+                        &clocks,
+                        &shows,
+                        out,
+                    );
+                }
+                _ => {}
+            }
         }
         self.lanes = lanes;
+    }
+
+    /// Each lane's explosion component, once for each of its judgments
+    /// still showing (its parts as `When` and `Bright` choose, its `hit`
+    /// clock the time since), and while a long note is held (`Holding`,
+    /// `Rolling`).
+    fn explosion_instances(
+        &mut self,
+        layout: &Layout,
+        geo: &FieldGeometry,
+        out: &mut Vec<TexQuad>,
+    ) {
+        let k = geo.arrow / 64.0;
+        let now = self.frame_time.0;
+        let lanes = std::mem::take(&mut self.lanes);
+        for (i, lane) in lanes.iter().enumerate() {
+            let (Some(l), Element::Component(c)) = (layout.lanes.get(i), &lane.explosion) else {
+                continue;
+            };
+            let at = [geo.lane_x(l.column), geo.lane_receptor_y(l.scroll_sign)];
+            let held = held_name(lane.holding)
+                .zip(lane.holding_since)
+                .map(|(name, t)| (name, t, false, None));
+            let tail = lane
+                .ended
+                .filter(|(_, _, end)| now - end <= f64::from(c.duration))
+                .map(|(name, t, end)| (name, t, false, Some(end)));
+            let instances = lane
+                .hits
+                .iter()
+                .map(|h| (h.name, h.at, h.bright, None))
+                .chain(tail)
+                .chain(held);
+            for (name, at_time, bright, ended) in instances {
+                let age = now - at_time;
+                let holding = matches!(name, "Holding" | "Rolling");
+                if age < 0.0 || (!holding && age > f64::from(c.duration)) {
+                    continue;
+                }
+                let clocks = ddi_noteskin::component::Clocks {
+                    hit: Some(age as f32),
+                    ended: ended.map(|end: f64| (end - at_time) as f32),
+                    ..self.clocks(i, None)
+                };
+                self.draw_component(
+                    c,
+                    at,
+                    k,
+                    (1.0, 1.0),
+                    hit_seed(i, at_time),
+                    &clocks,
+                    &|p| p.shows_for(name, bright).then_some(Mask::None),
+                    out,
+                );
+            }
+        }
+        self.lanes = lanes;
+    }
+
+    /// What lane `lane`'s components read now, for the note at `note`
+    /// (its beat) if one is drawn (`ddi_noteskin::component::Clocks`).
+    fn clocks(&self, lane: usize, note: Option<f32>) -> ddi_noteskin::component::Clocks {
+        let p = self.presses.get(lane).copied().unwrap_or_default();
+        let since = |t: Option<f64>| t.map(|t| (self.frame_time.0 - t) as f32);
+        ddi_noteskin::component::Clocks {
+            beat: self.frame_time.1 as f32,
+            seconds: self.frame_time.0 as f32,
+            note,
+            roll_window: self.frame_time.2 as f32,
+            press: since(p.pressed),
+            release: since(p.released),
+            hit: None,
+            seed: 0.0,
+            ended: None,
+        }
+    }
+
+    /// A component's parts as drawn at `clocks`, its origin at `at` (screen
+    /// pixels), `k` screen pixels a unit, faded to `alpha`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_component(
+        &mut self,
+        c: &ddi_noteskin::component::Component,
+        at: [f32; 2],
+        k: f32,
+        (alpha, tint): (f32, f32),
+        seed: f32,
+        clocks: &ddi_noteskin::component::Clocks,
+        mask_of: &dyn Fn(&ddi_noteskin::component::Part) -> Option<Mask>,
+        out: &mut Vec<TexQuad>,
+    ) {
+        let [vx, vy, vw, vh] = c.view_box;
+        // Unit square -> the part's image over the view box.
+        let image = [vw, 0.0, 0.0, vh, vx + vw / 2.0, vy + vh / 2.0];
+        // The instance's seed for its random bindings.
+        let clocks = &ddi_noteskin::component::Clocks { seed, ..*clocks };
+        // Its own animation, turned and zoomed about its pivot, inside its
+        // turn for the lane.
+        let place = c.placement(clocks);
+        let [px, py] = c.pivot;
+        let own = affine_mul(
+            [1.0, 0.0, 0.0, 1.0, place.x + px, place.y + py],
+            affine_mul(
+                rotation(place.rotation),
+                [
+                    place.zoom,
+                    0.0,
+                    0.0,
+                    place.zoom,
+                    -px * place.zoom,
+                    -py * place.zoom,
+                ],
+            ),
+        );
+        let turn = affine_mul(
+            affine_mul(rotation(c.rotation), [c.zoom, 0.0, 0.0, c.zoom, 0.0, 0.0]),
+            own,
+        );
+        let outer = affine_mul([k, 0.0, 0.0, k, at[0], at[1]], turn);
+        let lane = turn;
+        for pose in c.pose(clocks) {
+            let Some(mask) = mask_of(pose.part) else {
+                continue;
+            };
+            let Some(texture) = self
+                .texture_ids
+                .get(pose.texture as usize)
+                .copied()
+                .flatten()
+            else {
+                continue;
+            };
+            let part = affine_mul(
+                [1.0, 0.0, 0.0, 1.0, pose.x, pose.y],
+                affine_mul(
+                    rotation(pose.rotation),
+                    [pose.zoom, 0.0, 0.0, pose.zoom, 0.0, 0.0],
+                ),
+            );
+            // A material's coordinates: the component's (or the lane's),
+            // so moving a part moves its mask through the paint, not the
+            // paint.
+            let material = pose.part.material.as_deref().and_then(|m| {
+                let index = m.compiled?;
+                let slot = self.material_slot(m.params)?;
+                let space = match m.space {
+                    ddi_noteskin::component::Space::Note => affine_mul(part, image),
+                    ddi_noteskin::component::Space::Lane => {
+                        affine_mul(lane, affine_mul(part, image))
+                    }
+                };
+                let image_id = |i: usize| {
+                    m.images
+                        .get(i)
+                        .and_then(|&t| self.texture_id(t))
+                        .unwrap_or(UNTEXTURED)
+                };
+                Some(crate::material::MaterialQuad {
+                    material: crate::material::LOCAL | index,
+                    slot,
+                    axes: [space[0], space[1], space[2], space[3]],
+                    origin: [space[4] - m.origin[0], space[5] - m.origin[1]],
+                    phase: pose.phase,
+                    seed,
+                    value: [0.0; 4],
+                    images: [image_id(0), image_id(1)],
+                })
+            });
+            out.push(TexQuad {
+                material,
+                mask,
+                blend: match (mask, pose.blend) {
+                    // Into the mask only.
+                    (Mask::Write | Mask::Erase, _) => QuadBlend::NoEffect,
+                    (_, ddi_noteskin::component::PartBlend::Normal) => QuadBlend::Normal,
+                    (_, ddi_noteskin::component::PartBlend::Add) => QuadBlend::Add,
+                },
+                ..TexQuad::new(
+                    Shape::Quad {
+                        transform: affine_mul(outer, affine_mul(part, image)),
+                        uv: [0.0, 0.0, 1.0, 1.0],
+                    },
+                    to_target(
+                        [
+                            pose.tint[0] * tint,
+                            pose.tint[1] * tint,
+                            pose.tint[2] * tint,
+                            pose.tint[3] * pose.opacity * alpha,
+                        ],
+                        self.srgb,
+                    ),
+                    texture,
+                )
+            });
+        }
     }
 
     /// `DrawHoldBody` for one layer (inactive or active parts).
@@ -2169,7 +3225,7 @@ impl NoteskinPlay {
                 texture,
             )
         };
-        let id = |t: u32| self.texture_ids.get(t as usize).copied().flatten();
+        let id = |t: u32| self.texture_id(t);
         // The top cap: its whole frame above the head end.
         if let Some((t, r, size)) = cap_top
             && let Some(id) = id(t)
@@ -2237,6 +3293,24 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
+/// One shared phase for an opt-in layered note; elapsed sprite durations
+/// may differ, so each layer maps that phase through its own state sequence.
+fn set_note_animation(actor: &mut Actor, percent: f32, children: bool) {
+    match &mut actor.kind {
+        Kind::Sprite(s) => {
+            let length: f32 = s.states.iter().map(|state| state.delay).sum();
+            s.set_seconds_into_animation(percent * length);
+        }
+        Kind::Model(m) => m.seconds = percent * m.animation_length(),
+        _ => {}
+    }
+    if children {
+        for child in actor.children_mut() {
+            set_note_animation(child, percent, true);
+        }
+    }
+}
+
 /// What the color-scale and pixel maths of a hold look like, for tests.
 #[cfg(test)]
 mod tests {
@@ -2247,6 +3321,121 @@ mod tests {
         assert_eq!(score_name(Judgement::W1), "W1");
         assert_eq!(score_name(Judgement::Miss), "Miss");
         assert_eq!(lerp(0.25, 1.0, 0.0), 0.25);
+    }
+
+    #[test]
+    fn layered_notes_follow_beats_and_vivid_displacement_only_when_opted_in() {
+        use ddi_actor::{Sprite, State};
+        let play = lua_play("return Def.ActorFrame {}");
+        let mut metrics = play.lanes[0].metrics.clone();
+        metrics.animation_is_beat_based = true;
+        let sprite = |count| {
+            Actor::new(Kind::Sprite(Sprite::new(
+                0,
+                (0..count)
+                    .map(|i| State {
+                        rect: [
+                            i as f32 / count as f32,
+                            0.0,
+                            (i + 1) as f32 / count as f32,
+                            1.0,
+                        ],
+                        delay: 1.0 / count as f32,
+                    })
+                    .collect(),
+                [64.0; 2],
+            )))
+        };
+        // Two frames also reproduce an alignment wrapper around a skin's
+        // shadow, color sheets and charge sheet (which have different lengths).
+        let mut element = Element::Actor(Box::new(Actor::new(Kind::Frame(vec![Actor::new(
+            Kind::Frame(vec![sprite(128), sprite(16), sprite(1)]),
+        )]))));
+        fn states(actor: &Actor) -> Vec<usize> {
+            let mut result = match &actor.kind {
+                Kind::Sprite(s) => vec![s.state()],
+                _ => Vec::new(),
+            };
+            for child in actor.children() {
+                result.extend(states(child));
+            }
+            result
+        }
+        for part in [Part::TapNote, Part::TapLift, Part::TapFake, Part::HoldHead] {
+            let p = &mut metrics.parts[part as usize];
+            p.animation_length = 4.0;
+            p.animation_is_vivid = true;
+            p.animation_on_children = true;
+            p.color_spacing = [0.0; 2];
+            for (song_beat, note_beat, expected) in [
+                (1.0, 0.0, vec![32, 4, 0]),
+                (1.0, 0.25, vec![64, 8, 0]),
+                (1.0, 0.5, vec![96, 12, 0]),
+                (1.0, 0.75, vec![0, 0, 0]),
+                (5.0, 0.0, vec![32, 4, 0]),
+                (-0.25, 0.0, vec![120, 15, 0]),
+            ] {
+                for song_time in [0.0, 0.125, 30.0] {
+                    let mut f = frame(song_time, None);
+                    f.beat = song_beat;
+                    play.note_actor(
+                        &mut element,
+                        &metrics,
+                        part,
+                        note_beat,
+                        (1.0, 0.0),
+                        &f,
+                        [0.0; 2],
+                        1.0,
+                        1.0,
+                        &mut Vec::new(),
+                    );
+                    assert_eq!(
+                        states(actor(&element)),
+                        expected,
+                        "{part:?}, beat {song_beat}, note {note_beat}"
+                    );
+                }
+            }
+        }
+        let before = states(actor(&element));
+        // Mine children keep their independent electricity clock. Existing
+        // ActorFrame skins likewise retain their original behavior by default.
+        for part in [Part::TapMine, Part::HoldBody] {
+            assert!(!metrics.part(part).animation_on_children);
+            play.note_actor(
+                &mut element,
+                &metrics,
+                part,
+                0.0,
+                (1.0, 0.0),
+                &frame(99.0, None),
+                [0.0; 2],
+                1.0,
+                1.0,
+                &mut Vec::new(),
+            );
+            assert_eq!(states(actor(&element)), before);
+        }
+        let mut root = Element::Actor(Box::new(sprite(128)));
+        metrics.parts[Part::TapNote as usize].animation_on_children = false;
+        play.note_actor(
+            &mut root,
+            &metrics,
+            Part::TapNote,
+            0.0,
+            (1.0, 0.0),
+            &frame(0.5, None),
+            [0.0; 2],
+            1.0,
+            1.0,
+            &mut Vec::new(),
+        );
+        assert_eq!(
+            states(actor(&root)),
+            vec![32],
+            "ordinary root sprites still follow metrics"
+        );
     }
 
     use ddi_engine::appearance::Appearance;
@@ -2268,6 +3457,7 @@ mod tests {
         Frame {
             song_time,
             beat: song_time * 2.0,
+            note_motion: Default::default(),
             roll_window_seconds: 0.35,
             lanes: 4,
             receptors: vec![
@@ -2296,6 +3486,356 @@ mod tests {
     /// A skin's Lua through a play: `tap` is its `Down Tap Note.lua`.
     fn lua_play(tap: &str) -> NoteskinPlay {
         lua_play_with(tap, &[])
+    }
+
+    #[test]
+    fn explosion_variation_stays_fixed_when_the_judgment_queue_rolls_over() {
+        use ddi_noteskin::component::{Component, Part as ComponentPart, PartMaterial, Space};
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        let mut part = ComponentPart::new(Some("burst".into()), None, vec![0]);
+        part.when = vec!["W1".into(), "Holding".into()];
+        part.material = Some(Box::new(PartMaterial {
+            file: "test.wgsl".into(),
+            source: String::new(),
+            space: Space::Note,
+            origin: [0.0; 2],
+            params: [[0.0; 4]; 8],
+            images: vec![],
+            compiled: Some(0),
+        }));
+        play.lanes[0].explosion = Element::Component(Box::new(Component {
+            file: "test.svg".into(),
+            id: "explosion".into(),
+            view_box: [-48.0, -48.0, 96.0, 96.0],
+            rotation: 0.0,
+            zoom: 1.0,
+            parts: vec![part],
+            duration: 1.0,
+            bindings: Vec::new(),
+            pivot: [0.0; 2],
+        }));
+        play.texture_ids[0] = Some(7);
+        play.frame_time = (0.1, 0.2, 0.35);
+        play.lanes[0].holding = Some(HoldKind::Hold);
+        play.lanes[0].holding_since = Some(0.005);
+        for n in 1..=MAX_HITS {
+            play.lanes[0].hits.push_back(Hit {
+                at: n as f64 * 0.01,
+                name: "W1",
+                bright: false,
+            });
+        }
+        let geo = FieldGeometry {
+            arrow: 64.0,
+            left: 0.0,
+            receptor_y: 64.0,
+            direction: 1.0,
+            width: 256.0,
+            height: 512.0,
+        };
+        let draw = |play: &mut NoteskinPlay| {
+            let mut out = Vec::new();
+            play.explosion_instances(&Layout::dance_single(), &geo, &mut out);
+            out.into_iter()
+                .map(|q| q.material.unwrap().seed)
+                .collect::<Vec<_>>()
+        };
+        let before = draw(&mut play);
+        assert_eq!(before.len(), MAX_HITS + 1);
+        play.lanes[0].hits.pop_front();
+        play.lanes[0].hits.push_back(Hit {
+            at: 0.09,
+            name: "W1",
+            bright: false,
+        });
+        let after = draw(&mut play);
+        assert_eq!(
+            &before[1..MAX_HITS],
+            &after[..MAX_HITS - 1],
+            "surviving hits do not rotate"
+        );
+        assert_eq!(
+            before[MAX_HITS], after[MAX_HITS],
+            "the holding effect keeps its seed too"
+        );
+        assert!(
+            !before.contains(&after[MAX_HITS - 1]),
+            "the new hit gets its own variation"
+        );
+    }
+
+    #[test]
+    fn a_held_effect_finishes_its_cycle_after_the_hold_ends() {
+        use ddi_noteskin::component::{
+            Binding, Clock, Component, Ease, Function, Part as ComponentPart, PartMaterial,
+            Property, Space,
+        };
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        // Shown for the first half of each 0.2 s cycle.
+        let mut part = ComponentPart::new(Some("echo".into()), None, vec![0]);
+        part.when = vec!["Holding".into()];
+        part.bindings.push(Binding {
+            property: Property::Opacity,
+            clock: Clock::Hit,
+            function: Function::Curve {
+                keys: vec![(0.0, 1.0), (0.1, 1.0), (0.1001, 0.0)],
+                ease: Ease::Linear,
+                length: Some(0.2),
+            },
+        });
+        part.material = Some(Box::new(PartMaterial {
+            file: "test.wgsl".into(),
+            source: String::new(),
+            space: Space::Note,
+            origin: [0.0; 2],
+            params: [[0.0; 4]; 8],
+            images: vec![],
+            compiled: Some(0),
+        }));
+        play.lanes[0].explosion = Element::Component(Box::new(Component {
+            file: "test.svg".into(),
+            id: "explosion".into(),
+            view_box: [-48.0, -48.0, 96.0, 96.0],
+            rotation: 0.0,
+            zoom: 1.0,
+            parts: vec![part],
+            duration: 0.5,
+            bindings: Vec::new(),
+            pivot: [0.0; 2],
+        }));
+        play.texture_ids[0] = Some(7);
+        let geo = FieldGeometry {
+            arrow: 64.0,
+            left: 0.0,
+            receptor_y: 64.0,
+            direction: 1.0,
+            width: 256.0,
+            height: 512.0,
+        };
+        let drawn = |play: &mut NoteskinPlay, at: f64, holding| {
+            play.update(&frame(at, holding), [].iter(), false);
+            let mut out = Vec::new();
+            play.explosion_instances(&Layout::dance_single(), &geo, &mut out);
+            out.into_iter()
+                .filter(|q| q.color[3] > 0.0)
+                .map(|q| q.material.unwrap().seed)
+                .collect::<Vec<_>>()
+        };
+        let hold = Some(HoldKind::Hold);
+        assert!(drawn(&mut play, 0.0, None).is_empty());
+        let held = drawn(&mut play, 0.2, hold);
+        assert_eq!(held.len(), 1);
+        assert!(drawn(&mut play, 0.35, hold).is_empty());
+        assert_eq!(drawn(&mut play, 0.45, hold), held, "its second cycle");
+        // Ended at 0.48, mid-pulse: the pulse plays out with the hold's seed.
+        assert_eq!(drawn(&mut play, 0.48, None), held, "the pulse under way");
+        assert!(drawn(&mut play, 0.55, None).is_empty());
+        // Its third would show from 0.6; the hold is over, so it does not.
+        assert!(drawn(&mut play, 0.65, None).is_empty(), "no new one");
+        assert!(play.lanes[0].ended.is_some());
+        // A seek back forgets it.
+        drawn(&mut play, 0.1, None);
+        assert!(play.lanes[0].ended.is_none());
+    }
+
+    #[test]
+    fn a_seek_in_the_preview_shows_the_judgments_under_way() {
+        use crate::field_preview::step_to;
+        use ddi_engine::demo::Demo;
+        use ddi_engine::frame::SkinEventKind;
+        use ddi_noteskin::component::{Component, Part as ComponentPart, PartMaterial, Space};
+        let skin = || {
+            let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+            let mut part = ComponentPart::new(Some("flash".into()), None, vec![0]);
+            part.when = ["W1", "W2", "W3", "W4", "W5"].map(String::from).to_vec();
+            part.material = Some(Box::new(PartMaterial {
+                file: "test.wgsl".into(),
+                source: String::new(),
+                space: Space::Note,
+                origin: [0.0; 2],
+                params: [[0.0; 4]; 8],
+                images: vec![],
+                compiled: Some(0),
+            }));
+            let explosion = Element::Component(Box::new(Component {
+                file: "test.svg".into(),
+                id: "explosion".into(),
+                view_box: [-48.0, -48.0, 96.0, 96.0],
+                rotation: 0.0,
+                zoom: 1.0,
+                parts: vec![part],
+                duration: 0.5,
+                bindings: Vec::new(),
+                pivot: [0.0; 2],
+            }));
+            for lane in &mut play.lanes {
+                lane.explosion = explosion.clone();
+            }
+            play.texture_ids[0] = Some(7);
+            play
+        };
+        let demo = || Demo::new("dance-single", 150.0, 1.0).unwrap();
+        let geo = FieldGeometry {
+            arrow: 64.0,
+            left: 0.0,
+            receptor_y: 64.0,
+            direction: 1.0,
+            width: 256.0,
+            height: 512.0,
+        };
+        let drawn = |play: &mut NoteskinPlay| {
+            let mut out = Vec::new();
+            play.explosion_instances(&Layout::dance_single(), &geo, &mut out);
+            let mut seeds: Vec<_> = out
+                .into_iter()
+                .map(|q| {
+                    (
+                        q.material.unwrap().seed.to_bits(),
+                        q.color.map(f32::to_bits),
+                    )
+                })
+                .collect();
+            seeds.sort_unstable();
+            seeds
+        };
+        // A little after the third tap judged past the first second.
+        let mut probe = demo();
+        let taps: Vec<f64> = (0..600)
+            .flat_map(|i| probe.step(f64::from(i) / 60.0).events)
+            .filter(|e| matches!(e.kind, SkinEventKind::Tap { .. }) && e.song_time > 1.5)
+            .map(|e| e.song_time)
+            .collect();
+        let at = taps[2] + 0.1;
+        // Played to it a frame at a time.
+        let (mut played, mut d) = (skin(), demo());
+        let mut last = None;
+        for t in (0..=(at * 60.0) as u32)
+            .map(|i| f64::from(i) / 60.0)
+            .chain([at])
+        {
+            step_to(&mut d, Some(&mut played), last, t, false);
+            last = Some(t);
+        }
+        let want = drawn(&mut played);
+        assert!(want.len() >= 2, "{want:?}");
+        // Sought: the same instances, each at the same point of its fade.
+        let (mut sought, mut d) = (skin(), demo());
+        step_to(&mut d, Some(&mut sought), None, at, false);
+        assert_eq!(drawn(&mut sought), want);
+        // The demo's own jump plays nothing.
+        let (mut jumped, mut d) = (skin(), demo());
+        let step = d.step(at);
+        jumped.update(&step.frame, step.events.iter(), false);
+        assert!(drawn(&mut jumped).is_empty());
+    }
+
+    #[test]
+    fn textures_of_the_same_pixels_share_an_id() {
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        play.texture_ids = vec![None; 4];
+        play.shared = vec![None; 4];
+        // 0 and 2 the same pixels, 1 another's; 3 not to share; a hash
+        // shared by images that are not the same is not enough.
+        let hashes = [Some(7), Some(7), Some(7), None];
+        let pixels = ["a", "b", "a", "a"];
+        let pairs = play.share_textures(|i| hashes[i], |a, b| pixels[a] == pixels[b]);
+        assert_eq!(pairs, vec![(2, 0)]);
+        play.set_texture(0, 10);
+        play.set_texture(1, 11);
+        assert_eq!(play.texture_ids, vec![Some(10), Some(11), Some(10), None]);
+    }
+
+    #[test]
+    fn a_part_sharing_its_image_with_a_hold_body_stays_out_of_the_atlas() {
+        use ddi_noteskin::build::TextureKey;
+        use ddi_noteskin::component::{Component, Part as ComponentPart};
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        let part = play.textures.id(TextureKey::Skin {
+            dir: ddi_noteskin::Dir::Folder(0),
+            path: "arrow.svg#tap/0".into(),
+        });
+        play.lanes[0].explosion = Element::Component(Box::new(Component {
+            file: "arrow.svg".into(),
+            id: "tap".into(),
+            view_box: [-48.0, -48.0, 96.0, 96.0],
+            rotation: 0.0,
+            zoom: 1.0,
+            parts: vec![ComponentPart::new(Some("fill".into()), None, vec![part])],
+            duration: 1.0,
+            bindings: Vec::new(),
+            pivot: [0.0; 2],
+        }));
+        let count = play.textures.keys().len();
+        play.texture_ids = (0..count as u32).map(|i| Some(10 + i)).collect();
+        assert_eq!(play.packable(), [10 + part]);
+        // A sprite's image (texture 0, `x.png`) the same pixels as the
+        // part's: one id, its quads moved into the page with the part's.
+        play.texture_ids = vec![Some(10); count];
+        assert_eq!(play.packable(), [10]);
+        // A hold's body drawing it repeats it (wrapped): not packed.
+        play.lanes[0].hold.body[0] = Element::Actor(Box::new(Actor::new(Kind::Sprite(
+            ddi_actor::Sprite::new(0, Vec::new(), [64.0; 2]),
+        ))));
+        assert!(play.packable().is_empty());
+    }
+
+    #[test]
+    fn textures_of_one_document_take_its_image_once() {
+        use ddi_noteskin::build::{TextureKey, Textures};
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        let key = |p: &str| TextureKey::Skin {
+            dir: ddi_noteskin::Dir::Folder(0),
+            path: p.into(),
+        };
+        let mut textures = Textures::default();
+        // `b` drawn from `a`'s document, `c` its own; `d` the same as
+        // `c`'s pixels; `m` a model's texture of `a`'s file `x`, as a
+        // sprite's `x` is.
+        for p in ["b", "a", "c", "d", "x"] {
+            textures.id(key(p));
+        }
+        textures.model_id(key("m"));
+        play.textures = textures;
+        play.texture_ids = vec![None; 6];
+        play.shared = vec![None; 6];
+        let mut images: std::collections::HashMap<(usize, String), &str> = [
+            ((0, "a".to_string()), "A"),
+            ((0, "c".to_string()), "C"),
+            ((0, "d".to_string()), "C"),
+            ((0, "x".to_string()), "X"),
+            ((0, "unused".to_string()), "U"),
+        ]
+        .into();
+        let same = [
+            ((0, "b".to_string()), "a".to_string()),
+            ((0, "m".to_string()), "x".to_string()),
+        ]
+        .into();
+        let (out, pairs) = play.take_images(&mut images, &same);
+        // The first texture of `a`'s document takes its image; the model's
+        // gets a copy of its own.
+        assert_eq!(
+            out,
+            [Some("A"), None, Some("C"), Some("C"), Some("X"), Some("X")]
+        );
+        assert_eq!(pairs, [(1, 0)]);
+        assert_eq!(
+            images.into_keys().collect::<Vec<_>>(),
+            [(0, "unused".to_string())]
+        );
+        // Pixels shared after: those sharing a texture that shares go on
+        // to the one kept.
+        play.shared[4] = Some(3);
+        let hashes = [None, None, Some(1), Some(1), None, None];
+        let pairs = play.share_textures(|i| hashes[i], |_, _| true);
+        assert_eq!(pairs, [(3, 2)]);
+        assert_eq!(play.shared, [None, Some(0), None, Some(2), Some(2), None]);
+        play.set_texture(0, 10);
+        play.set_texture(2, 12);
+        assert_eq!(
+            play.texture_ids,
+            [Some(10), Some(10), Some(12), Some(12), Some(12), None]
+        );
     }
 
     /// [`lua_play`] with more text files.
@@ -2691,6 +4231,257 @@ mod tests {
             play.notes(&f, &layout, &geo, &mut out);
             assert_eq!(out.len(), 3, "no extension behaviour without opt-in");
             play.lanes[0].metrics.mine_connect_rows = true;
+        }
+    }
+
+    #[test]
+    fn mine_rims_merge_only_toward_visible_physical_neighbours() {
+        let mut layout = Layout::dance_single();
+        for (lane, column) in layout.lanes.iter_mut().zip([3.0, 0.0, 2.0, 1.0]) {
+            lane.column = column;
+        }
+        let mine = r#"return Def.ActorFrame {
+            Def.Sprite {Name='Base',Texture='x.png',InitCommand=function(self) self:diffuse(1,0,0,1) end},
+            Def.Sprite {Name='MineRimLeft',Texture='x.png',InitCommand=function(self) self:diffuse(0,1,0,1) end},
+            Def.Sprite {Name='MineRimRight',Texture='x.png',InitCommand=function(self) self:diffuse(0,1,0,1) end},
+            Def.Sprite {Name='MineLink',Texture='x.png',InitCommand=function(self) self:diffuse(0,0,1,1) end},
+        }"#;
+        let mut play = lua_play_on(
+            &layout,
+            "return Def.Sprite {Texture='x.png'}",
+            &[
+                ("Left Tap Mine.lua", mine),
+                ("Down Tap Mine.lua", mine),
+                ("Up Tap Mine.lua", mine),
+                ("Right Tap Mine.lua", mine),
+            ],
+        );
+        for i in 0..play.texture_keys().len() {
+            play.set_texture(i, i as u32);
+        }
+        for lane in &mut play.lanes {
+            lane.metrics.mine_connect_rows = true;
+        }
+        for reverse in [false, true] {
+            let geo = FieldGeometry::new(800.0, 800.0, 4.0, reverse);
+            let mut f = frame(0.1, None);
+            f.notes = (0..4)
+                .map(|lane| {
+                    let mut n = danoni_note(lane, lane as u8, 2.0, SpriteKind::Mine);
+                    n.beat = 4.0;
+                    n
+                })
+                .collect();
+            let draw = |play: &mut NoteskinPlay, f: &Frame| {
+                let mut out = Vec::new();
+                play.notes(f, &layout, &geo, &mut out);
+                out.len()
+            };
+            play.update(&f, [].iter(), reverse);
+            assert_eq!(
+                draw(&mut play, &f),
+                9,
+                "four bases, two outside arcs, three links"
+            );
+            let mut ordered = Vec::new();
+            play.notes(&f, &layout, &geo, &mut ordered);
+            assert!(
+                ordered[..4]
+                    .iter()
+                    .all(|q| q.color[0] > 0.9 && q.color[1] < 0.1 && q.color[2] < 0.1),
+                "all mine bodies render before electricity"
+            );
+            assert!(
+                ordered[4..]
+                    .iter()
+                    .all(|q| q.color[0] < 0.1 && (q.color[1] > 0.9 || q.color[2] > 0.9)),
+                "both rims and connecting arcs render on top"
+            );
+            f.notes[3].alpha = 0.0; // Physical column 1; leave an actual gap.
+            assert_eq!(
+                draw(&mut play, &f),
+                8,
+                "isolated mine plus adjacent pair keep only their outside arcs"
+            );
+            f.notes[3].alpha = 1.0;
+            assert_eq!(
+                draw(&mut play, &f),
+                9,
+                "temporary arc hiding must not persist"
+            );
+            for lane in &play.lanes {
+                let Element::Actor(a) = &lane.mine else {
+                    panic!("actor")
+                };
+                assert!(a.children().iter().all(|c| c.visible));
+            }
+            for (i, n) in f.notes.iter_mut().enumerate() {
+                n.beat = i as f32;
+            }
+            assert_eq!(
+                draw(&mut play, &f),
+                12,
+                "different chart rows retain complete local rings"
+            );
+            f.notes.truncate(1);
+            assert_eq!(
+                draw(&mut play, &f),
+                3,
+                "a single mine keeps both halves and no bridge"
+            );
+        }
+    }
+
+    #[test]
+    fn material_roll_shadows_and_charge_follow_the_moving_body() {
+        use ddi_actor::{Sprite, State};
+        use ddi_noteskin::metrics::HoldMaterial;
+        let layout = Layout::builtin("dance-single").unwrap();
+        let play = danoni_play(&layout);
+        let sprite = |texture, count| {
+            Element::Actor(Box::new(Actor::new(Kind::Sprite(Sprite::new(
+                texture,
+                (0..count)
+                    .map(|i| State {
+                        rect: [
+                            i as f32 / count as f32,
+                            0.0,
+                            (i + 1) as f32 / count as f32,
+                            1.0,
+                        ],
+                        delay: 0.1,
+                    })
+                    .collect(),
+                [96.0, 96.0],
+            )))))
+        };
+        let mut parts = HoldParts {
+            head: vec![Element::Blank],
+            tail: vec![Element::Blank],
+            body: vec![sprite(0, 5)],
+            bottomcap: vec![sprite(1, 5)],
+            topcap: vec![sprite(2, 4)],
+        };
+        let material = HoldMaterial {
+            pitch: 25.0,
+            period: 171.0,
+            angle: 0.0,
+            phase: 0.7,
+            speed: 1.0,
+            wave: [31.5, 209.0, 206.0],
+            colors: [[0.2, 0.1, 1.0]; 3],
+        };
+        let geo = FieldGeometry::new(800.0, 800.0, 4.0, false);
+        for crop in [-12.75_f32, 0.0, 15.75] {
+            let Element::Actor(topcap) = &mut parts.topcap[0] else {
+                panic!("sprite")
+            };
+            topcap
+                .call(
+                    &ddi_actor::commands::Call {
+                        method: "y".into(),
+                        args: vec![ddi_actor::commands::Arg::Num(crop)],
+                    },
+                    &mut Problems::default(),
+                    0,
+                )
+                .unwrap();
+            for length in [32.0, 64.0, 96.0, 173.0] {
+                for dir in [-1.0, 1.0] {
+                    let note = danoni_note(
+                        0,
+                        0,
+                        0.0,
+                        SpriteKind::RollHead {
+                            tail_y: length / 64.0,
+                            active: false,
+                            dropped: false,
+                        },
+                    );
+                    let mut out = Vec::new();
+                    let layers =
+                        hold_material::HoldLayers::of_sprites(&parts, 0, material, 0, Some(0.85))
+                            .expect("every layer");
+                    play.material_hold(
+                        &layers,
+                        &note,
+                        &frame(0.0, None),
+                        &geo,
+                        [200.0, 400.0, 400.0 + length * dir, 1.0, 1.0],
+                        &[],
+                        &mut out,
+                    );
+                    // The wave is one painted quad over the visible note,
+                    // and the mask is cleared within the note's box.
+                    let painted: Vec<_> = out.iter().filter(|q| q.material.is_some()).collect();
+                    assert_eq!(painted.len(), 1);
+                    for q in out.iter().filter(|q| q.mask == Mask::Clear) {
+                        let Shape::Quad { transform, .. } = q.shape else {
+                            panic!("quad")
+                        };
+                        assert!(transform[0] < 120.0 && transform[3] < length + 120.0);
+                    }
+                    let overlays: Vec<_> = out
+                        .iter()
+                        .filter(|q| q.texture == 1 && q.mask != Mask::Write)
+                        .collect();
+                    assert_eq!(
+                        overlays.len(),
+                        3,
+                        "cap shadow, overlap shading, charge: one pass each"
+                    );
+                    for q in overlays {
+                        let Shape::Quad { transform, uv } = q.shape else {
+                            panic!("quad")
+                        };
+                        let top = (transform[5] - 400.0) * dir - transform[3].abs() / 2.0;
+                        assert!(
+                            (top - (length - 48.0).max(crop)).abs() < 1e-4,
+                            "all cap overlays stay attached to the cap"
+                        );
+                        assert!(
+                            (uv[1] - (crop + 48.0 - length).max(0.0) / 96.0).abs() < 1e-5,
+                            "crop only at the head plane"
+                        );
+                    }
+                    let body: Vec<_> = out.iter().filter(|q| q.texture == 0).collect();
+                    assert_eq!(
+                        body.len(),
+                        if length - 48.0 > crop { 5 } else { 0 },
+                        "band, envelope, exterior, overlap, pulse"
+                    );
+                    if !body.is_empty() {
+                        let Shape::Quad {
+                            transform: position,
+                            uv: coords,
+                        } = body[0].shape
+                        else {
+                            panic!("quad")
+                        };
+                        assert!(
+                            (coords[1] - (crop + 48.0 - length) / material.pitch).abs() < 1e-5,
+                            "phase follows the shrinking tail distance"
+                        );
+                        for q in body {
+                            let Shape::Quad { transform, uv } = q.shape else {
+                                panic!("quad")
+                            };
+                            assert_eq!(transform, position, "repeat layers move together");
+                            assert_eq!(
+                                [uv[1], uv[3]],
+                                [coords[1], coords[3]],
+                                "repeat layers sample the same tail-anchored phase"
+                            );
+                        }
+                    }
+                    assert!(
+                        out.iter()
+                            .filter(|q| q.texture == 2)
+                            .all(|q| matches!(q.shape,Shape::Quad{uv,..} if uv[0]<0.5)),
+                        "never draw frozen head crops of body shading/charge"
+                    );
+                }
+            }
         }
     }
 
@@ -3346,7 +5137,7 @@ mod tests {
             assert!(play.notes.is_empty(), "{:?}", play.notes);
             // x.png is the model's (mipmapped, as StepMania's model textures
             // are) and the receptor's and explosion's sprites'.
-            assert!(play.texture_mipmaps(0) || play.texture_mipmaps(1));
+            assert!((0..play.texture_keys().len()).any(|i| play.texture_mipmaps(i)));
             for i in 0..play.texture_keys().len() {
                 play.set_texture(i, 7);
             }

@@ -101,6 +101,7 @@ mod tests {
         PartMetrics {
             animation_length: length,
             animation_is_vivid: vivid,
+            animation_on_children: false,
             addition_offset: [0.0; 2],
             color_spacing: [0.0, 0.125],
             color_count: 8,

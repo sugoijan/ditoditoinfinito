@@ -156,16 +156,29 @@ pub(crate) fn gen_noteskins(check: bool) -> Result<()> {
             bail!("{path}: a variant of {of}, which is not bundled");
         }
     }
+    let dir = root.join("assets/noteskins");
     let index = Index {
         skins: skins
             .into_iter()
-            .map(|(path, prov, folder)| Bundled {
-                path,
-                folder,
-                credit: prov.credit,
-                variant_of: prov.variant_of,
+            .map(|(path, prov, folder)| {
+                let hashes = folder
+                    .files
+                    .iter()
+                    .map(|f| {
+                        Ok(ddi_noteskin::report::hash(&fs::read(
+                            dir.join(&path).join(f),
+                        )?))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Bundled {
+                    path,
+                    folder,
+                    credit: prov.credit,
+                    variant_of: prov.variant_of,
+                    hashes,
+                })
             })
-            .collect(),
+            .collect::<Result<_>>()?,
     };
     let json = serde_json::to_string(&index)? + "\n";
     let out_dir = root.join("target/noteskins");

@@ -1569,3 +1569,211 @@ fn a_songs_render_target_is_made_within_its_pixels_and_shown_by_a_sprite() {
         matches!(&out[1], ddi_actor::Drawn::Quad(q) if q.texture == ddi_actor::target_texture(0))
     );
 }
+
+/// Images whose component files are read (`Def.Component`).
+struct WithComponents(&'static str);
+
+impl Images for WithComponents {
+    fn size(&self, _dir: Dir, path: &str) -> Option<(u32, u32)> {
+        path.contains('#').then_some((64, 64))
+    }
+
+    fn max_size(&self) -> u32 {
+        8192
+    }
+
+    fn components(
+        &self,
+        _dir: Dir,
+        _path: &str,
+    ) -> Option<Result<Vec<crate::component::SvgComponent>, String>> {
+        Some(crate::component::components(self.0))
+    }
+}
+
+#[test]
+fn an_element_can_be_a_component() {
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><defs>
+        <symbol id="arrow" viewBox="-32 -32 64 64">
+          <path id="body" d="M-24 -8 L24 -8 L0 24 Z" fill="#f00"/>
+          <g id="charge" data-frames=""><rect width="4" height="4"/><rect width="4" height="4"/></g>
+        </symbol></defs></svg>"##;
+    let folders = vec![folder(
+        "dance",
+        "c",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            ("arrow.svg", svg),
+            (
+                "NoteSkin.lua",
+                "local ret = ... or {}\n\
+                 local oldLoad = ret.Load\n\
+                 ret.Load = function()\n\
+                   if Var 'Element' == 'Tap Note' then\n\
+                     return Def.Component { File = 'arrow.svg', Id = 'arrow', Rotation = 90,\n\
+                       Zoom = Bind.Curve { clock = 'press', keys = { 0, 0.75, 0.1, 1 }, ease = 'out', power = 0.5 },\n\
+                       Pivot = { 0, 8 },\n\
+                       Parts = { charge = { Frame = Bind.Steps { clock = 'note', length = 4, count = 2 },\n\
+                                            Opacity = 0.5, Nope = 1, Tint = { '#ff0000', {0, 0, 1} } },\n\
+                                 body = { Rotation = Bind.Random { min = 0, max = 90, salt = 2 } },\n\
+                                 missing = { Opacity = 0 } } }\n\
+                   end\n\
+                   return oldLoad()\n\
+                 end\n\
+                 return ret\n",
+            ),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "c").unwrap_or_else(|e| panic!("{e}"));
+    let mut textures = Textures::default();
+    let e = skin
+        .element(
+            Button::Down,
+            "Tap Note",
+            &mut textures,
+            &WithComponents(svg),
+        )
+        .unwrap();
+    let Built::Component(c) = e.built else {
+        panic!("{e:?}")
+    };
+    assert_eq!(
+        (c.id.as_str(), c.file.as_str(), c.rotation),
+        ("arrow", "arrow.svg", 90.0)
+    );
+    assert_eq!(c.parts.len(), 2);
+    assert_eq!(c.parts[1].textures.len(), 2, "a texture a frame");
+    assert_eq!(c.parts[1].bindings.len(), 1);
+    assert_eq!(c.parts[1].base[0], 0.5);
+    // Two tints TintMix mixes; a random rotation by the instance's seed.
+    assert_eq!(
+        c.parts[1].tint,
+        [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]
+    );
+    assert!(matches!(
+        c.parts[0].bindings[0].function,
+        crate::component::Function::Random { salt: 2, .. }
+    ));
+    let keys: Vec<_> = textures.keys().iter().map(|k| format!("{k:?}")).collect();
+    assert!(
+        keys.iter().any(|k| k.contains("arrow.svg#arrow/1/1")),
+        "{keys:?}"
+    );
+    // The whole component's own animation, about its pivot; a power ease.
+    assert_eq!(c.pivot, [0.0, 8.0]);
+    assert_eq!(c.bindings.len(), 1);
+    let clocks = crate::component::Clocks {
+        press: Some(0.05),
+        ..Default::default()
+    };
+    let zoom = 0.75 + 0.25 * (1.0 - 0.5_f32.powf(0.5));
+    assert!((c.placement(&clocks).zoom - zoom).abs() < 1e-5);
+    // What is wrong is said, the rest kept.
+    assert!(
+        e.notes.iter().any(|n| n.contains("no property Nope")),
+        "{:?}",
+        e.notes
+    );
+    assert!(
+        e.notes.iter().any(|n| n.contains("no part \"missing\"")),
+        "{:?}",
+        e.notes
+    );
+    // A frame that could not be drawn keeps its place: the next frame is
+    // still the second, and the first shows nothing.
+    struct FirstFrameMissing(&'static str);
+    impl Images for FirstFrameMissing {
+        fn size(&self, dir: Dir, path: &str) -> Option<(u32, u32)> {
+            (!path.ends_with("#arrow/1/0"))
+                .then(|| WithComponents(self.0).size(dir, path))
+                .flatten()
+        }
+        fn max_size(&self) -> u32 {
+            8192
+        }
+        fn components(
+            &self,
+            dir: Dir,
+            path: &str,
+        ) -> Option<Result<Vec<crate::component::SvgComponent>, String>> {
+            WithComponents(self.0).components(dir, path)
+        }
+    }
+    let mut textures = Textures::default();
+    let e = skin
+        .element(
+            Button::Down,
+            "Tap Note",
+            &mut textures,
+            &FirstFrameMissing(svg),
+        )
+        .unwrap();
+    let Built::Component(c) = e.built else {
+        panic!("{e:?}")
+    };
+    let keys = textures.keys();
+    let path = |t: u32| format!("{:?}", keys[t as usize]);
+    assert_eq!(c.parts[1].textures.len(), 2, "{:?}", c.parts[1].textures);
+    assert!(path(c.parts[1].textures[1]).contains("#arrow/1/1"));
+    assert!(
+        e.notes
+            .iter()
+            .any(|n| n.contains("#arrow/1/0 could not be drawn")),
+        "{:?}",
+        e.notes
+    );
+}
+
+#[test]
+fn a_long_notes_layers_say_what_they_ignore() {
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><defs>
+        <symbol id="body" viewBox="-16 0 32 16">
+          <rect id="band" data-role="band" width="24" height="16"/>
+          <rect id="pulse" data-role="pulse" width="24" height="16"/>
+        </symbol></defs></svg>"##;
+    let folders = vec![folder(
+        "dance",
+        "l",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            ("hold.svg", svg),
+            (
+                "NoteSkin.lua",
+                "local ret = ... or {}\n\
+                 local oldLoad = ret.Load\n\
+                 ret.Load = function()\n\
+                   if Var 'Element' == 'Hold Body Inactive' then\n\
+                     return Def.LongNote { File = 'hold.svg', Body = 'body',\n\
+                       Parts = { band = { X = 2, Frame = 0 }, pulse = { Opacity = 0.5 } } }\n\
+                   end\n\
+                   return oldLoad()\n\
+                 end\n\
+                 return ret\n",
+            ),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "l").unwrap_or_else(|e| panic!("{e}"));
+    let mut textures = Textures::default();
+    let e = skin
+        .element(
+            Button::Down,
+            "Hold Body Inactive",
+            &mut textures,
+            &WithComponents(svg),
+        )
+        .unwrap();
+    assert!(matches!(e.built, Built::LongNote(_)), "{e:?}");
+    // The band's X is said; the pulse's Opacity is taken.
+    assert!(
+        e.notes
+            .iter()
+            .any(|n| n.contains("band: X has no effect on a long note's body")),
+        "{:?}",
+        e.notes
+    );
+    assert!(
+        !e.notes.iter().any(|n| n.contains("pulse:")),
+        "{:?}",
+        e.notes
+    );
+}

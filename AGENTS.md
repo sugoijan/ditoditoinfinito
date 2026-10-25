@@ -51,8 +51,10 @@ Rust and the browser are implementation details, not advertised features.
   `crates/render/src/editor_audio.rs`); StepMania's named
   background effects drawn from `ddi_library::backgrounds::BgDraw`
   (`crates/render/src/background.rs`) and a song's scripts' actors as quads
-  in the background frame (`crates/render/src/scripted.rs`). No platform
-  code.
+  in the background frame (`crates/render/src/scripted.rs`); skins'
+  materials (`crates/render/src/material.rs`: a WGSL `paint` checked for
+  WebGL2 with naga, drawn by the textured pipeline,
+  `docs/plans/noteskin-scene.md`). No platform code.
 - `crates/platform/` traits and plain data the shells implement (audio clock, input,
   device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
   the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,
@@ -70,6 +72,15 @@ Rust and the browser are implementation details, not advertised features.
   session and handed to a worker a decode; one that has not started in
   25 s fails); it sends back a float WAV at 48 kHz that
   `decodeAudioData` resamples. Empty natively.
+- `crates/svg-worker/` skins' SVG images on the web (`ddi-svg-worker`,
+  `docs/plans/noteskin-svg.md`): a worker Trunk builds beside the app
+  (`xtask stage-svg` names its files by their hash, index.html's
+  `ddi-svg-worker` meta) drawing them with desktop's code
+  (`ddi_noteskin::raster`, resvg, the `raster` feature; the app's own wasm
+  goes without it), its rasterizer's crates built at `opt-level = 3` in
+  the release profile; started by `crates/web/src/web/svg.rs`, a few at
+  once, ended once idle; the browser draws an SVG only where none starts.
+  Empty natively.
 - `crates/library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
   entry type, and the import's core (`scan.rs`: a song's entry, its files
@@ -131,8 +142,14 @@ Rust and the browser are implementation details, not advertised features.
   (`crates/noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
   3.9's and OpenITG's format built natively (`crates/noteskin/src/legacy.rs`);
   SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension);
+  the buttons a skin draws without files of their names declared in its
+  metrics (`[Global] Buttons=Onigiri,Center`, our extension);
+  elements drawn by components of a skin's SVG, `Def.Component` with
+  `Bind.*` bindings on the engine's clocks (`crates/noteskin/src/component.rs`,
+  our extension, `docs/plans/noteskin-scene.md`);
   opt-in mine row links from actual drawn positions (`MineConnectRows`,
-  a `Tap Mine` frame’s `MineLink` child; `docs/plans/noteskin-authoring.md`);
+  a `Tap Mine` frame’s `MineLink` child, with optional `MineRimLeft`/`MineRimRight`
+  children hidden on connected sides; `docs/plans/noteskin-authoring.md`);
   opt-in roll body/cap animation from the active scaled roll timing window
   (`RollAnimationTimingWindowRatio`, `docs/plans/noteskin-authoring.md`);
   parameters a skin declares in its metrics, kept per skin in the
@@ -154,8 +171,19 @@ Rust and the browser are implementation details, not advertised features.
   `HoldUseDroppedState` loads separate per-note dropped actors; hit messages
   carry `Autoplay` and local `HitX`/`HitY` from the hit note's last drawn
   position (`tools/noteskin-danoni/README.md`). These are presentation data,
-  never changes to judging or replay inputs. `TapJudgmentsPerNote` opts into
+  never changes to judging or replay inputs. `LiftStencilMaterial` opts into
+  leading, time-sized lift trails with a continuous hold material, white head
+  overlay and independently colored charge stencil. `Frame.note_motion` supplies
+  local scroll speed and beat duration for the preparation distance.
+  `TapJudgmentsPerNote` opts into
   immediate per-note flashes rather than StepMania's completed-row effects.
+  Per-part `TapNoteAnimationOnChildren` (and `TapLift`, `TapFake`,
+  `HoldHead`, etc.) opts layered notes into one beat/Vivid animation phase;
+  descendants otherwise keep their own clocks, including mine electricity.
+  `HoldStencilMaterial`/`RollStencilMaterial` opts holds into shared material over alpha/envelope/shadow
+  masks, with protected head holes and continuous head/body/cap color; see
+  `docs/plans/noteskin-authoring.md`. Legacy holds and rolls keep their own path.
+
 - `crates/lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
   `lunita` (crates.io), our hardened fork of piccolo, with per-VM memory
   and string limits, fuel and a deadline per call, StepMania's `cmd`
@@ -407,6 +435,9 @@ Rust and the browser are implementation details, not advertised features.
   `target/scratch/wd.sh`; prefer offscreen tests: a window takes the
   Mac's focus. The same crate built for wasm is the web app, which Trunk
   builds (`just dev`, `just build`).
+- The web build is compiled with wasm SIMD (`.cargo/config.toml`'s
+  `+simd128` for `wasm32-unknown-unknown`, `--enable-simd` for wasm-opt in
+  index.html; the page refuses a browser without it, `no-wasm-simd`).
 - `just dev` dev server (auto-reloads on every rebuild; unsuitable for long
   runtime tests). `just dev 0.0.0.0` serves the local network, but a LAN
   address over HTTP is not a secure context (no gamepads, no WebGPU); from
@@ -688,7 +719,7 @@ Third-party Rust dependencies keep their own licences (e.g. Symphonia is
 MPL-2.0, file-level copyleft, fine to link from MIT code). Only bundled
 assets and copied code are tracked in `REUSE.toml`. Their notices ship
 with the game: `gen-credits` lists every crate in the web build (the app
-and the Opus worker) and in the desktop binary (`cargo tree`, normal
+and its Opus and SVG workers) and in the desktop binary (`cargo tree`, normal
 dependencies without proc macros, Linux, macOS and Windows together) with
 its licence texts from the crate's files, deduplicated, into
 `credits/THIRD_PARTY_RUST.md` and the Credits screen's folded "Rust libraries"

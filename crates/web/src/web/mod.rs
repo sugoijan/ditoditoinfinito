@@ -19,6 +19,7 @@ pub(crate) mod kv;
 pub(crate) mod opus;
 pub(crate) mod screen;
 pub(crate) mod storage;
+pub(crate) mod svg;
 pub(crate) mod text;
 pub(crate) mod textures;
 pub(crate) mod touch;

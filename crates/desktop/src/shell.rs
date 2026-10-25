@@ -96,7 +96,7 @@ const APP_ID: &str = "dev.sugoijan.ditoditoinfinito";
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn window_icon(side: u32) -> Option<winit::window::Icon> {
     let svg = include_str!("../../../tools/package/icon.svg");
-    let rgba = crate::play::skins::rasterize_svg(svg, side, side).ok()?;
+    let rgba = ddi_noteskin::raster::rasterize(svg, side, side).ok()?;
     winit::window::Icon::from_rgba(rgba, side, side).ok()
 }
 
@@ -376,6 +376,7 @@ impl Shell {
             .create_window(attributes)
             .map_err(|e| e.to_string())?;
         let window = Arc::new(window);
+        screen_height(&window);
         self.with_gpu(window)
     }
 
@@ -522,6 +523,7 @@ impl Shell {
         self.occluded = false;
         self.shown();
         let Some(s) = &mut self.surface else { return };
+        screen_height(&s.window);
         let size = s.window.inner_size();
         s.config.width = size.width.max(1);
         s.config.height = size.height.max(1);
@@ -1583,6 +1585,14 @@ fn preview_beat(player: SharedPlayer) -> theme_screens::BeatFn {
     })
 }
 
+/// Skins' SVGs drawn for the window's display (moved to another, the next
+/// skin loaded is drawn for that one).
+fn screen_height(window: &Window) {
+    if let Some(m) = window.current_monitor() {
+        crate::play::skins::set_screen_height(m.size().height);
+    }
+}
+
 /// The window's display as the offsets' profile names it (D6, AGENTS.md):
 /// `display:<monitor name>:<w>x<h>@<scale>`, the refresh rate left out
 /// (variable-rate panels change it).
@@ -1716,7 +1726,7 @@ mod tests {
     #[test]
     fn the_window_icon_draws() {
         let svg = include_str!("../../../tools/package/icon.svg");
-        let rgba = crate::play::skins::rasterize_svg(svg, 64, 64).unwrap();
+        let rgba = ddi_noteskin::raster::rasterize(svg, 64, 64).unwrap();
         let at = |x: usize, y: usize| &rgba[(y * 64 + x) * 4..][..4];
         assert_eq!(at(1, 1)[3], 0);
         assert_eq!(at(8, 32), [0x16, 0x13, 0x18, 0xff]);

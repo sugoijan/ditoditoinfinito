@@ -44,6 +44,12 @@ const CLASSES: &[&str] = &[
     "ActorProxy",
     "ActorScroller",
     "RollingNumbers",
+    // Our extension: an element drawn by a component of the skin's SVG,
+    // and the material painting a part of one (`crate::component`).
+    "Component",
+    "Material",
+    "LongNote",
+    "Lift",
 ];
 
 /// Getters (`Actor::getter`).

@@ -1239,6 +1239,7 @@ impl Player {
         Frame {
             song_time,
             beat,
+            note_motion: scroll.note_motion(&self.timing),
             roll_window_seconds: self.ruleset.judge.roll_window_seconds(),
             lanes: self.lanes,
             receptors,

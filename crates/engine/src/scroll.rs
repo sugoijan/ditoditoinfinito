@@ -203,6 +203,20 @@ impl ScrollState {
         self.beat
     }
 
+    /// Local presentation speed for a leading preparation trail. The small
+    /// probe uses the same scroll segments, speed ratio and accel as notes.
+    pub fn note_motion(&self, timing: &TimingMap) -> crate::frame::NoteMotion {
+        let bps = timing.bpm_at_beat(self.beat) / 60.0;
+        crate::frame::NoteMotion {
+            arrows_per_second: self.y_displayed(
+                timing.displayed_beat(self.beat + bps * 0.001),
+                self.song_time + 0.001,
+            ) * 1000.0,
+            // None where the tempo stands still or runs back (a warp).
+            seconds_per_beat: if bps > 0.0 { (1.0 / bps) as f32 } else { 0.0 },
+        }
+    }
+
     /// Height of a note above the receptor. `note_seconds` is the note's
     /// judged second (`timing.seconds_at(note_tick)`), precomputed by the
     /// caller.
@@ -277,6 +291,36 @@ pub fn note_y(options: ScrollOptions, timing: &TimingMap, note_tick: Tick, song_
 mod tests {
     use super::*;
     use ddi_chart::{BpmSegment, ScrollSegment, SpeedSegment, SpeedUnit, StopSegment};
+
+    #[test]
+    fn preparation_motion_follows_tempo_and_player_speed() {
+        for (bpm, speed, expected) in [
+            (120.0, SpeedMod::XMod(2.0), 4.0),
+            (240.0, SpeedMod::XMod(2.0), 8.0),
+            (240.0, SpeedMod::CMod(300.0), 5.0),
+        ] {
+            let timing = TimingMap::constant(bpm, 0.0);
+            let motion = ScrollState::at(
+                ScrollOptions {
+                    speed,
+                    ..Default::default()
+                },
+                &timing,
+                1.0,
+            )
+            .note_motion(&timing);
+            assert!((motion.arrows_per_second - expected).abs() < 1e-4);
+            assert!((motion.seconds_per_beat - 60.0 / bpm as f32).abs() < 1e-6);
+        }
+        // A tempo of zero, or running back: no beat's length to give.
+        for bpm in [0.0, -120.0] {
+            let timing = TimingMap::constant(bpm, 0.0);
+            let motion =
+                ScrollState::at(ScrollOptions::default(), &timing, 1.0).note_motion(&timing);
+            assert_eq!(motion.seconds_per_beat, 0.0, "{bpm}");
+            assert!(motion.arrows_per_second.is_finite(), "{bpm}");
+        }
+    }
 
     #[test]
     fn xmod_distance_in_beats() {

@@ -1,6 +1,6 @@
 //! The Rust libraries the game ships, with the notices their licences ask
 //! for (part of `gen-credits`): the crates compiled into the web build
-//! (the app for `wasm32-unknown-unknown` and the Opus worker) and into the
+//! (the app for `wasm32-unknown-unknown` and its Opus and SVG workers) and into the
 //! desktop binary (the app for Linux, macOS and Windows), each with its
 //! licence expression, the licence we take it under where it offers a
 //! choice, and that licence's text from the crate's own files (the SPDX
@@ -52,7 +52,7 @@ const DESKTOP_TARGETS: &[&str] = &[
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct RustCredits {
-    /// The web build's crates (the app and the Opus worker).
+    /// The web build's crates (the app and its Opus and SVG workers).
     pub web: Vec<Crate>,
     /// The desktop binary's.
     pub desktop: Vec<Crate>,
@@ -269,6 +269,7 @@ struct Package {
 fn generate(root: &Path) -> Result<RustCredits> {
     let mut web = tree(root, "ddi", &["wasm32-unknown-unknown"])?;
     web.extend(tree(root, "ddi-opus-worker", &["wasm32-unknown-unknown"])?);
+    web.extend(tree(root, "ddi-svg-worker", &["wasm32-unknown-unknown"])?);
     let mut desktop = tree(root, "ddi", DESKTOP_TARGETS)?;
     // The video decoder helper ships beside the game (`video/helper`).
     desktop.extend(tree(root, "ddi-video-helper", DESKTOP_TARGETS)?);

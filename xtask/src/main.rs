@@ -78,6 +78,14 @@ enum Commands {
         #[arg(long)]
         dest: Option<PathBuf>,
     },
+    /// The same for the SVG worker (`svg-worker.js` and
+    /// `svg-worker_bg.wasm`, `crates/web/src/web/svg.rs`).
+    #[command(name = "stage-svg")]
+    StageSvg {
+        /// The site's folder (default: $TRUNK_STAGING_DIR).
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
     /// Check the built index.html draws its loader from its own first
     /// bytes: within the first round trip compressed, with nothing the
     /// first paint waits for fetched (`xtask/src/boot_check.rs`). Trunk
@@ -536,7 +544,8 @@ fn main() -> Result<()> {
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),
         Commands::GenCredits { check } => credits::gen_credits(check),
         Commands::StageVideo { dest } => stage_video(dest),
-        Commands::StageOpus { dest } => stage_opus(dest),
+        Commands::StageOpus { dest } => stage_worker(dest, "opus-worker"),
+        Commands::StageSvg { dest } => stage_worker(dest, "svg-worker"),
         Commands::CheckBoot { dest } => boot_check::check_boot(dest),
     }
 }
@@ -552,17 +561,19 @@ fn staging_dir(dest: Option<PathBuf>, cmd: &str) -> Result<PathBuf> {
     }
 }
 
-/// `stage-opus`: `opus-worker.js` and `opus-worker_bg.wasm` renamed to
-/// `opus-worker-<hash>.js` and `opus-worker-<hash>_bg.wasm` (FNV-1a of
-/// both), and `<meta name="ddi-opus-worker" content="opus-worker-<hash>">`
-/// in index.html, which `crates/web/src/web/opus.rs` reads.
-fn stage_opus(dest: Option<PathBuf>) -> Result<()> {
-    let dest = staging_dir(dest, "stage-opus")?;
-    let js = dest.join("opus-worker.js");
-    let wasm = dest.join("opus-worker_bg.wasm");
+/// `stage-opus`, `stage-svg`: a worker's `<name>.js` and `<name>_bg.wasm`
+/// (`opus-worker`, `svg-worker`) renamed to `<name>-<hash>.js` and
+/// `<name>-<hash>_bg.wasm` (FNV-1a of both), and `<meta name="ddi-<name>"
+/// content="<name>-<hash>">` in index.html, which the web shell reads
+/// (`crates/web/src/web/opus.rs`, `svg.rs`).
+fn stage_worker(dest: Option<PathBuf>, name: &str) -> Result<()> {
+    let cmd = format!("stage-{}", name.trim_end_matches("-worker"));
+    let dest = staging_dir(dest, &cmd)?;
+    let js = dest.join(format!("{name}.js"));
+    let wasm = dest.join(format!("{name}_bg.wasm"));
     let (Ok(js_bytes), Ok(wasm_bytes)) = (fs::read(&js), fs::read(&wasm)) else {
         bail!(
-            "stage-opus: {} has no opus-worker.js and opus-worker_bg.wasm (index.html's opus-worker link)",
+            "{cmd}: {} has no {name}.js and {name}_bg.wasm (index.html's {name} link)",
             dest.display()
         );
     };
@@ -570,17 +581,17 @@ fn stage_opus(dest: Option<PathBuf>) -> Result<()> {
     h.write(&js_bytes);
     h.write(&wasm_bytes);
     let h = h.finish();
-    let stem = format!("opus-worker-{h:016x}");
+    let stem = format!("{name}-{h:016x}");
     fs::rename(&js, dest.join(format!("{stem}.js")))?;
     fs::rename(&wasm, dest.join(format!("{stem}_bg.wasm")))?;
     let index = dest.join("index.html");
     let html = fs::read_to_string(&index).context("reading the staged index.html")?;
-    let meta = format!("<meta name=\"ddi-opus-worker\" content=\"{stem}\">");
+    let meta = format!("<meta name=\"ddi-{name}\" content=\"{stem}\">");
     let Some(at) = html.find("</head>") else {
-        bail!("stage-opus: index.html has no </head>");
+        bail!("{cmd}: index.html has no </head>");
     };
     fs::write(&index, format!("{}{meta}\n{}", &html[..at], &html[at..]))?;
-    eprintln!("stage-opus: the Opus worker is {stem}");
+    eprintln!("{cmd}: the worker is {stem}");
     Ok(())
 }
 

@@ -448,7 +448,10 @@ impl Builder<'_, '_> {
     fn legacy_part(&mut self, button: Button, element: &str, art: Option<&str>) -> Actor {
         match self.element(button, element, 1) {
             Built::Actor(a) => a,
-            Built::Blank => Actor::new(Kind::Actor),
+            // Components come from a skin's Lua only.
+            Built::Blank | Built::Component(_) | Built::LongNote(_) | Built::Lift(_) => {
+                Actor::new(Kind::Actor)
+            }
             Built::BuiltIn => match art {
                 Some(art) => self.builtin_sprite(fallback_art(art)),
                 None => Actor::new(Kind::Actor),
@@ -465,7 +468,10 @@ impl Builder<'_, '_> {
     fn legacy_receptor(&mut self, button: Button) -> Built {
         let mut go = match self.element(button, "Receptor Go", 1) {
             Built::Actor(a) => a,
-            Built::Blank => Actor::new(Kind::Actor),
+            // Components come from a skin's Lua only.
+            Built::Blank | Built::Component(_) | Built::LongNote(_) | Built::Lift(_) => {
+                Actor::new(Kind::Actor)
+            }
             Built::BuiltIn => return Built::BuiltIn,
         };
         let beat = Self::calls("effectclock,\"beat\"");

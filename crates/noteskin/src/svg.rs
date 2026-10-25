@@ -1,19 +1,26 @@
 //! SVG images in skins: our extension (StepMania reads bitmaps only). A
 //! skin may use an `.svg` wherever it uses an image; the shell rasterises
-//! it at the size the lanes need, so vector art stays sharp at any size.
+//! it at the size the lanes need, so vector art stays sharp at any size,
+//! with the same code on both shells (`crate::raster`).
 //!
-//! Only a static subset is accepted, the one the browser and `resvg` draw
-//! alike: shapes, paths, groups, `use`, gradients, masks and clip paths;
-//! no text, embedded images, filters, styles, scripts, animation, entities
-//! or references outside the file. The root `<svg>` gives its size in
-//! `width` and `height` (pixels, as an image's): that is the size the skin
-//! sees, as a bitmap's would be.
+//! Only a static subset is accepted: shapes, paths, groups, `use`,
+//! gradients, masks, clip paths, and filters of a few primitives (blur and
+//! drop shadow, offset, flood, composite, merge, blend, color matrix and
+//! component transfer, morphology), the ones shadows and glows are made
+//! of; no text, embedded images, styles, scripts, animation, entities or
+//! references outside the file. Both shells draw it with resvg; where the
+//! web's SVG worker cannot start the browser draws it, which draws the
+//! same subset closely. The root `<svg>` gives its size in `width` and
+//! `height` (pixels, as an image's): that is the size the skin sees, as a
+//! bitmap's would be.
 //!
 //! The file is parsed as XML, strictly, in document order (an XML
 //! declaration, comments, elements, attributes in quotes, text, the five
 //! predefined entities and nothing else), so nothing hides from the check,
 //! and what drawing it costs is bounded: every element counts once for
-//! each time it is drawn, through `use`, `mask` and `clip-path` too.
+//! each time it is drawn, through `use`, `mask`, `clip-path` and `filter`
+//! too, a filter has at most [`MAX_PRIMITIVES`], and what its layers cost
+//! at the size drawn is bounded when it is drawn (`crate::raster`).
 
 use std::collections::HashMap;
 
@@ -48,20 +55,109 @@ const ELEMENTS: &[&str] = &[
     "clipPath",
     "title",
     "desc",
+    "filter",
+    "feGaussianBlur",
+    "feDropShadow",
+    "feOffset",
+    "feFlood",
+    "feComposite",
+    "feMerge",
+    "feMergeNode",
+    "feBlend",
+    "feColorMatrix",
+    "feComponentTransfer",
+    "feFuncR",
+    "feFuncG",
+    "feFuncB",
+    "feFuncA",
+    "feMorphology",
 ];
 
-/// Attributes refused whatever their value: scripts' and styles'.
-const REFUSED: &[&str] = &["style", "class", "filter"];
+/// A filter's primitives (its children but `feMerge`'s nodes and the
+/// transfer functions), at most.
+pub const MAX_PRIMITIVES: usize = 8;
 
-struct Element {
-    name: String,
-    attributes: Vec<(String, String)>,
-    children: Vec<Element>,
+/// The largest blur deviation (`stdDeviation`) and morphology radius, in
+/// the SVG's own units (drawn at [`SVG_SCALE`](crate::build::SVG_SCALE)
+/// times that); what drawing filters costs over the image is bounded when
+/// it is drawn ([`crate::raster`]).
+pub const MAX_DEVIATION: f64 = 32.0;
+pub const MAX_RADIUS: f64 = 8.0;
+
+/// Attributes refused whatever their value: scripts' and styles'.
+const REFUSED: &[&str] = &["style", "class"];
+
+/// An SVG checked by [`check_svg`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Checked {
+    /// The size the skin sees, in pixels (its root's `width` and `height`).
+    pub size: (u32, u32),
+    /// How much finer than that its author wants it drawn at most (its
+    /// root's `data-raster-scale`, our extension: a number from
+    /// [`MIN_RASTER_SCALE`] to [`SVG_SCALE`](crate::build::SVG_SCALE)), so
+    /// a large sheet can stay within the skin's budget without shrinking
+    /// its size and naming its resolution in its file name.
+    pub raster_scale: Option<f64>,
+}
+
+/// The smallest `data-raster-scale`.
+pub const MIN_RASTER_SCALE: f64 = 0.5;
+
+impl Checked {
+    /// The pixels it is drawn at for a screen wanting `scale`
+    /// ([`crate::build::svg_scale`]): at most its own `data-raster-scale`
+    /// times its size, neither side above
+    /// [`MAX_IMAGE_SIDE`](crate::build::MAX_IMAGE_SIDE).
+    pub fn raster_size(&self, scale: f64) -> (u32, u32) {
+        raster_size(
+            self.size,
+            self.raster_scale.map_or(scale, |most| scale.min(most)),
+        )
+    }
+}
+
+/// The pixels an SVG of `size` (its own) is drawn at `scale` times that,
+/// neither side above [`MAX_IMAGE_SIDE`](crate::build::MAX_IMAGE_SIDE).
+pub fn raster_size(size: (u32, u32), scale: f64) -> (u32, u32) {
+    use crate::build::MAX_IMAGE_SIDE;
+    let longest = f64::from(size.0.max(size.1).max(1));
+    let scale = scale.min(f64::from(MAX_IMAGE_SIDE) / longest);
+    (
+        ((f64::from(size.0) * scale).round() as u32).max(1),
+        ((f64::from(size.1) * scale).round() as u32).max(1),
+    )
+}
+
+pub(crate) struct Element {
+    pub(crate) name: String,
+    pub(crate) attributes: Vec<(String, String)>,
+    pub(crate) children: Vec<Element>,
+    /// Where it lies in the text: the end of its name, its content
+    /// (between its tags; empty when it closes itself) and the whole
+    /// element, its tags included.
+    pub(crate) name_end: usize,
+    pub(crate) content: (usize, usize),
+    pub(crate) span: (usize, usize),
+}
+
+impl Element {
+    pub(crate) fn attribute(&self, name: &str) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
 }
 
 /// Checks `text` against the subset and returns its size, `(width,
 /// height)` in pixels.
 pub fn check(text: &str) -> Result<(u32, u32), String> {
+    check_svg(text).map(|c| c.size)
+}
+
+/// `text` parsed (its byte-order mark left out, as the offsets are):
+/// its root, which is an `<svg>`.
+pub(crate) fn parse(text: &str) -> Result<Element, String> {
     if text.len() > MAX_SVG {
         return Err(format!("larger than {MAX_SVG} bytes"));
     }
@@ -83,6 +179,12 @@ pub fn check(text: &str) -> Result<(u32, u32), String> {
     if root.name != "svg" {
         return Err("the root is not <svg>".into());
     }
+    Ok(root)
+}
+
+/// [`check`], with what the root asks of its drawing.
+pub fn check_svg(text: &str) -> Result<Checked, String> {
+    let root = parse(text)?;
     let mut ids = HashMap::new();
     collect_ids(&root, &mut ids)?;
     let mut memo = HashMap::new();
@@ -104,10 +206,23 @@ pub fn check(text: &str) -> Result<(u32, u32), String> {
         let n: f64 = v.parse().ok()?;
         (1.0..=8192.0).contains(&n).then(|| n.round() as u32)
     };
-    match (size("width"), size("height")) {
-        (Some(w), Some(h)) => Ok((w, h)),
-        _ => Err("the <svg> needs a width and a height in pixels".into()),
-    }
+    let size = match (size("width"), size("height")) {
+        (Some(w), Some(h)) => (w, h),
+        _ => return Err("the <svg> needs a width and a height in pixels".into()),
+    };
+    let raster_scale = match root.attribute("data-raster-scale") {
+        None => None,
+        Some(v) => match v.trim().parse::<f64>() {
+            Ok(s) if (MIN_RASTER_SCALE..=crate::build::SVG_SCALE).contains(&s) => Some(s),
+            _ => {
+                return Err(format!(
+                    "data-raster-scale=\"{v}\" is not a number from {MIN_RASTER_SCALE} to {}",
+                    crate::build::SVG_SCALE
+                ));
+            }
+        },
+    };
+    Ok(Checked { size, raster_scale })
 }
 
 struct Parser<'a> {
@@ -167,8 +282,10 @@ impl<'a> Parser<'a> {
         if !self.rest().starts_with('<') {
             return Err("an element was expected".into());
         }
+        let start = self.at;
         self.at += 1;
         let name = self.name()?;
+        let name_end = self.at;
         if !ELEMENTS.contains(&name.as_str()) {
             return Err(format!("<{name}> is not allowed"));
         }
@@ -182,6 +299,9 @@ impl<'a> Parser<'a> {
                     name,
                     attributes,
                     children: Vec::new(),
+                    name_end,
+                    content: (self.at, self.at),
+                    span: (start, self.at),
                 });
             }
             if self.rest().starts_with('>') {
@@ -222,9 +342,11 @@ impl<'a> Parser<'a> {
             attributes.push((attribute, value));
         }
         let mut children = Vec::new();
+        let content_start = self.at;
         loop {
             let rest = self.rest();
             if rest.starts_with("</") {
+                let content_end = self.at;
                 self.at += 2;
                 let closing = self.name()?;
                 self.skip_space();
@@ -232,10 +354,18 @@ impl<'a> Parser<'a> {
                     return Err(format!("<{name}> is closed by </{closing}>"));
                 }
                 self.at += 1;
+                if name == "filter" && children.len() > MAX_PRIMITIVES {
+                    return Err(format!(
+                        "a <filter> of more than {MAX_PRIMITIVES} primitives"
+                    ));
+                }
                 return Ok(Element {
                     name,
                     attributes,
                     children,
+                    name_end,
+                    content: (content_start, content_end),
+                    span: (start, self.at),
                 });
             } else if rest.starts_with("<!--") {
                 self.comment()?;
@@ -281,12 +411,45 @@ fn unescape(raw: &str) -> Result<String, String> {
     Ok(out)
 }
 
-/// Attributes: no event handlers, styles or filters; references only
-/// inside the file.
+/// Attributes: no event handlers or styles; references only inside the
+/// file; a `filter` only a reference to a `<filter>` (no CSS filter
+/// functions); blurs and morphology radii bounded.
 fn check_attribute(element: &str, name: &str, value: &str) -> Result<(), String> {
     let lower = name.to_ascii_lowercase();
     if lower.starts_with("on") || REFUSED.contains(&lower.as_str()) {
         return Err(format!("<{element}>: the attribute {name} is not allowed"));
+    }
+    if lower == "filter" {
+        let v = value.trim();
+        let inner = v
+            .strip_prefix("url(")
+            .and_then(|r| r.strip_suffix(')'))
+            .map(|r| r.trim().trim_matches(['\'', '"']));
+        if !inner
+            .is_some_and(|id| id.starts_with('#') && id.len() > 1 && !id.contains(['(', ')', ' ']))
+        {
+            return Err(format!(
+                "<{element}>: filter=\"{value}\" is not a single url(#id) of a <filter>"
+            ));
+        }
+    }
+    let bound = match (element, name) {
+        ("feGaussianBlur" | "feDropShadow", "stdDeviation") => Some(MAX_DEVIATION),
+        ("feMorphology", "radius") => Some(MAX_RADIUS),
+        _ => None,
+    };
+    if let Some(most) = bound {
+        for n in value
+            .split([' ', ',', '\t', '\n', '\r'])
+            .filter(|n| !n.is_empty())
+        {
+            let n: f64 = n
+                .parse()
+                .map_err(|_| format!("<{element}>: {name}=\"{value}\" is not a number"))?;
+            if !(0.0..=most).contains(&n) {
+                return Err(format!("<{element}>: {name} above {most}"));
+            }
+        }
     }
     if (lower == "href" || lower.ends_with(":href")) && !value.starts_with('#') {
         return Err(format!(
@@ -314,12 +477,12 @@ fn collect_ids<'a>(e: &'a Element, ids: &mut HashMap<&'a str, &'a Element>) -> R
 }
 
 /// The ids an element draws besides its children: a `use`'s target and
-/// the masks and clip paths it is drawn through.
+/// the masks, clip paths and filters it is drawn through.
 fn references(e: &Element) -> impl Iterator<Item = &str> {
     e.attributes.iter().filter_map(move |(n, v)| {
         if e.name == "use" && (n == "href" || n.ends_with(":href")) {
             v.strip_prefix('#')
-        } else if n == "mask" || n == "clip-path" {
+        } else if n == "mask" || n == "clip-path" || n == "filter" {
             v.trim()
                 .strip_prefix("url(")?
                 .trim_start_matches(['\'', '"', ' '])
@@ -401,9 +564,56 @@ mod tests {
             r#"<svg width="1" height="1"><rect width=1/></svg>"#,
             r#"<svg width="1" height="1"></svg><svg width="1" height="1"/>"#,
             r##"<svg width="1" height="1"><g id="a"><use href="#a"/></g></svg>"##,
+            r##"<svg width="1" height="1"><filter id="f"><feImage href="#a"/></filter></svg>"##,
+            r##"<svg width="1" height="1"><filter id="f"><feTurbulence/></filter></svg>"##,
+            r##"<svg width="1" height="1"><rect filter="url(#f) blur(2px)"/></svg>"##,
+            r##"<svg width="1" height="1"><filter id="f"><feGaussianBlur stdDeviation="33"/></filter></svg>"##,
+            r##"<svg width="1" height="1"><filter id="f"><feGaussianBlur stdDeviation="2 x"/></filter></svg>"##,
+            r##"<svg width="1" height="1"><filter id="f"><feMorphology radius="9"/></filter></svg>"##,
         ] {
             assert!(check(bad).is_err(), "{bad}");
         }
+        let scaled = |v: &str| {
+            check_svg(&format!(
+                r#"<svg width="100" height="50" data-raster-scale="{v}"/>"#
+            ))
+        };
+        assert_eq!(scaled("2").unwrap().raster_scale, Some(2.0));
+        assert_eq!(scaled("2").unwrap().raster_size(3.0), (200, 100));
+        assert_eq!(scaled("2").unwrap().raster_size(1.5), (150, 75));
+        assert!(scaled("5").is_err() && scaled("0.25").is_err() && scaled("x").is_err());
+        assert_eq!(
+            check_svg(r#"<svg width="100" height="50"/>"#)
+                .unwrap()
+                .raster_size(4.0),
+            (400, 200)
+        );
+        let primitives = |n: usize| {
+            format!(
+                r##"<svg width="1" height="1"><filter id="f">{}</filter></svg>"##,
+                "<feOffset dx=\"1\"/>".repeat(n)
+            )
+        };
+        assert!(check(&primitives(MAX_PRIMITIVES)).is_ok());
+        assert!(check(&primitives(MAX_PRIMITIVES + 1)).is_err());
+    }
+
+    #[test]
+    fn shadows_and_glows() {
+        let shadow = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+  <defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="b"/>
+    <feOffset in="b" dx="1" dy="2" result="o"/>
+    <feFlood flood-color="#000" flood-opacity="0.6"/>
+    <feComposite in2="o" operator="in" result="c"/>
+    <feMorphology in="SourceAlpha" operator="dilate" radius="1 2" result="d"/>
+    <feComponentTransfer in="d"><feFuncA type="linear" slope="0.5"/></feComponentTransfer>
+    <feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="g"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#0f0"/></filter></defs>
+  <path d="M8 8h48v48z" filter="url(#s)"/><circle cx="32" cy="32" r="9" filter="url( '#g' )"/>
+</svg>"##;
+        assert_eq!(check(shadow), Ok((64, 64)));
     }
 
     #[test]

@@ -32,6 +32,7 @@ ddi-web = { path = "crates/web" }
 ddi-desktop = { path = "crates/desktop", default-features = false }
 ddi-session = { path = "crates/session" }
 ddi-shell = { path = "crates/shell" }
+ddi-svg-worker = { path = "crates/svg-worker" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
 lunita = "0.1"
@@ -48,8 +49,14 @@ getrandom_02 = { package = "getrandom", version = "0.2" }
 
 # rendering
 wgpu = { version = "30", default-features = false }
+# Checks skins' materials (WGSL) as WebGL2 will take them, before any
+# pipeline is made (`ddi_render::material`); the same crate wgpu uses.
+naga = { version = "30", default-features = false }
 glyphon = "0.12"
 bytemuck = { version = "1", features = ["derive"] }
+# Skins' SVG images, drawn by the same code on both shells
+# (`ddi_noteskin::raster`; on the web in its SVG worker).
+resvg = { version = "0.49.0", default-features = false }
 
 # shared
 serde = { version = "1", features = ["derive"] }
@@ -80,6 +87,23 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
+
+# The SVG worker's rasterizer (`crates/svg-worker`; in the web build only
+# the worker has it) is built for speed: a skin's images wait for it.
+[profile.release.package.resvg]
+opt-level = 3
+[profile.release.package.usvg]
+opt-level = 3
+[profile.release.package.tiny-skia]
+opt-level = 3
+[profile.release.package.tiny-skia-path]
+opt-level = 3
+[profile.release.package.svgtypes]
+opt-level = 3
+[profile.release.package.roxmltree]
+opt-level = 3
+[profile.release.package.ddi-svg-worker]
+opt-level = 3
 
 # Native release builds (`cargo run --profile desktop`): `release` is
 # tuned for the wasm bundle's size; the desktop wants speed, and
