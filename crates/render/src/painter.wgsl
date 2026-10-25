@@ -62,6 +62,8 @@ struct Instance {
     // Bit 6: a motion blur along blur.xy, in the rect's units (our
     // extension; never in perspective).
     @location(12) blur: vec4<f32>,
+    @location(13) vivid_rect: vec4<f32>,
+    @location(14) vivid_clock: vec4<f32>,
 };
 
 struct VsOut {
@@ -79,6 +81,8 @@ struct VsOut {
     // A motion blur: its vector in the rect's units, and the texture's
     // fractions per unit along x and y.
     @location(8) @interpolate(flat) blur: vec4<f32>,
+    @location(9) vivid_pos: vec2<f32>,
+    @location(10) @interpolate(flat) vivid_clock: vec2<f32>,
 };
 
 @vertex
@@ -91,6 +95,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     var colors = array<vec4<f32>, 6>(inst.c0, inst.c1, inst.c2, inst.c0, inst.c2, inst.c3);
     let t = corners[vi];
     var out: VsOut;
+    out.vivid_pos = mix(inst.vivid_rect.xy, inst.vivid_rect.zw, t);
+    out.vivid_clock = inst.vivid_clock.xy;
     if ((inst.mode & 8u) != 0u) {
         // Each corner where it is seen, divided by its w again on the way:
         // texturing in perspective.
@@ -197,6 +203,9 @@ fn tap(in: VsOut, uv: vec2<f32>, local: vec2<f32>, lod: f32) -> vec4<f32> {
     if ((in.mode & 2u) != 0u) {
         t = vec4<f32>(1.0);
     }
+    if ((in.mode & 128u) != 0u && t.a > 0.00390625) {
+        t = vec4<f32>(vivid(in.vivid_pos, in.vivid_clock), t.a);
+    }
     var out = t * in.color;
     if ((in.mode & 4u) != 0u) {
         out = vec4<f32>(in.color.rgb, t.a * in.color.a);
@@ -254,6 +263,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     if ((in.mode & 2u) != 0u) {
         t = vec4<f32>(1.0);
+    }
+    if ((in.mode & 128u) != 0u && t.a > 0.00390625) {
+        t = vec4<f32>(vivid(in.vivid_pos, in.vivid_clock), t.a);
     }
     var out = t * in.color;
     if ((in.mode & 4u) != 0u) {

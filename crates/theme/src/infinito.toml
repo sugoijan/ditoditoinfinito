@@ -105,7 +105,8 @@ numbers_weight = 800
 "TitleMenu.Width" = 380
 "TitleMenu.RowHeight" = 52
 "TitleMenu.Gap" = 12
-"TitleMenu.TitleSize" = 30
+"TitleMenu.TitleWidth" = 520
+"TitleMenu.TitleHeight" = 104
 # The design size.
 "Design.Width" = 1280
 "Design.Height" = 720

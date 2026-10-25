@@ -125,6 +125,8 @@ pub struct Shape {
     pub outline: [f32; 2],
     /// 1 as it is, 0 grey.
     pub saturation: f32,
+    pub vivid: Option<ddi_actor::Vivid>,
+    pub hide_unloaded: bool,
 }
 
 impl Shape {
@@ -133,6 +135,8 @@ impl Shape {
         soft: [0.0; 2],
         outline: [0.0; 2],
         saturation: 1.0,
+        vivid: None,
+        hide_unloaded: false,
     };
 
     /// Cut (corners, edge or outline).
@@ -154,6 +158,8 @@ impl Shape {
             soft: per(s.soft),
             outline: per(s.outline),
             saturation: s.saturation,
+            vivid: s.vivid,
+            hide_unloaded: s.hide_unloaded,
         }
     }
 }

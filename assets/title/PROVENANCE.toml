@@ -1,0 +1,7 @@
+name = "Dito Dito Infinito title"
+license = "MIT"
+source = "../../tools/title-design/"
+font = "Dosis ExtraBold (800), OFL-1.1"
+font_source = "https://github.com/google/fonts/blob/7380f7cebbf2250460c23fd301b51bcbab162edf/ofl/dosis/Dosis%5Bwght%5D.ttf"
+font_notice = "../../tools/title-design/fonts/Dosis-OFL.txt"
+modifications = ["Original Dosis font unchanged; shaped to vector artwork with fonttools 4.67.0 and uharfbuzz 0.57.0 using python3 tools/title-design/generate.py.", "Outline and protective gap both 12 units at a 96-unit cap height. Atlas rasterized at 2x with node tools/title-design/rasterize.cjs (Playwright and Chrome); no font binary required at runtime."]

@@ -34,6 +34,8 @@ pub const TUNABLES: &str = include_str!("infinito.toml");
 #[cfg(test)]
 mod tunables;
 
+mod wordmark;
+
 mod tables {
     include!(concat!(env!("OUT_DIR"), "/tunables.rs"));
 }
@@ -1235,9 +1237,14 @@ impl Infinito {
 }
 
 impl Look for Infinito {
+    fn image(&self, name: &str) -> Option<&str> {
+        (name == "TitleMenu.Title").then_some("title/dosis.png")
+    }
+
     fn component(&self, name: &str, spec: &Spec) -> Option<Actor> {
         let [w, h] = spec.size;
         Some(match name {
+            "TitleMenu.Title" => wordmark::actor(spec.size),
             "TitleMenu.Primary" => self.button(spec, "Accent", "OnAccent", 20.0, 700),
             "TitleMenu.Choice" => self.button(spec, "Plate2", "Text", 18.0, 600),
             "TitleMenu.Disabled" => {

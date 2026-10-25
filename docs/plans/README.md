@@ -137,7 +137,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   Reverse, Turn, Appearance, Lane cover, the noteskin; Save as default).
 - [Start menu and returning between screens](start-menu.md) (2026-10-20):
   implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
-  Options, silent return from song select and desktop Quit.
+  Options, silent return from song select and desktop Quit. Animated Dosis
+  wordmark added 2026-10-25 (Vivid outlines, reduced-motion still).
 - [Our own UI core](ui-core.md) (2026-10-15): done 2026-10-16 (step 7
   through `desktop.md`). Later: StepMania themes, accessibility.
 - [Our theme, first version](theme.md) (2026-10-15): done, refined since.

@@ -27,6 +27,16 @@ use crate::text_atlas::{Measurer, PAGE, PageSink, RunCache, RunRasterizer, TextS
 use crate::texture_cache::{TextureCache, TextureId, TextureKey, TextureStats};
 use crate::textured::Pipelines;
 
+fn shader_source() -> String {
+    format!(
+        "{}\n{}\n{}\n{}",
+        include_str!("painter.wgsl"),
+        include_str!("material_prelude.wgsl"),
+        include_str!("vivid.wgsl"),
+        include_str!("../../../assets/noteskins/dance/Infinito/_spiral material.wgsl"),
+    )
+}
+
 /// Bytes of textures kept by default (P9: the platform may set its own).
 pub const TEXTURE_BUDGET: u64 = 96 << 20;
 
@@ -64,6 +74,7 @@ const CUT: u32 = 16;
 const SATURATION: u32 = 32;
 /// Smeared along `blur` (a motion blur).
 const BLUR: u32 = 64;
+const VIVID: u32 = 128;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -88,13 +99,15 @@ struct Instance {
     shape2: [f32; 4],
     /// With [`BLUR`]: the blur's vector in the rectangle's units.
     blur: [f32; 4],
+    vivid_rect: [f32; 4],
+    vivid_clock: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 144);
+const _: () = assert!(std::mem::size_of::<Instance>() == 176);
 
 impl Instance {
     /// By the fields' offsets (`_pad` keeps `rect` 16-byte aligned).
-    const ATTRIBUTES: [wgpu::VertexAttribute; 13] = {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 15] = {
         const fn a(
             shader_location: u32,
             format: wgpu::VertexFormat,
@@ -121,6 +134,8 @@ impl Instance {
             a(10, Float32x4, 96),
             a(11, Float32x4, 112),
             a(12, Float32x4, 128),
+            a(13, Float32x4, 144),
+            a(14, Float32x4, 160),
         ]
     };
 
@@ -138,6 +153,8 @@ impl Instance {
         shape: [0.0; 4],
         shape2: NO_SHAPE2,
         blur: [0.0; 4],
+        vivid_rect: [0.0; 4],
+        vivid_clock: [0.0; 4],
     };
 }
 
@@ -407,7 +424,7 @@ impl Gpu {
     fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Gpu {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ddi-painter"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("painter.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(shader_source().into()),
         });
         let (globals, globals_layout, globals_group) = crate::gpu::uniform_group(
             device,
@@ -937,6 +954,7 @@ impl Painter {
                             };
                             match drawn {
                                 Some(bind) => (bind, 0, q.colors),
+                                None if q.shape.hide_unloaded => continue,
                                 None => {
                                     let [r, g, b] = PLACEHOLDER;
                                     (Bind::Blank, UNTEXTURED, q.colors.map(|c| [r, g, b, c[3]]))
@@ -1000,7 +1018,8 @@ impl Painter {
                             let mode = mode
                                 | if sh.is_cut() { CUT } else { 0 }
                                 | if sh.saturation != 1.0 { SATURATION } else { 0 }
-                                | if q.blur != [0.0; 2] { BLUR } else { 0 };
+                                | if q.blur != [0.0; 2] { BLUR } else { 0 }
+                                | if sh.vivid.is_some() { VIVID } else { 0 };
                             Instance {
                                 axes,
                                 origin,
@@ -1008,6 +1027,10 @@ impl Painter {
                                 rect,
                                 uv,
                                 colors: colors.map(pack),
+                                vivid_rect: sh.vivid.map_or([0.0; 4], |v| v.rect),
+                                vivid_clock: sh
+                                    .vivid
+                                    .map_or([0.0; 4], |v| [v.time, v.phase_offset, 0.0, 0.0]),
                                 shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],
                                 shape2: [sh.outline[0], sh.outline[1], sh.saturation, 0.0],
                                 blur: [q.blur[0], q.blur[1], 0.0, 0.0],
@@ -1308,8 +1331,8 @@ mod tests {
 
     #[test]
     fn shader_validates() {
-        let source = include_str!("painter.wgsl");
-        let module = wgpu::naga::front::wgsl::parse_str(source).expect("WGSL parses");
+        let source = shader_source();
+        let module = wgpu::naga::front::wgsl::parse_str(&source).expect("WGSL parses");
         wgpu::naga::valid::Validator::new(
             wgpu::naga::valid::ValidationFlags::all(),
             wgpu::naga::valid::Capabilities::empty(),
@@ -1322,8 +1345,7 @@ mod tests {
     /// globals are the struct written to them.
     #[test]
     fn the_globals_are_whole_sixteens_on_both_sides() {
-        let module =
-            wgpu::naga::front::wgsl::parse_str(include_str!("painter.wgsl")).expect("parses");
+        let module = wgpu::naga::front::wgsl::parse_str(&shader_source()).expect("parses");
         let (_, ty) = module
             .types
             .iter()

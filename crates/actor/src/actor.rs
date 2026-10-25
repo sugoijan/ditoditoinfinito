@@ -1191,6 +1191,10 @@ pub struct Shape {
     pub outline: f32,
     /// 1 as it is, 0 grey.
     pub saturation: f32,
+    /// Infinito's evolving Vivid paint, through the texture's alpha (2D pass).
+    pub vivid: Option<Vivid>,
+    /// Draw nothing while the 2D pass is loading the sprite's image.
+    pub hide_unloaded: bool,
 }
 
 impl Shape {
@@ -1199,6 +1203,8 @@ impl Shape {
         soft: 0.0,
         outline: 0.0,
         saturation: 1.0,
+        vivid: None,
+        hide_unloaded: false,
     };
 
     pub fn is_plain(&self) -> bool {
@@ -1210,6 +1216,17 @@ impl Default for Shape {
     fn default() -> Shape {
         Shape::PLAIN
     }
+}
+
+/// Infinito's flowing palette on a fixed sprite silhouette. Coordinates are
+/// the skin's 64-unit space, independent of the sprite's displayed size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Vivid {
+    /// Elapsed animation seconds; both the palette and noise evolve with it.
+    pub time: f32,
+    pub phase_offset: f32,
+    /// Field coordinates at the sprite's top left and bottom right.
+    pub rect: [f32; 4],
 }
 
 /// What a getter returns to Lua.

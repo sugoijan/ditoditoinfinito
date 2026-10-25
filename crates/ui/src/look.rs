@@ -86,6 +86,11 @@ pub trait Look {
         None
     }
 
+    /// An image for a component: the screen binds it to the component's sprites.
+    fn image(&self, _name: &str) -> Option<&str> {
+        None
+    }
+
     /// A named color (`Graph.Line`, `Graph.Bar`, `Text`, `Accent`, …).
     fn color(&self, _name: &str) -> Option<Rgba> {
         None

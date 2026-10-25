@@ -366,8 +366,22 @@ supplies enabled actions and desktop capability; disabled Multiplayer has
 a focus target with a muted button plate but no action; Quit is last and
 web omits it. `TitleMenu.Primary`,
 `TitleMenu.Choice` and `TitleMenu.Disabled` components dress the choices;
-`TitleMenu.Width`, `RowHeight`, `Gap` and `TitleSize` in `infinito.toml`
+`TitleMenu.Width`, `RowHeight`, `Gap`, `TitleWidth` and `TitleHeight` in `infinito.toml`
 control their layout. Touch rows retain a 44 CSS pixel minimum. Start uses
 the theme ground with no song backdrop, beat pulse or audio. Ordinary
 On/Off and focus commands apply. Importing theme metrics/Lua screen flow
 is still future work. See [start-menu.md](start-menu.md).
+
+### Dosis title wordmark
+
+The start menu's `TitleMenu.Title` is Dosis ExtraBold artwork, with white
+lettering and Infinito Vivid outlines on D/D/I. Outline and protective gap
+are both 12 units at a 96-unit cap height; the gap protects every letter.
+The theme supplies a four-frame mask atlas and field coordinates, generated
+by `tools/title-design/`. The screen binds the component's named image and
+advances its Vivid clock. The shared 2D painter uses the noteskin's actual
+material and noise prelude: palette phase cycles every four seconds while
+the spatial field evolves on unwrapped time. Reduced motion freezes both
+and allows the screen to idle; resizing preserves the clock. The look's
+ordinary text title remains the fallback. The app's other text faces stay
+as configured in the theme.

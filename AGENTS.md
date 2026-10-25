@@ -133,6 +133,9 @@ Rust and the browser are implementation details, not advertised features.
   a look for the UI core whose components are the maintainer's mockups,
   its colors, faces, sizes, timings and places in
   `crates/theme/src/infinito.toml` (turned into tables at build time). The
+  start title is shaped Dosis artwork (`tools/title-design/`, `assets/title/`),
+  with Infinito Vivid paint on D/D/I through the shared 2D painter; reduced
+  motion freezes both its palette and evolving texture. The
   screens it dresses are `crates/ui/src/screens/` (start menu, song select, results,
   options; theme-agnostic, fed plain data). Pure, natively tested.
 - `crates/noteskin/` StepMania noteskins: fallback chains, file lookup and

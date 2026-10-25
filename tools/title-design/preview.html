@@ -1,0 +1,34 @@
+<div id="ddi-title-study">
+  <div class="title-stage">
+    <canvas class="title-large" role="img" aria-label="Dito Dito Infinito in Dosis, with Infinito Vivid outlines on the three initials"></canvas>
+    <canvas class="title-menu" role="img" aria-label="Singleplayer, Options, Credits in Inconsolata"></canvas>
+    <div class="title-small-label">Small title</div>
+    <canvas class="title-small" role="img" aria-label="The same Dosis title at a compact size"></canvas>
+  </div>
+  <div class="title-controls">
+    <button type="button" id="title-motion" aria-pressed="false">Animate title</button>
+    <label>Outline <input id="title-outline" type="range" min="1" max="24" step="0.25" value="12"><output id="title-outline-value">12</output></label>
+    <label>Gap <input id="title-gap" type="range" min="0" max="12" step="0.25" value="12"><output id="title-gap-value">12</output></label>
+    <label>Initials <select id="title-fill"><option value="filled">Filled</option><option value="hollow">Hollow</option></select></label>
+    <label>Palette phase <input id="title-phase" type="range" min="0" max="1" step="0.001" value="1"></label>
+    <button type="button" id="title-export">Save SVG</button>
+  </div>
+  <div id="title-status" role="status" aria-live="polite"></div>
+</div>
+<style>
+#ddi-title-study {color:#f2eee9;font:14px/1.5 system-ui,sans-serif}
+#ddi-title-study .title-stage {background:#0a090d;padding:46px 24px 30px;min-width:0}
+#ddi-title-study canvas {display:block;max-width:100%}
+#ddi-title-study .title-large {width:100%;margin:0 auto}
+#ddi-title-study .title-menu {width:300px;margin:22px auto 0}
+#ddi-title-study .title-small-label {margin:42px 0 10px;color:#a39c95;font-size:12px}
+#ddi-title-study .title-small {width:320px}
+#ddi-title-study .title-controls {display:flex;flex-wrap:wrap;align-items:center;gap:14px 20px;background:#14121a;padding:16px 20px}
+#ddi-title-study .title-controls label {display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+#ddi-title-study input[type=range] {width:100px;accent-color:#ff6ea0}
+#ddi-title-study button,#ddi-title-study select {font:inherit;color:#f2eee9;background:#241f2d;border:1px solid #5f5866;border-radius:5px;padding:7px 10px;min-height:40px}
+#ddi-title-study button[aria-pressed=true] {background:#ff6ea0;color:#120d12}
+#ddi-title-study output {min-width:30px}
+#ddi-title-study #title-status:not(:empty) {padding:10px 20px;background:#14121a}
+@media(max-width:440px){#ddi-title-study .title-stage{padding:30px 12px 22px}#ddi-title-study .title-controls{padding:14px 12px}}
+</style>

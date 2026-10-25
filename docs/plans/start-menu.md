@@ -19,8 +19,13 @@ Builds on [the UI core](ui-core.md),
 
 ## Screen
 
-A game title above one short vertical menu, using Infinito's text face,
-pink accent, focus treatment and dark ground:
+A Dosis ExtraBold wordmark above one short vertical menu, using Infinito's
+text face for the choices, pink accent, focus treatment and dark ground.
+The title's D/D/I have Vivid outlines with a 12-unit outline and 12-unit
+clearance around every letter. Both palette phase and the texture's folds
+evolve continuously; reduced motion freezes both. See
+[the wordmark implementation](theme.md#dosis-title-wordmark).
+
 
 | Entry | Behavior |
 |---|---|

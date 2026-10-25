@@ -36,6 +36,8 @@ pub struct StartScreen {
     size: [f32; 2],
     zoom: f32,
     initial_focus: Option<String>,
+    title_time: f64,
+    animated_title: bool,
 }
 
 impl StartScreen {
@@ -47,6 +49,8 @@ impl StartScreen {
             size: [0.0; 2],
             zoom: 1.0,
             initial_focus: None,
+            title_time: 0.0,
+            animated_title: false,
         }
     }
 
@@ -63,7 +67,7 @@ impl StartScreen {
         choices
     }
 
-    fn tree(&mut self, cx: &Cx) -> Actor {
+    fn tree(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
         let (size, zoom) = super::narrow_fit(&self.env, vp);
         self.size = size;
@@ -89,17 +93,40 @@ impl StartScreen {
         if self.desktop {
             entries.push(("Quit", "Quit", "TitleMenu.Choice"));
         }
-        let total = entries.len() as f32 * (row + gap) + 70.0;
+        let menu_height = entries.len() as f32 * (row + gap) - gap;
+        let title_height = env
+            .metric("TitleMenu.TitleHeight", 48.0)
+            .min((h - menu_height - 36.0).max(24.0));
+        let header = title_height + 20.0;
+        let total = menu_height + header;
         let top = ((h - total) / 2.0).max(8.0);
         let mut children = vec![ground(env, size)];
-        let mut title = env.text(
-            "Title",
+        let spec = Spec::new(
+            [
+                env.metric("TitleMenu.TitleWidth", 520.0).min(w - 32.0),
+                title_height,
+            ],
             "Dito Dito Infinito",
-            env.metric("TitleMenu.TitleSize", 30.0),
-            700,
-            "Text",
         );
-        call(&mut title, "xy", &[w / 2.0, top + 24.0]);
+        let mut title = env
+            .look
+            .component("TitleMenu.Title", &spec)
+            .unwrap_or_else(|| {
+                env.text(
+                    "Title",
+                    &spec.text,
+                    env.metric("TitleMenu.TitleSize", 30.0),
+                    700,
+                    "Text",
+                )
+            });
+        title.name = "Title".into();
+        if let Some(source) = env.look.image("TitleMenu.Title") {
+            let texture = cx.texture(source, spec.size[0].max(spec.size[1]));
+            bind_title(&mut title, texture);
+        }
+        self.animated_title = animate_title(&mut title, self.title_time as f32);
+        call(&mut title, "xy", &[w / 2.0, top + title_height / 2.0]);
         children.push(title);
         for (i, (id, label, component)) in entries.iter().enumerate() {
             children.push(env.component(
@@ -107,7 +134,7 @@ impl StartScreen {
                 "Button",
                 &Spec::new([width, row], *label),
                 id,
-                [w / 2.0, top + 70.0 + row / 2.0 + i as f32 * (row + gap)],
+                [w / 2.0, top + header + row / 2.0 + i as f32 * (row + gap)],
             ));
         }
         let mut root = Actor::new(Kind::Frame(children));
@@ -154,9 +181,12 @@ impl Screen for StartScreen {
         focus.insert(1, Focusable::new("Multiplayer"));
         focus
     }
-    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
             return;
+        }
+        if !self.env.reduced() {
+            self.title_time += f64::from(dt.max(0.0));
         }
         let (size, zoom) = super::narrow_fit(&self.env, cx.viewport().screen);
         if self.size != size || self.zoom != zoom {
@@ -169,7 +199,13 @@ impl Screen for StartScreen {
             }
             root.finish_tweening();
         }
+        if let Some(title) = crate::hit::find_mut(root, "Title") {
+            animate_title(title, self.title_time as f32);
+        }
         self.publish();
+    }
+    fn animating(&self) -> bool {
+        self.animated_title && !self.env.reduced()
     }
     fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
@@ -193,6 +229,30 @@ impl Screen for StartScreen {
             _ => Handled::No,
         }
     }
+}
+
+// A component's art stays in the look; the screen supplies its image and clock.
+fn bind_title(actor: &mut Actor, texture: u32) {
+    if let Kind::Sprite(sprite) = &mut actor.kind {
+        sprite.texture = texture;
+    }
+    for child in actor.children_mut() {
+        bind_title(child, texture);
+    }
+}
+
+fn animate_title(actor: &mut Actor, time: f32) -> bool {
+    let mut animated = false;
+    if let Kind::Sprite(sprite) = &mut actor.kind
+        && let Some(vivid) = &mut sprite.shape.vivid
+    {
+        vivid.time = time;
+        animated = true;
+    }
+    for child in actor.children_mut() {
+        animated |= animate_title(child, time);
+    }
+    animated
 }
 
 #[cfg(test)]
