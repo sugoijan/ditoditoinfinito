@@ -66,7 +66,7 @@ pub fn draw<'a>(
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NoteColors {
     pub scheme: ColorScheme,
-    /// A song's own colors (Dito's `ChartColors`).
+    /// A song's own colors.
     pub chart: bool,
 }
 
@@ -74,7 +74,7 @@ pub struct NoteColors {
 pub fn note_colors(settings: &Settings) -> NoteColors {
     NoteColors {
         scheme: note_scheme(settings.note_colors()),
-        chart: settings.chart_colors(),
+        chart: crate::render_options(settings).chart_colors,
     }
 }
 
@@ -86,11 +86,11 @@ pub fn size(picture: &FieldPicture) -> [u32; 2] {
     ]
 }
 
-/// The skin a play of `chart` would draw `picture`'s layout with under
-/// `settings`, readied for its direction (key `None`: the built-in
-/// arrows), with its parameters' values.
-pub fn skin(settings: &Settings, chart: Option<&Chart>, picture: &FieldPicture) -> SkinWant {
-    let key = settings.play_skin(&picture.layout, chart);
+/// The skin a play would draw `picture`'s layout with under `settings`,
+/// readied for its direction (key `None`: the built-in arrows), with its
+/// parameters' values.
+pub fn skin(settings: &Settings, picture: &FieldPicture) -> SkinWant {
+    let key = settings.play_skin(&picture.layout);
     SkinWant {
         params: key
             .as_deref()
@@ -156,31 +156,25 @@ mod tests {
             ..Settings::default()
         };
         assert!(skin_field(&settings).scroll.reverse);
-        let want = skin(&settings, Some(editor.chart()), &picture);
+        let want = skin(&settings, &picture);
         assert!(want.reverse && want.layout == "dance-single");
     }
 
     #[test]
     fn the_notes_are_colored_as_a_plays() {
-        // A song's own colors: drawn by the built-in arrows (no skin),
-        // in the chart's colors, as in play.
+        // The editor uses the same fallback palette as play.
         let mut settings = Settings::default();
-        settings.set_dito_param(
-            ddi_noteskin::bundled::dito::CHART_COLORS,
-            ddi_ui::state::settings::ParamValue::Bool(true),
+        settings.set_infinito_param(
+            ddi_noteskin::bundled::infinito::COLORS,
+            ddi_ui::state::settings::ParamValue::Text("Flat".into()),
         );
-        let play = crate::render_options(&settings);
-        let colors = note_colors(&settings);
-        assert_eq!(
-            (colors.scheme, colors.chart),
-            (play.note_colors, play.chart_colors)
-        );
-        assert!(colors.chart);
-        let defaults = note_colors(&Settings::default());
-        let play = crate::render_options(&Settings::default());
-        assert_eq!(
-            (defaults.scheme, defaults.chart),
-            (play.note_colors, play.chart_colors)
-        );
+        for settings in [settings, Settings::default()] {
+            let play = crate::render_options(&settings);
+            let colors = note_colors(&settings);
+            assert_eq!(
+                (colors.scheme, colors.chart),
+                (play.note_colors, play.chart_colors)
+            );
+        }
     }
 }

@@ -1,0 +1,13 @@
+author = "Dito Dito Infinito"
+credit = "Dito Dito Infinito · MIT"
+ours = true
+modifications = ["Original SVG artwork, WGSL materials, Lua and metrics authored with SkinCraft and an experimental playground. Taps/fakes, receptors, holds, rolls, lifts and judgment effects use components. Actor path retained for linked mines."]
+
+[source]
+url = "https://github.com/sugoijan/ditoditoinfinito"
+path = "assets/noteskins/dance/Infinito"
+
+[[licenses]]
+part = "original SVG artwork, WGSL materials, Lua and metrics"
+spdx = "MIT"
+holders = ["すごいジャン"]

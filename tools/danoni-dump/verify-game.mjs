@@ -108,7 +108,7 @@ try {
     await start(spec.danceControl, backend, spec.playSpeed);
     await page.waitForFunction(() => window.__DDI_DEBUG?.song_time >= 8, null, { timeout: 25000 });
     const state = await page.evaluate(() => window.__DDI_DEBUG);
-    if (state.noteskin?.name !== 'Dito Vivid' || !state.noteskin.lua.runs || state.noteskin.lua.stopped || state.noteskin.problems.length || !state.noteskin.quads || state.failed || state.taps.slice(1).some(n => n)) throw Error('Default dance skin control failed: ' + JSON.stringify(state));
+    if (state.noteskin?.name !== 'Dito' || !state.noteskin.lua.runs || state.noteskin.lua.stopped || state.noteskin.problems.length || !state.noteskin.quads || state.failed || state.taps.slice(1).some(n => n)) throw Error('Default dance skin control failed: ' + JSON.stringify(state));
     await page.screenshot({ path: path.join(output, `dito-control-${backend}.png`) });
     report.play.push({ target: spec.danceControl, backend, state });
   }

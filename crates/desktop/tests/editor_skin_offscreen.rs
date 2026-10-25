@@ -2,7 +2,7 @@
 //! (`ddi_render::editor_field`, `docs/plans/editor.md` step 3) drawn on
 //! this machine's GPU: a note's art sits where the editor's overlay
 //! marks its row (the picture's `y`), in the edit view and the play
-//! view, with Dito, a raster skin (Delta), skins of their own geometry
+//! view, with Infinito, a raster skin (Delta), skins of their own geometry
 //! (Peters-DDR) and models (CF_CHROME): placed by its own anchor, as
 //! play places it, its art moving exactly as the row does; the edit
 //! view is the play view where the tempo is one and the zoom the speed;
@@ -243,7 +243,7 @@ fn a_notes_art_sits_on_its_row() {
     ];
     let skins: [Option<&str>; 5] = [
         None,
-        Some(ddi_noteskin::bundled::DITO),
+        Some(ddi_noteskin::bundled::INFINITO),
         Some("bundled:dance/delta"),
         Some(ddi_noteskin::bundled::PETERS_DDR),
         Some("bundled:dance/cf_chrome"),
@@ -348,7 +348,7 @@ fn the_edit_view_is_the_play_view_at_one_tempo() {
         ..editor.chart().clone()
     };
     let key = (!ddi_desktop::library::noteskins::bundled().is_empty())
-        .then_some(ddi_noteskin::bundled::DITO);
+        .then_some(ddi_noteskin::bundled::INFINITO);
     let (mut field, _) = gpu.field(key, &chart, &editor);
     let x = 1.75;
     for shown in [0.0, 60.0] {
@@ -529,10 +529,10 @@ fn notes_are_colored_as_the_play_at_the_cursor() {
         scheme: ddi_render::ColorScheme::Vivid,
         chart: false,
     };
-    // Dito's and Peters-DDR's vivid colors, a raster skin whose notes
+    // Infinito's and Peters-DDR's vivid colors, a raster skin whose notes
     // animate by the beat and the built-in arrows in the Vivid scheme.
     let skins: [Option<&str>; 4] = [
-        Some(ddi_noteskin::bundled::DITO),
+        Some(ddi_noteskin::bundled::INFINITO),
         Some(ddi_noteskin::bundled::PETERS_DDR),
         Some("bundled:dance/delta"),
         None,
@@ -561,9 +561,11 @@ fn notes_are_colored_as_the_play_at_the_cursor() {
                 let beat = ddi_engine::scroll::ScrollState::at(scroll, &timing, seconds).beat();
                 assert_eq!(p.frame.beat, beat, "{name} {view} {shown}");
                 let rest = draw(&p);
-                // The play's path: the skin's clock and the notes at
-                // the frame's moment.
+                // The play's path at the same beat and held elapsed time.
+                // Materials may deform with seconds independently of palette
+                // phase; isolate the cursor's beat, as the resting editor does.
                 p.running = true;
+                p.frame.song_time = ddi_render::editor_field::REST;
                 let running = draw(&p);
                 keep(&rest, SIZE, &format!("colors-{name}-{view}-{shown}"));
                 keep(

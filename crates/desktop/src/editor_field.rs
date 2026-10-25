@@ -37,7 +37,7 @@ pub fn show(picture: Option<&FieldPicture>, editor: &Editor) {
         match picture {
             Some(p) if s.read_for.as_ref() != Some(&(p.layout.clone(), p.reverse)) => {
                 let settings = crate::store::settings_cached();
-                let want = ddi_shell::editor_field::skin(&settings, Some(editor.chart()), p);
+                let want = ddi_shell::editor_field::skin(&settings, p);
                 if s.want.as_ref().is_none_or(|(w, _)| *w != want) {
                     let env =
                         ddi_shell::editor_field::skin_env(&want, editor.song(), editor.chart());

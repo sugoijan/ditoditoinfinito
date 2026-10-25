@@ -7,7 +7,7 @@
 //! last frame is saved there, to compare two builds' pictures.
 //! `cargo run -p ddi-desktop --no-default-features --release --example
 //! noteskin_cost -- [SKIN] [OUTPUT.png]` (a bundled skin's name or a
-//! skin's folder, default Dito;
+//! skin's folder, default Infinito;
 //! `DDI_COST_FRAMES`, `DDI_COST_REVERSE`, `DDI_COST_ONLY=taps|long`,
 //! `DDI_COST_NO_ATLAS`; scratch DDI_HOME, GPU required).
 use std::time::Instant;
@@ -121,7 +121,7 @@ fn percentile(v: &mut [f64], p: f64) -> f64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let name = args.next().unwrap_or_else(|| "Dito".into());
+    let name = args.next().unwrap_or_else(|| "Infinito".into());
     let output = args.next();
     let frames: usize = env("DDI_COST_FRAMES", 240);
     let reverse = std::env::var_os("DDI_COST_REVERSE").is_some();

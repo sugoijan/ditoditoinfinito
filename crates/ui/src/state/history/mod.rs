@@ -123,14 +123,14 @@ pub struct ClockSetup {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DrawSetup {
-    /// `None`: the built-in arrows.
+    /// `None`: the default skin, Infinito.
     pub noteskin: Option<String>,
-    /// Dito's note colors and its toggle for a chart's own colors (the
-    /// built-in arrows draw in them too).
+    /// The note colors and whether a chart's own colors were drawn (the
+    /// built-in arrows' fallback palette).
     pub note_colors: String,
     pub chart_colors: bool,
     /// The values set for the drawn skin's parameters
-    /// (`docs/plans/skin-parameters.md`; Dito's when none was chosen).
+    /// (`docs/plans/skin-parameters.md`; Infinito's when none was chosen).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub skin_params: crate::state::settings::Values,
     pub field_filter: f32,

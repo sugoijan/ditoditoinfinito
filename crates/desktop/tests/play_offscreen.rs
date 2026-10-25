@@ -1,7 +1,7 @@
 //! A play drawn on this machine's GPU as the window draws it (an sRGB
 //! view of a plain target, skins through the plain one): frames of an
 //! autoplayed play on a fake clock
-//! with Dito (SVG, the default skin), a Lua skin (Delta) and the built-in
+//! with Infinito (SVG, the default skin), a Lua skin (Delta) and the built-in
 //! arrows; the song's background behind the field, receptors and notes
 //! in it, the skin's textures loaded. Skipped where there is no GPU
 //! adapter (CI). `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures.
@@ -188,18 +188,17 @@ fn a_play_draws_its_field_skin_and_background() {
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let g = Gpu { device, queue };
-    // Dito's parameters: its Flat colors' skin, without explosions; and
-    // drawn lighter, by the built-in arrows (`docs/plans/skin-parameters.md`).
-    let dito = |name: &str, value: ParamValue| {
+    // Infinito's SVG options and the internal procedural fallback.
+    let infinito = |name: &str, value: ParamValue| {
         let mut s = Settings::default();
-        s.set_dito_param(name, value);
+        s.set_infinito_param(name, value);
         s
     };
-    let mut flat = dito("Colors", ParamValue::Text("Flat".into()));
-    flat.set_dito_param("Explosions", ParamValue::Bool(false));
+    let mut quiet = infinito("ShockArrows", ParamValue::Bool(true));
+    quiet.set_infinito_param("Explosions", ParamValue::Bool(false));
     for (settings, want) in [
-        // Dito in the default note colors' variant.
-        (Settings::default(), "Dito Vivid"),
+        // SVG Infinito by default.
+        (Settings::default(), "Infinito"),
         (
             Settings {
                 noteskin: Some("bundled:dance/delta".into()),
@@ -214,8 +213,11 @@ fn a_play_draws_its_field_skin_and_background() {
             },
             "built-in",
         ),
-        (flat, "Dito Flat"),
-        (dito("Lighter", ParamValue::Bool(true)), "built-in"),
+        (quiet, "Infinito"),
+        (
+            infinito("ReceptorFill", ParamValue::Bool(false)),
+            "Infinito",
+        ),
     ] {
         // Beatucada's Challenge chart, 12 s in: notes on screen.
         let (play, name) = frames(&g, &settings, "beatucada", 0, 12.0, true);
@@ -281,10 +283,12 @@ fn lane_covers_hide_the_notes_under_them() {
     let (device, queue) = gpu::device(&adapter).unwrap();
     let g = Gpu { device, queue };
     for skin in [None, Some("builtin")] {
-        let plain = Settings {
+        let mut plain = Settings {
             noteskin: skin.map(str::to_string),
             ..Settings::default()
         };
+        // Hit effects intentionally draw above covers; isolate the notes here.
+        plain.set_infinito_param("Explosions", ParamValue::Bool(false));
         let covered = Settings {
             lane_cover: LaneCover {
                 mode: CoverMode::HiddenSudden,
@@ -296,11 +300,11 @@ fn lane_covers_hide_the_notes_under_them() {
         let (open, _) = frames(&g, &plain, "beatucada", 0, 12.0, true);
         let (play, name) = frames(&g, &covered, "beatucada", 0, 12.0, true);
         keep(&play, &format!("covers-{name}"));
-        // 72-pixel arrows: the receptors at 108, their far edge at 144,
-        // 576 pixels of lane below; Hidden+ to 317, Sudden+ from 547.
-        // The judgement draws over Hidden+ from 280.
+        // Receptors are centered at 108. Infinito uses a 96-unit canvas with
+        // exterior shadow (108 pixels at this scale), so sample below 162.
+        // Hidden+ ends at 317, Sudden+ starts at 547; judgment starts at 280.
         let x = [SIZE[0] / 2 - 140, SIZE[0] / 2 + 140];
-        let hidden = [x[0], 150, x[1], 270];
+        let hidden = [x[0], 170, x[1], 270];
         let sudden = [x[0], 555, x[1], SIZE[1]];
         let window = [x[0], 330, x[1], 540];
         for (what, area) in [("hidden", hidden), ("sudden", sudden)] {

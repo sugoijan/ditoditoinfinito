@@ -146,7 +146,13 @@ Rust and the browser are implementation details, not advertised features.
   metrics (`[Global] Buttons=Onigiri,Center`, our extension);
   elements drawn by components of a skin's SVG, `Def.Component` with
   `Bind.*` bindings on the engine's clocks (`crates/noteskin/src/component.rs`,
-  our extension, `docs/plans/noteskin-scene.md`);
+  our extension, `docs/plans/noteskin-scene.md`; Infinito uses components for
+  taps/fakes, receptors, holds/rolls (`Def.LongNote`) and lifts (`Def.Lift`), with
+  masked WGSL holographic/wave paint; explosions use judgment components and
+  original effect art, with lane/time-stable material variation. Explosion
+  `rim-left`/`rim-right`/`link` roles join visible matching judgments on
+  adjacent receptors (`crates/render/src/noteskin/judgment_links.rs`). Mines retain
+  actors for their adjacency-linked electricity);
   opt-in mine row links from actual drawn positions (`MineConnectRows`,
   a `Tap Mine` frame’s `MineLink` child, with optional `MineRimLeft`/`MineRimRight`
   children hidden on connected sides; `docs/plans/noteskin-authoring.md`);
@@ -155,8 +161,8 @@ Rust and the browser are implementation details, not advertised features.
   parameters a skin declares in its metrics, kept per skin in the
   settings, shown under Options → Arrows and read by its Lua
   (`NOTESKIN:GetParameter`; `crates/noteskin/src/params.rs`, our extension,
-  `docs/plans/skin-parameters.md`; Dito's colors, songs' own colors,
-  explosions and lighter drawing are its parameters; Peters-DDR combines
+  `docs/plans/skin-parameters.md`; Infinito's Vivid (default), Rainbow and Flat colors, onigiri, mine shape,
+  receptor fill and hit effects are its parameters; Peters-DDR combines
   the former Note/Vivid choices with Colors and Explosions, retaining
   their names as hidden compatibility variants);
   the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same
@@ -383,8 +389,11 @@ Rust and the browser are implementation details, not advertised features.
   `hevc.rs` and `vp9.rs`). FFmpeg is never linked into the game.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/noteskins/<game>/<name>/` bundled noteskins, the same way
-  (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font
-  and the theme's text face (Iosevka Term, served as `fonts/`).
+  (`docs/plans/bundled-skins.md`; Infinito is the default SVG skin;
+  the original Dito variants are retired
+  and procedural arrows are an internal fallback without a picker entry);
+  `assets/fonts/` the embedded HUD font and the theme's text face
+  (Iosevka Term, served as `fonts/`).
 
 ## Commands
 
@@ -527,8 +536,9 @@ Rust and the browser are implementation details, not advertised features.
 - `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
   regenerate the song manifest, the bundled noteskins' index and the
   credits (Trunk runs them before every build; CI checks `credits/CREDITS.md` and
-  `credits/THIRD_PARTY_RUST.md` are fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
-  (committed; CI checks it with `--check`).
+  `credits/THIRD_PARTY_RUST.md` are fresh). Infinito's SVG, WGSL and Lua
+  sources live in `assets/noteskins/dance/Infinito/`; its experimental
+  authoring playground is kept separately. The old `gen-dito` command is retired.
 - `python3 tools/noteskin-danoni/generate.py [--check]` adapts the pinned
   danoniplus SVG alpha masks to the game's SVG subset for the `DanOni`
   noteskin proof. Its Lua behavior and host-interface limits are documented

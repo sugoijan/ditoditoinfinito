@@ -43,7 +43,7 @@ impl NoteskinPlay {
         dir: f32,
         out: &mut Vec<TexQuad>,
     ) {
-        let clocks = self.clocks(lane, Some(note.beat));
+        let clocks = self.note_clocks(lane, note.beat, frame);
         let seed = note_seed(note.note_index);
         // The head's `protect` and `outside` parts, as it is drawn (upright
         // whichever way the notes scroll): kept out of the trail's fill and

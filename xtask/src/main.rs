@@ -9,7 +9,6 @@ use serde::Deserialize;
 
 mod boot_check;
 mod credits;
-mod dito;
 mod noteskins;
 mod rust_credits;
 mod songs;
@@ -30,14 +29,6 @@ enum Commands {
     #[command(name = "gen-songs")]
     GenSongs {
         /// Fail instead of writing when the output would change (CI check).
-        #[arg(long)]
-        check: bool,
-    },
-    /// Generate the SVG art of the bundled skin Dito (the built-in arrows
-    /// as a skin) under assets/noteskins/dance/Dito*/.
-    #[command(name = "gen-dito")]
-    GenDito {
-        /// Fail instead of writing when a file would change (CI check).
         #[arg(long)]
         check: bool,
     },
@@ -540,7 +531,6 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
-        Commands::GenDito { check } => dito::gen_dito(check),
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),
         Commands::GenCredits { check } => credits::gen_credits(check),
         Commands::StageVideo { dest } => stage_video(dest),

@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><defs>
+ <linearGradient id="casing" gradientUnits="userSpaceOnUse" x1="24" y1="13" x2="65" y2="80"><stop stop-color="#ffffff"/><stop offset=".28" stop-color="#6f91b8"/><stop offset=".48" stop-color="#17263e"/><stop offset=".62" stop-color="#d9f5ff"/><stop offset="1" stop-color="#101a31"/></linearGradient>
+ <radialGradient id="charge"><stop stop-color="#ee4266"/><stop offset="1" stop-color="#240711"/></radialGradient>
+ </defs><path id="band" d="M48 22L55.194 30.631L66.385 29.615L65.369 40.806L74 48L65.369 55.194L66.385 66.385L55.194 65.369L48 74L40.806 65.369L29.615 66.385L30.631 55.194L22 48L30.631 40.806L29.615 29.615L40.806 30.631ZM48 30.506L52.841 36.314L60.37 35.63L59.686 43.159L65.494 48L59.686 52.841L60.37 60.37L52.841 59.686L48 65.494L43.159 59.686L35.63 60.37L36.314 52.841L30.506 48L36.314 43.159L35.63 35.63L43.159 36.314Z" fill="url(#casing)" fill-rule="evenodd"/></svg>

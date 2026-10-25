@@ -28,7 +28,7 @@ use ddi_noteskin::params::Values;
 use ddi_render::field_preview::{BPM, FieldPreviewOptions, SkinWant};
 use ddi_render::{ColorScheme, RenderOptions, ScoreDelta};
 use ddi_ui::state::history::GhostDelta;
-use ddi_ui::state::settings::{BackgroundFrame, DITO, NoteColors, Settings};
+use ddi_ui::state::settings::{BackgroundFrame, INFINITO, NoteColors, Settings};
 
 /// The renderer's color scheme for a [`NoteColors`] setting.
 pub fn note_scheme(colors: NoteColors) -> ColorScheme {
@@ -53,7 +53,8 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         cancel_progress: 0.0,
         cancel_hint: "",
         note_colors: note_scheme(settings.note_colors()),
-        chart_colors: settings.chart_colors(),
+        // No skin's setting asks for a chart's own colors now.
+        chart_colors: false,
         background: settings.bg_brightness,
         backdrop: Default::default(),
         frame_aspect: None,
@@ -113,7 +114,7 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
 /// direction, its parameters' values as [`play_skin`] passes them): key
 /// `None` for the built-in arrows. The demo has no colors of its own.
 pub fn field_preview_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
-    let key = settings.play_skin(&options.layout, None);
+    let key = settings.play_skin(&options.layout);
     SkinWant {
         params: key
             .as_deref()
@@ -134,7 +135,7 @@ pub fn play_skin(
     layout: &Layout,
     shift: f64,
 ) -> Option<(String, Env)> {
-    let key = settings.play_skin(&layout.id, Some(chart))?;
+    let key = settings.play_skin(&layout.id)?;
     let env = Env {
         params: settings.skin_params(&key),
         ..ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift)
@@ -167,7 +168,7 @@ pub fn play_skins(
 ) -> Option<SkinWants> {
     let mut settings = settings.clone();
     let want = |s: &Settings| {
-        s.play_skin(&layout.id, Some(chart)).map(|k| {
+        s.play_skin(&layout.id).map(|k| {
             let params = s.skin_params(&k);
             (k, params)
         })
@@ -183,7 +184,7 @@ pub fn play_skins(
 }
 
 /// The first of `wants` ([`play_skins`]) among the skins one can pick,
-/// `there` (`(key, name)`; Dito always is): `None` for the built-in
+/// `there` (`(key, name)`; Infinito always is): `None` for the built-in
 /// arrows.
 pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> Option<(String, Env)> {
     let (key, params) = wants
@@ -191,7 +192,7 @@ pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> Option<(Stri
         .into_iter()
         .find(|w| {
             w.as_ref()
-                .is_none_or(|(k, _)| k == DITO || there.iter().any(|(t, _)| t == k))
+                .is_none_or(|(k, _)| k == INFINITO || there.iter().any(|(t, _)| t == k))
         })
         .flatten()?;
     Some((
@@ -257,16 +258,16 @@ mod tests {
     }
 
     /// The preview and a play pass the skin the same values of its
-    /// parameters: Dito's whether chosen or not, a chosen skin's own.
+    /// parameters: Infinito's whether chosen or not, a chosen skin's own.
     #[test]
     fn the_preview_and_a_play_ready_the_skin_with_the_same_values() {
-        use ddi_ui::state::settings::{DITO, ParamValue};
+        use ddi_ui::state::settings::{INFINITO, ParamValue};
         let song = ddi_engine::demo::song("dance-single", BPM).unwrap();
         let chart = &song.charts[0];
         let layout = Layout::dance_single();
         let mut settings = Settings::default();
-        settings.set_dito_param("Colors", ParamValue::Text("Flat".into()));
-        settings.set_dito_param("Explosions", ParamValue::Bool(false));
+        settings.set_infinito_param("Onigiri", ParamValue::Bool(false));
+        settings.set_infinito_param("Explosions", ParamValue::Bool(false));
         settings.set_skin_param("dance/mine", "Size", Some(ParamValue::Number(2.0)), None);
         for chosen in [None, Some("dance/mine")] {
             settings.noteskin = chosen.map(str::to_string);
@@ -274,18 +275,17 @@ mod tests {
             let (key, env) = play_skin(&settings, &song, chart, &layout, 0.0).unwrap();
             assert_eq!(preview.key.as_deref(), Some(key.as_str()));
             assert_eq!(preview.env(&layout).params, env.params);
-            assert_eq!(env.params, settings.skin_params(chosen.unwrap_or(DITO)));
+            assert_eq!(env.params, settings.skin_params(chosen.unwrap_or(INFINITO)));
             assert!(!env.params.is_empty());
         }
-        // Lighter: the built-in arrows, in both.
-        settings.noteskin = None;
-        settings.set_dito_param("Lighter", ParamValue::Bool(true));
+        // Explicit internal fallback: the built-in arrows, in both.
+        settings.noteskin = Some(ddi_ui::state::settings::BUILT_IN.into());
         assert!(play_skin(&settings, &song, chart, &layout, 0.0).is_none());
         let preview = field_preview_skin(&settings, &field_preview_options(&settings));
         assert_eq!(preview.key, None);
         assert_eq!(
             render_options(&settings).note_colors,
-            note_scheme(NoteColors::Flat)
+            note_scheme(NoteColors::Vivid)
         );
     }
 
@@ -302,14 +302,17 @@ mod tests {
             pump_noteskin: Some("pump/mine".into()),
             ..Settings::default()
         };
-        settings.set_dito_param("Colors", ParamValue::Text("Flat".into()));
+        settings.set_infinito_param("Onigiri", ParamValue::Bool(false));
         let wants = play_skins(&settings, &song, chart, &layout, 0.0).unwrap();
         let keys: Vec<_> = wants
             .keys
             .iter()
             .map(|w| w.as_ref().map(|(k, _)| k.as_str()))
             .collect();
-        assert_eq!(keys, [Some("pump/mine"), Some("dance/mine"), Some(DITO)]);
+        assert_eq!(
+            keys,
+            [Some("pump/mine"), Some("dance/mine"), Some(INFINITO)]
+        );
         let pick = |there: &[&str]| {
             let there: Vec<(String, String)> = there
                 .iter()
@@ -319,19 +322,21 @@ mod tests {
         };
         assert_eq!(pick(&["pump/mine", "dance/mine"]).unwrap().0, "pump/mine");
         assert_eq!(pick(&["dance/mine"]).unwrap().0, "dance/mine");
-        // Dito, with its parameters.
-        assert_eq!(pick(&[]), Some((DITO.into(), settings.skin_params(DITO))));
-        // Lighter: the built-in arrows.
-        settings.set_dito_param("Lighter", ParamValue::Bool(true));
-        let wants = play_skins(&settings, &song, chart, &layout, 0.0).unwrap();
-        assert_eq!(wants.keys.len(), 3);
-        assert!(first_there(wants, &[]).is_none());
-        // Nothing chosen: Dito alone.
+        // Infinito, with its parameters.
+        assert_eq!(
+            pick(&[]),
+            Some((INFINITO.into(), settings.skin_params(INFINITO)))
+        );
+        // Explicit internal fallback: the built-in arrows.
+        settings.noteskin = Some(ddi_ui::state::settings::BUILT_IN.into());
+        settings.pump_noteskin = None;
+        assert!(play_skins(&settings, &song, chart, &layout, 0.0).is_none());
+        // Nothing chosen: Infinito alone.
         let wants = play_skins(&Settings::default(), &song, chart, &layout, 0.0).unwrap();
         assert_eq!(wants.keys.len(), 1);
-        // Lighter and none chosen: none to ready.
+        // Nothing chosen readies the new default.
         (settings.noteskin, settings.pump_noteskin) = (None, None);
-        assert!(play_skins(&settings, &song, chart, &layout, 0.0).is_none());
+        assert!(play_skins(&settings, &song, chart, &layout, 0.0).is_some());
     }
 
     #[test]

@@ -9,6 +9,19 @@ were fetched and run through `local_skins` on 2026-10-12 (below).
 
 ## What the candidates are
 
+Updated 2026-10-25: the original SVG skin developed as `Spiral Base`, then `Dito`, is now
+`Infinito`, the default. Its components, materials, mine artwork and controls
+replace the original Dito and its color-variant folders. Note colors now
+selects Vivid (default), Rainbow or Flat through its own material; all
+three stay within Infinito. The old `gen-dito`
+command is removed so it cannot overwrite the new assets. Procedural arrows
+remain an internal fallback, without a skin-picker choice or a Lighter toggle.
+Saved SVG Dito / Spiral Base selections and parameter values migrate to Infinito; old Dito
+color controls and procedural selections retire to its new default. The
+implementation history below describes the earlier Dito where dated. The
+bundled Infinito folder contains the editable runtime sources; experimental
+authoring tools and superseded sprite sheets are kept separately from the game.
+
 Added 2026-10-20: `DanOni`, a derived MIT proof of danoniplus CW Edition's
 default 5/7-key appearance, with its original SVG masks archived and the
 JavaScript/CSS behavior re-created in Lua. The reproducible conversion,

@@ -84,8 +84,9 @@ pub fn play_record(p: &Played, results: &Results, facts: &PlayFacts) -> Option<P
     let drawn = DrawSetup {
         noteskin: noteskin.map(str::to_string),
         note_colors: setting_name(&settings.note_colors()),
-        chart_colors: settings.chart_colors(),
-        skin_params: settings.skin_params(noteskin.unwrap_or(ddi_ui::state::settings::DITO)),
+        // No skin draws a chart's own colors now.
+        chart_colors: false,
+        skin_params: settings.skin_params(noteskin.unwrap_or(ddi_ui::state::settings::INFINITO)),
         field_filter: settings.field_filter,
         bg_brightness: settings.bg_brightness,
         background_frame: setting_name(&settings.background_frame),

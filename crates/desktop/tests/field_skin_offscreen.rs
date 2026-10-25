@@ -35,11 +35,10 @@ fn a_skin_picked_shows_once_read() {
         queue.submit(Some(encoder.finish()));
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
     };
-    // Dito's parameters, as a play takes them: its colors' skin, or
-    // drawn lighter by the built-in arrows.
-    let dito = |name: &str, value: ParamValue| {
+    // Infinito's declared options match between preview and play.
+    let infinito = |name: &str, value: ParamValue| {
         let mut s = Settings::default();
-        s.set_dito_param(name, value);
+        s.set_infinito_param(name, value);
         s
     };
     let peters = |colors: &str| {
@@ -52,18 +51,29 @@ fn a_skin_picked_shows_once_read() {
         s.set_skin_param(key, "Explosions", Some(ParamValue::Bool(false)), None);
         s
     };
-    let picks: [(Settings, Option<&str>); 11] = [
-        // Dito by default, in the note colors' variant.
-        (Settings::default(), Some("Dito Vivid")),
+    let picks: [(Settings, Option<&str>); 13] = [
+        // SVG Infinito by default.
+        (Settings::default(), Some("Infinito")),
         (
-            dito("Colors", ParamValue::Text("Rainbow".into())),
-            Some("Dito Rainbow"),
+            infinito("Colors", ParamValue::Text("Rainbow".into())),
+            Some("Infinito"),
         ),
         (
-            dito("Colors", ParamValue::Text("Quantized".into())),
-            Some("Dito"),
+            infinito("Colors", ParamValue::Text("Flat".into())),
+            Some("Infinito"),
         ),
-        (dito("Lighter", ParamValue::Bool(true)), None),
+        (
+            infinito("ShockArrows", ParamValue::Bool(true)),
+            Some("Infinito"),
+        ),
+        (
+            infinito("Onigiri", ParamValue::Bool(false)),
+            Some("Infinito"),
+        ),
+        (
+            infinito("ReceptorFill", ParamValue::Bool(false)),
+            Some("Infinito"),
+        ),
         (peters("Vivid"), Some("Peters-DDR-Vivid")),
         (peters("Quantized"), Some("Peters-DDR")),
         // The bundled raster center, diagonal holds/rolls and layered mines.
@@ -127,11 +137,11 @@ fn a_skin_picked_shows_once_read() {
     }
     // The preview's skin with the values a play's has: the same skin,
     // its Lua reading the same.
-    let mut settings = dito("Colors", ParamValue::Text("Flat".into()));
-    settings.set_dito_param("Explosions", ParamValue::Bool(false));
+    let mut settings = infinito("HitVariation", ParamValue::Bool(false));
+    settings.set_infinito_param("Explosions", ParamValue::Bool(false));
     field.set_settings(&settings);
     let mut frames = 0;
-    while field.skin_name().as_deref() != Some("Dito Flat") || field.reading() {
+    while field.skin_name().as_deref() != Some("Infinito") || field.reading() {
         frame(&mut field);
         frames += 1;
         assert!(frames < 500, "{:?}", field.skin_name());
@@ -139,15 +149,15 @@ fn a_skin_picked_shows_once_read() {
     }
     let loaded = ddi_desktop::play::load::load("beatucada", 48_000).unwrap();
     let (play, _, strike) = ddi_desktop::play::host::noteskin(&loaded, 0, &settings).unwrap();
-    assert_eq!(play.name, "Dito Flat");
+    assert_eq!(play.name, "Infinito");
     assert_eq!(play.parameters(), field.skin_parameters());
     assert_eq!(
         play.parameters().get("Explosions"),
         Some(&ParamValue::Bool(false))
     );
-    // A Lua stop counts against Dito, whichever colors.
-    assert_eq!(strike, ddi_ui::state::settings::DITO);
-    // Delta picked and, before it is read, Dito: Dito shows, never Delta.
+    // A Lua stop counts against Infinito with any options.
+    assert_eq!(strike, ddi_ui::state::settings::INFINITO);
+    // Delta picked and, before it is read, Infinito: Infinito shows, never Delta.
     field.set_settings(&Settings {
         noteskin: Some("bundled:dance/delta".into()),
         ..Settings::default()
@@ -158,7 +168,7 @@ fn a_skin_picked_shows_once_read() {
     loop {
         frame(&mut field);
         assert_ne!(field.skin_name().as_deref(), Some("Delta"));
-        if field.skin_name().as_deref() == Some("Dito Vivid") && !field.reading() {
+        if field.skin_name().as_deref() == Some("Infinito") && !field.reading() {
             break;
         }
         frames += 1;

@@ -1,5 +1,16 @@
 # Implementation plan: skin parameters (2026-10-21)
 
+Update 2026-10-25: Infinito is now the authored SVG skin formerly called Spiral
+Base and then Dito. Its controls are Colors (Vivid default, Rainbow, Flat), Onigiri,
+ShockArrows, Explosions, ReceptorFill and HitVariation. Colors now selects
+the SVG material behavior within Infinito; the original color-variant folders
+and ChartColors/Lighter controls are retired; procedural arrows are an internal fallback.
+Settings migrate the old names and move Dito / Spiral Base's saved controls to
+`bundled:dance/infinito`, each value checked against Infinito's declarations
+(one at its default is not kept); the older `note_colors` and `chart_colors`
+fields are no longer read. The dated design and validation below describe the
+original rollout of the parameter mechanism.
+
 `docs/PLAN.md`, "Options follow-up (2026-10-18)": note colors and songs'
 own colors sat under Arrows, shown for Dito and Built-in only; "a future
 noteskin parameter mechanism should let skins declare controls and
@@ -98,7 +109,7 @@ its budget.
 
 ## Where the values live
 
-`Settings::skin_params`: by skin key (`bundled:dance/dito`,
+`Settings::skin_params`: by skin key (`bundled:dance/infinito`,
 `dance/<name>`), then by parameter name, as plain JSON (`"Vivid"`,
 `true`, `0.5`, `"#FF8800"`). A value equal to its default is not kept,
 so a skin's default can change and players who never chose follow it.
@@ -107,18 +118,21 @@ and texts 32 characters, numbers finite. What a skin's declarations take
 of them is decided where they are read, not stored.
 
 **Migration** (`Settings::migrate`, run by `sanitize` on every load, and
-on a replay's settings): the old `note_colors` and `chart_colors` fields
-are read once (`old_note_colors`, `old_chart_colors`, never written back)
-and become Dito's `Colors` and `ChartColors`; `noteskin: "builtin"`
-becomes no skin chosen with Dito's `Lighter` on. The defaults (Vivid,
-off) store nothing.
+on a replay's settings): the retired Dito and Spiral Base keys become
+Infinito's, their values merged under its key (its own winning), and
+every value there goes through Infinito's declarations: one it does not
+declare or take (a choice it does not offer) is let go, one at its
+default is not kept, and an empty entry is dropped. `noteskin:
+"builtin"` becomes no skin chosen. (Until 2026-10-25 this turned the old
+`note_colors` and `chart_colors` fields into Dito's `Colors` and
+`ChartColors`; neither is read any more.)
 
 **Replays**: the play record's settings snapshot carries `skin_params`
 like any setting, so a replay is drawn with the values played. A record
 whose snapshot does not read falls back on `DrawSetup`, which now keeps
-the drawn skin's values too (`skin_params`; Dito's when none was chosen)
-beside the note colors' name and the chart-colors toggle it always kept;
-an older record's colors go through the same migration.
+the drawn skin's values too (`skin_params`; Infinito's when none was
+chosen) beside the note colors' name and the chart-colors toggle it
+always kept, which a replay no longer reads.
 
 ## Preview and play pass the same values
 

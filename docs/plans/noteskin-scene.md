@@ -858,3 +858,15 @@ Taken with the maintainer, one by one:
 8. **Underneath:** components compile to lean parts with native bindings,
    drawn into the same quad stream as actors, with the same blends, masks,
    passes and textures; actors stay for StepMania elements.
+
+
+## Infinito authoring port (2026-10-25)
+
+The authored skin formerly called Spiral Base and Dito is now bundled as `Infinito`, the
+default, replacing its original art and color variants. Its editable SVG, WGSL
+and Lua sources live in `assets/noteskins/dance/Infinito/`; experimental
+authoring tools and retired assets are kept separately. Taps, receptors, holds, rolls, lifts and
+judgment effects use SVG components and skin-owned materials. Mines keep
+actors for field-aligned neighboring-lane electricity; opt-in judgment rim
+and link roles join matching receptor shocks. The original Spiral Base
+measurements above remain historical; its old bundled name is retired.

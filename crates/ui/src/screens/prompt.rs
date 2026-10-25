@@ -2209,7 +2209,7 @@ mod tests {
         )));
         options
             .borrow_mut()
-            .set_noteskins(vec![("dito".into(), "Dito".into())], true);
+            .set_noteskins(vec![("infinito".into(), "Infinito".into())], true);
         options.borrow().show(&mut state.borrow_mut());
         state.borrow_mut().set_countdown(Some(3.0));
         // The shell: options applied (this play's), saved when asked.
@@ -2244,7 +2244,7 @@ mod tests {
                 "turn=Off",
                 "appearance=Normal",
                 "lane_cover=Off",
-                "noteskin=Dito"
+                "noteskin=Infinito"
             ]
         );
         assert_eq!(h.ui.focused(), Some("Start"));

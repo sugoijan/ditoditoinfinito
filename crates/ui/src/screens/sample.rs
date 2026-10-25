@@ -580,7 +580,7 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
     );
     options.set_noteskins(
         vec![
-            ("dito".into(), "Dito".into()),
+            ("infinito".into(), "Infinito".into()),
             ("bundled:dance/Peters-DDR".into(), "Peters-DDR".into()),
         ],
         true,

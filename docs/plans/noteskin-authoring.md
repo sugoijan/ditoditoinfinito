@@ -35,6 +35,21 @@ four times their size, less on most screens); a sheet that need not be
 that fine says so on its root, `data-raster-scale="2"` (0.5 to 4), and
 keeps its `width`/`height` as the size its actors see.
 
+## Spiral component port (2026-10-25)
+
+Infinito now uses `Def.Component`, `Def.LongNote` and `Def.Lift` for its
+ordinary notes, receptors and long notes. Named SVG roles replace numbered
+mask states, and skin-owned WGSL paints the band/trail continuously. The roll
+pulse binds to the active roll-window clock with a 0.75 cycle. The
+0.65-power pulse uses the curve's power easing directly. Receptors zoom as
+one component about their aligned pivot, driven by the lane's hit clock;
+long-note bodies need no hidden legacy head/cap placeholders. The accepted
+profiles and masks live in `assets/noteskins/dance/Infinito/`;
+its metrics declare all ten supported buttons through `[Global] Buttons`,
+without named forwarding files for the taps and receptors.
+Judgment effects use independent component instances on the hit clock.
+Mines keep actors for adjacent-lane links. See [the authoring reference](noteskin-scene.md#authoring-reference-2026-10-25-stable-enough-to-port-changes-noted-here).
+
 ## Roll tap cues from judging (2026-10-22)
 
 A modern skin may set `[NoteDisplay] RollAnimationTimingWindowRatio=0.75`.

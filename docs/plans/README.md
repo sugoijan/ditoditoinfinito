@@ -22,8 +22,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
   Lawrence's skins (2026-10-12/13) and `DanOni` (2026-10-20) added since;
   Peters-DDR Note/Vivid combined with color and explosion options, and a
   raster center, derived holds/rolls and layered mines added (2026-10-22).
-  Freely licensed skins shipped with the game; Dito, the built-in arrows
-  as a Lua skin, is the default.
+  The SVG skin developed as Spiral Base, now Infinito, replaces Dito as the default
+  (2026-10-25); its original color variants and procedural controls are
+  retired. Procedural arrows remain an internal fallback.
 - [3D models](models.md) (2026-10-12): done 2026-10-13. Later: a depth
   buffer, lighting. MilkShape meshes, materials and bones.
 - [StepMania 3.9 and OpenITG noteskins](legacy-skins.md) (2026-10-13):
@@ -40,9 +41,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   crates it pins and how to test API changes against it.
 - [Skin parameters](skin-parameters.md) (2026-10-21): done. Skins declare
   controls in their metrics (our extension), kept per skin, read by
-  their Lua and shown under Arrows; Dito's colors, songs' own colors,
-  explosions and the lighter drawing (the Built-in choice retired into
-  it) are its parameters.
+  their Lua and shown under Arrows. Infinito declares Vivid (default),
+  Rainbow and Flat colors, onigiri, mine shape, receptor fill and hit-effect
+  controls (2026-10-25); its original asset variants and procedural controls
+  are retired.
 - [Noteskin SVG](noteskin-svg.md) (2026-10-24): in progress. One
   rasterizer on both shells (a worker on the web), vello_cpu measured,
   what images cost shown, bounded filters, raster quality apart from
@@ -50,8 +52,11 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Noteskin components and materials](noteskin-scene.md) (2026-10-25):
   in progress; step 1 done (materials as shaders: long notes about 30
   times fewer quads), 2 done (components and bindings; SkinCraft's view of a part's bindings left), 3 done (a
-  skin's own materials), 4 done (long notes and
-  lifts), 5 done (explosions as instances). SVG components with named parts posed per note
+  skin's own materials: Infinito's gradient as one), 4 done (long notes and
+  lifts), 5 done (explosions as instances). Infinito's taps/fakes, receptors,
+  holds, rolls, lifts and judgment effects are ported; its SVG, WGSL and Lua
+  sources are bundled in `assets/noteskins/dance/Infinito/`.
+  SVG components with named parts posed per note
   from the engine's clocks, materials as the skin's own bounded WGSL
   shaders; takes over the SVG plan's material and material-part
   metadata steps.

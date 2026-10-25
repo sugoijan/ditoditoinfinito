@@ -17,7 +17,7 @@
 //! Description=How notes are colored.
 //! Choices=Vivid,Flat
 //! ChoiceLabels=Vivid,Flat
-//! Skins=Dito Vivid,Dito Flat
+//! Skins=Metal Vivid,Metal Flat
 //! Default=Vivid
 //!
 //! [Parameter Explosions]

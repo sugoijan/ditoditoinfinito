@@ -22,9 +22,9 @@ use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUILT_IN, BUNDLED, BackgroundFrame, CenterVersions, DITO, FIELD_FILTERS, Graphics, PadBindings,
-    ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode, slider_to_volume,
-    volume_to_slider,
+    BUILT_IN, BUNDLED, BackgroundFrame, CenterVersions, FIELD_FILTERS, Graphics, INFINITO,
+    PadBindings, ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode,
+    slider_to_volume, volume_to_slider,
 };
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
@@ -52,7 +52,7 @@ pub struct World {
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
     /// The parameters skins declare (`docs/plans/skin-parameters.md`),
-    /// by key; Dito's are known without it.
+    /// by key; Infinito's are known without it.
     pub skin_parameters: std::collections::BTreeMap<String, Vec<Parameter>>,
     /// Layouts the library has charts for (offered for bindings).
     pub library_styles: Vec<Layout>,
@@ -169,7 +169,7 @@ impl Reset {
                     if crate::state::settings::is_pump_skin(key) {
                         "the pump styles are drawn with the arrows above again."
                     } else {
-                        "songs play with Dito again."
+                        "songs play with Infinito again."
                     }
                 ),
                 "Remove".into(),
@@ -313,7 +313,7 @@ impl OptionsModel {
     /// The noteskin chosen, by name.
     pub fn skin_name(&self, key: Option<&str>) -> String {
         match key {
-            None => "Dito".into(),
+            None | Some(INFINITO) => "Infinito".into(),
             Some(BUILT_IN) => "Built-in arrows".into(),
             Some(k) => self
                 .world
@@ -924,9 +924,9 @@ impl OptionsModel {
     fn arrows(&self) -> OptionSection {
         let s = &self.settings;
         let mut names = vec![if self.world.default_lua_off {
-            "Dito (its Lua is off)".to_string()
+            "Infinito (its Lua is off)".to_string()
         } else {
-            "Dito".to_string()
+            "Infinito".to_string()
         }];
         let dance = self.dance_skins();
         names.extend(dance.iter().map(|(_, n)| n.clone()));
@@ -943,15 +943,15 @@ impl OptionsModel {
             OptionKind::Choices(names),
             at,
             if self.world.platform == super::data::Platform::Desktop {
-                "Dito: the game's own arrows, its options below. Or a bundled noteskin, or one \
+                "Infinito: the game's own arrows, its options below. Or a bundled noteskin, or one \
                  from the song folders."
             } else {
-                "Dito: the game's own arrows, its options below. Or a bundled or an imported \
+                "Infinito: the game's own arrows, its options below. Or a bundled or an imported \
                  noteskin."
             },
         )];
         // The chosen skin's parameters.
-        let key = s.noteskin.as_deref().unwrap_or(DITO);
+        let key = s.noteskin.as_deref().unwrap_or(INFINITO);
         rows.extend(self.param_rows(SKIN_ROW, key));
         let desktop = self.world.platform == super::data::Platform::Desktop;
         // Desktop reads skins in place (bundled ones, the song folders'):
@@ -1008,10 +1008,10 @@ impl OptionsModel {
         section("Arrows", rows)
     }
 
-    /// What skin `key` declares (Dito's built in).
+    /// What skin `key` declares (Infinito's built in).
     fn declared(&self, key: &str) -> &[Parameter] {
-        if key == DITO {
-            &ddi_noteskin::bundled::dito_parameters().parameters
+        if key == INFINITO {
+            &ddi_noteskin::bundled::infinito_parameters().parameters
         } else {
             self.world
                 .skin_parameters
@@ -1505,7 +1505,7 @@ impl OptionsModel {
                 })
             }
             id if id.starts_with(SKIN_ROW) => {
-                let key = s.noteskin.clone().unwrap_or_else(|| DITO.to_string());
+                let key = s.noteskin.clone().unwrap_or_else(|| INFINITO.to_string());
                 self.set_param(&key, &id[SKIN_ROW.len()..], i);
             }
             id if id.starts_with(PUMP_SKIN_ROW) => {
@@ -2306,7 +2306,7 @@ mod tests {
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert!(stored.reverse);
         assert_eq!(stored.speed, 3.0);
-        assert_eq!(m.data().preview, "Dito · Single · ×3 · Reverse");
+        assert_eq!(m.data().preview, "Infinito · Single · ×3 · Reverse");
         m.change("noteskin", 2);
         assert_eq!(m.settings.noteskin.as_deref(), Some("dance/mine"));
         assert!(
@@ -2321,16 +2321,14 @@ mod tests {
         );
     }
 
-    /// The chosen skin's parameters are rows under Arrows: Dito's (built
+    /// The chosen skin's parameters are rows under Arrows: Infinito's (built
     /// in), or those the shell read for another skin; set values are
     /// kept per skin, a default forgotten, and a removed skin's let go.
     #[test]
     fn a_skins_parameters_are_rows_under_arrows() {
-        use crate::state::settings::NoteColors;
-        use ddi_noteskin::bundled::dito;
         let mut m = model();
         let d = m.data();
-        // Dito's, with the arrows' row first; no Built-in choice.
+        // Infinito's, with the arrows' row first; no Built-in choice.
         let arrows = &d
             .sections
             .iter()
@@ -2343,33 +2341,55 @@ mod tests {
             [
                 "noteskin",
                 "skin.Colors",
-                "skin.ChartColors",
+                "skin.Onigiri",
+                "skin.ShockArrows",
                 "skin.Explosions",
-                "skin.Lighter"
+                "skin.ReceptorFill",
+                "skin.HitVariation"
             ]
         );
-        assert!(!arrows[0].values().iter().any(|v| v.contains("Built")));
-        let colors = find(&d, "skin.Colors");
-        assert_eq!(colors.label, "Note colors");
-        assert_eq!(colors.value(), "Vivid");
+        assert!(
+            !arrows[0]
+                .values()
+                .iter()
+                .any(|v| v.contains("Built") || v.contains("Spiral"))
+        );
+        assert_eq!(find(&d, "skin.Colors").value(), "Vivid");
+        assert_eq!(
+            find(&d, "skin.Colors").values(),
+            ["Vivid", "Rainbow", "Flat"]
+        );
+        for (i, name) in [(1, "Rainbow"), (2, "Flat")] {
+            m.change("skin.Colors", i);
+            assert_eq!(
+                m.settings.skin_params(INFINITO).get("Colors"),
+                Some(&ParamValue::Text(name.into()))
+            );
+            assert_eq!(
+                m.settings.play_skin("dance-single").as_deref(),
+                Some(INFINITO)
+            );
+        }
+        m.change("skin.Colors", 0);
+        assert!(
+            m.settings.skin_params.is_empty(),
+            "Vivid is the unstored default"
+        );
+        assert_eq!(find(&d, "skin.ShockArrows").value(), "Off");
         assert_eq!(find(&d, "skin.Explosions").value(), "On");
-        let rainbow = colors.values().iter().position(|v| v == "Rainbow").unwrap();
-        m.change("skin.Colors", rainbow);
-        assert_eq!(m.settings.note_colors(), NoteColors::Rainbow);
-        assert_eq!(find(&m.data(), "skin.Colors").value(), "Rainbow");
-        // Saved, per skin.
+        m.change("skin.ShockArrows", 1);
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert_eq!(
-            stored.skin_params(DITO).get(dito::COLORS),
-            Some(&ParamValue::Text("Rainbow".into()))
+            stored.skin_params(INFINITO).get("ShockArrows"),
+            Some(&ParamValue::Bool(true))
         );
-        // Back to the default: forgotten.
-        m.change("skin.Colors", 0);
+        m.change("skin.ShockArrows", 0);
         assert!(m.settings.skin_params.is_empty());
-        // Lighter: the built-in arrows draw, still in Dito's colors.
-        m.change("skin.Lighter", 1);
-        assert!(m.settings.lighter());
-        assert_eq!(m.settings.play_skin("dance-single", None), None);
+        m.change("skin.ShockArrows", 1);
+        assert_eq!(
+            m.settings.play_skin("dance-single").as_deref(),
+            Some(INFINITO)
+        );
         // Another skin's, as the shell read them.
         let declared = ddi_noteskin::params::Declared::from_ini(&ddi_noteskin::ini::Ini::parse(
             "[Parameters]\nList=Size,Tint\n\
@@ -2383,7 +2403,7 @@ mod tests {
         assert!(
             d.sections
                 .iter()
-                .all(|s| s.options.iter().all(|o| o.id != "skin.Colors"))
+                .all(|s| s.options.iter().all(|o| o.id != "skin.ShockArrows"))
         );
         let size = find(&d, "skin.Size");
         assert!(matches!(size.kind, OptionKind::Stepper(_)));
@@ -2399,8 +2419,11 @@ mod tests {
             ]
             .into()
         );
-        // Dito's stay its own.
-        assert!(m.settings.lighter());
+        // Infinito's stay its own.
+        assert_eq!(
+            m.settings.skin_params(INFINITO).get("ShockArrows"),
+            Some(&ParamValue::Bool(true))
+        );
         // A color off the palette (a hand edit) shows as itself.
         m.settings.set_skin_param(
             "dance/mine",
@@ -2413,7 +2436,10 @@ mod tests {
         m.reset(&Reset::Noteskin("dance/mine".into()));
         assert_eq!(m.settings.noteskin, None);
         assert!(m.settings.skin_params("dance/mine").is_empty());
-        assert!(m.settings.lighter());
+        assert_eq!(
+            m.settings.skin_params(INFINITO).get("ShockArrows"),
+            Some(&ParamValue::Bool(true))
+        );
     }
 
     #[test]

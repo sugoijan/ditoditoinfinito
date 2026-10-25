@@ -942,6 +942,40 @@ impl Part {
             None => self.visible = value > 0.5,
         }
     }
+
+    /// This part as drawn at `clocks`, if it shows.
+    pub fn pose(&self, clocks: &Clocks) -> Option<PartPose<'_>> {
+        let mut v = self.base;
+        let mut visible = self.visible;
+        for b in &self.bindings {
+            let value = b.value(clocks);
+            match BASE.iter().position(|p| *p == b.property) {
+                Some(i) => v[i] = value,
+                None => visible = value > 0.5,
+            }
+        }
+        let [opacity, x, y, rotation, zoom, frame, phase, mix] = v;
+        let mix = mix.clamp(0.0, 1.0);
+        let [from, to] = self.tint;
+        let tint = std::array::from_fn(|i| from[i] + (to[i] - from[i]) * mix);
+        if !visible || opacity <= 0.0 || self.textures.is_empty() {
+            return None;
+        }
+        let frames = self.textures.len();
+        let frame = (frame.floor() as i64).rem_euclid(frames as i64) as usize;
+        Some(PartPose {
+            part: self,
+            texture: self.textures[frame],
+            blend: self.blend,
+            opacity: opacity.min(1.0),
+            x,
+            y,
+            rotation,
+            zoom,
+            phase,
+            tint,
+        })
+    }
 }
 
 /// A part as drawn at some clocks.
@@ -1016,38 +1050,7 @@ impl Component {
 
     /// Its parts as drawn at `clocks`, those shown, in drawing order.
     pub fn pose<'a>(&'a self, clocks: &'a Clocks) -> impl Iterator<Item = PartPose<'a>> + 'a {
-        self.parts.iter().filter_map(move |part| {
-            let mut v = part.base;
-            let mut visible = part.visible;
-            for b in &part.bindings {
-                let value = b.value(clocks);
-                match BASE.iter().position(|p| *p == b.property) {
-                    Some(i) => v[i] = value,
-                    None => visible = value > 0.5,
-                }
-            }
-            let [opacity, x, y, rotation, zoom, frame, phase, mix] = v;
-            let mix = mix.clamp(0.0, 1.0);
-            let [from, to] = part.tint;
-            let tint = std::array::from_fn(|i| from[i] + (to[i] - from[i]) * mix);
-            if !visible || opacity <= 0.0 || part.textures.is_empty() {
-                return None;
-            }
-            let frames = part.textures.len();
-            let frame = (frame.floor() as i64).rem_euclid(frames as i64) as usize;
-            Some(PartPose {
-                part,
-                texture: part.textures[frame],
-                blend: part.blend,
-                opacity: opacity.min(1.0),
-                x,
-                y,
-                rotation,
-                zoom,
-                phase,
-                tint,
-            })
-        })
+        self.parts.iter().filter_map(move |part| part.pose(clocks))
     }
 }
 

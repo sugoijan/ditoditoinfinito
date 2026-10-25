@@ -39,41 +39,30 @@ pub const KEY_PREFIX: &str = "bundled:";
 /// The `noteskin` setting's value for the built-in arrows without a skin.
 pub const BUILT_IN: &str = "builtin";
 
-/// Dito's key, [`key`]`("dance", "Dito", true)`. Its color schemes are
-/// skins of their own (`Dito Vivid`, …) that its `Colors` parameter
-/// loads in its place ([`crate::params::head`]).
-pub const DITO: &str = "bundled:dance/dito";
+/// The default SVG noteskin's stable key.
+pub const INFINITO: &str = "bundled:dance/infinito";
 
 /// Peter Lawrence's DDR skin, with Vivid and subdivision colors.
 pub const PETERS_DDR: &str = "bundled:dance/peters-ddr";
 
-/// Dito's parameters (`assets/noteskins/dance/Dito/metrics.ini`,
-/// `docs/plans/skin-parameters.md`) that the game reads itself, by name:
-/// the built-in arrows draw in Dito's colors, and a song's own colors and
-/// the lighter drawing are drawn by them instead of the skin.
-pub mod dito {
-    /// The note colors: a choice of `Vivid`, `Rainbow`, `Quantized`,
-    /// `Flat`, `Single` (the settings' `NoteColors` names), each drawn by
-    /// its color scheme's skin.
+/// Names of Infinito's parameters the game reads. Infinito declares its
+/// controls in its metrics; Colors selects its Vivid, Rainbow or Flat
+/// material behavior.
+pub mod infinito {
     pub const COLORS: &str = "Colors";
-    /// A song's own note colors, drawn by the built-in arrows (a toggle).
-    pub const CHART_COLORS: &str = "ChartColors";
-    /// The built-in arrows instead of the skin: no Lua, no explosions, no
-    /// skin blending (a toggle; lighter on slow devices).
-    pub const LIGHTER: &str = "Lighter";
-    /// The explosions (a toggle its Lua reads).
     pub const EXPLOSIONS: &str = "Explosions";
 }
 
-/// Dito's own `metrics.ini`.
-const DITO_METRICS: &str = include_str!("../../../assets/noteskins/dance/Dito/metrics.ini");
+/// Infinito's own `metrics.ini`.
+const INFINITO_METRICS: &str = include_str!("../../../assets/noteskins/dance/Infinito/metrics.ini");
 
-/// Dito's declarations, read from its own `metrics.ini` (built in, so
+/// Infinito's declarations, read from its own `metrics.ini` (built in, so
 /// the settings and Options know them before any skin is read).
-pub fn dito_parameters() -> &'static crate::params::Declared {
+pub fn infinito_parameters() -> &'static crate::params::Declared {
     static DECLARED: std::sync::OnceLock<crate::params::Declared> = std::sync::OnceLock::new();
-    DECLARED
-        .get_or_init(|| crate::params::Declared::from_ini(&crate::ini::Ini::parse(DITO_METRICS)))
+    DECLARED.get_or_init(|| {
+        crate::params::Declared::from_ini(&crate::ini::Ini::parse(INFINITO_METRICS))
+    })
 }
 
 /// `<game>/<name>` in lower case (names match ignoring case, as
@@ -122,7 +111,7 @@ pub struct Candidate<'a> {
 }
 
 /// The dance and pump skins one can pick, `(key, name)`: the bundled ones
-/// first, then the player's, each by name ignoring case. Dito (the
+/// first, then the player's, each by name ignoring case. Infinito (the
 /// default), its colors and `default` are chosen otherwise; pump skins are
 /// listed for the pump layouts. A name says when the skin comes with the
 /// game and when its Lua is off.
@@ -133,7 +122,7 @@ pub fn pickable<'a>(skins: impl IntoIterator<Item = Candidate<'a>>) -> Vec<(Stri
             (s.game == "dance" || s.game == "pump")
                 && !s.name.eq_ignore_ascii_case("default")
                 && !s.variant
-                && !(s.bundled && s.name == "Dito")
+                && !(s.bundled && s.name == "Infinito")
         })
         .map(|s| {
             let mut name = s.name.to_string();
@@ -156,35 +145,40 @@ mod tests {
 
     #[test]
     fn keys() {
-        assert_eq!(key("dance", "Dito", true), DITO);
+        assert_eq!(key("dance", "Infinito", true), INFINITO);
         assert_eq!(key("Pump", "Cmd", false), "pump/cmd");
-        assert_eq!(strike_key("dance", "Dito flat", true, Some("Dito")), DITO);
+        assert_eq!(
+            strike_key("dance", "Infinito", true, Some("Infinito")),
+            INFINITO
+        );
         assert!(!key("dance", "Delta", false).starts_with(KEY_PREFIX));
         assert_ne!(BUILT_IN, key("dance", "builtin", true));
     }
 
     #[test]
-    fn dito_declares_what_the_game_reads() {
+    fn infinito_declares_its_svg_controls_without_procedural_choices() {
         use crate::params::{Kind, Value};
-        let d = dito_parameters();
+        let d = infinito_parameters();
         assert!(d.warnings.is_empty(), "{:?}", d.warnings);
-        let colors = d.get(dito::COLORS).unwrap();
+        for name in ["ChartColors", "Lighter"] {
+            assert!(d.get(name).is_none());
+        }
+        let colors = d.get(infinito::COLORS).unwrap();
         let Kind::Choice(choices) = &colors.kind else {
-            panic!("{colors:?}")
+            panic!("a color choice")
         };
-        let ids: Vec<&str> = choices.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(ids, ["Vivid", "Rainbow", "Quantized", "Flat", "Single"]);
-        assert_eq!(colors.default, Value::Text("Vivid".into()));
-        // Each scheme but Quantized (Dito's own sheets) is a skin.
-        assert!(
-            choices
-                .iter()
-                .all(|c| (c.id == "Quantized") == c.skin.is_none())
+        assert_eq!(
+            choices.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["Vivid", "Rainbow", "Flat"]
         );
+        assert_eq!(colors.default, Value::Text("Vivid".into()));
+        assert!(choices.iter().all(|c| c.skin.is_none()));
         for (name, default) in [
-            (dito::CHART_COLORS, false),
-            (dito::LIGHTER, false),
-            (dito::EXPLOSIONS, true),
+            ("Onigiri", true),
+            ("ShockArrows", false),
+            (infinito::EXPLOSIONS, true),
+            ("ReceptorFill", true),
+            ("HitVariation", true),
         ] {
             let p = d.get(name).unwrap();
             assert_eq!(

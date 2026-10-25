@@ -12,6 +12,7 @@
 //! the play ([`NoteskinPlay::lua_failure`]).
 
 mod hold_material;
+mod judgment_links;
 mod lift_material;
 
 use ddi_actor::{Actor, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
@@ -2346,7 +2347,7 @@ impl NoteLayer for NoteskinPlay {
             // A `Def.LongNote` draws the whole long note.
             let parts = if roll { &lane.roll } else { &lane.hold };
             if let Element::LongNote(ln) = &parts.body[state] {
-                let clocks = self.clocks(i, Some(note.beat));
+                let clocks = self.note_clocks(i, note.beat, frame);
                 let seed = note_seed(note.note_index);
                 let fill = match ln
                     .fill
@@ -2606,7 +2607,7 @@ impl NoteLayer for NoteskinPlay {
                 continue;
             }
             if let Element::Component(c) = &e {
-                let clocks = self.clocks(i, Some(note.beat));
+                let clocks = self.note_clocks(i, note.beat, frame);
                 self.draw_component(
                     c,
                     at,
@@ -2703,39 +2704,70 @@ struct MineEndpoint<'a> {
     at: [f32; 2],
 }
 
-/// Connect adjacent lanes in each aligned chart row, independently of lane indices.
-/// A missing mine must leave a break rather than stretching across the empty lane.
-fn aligned_mines(
-    mut nodes: Vec<MineEndpoint<'_>>,
-    tolerance: f32,
-    lane_width: f32,
-) -> Vec<[MineEndpoint<'_>; 2]> {
+/// Adjacent nodes joined in each row, independently of lane indices: a
+/// row's nodes are of one `key` and within an eighth of a lane (`width`)
+/// of each other vertically, joined left to right where at most a lane
+/// apart. A missing node leaves a break rather than a bridge across the
+/// empty lane. Mine links and judgment links both join this way.
+fn adjacent_pairs<T: Copy>(
+    mut nodes: Vec<T>,
+    at: impl Fn(&T) -> [f32; 2],
+    key: impl Fn(&T, &T) -> std::cmp::Ordering,
+    width: f32,
+) -> Vec<[T; 2]> {
+    let tolerance = width * 0.125;
     nodes.sort_by(|a, b| {
-        a.note
-            .beat
-            .total_cmp(&b.note.beat)
-            .then_with(|| a.at[1].total_cmp(&b.at[1]))
-            .then_with(|| a.at[0].total_cmp(&b.at[0]))
+        let ([ax, ay], [bx, by]) = (at(a), at(b));
+        key(a, b)
+            .then_with(|| ay.total_cmp(&by))
+            .then_with(|| ax.total_cmp(&bx))
     });
-    let mut links = Vec::new();
+    let mut pairs = Vec::new();
     let mut start = 0;
     while start < nodes.len() {
         let first = nodes[start];
         let mut end = start + 1;
         while end < nodes.len()
-            && nodes[end].note.beat == first.note.beat
-            && (nodes[end].at[1] - first.at[1]).abs() <= tolerance
+            && key(&nodes[end], &first).is_eq()
+            && (at(&nodes[end])[1] - at(&first)[1]).abs() <= tolerance
         {
             end += 1;
         }
-        nodes[start..end].sort_by(|a, b| a.at[0].total_cmp(&b.at[0]));
-        links.extend(nodes[start..end].windows(2).filter_map(|pair| {
-            let distance = pair[1].at[0] - pair[0].at[0];
-            (distance > 0.001 && distance <= lane_width + 0.001).then_some([pair[0], pair[1]])
+        nodes[start..end].sort_by(|a, b| at(a)[0].total_cmp(&at(b)[0]));
+        pairs.extend(nodes[start..end].windows(2).filter_map(|pair| {
+            let distance = at(&pair[1])[0] - at(&pair[0])[0];
+            (distance > 0.001 && distance <= width + 0.001).then_some([pair[0], pair[1]])
         }));
         start = end;
     }
-    links
+    pairs
+}
+
+/// Visible mines joined in each chart row (`width` a lane).
+fn aligned_mines(nodes: Vec<MineEndpoint<'_>>, width: f32) -> Vec<[MineEndpoint<'_>; 2]> {
+    adjacent_pairs(
+        nodes,
+        |n| n.at,
+        |a, b| a.note.beat.total_cmp(&b.note.beat),
+        width,
+    )
+}
+
+/// Where a bridge authored over 64 units (x from -32 to 32) is drawn
+/// from `left` to `right`: only its length stretches, its thickness stays
+/// at the note's drawing scale (`arrow` pixels a lane).
+fn bridge(left: [f32; 2], right: [f32; 2], arrow: f32) -> [f32; 6] {
+    let [dx, dy] = [right[0] - left[0], right[1] - left[1]];
+    let length = dx.hypot(dy);
+    let k = arrow / 64.0;
+    [
+        dx / 64.0,
+        dy / 64.0,
+        -dy / length * k,
+        dx / length * k,
+        (left[0] + right[0]) * 0.5,
+        (left[1] + right[1]) * 0.5,
+    ]
 }
 
 fn has_mine_link(element: &Element) -> bool {
@@ -2819,13 +2851,9 @@ impl NoteskinPlay {
                     .then_some(MineEndpoint { note, at })
             })
             .collect();
-        let k = geo.arrow / 64.0;
-        for [left, right] in aligned_mines(nodes, geo.arrow * 0.125, geo.arrow) {
+        for [left, right] in aligned_mines(nodes, geo.arrow) {
             joined.entry(left.note.note_index).or_default()[1] = true;
             joined.entry(right.note.note_index).or_default()[0] = true;
-            let dx = right.at[0] - left.at[0];
-            let dy = right.at[1] - left.at[1];
-            let length = dx.hypot(dy);
             let lane = &mut lanes[usize::from(left.note.lane)];
             let e = lane.note_slot(Slot::Mine, note_type(left.note.beat));
             let split = split_mine_rims(e);
@@ -2836,18 +2864,9 @@ impl NoteskinPlay {
                     [1.0, 1.0, 1.0, left.note.alpha.min(right.note.alpha)],
                     [1.0, 1.0, 1.0, left.note.glow.min(right.note.glow)],
                 );
-                // The child is authored over 64 logical pixels. Stretch only
-                // its length; keep its width at the note's drawing scale.
                 self.emit(
                     a,
-                    [
-                        dx / 64.0,
-                        dy / 64.0,
-                        -dy / length * k,
-                        dx / length * k,
-                        (left.at[0] + right.at[0]) * 0.5,
-                        (left.at[1] + right.at[1]) * 0.5,
-                    ],
+                    bridge(left.at, right.at, geo.arrow),
                     [0.0; 2],
                     if split { electricity } else { out },
                 );
@@ -2924,7 +2943,7 @@ impl NoteskinPlay {
                     // what the lane's last press did.
                     let clocks = ddi_noteskin::component::Clocks {
                         hit: step.map(|h| (self.frame_time.0 - h.at) as f32),
-                        ..self.clocks(i, None)
+                        ..self.clocks(i)
                     };
                     let shows = move |p: &ddi_noteskin::component::Part| {
                         let shown = p.when.is_empty()
@@ -2961,6 +2980,7 @@ impl NoteskinPlay {
         let k = geo.arrow / 64.0;
         let now = self.frame_time.0;
         let lanes = std::mem::take(&mut self.lanes);
+        let links = self.judgment_links(&lanes, layout, geo);
         for (i, lane) in lanes.iter().enumerate() {
             let (Some(l), Element::Component(c)) = (layout.lanes.get(i), &lane.explosion) else {
                 continue;
@@ -2988,7 +3008,7 @@ impl NoteskinPlay {
                 let clocks = ddi_noteskin::component::Clocks {
                     hit: Some(age as f32),
                     ended: ended.map(|end: f64| (end - at_time) as f32),
-                    ..self.clocks(i, None)
+                    ..self.clocks(i)
                 };
                 self.draw_component(
                     c,
@@ -2997,29 +3017,50 @@ impl NoteskinPlay {
                     (1.0, 1.0),
                     hit_seed(i, at_time),
                     &clocks,
-                    &|p| p.shows_for(name, bright).then_some(Mask::None),
+                    &|p| {
+                        (p.shows_for(name, bright)
+                            && links.shows(i, name, at_time, p.role.as_deref()))
+                        .then_some(Mask::None)
+                    },
                     out,
                 );
             }
         }
+        self.draw_judgment_links(&lanes, &links, geo, out);
         self.lanes = lanes;
     }
 
-    /// What lane `lane`'s components read now, for the note at `note`
-    /// (its beat) if one is drawn (`ddi_noteskin::component::Clocks`).
-    fn clocks(&self, lane: usize, note: Option<f32>) -> ddi_noteskin::component::Clocks {
+    /// What lane `lane`'s components read now, with no note drawn
+    /// (`ddi_noteskin::component::Clocks`).
+    fn clocks(&self, lane: usize) -> ddi_noteskin::component::Clocks {
         let p = self.presses.get(lane).copied().unwrap_or_default();
         let since = |t: Option<f64>| t.map(|t| (self.frame_time.0 - t) as f32);
         ddi_noteskin::component::Clocks {
             beat: self.frame_time.1 as f32,
             seconds: self.frame_time.0 as f32,
-            note,
+            note: None,
             roll_window: self.frame_time.2 as f32,
             press: since(p.pressed),
             release: since(p.released),
             hit: None,
             seed: 0.0,
             ended: None,
+        }
+    }
+
+    /// What lane `lane`'s components read for the note at `note` (its
+    /// beat). Note animation follows the frame's beat even when an editor
+    /// holds receptors and the skin's other clocks at rest.
+    fn note_clocks(
+        &self,
+        lane: usize,
+        note: f32,
+        frame: &Frame,
+    ) -> ddi_noteskin::component::Clocks {
+        ddi_noteskin::component::Clocks {
+            beat: frame.beat as f32,
+            note: Some(note),
+            ..self.clocks(lane)
         }
     }
 
@@ -3037,9 +3078,6 @@ impl NoteskinPlay {
         mask_of: &dyn Fn(&ddi_noteskin::component::Part) -> Option<Mask>,
         out: &mut Vec<TexQuad>,
     ) {
-        let [vx, vy, vw, vh] = c.view_box;
-        // Unit square -> the part's image over the view box.
-        let image = [vw, 0.0, 0.0, vh, vx + vw / 2.0, vy + vh / 2.0];
         // The instance's seed for its random bindings.
         let clocks = &ddi_noteskin::component::Clocks { seed, ..*clocks };
         // Its own animation, turned and zoomed about its pivot, inside its
@@ -3064,6 +3102,28 @@ impl NoteskinPlay {
             affine_mul(rotation(c.rotation), [c.zoom, 0.0, 0.0, c.zoom, 0.0, 0.0]),
             own,
         );
+        self.draw_parts(c, turn, at, k, (alpha, tint), clocks, mask_of, out);
+    }
+
+    /// A component's parts as drawn at `clocks` (seeded), placed in the
+    /// lane by `turn` (in its units), its origin at `at`, `k` screen pixels
+    /// a unit ([`NoteskinPlay::draw_component`]).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_parts(
+        &mut self,
+        c: &ddi_noteskin::component::Component,
+        turn: [f32; 6],
+        at: [f32; 2],
+        k: f32,
+        (alpha, tint): (f32, f32),
+        clocks: &ddi_noteskin::component::Clocks,
+        mask_of: &dyn Fn(&ddi_noteskin::component::Part) -> Option<Mask>,
+        out: &mut Vec<TexQuad>,
+    ) {
+        let [vx, vy, vw, vh] = c.view_box;
+        // Unit square -> the part's image over the view box.
+        let image = [vw, 0.0, 0.0, vh, vx + vw / 2.0, vy + vh / 2.0];
+        let seed = clocks.seed;
         let outer = affine_mul([k, 0.0, 0.0, k, at[0], at[1]], turn);
         let lane = turn;
         for pose in c.pose(clocks) {
@@ -3486,6 +3546,157 @@ mod tests {
     /// A skin's Lua through a play: `tap` is its `Down Tap Note.lua`.
     fn lua_play(tap: &str) -> NoteskinPlay {
         lua_play_with(tap, &[])
+    }
+
+    #[test]
+    fn judgment_contours_link_only_adjacent_visible_matching_effects() {
+        use ddi_noteskin::component::{Binding, Clock, Component, Part as ComponentPart, Property};
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        let parts = [None, Some("rim-left"), Some("rim-right"), Some("link")]
+            .into_iter()
+            .enumerate()
+            .map(|(i, role)| {
+                let mut part = ComponentPart::new(None, role.map(str::to_string), vec![i as u32]);
+                part.when = vec!["HitMine".into(), "W1".into()];
+                part.bindings.push(Binding {
+                    property: Property::Opacity,
+                    clock: Clock::Hit,
+                    function: ddi_noteskin::component::Function::Curve {
+                        keys: vec![(0.0, 1.0), (0.45, 0.0)],
+                        ease: ddi_noteskin::component::Ease::Linear,
+                        length: None,
+                    },
+                });
+                part
+            })
+            .collect();
+        let component = Component {
+            file: "test.svg".into(),
+            id: "shock".into(),
+            view_box: [-48.0, -48.0, 96.0, 96.0],
+            rotation: 0.0,
+            zoom: 1.0,
+            parts,
+            duration: 0.5,
+            bindings: Vec::new(),
+            pivot: [0.0; 2],
+        };
+        for lane in &mut play.lanes {
+            lane.explosion = Element::Component(Box::new(component.clone()));
+        }
+        play.texture_ids = vec![Some(70), Some(71), Some(72), Some(73)];
+        play.frame_time = (0.2, 0.4, 0.35);
+        let hit = |at, name| Hit {
+            at,
+            name,
+            bright: false,
+        };
+        play.lanes[0].hits.push_back(hit(0.0, "HitMine"));
+        // A slightly later neighbor still joins; the bridge uses the weaker fade.
+        play.lanes[1].hits.push_back(hit(0.1, "HitMine"));
+        let mut layout = Layout::dance_single();
+        let mut geo = FieldGeometry {
+            arrow: 64.0,
+            left: 0.0,
+            receptor_y: 64.0,
+            direction: 1.0,
+            width: 256.0,
+            height: 512.0,
+        };
+        let draw = |play: &mut NoteskinPlay, layout: &Layout, geo: &FieldGeometry| {
+            let mut out = Vec::new();
+            play.explosion_instances(layout, geo, &mut out);
+            out
+        };
+        let drawn = draw(&mut play, &layout, &geo);
+        assert_eq!(drawn.iter().filter(|q| q.texture == 73).count(), 1);
+        assert_eq!(drawn.iter().filter(|q| q.texture == 71).count(), 1);
+        assert_eq!(drawn.iter().filter(|q| q.texture == 72).count(), 1);
+        let bridge = drawn.iter().find(|q| q.texture == 73).unwrap();
+        let left = drawn.iter().find(|q| q.texture == 71).unwrap();
+        assert!((bridge.color[3] - left.color[3]).abs() < 1e-6);
+        // Repeated hits do not emit duplicate bridges; only the linked
+        // instance gives its rim up, the older one keeps both.
+        play.lanes[0].hits.push_back(hit(0.15, "HitMine"));
+        let repeated = draw(&mut play, &layout, &geo);
+        assert_eq!(repeated.iter().filter(|q| q.texture == 73).count(), 1);
+        assert_eq!(repeated.iter().filter(|q| q.texture == 71).count(), 2);
+        assert_eq!(repeated.iter().filter(|q| q.texture == 72).count(), 2);
+        // Same geometry in reverse; no hardcoded receptor Y or button order.
+        geo.direction = -1.0;
+        geo.receptor_y = 448.0;
+        layout.lanes.swap(0, 1);
+        let reversed = draw(&mut play, &layout, &geo);
+        assert_eq!(reversed.iter().filter(|q| q.texture == 73).count(), 1);
+        let Shape::Quad { transform, .. } =
+            reversed.iter().find(|q| q.texture == 73).unwrap().shape
+        else {
+            panic!("bridge quad")
+        };
+        assert_eq!(transform[5], 448.0);
+        layout.lanes.swap(0, 1);
+        // Opposite scroll rows, an empty column, or another judgment never joins.
+        layout.lanes[1].scroll_sign = -1;
+        assert!(
+            !draw(&mut play, &layout, &geo)
+                .iter()
+                .any(|q| q.texture == 73)
+        );
+        layout.lanes[1].scroll_sign = 1;
+        play.lanes[2].hits = std::mem::take(&mut play.lanes[1].hits);
+        assert!(
+            !draw(&mut play, &layout, &geo)
+                .iter()
+                .any(|q| q.texture == 73)
+        );
+        play.lanes[1].hits = std::mem::take(&mut play.lanes[2].hits);
+        play.lanes[1].hits.back_mut().unwrap().name = "W1";
+        assert!(
+            !draw(&mut play, &layout, &geo)
+                .iter()
+                .any(|q| q.texture == 73)
+        );
+        play.lanes[1].hits.back_mut().unwrap().name = "HitMine";
+        // The neighbor is transparent before its component lifetime expires.
+        play.frame_time.0 = 0.55;
+        let expired = draw(&mut play, &layout, &geo);
+        assert!(!expired.iter().any(|q| q.texture == 73));
+        assert!(expired.iter().any(|q| q.texture == 71));
+        assert!(expired.iter().any(|q| q.texture == 72));
+        // Two scroll rows can share columns without interrupting each other's links.
+        play.frame_time.0 = 0.2;
+        for lane in &mut play.lanes {
+            lane.hits.clear();
+            lane.hits.push_back(hit(0.0, "HitMine"));
+        }
+        let chain = draw(&mut play, &layout, &geo);
+        assert_eq!(chain.iter().filter(|q| q.texture == 73).count(), 3);
+        assert_eq!(chain.iter().filter(|q| q.texture == 71).count(), 1);
+        assert_eq!(chain.iter().filter(|q| q.texture == 72).count(), 1);
+        layout.lanes[2].column = 0.0;
+        layout.lanes[3].column = 1.0;
+        layout.lanes[2].scroll_sign = -1;
+        layout.lanes[3].scroll_sign = -1;
+        let rows = draw(&mut play, &layout, &geo);
+        assert_eq!(rows.iter().filter(|q| q.texture == 73).count(), 2);
+        // A component turned for its lane still bridges straight across.
+        for lane in &mut play.lanes {
+            if let Element::Component(c) = &mut lane.explosion {
+                c.rotation = 90.0;
+            }
+        }
+        let turned = draw(&mut play, &layout, &geo);
+        let bridges: Vec<_> = turned.iter().filter(|q| q.texture == 73).collect();
+        assert_eq!(bridges.len(), 2);
+        for q in bridges {
+            let Shape::Quad { transform, .. } = q.shape else {
+                panic!("bridge quad")
+            };
+            assert!(
+                transform[0] > 0.0 && transform[1].abs() < 1e-3,
+                "{transform:?}"
+            );
+        }
     }
 
     #[test]
@@ -4071,11 +4282,11 @@ mod tests {
                     *row_counts.entry(node.at[1].to_bits()).or_insert(0usize) += 1;
                 }
                 let expected: usize = row_counts.values().map(|n| n.saturating_sub(1)).sum();
-                let links = aligned_mines(nodes.clone(), geo.arrow * 0.125, geo.arrow);
+                let links = aligned_mines(nodes.clone(), geo.arrow);
                 assert_eq!(links.len(), expected, "{id} reverse={reverse}");
                 let mut reordered = nodes.clone();
                 reordered.reverse();
-                let shuffled = aligned_mines(reordered, geo.arrow * 0.125, geo.arrow);
+                let shuffled = aligned_mines(reordered, geo.arrow);
                 let ids = |links: Vec<[MineEndpoint<'_>; 2]>| {
                     links
                         .iter()
@@ -4113,12 +4324,12 @@ mod tests {
                 at: [i as f32 * 64.0, 100.0],
             })
             .collect();
-        assert_eq!(aligned_mines(nodes.clone(), 8.0, 64.0).len(), 3);
+        assert_eq!(aligned_mines(nodes.clone(), 64.0).len(), 3);
         let separated = vec![nodes[0], nodes[2], nodes[3]];
-        let links = aligned_mines(separated, 8.0, 64.0);
+        let links = aligned_mines(separated, 64.0);
         assert_eq!(links.len(), 1);
         assert_eq!((links[0][0].note.lane, links[0][1].note.lane), (2, 3));
-        assert!(aligned_mines(vec![nodes[0], nodes[3]], 8.0, 64.0).is_empty());
+        assert!(aligned_mines(vec![nodes[0], nodes[3]], 64.0).is_empty());
     }
 
     #[test]

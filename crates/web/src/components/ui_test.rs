@@ -418,7 +418,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         white,
     );
     l.text(
-        "DITO 0123456789 ÀÉÎÕÜ",
+        "INFINITO 0123456789 ÀÉÎÕÜ",
         &bundled,
         24.0,
         392.0,

@@ -89,7 +89,7 @@ impl StoredSkin {
     }
 }
 
-use ddi_noteskin::bundled::DITO;
+use ddi_noteskin::bundled::INFINITO;
 pub(crate) use ddi_noteskin::bundled::{BUILT_IN, KEY_PREFIX as BUNDLED, skin_key};
 
 /// Key of a skin's file in the `files` store.
@@ -297,7 +297,7 @@ pub(crate) async fn choices() -> Result<Choices, String> {
         parameters,
         skins,
         complete,
-        default_lua_off: LUA_OFF.with(|off| off.borrow().get(DITO).cloned()),
+        default_lua_off: LUA_OFF.with(|off| off.borrow().get(INFINITO).cloned()),
     })
 }
 

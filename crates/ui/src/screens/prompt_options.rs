@@ -275,13 +275,13 @@ impl PlayOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::settings::DITO;
+    use crate::state::settings::INFINITO;
 
     fn options() -> PlayOptions {
         let mut o = PlayOptions::new(Settings::default(), "dance-single", Platform::Web);
         o.set_noteskins(
             vec![
-                (DITO.into(), "Dito".into()),
+                (INFINITO.into(), "Infinito".into()),
                 ("bundled:dance/Peters-DDR".into(), "Peters-DDR".into()),
                 ("pump/cmd".into(), "cmd".into()),
             ],

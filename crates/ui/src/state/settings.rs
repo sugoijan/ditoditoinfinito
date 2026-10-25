@@ -74,36 +74,18 @@ pub struct Settings {
     pub import_videos: bool,
     /// The noteskin layouts are drawn with: an imported one's key,
     /// `dance/<name>`, or a bundled one's, `bundled:dance/<name>`; `None`:
-    /// Dito, the built-in arrows as a skin ([`Settings::play_skin`]).
-    /// (`builtin`, the built-in arrows without a skin, was a choice of its
-    /// own before it was Dito's `Lighter`; it is moved there on load.)
+    /// the default SVG Infinito ([`Settings::play_skin`]). Older procedural and
+    /// Spiral Base choices migrate to Infinito on load.
     pub noteskin: Option<String>,
     /// The pump noteskin pump layouts are drawn with (`pump/<name>`, an
     /// imported one's key); `None`: the noteskin above draws them too.
     pub pump_noteskin: Option<String>,
     /// The values set for skins' parameters
-    /// (`docs/plans/skin-parameters.md`), by skin key (Dito's, [`DITO`],
+    /// (`docs/plans/skin-parameters.md`), by skin key (Infinito's, [`INFINITO`],
     /// whether chosen or not), then by name; a value equal to its default
-    /// is not kept. Dito's carry the note colors, a chart's own colors
-    /// (decision 23: off by default) and the lighter drawing
-    /// ([`Settings::note_colors`], [`Settings::chart_colors`],
-    /// [`Settings::lighter`]).
+    /// is not kept. Infinito's control onigiri, mine shapes, receptor fill and hit
+    /// effects; old procedural controls are removed on load.
     pub skin_params: BTreeMap<String, Values>,
-    /// The note colors and a chart's own colors as settings of their own,
-    /// before they were Dito's parameters: read from older settings and
-    /// moved there on load ([`Settings::sanitize`]); never saved.
-    #[serde(
-        rename = "note_colors",
-        skip_serializing,
-        deserialize_with = "ddi_engine::lenient"
-    )]
-    pub old_note_colors: Option<NoteColors>,
-    #[serde(
-        rename = "chart_colors",
-        skip_serializing,
-        deserialize_with = "ddi_engine::lenient"
-    )]
-    pub old_chart_colors: Option<bool>,
     /// Show the lyrics of songs that have them (Dancing☆Onigiri works, a
     /// simfile's `.lrc` file).
     pub lyrics: bool,
@@ -299,7 +281,7 @@ fn center_versions<'de, D: serde::Deserializer<'de>>(d: D) -> Result<CenterVersi
 }
 
 /// Note color scheme (see `ddi_render::note_colors`; the app maps it):
-/// Dito's `Colors` parameter, whose choices are these names.
+/// The fallback renderer's legacy palette names; SVG Infinito owns its material.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoteColors {
     /// By subdivision.
@@ -356,8 +338,6 @@ impl Default for Settings {
             noteskin: None,
             pump_noteskin: None,
             skin_params: BTreeMap::new(),
-            old_note_colors: None,
-            old_chart_colors: None,
             lyrics: true,
             import_details: false,
             import_copy: false,
@@ -396,8 +376,8 @@ impl Default for Settings {
 
 /// The noteskin keys' forms, defined with the skins
 /// ([`ddi_noteskin::bundled`]): the built-in arrows' value, bundled skins'
-/// prefix ([`BUNDLED`]) and Dito's key.
-pub use ddi_noteskin::bundled::{BUILT_IN, DITO, KEY_PREFIX as BUNDLED};
+/// prefix ([`BUNDLED`]) and Infinito's key.
+pub use ddi_noteskin::bundled::{BUILT_IN, INFINITO, KEY_PREFIX as BUNDLED};
 /// Skins' parameters' values.
 pub use ddi_noteskin::params::{Value as ParamValue, Values};
 
@@ -430,32 +410,19 @@ impl Settings {
         }
     }
 
-    /// The skin a play draws layout `layout` (an id) with, by key: the
-    /// chosen one ([`Settings::noteskin_for`]), or Dito (the built-in
-    /// arrows as a skin, when none is chosen; its `Colors` parameter picks
-    /// the color scheme's skin as it loads); none for the built-in arrows:
-    /// Dito drawn lighter, or `chart`'s own colors drawn (a skin colors
-    /// notes by their place in the beat, not one by one). `None` for a
-    /// chart without colors, as the field preview's demo.
-    pub fn play_skin(&self, layout: &str, chart: Option<&ddi_chart::Chart>) -> Option<String> {
-        let chart_colors =
-            self.chart_colors() && chart.is_some_and(|c| c.notes.iter().any(|n| n.color.is_some()));
+    /// The chosen skin for `layout`, or the default SVG Infinito. The explicit
+    /// built-in key remains available internally for fallback/replay drawing.
+    pub fn play_skin(&self, layout: &str) -> Option<String> {
         match self.noteskin_for(layout) {
             Some(BUILT_IN) => None,
             Some(key) => Some(key.to_string()),
-            None if self.lighter() || chart_colors => None,
-            None => Some(DITO.to_string()),
+            None => Some(INFINITO.to_string()),
         }
     }
 
-    /// Whether the built-in arrows draw every layout a pump skin does not:
-    /// Dito drawn lighter (no skin's blending to make ready for).
+    /// Whether an internal explicit procedural selection is active.
     pub fn builtin_arrows(&self) -> bool {
-        match self.noteskin.as_deref() {
-            Some(BUILT_IN) => true,
-            Some(_) => false,
-            None => self.lighter(),
-        }
+        self.noteskin.as_deref() == Some(BUILT_IN)
     }
 
     /// Lets the chosen skins go that are not `there` (by key; gone, or
@@ -503,26 +470,17 @@ impl Settings {
         }
     }
 
-    /// Dito's parameters' values, as its declarations take them.
-    pub fn dito_params(&self) -> Values {
-        ddi_noteskin::bundled::dito_parameters()
-            .resolve(self.skin_params.get(DITO).unwrap_or(&Values::new()))
+    /// Infinito's parameter `name`'s value, as its declaration takes it.
+    fn infinito_param(&self, name: &str) -> Option<ParamValue> {
+        ddi_noteskin::bundled::infinito_parameters().value(
+            self.skin_params.get(INFINITO).unwrap_or(&Values::new()),
+            name,
+        )
     }
 
-    /// Dito's parameter `name`'s value, as its declaration takes it.
-    fn dito_param(&self, name: &str) -> Option<ParamValue> {
-        ddi_noteskin::bundled::dito_parameters()
-            .value(self.skin_params.get(DITO).unwrap_or(&Values::new()), name)
-    }
-
-    /// Dito's toggle `name`.
-    fn dito_toggle(&self, name: &str) -> bool {
-        self.dito_param(name) == Some(ParamValue::Bool(true))
-    }
-
-    /// The note colors: Dito's, which the built-in arrows draw in too.
+    /// Infinito's selected color scheme, also used if procedural fallback is needed.
     pub fn note_colors(&self) -> NoteColors {
-        match self.dito_param(ddi_noteskin::bundled::dito::COLORS) {
+        match self.infinito_param(ddi_noteskin::bundled::infinito::COLORS) {
             Some(ParamValue::Text(name)) => {
                 serde_json::from_value(serde_json::Value::String(name)).unwrap_or_default()
             }
@@ -530,42 +488,43 @@ impl Settings {
         }
     }
 
-    /// Whether a chart's own note colors are drawn (Dito's toggle; by the
-    /// built-in arrows).
-    pub fn chart_colors(&self) -> bool {
-        self.dito_toggle(ddi_noteskin::bundled::dito::CHART_COLORS)
-    }
-
-    /// Whether Dito is drawn lighter: by the built-in arrows, without the
-    /// skin (Dito's toggle).
-    pub fn lighter(&self) -> bool {
-        self.dito_toggle(ddi_noteskin::bundled::dito::LIGHTER)
-    }
-
-    /// Dito's parameter `name` set to `value` as its declaration takes it
+    /// Infinito's parameter `name` set to `value` as its declaration takes it
     /// (forgotten at its default).
-    pub fn set_dito_param(&mut self, name: &str, value: ParamValue) {
-        let declared = ddi_noteskin::bundled::dito_parameters().get(name);
+    pub fn set_infinito_param(&mut self, name: &str, value: ParamValue) {
+        let declared = ddi_noteskin::bundled::infinito_parameters().get(name);
         let value = declared.and_then(|p| p.accept(&value));
-        self.set_skin_param(DITO, name, value, declared.map(|p| &p.default));
+        self.set_skin_param(INFINITO, name, value, declared.map(|p| &p.default));
     }
 
-    /// Settings as older versions kept them, moved to where they are now:
-    /// the note colors, a chart's own colors and the built-in arrows'
-    /// choice into Dito's parameters (2026-10-21).
+    /// Retired skin names and controls become the new default Infinito;
+    /// preserve the authored Spiral Base options under its stable key.
     pub(crate) fn migrate(&mut self) {
-        use ddi_noteskin::bundled::dito;
-        if let Some(colors) = self.old_note_colors.take()
-            && let Ok(serde_json::Value::String(name)) = serde_json::to_value(colors)
-        {
-            self.set_dito_param(dito::COLORS, ParamValue::Text(name));
+        const SPIRAL: &str = "bundled:dance/spiral base";
+        const OLD_DITO: &str = "bundled:dance/dito";
+        for key in [&mut self.noteskin, &mut self.pump_noteskin] {
+            match key.as_deref() {
+                Some(
+                    SPIRAL
+                    | OLD_DITO
+                    | "bundled:dance/dito vivid"
+                    | "bundled:dance/dito rainbow"
+                    | "bundled:dance/dito flat"
+                    | "bundled:dance/dito single",
+                ) => {
+                    *key = Some(INFINITO.into());
+                }
+                Some(BUILT_IN) => *key = None,
+                _ => {}
+            }
         }
-        if let Some(on) = self.old_chart_colors.take() {
-            self.set_dito_param(dito::CHART_COLORS, ParamValue::Bool(on));
-        }
-        if self.noteskin.as_deref() == Some(BUILT_IN) {
-            self.noteskin = None;
-            self.set_dito_param(dito::LIGHTER, ParamValue::Bool(true));
+        let mut values = self.skin_params.remove(OLD_DITO).unwrap_or_default();
+        values.extend(self.skin_params.remove(SPIRAL).unwrap_or_default());
+        // An explicit choice under the new key takes precedence.
+        values.extend(self.skin_params.remove(INFINITO).unwrap_or_default());
+        // What Infinito does not declare or take is let go, and a value at
+        // its default is not kept.
+        for (name, value) in values {
+            self.set_infinito_param(&name, value);
         }
         // The two Peters skins now share one choice and a Colors parameter.
         // Keep the selected look, including in a replay's settings snapshot.
@@ -1095,7 +1054,6 @@ mod tests {
         assert_eq!(Settings::default().simplify_center, CenterVersions::Missing);
         assert!(!s.simplify_onigiri);
         assert_eq!(s.note_colors(), NoteColors::Vivid);
-        assert_eq!(s.old_note_colors, None);
         assert!(s.skin_params.is_empty());
         assert_eq!(s.display_profiles.len(), 1);
         assert_eq!(s.display_profiles[0].id, "display:1920x1080@2");
@@ -1114,61 +1072,111 @@ mod tests {
     }
 
     #[test]
-    fn note_colors_chart_colors_and_the_built_in_choice_become_ditos_parameters() {
-        use ddi_noteskin::bundled::dito;
+    fn retired_skins_and_spiral_options_migrate_to_the_new_infinito() {
         storage::install(Rc::new(MemoryStore::default()));
-        storage::set(
-            Area::Local,
-            KEY,
-            r#"{"note_colors": "Rainbow", "chart_colors": true, "noteskin": "builtin"}"#,
-        )
-        .unwrap();
-        let s = Settings::load();
-        assert_eq!(s.noteskin, None);
-        assert_eq!(s.note_colors(), NoteColors::Rainbow);
-        assert!(s.chart_colors() && s.lighter() && s.builtin_arrows());
+        for key in [
+            "builtin",
+            "bundled:dance/spiral base",
+            "bundled:dance/dito",
+            "bundled:dance/dito flat",
+        ] {
+            storage::set(
+                Area::Local,
+                KEY,
+                &serde_json::json!({
+                    "noteskin": key, "note_colors": "Rainbow", "chart_colors": true,
+                    "skin_params": {
+                        "bundled:dance/dito": {"Lighter": true, "Colors": "Flat", "Explosions": false},
+                        "bundled:dance/spiral base": {"ShockArrows": true, "Onigiri": false}
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let s = Settings::load();
+            assert_eq!(s.play_skin("dance-single").as_deref(), Some(INFINITO));
+            assert!(!s.builtin_arrows());
+            assert_eq!(s.note_colors(), NoteColors::Flat);
+            assert_eq!(
+                s.skin_params(INFINITO),
+                Values::from([
+                    ("Colors".into(), ParamValue::Text("Flat".into())),
+                    ("Explosions".into(), ParamValue::Bool(false)),
+                    ("ShockArrows".into(), ParamValue::Bool(true)),
+                    ("Onigiri".into(), ParamValue::Bool(false)),
+                ])
+            );
+            assert!(!s.skin_params.contains_key("bundled:dance/spiral base"));
+            assert!(!s.skin_params.contains_key("bundled:dance/dito"));
+            assert_eq!(Settings::load(), s);
+        }
+    }
+
+    #[test]
+    fn infinito_lets_go_of_what_it_does_not_take() {
+        let mut s = Settings {
+            skin_params: [(
+                INFINITO.into(),
+                Values::from([
+                    // Not one of its colors, no longer declared, its default.
+                    ("Colors".into(), ParamValue::Text("Quantized".into())),
+                    ("Lighter".into(), ParamValue::Bool(true)),
+                    ("Explosions".into(), ParamValue::Bool(true)),
+                ]),
+            )]
+            .into(),
+            ..Settings::default()
+        };
+        s.migrate();
+        assert!(s.skin_params.is_empty(), "{:?}", s.skin_params);
+        assert_eq!(s.note_colors(), NoteColors::Vivid);
+    }
+
+    #[test]
+    fn renamed_infinito_keeps_current_choices_over_former_keys() {
+        let mut s = Settings {
+            noteskin: Some("bundled:dance/dito".into()),
+            pump_noteskin: Some("bundled:dance/spiral base".into()),
+            skin_params: [
+                (
+                    "bundled:dance/dito".into(),
+                    Values::from([
+                        ("Colors".into(), ParamValue::Text("Rainbow".into())),
+                        ("Explosions".into(), ParamValue::Bool(false)),
+                    ]),
+                ),
+                (
+                    INFINITO.into(),
+                    Values::from([("Colors".into(), ParamValue::Text("Flat".into()))]),
+                ),
+            ]
+            .into(),
+            ..Settings::default()
+        };
+        s.migrate();
+        assert_eq!(s.noteskin.as_deref(), Some(INFINITO));
+        assert_eq!(s.pump_noteskin.as_deref(), Some(INFINITO));
+        assert_eq!(s.note_colors(), NoteColors::Flat);
         assert_eq!(
-            s.skin_params(DITO),
-            Values::from([
-                (dito::CHART_COLORS.into(), ParamValue::Bool(true)),
-                (dito::COLORS.into(), ParamValue::Text("Rainbow".into())),
-                (dito::LIGHTER.into(), ParamValue::Bool(true)),
-            ])
+            s.skin_params(INFINITO).get("Explosions"),
+            Some(&ParamValue::Bool(false))
         );
-        // Stored as moved: the old names are gone.
-        let text = storage::get(Area::Local, KEY).unwrap();
-        assert!(
-            !text.contains("note_colors") && !text.contains("builtin"),
-            "{text}"
-        );
-        assert_eq!(Settings::load(), s);
-        // Lighter or a chart's colors: the built-in arrows, not Dito.
-        assert_eq!(s.play_skin("dance-single", None), None);
-        // The defaults are not kept: nothing of Dito's.
-        storage::set(
-            Area::Local,
-            KEY,
-            r#"{"note_colors": "Vivid", "chart_colors": false, "noteskin": null}"#,
-        )
-        .unwrap();
-        let s = Settings::load();
-        assert!(s.skin_params.is_empty());
-        assert_eq!(s.play_skin("dance-single", None), Some(DITO.into()));
-        assert!(!s.builtin_arrows());
+        assert!(!s.skin_params.contains_key("bundled:dance/dito"));
+        let again = s.clone();
+        s.migrate();
+        assert_eq!(s, again);
     }
 
     #[test]
     fn skins_parameters_are_kept_within_bounds() {
         let mut s = Settings::default();
-        s.set_dito_param(dito_colors(), ParamValue::Text("flat".into()));
-        assert_eq!(s.note_colors(), NoteColors::Flat);
-        // Its declaration's own case is kept; a value it does not take is
-        // not stored.
+        s.set_infinito_param("ShockArrows", ParamValue::Bool(true));
         assert_eq!(
-            s.skin_params(DITO).get(dito_colors()),
-            Some(&ParamValue::Text("Flat".into()))
+            s.skin_params(INFINITO).get("ShockArrows"),
+            Some(&ParamValue::Bool(true))
         );
-        s.set_dito_param(dito_colors(), ParamValue::Text("Plaid".into()));
+        // Invalid values are forgotten; defaults are not stored.
+        s.set_infinito_param("ShockArrows", ParamValue::Text("Plaid".into()));
         assert!(s.skin_params.is_empty());
         for i in 0..100 {
             let mut values = Values::new();
@@ -1186,10 +1194,6 @@ mod tests {
             assert_eq!(values.len(), ddi_noteskin::params::MAX_PARAMETERS);
             assert!(!values.contains_key("long") && !values.contains_key("nan"));
         }
-    }
-
-    fn dito_colors() -> &'static str {
-        ddi_noteskin::bundled::dito::COLORS
     }
 
     #[test]

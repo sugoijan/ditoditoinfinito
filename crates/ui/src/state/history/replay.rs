@@ -16,7 +16,7 @@ use super::{
     RECORD_VERSION, RulesetKey, Worked, find_chart, replay, score_text,
 };
 use crate::screens::data::PlayRow;
-use crate::state::settings::{BUILT_IN, BUNDLED, DITO, Settings};
+use crate::state::settings::{BUILT_IN, BUNDLED, INFINITO, Settings};
 
 /// A kept play, read back to be watched again or its results shown.
 #[derive(Clone, Debug, PartialEq)]
@@ -221,15 +221,15 @@ impl Replay {
         if !read {
             s.noteskin = drawn.noteskin.clone();
             s.pump_noteskin = None;
-            // The skin's parameters as drawn, and Dito's colors (older
-            // records' only: settings of their own then).
-            let key = drawn.noteskin.clone().unwrap_or_else(|| DITO.to_string());
+            // The skin's parameters as drawn.
+            let key = drawn
+                .noteskin
+                .clone()
+                .unwrap_or_else(|| INFINITO.to_string());
             s.skin_params.remove(&key);
             if !drawn.skin_params.is_empty() {
                 s.skin_params.insert(key, drawn.skin_params.clone());
             }
-            s.old_note_colors = serde_json::from_value(named(&drawn.note_colors)).ok();
-            s.old_chart_colors = Some(drawn.chart_colors);
             s.migrate();
             if let Ok(v) = serde_json::from_value(named(&drawn.background_frame)) {
                 s.background_frame = v;

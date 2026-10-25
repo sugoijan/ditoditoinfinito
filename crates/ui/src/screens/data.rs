@@ -704,7 +704,7 @@ pub struct OptionsData {
     pub sections: Vec<OptionSection>,
     /// The layout selector above the preview, shared by every section.
     pub preview_layout: Option<OptionDef>,
-    /// Under the field preview ("Dito · Single · ×2.5 · Reverse").
+    /// Under the field preview ("Infinito · Single · ×2.5 · Reverse").
     pub preview: String,
     /// What the last action did ("Settings reset.", "3 plays
     /// exported."), shown in the header.
