@@ -96,12 +96,15 @@ fn ssc_opus_preserves_odd_frame_counts_and_plays_every_supported_layout() {
                 "danoni-7",
                 "danoni-9A",
                 "danoni-9B",
+                // 5 keys converted.
+                "pump-single",
                 "techno-single8",
             ]
         );
         for chart in charts {
-            let lanes = match chart["layout"].as_str().unwrap() {
-                "danoni-5" => 5,
+            let layout = chart["layout"].as_str().unwrap();
+            let lanes = match layout {
+                "danoni-5" | "pump-single" => 5,
                 "danoni-7" => 7,
                 "danoni-9A" | "danoni-9B" => 9,
                 "dance-single" => 4,
@@ -120,9 +123,10 @@ fn ssc_opus_preserves_odd_frame_counts_and_plays_every_supported_layout() {
                 assert_eq!(run["topTier"], lanes * 3);
                 assert_eq!(run["held"], lanes);
                 assert_eq!(run["replayMatches"], true);
+                // The originals, and 5 keys on pump single, keep every note.
                 assert_eq!(
                     run["assist"],
-                    !chart["layout"].as_str().unwrap().starts_with("danoni-")
+                    !(layout.starts_with("danoni-") || layout == "pump-single")
                 );
             }
         }

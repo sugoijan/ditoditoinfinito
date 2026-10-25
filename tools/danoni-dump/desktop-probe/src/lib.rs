@@ -281,7 +281,9 @@ pub fn audit(songs: &[LibSong]) -> Result<Value> {
                     || result.tally.taps[1..].iter().sum::<u32>() != 0
                     || result.tally.let_go != 0
                     || history.len() != 1
-                    || result.assist != parsed.derivation.is_some()
+                    // Only a version that leaves notes out is assisted; a
+                    // conversion keeps every note.
+                    || result.assist != parsed.derivation.as_ref().is_some_and(|d| d.assisted())
                 {
                     return Err(error(format!(
                         "{} chart {} at {fps} Hz: failed autoplay/history",

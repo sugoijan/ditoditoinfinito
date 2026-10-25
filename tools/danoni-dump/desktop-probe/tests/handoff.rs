@@ -116,14 +116,18 @@ fn cancelled_commit_reopen_duplicate_and_replacement_keep_desktop_identity() {
         "snapshot must not modify the store"
     );
     assert!(songs[0].entry.charts.starts_with(&source.charts));
-    assert_eq!(songs[0].entry.charts.len(), source.charts.len() * 2);
+    // Each 5-key chart without its onigiri, and on pump single.
+    assert_eq!(songs[0].entry.charts.len(), source.charts.len() * 3);
     assert!(!songs[0].entry.needs_chart_variants());
     assert_eq!(snapshot(&library).unwrap().1[0].entry, songs[0].entry);
     assert_eq!(songs.len(), 1);
     let id = songs[0].entry.id.clone();
     assert_eq!(id, installed.review.import.songs[0].entry.id);
     let before = audit(&songs).unwrap();
-    assert_eq!(before["songs"][0]["charts"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        before["songs"][0]["charts"].as_array().unwrap().len(),
+        songs[0].entry.charts.len()
+    );
     assert_eq!(
         stored_bytes(&library),
         bytes,
