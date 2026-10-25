@@ -191,6 +191,15 @@ pub trait Screen {
         0.0
     }
 
+    /// The pointer's look over `target`, where the screen takes taps on
+    /// what is not focusable (a row's choices, a slider) or types (a text
+    /// field); `None` leaves it to the core: a pointer over a focusable
+    /// actor or a list's item, the default elsewhere.
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        let _ = target;
+        None
+    }
+
     /// The chrome's: whether a pointer on `target` goes on to what is
     /// under it (a line that only informs, such as the devices' toast,
     /// must not swallow taps on the screen's footer).

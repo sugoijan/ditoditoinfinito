@@ -2857,6 +2857,10 @@ impl ListModel for EmptyModel {
 }
 
 impl Screen for SelectScreen {
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.search.cursor(target)
+    }
+
     fn name(&self) -> &str {
         "select"
     }
@@ -2897,7 +2901,7 @@ impl Screen for SelectScreen {
         };
         // A fresh Up on the list's first row: the search field (a phone's
         // goes up to the icons over it).
-        let mut wheel = Focusable::new("Wheel");
+        let mut wheel = Focusable::new_list("Wheel");
         if !self.layout.compact {
             wheel.up = Some(self.search.name.clone());
         }

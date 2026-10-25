@@ -28,7 +28,7 @@ use crate::gesture::Gesture;
 use crate::hit;
 use crate::look::{self, Look, Plain, Spec, call};
 use crate::message::{Message, Param};
-use crate::request::InputHints;
+use crate::request::{Cursor, InputHints};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
 use crate::widgets::{part, play, set_text};
 
@@ -89,6 +89,12 @@ impl SearchField {
             popup: Rc::default(),
             typing: false,
         }
+    }
+
+    /// A text cursor over the field ([`Screen::cursor`] of the screen it
+    /// is in).
+    pub fn cursor(&self, target: &hit::Target) -> Option<Cursor> {
+        target.within(&self.name).then_some(Cursor::Text)
     }
 
     pub fn text_actor(&self) -> String {
@@ -325,6 +331,16 @@ impl Popup {
 }
 
 impl Screen for Popup {
+    /// A pointer over the suggestions.
+    fn cursor(&self, target: &hit::Target) -> Option<Cursor> {
+        let item = format!("{}.Item", self.field);
+        target
+            .chain
+            .iter()
+            .any(|n| n.starts_with(&item))
+            .then_some(Cursor::Pointer)
+    }
+
     fn name(&self) -> &str {
         "popup"
     }

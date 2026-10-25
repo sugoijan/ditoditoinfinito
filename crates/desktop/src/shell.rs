@@ -987,6 +987,12 @@ impl Shell {
         ddi_platform::InputSource::poll(&mut self.input.keyboard, &mut Vec::new());
         if on {
             self.sound.borrow_mut().pause();
+            // The play is not the UI's: no pointer from the menus over it,
+            // and the UI tells it again after.
+            if let Some(s) = &self.surface {
+                s.window.set_cursor(CursorIcon::Default);
+            }
+            self.ui.forget_cursor();
         }
         let link = self.surface.as_ref().and_then(|s| s.link.as_ref());
         if let Some(l) = link {

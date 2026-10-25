@@ -157,6 +157,10 @@ pub struct Focusable {
     pub down: Option<String>,
     pub left: Option<String>,
     pub right: Option<String>,
+    /// A list: its focus is on one of its own items, whose taps the
+    /// screen takes; a tap on the rest of it (its empty space) focuses it
+    /// but does not activate it, as Start would its focused item.
+    pub list: bool,
 }
 
 impl Focusable {
@@ -164,6 +168,14 @@ impl Focusable {
         Focusable {
             name: name.into(),
             ..Focusable::default()
+        }
+    }
+
+    /// A list ([`Focusable::list`]) named `name`.
+    pub fn new_list(name: impl Into<String>) -> Focusable {
+        Focusable {
+            list: true,
+            ..Focusable::new(name)
         }
     }
 

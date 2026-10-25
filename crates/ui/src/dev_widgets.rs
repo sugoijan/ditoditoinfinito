@@ -581,6 +581,10 @@ fn sample_offsets(n: usize) -> Vec<f32> {
 }
 
 impl Screen for WidgetScreen {
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.search.cursor(target)
+    }
+
     fn name(&self) -> &str {
         "widgets"
     }
@@ -610,7 +614,7 @@ impl Screen for WidgetScreen {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let mut songs = Focusable::new("Songs");
+        let mut songs = Focusable::new_list("Songs");
         songs.right = Some("Search".into());
         let mut search = Focusable::new("Search");
         search.left = Some("Songs".into());

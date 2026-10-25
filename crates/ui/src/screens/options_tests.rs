@@ -647,6 +647,101 @@ fn the_play_history_is_reset_after_asking() {
 }
 
 #[test]
+fn a_tap_on_the_rows_empty_space_presses_nothing() {
+    let mut r = rig([1280.0, 720.0], DESIGN);
+    r.section("Data");
+    r.row("history.export");
+    assert_eq!(r.state.borrow().value, "Export");
+    let clip = r.h.ui.bounds("RowsClip").expect("the rows");
+    let bottom = (0..40)
+        .filter_map(|i| r.h.ui.bounds(&format!("Option{i}")))
+        .map(|b| b[3])
+        .fold(clip[1], f32::max);
+    assert!(
+        clip[3] - bottom > 40.0,
+        "room under the rows: {clip:?} {bottom}"
+    );
+    // Under the last row, and far to the right of the focused one's
+    // buttons: the rows keep the focus, and nothing is pressed.
+    r.h.tap_at(
+        PointerKind::Mouse,
+        [(clip[0] + clip[2]) / 2.0, (bottom + clip[3]) / 2.0],
+    );
+    r.h.run(0.1);
+    assert!(!r.logged("export"), "{:?}", r.fake.log.borrow());
+    assert_eq!(r.h.ui.focused(), Some("RowsClip"));
+    assert_eq!(r.state.borrow().option_id, "history.export");
+    // The button itself still exports.
+    let i = r
+        .state
+        .borrow()
+        .option_rows
+        .iter()
+        .position(|id| id == "history.export")
+        .unwrap();
+    r.h.tap(PointerKind::Mouse, &format!("Option{i}.Button0"));
+    assert!(r.logged("export"), "{:?}", r.fake.log.borrow());
+}
+
+/// The last cursor `requests` set, if any.
+fn cursor_in(requests: &[UiRequest]) -> Option<crate::request::Cursor> {
+    requests.iter().rev().find_map(|r| match r {
+        UiRequest::SetCursor(c) => Some(*c),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_mouse_shows_a_pointer_over_what_a_tap_acts_on() {
+    use crate::request::Cursor;
+    let mut r = rig([1280.0, 720.0], DESIGN);
+    r.section("Data");
+    let i = r
+        .state
+        .borrow()
+        .option_rows
+        .iter()
+        .position(|id| id == "history.export")
+        .unwrap();
+    let button = r.h.centre(&format!("Option{i}.Button0"));
+    assert_eq!(cursor_in(&r.h.hover(button)), Some(Cursor::Pointer));
+    // Still: nothing more to tell.
+    assert_eq!(cursor_in(&r.h.hover([button[0] + 1.0, button[1]])), None);
+    // The rows' empty space: the default again.
+    let clip = r.h.ui.bounds("RowsClip").unwrap();
+    assert_eq!(
+        cursor_in(&r.h.hover(clip_mid(&clip))),
+        Some(Cursor::Default)
+    );
+    // A section's tab (focusable): a pointer.
+    assert_eq!(
+        cursor_in(&r.h.hover(r.h.centre("Section0"))),
+        Some(Cursor::Pointer)
+    );
+    // Back over the empty space, then a link.
+    r.h.hover(clip_mid(&clip));
+    assert_eq!(
+        cursor_in(&r.h.hover(r.h.centre("Link.Calibrate"))),
+        Some(Cursor::Pointer)
+    );
+    // Gone from the surface: the default.
+    let left = r.h.send(crate::UiEvent::Pointer(crate::PointerEvent {
+        id: 1,
+        kind: PointerKind::Mouse,
+        phase: crate::PointerPhase::Leave,
+        pos: [0.0, 0.0],
+        buttons: 0,
+        modifiers: Default::default(),
+        time: 0.0,
+    }));
+    assert_eq!(cursor_in(&left), Some(Cursor::Default));
+}
+
+fn clip_mid(clip: &[f32; 4]) -> [f32; 2] {
+    [(clip[0] + clip[2]) / 2.0, clip[3] - 10.0]
+}
+
+#[test]
 fn plays_are_imported_from_the_history_row_inside_the_press() {
     let mut r = rig([1280.0, 720.0], DESIGN);
     r.section("Data");

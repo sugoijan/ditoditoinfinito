@@ -909,6 +909,10 @@ impl ImportDialog {
 }
 
 impl Screen for ImportDialog {
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.url.cursor(target)
+    }
+
     fn name(&self) -> &str {
         "import"
     }
@@ -1118,7 +1122,7 @@ impl Screen for ImportDialog {
                 Focusable::new("ImportDanoni"),
             ]);
         }
-        v.push(Focusable::new("Report"));
+        v.push(Focusable::new_list("Report"));
         if self.origin_pending() {
             for (name, left, right) in [
                 ("OriginOnce", "OriginDecline", "OriginRemember"),

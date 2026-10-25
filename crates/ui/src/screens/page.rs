@@ -618,6 +618,11 @@ impl PageScreen {
 }
 
 impl Screen for PageScreen {
+    /// A pointer over the column's items.
+    fn cursor(&self, target: &hit::Target) -> Option<crate::request::Cursor> {
+        Self::item_of(target).map(|_| crate::request::Cursor::Pointer)
+    }
+
     fn name(&self) -> &str {
         &self.name
     }
@@ -631,7 +636,7 @@ impl Screen for PageScreen {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v = vec![Focusable::new("Column")];
+        let mut v = vec![Focusable::new_list("Column")];
         v.push(Focusable::new(if self.compact {
             "Back"
         } else {

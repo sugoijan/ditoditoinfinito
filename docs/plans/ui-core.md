@@ -507,7 +507,22 @@ window follow):
   StepMania's 0.375 s then 8 a second (`InputFilter.cpp`), per key and per
   pad button, only the last-pressed direction; explicit neighbours, then
   the nearest by edge distance plus twice the cross-axis gap; a plain focus
-  ring after key or pad input, hidden on pointer use.
+  ring after key or pad input, hidden on pointer use. A tap a screen does
+  not take, on a focusable actor or inside one, focuses and activates
+  it; a list (`Focusable::new_list`: Options' rows, a page's column, the
+  wheel), whose focus is on one of its own items, is only focused by a
+  tap on its empty space (since 2026-10-25: such a tap had pressed the
+  focused row's button, Export in Options → Data).
+- **The pointer's look (since 2026-10-25).** Over what a tap acts on the
+  mouse shows a pointer, over a text field a text cursor
+  (`UiRequest::SetCursor`, sent when it changes: the web's canvas
+  `cursor`, winit's `CursorIcon`): a screen's `Screen::cursor` (Options'
+  choices, buttons and slider; the pages' items; the search fields), else
+  a pointer over a focusable actor or a list's item (`Wheel#3`), else the
+  default, a list's empty space and a row a tap only focuses included.
+  The hover, and with it the cursor, follows what moves under a still
+  mouse (a list scrolled, a screen come in); desktop shows the default
+  over a play, which is not the UI's.
 - **Layers.** Screens with StepMania's `On`/`Off`/`Cancel` and `In`/`Out`
   children (a transition lasts the tweens queued at its start), and
   overlays owned by a screen or dialog, drawn right above it and closed

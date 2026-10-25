@@ -184,6 +184,10 @@ impl ValueDialog {
 }
 
 impl Screen for ValueDialog {
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.field.cursor(target)
+    }
+
     fn name(&self) -> &str {
         "editor-value"
     }

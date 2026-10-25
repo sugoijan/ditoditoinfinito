@@ -1074,6 +1074,17 @@ impl OptionsScreen {
 }
 
 impl Screen for OptionsScreen {
+    /// A pointer over what a tap acts on in a row: a choice, a button, a
+    /// stepper's arrow, the slider (not the rest of the row, which a tap
+    /// only focuses).
+    fn cursor(&self, target: &hit::Target) -> Option<crate::request::Cursor> {
+        let (_, what) = Self::row_of(target)?;
+        let acts = what.starts_with("Choice")
+            || what.starts_with("Button")
+            || matches!(what, "Down" | "Up" | "Track" | "Knob" | "Fill");
+        acts.then_some(crate::request::Cursor::Pointer)
+    }
+
     fn name(&self) -> &str {
         "options"
     }
@@ -1089,7 +1100,7 @@ impl Screen for OptionsScreen {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v = vec![Focusable::new("RowsClip")];
+        let mut v = vec![Focusable::new_list("RowsClip")];
         if self.data.preview_layout.is_some() {
             v.push(Focusable::new("PreviewLayout"));
         }

@@ -660,6 +660,30 @@ fn generated_versions_are_marked_where_they_are_picked() {
 }
 
 #[test]
+fn song_select_shows_a_pointer_over_songs_and_a_text_cursor_over_the_search() {
+    use crate::UiRequest;
+    use crate::request::Cursor;
+    let cursor = |requests: Vec<UiRequest>| {
+        requests.into_iter().rev().find_map(|r| match r {
+            UiRequest::SetCursor(c) => Some(c),
+            _ => None,
+        })
+    };
+    let (mut h, _) = recording(sample::select(), [1280.0, 720.0], DESIGN);
+    h.run(0.3);
+    let row = (0..12)
+        .map(|k| format!("Wheel#{k}"))
+        .find(|n| h.ui.bounds(n).is_some_and(|b| b[3] > b[1]))
+        .unwrap();
+    assert_eq!(cursor(h.hover(h.centre(&row))), Some(Cursor::Pointer));
+    assert_eq!(cursor(h.hover(h.centre("Search"))), Some(Cursor::Text));
+    assert_eq!(
+        cursor(h.hover(h.centre("Ladder.Row0"))),
+        Some(Cursor::Pointer)
+    );
+}
+
+#[test]
 fn start_acts_on_the_song_moved_to_in_the_same_poll() {
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
     h.key("ArrowUp", "ArrowUp");

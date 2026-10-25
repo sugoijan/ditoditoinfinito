@@ -57,7 +57,7 @@ use crate::gesture::{Gesture, Tracker};
 use crate::hit::{self, Affine, IDENTITY, Target};
 use crate::message::Message;
 use crate::nav::{self, MenuAction, Repeater, Source};
-use crate::request::{CssRect, InputHints, UiRequest};
+use crate::request::{CssRect, Cursor, InputHints, UiRequest};
 use crate::screen::{Cx, Handled, Input, Op, Screen, TextChange};
 use crate::text_field::{KeyResult, TextField, TextMode};
 use crate::textures::TextureTable;
@@ -170,6 +170,12 @@ pub struct Ui {
     textures: Rc<RefCell<TextureTable>>,
     pointers: Vec<Pointer>,
     hover: Option<(u64, Option<Target>)>,
+    /// Where the mouse is (virtual pixels), while it is over the surface.
+    mouse: Option<[f32; 2]>,
+    /// The pointer's look told to the shell, and the hover it was worked
+    /// out for ([`Ui::refresh_cursor`]).
+    cursor: Cursor,
+    cursor_for: Option<(u64, Option<Target>)>,
     repeater: Repeater,
     ring_shown: bool,
     draw_ring: bool,
@@ -220,6 +226,9 @@ impl Ui {
             textures: Rc::default(),
             pointers: Vec::new(),
             hover: None,
+            mouse: None,
+            cursor: Cursor::Default,
+            cursor_for: None,
             repeater: Repeater::default(),
             ring_shown: false,
             draw_ring: true,
@@ -533,6 +542,44 @@ impl Ui {
         }
         self.problems.messages.truncate(64);
         self.follow_inset();
+        // What is under a still mouse changes too (a list scrolled under
+        // it, a screen come in): the hover follows, with the cursor.
+        if let Some(pos) = self.mouse
+            && !self.pointers.iter().any(|p| p.kind == PointerKind::Mouse)
+        {
+            let now = self.pick(pos).map(|(l, t, _)| (l, t));
+            self.set_hover(now);
+        }
+        self.refresh_cursor();
+    }
+
+    /// The shell set the pointer's look itself (the default, over a play
+    /// that is not the UI's): told again when what the mouse is over
+    /// calls for another.
+    pub fn forget_cursor(&mut self) {
+        self.cursor = Cursor::Default;
+        self.cursor_for = None;
+    }
+
+    /// Tells the shell the pointer's look when what the mouse is over
+    /// calls for another: its screen's [`Screen::cursor`], else a pointer
+    /// over a focusable actor or a list's item (not a list's empty space,
+    /// which a tap does not act on), else the default.
+    fn refresh_cursor(&mut self) {
+        if self.cursor_for == self.hover {
+            return;
+        }
+        self.cursor_for = self.hover.clone();
+        let cursor = match &self.hover {
+            Some((l, Some(t))) => self
+                .layer(*l)
+                .map_or(Cursor::Default, |layer| cursor_over(&*layer.screen, t)),
+            _ => Cursor::Default,
+        };
+        if cursor != self.cursor {
+            self.cursor = cursor;
+            self.out.push(UiRequest::SetCursor(cursor));
+        }
     }
 
     /// Draws every layer, bottom first, in virtual pixels.
@@ -1781,6 +1828,7 @@ impl Ui {
                     }
                 } else if e.kind == PointerKind::Mouse {
                     self.ring_shown = false;
+                    self.mouse = Some(pos);
                     let now = self.pick(pos).map(|(l, t, _)| (l, t));
                     self.set_hover(now);
                 }
@@ -1806,8 +1854,15 @@ impl Ui {
                 }
             }
             PointerPhase::Cancel => self.cancel_pointer(e.id),
-            PointerPhase::Leave => self.set_hover(None),
+            PointerPhase::Leave => {
+                self.mouse = None;
+                self.set_hover(None);
+            }
         }
+        if e.kind == PointerKind::Mouse && e.phase != PointerPhase::Leave {
+            self.mouse = Some(pos);
+        }
+        self.refresh_cursor();
     }
 
     fn cancel_pointer(&mut self, id: u64) {
@@ -1860,18 +1915,21 @@ impl Ui {
         };
         let handled = self.dispatch(layer, input, activation);
         // A tap on a focusable actor (or inside one) focuses and
-        // activates it.
+        // activates it; one on a list's empty space only focuses it.
         if handled == Handled::No
             && gesture == Gesture::Tap
             && let Some(t) = target
-            && let Some(name) = self.layer(layer).and_then(|l| {
-                let names: Vec<String> =
-                    l.screen.focusables().into_iter().map(|f| f.name).collect();
-                t.chain.iter().find(|n| names.contains(n)).cloned()
+            && let Some(f) = self.layer(layer).and_then(|l| {
+                let focusables = l.screen.focusables();
+                t.chain
+                    .iter()
+                    .find_map(|n| focusables.iter().find(|f| &f.name == n).cloned())
             })
         {
-            self.set_focus(layer, Some(name.clone()), activation);
-            self.dispatch(layer, Input::Activate { name }, activation);
+            self.set_focus(layer, Some(f.name.clone()), activation);
+            if !f.list {
+                self.dispatch(layer, Input::Activate { name: f.name }, activation);
+            }
         }
     }
 
@@ -2065,4 +2123,34 @@ fn field_marks(
 fn is_function_key(code: &str) -> bool {
     code.strip_prefix('F')
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The pointer's look over `target` on `screen` ([`Ui::refresh_cursor`]).
+fn cursor_over(screen: &dyn Screen, target: &Target) -> Cursor {
+    if let Some(c) = screen.cursor(target) {
+        return c;
+    }
+    let focusables = screen.focusables();
+    let lists: Vec<&str> = focusables
+        .iter()
+        .filter(|f| f.list)
+        .map(|f| f.name.as_str())
+        .collect();
+    for name in &target.chain {
+        // A list's item (`Wheel#3`).
+        if name
+            .rsplit_once('#')
+            .is_some_and(|(list, _)| lists.contains(&list))
+        {
+            return Cursor::Pointer;
+        }
+        if let Some(f) = focusables.iter().find(|f| &f.name == name) {
+            return if f.list {
+                Cursor::Default
+            } else {
+                Cursor::Pointer
+            };
+        }
+    }
+    Cursor::Default
 }
