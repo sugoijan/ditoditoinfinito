@@ -142,9 +142,10 @@ fn is_zero_version(value: &u32) -> bool {
 }
 
 /// Current metadata for additional chart versions in imported manifests
-/// (2: pump charts without their centers; 1: Dancing☆Onigiri charts
-/// without their onigiri).
-pub const VARIANTS_VERSION: u32 = 2;
+/// (3: pump single and 5 keys converted to each other; 2: pump charts
+/// without their centers; 1: Dancing☆Onigiri charts without their
+/// onigiri).
+pub const VARIANTS_VERSION: u32 = 3;
 
 impl ManifestEntry {
     /// Whether the song is a Dancing☆Onigiri work's (its chart stored as

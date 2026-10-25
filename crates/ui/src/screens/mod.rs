@@ -33,7 +33,8 @@
 //!   `Meter`, `Pulse`; `Select`, `Deselect` and the difficulty's name
 //!   (`Hard`). `ChartLadder.Empty` (`Panel`): `Title`, `Hint`.
 //!   `ChartButton` (centered; `Button`): `Meter`, `Assist`; the same
-//!   commands, and `Assisted` or `Original` (a generated version's mark).
+//!   commands, and `Assisted`, `Converted` or `Original` (a generated
+//!   version's mark).
 //!   `PlayButton`, `IconButton`, `StyleButton` (centered; `Button`).
 //!   `Tab` (centered; `Button`): `Label`, `Underline`; `Selected`,
 //!   `Available` (the results' panel sets).

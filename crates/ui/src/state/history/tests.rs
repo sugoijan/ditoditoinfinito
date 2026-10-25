@@ -210,6 +210,86 @@ fn converted_onigiri_plays_keep_their_own_identity_assist_flag_and_replay() {
 }
 
 #[test]
+fn conversions_keep_their_sources_rules_and_are_not_assisted() {
+    use ddi_chart::formats::danoni::{self, Dos, DosFlags};
+    use ddi_chart::simplify::Derivation;
+    let pump = ddi_library::scan::parse_simfile(
+        "#TITLE:Pump;#OFFSET:0;#BPMS:0=120;#TICKCOUNTS:0=4;
+#NOTES:
+     pump-single:
+     :
+     Hard:
+     9:
+     0,0,0,0,0:
+10100
+02000
+00010
+00001
+,
+00000
+03000
+00100
+10001
+;
+",
+        "sm",
+    )
+    .unwrap();
+    let mut keys = danoni::import(&Dos::parse(
+        "|musicTitle=Test,Artist|musicUrl=test.ogg|blankFrame=0|difData=5,Hard,3.5|left_data=60|space_data=90|right_data=120|frzDown_data=150,240|",
+        DosFlags::default(),
+    )).unwrap().songs.remove(0);
+    keys.add_chart_versions();
+    // Each chart by its game's rules.
+    let settings = crate::state::settings::Settings {
+        ruleset_mode: ddi_engine::rules::presets::RulesetMode::Original,
+        ..Default::default()
+    };
+    for (song, index, derivation, ticked, danoni) in [
+        (
+            &pump,
+            2,
+            Derivation::FromPumpSingle { source: 0 },
+            true,
+            false,
+        ),
+        (
+            &keys,
+            2,
+            Derivation::FromFiveKeys { source: 0 },
+            false,
+            true,
+        ),
+    ] {
+        let chart = &song.charts[index];
+        assert_eq!(chart.derivation, Some(derivation));
+        let rules = settings.ruleset_for(chart).key();
+        let built = rules.build(chart);
+        assert_eq!(built.judge.hold.is_ticked(), ticked, "{}", chart.layout);
+        assert_eq!(built.id == "danoni", danoni, "{}", chart.layout);
+        let (log, results) = play(song, index, &rules, Some(0.0));
+        assert!(!results.assist);
+        assert_eq!(results.tally.taps[1..].iter().sum::<u32>(), 0);
+        let rec = record(song, index, &rules, 1.0, false);
+        let (entry, summary) = new_entry("p".into(), &rec, &log, &results).unwrap();
+        let watched = Replay::from_entry(&entry).unwrap().results(song).unwrap();
+        assert_eq!(watched.tally, results.tally);
+        assert!(!rework(&entry, song).unwrap().assist);
+        let mut history = History::default();
+        history.add(entry.id.clone(), summary);
+        let digest = song.chart_digest(index);
+        assert_ne!(digest, song.chart_digest(0));
+        assert!(
+            history
+                .bests()
+                .keys()
+                .any(|k| k.digest == digest && !k.assist)
+        );
+        assert!(history.best_of_play(song, index, &settings).is_some());
+    }
+}
+
+#[test]
 fn center_free_pump_plays_are_assisted_ticked_and_replayed() {
     // A tap on the center beside each step, and a long hold on up-left.
     let text = "#TITLE:Pump;#OFFSET:0;#BPMS:0=120;#TICKCOUNTS:0=4;
@@ -231,7 +311,8 @@ fn center_free_pump_plays_are_assisted_ticked_and_replayed() {
 ;
 ";
     let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
-    assert_eq!(song.charts.len(), 2);
+    // Without center, and on 5 keys.
+    assert_eq!(song.charts.len(), 3);
     let settings = crate::state::settings::Settings::default();
     let mut history = History::default();
     let mut keys = Vec::new();

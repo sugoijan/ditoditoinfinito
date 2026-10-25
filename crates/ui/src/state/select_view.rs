@@ -108,7 +108,7 @@ fn difficulty(name: &str) -> Difficulty {
 }
 
 /// Whether the song list shows `c`, a chart of `song`: an additional
-/// version only with its option on, and a version without centers, by
+/// version or a conversion only with its option on, and a version without centers, by
 /// default, only where its style has no original of its difficulty (an
 /// Edit, each its own chart, always). Generation is independent of the
 /// setting, so indexes stay stable.
@@ -117,6 +117,8 @@ fn shows(song: &ManifestEntry, c: &ChartInfo, settings: &Settings) -> bool {
     match c.derivation {
         None => true,
         Some(Derivation::WithoutOnigiri { .. }) => settings.simplify_onigiri,
+        Some(Derivation::FromPumpSingle { .. }) => settings.convert_pump_single,
+        Some(Derivation::FromFiveKeys { .. }) => settings.convert_five_keys,
         Some(Derivation::WithoutCenter { .. }) => match settings.simplify_center {
             CenterVersions::Off => false,
             CenterVersions::All => true,
@@ -150,11 +152,8 @@ fn best_of<'a>(
     let digest = chart.digest?;
     let danoni = entry.is_danoni_work();
     let ffr = ddi_library::ffr::is_level_chart(&entry.chart);
-    // A pump chart's version without centers keeps its game's holds.
-    let pump = chart
-        .derivation
-        .as_ref()
-        .is_some_and(ddi_chart::simplify::Derivation::pump_game);
+    // A version made from a pump chart keeps its game's holds.
+    let pump = ddi_chart::simplify::pump_game(&chart.layout, chart.derivation.as_ref());
     let ruleset = keys
         .entry((chart.layout.as_str(), pump, danoni, ffr, chart.excessive))
         .or_insert_with(|| {
@@ -170,7 +169,10 @@ fn best_of<'a>(
     let key = BestKey {
         digest,
         ruleset,
-        assist: chart.derivation.is_some(),
+        assist: chart
+            .derivation
+            .as_ref()
+            .is_some_and(ddi_chart::simplify::Derivation::assisted),
     };
     let b = bests.get(&key)?;
     let (lamp, lamp_text) = b.lamp.names();
@@ -227,6 +229,10 @@ fn song_entry<'a>(
                 best: best_of(entry, c, settings, bests, keys),
                 digest: c.digest,
                 version: c.derivation.as_ref().map(|d| d.name()),
+                assisted: c
+                    .derivation
+                    .as_ref()
+                    .is_some_and(ddi_chart::simplify::Derivation::assisted),
             })
             .collect(),
         removable: s.removable,
@@ -444,7 +450,8 @@ mod tests {
             #NOTES:\n pump-single:\n:\n Hard:\n 9:\n 0,0,0,0,0:\n\
             10100\n00010\n02000\n03001\n;\n";
         let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
-        assert_eq!(song.charts.len(), 2);
+        // Without center, and on 5 keys.
+        assert_eq!(song.charts.len(), 3);
         let mut entry = ddi_library::manifest::summarize(
             ddi_library::manifest::EntryMeta {
                 id: "pump".into(),
@@ -562,6 +569,41 @@ mod tests {
             single(CenterVersions::Off),
             [("Medium", 5, None), ("Edit", 7, None)]
         );
+    }
+
+    #[test]
+    fn conversions_are_listed_with_their_options_and_marked_unassisted() {
+        let text = "#TITLE:Pump;#OFFSET:0;#BPMS:0=120;\n\
+            #NOTES:\n pump-single:\n:\n Hard:\n 9:\n 0,0,0,0,0:\n10100\n00010\n;\n";
+        let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
+        let entry = ddi_library::manifest::summarize(
+            ddi_library::manifest::EntryMeta {
+                id: "pump".into(),
+                chart: "pump.sm".into(),
+                ..Default::default()
+            },
+            &song,
+        );
+        let songs = [Listed::bundled(&entry)];
+        let keys = |settings: &Settings| {
+            let data = select_data(
+                &songs,
+                &|_| false,
+                settings,
+                &History::default(),
+                &MenuPlace::default(),
+            );
+            data.songs[0]
+                .charts_in("danoni-5")
+                .iter()
+                .map(|c| (c.index, c.version, c.assisted))
+                .collect::<Vec<_>>()
+        };
+        let mut settings = Settings::default();
+        assert!(!settings.convert_pump_single && !settings.convert_five_keys);
+        assert_eq!(keys(&settings), []);
+        settings.convert_pump_single = true;
+        assert_eq!(keys(&settings), [(2, Some("From Pump single"), false)]);
     }
 
     fn entry(id: &str, layout: &str) -> ManifestEntry {

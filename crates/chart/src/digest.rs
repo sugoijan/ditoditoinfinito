@@ -171,6 +171,12 @@ impl Song {
             Some(crate::simplify::Derivation::WithoutCenter { .. }) => {
                 h.section("without-center", 1)
             }
+            Some(crate::simplify::Derivation::FromPumpSingle { .. }) => {
+                h.section("from-pump-single", 1)
+            }
+            Some(crate::simplify::Derivation::FromFiveKeys { .. }) => {
+                h.section("from-five-keys", 1)
+            }
             None => {}
         }
         h.section("notes", chart.notes.len());

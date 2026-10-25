@@ -742,6 +742,7 @@ mod tests {
                 (Some(0), "dance-single"),
                 (Some(2), "dance-single"),
                 (Some(3), "dance-double"),
+                (Some(0), "danoni-5"),
             ]
         );
         let entry = summarize(Default::default(), &song);
@@ -749,7 +750,7 @@ mod tests {
         let upgraded = crate::manifest::with_chart_variants(&old, &song);
         assert!(!upgraded.needs_chart_variants());
         assert_eq!(&upgraded.charts[..old.charts.len()], old.charts);
-        assert_eq!(upgraded.charts.len(), 7);
+        assert_eq!(upgraded.charts.len(), 8);
         for c in &upgraded.charts {
             assert_eq!(c.digest, Some(song.chart_digest(c.index)));
         }
@@ -786,7 +787,9 @@ mod tests {
             assert_eq!(raw_entry.variants_version, 0);
             assert!(raw_entry.needs_chart_variants());
             let song = parse_simfile(&text, "ssc").unwrap();
-            assert_eq!(song.charts.len(), 2, "{mode}");
+            // 5 keys is also converted to pump single, after.
+            let made = if mode == "5" { 3 } else { 2 };
+            assert_eq!(song.charts.len(), made, "{mode}");
             assert_eq!(song.charts[0], original.charts[0]);
             assert_eq!(song.chart_digest(0), original.chart_digest(0));
             assert_eq!(song.charts[1].layout, target);
@@ -799,6 +802,11 @@ mod tests {
             let entry = summarize(Default::default(), &song);
             assert_eq!(entry.charts[0].index, 0);
             assert_eq!(entry.charts[1].index, 1);
+            if mode == "5" {
+                assert_eq!(song.charts[2].layout, "pump-single");
+                assert_eq!(song.charts[2].notes.len(), 4);
+                assert!(!song.charts[2].pump_game(), "its holds stay its own");
+            }
             assert!(!entry.needs_chart_variants());
             let admitted_json = serde_json::to_string(&raw_entry).unwrap();
             let enriched = crate::manifest::with_chart_variants(&raw_entry, &song);

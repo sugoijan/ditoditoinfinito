@@ -260,6 +260,7 @@ fn a_chart_button_marks_a_generated_version_with_a_dot() {
     assert_eq!(shown(&mut b, "Hard"), 0.0);
     assert_eq!(shown(&mut b, "Assisted"), 1.0);
     assert_eq!(shown(&mut b, "Original"), 0.0);
+    assert_eq!(shown(&mut b, "Converted"), 1.0);
 }
 
 #[test]

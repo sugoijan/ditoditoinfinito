@@ -1036,7 +1036,8 @@ impl Infinito {
             1.5,
         );
         self.lamp_commands(&mut lamp);
-        // A generated (assisted) version's mark: a small dot in the corner.
+        // A generated version's mark (assisted or converted): a small dot
+        // in the corner.
         let mut assist = round(
             plate(
                 "Assist",
@@ -1048,6 +1049,7 @@ impl Infinito {
         );
         hide(&mut assist);
         command_of(&mut assist, "Assisted", "diffusealpha,1");
+        command_of(&mut assist, "Converted", "diffusealpha,1");
         command_of(&mut assist, "Original", "diffusealpha,0");
         frame(
             "",

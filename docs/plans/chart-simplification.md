@@ -2,9 +2,11 @@
 
 Two simplifications offer generated versions of charts beside their
 originals: **Without onigiri** (2026-10-18, below) and **Without center**
-(2026-10-24, "Pump charts without the center"). Both are kinds of
-`Chart::derivation` made by the same code (`crates/chart/src/simplify.rs`)
-and listed, kept and replayed the same way.
+(2026-10-24, "Pump charts without the center"), and two conversions
+between pump single and Dancing☆Onigiri's 5 keys (2026-10-25, "Pump
+single and 5 keys"). All are kinds of `Chart::derivation` made by the
+same code (`crates/chart/src/simplify.rs`) and listed, kept and replayed
+the same way.
 
 ## Without onigiri
 
@@ -196,3 +198,59 @@ chart button has a small muted dot in its corner (`ChartButton`'s
 "· ASSIST", as the results mark the play. The wheel's meter cells show
 the first chart of each difficulty, an original before a version, and
 stay unmarked. The plays list's title names the version.
+
+## Pump single and 5 keys (2026-10-25)
+
+The maintainer's request: beside the simplifications, optional
+conversions between pump single and Dancing☆Onigiri's 5 keys, which
+have as many lanes, marked in the song list as not original. Options →
+Notes → Convert:
+
+| Row (`Settings`) | Adds | Default |
+| --- | --- | --- |
+| Pump on 5 keys (`convert_pump_single`) | every pump single chart on 5 keys (`Derivation::FromPumpSingle`) | Off |
+| 5 keys on Pump (`convert_five_keys`) | every 5-key chart on pump single (`Derivation::FromFiveKeys`) | Off |
+
+**Lanes.** The corners are turned as Without center turns them, the
+center put on the onigiri:
+
+| Pump single | DL | UL | C | UR | DR |
+| --- | --- | --- | --- | --- | --- |
+| 5 keys | Left | Up | onigiri (Space) | Right | Down |
+
+5 keys onto pump single is the reverse. So the conversions agree with the
+simplifications: a pump chart's 5-key version without its onigiri is its
+version without the center, and a 5-key chart's pump version without its
+center its version without the onigiri. Every note moves, of every kind,
+with its row and attributes; timing, meter, difficulty, name (followed
+by "· from Pump single" or "· from 5 keys", else "From Pump single",
+"From 5 keys"), credit and chart-scoped effects (`Song::effects_chart`)
+are kept. Only pump single and 5 keys: half-double's six panels and
+double's ten (two centers) have no key mode of as many lanes with as
+many centers. A generated version is never converted again.
+
+**Rules: the original's.** As for the simplifications, the version keeps
+its source's game. A pump chart on 5 keys ticks its holds under "by the
+chart's game" (`Derivation::pump_game`); a 5-key chart on pump single
+does not (`Chart::pump_game` reads a version's provenance before its
+layout), and a Dancing☆Onigiri work's keeps its `Chart::danoni`
+headers, so "each chart's own game's rules" plays it by
+Dancing☆Onigiri's. 5 keys was written for fingers, the onigiri a thumb's
+key pressed with the arrows, so many such charts are hard or impossible
+on a pad's feet; the meter stays its source's scale.
+
+**Not assisted, but marked.** No note is left out, so a conversion's
+plays are not assisted (`Derivation::assisted`: the simplifications
+only; the engine's `chart_assist`, the song list's best key and the
+ghost's read it). Its digest is its own (sections `from-pump-single`,
+`from-five-keys`), so its bests and kept plays are its own too. The
+song list marks it as a version: the ladder's line begins "From Pump
+single ·", a phone's chart button has the same dot (command
+`Converted`), and its Play label has no "· ASSIST", as its results
+have none. Drawn, bound and listed as the target layout: under 5 keys
+(arrows and Space, the 5-key skin) or Pump single.
+
+**Order and storage.** The conversions are appended after every
+onigiri-free and center-free version, so earlier indexes hold. Imported
+manifests' variants version 3 and desktop's library cache 12 bring them
+to songs stored before.

@@ -438,12 +438,15 @@ mod tests {
         let original = entry.charts[0].clone();
         song.add_chart_versions();
         super::fill_chart_keys(&mut entry, &song);
-        assert_eq!(entry.charts.len(), 2);
+        // Without onigiri, and on pump single.
+        assert_eq!(entry.charts.len(), 3);
         assert_eq!(entry.charts[0].index, original.index);
         assert_eq!(entry.charts[0].digest, original.digest);
         assert!(entry.charts[0].derivation.is_none());
         assert!(entry.charts[1].derivation.is_some());
         assert_eq!(entry.charts[1].notes, 2);
+        assert_eq!(entry.charts[2].layout, "pump-single");
+        assert_eq!(entry.charts[2].notes, 3);
         assert_eq!(entry.variants_version, crate::manifest::VARIANTS_VERSION);
         let upgraded = entry.clone();
         super::fill_chart_keys(&mut entry, &song);

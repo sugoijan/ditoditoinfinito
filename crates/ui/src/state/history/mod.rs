@@ -711,7 +711,10 @@ impl History {
         self.best(
             song.chart_digest(chart),
             &settings.ruleset_for(c).key(),
-            c.derivation.is_some() || settings.transform.is_assist(),
+            c.derivation
+                .as_ref()
+                .is_some_and(ddi_chart::simplify::Derivation::assisted)
+                || settings.transform.is_assist(),
         )
     }
 

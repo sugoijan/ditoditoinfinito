@@ -329,7 +329,10 @@ impl Player {
             HoldPlace::Lanes
         };
         let mut player = Player {
-            chart_assist: chart.derivation.is_some(),
+            chart_assist: chart
+                .derivation
+                .as_ref()
+                .is_some_and(ddi_chart::simplify::Derivation::assisted),
             meter: chart.meter,
             timing,
             clock: SongClock::new(options.clock),

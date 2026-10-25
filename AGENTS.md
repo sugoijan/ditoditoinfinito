@@ -592,14 +592,18 @@ Options sample); Start is silent. See `docs/plans/start-menu.md`.
   All) versions of pump single and half-double charts in Single and
   pump double in Double, the center removed and each pad turned an
   eighth clockwise, their holds still ticked as pump's
-  (`Chart::pump_game`). Song select marks every generated version
+  (`Chart::pump_game`). Notes → Convert (`convert_pump_single`,
+  `convert_five_keys`, off by default) converts pump single and 5 keys
+  to each other, every lane kept (the center on the onigiri), not
+  assisted (`Derivation::assisted`), each played by its original's
+  rules. Song select marks every generated version
   (`ChartEntry::version`). See `docs/plans/chart-simplification.md`.
 - Generated charts carry `Chart::derivation` and are appended after all
-  originals (every onigiri-free version before every center-free one),
-  independently of the display setting. Preserve original
-  chart indexes, digests and files. Only the generated chart gets the
-  assisted mark from this feature; the existing transform options keep
-  their behavior.
+  originals (every onigiri-free version before every center-free one,
+  then the conversions), independently of the display setting. Preserve
+  original chart indexes, digests and files. Only a generated chart that
+  leaves notes out gets the assisted mark from this feature; the
+  existing transform options keep their behavior.
 - Chart-scoped lyrics and layers resolve through `Song::effects_chart`.
   Keep chart provenance in manifests, bests and replay resolution. Old
   browser imports upgrade their metadata from stored chart data; desktop

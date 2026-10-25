@@ -517,6 +517,27 @@ impl OptionsModel {
                 "Holds and rolls become single taps.",
             ),
         ]);
+        let mut pump_single = choice(
+            "convert_pump_single",
+            "Pump on 5 keys",
+            &["Off", "On"],
+            s.convert_pump_single as usize,
+            "Adds Pump single charts to 5 keys: the center on the onigiri, the corners turned \
+             an eighth clockwise. Marked as converted, played by the original's rules.",
+        );
+        pump_single.heading = Some("CONVERT".into());
+        rows.extend([
+            pump_single,
+            choice(
+                "convert_five_keys",
+                "5 keys on Pump",
+                &["Off", "On"],
+                s.convert_five_keys as usize,
+                "Adds DanOni 5-key charts to Pump single: the onigiri on the center, the \
+                 arrows turned onto the corners. Marked as converted, played by the original's \
+                 rules.",
+            ),
+        ]);
         section("Notes", rows)
     }
 
@@ -1426,6 +1447,8 @@ impl OptionsModel {
             "no_jumps" => s.transform.no_jumps = on,
             "simplify_onigiri" => s.simplify_onigiri = on,
             "simplify_center" => s.simplify_center = at(&CENTER_VERSIONS, i),
+            "convert_pump_single" => s.convert_pump_single = on,
+            "convert_five_keys" => s.convert_five_keys = on,
             "no_holds" => s.transform.no_holds = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),
             "ruleset" => {

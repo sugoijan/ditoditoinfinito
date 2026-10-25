@@ -50,6 +50,10 @@ pub struct Settings {
     /// off read as that and none).
     #[serde(deserialize_with = "center_versions")]
     pub simplify_center: CenterVersions,
+    /// Offer pump single charts converted to Dancing☆Onigiri's 5 keys.
+    pub convert_pump_single: bool,
+    /// Offer Dancing☆Onigiri 5-key charts converted to pump single.
+    pub convert_five_keys: bool,
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub appearance: Appearance,
@@ -345,6 +349,8 @@ impl Default for Settings {
             transform: TransformOptions::default(),
             simplify_onigiri: false,
             simplify_center: CenterVersions::Missing,
+            convert_pump_single: false,
+            convert_five_keys: false,
             appearance: Appearance::Visible,
             lane_cover: LaneCover::default(),
             noteskin: None,

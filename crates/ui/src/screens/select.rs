@@ -1640,8 +1640,14 @@ impl SelectScreen {
                     t.ellipsis = true;
                 }
                 crate::widgets::play(&mut b, difficulty_name(c.difficulty));
-                let assisted = c.version.is_some();
-                crate::widgets::play(&mut b, if assisted { "Assisted" } else { "Original" });
+                crate::widgets::play(
+                    &mut b,
+                    match (c.version, c.assisted) {
+                        (None, _) => "Original",
+                        (Some(_), true) => "Assisted",
+                        (Some(_), false) => "Converted",
+                    },
+                );
                 let lamp = c.best.as_ref().map_or("None", |b| b.lamp.as_str());
                 crate::widgets::play(&mut b, &format!("Lamp.{lamp}"));
                 crate::widgets::play(
@@ -1682,11 +1688,7 @@ impl SelectScreen {
                         c.meter_text()
                     );
                     // Marked as the results mark its play.
-                    let assist = if c.version.is_some() {
-                        " · ASSIST"
-                    } else {
-                        ""
-                    };
+                    let assist = if c.assisted { " · ASSIST" } else { "" };
                     format!("{}{assist}", label.trim_end())
                 }
                 None => "NO CHARTS".to_string(),
@@ -1714,8 +1716,8 @@ impl SelectScreen {
             } else {
                 format!("{} notes · steps by {}", c.notes, c.credit)
             };
-            // A generated (assisted) version says what it leaves out (a
-            // named one does in its name).
+            // A generated version says what it leaves out or where it
+            // comes from (a named one does in its name).
             if let Some(version) = c.version.filter(|_| !c.named()) {
                 notes = format!("{version} · {notes}");
             }

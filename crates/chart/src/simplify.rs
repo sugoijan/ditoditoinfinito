@@ -1,5 +1,7 @@
-//! Additional, explicitly assisted charts. The source charts, their indexes
-//! and their digests stay unchanged; generated versions are appended.
+//! Additional charts made from others: assisted versions with fewer lanes,
+//! and conversions between layouts of as many lanes. The source charts,
+//! their indexes and their digests stay unchanged; generated versions are
+//! appended.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,17 +14,32 @@ pub enum Derivation {
     /// A pump chart without its center panels, the rest of each pad turned
     /// an eighth clockwise onto a dance pad (`docs/plans/chart-simplification.md`).
     WithoutCenter { source: usize },
+    /// A pump single chart on Dancing☆Onigiri's 5 keys, its center on the
+    /// onigiri, its corners turned as [`Derivation::WithoutCenter`]
+    /// turns them.
+    FromPumpSingle { source: usize },
+    /// A Dancing☆Onigiri 5-key chart on pump single, the reverse of
+    /// [`Derivation::FromPumpSingle`].
+    FromFiveKeys { source: usize },
 }
 
 /// The kinds of generated version, in the order they are appended: every
-/// onigiri-free version before every center-free one, so a song that
-/// gained the latter keeps the indexes its former versions had.
-const KINDS: [Kind; 2] = [Kind::WithoutOnigiri, Kind::WithoutCenter];
+/// onigiri-free version before every center-free one, then the
+/// conversions, so a song that gained a later kind keeps the indexes its
+/// earlier versions had.
+const KINDS: [Kind; 4] = [
+    Kind::WithoutOnigiri,
+    Kind::WithoutCenter,
+    Kind::FromPumpSingle,
+    Kind::FromFiveKeys,
+];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Kind {
     WithoutOnigiri,
     WithoutCenter,
+    FromPumpSingle,
+    FromFiveKeys,
 }
 
 impl Kind {
@@ -30,6 +47,8 @@ impl Kind {
         match self {
             Kind::WithoutOnigiri => without_onigiri(layout),
             Kind::WithoutCenter => without_center(layout),
+            Kind::FromPumpSingle => from_pump_single(layout),
+            Kind::FromFiveKeys => from_five_keys(layout),
         }
     }
 
@@ -37,6 +56,8 @@ impl Kind {
         match self {
             Kind::WithoutOnigiri => Derivation::WithoutOnigiri { source },
             Kind::WithoutCenter => Derivation::WithoutCenter { source },
+            Kind::FromPumpSingle => Derivation::FromPumpSingle { source },
+            Kind::FromFiveKeys => Derivation::FromFiveKeys { source },
         }
     }
 
@@ -45,6 +66,8 @@ impl Kind {
         match self {
             Kind::WithoutOnigiri => ("Without onigiri", "without onigiri"),
             Kind::WithoutCenter => ("Without center", "without center"),
+            Kind::FromPumpSingle => ("From Pump single", "from Pump single"),
+            Kind::FromFiveKeys => ("From 5 keys", "from 5 keys"),
         }
     }
 }
@@ -52,7 +75,10 @@ impl Kind {
 impl Derivation {
     pub fn source(&self) -> usize {
         match self {
-            Self::WithoutOnigiri { source } | Self::WithoutCenter { source } => *source,
+            Self::WithoutOnigiri { source }
+            | Self::WithoutCenter { source }
+            | Self::FromPumpSingle { source }
+            | Self::FromFiveKeys { source } => *source,
         }
     }
 
@@ -60,18 +86,35 @@ impl Derivation {
         match self {
             Self::WithoutOnigiri { .. } => Kind::WithoutOnigiri,
             Self::WithoutCenter { .. } => Kind::WithoutCenter,
+            Self::FromPumpSingle { .. } => Kind::FromPumpSingle,
+            Self::FromFiveKeys { .. } => Kind::FromFiveKeys,
         }
     }
 
     /// Whether the version is played by its source's game, pump, though
-    /// drawn and bound as dance: StepMania's pump game ticks holds, which
-    /// the chart's author wrote them for (`docs/plans/pump.md`).
+    /// drawn and bound as another layout: StepMania's pump game ticks
+    /// holds, which the chart's author wrote them for
+    /// (`docs/plans/pump.md`). A 5-key chart on pump single is not: its
+    /// holds are Dancing☆Onigiri's.
     pub fn pump_game(&self) -> bool {
-        matches!(self, Self::WithoutCenter { .. })
+        matches!(
+            self,
+            Self::WithoutCenter { .. } | Self::FromPumpSingle { .. }
+        )
     }
 
-    /// What the version leaves out, as the song list marks it ("Without
-    /// center").
+    /// Whether the version leaves notes out, so that its plays are
+    /// assisted. A conversion moves every note to a lane of its own and
+    /// is not.
+    pub fn assisted(&self) -> bool {
+        matches!(
+            self,
+            Self::WithoutOnigiri { .. } | Self::WithoutCenter { .. }
+        )
+    }
+
+    /// What the version leaves out, or where it comes from, as the song
+    /// list marks it ("Without center", "From Pump single").
     pub fn name(&self) -> &'static str {
         self.kind().names().0
     }
@@ -149,6 +192,27 @@ pub fn without_center(layout: &str) -> Option<(&'static str, &'static [Option<u8
     })
 }
 
+/// The 5-key layout and `old_lane -> new_lane` mapping of pump single:
+/// the corners turned as [`without_center`] turns them (down-left to
+/// Left, up-left to Up, up-right to Right, down-right to Down) and the
+/// center on the onigiri, so that this version without its onigiri is the
+/// one without the center.
+pub fn from_pump_single(layout: &str) -> Option<(&'static str, &'static [Option<u8>])> {
+    (layout == "pump-single")
+        .then_some(("danoni-5", &[Some(0), Some(2), Some(4), Some(3), Some(1)]))
+}
+
+/// The pump single layout and `old_lane -> new_lane` mapping of 5 keys,
+/// the reverse of [`from_pump_single`]: Left to down-left, Down to
+/// down-right, Up to up-left, Right to up-right, the onigiri to the
+/// center.
+pub fn from_five_keys(layout: &str) -> Option<(&'static str, &'static [Option<u8>])> {
+    (layout == "danoni-5").then_some((
+        "pump-single",
+        &[Some(0), Some(4), Some(1), Some(3), Some(2)],
+    ))
+}
+
 fn conversion(chart: &Chart, kind: Kind) -> Option<(&'static str, &'static [Option<u8>])> {
     if chart.derivation.is_some() {
         return None;
@@ -203,10 +267,17 @@ fn convert(chart: &Chart, source: usize, kind: Kind) -> Option<Chart> {
 impl Chart {
     /// Whether the chart is played by StepMania's pump game's rules (its
     /// ticked holds under "by the chart's game"): a pump layout's chart,
-    /// or a version of one without its centers.
+    /// or a version made from one ([`Derivation::pump_game`]).
     pub fn pump_game(&self) -> bool {
-        self.layout.starts_with("pump-")
-            || self.derivation.as_ref().is_some_and(Derivation::pump_game)
+        pump_game(&self.layout, self.derivation.as_ref())
+    }
+}
+
+/// [`Chart::pump_game`] of a chart of `layout` made as `derivation` says.
+pub fn pump_game(layout: &str, derivation: Option<&Derivation>) -> bool {
+    match derivation {
+        Some(d) => d.pump_game(),
+        None => layout.starts_with("pump-"),
     }
 }
 
@@ -231,7 +302,7 @@ impl Song {
     }
 
     /// Adds every available generated version once (without onigiri,
-    /// without center), independently of the display settings. This keeps
+    /// without center, the conversions), independently of the display settings. This keeps
     /// chart URLs, stored plays and replays stable.
     pub fn add_chart_versions(&mut self) {
         for kind in KINDS {
@@ -288,7 +359,9 @@ mod tests {
             assert!(!song.chart_variants_current());
             song.add_chart_versions();
             assert!(song.chart_variants_current());
-            assert_eq!(song.charts.len(), 2, "{mode}");
+            // 5 keys is also converted to pump single.
+            let made = if mode == "5" { 3 } else { 2 };
+            assert_eq!(song.charts.len(), made, "{mode}");
             assert_eq!(song.charts[0], original);
             assert_eq!(song.chart_digest(0), digest);
             let converted = &song.charts[1];
@@ -319,7 +392,12 @@ mod tests {
 
     #[test]
     fn no_empty_or_unrelated_versions_are_generated() {
+        // Only the onigiri: none without it, one on pump single's center.
         let mut song = make_song("5", "|space_data=90|");
+        song.add_chart_versions();
+        assert_eq!(song.charts.len(), 2);
+        assert_eq!(song.charts[1].layout, "pump-single");
+        let mut song = make_song("7", "|space_data=90|");
         assert!(song.chart_variants_current());
         song.add_chart_versions();
         assert_eq!(song.charts.len(), 1);
@@ -396,7 +474,8 @@ mod tests {
         assert!(!song.chart_variants_current());
         song.add_chart_versions();
         assert!(song.chart_variants_current());
-        assert_eq!(song.charts.len(), 3);
+        // And the one on 5 keys after it.
+        assert_eq!(song.charts.len(), 4);
         assert_eq!(song.charts[..2], original.charts[..]);
         for (i, d) in digests.iter().enumerate() {
             assert_eq!(&song.chart_digest(i), d);
@@ -511,12 +590,17 @@ mod tests {
     }
 
     #[test]
-    fn a_center_only_chart_has_no_version() {
-        // Center notes, and mines elsewhere, leave nothing to judge.
+    fn a_center_only_chart_has_no_version_without_it() {
+        // Center notes, and mines elsewhere, leave nothing to judge; on
+        // 5 keys they are all kept.
         let mut song = pump_song("pump-single", &["00100", "M0000", "00200", "00300"]);
-        assert!(song.chart_variants_current());
+        assert!(!song.chart_variants_current());
         song.add_chart_versions();
-        assert_eq!(song.charts.len(), 2);
+        assert_eq!(song.charts.len(), 3);
+        assert_eq!(
+            song.charts[2].derivation,
+            Some(Derivation::FromPumpSingle { source: 1 })
+        );
     }
 
     #[test]
@@ -552,6 +636,107 @@ mod tests {
             fresh.charts[4].derivation,
             Some(Derivation::WithoutCenter { source: 1 })
         );
-        assert_eq!(fresh.charts.len(), 5);
+        assert_eq!(
+            fresh.charts[5].derivation,
+            Some(Derivation::FromPumpSingle { source: 1 })
+        );
+        assert_eq!(
+            fresh.charts[6].derivation,
+            Some(Derivation::FromFiveKeys { source: 2 })
+        );
+        assert_eq!(fresh.charts.len(), 7);
+    }
+
+    /// The lanes' names of `chart`'s notes, as its song lays them out.
+    fn names(song: &Song, chart: &Chart) -> Vec<String> {
+        let layout = song.layout_of(chart).unwrap();
+        chart
+            .notes
+            .iter()
+            .map(|n| layout.lanes[usize::from(n.lane)].name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn pump_single_and_five_keys_convert_every_lane_both_ways() {
+        // DL, UL, C, UR, DR, then a hold on the center and a mine on DR.
+        let mut song = pump_song(
+            "pump-single",
+            &[
+                "10000", "01000", "00100", "00010", //
+                "00001", "00200", "00000", "00300", //
+                "0000M", "00000", "00000", "00000",
+            ],
+        );
+        let digest = song.chart_digest(1);
+        song.add_chart_versions();
+        assert_eq!(song.chart_digest(1), digest);
+        let keys = &song.charts[3];
+        assert_eq!(
+            keys.derivation,
+            Some(Derivation::FromPumpSingle { source: 1 })
+        );
+        assert_eq!(keys.layout, "danoni-5");
+        assert_eq!(keys.name, "From Pump single");
+        assert_eq!(keys.notes.len(), song.charts[1].notes.len());
+        assert_eq!(
+            names(&song, keys),
+            ["left", "up", "space", "right", "down", "space", "down"]
+        );
+        assert!(matches!(keys.notes[5].kind, NoteKind::HoldHead { .. }));
+        assert!(keys.pump_game() && !keys.derivation.as_ref().unwrap().assisted());
+        assert!(song.charts[2].derivation.as_ref().unwrap().assisted());
+        assert_eq!(song.effects_chart(3), 1);
+        // Without its onigiri, the version is the one without the center.
+        let center_free = lanes(&song.charts[2]);
+        let original_keys = Chart {
+            derivation: None,
+            ..keys.clone()
+        };
+        let onigiri_free = convert(&original_keys, 1, Kind::WithoutOnigiri).unwrap();
+        assert_eq!(lanes(&onigiri_free), center_free);
+        assert_ne!(song.chart_digest(3), digest);
+
+        // 5 keys the other way: every arrow onto its corner, the onigiri
+        // onto the center; a Dancing☆Onigiri chart's holds stay its own.
+        let mut song = make_song(
+            "5",
+            "|left_data=60|down_data=90|up_data=120|right_data=150|space_data=180|frzSpace_data=210,270|",
+        );
+        song.add_chart_versions();
+        let pump = &song.charts[2];
+        assert_eq!(
+            pump.derivation,
+            Some(Derivation::FromFiveKeys { source: 0 })
+        );
+        assert_eq!(pump.layout, "pump-single");
+        assert_eq!(pump.name, format!("{} · from 5 keys", song.charts[0].name));
+        assert_eq!(pump.danoni, song.charts[0].danoni);
+        let pad: Vec<_> = pump
+            .notes
+            .iter()
+            .map(|n| {
+                let lane = &song.layout_of(pump).unwrap().lanes[usize::from(n.lane)];
+                lane.glyph.clone()
+            })
+            .collect();
+        let pump_single = crate::Layout::pump_single();
+        let glyph = |i: usize| pump_single.lanes[i].glyph.clone();
+        assert_eq!(
+            pad,
+            [glyph(0), glyph(4), glyph(1), glyph(3), glyph(2), glyph(2)]
+        );
+        assert!(!pump.pump_game() && !pump.derivation.as_ref().unwrap().assisted());
+        let onigiri_free = lanes(&song.charts[1]);
+        let original_pump = Chart {
+            derivation: None,
+            ..pump.clone()
+        };
+        let center_free = convert(&original_pump, 0, Kind::WithoutCenter).unwrap();
+        assert_eq!(lanes(&center_free), onigiri_free);
+        // A version is never converted again.
+        let first = song.clone();
+        song.add_chart_versions();
+        assert_eq!(song, first);
     }
 }

@@ -4,8 +4,8 @@
 //! --test local_autoplay -- --nocapture` imports every `.sm`, `.ssc` and
 //! `.dwi` under the folders (recursively) and plays each chart's script
 //! ([`ddi_engine::autoplay::script`], on time) under ITG, StepMania 5,
-//! DDR A, DDR X and FFR, holds ticked on pump charts (and their
-//! versions without centers) as the game's default does. Each play must end with every step at the top
+//! DDR A, DDR X and FFR, holds ticked on pump charts (and the
+//! versions made from them) as the game's default does. Each play must end with every step at the top
 //! judgement, 100 %, the full EX score, DDR A's and DDR X's 1,000,000
 //! and FFR's AAA (its raw score 50 a
 //! note, no Boo): whatever is left over (a mine under a hold, a

@@ -98,9 +98,12 @@ mod tests {
         assert!(!song.zip);
         assert!(song.work.is_none());
         assert_eq!(&song.entry.charts[..entry.charts.len()], entry.charts);
-        assert_eq!(song.entry.charts.len(), 2);
+        // Without onigiri, and on pump single.
+        assert_eq!(song.entry.charts.len(), 3);
         assert_eq!(song.entry.charts[1].layout, "dance-single");
         assert!(song.entry.charts[1].derivation.is_some());
+        assert_eq!(song.entry.charts[2].layout, "pump-single");
+        assert!(song.entry.charts[2].derivation.is_some());
         assert_ne!(song.entry.charts[0].digest, song.entry.charts[1].digest);
         assert!(!song.entry.needs_chart_variants());
         assert_eq!(serde_json::to_vec(&entry).unwrap(), admitted);

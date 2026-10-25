@@ -575,6 +575,7 @@ fn generated_versions_are_marked_where_they_are_picked() {
         for c in &mut song.charts {
             if c.difficulty == Difficulty::Hard {
                 c.version = Some("Without center");
+                c.assisted = true;
             }
         }
     }
@@ -599,23 +600,61 @@ fn generated_versions_are_marked_where_they_are_picked() {
     let notes: Vec<(String, String)> = (0..8)
         .filter_map(|k| {
             let mut row = h.ui.actor(&format!("Ladder.Row{k}"))?.clone();
-            Some((text(&mut row, "Label")?, text(&mut row, "Notes")?))
+            Some((text(&mut row, "Title")?, text(&mut row, "Subtitle")?))
         })
         .collect();
+    assert!(notes.iter().any(|(label, _)| label == "Hard"), "{notes:?}");
     for (label, notes) in &notes {
         assert_eq!(
-            label == "HARD",
+            label == "Hard",
             notes.starts_with("Without center · "),
             "{label}: {notes}"
         );
     }
-    let (mut h, s) = recording(d, [844.0, 390.0], COMPACT);
-    h.run(0.3);
-    assert!(s.borrow().compact);
-    let mut play = h.ui.actor("Play").unwrap().clone();
-    let label = text(&mut play, "Label").unwrap();
+    let compact_label = |d: SelectData| {
+        let (mut h, s) = recording(d, [844.0, 390.0], COMPACT);
+        h.run(0.3);
+        assert!(s.borrow().compact);
+        let mut play = h.ui.actor("Play").unwrap().clone();
+        text(&mut play, "Label").unwrap()
+    };
+    let label = compact_label(d.clone());
     assert!(
         label.starts_with("PLAY HARD") && label.ends_with(" · ASSIST"),
+        "{label}"
+    );
+    // A conversion is marked in the list, but its plays are not assisted.
+    for song in &mut d.songs {
+        for c in &mut song.charts {
+            if c.difficulty == Difficulty::Hard {
+                c.version = Some("From Pump single");
+                c.assisted = false;
+            }
+        }
+    }
+    let (mut h, s) = recording(d.clone(), [1280.0, 720.0], DESIGN);
+    h.run(0.3);
+    assert!(
+        s.borrow()
+            .ladder
+            .iter()
+            .any(|c| c.ends_with(" (From Pump single)"))
+    );
+    let mut row = (0..8)
+        .filter_map(|k| h.ui.actor(&format!("Ladder.Row{k}")).cloned())
+        .find(|r| {
+            let mut r = r.clone();
+            text(&mut r, "Title").as_deref() == Some("Hard")
+        })
+        .unwrap();
+    assert!(
+        text(&mut row, "Subtitle")
+            .unwrap()
+            .starts_with("From Pump single · ")
+    );
+    let label = compact_label(d);
+    assert!(
+        label.starts_with("PLAY HARD") && !label.contains("ASSIST"),
         "{label}"
     );
 }

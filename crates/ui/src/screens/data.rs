@@ -43,9 +43,13 @@ pub struct ChartEntry {
     pub best: Option<Best>,
     /// Its content's digest, when known (its kept plays).
     pub digest: Option<ddi_chart::ChartDigest>,
-    /// What a generated (assisted) version leaves out, as the list marks
-    /// it ("Without center"); `None` for an original.
+    /// What a generated version leaves out, or where it comes from, as
+    /// the list marks it ("Without center", "From Pump single"); `None`
+    /// for an original.
     pub version: Option<&'static str>,
+    /// Whether that version leaves notes out, its plays assisted (a
+    /// conversion's are not).
+    pub assisted: bool,
 }
 
 impl Default for ChartEntry {
@@ -61,6 +65,7 @@ impl Default for ChartEntry {
             best: None,
             digest: None,
             version: None,
+            assisted: false,
         }
     }
 }

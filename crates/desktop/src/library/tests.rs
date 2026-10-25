@@ -317,6 +317,7 @@ fn pump_charts_are_listed_and_played_without_their_centers() {
             (1, "dance-single", false),
             (0, "pump-single", false),
             (2, "dance-single", true),
+            (3, "danoni-5", true),
         ]
     );
     register_for_tests(&songs);
