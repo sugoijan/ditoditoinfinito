@@ -22,8 +22,9 @@ use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUILT_IN, BUNDLED, BackgroundFrame, DITO, FIELD_FILTERS, Graphics, PadBindings, ParamValue,
-    ReducedMotion, START_COUNTDOWNS, Settings, VideoMode, slider_to_volume, volume_to_slider,
+    BUILT_IN, BUNDLED, BackgroundFrame, CenterVersions, DITO, FIELD_FILTERS, Graphics, PadBindings,
+    ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode, slider_to_volume,
+    volume_to_slider,
 };
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
@@ -495,11 +496,11 @@ impl OptionsModel {
             choice(
                 "simplify_center",
                 "Without center",
-                &["Off", "On"],
-                s.simplify_center as usize,
-                "Adds separate Pump charts to Single and Double without the center notes, \
-                     each pad turned an eighth clockwise. Only these versions are marked as \
-                     assisted; the original charts stay available.",
+                &["Off", "Where missing", "All"],
+                pos(&CENTER_VERSIONS, s.simplify_center),
+                "Adds Pump charts to Single and Double without the center notes, each pad \
+                     turned an eighth clockwise, marked as assisted. Where missing: only at \
+                     difficulties the song has no chart of there.",
             ),
             choice(
                 "no_jumps",
@@ -1424,7 +1425,7 @@ impl OptionsModel {
             "cut" => s.transform.cut = at(&CUTS, i),
             "no_jumps" => s.transform.no_jumps = on,
             "simplify_onigiri" => s.simplify_onigiri = on,
-            "simplify_center" => s.simplify_center = on,
+            "simplify_center" => s.simplify_center = at(&CENTER_VERSIONS, i),
             "no_holds" => s.transform.no_holds = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),
             "ruleset" => {
@@ -2067,6 +2068,12 @@ const APPEARANCES: [Appearance; 5] = [
     Appearance::HiddenSudden,
     Appearance::Stealth,
 ];
+const CENTER_VERSIONS: [CenterVersions; 3] = [
+    CenterVersions::Off,
+    CenterVersions::Missing,
+    CenterVersions::All,
+];
+
 const COVER_MODES: [CoverMode; 4] = [
     CoverMode::Off,
     CoverMode::Sudden,

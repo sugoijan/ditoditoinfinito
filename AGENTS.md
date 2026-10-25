@@ -587,11 +587,13 @@ Options sample); Start is silent. See `docs/plans/start-menu.md`.
 - Options → Notes → Simplify → Without onigiri (`simplify_onigiri`)
   exposes additional versions of DanOni 5/7/9A/9B charts in Single,
   Solo, Double and Techno 8-panel (`techno-single8`); Without center
-  (`simplify_center`, on by default) versions of pump single and
-  half-double charts in Single and pump double in Double, the center
-  removed and each pad turned an eighth clockwise, their holds still
-  ticked as pump's (`Chart::pump_game`). See
-  `docs/plans/chart-simplification.md`.
+  (`simplify_center`: Off, Where missing, the default, listing one only
+  where its style has no original of its difficulty (Edits always), or
+  All) versions of pump single and half-double charts in Single and
+  pump double in Double, the center removed and each pad turned an
+  eighth clockwise, their holds still ticked as pump's
+  (`Chart::pump_game`). Song select marks every generated version
+  (`ChartEntry::version`). See `docs/plans/chart-simplification.md`.
 - Generated charts carry `Chart::derivation` and are appended after all
   originals (every onigiri-free version before every center-free one),
   independently of the display setting. Preserve original

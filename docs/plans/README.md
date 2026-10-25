@@ -64,7 +64,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Additional chart versions](chart-simplification.md)
   (2026-10-18): done. DanOni 5/7/9A/9B charts converted to Single, Solo,
   Double and Techno 8-panel, marked as assisted; pump charts without the
-  center, turned onto Single and Double, on by default (2026-10-24).
+  center, turned onto Single and Double, on by default (2026-10-24);
+  by default only where a style lacks the difficulty, marked in song
+  select (2026-10-25).
 - [Song-select navigation](song-navigation.md) (2026-10-20): done; the
   reference for the tuned timings of taps, pairs and holds, and for the
   search field from a controller (2026-10-22).

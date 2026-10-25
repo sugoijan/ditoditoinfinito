@@ -565,6 +565,61 @@ fn the_ladder_picks_and_lights_what_it_shows() {
     assert_eq!(s.borrow().status, "PLAYED Some Things Must Hard 16");
 }
 
+/// A generated (assisted) version is marked where its chart is picked: on
+/// the ladder's line under it, and on a phone on Play, as its results
+/// mark it (its button's dot is the theme's, `ddi-theme`'s tests).
+#[test]
+fn generated_versions_are_marked_where_they_are_picked() {
+    let mut d = sample::select();
+    for song in &mut d.songs {
+        for c in &mut song.charts {
+            if c.difficulty == Difficulty::Hard {
+                c.version = Some("Without center");
+            }
+        }
+    }
+    let text = |a: &mut ddi_actor::Actor, p: &str| match &crate::widgets::part(a, p)?.kind {
+        ddi_actor::Kind::Text(t) => Some(t.text().to_string()),
+        _ => None,
+    };
+    let (mut h, s) = recording(d.clone(), [1280.0, 720.0], DESIGN);
+    h.run(0.3);
+    assert!(
+        s.borrow()
+            .chart
+            .as_deref()
+            .is_some_and(|c| c.starts_with("Hard"))
+    );
+    assert!(
+        s.borrow()
+            .ladder
+            .iter()
+            .any(|c| c.ends_with(" (Without center)"))
+    );
+    let notes: Vec<(String, String)> = (0..8)
+        .filter_map(|k| {
+            let mut row = h.ui.actor(&format!("Ladder.Row{k}"))?.clone();
+            Some((text(&mut row, "Label")?, text(&mut row, "Notes")?))
+        })
+        .collect();
+    for (label, notes) in &notes {
+        assert_eq!(
+            label == "HARD",
+            notes.starts_with("Without center · "),
+            "{label}: {notes}"
+        );
+    }
+    let (mut h, s) = recording(d, [844.0, 390.0], COMPACT);
+    h.run(0.3);
+    assert!(s.borrow().compact);
+    let mut play = h.ui.actor("Play").unwrap().clone();
+    let label = text(&mut play, "Label").unwrap();
+    assert!(
+        label.starts_with("PLAY HARD") && label.ends_with(" · ASSIST"),
+        "{label}"
+    );
+}
+
 #[test]
 fn start_acts_on_the_song_moved_to_in_the_same_poll() {
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);

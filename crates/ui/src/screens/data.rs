@@ -43,6 +43,9 @@ pub struct ChartEntry {
     pub best: Option<Best>,
     /// Its content's digest, when known (its kept plays).
     pub digest: Option<ddi_chart::ChartDigest>,
+    /// What a generated (assisted) version leaves out, as the list marks
+    /// it ("Without center"); `None` for an original.
+    pub version: Option<&'static str>,
 }
 
 impl Default for ChartEntry {
@@ -57,6 +60,7 @@ impl Default for ChartEntry {
             name: String::new(),
             best: None,
             digest: None,
+            version: None,
         }
     }
 }

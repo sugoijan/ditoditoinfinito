@@ -166,7 +166,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         (
             "ChartButton",
             s(56.0, 44.0, "13"),
-            &["Plate", "Meter", "Pulse"],
+            &["Plate", "Meter", "Pulse", "Assist"],
         ),
         (
             "KeyHint",
@@ -243,6 +243,23 @@ fn the_toggle_is_an_empty_box_while_off() {
             .len(),
         4
     );
+}
+
+#[test]
+fn a_chart_button_marks_a_generated_version_with_a_dot() {
+    let t = Infinito::new();
+    let mut b = look::component(&t, "ChartButton", &Spec::new([56.0, 44.0], "13"));
+    let shown = |b: &mut Actor, command: &str| {
+        ddi_ui::widgets::play(b, command);
+        b.finish_tweening();
+        ddi_ui::widgets::part(b, "Assist")
+            .unwrap()
+            .current()
+            .diffuse[0][3]
+    };
+    assert_eq!(shown(&mut b, "Hard"), 0.0);
+    assert_eq!(shown(&mut b, "Assisted"), 1.0);
+    assert_eq!(shown(&mut b, "Original"), 0.0);
 }
 
 #[test]

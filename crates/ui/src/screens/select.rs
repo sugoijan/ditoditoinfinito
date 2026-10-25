@@ -794,9 +794,12 @@ impl SelectScreen {
         let (Some(song), Some(chart)) = (self.song(), pick.map(|p| charts[p])) else {
             return;
         };
-        let title = format!("{} {}", chart.label(), chart.meter_text())
+        let mut title = format!("{} {}", chart.label(), chart.meter_text())
             .trim_end()
             .to_string();
+        if let Some(version) = chart.version {
+            title = format!("{title} · {version}");
+        }
         let rows = f(song, chart);
         cx.focus("Wheel");
         cx.overlay(
@@ -1637,6 +1640,8 @@ impl SelectScreen {
                     t.ellipsis = true;
                 }
                 crate::widgets::play(&mut b, difficulty_name(c.difficulty));
+                let assisted = c.version.is_some();
+                crate::widgets::play(&mut b, if assisted { "Assisted" } else { "Original" });
                 let lamp = c.best.as_ref().map_or("None", |b| b.lamp.as_str());
                 crate::widgets::play(&mut b, &format!("Lamp.{lamp}"));
                 crate::widgets::play(
@@ -1669,14 +1674,21 @@ impl SelectScreen {
                 f.kind = Kind::Frame(children);
             }
             let label = match pick.map(|p| charts[p]) {
-                Some(c) => format!(
-                    "{} {} {}",
-                    if self.autoplay { "AUTOPLAY" } else { "PLAY" },
-                    c.label().to_uppercase(),
-                    c.meter_text()
-                )
-                .trim_end()
-                .to_string(),
+                Some(c) => {
+                    let label = format!(
+                        "{} {} {}",
+                        if self.autoplay { "AUTOPLAY" } else { "PLAY" },
+                        c.label().to_uppercase(),
+                        c.meter_text()
+                    );
+                    // Marked as the results mark its play.
+                    let assist = if c.version.is_some() {
+                        " · ASSIST"
+                    } else {
+                        ""
+                    };
+                    format!("{}{assist}", label.trim_end())
+                }
                 None => "NO CHARTS".to_string(),
             };
             super::set(root, "Play", "Label", &label);
@@ -1697,11 +1709,16 @@ impl SelectScreen {
             );
             set_text(&mut r, "Label", &c.label().to_uppercase());
             set_text(&mut r, "Title", &c.label());
-            let notes = if c.credit.is_empty() {
+            let mut notes = if c.credit.is_empty() {
                 format!("{} notes", c.notes)
             } else {
                 format!("{} notes · steps by {}", c.notes, c.credit)
             };
+            // A generated (assisted) version says what it leaves out (a
+            // named one does in its name).
+            if let Some(version) = c.version.filter(|_| !c.named()) {
+                notes = format!("{version} · {notes}");
+            }
             set_text(&mut r, "Notes", &notes);
             set_text(&mut r, "Subtitle", &notes);
             set_text(&mut r, "Meter", &c.meter_text());
@@ -2642,7 +2659,13 @@ impl SelectScreen {
         });
         st.ladder = charts
             .iter()
-            .map(|c| format!("{} {}", difficulty_name(c.difficulty), c.meter))
+            .map(|c| {
+                let chart = format!("{} {}", difficulty_name(c.difficulty), c.meter);
+                match c.version {
+                    Some(version) => format!("{chart} ({version})"),
+                    None => chart,
+                }
+            })
             .collect();
         st.greyed = self.song().is_some() && charts.is_empty();
         st.style_counts = self

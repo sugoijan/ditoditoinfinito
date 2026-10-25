@@ -32,7 +32,8 @@
 //! - `ChartLadder.Row` (`List.Row`): `Plate`, `Bar`, `Label`, `Notes`,
 //!   `Meter`, `Pulse`; `Select`, `Deselect` and the difficulty's name
 //!   (`Hard`). `ChartLadder.Empty` (`Panel`): `Title`, `Hint`.
-//!   `ChartButton` (centered; `Button`): `Meter`; the same commands.
+//!   `ChartButton` (centered; `Button`): `Meter`, `Assist`; the same
+//!   commands, and `Assisted` or `Original` (a generated version's mark).
 //!   `PlayButton`, `IconButton`, `StyleButton` (centered; `Button`).
 //! - `Results.Judgement` (`List.Row`): `Name`, `Bar` (as long as the
 //!   row's `Spec` is wide, zoomed by the share), `Count`; its color's

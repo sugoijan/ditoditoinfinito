@@ -1003,9 +1003,22 @@ impl Infinito {
             1.5,
         );
         self.lamp_commands(&mut lamp);
+        // A generated (assisted) version's mark: a small dot in the corner.
+        let mut assist = round(
+            plate(
+                "Assist",
+                [w / 2.0 - 9.0, -h / 2.0 + 6.0],
+                [4.0, 4.0],
+                self.c("Muted"),
+            ),
+            2.0,
+        );
+        hide(&mut assist);
+        command_of(&mut assist, "Assisted", "diffusealpha,1");
+        command_of(&mut assist, "Original", "diffusealpha,0");
         frame(
             "",
-            vec![pulse, ring, p, top, meter, lamp, extent(spec.size)],
+            vec![pulse, ring, p, top, meter, lamp, assist, extent(spec.size)],
         )
     }
 

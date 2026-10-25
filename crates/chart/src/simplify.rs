@@ -69,6 +69,12 @@ impl Derivation {
     pub fn pump_game(&self) -> bool {
         matches!(self, Self::WithoutCenter { .. })
     }
+
+    /// What the version leaves out, as the song list marks it ("Without
+    /// center").
+    pub fn name(&self) -> &'static str {
+        self.kind().names().0
+    }
 }
 
 /// Whether some generated version may come from a chart of `layout`.

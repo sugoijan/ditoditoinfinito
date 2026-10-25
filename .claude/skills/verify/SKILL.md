@@ -157,11 +157,15 @@ the library restores the metadata from the stored work without reimport.
 
 For Without center, import a synthetic pump pack (a `.sm`/`.ssc` with
 `pump-single`, `pump-halfdouble` and `pump-double` charts, built in a
-scratch folder) into a fresh profile. Row `simplify_center` (bool of that
-name) is on by default and with no stored value: Single and Double list
-the versions after every original (`ui.select.styleCounts` counts them on
-the song; Tab moves between styles); set it false in `ddi.settings.v1` (or Off in Notes) and they
-go. Autoplay one (`#/play?song=<id>&chart=<n>&auto=1`): all top tier,
+scratch folder) into a fresh profile. Row `simplify_center` (stored
+`"Off"`, `"Missing"` or `"All"`; an old `true` reads as `"Missing"`,
+`false` as `"Off"`) is Where missing by default and with no stored value:
+Single and Double list a version only at a difficulty the style has no
+original of (Edits always), All lists every one (`ui.select.styleCounts`
+counts them on the song; Tab moves between styles; `ui.theme.ladder`
+marks one `Hard 9 (Without center)`, and the ladder's line under it
+begins "Without center ·"; on a phone Play ends "· ASSIST"); Off in
+Notes and they go. Autoplay one (`#/play?song=<id>&chart=<n>&auto=1`): all top tier,
 `AUTOPLAY · ASSIST` on the results, its holds ticked (the results'
 hold-ticks row) unless Rules → Holds says dance-style. An imported record
 whose `variants_version` is below 2 regains the versions on reload.

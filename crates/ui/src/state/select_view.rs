@@ -14,7 +14,7 @@ use ddi_engine::rules::RulesetKey;
 
 use super::history::{Best as HistoryBest, BestKey, History, score_text};
 use super::place::MenuPlace;
-use super::settings::Settings;
+use super::settings::{CenterVersions, Settings};
 use crate::screens::data::{
     Best, ChartEntry, ImportView, PackEntry, SelectData, SongEntry, StyleDef,
 };
@@ -62,13 +62,13 @@ impl Listed {
 /// Layouts with charts in `songs`: the built-in ones in their order,
 /// then the ones songs define themselves, by name.
 pub fn library_styles<'a>(songs: impl Iterator<Item = &'a ManifestEntry> + Clone) -> Vec<Layout> {
-    library_styles_where(songs, |_| true)
+    library_styles_where(songs, |_, _| true)
 }
 
-/// [`library_styles`] of the charts `keep` keeps.
+/// [`library_styles`] of the charts `keep` keeps (of their songs).
 fn library_styles_where<'a>(
     songs: impl Iterator<Item = &'a ManifestEntry> + Clone,
-    keep: impl Fn(&ChartInfo) -> bool,
+    keep: impl Fn(&ManifestEntry, &ChartInfo) -> bool,
 ) -> Vec<Layout> {
     let keep = &keep;
     let mut ids: Vec<&str> = songs
@@ -76,7 +76,7 @@ fn library_styles_where<'a>(
         .flat_map(|e| {
             e.charts
                 .iter()
-                .filter(move |c| keep(c))
+                .filter(move |c| keep(e, c))
                 .map(|c| c.layout.as_str())
         })
         .collect();
@@ -107,14 +107,29 @@ fn difficulty(name: &str) -> Difficulty {
     Difficulty::from_name(name).unwrap_or(Difficulty::Edit)
 }
 
-/// Whether the song list shows `c`: an additional version only with its
-/// option on. Generation is independent of the setting, so indexes stay
-/// stable.
-fn shows(c: &ChartInfo, settings: &Settings) -> bool {
+/// Whether the song list shows `c`, a chart of `song`: an additional
+/// version only with its option on, and a version without centers, by
+/// default, only where its style has no original of its difficulty (an
+/// Edit, each its own chart, always). Generation is independent of the
+/// setting, so indexes stay stable.
+fn shows(song: &ManifestEntry, c: &ChartInfo, settings: &Settings) -> bool {
+    use ddi_chart::simplify::Derivation;
     match c.derivation {
         None => true,
-        Some(ddi_chart::simplify::Derivation::WithoutOnigiri { .. }) => settings.simplify_onigiri,
-        Some(ddi_chart::simplify::Derivation::WithoutCenter { .. }) => settings.simplify_center,
+        Some(Derivation::WithoutOnigiri { .. }) => settings.simplify_onigiri,
+        Some(Derivation::WithoutCenter { .. }) => match settings.simplify_center {
+            CenterVersions::Off => false,
+            CenterVersions::All => true,
+            CenterVersions::Missing => {
+                let d = difficulty(&c.difficulty);
+                d == Difficulty::Edit
+                    || !song.charts.iter().any(|o| {
+                        o.derivation.is_none()
+                            && o.layout == c.layout
+                            && difficulty(&o.difficulty) == d
+                    })
+            }
+        },
     }
 }
 
@@ -200,7 +215,7 @@ fn song_entry<'a>(
         charts: entry
             .charts
             .iter()
-            .filter(|c| shows(c, settings))
+            .filter(|c| shows(entry, c, settings))
             .map(|c| ChartEntry {
                 style: c.layout.clone(),
                 difficulty: difficulty(&c.difficulty),
@@ -211,6 +226,7 @@ fn song_entry<'a>(
                 name: c.name.clone(),
                 best: best_of(entry, c, settings, bests, keys),
                 digest: c.digest,
+                version: c.derivation.as_ref().map(|d| d.name()),
             })
             .collect(),
         removable: s.removable,
@@ -231,7 +247,7 @@ pub fn select_data(
     place: &MenuPlace,
 ) -> SelectData {
     let styles: Vec<StyleDef> =
-        library_styles_where(songs.iter().map(|s| &s.entry), |c| shows(c, settings))
+        library_styles_where(songs.iter().map(|s| &s.entry), |e, c| shows(e, c, settings))
             .into_iter()
             .map(|l| StyleDef {
                 id: l.id,
@@ -479,8 +495,73 @@ mod tests {
             assert_eq!(player.results().assist, assisted);
             assert_eq!(player.judge().notes().len(), notes);
         }
-        settings.simplify_center = false;
+        settings.simplify_center = CenterVersions::Off;
         assert_eq!(styles(&settings), [("pump-single".to_string(), 0)]);
+    }
+
+    #[test]
+    fn center_free_versions_fill_the_missing_difficulties_unless_all_are_asked_for() {
+        let text = "#TITLE:Both;#OFFSET:0;#BPMS:0=120;\n\
+            #NOTES:\n dance-single:\n:\n Medium:\n 5:\n 0,0,0,0,0:\n1000\n0100\n;\n\
+            #NOTES:\n pump-single:\n:\n Medium:\n 6:\n 0,0,0,0,0:\n10000\n00010\n;\n\
+            #NOTES:\n pump-single:\n:\n Hard:\n 9:\n 0,0,0,0,0:\n10100\n00010\n;\n\
+            #NOTES:\n dance-single:\n Mine:\n Edit:\n 7:\n 0,0,0,0,0:\n0010\n0001\n;\n\
+            #NOTES:\n pump-single:\n Theirs:\n Edit:\n 8:\n 0,0,0,0,0:\n00001\n01000\n;\n";
+        let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
+        let entry = ddi_library::manifest::summarize(
+            ddi_library::manifest::EntryMeta {
+                id: "both".into(),
+                chart: "both.sm".into(),
+                ..Default::default()
+            },
+            &song,
+        );
+        let songs = [Listed::bundled(&entry)];
+        let single = |versions| {
+            let settings = Settings {
+                simplify_center: versions,
+                ..Settings::default()
+            };
+            let data = select_data(
+                &songs,
+                &|_| false,
+                &settings,
+                &History::default(),
+                &MenuPlace::default(),
+            );
+            data.songs[0]
+                .charts_in("dance-single")
+                .iter()
+                .map(|c| (difficulty_name(c.difficulty), c.meter, c.version))
+                .collect::<Vec<_>>()
+        };
+        use crate::screens::data::difficulty_name;
+        let center = Some("Without center");
+        // The original Medium stands for its difficulty; the Hard and the
+        // Edit are new.
+        assert_eq!(
+            single(CenterVersions::Missing),
+            [
+                ("Medium", 5, None),
+                ("Hard", 9, center),
+                ("Edit", 7, None),
+                ("Edit", 8, center)
+            ]
+        );
+        assert_eq!(
+            single(CenterVersions::All),
+            [
+                ("Medium", 5, None),
+                ("Medium", 6, center),
+                ("Hard", 9, center),
+                ("Edit", 7, None),
+                ("Edit", 8, center)
+            ]
+        );
+        assert_eq!(
+            single(CenterVersions::Off),
+            [("Medium", 5, None), ("Edit", 7, None)]
+        );
     }
 
     fn entry(id: &str, layout: &str) -> ManifestEntry {

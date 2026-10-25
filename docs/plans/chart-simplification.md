@@ -72,7 +72,9 @@ Notes → Simplify → **Without center** (`Settings::simplify_center`)
 exposes these versions. **On by default**: settings stored before it
 existed get it on, since the settings' struct fills what a stored value
 lacks from `Settings::default()` (no migration step). Turn Left or Right
-on top of it gives the other rotation.
+on top of it gives the other rotation. Since 2026-10-25 the option has
+three values and lists, by default, only the versions a style lacks a
+chart for ("Where missing", below).
 
 | Original | Additional layout | Lanes |
 | --- | --- | --- |
@@ -160,3 +162,37 @@ record stripped of its versions at variants version 1 regains them on
 reload. The local autoplay corpus on a local Pump It Up pack (18
 simfiles, 216 charts with their versions) plays all top tier under every
 preset.
+
+## Where missing, and the mark in song select (2026-10-25)
+
+The maintainer's request, on seeing the bundled songs gain 16 charts:
+a generated version's assisted mark was only on the results, and a
+version beside an original of the same difficulty adds little. Without
+center now has three values (`CenterVersions`, the maintainer's choice
+over always hiding them):
+
+| Value | Song select lists |
+| --- | --- |
+| Off | none |
+| Where missing (default) | a version only where its style has no original chart of its difficulty; Edits (each its own chart) always |
+| All | every version, as before |
+
+Stored settings from before keep their meaning: `true` (the old default)
+reads as Where missing, `false` as Off. Generation, indexes, digests,
+bests and replays are unchanged: hiding is the song list's
+(`ddi_ui::state::select_view`), so a link or replay to a hidden version
+still plays it. Without onigiri stays On/Off: a Dancing☆Onigiri work's
+charts are all Edits in layouts of their own (`danoni-5`, …), so Where
+missing would never hide one. With the bundled songs, Where missing
+leaves 3 of the 16 versions, all on Double (Beatucada's Easy 6, Some
+Things Must's Medium 11 and Hard 17).
+
+**The mark.** Song select marks a generated version subtly where a chart
+is picked (`ChartEntry::version`, `Derivation::name`): the ladder's muted
+line under it begins with what it leaves out ("Without center · 412
+notes · steps by …"; a named version says it in its name), a phone's
+chart button has a small muted dot in its corner (`ChartButton`'s
+`Assist`, commands `Assisted`/`Original`), and its Play label ends in
+"· ASSIST", as the results mark the play. The wheel's meter cells show
+the first chart of each difficulty, an original before a version, and
+stay unmarked. The plays list's title names the version.

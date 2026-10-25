@@ -43,10 +43,13 @@ pub struct Settings {
     pub transform: TransformOptions,
     /// Offer additional DanOni charts without their onigiri lane.
     pub simplify_onigiri: bool,
-    /// Offer additional dance charts made from pump charts without their
-    /// centers (on by default; settings stored before it was kept get it
-    /// on, the struct's defaults filling what they lack).
-    pub simplify_center: bool,
+    /// Which of the dance charts made from pump charts without their
+    /// centers the song list offers (those of difficulties a style has no
+    /// chart of, by default; settings stored before it was kept get that,
+    /// the struct's defaults filling what they lack, and its old on and
+    /// off read as that and none).
+    #[serde(deserialize_with = "center_versions")]
+    pub simplify_center: CenterVersions,
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub appearance: Appearance,
@@ -262,6 +265,35 @@ pub enum BackgroundFrame {
     Screen,
 }
 
+/// Which of the versions without centers the song list offers
+/// ([`Settings::simplify_center`]).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CenterVersions {
+    Off,
+    /// Those of a difficulty the style has no original chart of (Edits,
+    /// each its own chart, always).
+    #[default]
+    Missing,
+    All,
+}
+
+/// [`CenterVersions`] as stored, or as an on/off from before it had three
+/// values (on: the default, which it was too).
+fn center_versions<'de, D: serde::Deserializer<'de>>(d: D) -> Result<CenterVersions, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Stored {
+        Known(CenterVersions),
+        OnOff(bool),
+        Unknown(serde::de::IgnoredAny),
+    }
+    Ok(match Stored::deserialize(d)? {
+        Stored::Known(v) => v,
+        Stored::OnOff(false) => CenterVersions::Off,
+        Stored::OnOff(true) | Stored::Unknown(_) => CenterVersions::default(),
+    })
+}
+
 /// Note color scheme (see `ddi_render::note_colors`; the app maps it):
 /// Dito's `Colors` parameter, whose choices are these names.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,7 +344,7 @@ impl Default for Settings {
             scroll_action: ScrollAction::Normal,
             transform: TransformOptions::default(),
             simplify_onigiri: false,
-            simplify_center: true,
+            simplify_center: CenterVersions::Missing,
             appearance: Appearance::Visible,
             lane_cover: LaneCover::default(),
             noteskin: None,
@@ -1006,6 +1038,31 @@ mod tests {
     }
 
     #[test]
+    fn the_versions_without_centers_read_their_old_on_and_off() {
+        let read = |json: &str| {
+            serde_json::from_str::<Settings>(json)
+                .unwrap()
+                .simplify_center
+        };
+        assert_eq!(
+            read(r#"{"simplify_center": true}"#),
+            CenterVersions::Missing
+        );
+        assert_eq!(read(r#"{"simplify_center": false}"#), CenterVersions::Off);
+        assert_eq!(read(r#"{"simplify_center": "All"}"#), CenterVersions::All);
+        assert_eq!(
+            read(r#"{"simplify_center": "Some"}"#),
+            CenterVersions::Missing
+        );
+        let s = Settings {
+            simplify_center: CenterVersions::All,
+            ..Settings::default()
+        };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.simplify_center, CenterVersions::All);
+    }
+
+    #[test]
     fn a_fresh_profile_starts_at_69_percent_and_a_stored_volume_stays() {
         assert_eq!((volume_to_slider(DEFAULT_VOLUME) * 100.0).round(), 69.0);
         // Nothing stored, or settings stored before the volume was kept:
@@ -1026,9 +1083,10 @@ mod tests {
         let s = Settings::load();
         assert_eq!(s.speed, 10.0);
         assert!(s.reverse);
-        // Stored before it was kept, and before the onigiri's: on, as new
-        // settings have it.
-        assert!(s.simplify_center && Settings::default().simplify_center);
+        // Stored before it was kept, and before the onigiri's: Where
+        // missing, as new settings have it.
+        assert_eq!(s.simplify_center, CenterVersions::Missing);
+        assert_eq!(Settings::default().simplify_center, CenterVersions::Missing);
         assert!(!s.simplify_onigiri);
         assert_eq!(s.note_colors(), NoteColors::Vivid);
         assert_eq!(s.old_note_colors, None);
