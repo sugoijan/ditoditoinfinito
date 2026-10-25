@@ -1392,15 +1392,27 @@ fn register(songs: &[LibSong]) {
     }
 }
 
-/// Makes `songs` the library's (tests that load songs without a scan's
-/// thread).
-pub fn register_for_tests(songs: &[LibSong]) {
-    register(songs);
+/// The songs tests added ([`register_for_tests`]), apart from the
+/// scans' registry, which each scan replaces: tests run side by side,
+/// and one's scan must not take another's songs away.
+fn test_songs() -> &'static RwLock<HashMap<String, LibSong>> {
+    static SONGS: OnceLock<RwLock<HashMap<String, LibSong>>> = OnceLock::new();
+    SONGS.get_or_init(Default::default)
 }
 
-/// The library's song `id`.
+/// Adds `songs` to the library (tests that load songs without a scan's
+/// thread), for the rest of the process: a song of the same id replaces
+/// the one added before, and no scan removes them.
+pub fn register_for_tests(songs: &[LibSong]) {
+    if let Ok(mut r) = test_songs().write() {
+        r.extend(songs.iter().map(|s| (s.entry.id.clone(), s.clone())));
+    }
+}
+
+/// The library's song `id` (a test's first).
 pub fn song(id: &str) -> Option<LibSong> {
-    registry().read().ok()?.get(id).cloned()
+    let tests = test_songs().read().ok().and_then(|r| r.get(id).cloned());
+    tests.or_else(|| registry().read().ok()?.get(id).cloned())
 }
 
 /// A song with a chart of content `digest` (a replay's chart moved to
@@ -1411,8 +1423,10 @@ pub fn find_by_digest(digest: ddi_chart::ChartDigest) -> Option<String> {
         return Some(e.id);
     }
     let reg = registry().read().ok()?;
+    let tests = test_songs().read().ok()?;
     let mut ids: Vec<&String> = reg
         .iter()
+        .chain(tests.iter())
         .filter(|(_, s)| has(&s.entry))
         .map(|(id, _)| id)
         .collect();

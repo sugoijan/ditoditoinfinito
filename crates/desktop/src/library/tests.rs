@@ -254,10 +254,12 @@ fn a_play_reads_its_charts_music_and_the_lyrics() {
     write(
         &root,
         &[
-            ("Pack/S/s.ssc", ssc.as_bytes()),
-            ("Pack/S/song.wav", &wav(3.0)),
-            ("Pack/S/easy.wav", &wav(1.0)),
-            ("Pack/S/words.lrc", b"[00:00.50]hello"),
+            // A pack of its own: the song's id is made from its pack and
+            // folder, and tests that register songs run side by side.
+            ("Lyrics/S/s.ssc", ssc.as_bytes()),
+            ("Lyrics/S/song.wav", &wav(3.0)),
+            ("Lyrics/S/easy.wav", &wav(1.0)),
+            ("Lyrics/S/words.lrc", b"[00:00.50]hello"),
         ],
     );
     let (songs, report, _) = scan(std::slice::from_ref(&root), None, &[]);
@@ -299,8 +301,8 @@ fn pump_charts_are_listed_and_played_without_their_centers() {
     write(
         &root,
         &[
-            ("Pack/S/s.ssc", ssc.as_bytes()),
-            ("Pack/S/song.wav", &wav(3.0)),
+            ("Pump/S/s.ssc", ssc.as_bytes()),
+            ("Pump/S/song.wav", &wav(3.0)),
         ],
     );
     let (songs, report, _) = scan(std::slice::from_ref(&root), None, &[]);
