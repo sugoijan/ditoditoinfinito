@@ -24,6 +24,8 @@ struct Pipe {
     events: Option<mpsc::Receiver<Wire>>,
     threads: Vec<JoinHandle<()>>,
     stderr: Arc<Mutex<VecDeque<u8>>>,
+    /// Set once the helper's diagnostics reach their end.
+    stderr_done: Arc<AtomicBool>,
 }
 impl Pipe {
     fn spawn(executable: &Path) -> Result<Self, String> {
@@ -43,6 +45,7 @@ impl Pipe {
             events: None,
             threads: Vec::new(),
             stderr,
+            stderr_done: Arc::new(AtomicBool::new(false)),
         };
         let mut input = pipe
             .child
@@ -62,6 +65,7 @@ impl Pipe {
         let (requests, rx) = mpsc::sync_channel(4);
         let (tx, events) = mpsc::sync_channel(1);
         let tail = pipe.stderr.clone();
+        let done = pipe.stderr_done.clone();
         pipe.requests = Some(requests);
         pipe.events = Some(events);
         let writer = std::thread::Builder::new()
@@ -108,6 +112,7 @@ impl Pipe {
                         Err(_) => break,
                     }
                 }
+                done.store(true, Ordering::Release);
             })
             .map_err(|e| format!("Cannot start importer diagnostic thread: {e}"))?;
         pipe.threads.push(diagnostics);
@@ -120,7 +125,15 @@ impl Pipe {
             .try_send(message)
             .map_err(|_| "Importer stopped accepting commands".into())
     }
-    fn diagnostics(&self) -> String {
+    /// What the helper wrote to its diagnostics, after waiting up to
+    /// `settle` for their end: a helper that reports a failure and exits
+    /// has written them before, but their thread may not have read them
+    /// all yet.
+    fn diagnostics(&self, settle: Duration) -> String {
+        let until = Instant::now() + settle;
+        while !self.stderr_done.load(Ordering::Acquire) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+        }
         self.stderr
             .lock()
             .map(|s| {
@@ -489,7 +502,7 @@ pub(super) fn run(
         }
     })();
     if let Err(mut error) = result {
-        let diagnostics = pipe.diagnostics();
+        let diagnostics = pipe.diagnostics(Duration::from_millis(500));
         if !diagnostics.is_empty() {
             error.push('\n');
             error.push_str(&diagnostics);
