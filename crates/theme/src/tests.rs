@@ -177,7 +177,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         ("Link", s(60.0, 32.0, "Options"), &["Label", "Extent"]),
         (
             "Screen.Header",
-            s(1280.0, 64.0, "Select Music").with_items(["Dito"]),
+            s(1280.0, 64.0, "SELECT MUSIC").with_items(["Dito"]),
             &["Plate", "Back", "Wordmark", "Title"],
         ),
         ("Screen.Footer", s(1280.0, 40.0, ""), &["Plate"]),
@@ -418,7 +418,7 @@ fn the_screens_in_the_theme() {
     h.run(0.5);
     let texts = h.texts();
     for t in [
-        "Select Music",
+        "SELECT MUSIC",
         "Some Things Must",
         "(OutFox Edit)",
         "160",
@@ -1802,4 +1802,39 @@ fn pack_cover_headers_recycle_without_leaking_art_or_title_insets() {
         }
         assert!(h.ui.problems().is_empty(), "{:?}", h.ui.problems());
     }
+}
+
+/// The header's wordmark is live: its vivid clock runs while the screen
+/// shows (frames wanted), and holds under reduced motion.
+#[test]
+fn the_headers_wordmark_is_live() {
+    fn check(name: &str, env: &Env, screen: impl ddi_ui::Screen + 'static) {
+        let mut h = harness([1280.0, 720.0], DESIGN);
+        h.push(screen);
+        h.run(1.0);
+        let time = |h: &Harness| match &h.ui.actor("TitleLayer0").unwrap().kind {
+            Kind::Sprite(s) => s.shape.vivid.unwrap().time,
+            _ => panic!("{name}: no sprite"),
+        };
+        let t = time(&h);
+        assert!(t > 0.5, "{name}: {t}");
+        assert!(h.ui.needs_redraw(), "{name}: frames wanted");
+        env.reduced_motion.set(true);
+        h.run(0.5);
+        let held = time(&h);
+        h.run(0.5);
+        assert_eq!(time(&h), held, "{name}: still under reduced motion");
+        assert!(!h.ui.needs_redraw(), "{name}: at rest");
+        env.reduced_motion.set(false);
+    }
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    check("options", &env, sample::options_screen(&env, None));
+    check(
+        "credits",
+        &env,
+        sample::credits_screen(&env, &screens::credits::sample()),
+    );
+    check("select", &env, sample::select_screen(&env, None));
+    check("start", &env, sample::start_screen(&env, false));
 }

@@ -145,7 +145,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
   through `desktop.md`). Later: StepMania themes, accessibility.
 - [Our theme, first version](theme.md) (2026-10-15): done, refined since.
   The Infinito look; one header on every screen, a Back button and the
-  small wordmark over the screen's name (2026-10-26).
+  live wordmark beside the screen's name (2026-10-26).
 - [Desktop parity](desktop.md) (2026-10-16): in progress. Steps 7.0–7.9
   done; scripted backgrounds readied off the event loop (2026-10-22).
   Late pacing falls back to blocking where it keeps missing (fullscreen,

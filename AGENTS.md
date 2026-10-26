@@ -633,7 +633,8 @@ Song browsing returns to Start in one press, keeping its filter and place;
 Clear beside Search clears the filter explicitly. Options returns to its caller.
 Every screen's header (`ddi_ui::screens::header`: song select, Options, the
 pages, the results, the editor) has the visible Back, a three-bar button at
-the left, under the small Dosis wordmark over the screen's name; a play has
+the left, then the Dosis wordmark filling the height (live, as the start
+menu's), a divider and the screen's name in small caps; a play has
 no link out of it: the scene's quit button (hold or double-tap it, as
 Escape) shows throughout on a touch screen and for two seconds after the
 mouse moves, on both shells.

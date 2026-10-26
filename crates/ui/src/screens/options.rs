@@ -89,6 +89,8 @@ struct Places {
 }
 
 pub struct OptionsScreen {
+    /// The header's wordmark's clock.
+    live: super::Live,
     env: Env,
     data: OptionsData,
     section: usize,
@@ -113,6 +115,7 @@ pub struct OptionsScreen {
 impl OptionsScreen {
     pub fn new(env: Env, data: OptionsData, changed: Option<ChangeFn>) -> OptionsScreen {
         OptionsScreen {
+            live: Default::default(),
             env,
             data,
             section: 0,
@@ -314,7 +317,7 @@ impl OptionsScreen {
             ellipsize(&mut n);
             children.push(right(n, screen[0] - 12.0, 24.0));
         } else {
-            children.push(header(&env, cx, screen[0], "Options"));
+            children.push(header(&env, cx, screen[0], "OPTIONS"));
             let mut n = env.text("Saved", "", 13.0, 400, "Muted");
             call(&mut n, "maxwidth", &[screen[0] - 600.0]);
             children.push(right(n, screen[0] - margin, 32.0));
@@ -1093,6 +1096,9 @@ impl Screen for OptionsScreen {
         root
     }
 
+    fn animating(&self) -> bool {
+        self.live.animating(&self.env)
+    }
     fn focusables(&self) -> Vec<Focusable> {
         let mut v = vec![Focusable::new_list("RowsClip")];
         if self.data.preview_layout.is_some() {
@@ -1109,13 +1115,14 @@ impl Screen for OptionsScreen {
         v
     }
 
-    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
             // The child may have stopped or replaced the field texture.
             // Publish our preview again when this caller becomes current.
             self.told = None;
             return;
         }
+        self.live.tick(root, "Wordmark", &self.env, dt);
         let vp = cx.viewport().screen;
         let before = self.places;
         self.place(vp);

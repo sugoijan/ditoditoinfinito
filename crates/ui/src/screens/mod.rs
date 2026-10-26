@@ -391,6 +391,44 @@ pub fn header(env: &Env, cx: &mut crate::Cx, width: f32, title: &str) -> Actor {
     a
 }
 
+/// The vivid paint's clock for a screen's live art (the start menu's
+/// title, the header's wordmark): ticked in `update` on the frame that
+/// holds it, reported in `animating`. Reduced motion holds it still.
+#[derive(Default)]
+pub(crate) struct Live {
+    time: f64,
+    /// A vivid sprite was found at the last tick.
+    lit: bool,
+}
+
+impl Live {
+    /// Advances the clock by `dt` (unless motion is reduced) and sets it
+    /// on every vivid sprite under the actor named `name` (the first of
+    /// that name: the header's `Wordmark`, the start menu's `Title`, not
+    /// a notice's or a dialog's part).
+    pub fn tick(&mut self, root: &mut Actor, name: &str, env: &Env, dt: f32) {
+        if !env.reduced() {
+            self.time += f64::from(dt.max(0.0));
+        }
+        let time = self.time as f32;
+        let mut lit = false;
+        if let Some(art) = hit::find_mut(root, name) {
+            sprites_mut(art, &mut |s| {
+                if let Some(vivid) = &mut s.shape.vivid {
+                    vivid.time = time;
+                    lit = true;
+                }
+            });
+        }
+        self.lit = lit;
+    }
+
+    /// Whether frames are wanted for it.
+    pub fn animating(&self, env: &Env) -> bool {
+        self.lit && !env.reduced()
+    }
+}
+
 /// A screen's Back button, named `Back`, its middle at `at`.
 pub fn back_button(env: &Env, size: [f32; 2], at: [f32; 2]) -> Actor {
     env.component("BackButton", "Button", &Spec::new(size, "‹"), "Back", at)

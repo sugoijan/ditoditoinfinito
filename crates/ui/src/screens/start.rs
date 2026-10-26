@@ -36,8 +36,7 @@ pub struct StartScreen {
     size: [f32; 2],
     zoom: f32,
     initial_focus: Option<String>,
-    title_time: f64,
-    animated_title: bool,
+    live: super::Live,
 }
 
 impl StartScreen {
@@ -49,8 +48,7 @@ impl StartScreen {
             size: [0.0; 2],
             zoom: 1.0,
             initial_focus: None,
-            title_time: 0.0,
-            animated_title: false,
+            live: Default::default(),
         }
     }
 
@@ -124,7 +122,6 @@ impl StartScreen {
             let texture = cx.texture(source, spec.size[0].max(spec.size[1]));
             super::sprites_mut(&mut title, &mut |s| s.texture = texture);
         }
-        self.animated_title = animate_title(&mut title, self.title_time as f32);
         call(&mut title, "xy", &[w / 2.0, top + title_height / 2.0]);
         children.push(title);
         for (i, (id, label, component)) in entries.iter().enumerate() {
@@ -184,9 +181,6 @@ impl Screen for StartScreen {
         if !cx.is_current_screen() {
             return;
         }
-        if !self.env.reduced() {
-            self.title_time += f64::from(dt.max(0.0));
-        }
         let (size, zoom) = super::narrow_fit(&self.env, cx.viewport().screen);
         if self.size != size || self.zoom != zoom {
             *root = self.tree(cx);
@@ -198,13 +192,11 @@ impl Screen for StartScreen {
             }
             root.finish_tweening();
         }
-        if let Some(title) = crate::hit::find_mut(root, "Title") {
-            animate_title(title, self.title_time as f32);
-        }
+        self.live.tick(root, "Title", &self.env, dt);
         self.publish();
     }
     fn animating(&self) -> bool {
-        self.animated_title && !self.env.reduced()
+        self.live.animating(&self.env)
     }
     fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
@@ -228,18 +220,6 @@ impl Screen for StartScreen {
             _ => Handled::No,
         }
     }
-}
-
-/// Sets the title's vivid clock; whether any part has one.
-fn animate_title(title: &mut Actor, time: f32) -> bool {
-    let mut animated = false;
-    super::sprites_mut(title, &mut |s| {
-        if let Some(vivid) = &mut s.shape.vivid {
-            vivid.time = time;
-            animated = true;
-        }
-    });
-    animated
 }
 
 #[cfg(test)]

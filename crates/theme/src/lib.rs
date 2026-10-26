@@ -1098,26 +1098,36 @@ impl Infinito {
         frame("", vec![inner, extent([w, h])])
     }
 
-    /// The screens' header: the Back button, the wordmark small over
-    /// the screen's name (the screen binds the wordmark's image,
-    /// `ddi_ui::screens::header`).
+    /// The screens' header, one row: the Back button, the wordmark
+    /// filling the height (live, as the start menu's title; the screen
+    /// binds its image and ticks it, `ddi_ui::screens::header`, `Live`),
+    /// a divider, the screen's name small. `Header.TitleEnd` says where
+    /// the row ends for what a screen puts after it.
     fn header(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let m = self.m("Margin");
         let p = plate("Plate", [0.0, 0.0], [w, h], self.c("Header"));
         let line = plate("Line", [0.0, h - 1.0], [w, 1.0], self.c("Line"));
         let back = at(self.back_button([44.0, 44.0]), m + 22.0, h / 2.0);
-        let mark_h = 20.0;
+        let mark_h = h - 20.0;
         let mark_w = mark_h * wordmark::ASPECT;
         let mut mark = wordmark::actor([mark_w, mark_h], self.c("Text"));
         mark.name = "Wordmark".into();
-        let mark = at(mark, m + 56.0 + mark_w / 2.0, h / 2.0 - 13.0);
-        let title = at_left(
-            self.text("Title", &spec.text, 20.0, 700, "Text"),
-            m + 56.0,
-            h / 2.0 + 11.0,
+        let x = m + 56.0;
+        let mark = at(mark, x + mark_w / 2.0, h / 2.0);
+        let x = x + mark_w + 16.0;
+        let divider = plate(
+            "Divider",
+            [x, h / 2.0 - 12.0],
+            [1.0, 24.0],
+            self.c("HeaderLine"),
         );
-        frame("", vec![p, line, back, mark, title])
+        let title = at_left(
+            tracked(self.text("Title", &spec.text, 11.0, 600, "Muted"), 260),
+            x + 17.0,
+            h / 2.0,
+        );
+        frame("", vec![p, line, back, mark, divider, title])
     }
 
     /// A Back button: three bars on a plain plate, named `Back`.

@@ -121,6 +121,8 @@ numbers_weight = 800
 "Compact.Margin" = 48
 # Header, footer, the margin at the sides.
 "Header.Height" = 64
+# Where the header's row (Back, the wordmark, the screen's name) ends.
+"Header.TitleEnd" = 460
 "Footer.Height" = 40
 "Margin" = 32
 # Song select: the selected song on the left, the wheel on the right.

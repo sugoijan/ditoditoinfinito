@@ -43,8 +43,8 @@ fn the_credits_draw_with_the_header_and_a_scrollbar() {
         );
         std::fs::write(path, ppm).expect("ppm");
     }
-    // The header: the Back button at the left, the wordmark over the
-    // title, both inside the header's 64 pixels.
+    // The header's row: the Back button, the wordmark filling the
+    // height, the title after it, all inside the header's 64 pixels.
     let back = ui.bounds("Back").expect("Back");
     assert!(back[0] >= 0.0 && back[3] <= 64.0, "Back {back:?}");
     let mark = ui.bounds("Wordmark").expect("Wordmark");
@@ -54,8 +54,12 @@ fn the_credits_draw_with_the_header_and_a_scrollbar() {
         "wordmark {mark:?} right of Back {back:?}"
     );
     assert!(
-        mark[3] <= title[1],
-        "wordmark {mark:?} over the title {title:?}"
+        mark[1] >= 0.0 && mark[3] <= 64.0 && mark[3] - mark[1] > 40.0,
+        "wordmark {mark:?}"
+    );
+    assert!(
+        title[0] >= mark[2],
+        "title {title:?} after the wordmark {mark:?}"
     );
     assert!(title[3] <= 64.0, "title {title:?}");
     // The credits are longer than the screen: the scrollbar shows, beside

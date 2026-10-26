@@ -95,9 +95,15 @@ desktop's `--screen`. Where the build differs from the mockups:
   `Screen.Header` on song select, Options, the pages (the credits,
   calibration's menu), the results and the editor: a Back button at the
   left (`Back`: three bars on a plain plate, `BackButton`, the compact
-  layouts' too, in place of "‹"), the Dosis wordmark small (20 px) over
-  the screen's name in 20 px bold ("Select Music", "Options",
-  "Credits"), as the start menu's title but still. Song select's search
+  layouts' too, in place of "‹"), then one row: the Dosis wordmark
+  filling the header's height (44 px, live as the start menu's title:
+  `screens::Live` ticks its vivid clock on every screen that has one,
+  still under reduced motion), a thin divider, the screen's name in
+  small muted caps ("SELECT MUSIC", "OPTIONS", "CREDITS"), the
+  maintainer's choice over a small wordmark above a bold name and over a
+  larger one above the caps. `Header.TitleEnd` (460) says where the row
+  ends; song select's search field shrinks to the room left past it and
+  the mods. Song select's search
   field moved to the header's right, the mods left of it, and its
   "Esc / Backspace: start menu" hint became the footer's "ESC Start
   menu".

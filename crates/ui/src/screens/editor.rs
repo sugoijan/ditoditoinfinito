@@ -330,6 +330,8 @@ struct Drag {
 
 /// The chart editor's screen.
 pub struct EditorScreen {
+    /// The header's wordmark's clock.
+    live: super::Live,
     env: Env,
     editor: Rc<RefCell<Editor>>,
     host: Option<Rc<dyn EditorHost>>,
@@ -388,6 +390,7 @@ impl EditorScreen {
     /// page).
     pub fn shared(env: Env, editor: Rc<RefCell<Editor>>, place: EditorPlace) -> EditorScreen {
         EditorScreen {
+            live: Default::default(),
             env,
             editor,
             host: None,
@@ -2359,7 +2362,9 @@ impl Screen for EditorScreen {
 
     fn animating(&self) -> bool {
         // Frames come while the field glides or follows the music.
-        self.listening || (self.shown - self.editor.borrow().cursor().0 as f64).abs() > 0.01
+        self.live.animating(&self.env)
+            || self.listening
+            || (self.shown - self.editor.borrow().cursor().0 as f64).abs() > 0.01
     }
 
     fn wake_at(&self) -> Option<f64> {
@@ -2375,6 +2380,7 @@ impl Screen for EditorScreen {
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        self.live.tick(root, "Wordmark", &self.env, dt);
         // The autosave, while there are changes not kept yet.
         let (dirty, revision) = {
             let e = self.editor.borrow();

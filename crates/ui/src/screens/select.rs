@@ -510,6 +510,8 @@ impl ListModel for Wheel<'_> {
 
 /// Song select.
 pub struct SelectScreen {
+    /// The header's wordmark's clock.
+    live: super::Live,
     env: Env,
     data: Rc<SelectData>,
     /// Plays start autoplayed (the switch; the data's at first).
@@ -635,6 +637,7 @@ impl SelectScreen {
         let notices = data.notices.clone();
         let import = Rc::new(RefCell::new(data.import.clone()));
         let mut s = SelectScreen {
+            live: Default::default(),
             list: List::new(wheel_config(&layout), &EmptyModel),
             env,
             data: Rc::new(SelectData::default()),
@@ -1099,6 +1102,20 @@ impl SelectScreen {
 
     fn build_tree(&mut self, cx: &mut Cx) -> Actor {
         let env = self.env.clone();
+        if !self.layout.compact {
+            // The search at the header's right, as wide as the room past
+            // the header's row and the mods leaves it.
+            let [sw, _] = self.layout.screen;
+            let margin = self.layout.margin;
+            let room =
+                sw - margin - env.metric("Header.TitleEnd", 460.0) - self.mods_width() - 32.0;
+            let w = env
+                .metric("Select.Search.Width", 560.0)
+                .min(room)
+                .max(200.0);
+            let [_, fy, _, fh] = self.layout.field;
+            self.layout.field = [sw - margin - w, fy, w, fh];
+        }
         let l = self.layout;
         let screen = l.screen;
         let mut children = vec![ground(&env, screen), self.backdrop.build(&env, screen)];
@@ -1195,7 +1212,7 @@ impl SelectScreen {
             }
             children.push(left(title, margin + 56.0, 28.0));
         } else {
-            children.push(header(&env, cx, screen[0], "Select Music"));
+            children.push(header(&env, cx, screen[0], "SELECT MUSIC"));
             children.push(self.mods(l.field[0] - 16.0));
         }
         let [fx, fy, fw, fh] = l.field;
@@ -1229,6 +1246,20 @@ impl SelectScreen {
         self.dimmed = false;
         self.backdrop.restore(&mut root, cx, &env);
         root
+    }
+
+    /// About what [`SelectScreen::mods`] takes across.
+    fn mods_width(&self) -> f32 {
+        if self.data.mods.is_empty() {
+            return 0.0;
+        }
+        let pills: f32 = self
+            .data
+            .mods
+            .iter()
+            .map(|m| look::mono_width(m, 14.0) + 28.0)
+            .sum();
+        pills + look::mono_width("Playing with", 13.0) + 8.0
     }
 
     /// "Playing with" and the pills, ending at `end`.
@@ -2849,7 +2880,8 @@ impl Screen for SelectScreen {
     }
 
     fn animating(&self) -> bool {
-        self.navigation.animating()
+        self.live.animating(&self.env)
+            || self.navigation.animating()
             || self.wheel_motion.is_some()
             || self.list.animating()
             || self.pulse.on
@@ -2861,6 +2893,7 @@ impl Screen for SelectScreen {
             self.cancel_navigation();
             return;
         }
+        self.live.tick(root, "Wordmark", &self.env, dt);
         let events = self.navigation.advance(cx.time());
         self.apply_navigation(events, root, cx);
         // A new size (a window resized or turned, a new design), or

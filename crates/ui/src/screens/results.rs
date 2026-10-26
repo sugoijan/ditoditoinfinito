@@ -90,6 +90,8 @@ const OFFSET_BUTTONS: [&str; 4] = ["OffsetDown", "OffsetUp", "UseMean", "ResetOf
 pub const SETTLE: f32 = 0.6;
 
 pub struct ResultsScreen {
+    /// The header's wordmark's clock.
+    live: super::Live,
     env: Env,
     data: ResultsData,
     /// Seconds shown.
@@ -112,6 +114,7 @@ pub struct ResultsScreen {
 impl ResultsScreen {
     pub fn new(env: Env, data: ResultsData, actions: ResultsActions) -> ResultsScreen {
         ResultsScreen {
+            live: Default::default(),
             env,
             data,
             age: 0.0,
@@ -320,7 +323,7 @@ impl ResultsScreen {
         children.push(self.score_column(left_col, cx));
         children.push(self.panels_actor(panels));
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
-        children.push(header(&env, cx, screen[0], "Results"));
+        children.push(header(&env, cx, screen[0], "RESULTS"));
         children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
@@ -1376,7 +1379,7 @@ impl Screen for ResultsScreen {
 
     /// Frames until it has settled (its clock is the frames').
     fn animating(&self) -> bool {
-        self.age < SETTLE
+        self.age < SETTLE || self.live.animating(&self.env)
     }
 
     fn focusables(&self) -> Vec<Focusable> {
@@ -1395,6 +1398,7 @@ impl Screen for ResultsScreen {
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        self.live.tick(root, "Wordmark", &self.env, dt);
         let settling = self.age < SETTLE;
         self.age += dt;
         // Settled: focus back on Song list, whatever a tap meanwhile moved

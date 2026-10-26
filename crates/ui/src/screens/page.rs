@@ -121,6 +121,8 @@ enum Item {
 }
 
 pub struct PageScreen {
+    /// The header's wordmark's clock.
+    live: super::Live,
     env: Env,
     name: String,
     doc: PageDoc,
@@ -152,6 +154,7 @@ const BAR_GAP: f32 = 14.0;
 impl PageScreen {
     pub fn new(env: Env, name: &str, doc: PageDoc) -> PageScreen {
         PageScreen {
+            live: Default::default(),
             env,
             name: name.into(),
             doc,
@@ -348,7 +351,7 @@ impl PageScreen {
                 28.0,
             ));
         } else {
-            children.push(header(&env, cx, w, &self.doc.title));
+            children.push(header(&env, cx, w, &self.doc.title.to_uppercase()));
             let (f, texts) = footer(
                 &env,
                 [w, h],
@@ -712,6 +715,9 @@ impl Screen for PageScreen {
         root
     }
 
+    fn animating(&self) -> bool {
+        self.live.animating(&self.env)
+    }
     fn focusables(&self) -> Vec<Focusable> {
         let mut v = vec![Focusable::new_list("Column"), Focusable::new("Back")];
         if !self.compact {
@@ -720,10 +726,11 @@ impl Screen for PageScreen {
         v
     }
 
-    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
             return;
         }
+        self.live.tick(root, "Wordmark", &self.env, dt);
         if self.place(cx.viewport().screen) {
             self.lay_out();
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());
