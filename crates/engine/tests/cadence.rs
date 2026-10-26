@@ -14,7 +14,7 @@ use ddi_engine::player::{JUDGE_LAG, PlayOptions, Player, Results};
 use ddi_engine::rules::danoni::{DanoniOptions, JudgeRange};
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{FailPolicy, Ruleset};
-use ddi_engine::{InputEvent, TimingCut, TransformOptions, Turn};
+use ddi_engine::{AtOnce, InputEvent, TimingCut, TransformOptions, Turn};
 use ddi_platform::{ClockSample, HostTime};
 
 mod common;
@@ -320,8 +320,12 @@ fn transforms_judge_alike_at_every_cadence() {
         TransformOptions {
             turn: Turn::Mirror,
             cut: TimingCut::Eighths,
-            no_jumps: true,
+            at_once: AtOnce::One,
             no_holds: false,
+        },
+        TransformOptions {
+            at_once: AtOnce::Two,
+            ..TransformOptions::default()
         },
         TransformOptions {
             no_holds: true,

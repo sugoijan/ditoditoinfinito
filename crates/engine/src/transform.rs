@@ -8,7 +8,8 @@
 //! `NoteDataUtil::TransformNoteData` applies removals first and turns last
 //! (`src/NoteDataUtil.cpp` 3031–3038), the lane tables are those of
 //! `GetTrackMapping`, and the cuts are `Little`, `RemoveHoldNotes` (after
-//! `ChangeRollsToHolds`) and `RemoveSimultaneousNotes(1)`. The eighth-note
+//! `ChangeRollsToHolds`) and `RemoveSimultaneousNotes` (2 for `NoHands`, 1
+//! for `NoJumps`). The eighth-note
 //! cut is DDR's TIMING CUT ON2, StepMania's `Little` rule at a finer grid.
 //! See `docs/research/rules-ddr-itg-dwi.md` §4.
 
@@ -43,16 +44,36 @@ pub enum TimingCut {
     Eighths,
 }
 
+/// How many panels may be pressed at once, holds included.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AtOnce {
+    #[default]
+    Any,
+    /// Jumps but no hands: a chart written for a keyboard, or for a hand
+    /// beside both feet, played on a pad (StepMania "NoHands").
+    Two,
+    /// No jumps either (StepMania "NoJumps").
+    One,
+}
+
+impl AtOnce {
+    /// The most panels pressed at once, `None` for any number.
+    pub fn max(self) -> Option<usize> {
+        match self {
+            AtOnce::Any => None,
+            AtOnce::Two => Some(2),
+            AtOnce::One => Some(1),
+        }
+    }
+}
+
 /// Chart transforms of one play.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(from = "StoredTransform")]
 pub struct TransformOptions {
-    #[serde(deserialize_with = "lenient")]
     pub turn: Turn,
-    #[serde(deserialize_with = "lenient")]
     pub cut: TimingCut,
-    /// At most one panel pressed at a time (StepMania "NoJumps").
-    pub no_jumps: bool,
+    pub at_once: AtOnce,
     /// Holds and rolls become taps (DDR FREEZE ARROW cut).
     pub no_holds: bool,
 }
@@ -61,7 +82,34 @@ impl TransformOptions {
     /// Whether notes are removed or simplified, which makes the play an
     /// assist (DDR's "assist clear" lamp). Turns are not assists.
     pub fn is_assist(&self) -> bool {
-        self.cut != TimingCut::Off || self.no_jumps || self.no_holds
+        self.cut != TimingCut::Off || self.at_once != AtOnce::Any || self.no_holds
+    }
+}
+
+/// [`TransformOptions`] as settings and kept plays store them: an unknown
+/// value falls back to its default, and `no_jumps`, from before
+/// [`AtOnce`], is [`AtOnce::One`].
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct StoredTransform {
+    #[serde(deserialize_with = "lenient")]
+    turn: Turn,
+    #[serde(deserialize_with = "lenient")]
+    cut: TimingCut,
+    #[serde(deserialize_with = "lenient")]
+    at_once: AtOnce,
+    no_jumps: bool,
+    no_holds: bool,
+}
+
+impl From<StoredTransform> for TransformOptions {
+    fn from(s: StoredTransform) -> TransformOptions {
+        TransformOptions {
+            turn: s.turn,
+            cut: s.cut,
+            at_once: if s.no_jumps { AtOnce::One } else { s.at_once },
+            no_holds: s.no_holds,
+        }
     }
 }
 
@@ -86,8 +134,8 @@ pub fn apply(notes: &[Note], layout: &Layout, opts: &TransformOptions, seed: u64
     if opts.no_holds {
         remove_holds(&mut notes);
     }
-    if opts.no_jumps {
-        remove_jumps(&mut notes);
+    if let Some(max) = opts.at_once.max() {
+        remove_simultaneous(&mut notes, max);
     }
     let take_from = lane_map(layout, opts.turn, seed);
     let mut dest: Vec<u8> = (0..take_from.len() as u8).collect();
@@ -229,13 +277,13 @@ fn remove_holds(notes: &mut [Note]) {
     }
 }
 
-/// StepMania `RemoveSimultaneousNotes(1)`: on each row, count the taps,
+/// StepMania `RemoveSimultaneousNotes(max)`: on each row, count the taps,
 /// lifts and hold heads (`GetNumTracksWithTapOrHoldHead`) plus the lanes
 /// still held by an earlier hold (one ending on this row included), and
 /// remove taps and heads, never lifts, from the leftmost lane until at most
-/// one remains. Mines and fakes are left alone. Rows are processed in
+/// `max` remain. Mines and fakes are left alone. Rows are processed in
 /// order, so a removed hold no longer holds later rows.
-fn remove_jumps(notes: &mut Vec<Note>) {
+fn remove_simultaneous(notes: &mut Vec<Note>, max: usize) {
     notes.sort_by_key(|n| (n.tick, n.lane));
     let mut removed = vec![false; notes.len()];
     // Per lane: index of the latest kept note before the current row,
@@ -257,7 +305,7 @@ fn remove_jumps(notes: &mut Vec<Note>) {
         let on_row = (i..end)
             .filter(|&k| pressable(&notes[k]) || notes[k].kind == NoteKind::Lift)
             .count();
-        let mut excess = (on_row + held).saturating_sub(1);
+        let mut excess = (on_row + held).saturating_sub(max);
         // `i..end` is sorted by lane, so this is leftmost first.
         for k in i..end {
             if excess == 0 {
@@ -534,6 +582,13 @@ mod tests {
             }
             .is_assist()
         );
+        assert!(
+            TransformOptions {
+                at_once: AtOnce::Two,
+                ..Default::default()
+            }
+            .is_assist()
+        );
         assert!(!opts(Turn::Shuffle).is_assist());
     }
 
@@ -569,7 +624,7 @@ mod tests {
             &notes,
             &Layout::dance_single(),
             &TransformOptions {
-                no_jumps: true,
+                at_once: AtOnce::One,
                 ..Default::default()
             },
             0,
@@ -590,6 +645,63 @@ mod tests {
     }
 
     #[test]
+    fn two_at_once_keeps_jumps_and_leaves_out_hands() {
+        let notes = vec![
+            // A jump stays.
+            tap(0, 0),
+            tap(0, 3),
+            // Hand: the leftmost goes; a quad loses its two leftmost.
+            tap(48, 0),
+            tap(48, 1),
+            tap(48, 2),
+            tap(96, 0),
+            tap(96, 1),
+            tap(96, 2),
+            tap(96, 3),
+            // A hold beside a tap stays, a jump beside it loses its left.
+            hold(144, 0, 288),
+            tap(192, 2),
+            tap(240, 1),
+            tap(240, 3),
+            // On the row the hold ends, a jump is three at once too.
+            tap(288, 2),
+            tap(288, 3),
+            // Two holds held: a tap between them goes, a mine stays.
+            hold(336, 0, 432),
+            hold(336, 3, 432),
+            tap(384, 1),
+            n(384, 2, NoteKind::Mine),
+        ];
+        let t = apply(
+            &notes,
+            &Layout::dance_single(),
+            &TransformOptions {
+                at_once: AtOnce::Two,
+                ..Default::default()
+            },
+            0,
+        );
+        assert_eq!(
+            lanes_of(&t.notes),
+            [
+                (0, 0),
+                (0, 3),
+                (48, 1),
+                (48, 2),
+                (96, 2),
+                (96, 3),
+                (144, 0),
+                (192, 2),
+                (240, 3),
+                (288, 3),
+                (336, 0),
+                (336, 3),
+                (384, 2),
+            ]
+        );
+    }
+
+    #[test]
     fn removals_happen_before_the_turn() {
         // NoJumps removes the leftmost of the original chart, then Mirror
         // moves what is left.
@@ -598,7 +710,7 @@ mod tests {
             &Layout::dance_single(),
             &TransformOptions {
                 turn: Turn::Mirror,
-                no_jumps: true,
+                at_once: AtOnce::One,
                 ..Default::default()
             },
             0,

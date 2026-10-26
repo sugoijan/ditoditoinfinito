@@ -886,7 +886,7 @@ fn receptor_snap_lands_the_note_in_its_closest_frame() {
 // --- Play options: transforms, scroll actions, appearance -----------------
 
 use ddi_engine::autoplay;
-use ddi_engine::{Appearance, ScrollAction, SpeedMod, TimingCut, TransformOptions, Turn};
+use ddi_engine::{Appearance, AtOnce, ScrollAction, SpeedMod, TimingCut, TransformOptions, Turn};
 
 const ACTIONS: [ScrollAction; 4] = [
     ScrollAction::Normal,
@@ -1075,11 +1075,11 @@ fn dense_song() -> Song {
     song(TimingMap::constant(120.0, 0.0), notes)
 }
 
-fn cut(cut: TimingCut, no_jumps: bool, no_holds: bool) -> TransformOptions {
+fn cut(cut: TimingCut, at_once: AtOnce, no_holds: bool) -> TransformOptions {
     TransformOptions {
         turn: Turn::Off,
         cut,
-        no_jumps,
+        at_once,
         no_holds,
     }
 }
@@ -1103,17 +1103,22 @@ fn cuts_change_the_counted_chart_and_mark_an_assist() {
     // Untransformed: 16 tap-like notes, 2 holds/rolls, 1 mine.
     assert_eq!(ctx(TransformOptions::default()), (16, 2, 1));
     // Quarters: ticks 0, 48 ×2, 96, 192, 288, 336 ×3, 384 = 10; the mine is off-beat.
-    assert_eq!(ctx(cut(TimingCut::Quarters, false, false)), (10, 2, 0));
+    assert_eq!(
+        ctx(cut(TimingCut::Quarters, AtOnce::Any, false)),
+        (10, 2, 0)
+    );
     // Eighths add 24, 120, 168 (mine), 216.
-    assert_eq!(ctx(cut(TimingCut::Eighths, false, false)), (13, 2, 1));
+    assert_eq!(ctx(cut(TimingCut::Eighths, AtOnce::Any, false)), (13, 2, 1));
     // No holds: same steps, no holds.
-    assert_eq!(ctx(cut(TimingCut::Off, false, true)), (16, 0, 1));
+    assert_eq!(ctx(cut(TimingCut::Off, AtOnce::Any, true)), (16, 0, 1));
     // No jumps: the jump and the hand lose 1 and 2; the taps at 120 (during
     // the hold) and 216 (during the roll) go.
-    assert_eq!(ctx(cut(TimingCut::Off, true, false)), (11, 2, 1));
+    assert_eq!(ctx(cut(TimingCut::Off, AtOnce::One, false)), (11, 2, 1));
+    // Up to two at once: only the hand loses its leftmost.
+    assert_eq!(ctx(cut(TimingCut::Off, AtOnce::Two, false)), (15, 2, 1));
 
     let opts = PlayOptions {
-        transform: cut(TimingCut::Quarters, false, false),
+        transform: cut(TimingCut::Quarters, AtOnce::Any, false),
         ..PlayOptions::default()
     };
     let mut ruleset = presets::itg();
@@ -1137,9 +1142,9 @@ fn autoplay_run(ruleset: fn() -> Ruleset, song: &Song, options: PlayOptions) -> 
 fn autoplay_is_perfect_with_every_option() {
     let cuts = [
         TransformOptions::default(),
-        cut(TimingCut::Quarters, false, false),
-        cut(TimingCut::Eighths, true, true),
-        cut(TimingCut::Off, true, false),
+        cut(TimingCut::Quarters, AtOnce::Any, false),
+        cut(TimingCut::Eighths, AtOnce::One, true),
+        cut(TimingCut::Off, AtOnce::One, false),
     ];
     let turns = [
         (Turn::Off, 0),
@@ -1311,7 +1316,7 @@ fn every_layout_autoplays_perfectly_under_every_turn() {
             ] {
                 for transform in [
                     TransformOptions::default(),
-                    cut(TimingCut::Eighths, true, true),
+                    cut(TimingCut::Eighths, AtOnce::One, true),
                 ] {
                     let options = PlayOptions {
                         transform: TransformOptions { turn, ..transform },

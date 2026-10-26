@@ -84,7 +84,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
   center, turned onto Single and Double, on by default (2026-10-24);
   by default only where a style lacks the difficulty, marked in song
   select (2026-10-25); pump single and 5 keys converted to each other,
-  off by default, marked but not assisted (2026-10-25).
+  on by default, marked but not assisted (2026-10-25); At once, a play
+  option replacing No jumps, which can keep jumps and leave out hands
+  (2026-10-26).
 - [Song-select navigation](song-navigation.md) (2026-10-20): done; the
   reference for the tuned timings of taps, pairs and holds, and for the
   search field from a controller (2026-10-22).

@@ -14,7 +14,7 @@ use ddi_engine::rules::danoni::{DanoniOptions, JudgeRange};
 use ddi_engine::rules::ddr::DdrGauge;
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{FailType, Ruleset, StepManiaOptions};
-use ddi_engine::{ClockOptions, InputEvent, TimingCut, TransformOptions, Turn, autoplay};
+use ddi_engine::{AtOnce, ClockOptions, InputEvent, TimingCut, TransformOptions, Turn, autoplay};
 use ddi_platform::{ClockSample, HostTime};
 
 /// The rulesets a player can choose for `song`'s chart: each preset
@@ -81,8 +81,12 @@ fn transforms() -> Vec<PlayOptions> {
         TransformOptions {
             turn: Turn::Left,
             cut: TimingCut::Eighths,
-            no_jumps: true,
+            at_once: AtOnce::One,
             no_holds: true,
+        },
+        TransformOptions {
+            at_once: AtOnce::Two,
+            ..TransformOptions::default()
         },
     ]
     .into_iter()

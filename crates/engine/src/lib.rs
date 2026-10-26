@@ -70,7 +70,7 @@ pub use rules::{
     ScoreView, StepManiaOptions, Tally, Window, presets,
 };
 pub use scroll::{ScrollAction, ScrollOptions, ScrollState, SpeedMod, note_y};
-pub use transform::{TimingCut, TransformOptions, Turn};
+pub use transform::{AtOnce, TimingCut, TransformOptions, Turn};
 
 /// Deserializes a field, falling back to its default when the stored value
 /// is not understood (an option a newer build saved, say), so one stale
@@ -110,10 +110,14 @@ mod tests {
             TransformOptions {
                 turn: Turn::Off,
                 cut: TimingCut::Quarters,
-                no_jumps: true,
+                at_once: AtOnce::One,
                 no_holds: false,
             }
         );
+        let t: TransformOptions = serde_json::from_str(r#"{"at_once":"Two"}"#).unwrap();
+        assert_eq!(t.at_once, AtOnce::Two);
+        let t: TransformOptions = serde_json::from_str(r#"{"at_once":"Three"}"#).unwrap();
+        assert_eq!(t, TransformOptions::default());
         // Older saved options without the new fields load with defaults.
         let p: PlayOptions = serde_json::from_str("{}").unwrap();
         assert_eq!(p, PlayOptions::default());

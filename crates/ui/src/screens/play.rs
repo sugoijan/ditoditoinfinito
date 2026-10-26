@@ -10,7 +10,8 @@ use ddi_engine::judge::JudgeEventKind;
 use ddi_engine::rules::ddr::flare_name;
 use ddi_engine::rules::{EmptyPress, FailType};
 use ddi_engine::{
-    Appearance, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions, Turn,
+    Appearance, AtOnce, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions,
+    Turn,
 };
 
 use crate::state::history::{Lamp, Replay, ReplayCheck};
@@ -496,8 +497,10 @@ pub fn mods_summary(
         TimingCut::Quarters => out.push("quarter notes".into()),
         TimingCut::Eighths => out.push("quarters and eighths".into()),
     }
-    if transform.no_jumps {
-        out.push("no jumps".into());
+    match transform.at_once {
+        AtOnce::Any => {}
+        AtOnce::Two => out.push("up to two at once".into()),
+        AtOnce::One => out.push("no jumps".into()),
     }
     if transform.no_holds {
         out.push("no holds".into());

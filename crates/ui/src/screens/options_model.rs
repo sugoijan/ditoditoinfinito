@@ -13,7 +13,7 @@ use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::rules::{FailType, JUDGE_SCALES, LIFE_SCALES, LifeType, StepManiaOptions};
 use ddi_engine::scroll::SpeedSource;
 use ddi_engine::{
-    Appearance, ConnectedPad, CoverMode, LaneCover, PadUse, ScrollAction, TimingCut, Turn,
+    Appearance, AtOnce, ConnectedPad, CoverMode, LaneCover, PadUse, ScrollAction, TimingCut, Turn,
 };
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
@@ -503,11 +503,13 @@ impl OptionsModel {
                      difficulties the song has no chart of there.",
             ),
             choice(
-                "no_jumps",
-                "No jumps",
-                &["Off", "On"],
-                t.no_jumps as usize,
-                "One panel at a time: two arrows at once become one.",
+                "at_once",
+                "At once",
+                &["Any", "Up to two", "One"],
+                pos(&AT_ONCE, t.at_once),
+                "The most panels pressed at once, holds included: Up to two keeps jumps but \
+                     leaves out arrows meant for a hand or a keyboard, One leaves out jumps too. \
+                     The leftmost arrows go first.",
             ),
             choice(
                 "no_holds",
@@ -1444,7 +1446,7 @@ impl OptionsModel {
             "cover_sudden" => s.lane_cover.sudden = i.min(usize::from(LaneCover::FULL)) as u8,
             "cover_hidden" => s.lane_cover.hidden = i.min(usize::from(LaneCover::FULL)) as u8,
             "cut" => s.transform.cut = at(&CUTS, i),
-            "no_jumps" => s.transform.no_jumps = on,
+            "at_once" => s.transform.at_once = at(&AT_ONCE, i),
             "simplify_onigiri" => s.simplify_onigiri = on,
             "simplify_center" => s.simplify_center = at(&CENTER_VERSIONS, i),
             "convert_pump_single" => s.convert_pump_single = on,
@@ -2116,6 +2118,7 @@ fn cover_height(id: &str, name: &str, height: u8) -> OptionDef {
 }
 
 const CUTS: [TimingCut; 3] = [TimingCut::Off, TimingCut::Quarters, TimingCut::Eighths];
+const AT_ONCE: [AtOnce; 3] = [AtOnce::Any, AtOnce::Two, AtOnce::One];
 const RULESET_MODES: [RulesetMode; 3] = [
     RulesetMode::AllStepMania,
     RulesetMode::Original,

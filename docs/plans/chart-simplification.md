@@ -13,7 +13,7 @@ the same way.
 Options → Notes → Simplify → **Without onigiri** exposes additional
 versions of Dancing☆Onigiri charts. Off by default. Originals stay in
 their original layouts and are unaffected by this setting. Existing
-timing cut, No jumps and No holds options retain their behavior.
+timing cut, At once and No holds options retain their behavior.
 
 | Original | Additional layout | Notes |
 | --- | --- | --- |
@@ -254,3 +254,31 @@ have none. Drawn, bound and listed as the target layout: under 5 keys
 onigiri-free and center-free version, so earlier indexes hold. Imported
 manifests' variants version 3 and desktop's library cache 12 bring them
 to songs stored before.
+
+## At once (2026-10-26)
+
+The maintainer's request: a jump is fine, but not more than two notes at
+once, for charts written for a keyboard or for a hand beside both feet.
+Options → Notes → **At once** (`TransformOptions::at_once`) replaces No
+jumps with three values:
+
+| Value | Keeps | StepMania |
+| --- | --- | --- |
+| Any (default) | every note | |
+| Up to two | jumps; a third panel and more at once go | NoHands, `RemoveSimultaneousNotes(2)` |
+| One | one panel at a time | NoJumps, `RemoveSimultaneousNotes(1)` |
+
+The rule is StepMania's (`docs/research/rules-ddr-itg-dwi.md` §4): on
+each row, its taps, lifts and hold heads and the lanes an earlier hold
+still holds (one ending on that row included) count; taps and heads go
+from the leftmost lane until the limit is met. Lifts count but stay,
+mines and fakes are left alone, and a removed hold no longer holds the
+rows after it.
+
+Unlike the versions above, it is a play option, as the other cuts are
+(the maintainer's choice): it applies to whatever chart is played, a
+generated version included (a 5-key chart without its onigiri, or on
+pump single), lists nothing more in song select, and marks the play
+assisted on its results and among the bests. Settings and kept plays
+from before store `no_jumps`, which still reads as One; replays judge
+again as played.
