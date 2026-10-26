@@ -1140,9 +1140,15 @@ impl Host {
         if let Some(v) = r.view.as_mut() {
             v.scale = self.scale;
             v.present_at = self.present_at.take();
+            v.quit_shown = self
+                .feed
+                .borrow()
+                .pointer_at
+                .is_some_and(|at| at.elapsed() < super::QUIT_LINGER);
             v.draw(
                 dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
+            self.feed.borrow_mut().quit_at = v.quit_at;
             // The scripts' sounds, at once on the play's sound.
             for sound in v.take_script_sounds() {
                 if let Err(e) = play.session.play_now(&sound) {

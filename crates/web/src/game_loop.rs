@@ -728,12 +728,15 @@ impl GameLoop {
                 );
                 // The touch screens' quit button, at the canvas's pixels,
                 // clear of the field's receptors and the safe area.
-                let quit = crate::web::touch::quit_shown().then(|| {
-                    let insets = crate::web::touch::safe_insets(css);
-                    let b = ddi_render::scene::quit_button(&geo, &session.layout, ratio, insets);
-                    crate::web::touch::set_quit_at(Some(b.map(|v| v / ratio)));
-                    b
-                });
+                let quit =
+                    crate::web::touch::quit_shown(crate::web::clock::PerformanceClock::now_ms())
+                        .then(|| {
+                            let insets = crate::web::touch::safe_insets(css);
+                            ddi_render::scene::quit_button(&geo, &session.layout, ratio, insets)
+                        });
+                // Where it is (nowhere while it is not: no press lands on
+                // it).
+                crate::web::touch::set_quit_at(quit.map(|b| b.map(|v| v / ratio)));
                 self.renderer.set_quit_button(quit);
                 let mut render = session.render;
                 render.frame_aspect = frame_aspect;
@@ -1152,6 +1155,18 @@ impl GameLoop {
                 pressed.push(&h.into());
             }
             set("pressed", pressed.into());
+            // The quit button's place while it shows (CSS pixels: x, y,
+            // radius), else null.
+            set(
+                "quitButton",
+                match crate::web::touch::quit_at() {
+                    Some(b) => {
+                        js_sys::Array::from_iter(b.iter().map(|&v| wasm_bindgen::JsValue::from(v)))
+                            .into()
+                    }
+                    None => wasm_bindgen::JsValue::NULL,
+                },
+            );
             set("finished", p.finished().into());
             set("failed", p.failed().into());
             // The lane covers now ("sudden+ 30%"; null when off).

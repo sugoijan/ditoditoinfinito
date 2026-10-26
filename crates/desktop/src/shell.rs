@@ -945,7 +945,54 @@ impl Shell {
 
     /// The mouse pointer hidden on a key's or a pad's press, shown again
     /// when the mouse moves.
+    /// The pointer moved over a play: its quit button shows a moment.
+    fn pointer_over_play(&mut self) {
+        if self.play.playing() {
+            self.play.feed.borrow_mut().pointer_at = Some(Instant::now());
+        }
+    }
+
+    /// A primary press or release at `pos` on a play's quit button (or
+    /// the release of one begun there): the play's `cancel` control, as
+    /// the web's touch screens send it (hold or double-tap to quit).
+    /// Whether it was taken.
+    fn quit_button(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        if !self.play.playing() {
+            return false;
+        }
+        let mut feed = self.play.feed.borrow_mut();
+        let pressed = match phase {
+            PointerPhase::Down => {
+                let Some([x, y, r]) = feed.quit_at else {
+                    return false;
+                };
+                if (pos[0] - x).powi(2) + (pos[1] - y).powi(2) > r * r {
+                    return false;
+                }
+                feed.quit_down = true;
+                true
+            }
+            PointerPhase::Up | PointerPhase::Cancel if feed.quit_down => {
+                feed.quit_down = false;
+                false
+            }
+            _ => return false,
+        };
+        feed.edges.push(ddi_platform::RawInput {
+            device: ddi_platform::DeviceId::Touch,
+            control: ddi_session::play::TOUCH_CANCEL_CONTROL.into(),
+            pressed,
+            host_time: crate::clock::now(),
+            slot: 0,
+        });
+        true
+    }
+
     fn hide_pointer(&mut self, hide: bool) {
+        if hide && self.play.playing() {
+            // A key or a pad: the quit button goes with the pointer.
+            self.play.feed.borrow_mut().pointer_at = None;
+        }
         if self.pointer_hidden == hide {
             return;
         }
@@ -1175,6 +1222,7 @@ impl ApplicationHandler for Shell {
             WindowEvent::CursorMoved { position, .. } => {
                 self.hide_pointer(false);
                 self.cursor = to_logical(position, self.scale);
+                self.pointer_over_play();
                 self.pointer(MOUSE, PointerKind::Mouse, PointerPhase::Move, self.cursor);
             }
             WindowEvent::CursorLeft { .. } => {
@@ -1200,6 +1248,9 @@ impl ApplicationHandler for Shell {
                 // Only the primary button presses (other buttons change
                 // what is held, as the DOM's `pointermove` would say).
                 if bit == buttons::PRIMARY {
+                    if self.quit_button(phase, self.cursor) {
+                        return;
+                    }
                     self.pointer(MOUSE, PointerKind::Mouse, phase, self.cursor);
                 }
             }
@@ -1242,6 +1293,10 @@ impl ApplicationHandler for Shell {
                     TouchPhase::Cancelled => PointerPhase::Cancel,
                 };
                 let pos = to_logical(t.location, self.scale);
+                self.pointer_over_play();
+                if self.quit_button(phase, pos) {
+                    return;
+                }
                 self.pointer(t.id + 1, PointerKind::Touch, phase, pos);
             }
             WindowEvent::KeyboardInput { event, .. } => {

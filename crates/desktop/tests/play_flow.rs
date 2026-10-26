@@ -105,6 +105,17 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
     let mut frames = 0;
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 60, Ordering::SeqCst) + 1_000_000_000 / 60;
+        // The quit button: drawn while the pointer moved lately (the
+        // shell's `Feed::pointer_at`), its place kept for the presses on
+        // it; gone once that is longer ago.
+        let moved = match frames {
+            0 => Some(std::time::Instant::now()),
+            1 => std::time::Instant::now().checked_sub(ddi_desktop::play::QUIT_LINGER * 2),
+            _ => None,
+        };
+        if frames < 2 {
+            host.feed.borrow_mut().pointer_at = moved;
+        }
         let mut encoder = device.create_command_encoder(&Default::default());
         host.draw_play(
             &dev(),
@@ -117,6 +128,21 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
             &env,
         );
         queue.submit(Some(encoder.finish()));
+        let quit = host.feed.borrow().quit_at;
+        match frames {
+            0 => {
+                let [x, y, r] = quit.expect("the quit button after the pointer moved");
+                assert!(
+                    r > 0.0 && x - r >= 0.0 && y + r <= SIZE[1] as f32,
+                    "{quit:?}"
+                );
+            }
+            1 => assert!(
+                quit.is_none(),
+                "{quit:?} two seconds after the pointer moved"
+            ),
+            _ => {}
+        }
         frames += 1;
         assert!(frames < 60 * 300, "the play never ended");
     }

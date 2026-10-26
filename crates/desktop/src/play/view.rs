@@ -112,6 +112,10 @@ pub struct View {
     entrance: Option<ddi_actor::background::Entrance>,
     /// The window's scale factor (device pixels per point).
     pub scale: f32,
+    /// The quit button is drawn this frame (`Feed::pointer_at`), and
+    /// where it was (logical pixels: middle and radius).
+    pub quit_shown: bool,
+    pub quit_at: Option<[f32; 3]>,
     /// The refresh the next frame is for, when the shell's pacing knows
     /// it (`crate::pacing`); else the session predicts it.
     pub present_at: Option<HostTime>,
@@ -157,6 +161,8 @@ impl View {
             frames: 0,
             entrance: None,
             scale: 1.0,
+            quit_shown: false,
+            quit_at: None,
             present_at: None,
         }
     }
@@ -504,6 +510,13 @@ impl View {
         let (w, h) = (size[0] as f32, size[1] as f32);
         let span = ddi_render::scene::field_span(&session.layout);
         let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
+        // The quit button, clear of the field's receptors, while the
+        // pointer was moved lately (as the web's touch screens have it).
+        let quit = self
+            .quit_shown
+            .then(|| ddi_render::scene::quit_button(&geo, &session.layout, self.scale, [0.0; 4]));
+        self.renderer.set_quit_button(quit);
+        self.quit_at = quit.map(|b| b.map(|v| v / self.scale));
         // A work's back and mask layers, placed as the web places them;
         // the song's scripts in the background frame.
         let scripts = self.scripts.running();

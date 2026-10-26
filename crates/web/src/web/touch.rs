@@ -17,11 +17,11 @@
 //! down).
 //!
 //! A press on the quit button (any pointer type; drawn by the scene at
-//! the left edge, away from the receptors, while a touch screen plays,
-//! [`set_quit_shown`],
-//! `ddi_render::scene::quit_button`) is the `cancel` control instead,
-//! which the play session treats like Escape (hold or double tap to
-//! quit). Touch is not a sync-accuracy target: event
+//! the left edge, away from the receptors, while a touch screen plays
+//! and for a moment after the mouse moved, [`set_quit_shown`],
+//! [`mouse_moved`], `ddi_render::scene::quit_button`) is the `cancel`
+//! control instead, which the play session treats like Escape (hold or
+//! double tap to quit). Touch is not a sync-accuracy target: event
 //! timestamps are as good as the browser's touch pipeline.
 
 use std::cell::RefCell;
@@ -41,9 +41,15 @@ pub(crate) const CANCEL_CONTROL: &str = "cancel";
 /// read at.
 type Insets = ((u32, u32), [f32; 4]);
 
+/// How long the quit button stays after the mouse moved (ms).
+pub(crate) const QUIT_LINGER_MS: f64 = 2000.0;
+
 thread_local! {
-    /// The quit button shows (a touch screen plays).
-    static QUIT_SHOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// A play runs, and a touch screen plays it (the quit button shows).
+    static PLAYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static TOUCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// When the mouse last moved over the play (`performance.now()`).
+    static MOUSE_AT: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NEG_INFINITY) };
     /// Where it is drawn now (CSS pixels of the canvas: middle and radius).
     static QUIT_AT: std::cell::Cell<Option<[f32; 3]>> = const { std::cell::Cell::new(None) };
     /// The safe area's insets (top, right, bottom, left, CSS pixels), read
@@ -51,16 +57,26 @@ thread_local! {
     static INSETS: std::cell::Cell<Option<Insets>> = const { std::cell::Cell::new(None) };
 }
 
-/// Shows the quit button over the play (or not).
-pub(crate) fn set_quit_shown(shown: bool) {
-    QUIT_SHOWN.with(|q| q.set(shown));
-    if !shown {
+/// Whether a play runs (the quit button may show over it), and whether
+/// a touch screen plays it (it shows throughout).
+pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
+    PLAYING.with(|p| p.set(playing));
+    TOUCH.with(|t| t.set(touch));
+    if !playing {
         QUIT_AT.with(|q| q.set(None));
     }
 }
 
-pub(crate) fn quit_shown() -> bool {
-    QUIT_SHOWN.with(|q| q.get())
+/// The mouse moved over the play at `now_ms`: the quit button shows for
+/// [`QUIT_LINGER_MS`].
+pub(crate) fn mouse_moved(now_ms: f64) {
+    MOUSE_AT.with(|m| m.set(now_ms));
+}
+
+/// Whether the quit button shows at `now_ms`.
+pub(crate) fn quit_shown(now_ms: f64) -> bool {
+    PLAYING.with(|p| p.get())
+        && (TOUCH.with(|t| t.get()) || now_ms - MOUSE_AT.with(|m| m.get()) < QUIT_LINGER_MS)
 }
 
 /// The safe area's insets for a canvas of `css` size, read again when
@@ -81,6 +97,12 @@ pub(crate) fn safe_insets(css: (f64, f64)) -> [f32; 4] {
 /// presses on it.
 pub(crate) fn set_quit_at(at: Option<[f32; 3]>) {
     QUIT_AT.with(|q| q.set(at));
+}
+
+/// Where the quit button is drawn now (CSS pixels: middle and radius),
+/// `None` while it is not (`__DDI_DEBUG.quitButton`).
+pub(crate) fn quit_at() -> Option<[f32; 3]> {
+    QUIT_AT.with(|q| q.get())
 }
 
 /// What a tracked pointer is holding.

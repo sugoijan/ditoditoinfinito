@@ -1437,7 +1437,8 @@ Done after 6.4 part one's review (2026-10-16):
   where a play's options are summed up and plays start, not in Options,
   which holds saved settings. Plays started with it are autoplays as
   `&auto=1` is: flagged in the history, not counted, their results say
-  so. **Results on a phone:** one scrolled column (score, the chosen
+  so. Removed 2026-10-26 (`docs/plans/theme.md`, "The screens'
+  header"): `auto=1` in the address alone. **Results on a phone:** one scrolled column (score, the chosen
   set's panels, the notes) under a bar with Back and the panel sets' tabs,
   the offset and the buttons fixed at the bottom; sideways the score
   beside the panels.
@@ -1515,7 +1516,11 @@ Done, 6.4 part two (2026-10-16):
 - **The touch quit button is the scene's** (`scene::quit_button`,
   `Renderer::set_quit_button`): drawn over the play at the left (where
   since part three's review), kept clear of the safe area; `web::touch`
-  takes presses on it as the cancel control. Lyrics stayed DOM here
+  takes presses on it as the cancel control. Since 2026-10-26 it is the
+  play's only way out by pointer on both shells: shown throughout on a
+  touch screen, and for two seconds after the mouse moves over the play
+  (`web::touch::mouse_moved`, desktop's `Feed::pointer_at`); the web's
+  "← back" link over the play is gone (PLAN.md decision 68). Lyrics stayed DOM here
   (moved in part three, below).
 - **Desktop** swaps its stand-in (`crates/desktop/src/play/prompt.rs`) for the
   shared screen: `PromptScreen::new(env, state, act)`, its picture drawn

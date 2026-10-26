@@ -20,10 +20,11 @@
 //! instead, and one made while the screen still waits resumes the waiting
 //! context.
 //!
-//! On touch screens (a coarse pointer, or once a finger has touched the
-//! screen) the play screen shows a quit button instead of the back link,
-//! since there is no Escape key and a stray tap on a link would leave the
-//! song at once; the button runs the same hold or double-tap gesture.
+//! The play screen has no link out of it: the scene draws a quit button
+//! (`web::touch`), throughout on touch screens (a coarse pointer, or once
+//! a finger has touched the screen), since there is no Escape key, and
+//! for a moment after the mouse moved elsewhere, as desktop does; the
+//! button runs the same hold or double-tap gesture as Escape.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -255,8 +256,8 @@ pub(crate) struct Props {
 /// The page's few DOM elements around the canvas.
 struct PlayDom {
     overlay: HtmlElement,
-    back: HtmlElement,
     _pointer: EventListener,
+    _moved: EventListener,
 }
 
 pub(crate) struct GameCanvas {
@@ -827,8 +828,8 @@ impl Component for GameCanvas {
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         let render = self.handle(ctx, msg);
         self.sync_prompt(ctx);
-        // The quit button over a touch screen's play (drawn in the scene).
-        crate::web::touch::set_quit_shown(matches!(self.stage, Stage::Playing) && self.touch);
+        // The quit button over the play (drawn in the scene).
+        crate::web::touch::set_quit_shown(matches!(self.stage, Stage::Playing), self.touch);
         render
     }
 
@@ -1420,7 +1421,7 @@ impl GameCanvas {
 
     /// The page around the canvas: what is not on it yet (a GPU that
     /// failed, calibration's card, results that could not start), the
-    /// debug text, the lyrics, the touch quit button, the way back.
+    /// debug text, the lyrics, the touch quit button.
     fn page(&self, ctx: &Context<Self>) {
         use crate::component::element;
         let root = ctx.root();
@@ -1434,9 +1435,6 @@ impl GameCanvas {
                 let debug = element(root, "pre", "debug-hud");
                 self.debug.set(&debug);
             }
-            let back = element(root, "a", "back-link");
-            let _ = back.set_attribute("href", &back_route(ctx.props()).to_hash());
-            back.set_text_content(Some("← back"));
             let link = ctx.link().clone();
             let touch = self.touch_seen.clone();
             let pointer = EventListener::new(root, "pointerdown", move |e| {
@@ -1448,10 +1446,18 @@ impl GameCanvas {
                     link.send_message(Msg::TouchSeen);
                 }
             });
+            // The mouse over the play: the quit button shows a moment.
+            let moved = EventListener::new(root, "pointermove", move |e| {
+                if let Some(e) = e.dyn_ref::<PointerEvent>()
+                    && e.pointer_type() == "mouse"
+                {
+                    crate::web::touch::mouse_moved(crate::web::clock::PerformanceClock::now_ms());
+                }
+            });
             PlayDom {
                 overlay,
-                back,
                 _pointer: pointer,
+                _moved: moved,
             }
         });
         let playing = matches!(self.stage, Stage::Playing);
@@ -1470,10 +1476,6 @@ impl GameCanvas {
             }
             _ => dom.overlay.set_hidden(true),
         }
-        // The way back: the prompt and the results have their own, and a
-        // touch screen's play the scene's quit button (`web::touch`).
-        dom.back
-            .set_hidden((playing && self.touch) || self.results.is_some() || self.prompt.is_some());
     }
 
     fn teardown(&mut self) {
