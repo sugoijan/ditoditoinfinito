@@ -42,6 +42,12 @@ stage = "pre_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]
 
+# Only the web favicon, copied from its source-keyed target/icons cache.
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "icons", "--target", "web"]
+
 # The video decoder (target/video/, `just video`) into the site's video/,
 # built first when it is missing (after `cargo clean`) or older than its
 # sources; DDI_NO_VIDEO=1 builds the site without it.

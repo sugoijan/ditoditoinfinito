@@ -1,0 +1,80 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="-48 -48 96 96" data-band-span="43.133513652379406" data-border-unit-width="3.672" data-border-unit-span="3.998808">
+  <title>Approved Infinito icon artwork</title>
+  <defs>
+    <g id="icon-shadow">
+      <use href="#icon-shadow-shape" filter="url(#icon-shadow-blur)" mask="url(#icon-shadow-outside)" />
+    </g>
+    <g id="icon-border">
+      <g transform="translate(-48 -48)">
+        <g transform="translate(16 16)">
+          <g transform="translate(32 32)scale(1.089)translate(-32 -32)">
+            <path d="M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z" fill="currentColor" stroke="currentColor" stroke-linejoin="miter" stroke-miterlimit="4" />
+          </g>
+        </g>
+      </g>
+    </g>
+    <mask id="icon-shadow-outside" maskUnits="userSpaceOnUse" x="-48" y="-48" width="96" height="96">
+      <rect x="-48" y="-48" width="96" height="96" fill="white" />
+      <use href="#icon-shadow-shape" />
+    </mask>
+    <g id="icon-silhouette">
+      <g transform="translate(-48 -48)">
+        <g transform="translate(16 16)">
+          <g transform="translate(32 32)scale(1.089)translate(-32 -32)">
+            <path d="M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z" fill="currentColor" />
+          </g>
+        </g>
+      </g>
+    </g>
+    <mask id="icon-inner-outline" maskUnits="userSpaceOnUse" x="-48" y="-48" width="96" height="96">
+      <rect x="-48" y="-48" width="96" height="96" fill="white" />
+      <use href="#tap-arrow-charge" />
+    </mask>
+    <mask id="icon-band" maskUnits="userSpaceOnUse" x="-48" y="-48" width="96" height="96">
+      <use href="#tap-arrow-band" />
+    </mask>
+    <g id="icon-shadow-shape">
+      <g transform="translate(-48 -48)">
+        <g transform="translate(16 16)">
+          <g transform="translate(32 32)scale(1.089)translate(-32 -32)">
+            <path d="M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z" fill="black" />
+          </g>
+        </g>
+      </g>
+    </g>
+    <filter id="icon-shadow-blur" filterUnits="userSpaceOnUse" x="-48" y="-48" width="96" height="96">
+      <feGaussianBlur stdDeviation="0.5" />
+    </filter>
+    <g id="tap-arrow-charge" data-frames="">
+      <g transform="translate(-48 -48)">
+        <g transform="translate(16 16)">
+          <g transform="translate(32 32)scale(1.089)translate(-32 -32)">
+            <path d="M30.086 33.259L32 31.345L33.914 33.259V47.626A1.914 1.914 0 0 1 30.086 47.626Z" fill="black" />
+            <path d="M16.374 32L32 16.374L47.626 32" fill="none" stroke="black" stroke-width="3.828" stroke-linecap="round" stroke-linejoin="miter" />
+          </g>
+        </g>
+      </g>
+    </g>
+    <g id="tap-arrow-band">
+      <g transform="translate(-48 -48)">
+        <g transform="translate(16 16)">
+          <g transform="translate(32 32)scale(1.089)translate(-32 -32)">
+            <rect width="64" height="64" fill="white" mask="url(#arrow-mask-band)" />
+          </g>
+        </g>
+      </g>
+    </g>
+    <mask id="arrow-mask-band" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <path d="M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z" fill="white" />
+      <path d="M16.374 32L32 16.374L47.626 32" fill="none" stroke="black" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="miter" />
+      <path d="M28.25 32.499L32 28.749L35.75 32.499V47.626A3.75 3.75 0 0 1 28.25 47.626Z" fill="black" />
+    </mask>
+  </defs>
+  <g id="icon-arrow" transform="rotate(135)">
+    <use href="#icon-shadow" opacity="0.3" data-role="shadow" />
+    <use href="#icon-border" mask="url(#icon-shadow-outside)" opacity="0.77" data-role="outer-border" color="#491b55" stroke-width="3.672" />
+    <use href="#icon-silhouette" opacity="0.77" mask="url(#icon-inner-outline)" data-role="inner-edge" color="#491b55" />
+    <image x="-48" y="-48" width="96" height="96" href="color.png" mask="url(#icon-band)" />
+  </g>
+</svg>

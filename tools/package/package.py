@@ -187,17 +187,13 @@ def minimum_macos(executables):
 
 
 def macos_icon(destination):
-    """AppIcon.icns from tools/package/icon.svg (sips renders SVG)."""
-    with tempfile.TemporaryDirectory() as work:
-        iconset = Path(work) / 'AppIcon.iconset'
-        iconset.mkdir()
-        for size in [16, 32, 128, 256, 512]:
-            for scale in [1, 2]:
-                name = f'icon_{size}x{size}{"@2x" if scale == 2 else ""}.png'
-                pixels = str(size * scale)
-                subprocess.run(['sips', '-s', 'format', 'png', '-z', pixels, pixels, str(HERE / 'icon.svg'),
-                                '--out', str(iconset / name)], check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(['iconutil', '-c', 'icns', '-o', str(destination), str(iconset)], check=True)
+    """Generate the ICNS from the canonical artwork, only when packaging macOS."""
+    shutil.copy2(generated_icons('macos') / 'AppIcon.icns', destination)
+
+
+def generated_icons(target):
+    run(['cargo', 'run', '-p', 'xtask', '--', 'icons', '--target', target], dict(os.environ))
+    return ROOT / 'target/icons' / target
 
 
 def is_macho(path):
@@ -324,7 +320,8 @@ def dist(app, out_dir, without_video_helper=False, check=True):
             (share / 'applications').mkdir(parents=True)
             (share / 'icons/hicolor/scalable/apps').mkdir(parents=True)
             shutil.copy2(HERE / f'linux/{BUNDLE_ID}.desktop', share / 'applications')
-            shutil.copy2(HERE / 'icon.svg', share / f'icons/hicolor/scalable/apps/{BUNDLE_ID}.svg')
+            shutil.copy2(generated_icons('linux') / 'icon.svg',
+                         share / f'icons/hicolor/scalable/apps/{BUNDLE_ID}.svg')
             script = plain / 'install-desktop-entry.sh'
             shutil.copy2(HERE / 'linux/install-desktop-entry.sh', script)
             script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

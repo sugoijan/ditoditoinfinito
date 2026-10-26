@@ -91,11 +91,11 @@ impl Hidden {
 #[cfg(target_os = "linux")]
 const APP_ID: &str = "dev.sugoijan.ditoditoinfinito";
 
-/// The packages' icon (`tools/package/icon.svg`) at `side` pixels, for
+/// The generated desktop icon at `side` pixels, for
 /// the window's (macOS shows the app's own).
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn window_icon(side: u32) -> Option<winit::window::Icon> {
-    let svg = include_str!("../../../tools/package/icon.svg");
+    let svg = include_str!(concat!(env!("OUT_DIR"), "/icon.svg"));
     let rgba = ddi_noteskin::raster::rasterize(svg, side, side).ok()?;
     winit::window::Icon::from_rgba(rgba, side, side).ok()
 }
@@ -1727,16 +1727,19 @@ fn title_screen(
 mod tests {
     use super::*;
 
-    /// The window's icon (`window_icon`) draws: the margin transparent,
-    /// the tile dark, the arrow pink.
+    /// The window icon draws the Infinito band over transparency,
+    /// including transparent holes inside its inner outline.
     #[test]
     fn the_window_icon_draws() {
-        let svg = include_str!("../../../tools/package/icon.svg");
-        let rgba = ddi_noteskin::raster::rasterize(svg, 64, 64).unwrap();
+        let svg = ddi_icon::desktop_svg().unwrap();
+        let rgba = ddi_noteskin::raster::rasterize(&svg, 64, 64).unwrap();
         let at = |x: usize, y: usize| &rgba[(y * 64 + x) * 4..][..4];
         assert_eq!(at(1, 1)[3], 0);
-        assert_eq!(at(8, 32), [0x16, 0x13, 0x18, 0xff]);
-        assert_eq!(at(32, 45), [0xff, 0x6e, 0xa0, 0xff]);
+        assert_eq!(at(46, 32)[3], 0);
+        assert!(rgba.chunks_exact(4).any(|p| {
+            let (min, max) = (p[..3].iter().min().unwrap(), p[..3].iter().max().unwrap());
+            p[3] == 255 && max - min > 80
+        }));
     }
 
     /// A play's window hidden for a moment (macOS's fullscreen Space

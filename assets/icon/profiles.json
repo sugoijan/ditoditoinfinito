@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "artwork": {
+    "charge": 4,
+    "phase": 0.363,
+    "seconds": 9.04
+  },
+  "targets": {
+    "favicon": {
+      "size": 100,
+      "x": 0,
+      "y": 0,
+      "radius": 0,
+      "background": "#111118",
+      "plate": false,
+      "shadow": 0.55,
+      "shadowRadius": 0.5,
+      "darkGap": true,
+      "gapColor": "#491b55",
+      "gapOpacity": 0.77,
+      "border": true,
+      "borderRatio": 1,
+      "borderOpacity": 0.77,
+      "chargeColor": "#ffffff"
+    },
+    "macos": {
+      "size": 75,
+      "x": 0,
+      "y": 0,
+      "radius": 22,
+      "background": "#111118",
+      "plate": true,
+      "shadow": 0,
+      "shadowRadius": 0.5,
+      "darkGap": true,
+      "gapColor": "#491b55",
+      "gapOpacity": 0.77,
+      "border": true,
+      "borderRatio": 1,
+      "borderOpacity": 0.77,
+      "chargeColor": "#ffffff"
+    },
+    "windows": {
+      "size": 84,
+      "x": 0,
+      "y": 0,
+      "radius": 0,
+      "background": "#111118",
+      "plate": false,
+      "shadow": 0.3,
+      "shadowRadius": 0.5,
+      "darkGap": true,
+      "gapColor": "#491b55",
+      "gapOpacity": 0.77,
+      "border": true,
+      "borderRatio": 1,
+      "borderOpacity": 0.77,
+      "chargeColor": "#ffffff"
+    }
+  }
+}

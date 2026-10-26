@@ -92,7 +92,7 @@ still to come, `danoni-importer.md`) and without `video/` (below).
 ## The icon, the window and the console (Linux, Windows)
 
 - **The window's icon** on Linux (X11) and Windows is the packages' icon
-  (`tools/package/icon.svg`) drawn by resvg when the window opens
+  (generated in Cargo’s `OUT_DIR` from `assets/icon/`) drawn by resvg when the window opens
   (`shell::window_icon`; resvg already draws the SVG skins): 64 pixels on
   X11; on Windows a 32-pixel small icon (title bar) and a 64-pixel big
   one (taskbar, Alt+Tab), which Windows scales to the display's. macOS
@@ -213,14 +213,35 @@ keeps the archives as the run's artifacts only):
   2026-10-24). The bundle id, the desktop entry's id, the settings',
   data and cache folders and the export file names keep the long name,
   so a renamed build finds what an older one kept.
-- **The icon is the site's favicon** (`site/seo/favicon.svg`, first-party)
-  redrawn on the macOS icon grid (`tools/package/icon.svg`: an 824-unit
-  tile with a 100-unit margin), rendered by `sips` and `iconutil` at
-  package time; Linux ships the SVG; the Windows executable's icons and
-  the windows' are drawn from it by resvg (at build time, at run time).
-  No icon is committed as pixels. The margin stays on Windows too (one
-  artwork), so the tile is a little smaller there than icons drawn to
-  the edge.
+- **The icon is the Infinito down-right arrow** (approved 2026-10-26),
+  with a frozen holographic color field, purple inner and outer outlines
+  and transparent charge holes. Only `assets/icon/arrow.svg`, `color.png`
+  and `profiles.json` are versioned: the approved geometry/appearance,
+  frozen 512 px texture, and target framing/shadow settings. Later noteskin
+  changes do not silently change the brand icon.
+- **Generate only the target being built.** `ddi-icon` is the shared Rust
+  compositor. Its optional `raster` feature uses resvg, including the PNG
+  decoder, for all generated pixels. The web SVG worker's feature set is
+  unchanged. `xtask icons --target web|windows|linux|macos` caches outputs
+  under `target/icons/<target>/`; `--out DIR` stages only deliverables.
+  The cache tracks the canonical inputs, compositor, xtask generator and
+  renderer lockfile, and also checks that its outputs still exist.
+  Trunk runs `icons --target web` after building, producing only
+  `favicon.svg` in `TRUNK_STAGING_DIR` (256 px embedded color texture).
+  Windows/Linux builds generate the window SVG in `OUT_DIR`, tracked by
+  Cargo's rerun inputs. The Windows resource builder calls the same icon
+  renderer directly for its native icon sizes. Linux packaging requests
+  only its transparent SVG, and macOS packaging requests only `AppIcon.icns`.
+  Standalone `--target windows` exports SVG and ICO for manual use.
+- **macOS uses the current legacy ICNS workflow.** The generated composition
+  preserves the 824-unit rounded tile with a 100-unit outer margin; the
+  chosen 75% symbol fit is inside that tile. resvg renders each iconset size
+  directly; Apple's `iconutil` assembles the container during packaging.
+  No generated PNG master, `sips` conversion, browser, shader or graphics
+  editor is needed by this build path. `icons --target macos --layers`
+  additionally exports unmasked 1024 px foreground/background SVGs for
+  Icon Composer; compiling a Liquid Glass `.icon` document is still separate.
+  See `assets/icon/README.md` for reproduction.
 - **The `.res` file written by our build script**, rather than
   `winresource` or `embed-resource`, which need `rc.exe` or `llvm-rc`
   (neither on the Mac, where the Windows clippy runs) and an `.ico`

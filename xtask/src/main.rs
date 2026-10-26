@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 mod boot_check;
 mod credits;
+mod icons;
 mod noteskins;
 mod rust_credits;
 mod songs;
@@ -22,6 +23,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Generate only the selected platform's app icons, cached under target/icons.
+    Icons {
+        #[arg(long, value_enum)]
+        target: icons::Platform,
+        /// Copy the generated assets here; web hooks default to TRUNK_STAGING_DIR.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Also export unmasked macOS foreground/background SVGs for Icon Composer.
+        #[arg(long)]
+        layers: bool,
+    },
     /// Regenerate the SEO metadata fragments and sitemap from site/seo/metadata.toml.
     #[command(name = "regen-seo")]
     RegenSeo,
@@ -529,6 +541,11 @@ fn escape_html_attr(value: &str) -> String {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Commands::Icons {
+            target,
+            out,
+            layers,
+        } => icons::generate(target, out, layers),
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),

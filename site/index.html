@@ -361,7 +361,7 @@
     <link data-trunk rel="rust" href="../crates/svg-worker/Cargo.toml" data-bin="svg-worker" data-type="worker" data-wasm-opt="3" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
     <!-- Inlined, as everything the loader needs: nothing the first paint waits for comes from another fetch (`xtask check-boot`). -->
     <link data-trunk rel="inline" href="styles.css" />
-    <link data-trunk rel="copy-file" href="seo/favicon.svg" />
+    <!-- The favicon is generated into staging by xtask icons --target web. -->
     <link data-trunk rel="copy-file" href="../docs/screenshots/readme.png" data-target-path="images" />
     <link data-trunk rel="copy-dir" href="../assets/songs" data-target-path="songs" />
     <link data-trunk rel="copy-file" href="../target/songs/index.json" data-target-path="songs" />

@@ -8,6 +8,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+ddi-icon = { workspace = true, features = ["raster"] }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

@@ -3,13 +3,13 @@
 //! here as a `.res` file, the format `rc.exe` writes, with no resource
 //! compiler, and handed to the linker, which takes one as it is.
 //!
-//! The icon is the packages' (`tools/package/icon.svg`) drawn at the
+//! The icon is the approved artwork (`assets/icon/`) drawn at the
 //! sizes Windows asks for, by resvg: a build dependency on Windows hosts
 //! only, where the game is built (CI's release), so other builds do not
 //! compile it twice. A cross build (checks from a Mac) writes the version
 //! alone.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// `RT_ICON`, `RT_GROUP_ICON` and `RT_VERSION`.
 #[cfg(windows)]
@@ -31,7 +31,7 @@ const COPYRIGHT: &str =
 /// The icon's sides, in pixels: Windows' small and large icons at 100% to
 /// 200% scale, and Explorer's largest view.
 #[cfg(windows)]
-const ICON_SIDES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
+const ICON_SIDES: [u32; 8] = ddi_icon::WINDOWS_SIDES;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -40,9 +40,8 @@ fn main() {
     if !windows {
         return;
     }
-    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let mut res = Res::new();
-    icon(&mut res, &manifest.join("../../tools/package/icon.svg"));
+    icon(&mut res);
     let version = std::env::var("CARGO_PKG_VERSION").unwrap();
     res.push(RT_VERSION, 1, 0x0030, &version_info(&version));
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("ddi.res");
@@ -53,22 +52,16 @@ fn main() {
 /// The icon: each size an `RT_ICON`, and the `RT_GROUP_ICON` listing them
 /// (`GRPICONDIR`), its id 1, the first, which Explorer shows.
 #[cfg(windows)]
-fn icon(res: &mut Res, svg: &Path) {
-    println!("cargo:rerun-if-changed={}", svg.display());
-    let text = std::fs::read_to_string(svg).unwrap();
-    let tree = resvg::usvg::Tree::from_str(&text, &resvg::usvg::Options::default()).unwrap();
+fn icon(res: &mut Res) {
+    for path in ddi_icon::INPUTS {
+        println!("cargo:rerun-if-changed={path}");
+    }
     let mut group = Vec::new();
     group.extend(0u16.to_le_bytes());
     group.extend(1u16.to_le_bytes());
     group.extend((ICON_SIDES.len() as u16).to_le_bytes());
     for (id, side) in (1u16..).zip(ICON_SIDES) {
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(side, side).unwrap();
-        let scale = side as f32 / tree.size().width();
-        resvg::render(
-            &tree,
-            resvg::tiny_skia::Transform::from_scale(scale, scale),
-            &mut pixmap.as_mut(),
-        );
+        let pixmap = ddi_icon::render(ddi_icon::Target::Windows, side).unwrap();
         // PNG at 256 pixels, as icon files have it; a bitmap below, which
         // every reader of icons takes.
         let image = if side == 256 {
@@ -97,7 +90,7 @@ fn icon(res: &mut Res, svg: &Path) {
 
 /// No icon: resvg is not built on this host (above).
 #[cfg(not(windows))]
-fn icon(_: &mut Res, _: &Path) {}
+fn icon(_: &mut Res) {}
 
 /// An icon image as a bitmap (`BITMAPINFOHEADER`, then the colors and the
 /// mask): 32-bit BGRA rows bottom up, the header's height doubled for the

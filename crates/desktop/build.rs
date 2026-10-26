@@ -5,6 +5,20 @@
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
+    if matches!(
+        env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        Ok("windows" | "linux")
+    ) {
+        for path in ddi_icon::INPUTS {
+            println!("cargo:rerun-if-changed={path}");
+        }
+        let path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("icon.svg");
+        std::fs::write(
+            path,
+            ddi_icon::desktop_svg().expect("approved desktop icon"),
+        )
+        .unwrap();
+    }
     println!("cargo:rustc-env=DDI_DANONI_BUNDLE_ID=");
     println!("cargo:rustc-env=DDI_DANONI_BUNDLE_MANIFEST_SHA256=");
     for name in [

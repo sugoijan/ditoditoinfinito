@@ -367,12 +367,21 @@ Rust and the browser are implementation details, not advertised features.
   generated third-party packs stay outside Git. See
   `docs/plans/danoni-importer.md` for the current build/distribution contract;
   `docs/research/danoni-desktop-integration.md` records the research.
-- `xtask/` generators: SEO fragments, the song manifest, `credits/CREDITS.md`
+- `crates/icon/` the approved brand icon's build-time compositor: the vector
+  artwork, frozen color texture and target profiles in `assets/icon/`. Cargo
+  builds the Windows/Linux window SVG in `OUT_DIR`; Windows' executable
+  resources use the same renderer. Optional `raster` uses resvg for xtask's
+  target-specific output. No shader or editor runs during builds.
+- `xtask/` generators: target-specific icons (`icons --target
+  web|windows|linux|macos`, cached under `target/icons/`), SEO fragments, the song manifest, `credits/CREDITS.md`
   and `credits/THIRD_PARTY_RUST.md`.
 - `tools/package/` the desktop's packaging (`package.py`: the relocatable
   folder and each system's archives; the app's `Info.plist`, the Linux
   desktop entry, the icon), run by `just package` and
-  `.github/workflows/release.yml` (`docs/plans/packaging.md`).
+  `.github/workflows/release.yml` (`docs/plans/packaging.md`). Icon sources
+  live only in `assets/icon/`; Trunk stages the generated favicon, and
+  packaging asks xtask only for its platform's ICNS or SVG. Generated icon
+  assets stay out of Git.
 - `video/` the software video decoder: C shims over FFmpeg's video
   decoders (every format StepMania plays), built two ways from the one
   pinned release (`video/FFMPEG.toml`): for the web to

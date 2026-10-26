@@ -15,6 +15,7 @@ repository = "https://github.com/sugoijan/ditoditoinfinito"
 
 [workspace.dependencies]
 # local crates
+ddi-icon = { path = "crates/icon" }
 ddi-danoni-export = { path = "tools/danoni-dump/rust", default-features = false }
 ddi-importer-protocol = { path = "crates/importer-protocol" }
 ddi-video-protocol = { path = "video/protocol" }

@@ -916,8 +916,8 @@ name = "ddi"
 version = "0.1.0"
 dependencies = [
  "ddi-desktop",
+ "ddi-icon",
  "ddi-web",
- "resvg 0.49.0",
 ]
 
 [[package]]
@@ -1014,6 +1014,7 @@ dependencies = [
  "ddi-chart",
  "ddi-desktop",
  "ddi-engine",
+ "ddi-icon",
  "ddi-importer-protocol",
  "ddi-library",
  "ddi-lua",
@@ -1061,6 +1062,17 @@ dependencies = [
  "ddi-chart",
  "ddi-library",
  "ddi-platform",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ddi-icon"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "resvg 0.49.0",
+ "roxmltree 0.21.1",
  "serde",
  "serde_json",
 ]
@@ -4146,12 +4158,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1572844b6727a1bf842190e9947641a68ac44bed83f50afb4bd1407a2564bee8"
 dependencies = [
  "bytemuck",
+ "gif",
+ "image-webp",
  "log",
  "pico-args",
  "rgb",
  "svgtypes",
  "tiny-skia 0.12.0",
  "usvg 0.49.0",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -6555,6 +6570,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ddi-chart",
+ "ddi-icon",
  "ddi-library",
  "ddi-noteskin",
  "ddi-platform",
