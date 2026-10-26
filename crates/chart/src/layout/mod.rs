@@ -7,6 +7,13 @@
 //! [`Layout::builtin`], and a song file may define its own
 //! ([`Song::layouts`](crate::Song::layouts)), resolved with
 //! [`Song::layout_of`](crate::Song::layout_of).
+//!
+//! Every played layout's default keys end with the number pad, a pad seen
+//! from above: 4 2 8 6 for the four arrows, 7 and 9 for the up
+//! diagonals, 1 and 3 for the down ones, 5 for a middle panel or the
+//! onigiri (and, on a two-pad layout, the right pad). Its keys come after
+//! each lane's main ones, as a second set. `Numpad*` codes are the number
+//! pad's alone, never the number row's, on both shells.
 
 use serde::{Deserialize, Serialize};
 
@@ -234,10 +241,22 @@ impl Layout {
             players: 1,
             family: LayoutFamily::StepMania,
             lanes: vec![
-                Self::arrow("left", "Left", 0.0, 0.0, &["ArrowLeft", "KeyD"]),
-                Self::arrow("down", "Down", -90.0, 1.0, &["ArrowDown", "KeyF"]),
-                Self::arrow("up", "Up", 90.0, 2.0, &["ArrowUp", "KeyJ"]),
-                Self::arrow("right", "Right", 180.0, 3.0, &["ArrowRight", "KeyK"]),
+                Self::arrow("left", "Left", 0.0, 0.0, &["ArrowLeft", "KeyD", "Numpad4"]),
+                Self::arrow(
+                    "down",
+                    "Down",
+                    -90.0,
+                    1.0,
+                    &["ArrowDown", "KeyF", "Numpad2"],
+                ),
+                Self::arrow("up", "Up", 90.0, 2.0, &["ArrowUp", "KeyJ", "Numpad8"]),
+                Self::arrow(
+                    "right",
+                    "Right",
+                    180.0,
+                    3.0,
+                    &["ArrowRight", "KeyK", "Numpad6"],
+                ),
             ],
             // StepMania `GetTrackMapping` (`src/Style.cpp`), `dance-single`.
             turn_left: Some(vec![2, 0, 3, 1]),
@@ -252,12 +271,24 @@ impl Layout {
             players: 1,
             family: LayoutFamily::StepMania,
             lanes: vec![
-                Self::arrow("left", "Left", 0.0, 0.0, &["ArrowLeft", "KeyS"]),
-                Self::arrow("upleft", "Up-left", 45.0, 1.0, &["KeyD"]),
-                Self::arrow("down", "Down", -90.0, 2.0, &["ArrowDown", "KeyF"]),
-                Self::arrow("up", "Up", 90.0, 3.0, &["ArrowUp", "KeyJ"]),
-                Self::arrow("upright", "Up-right", 135.0, 4.0, &["KeyK"]),
-                Self::arrow("right", "Right", 180.0, 5.0, &["ArrowRight", "KeyL"]),
+                Self::arrow("left", "Left", 0.0, 0.0, &["ArrowLeft", "KeyS", "Numpad4"]),
+                Self::arrow("upleft", "Up-left", 45.0, 1.0, &["KeyD", "Numpad7"]),
+                Self::arrow(
+                    "down",
+                    "Down",
+                    -90.0,
+                    2.0,
+                    &["ArrowDown", "KeyF", "Numpad2"],
+                ),
+                Self::arrow("up", "Up", 90.0, 3.0, &["ArrowUp", "KeyJ", "Numpad8"]),
+                Self::arrow("upright", "Up-right", 135.0, 4.0, &["KeyK", "Numpad9"]),
+                Self::arrow(
+                    "right",
+                    "Right",
+                    180.0,
+                    5.0,
+                    &["ArrowRight", "KeyL", "Numpad6"],
+                ),
             ],
             turn_left: Some(vec![5, 4, 0, 3, 1, 2]),
         }
@@ -303,10 +334,10 @@ impl Layout {
         let keys: [[&[&str]; 4]; 2] = [
             [&["KeyA"], &["KeyS"], &["KeyW"], &["KeyD"]],
             [
-                &["ArrowLeft"],
-                &["ArrowDown"],
-                &["ArrowUp"],
-                &["ArrowRight"],
+                &["ArrowLeft", "Numpad4"],
+                &["ArrowDown", "Numpad2"],
+                &["ArrowUp", "Numpad8"],
+                &["ArrowRight", "Numpad6"],
             ],
         ];
         for (pad, keys) in keys.iter().enumerate() {
@@ -447,7 +478,13 @@ impl Layout {
             _ => {
                 let mode = id.strip_prefix("danoni-")?;
                 PLAYED_DANONI_MODES.contains(&mode).then_some(())?;
-                danoni::builtin(mode).map(|k| k.layout(id.to_string()))
+                danoni::builtin(mode).map(|k| {
+                    let mut layout = k.layout(id.to_string());
+                    for (lane, code) in danoni::numpad_keys(mode).iter().enumerate() {
+                        layout.lanes[lane].default_keys.push(code.to_string());
+                    }
+                    layout
+                })
             }
         }
     }
@@ -495,6 +532,46 @@ mod tests {
         }
         let double = Layout::dance_double();
         assert_eq!(double.pads(), 2);
+        // The number pad is each layout's second set: 4 2 8 6 for the
+        // arrows, after the main keys, and the right pad of double.
+        let numpad = |l: &Layout| -> Vec<Option<String>> {
+            l.lanes
+                .iter()
+                .map(|l| {
+                    assert!(!l.default_keys[0].starts_with("Numpad"), "{}", l.name);
+                    l.default_keys
+                        .iter()
+                        .find(|k| k.starts_with("Numpad"))
+                        .cloned()
+                })
+                .collect()
+        };
+        let pad = |n: u8| Some(format!("Numpad{n}"));
+        assert_eq!(
+            numpad(&Layout::dance_single()),
+            [pad(4), pad(2), pad(8), pad(6)]
+        );
+        assert_eq!(
+            numpad(&Layout::dance_solo()),
+            [pad(4), pad(7), pad(2), pad(8), pad(9), pad(6)]
+        );
+        assert_eq!(
+            numpad(&double),
+            [None, None, None, None, pad(4), pad(2), pad(8), pad(6)]
+        );
+        assert_eq!(
+            numpad(&Layout::techno_single8()),
+            [
+                pad(1),
+                pad(4),
+                pad(7),
+                pad(2),
+                pad(8),
+                pad(9),
+                pad(6),
+                pad(3)
+            ]
+        );
         assert_eq!(double.lanes_of_pad(1).collect::<Vec<_>>(), [4, 5, 6, 7]);
         assert_eq!(Layout::dance_solo().pads(), 1);
         assert_eq!(Layout::builtins().len(), BUILTIN_LAYOUTS.len());

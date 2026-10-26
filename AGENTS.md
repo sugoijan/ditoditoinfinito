@@ -647,7 +647,11 @@ list right, the song's side left; `ddi_ui::screens::transitions`), then
 the next screen's come in; on the web a `Navigate` or `Back` request waits
 for that exit, so the address changes about 0.14 s after the press.
 Web route ancestry and Options position live in history state; desktop uses
-the UI stack. Preview audio belongs to visible song select (or an explicit
+the UI stack. Every played layout's default keys end with the number pad as
+a second set (4 2 8 6 the arrows, 5 the middle, the corners the diagonals;
+`crates/chart/src/layout/mod.rs`, decision 70), the main keys first and
+unchanged; `Numpad*` codes are the number pad's alone, never the number
+row's, on both shells. Preview audio belongs to visible song select (or an explicit
 Options sample); Start is silent. See `docs/plans/start-menu.md`.
 
 ## Additional chart versions

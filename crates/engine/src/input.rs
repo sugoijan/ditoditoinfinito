@@ -297,6 +297,7 @@ mod tests {
         // Binding a control already used elsewhere moves it.
         b.bind(BindingDevice::Keyboard, "ArrowLeft", 3);
         assert_eq!(b.lane_of(&DeviceId::Keyboard, "ArrowLeft"), Some(3));
-        assert_eq!(b.controls_of(0).count(), 1);
+        // Left keeps its other keys (KeyD and the number pad's 4).
+        assert_eq!(b.controls_of(0).count(), 2);
     }
 }

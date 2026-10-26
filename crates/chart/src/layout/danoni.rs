@@ -120,6 +120,25 @@ pub fn builtin(mode: &str) -> Option<KeyDef> {
     })
 }
 
+/// The number pad as a second set of keys for a played built-in mode (the
+/// layout module's rule), per lane: the arrows at the edges' middles, the
+/// onigiri on 5, 7's diagonals on 1 and 3, 9B's second set of arrows on
+/// the corners. Only [`Layout::builtin`] adds them: a work's header
+/// referring to a built-in pattern takes danoniplus's keys alone.
+pub fn numpad_keys(mode: &str) -> &'static [&'static str] {
+    match mode {
+        "5" => &["Numpad4", "Numpad2", "Numpad8", "Numpad6", "Numpad5"],
+        "7" => &[
+            "Numpad4", "Numpad1", "Numpad2", "Numpad5", "Numpad8", "Numpad3", "Numpad6",
+        ],
+        "9B" => &[
+            "Numpad4", "Numpad2", "Numpad8", "Numpad6", "Numpad5", "Numpad7", "Numpad1", "Numpad9",
+            "Numpad3",
+        ],
+        _ => &[],
+    }
+}
+
 impl KeyDef {
     /// The layout of this key mode, with id `id`.
     pub fn layout(&self, id: String) -> Layout {
@@ -288,6 +307,70 @@ mod tests {
         // Key names convert like getKeyCtrlVal: `;` is Semicolon, D1 Digit1.
         assert_eq!(layout("9B").lanes[8].default_keys, ["Semicolon"]);
         assert_eq!(layout("9h").lanes[0].default_keys, ["Digit1"]);
+    }
+
+    #[test]
+    fn the_played_modes_take_the_number_pad_second() {
+        let numpad = |mode: &str| -> Vec<(String, Option<String>)> {
+            Layout::builtin(&layout_id(mode))
+                .unwrap()
+                .lanes
+                .iter()
+                .map(|l| {
+                    let pad: Vec<&String> = l
+                        .default_keys
+                        .iter()
+                        .filter(|k| k.starts_with("Numpad"))
+                        .collect();
+                    assert!(pad.len() <= 1, "{mode} {}", l.name);
+                    // Never the first key: the main ones stay as they are.
+                    assert!(!l.default_keys[0].starts_with("Numpad"), "{mode}");
+                    (l.name.clone(), pad.first().map(|k| k.to_string()))
+                })
+                .collect()
+        };
+        let pad = |n: u8| Some(format!("Numpad{n}"));
+        assert_eq!(
+            numpad("5"),
+            [
+                ("left".into(), pad(4)),
+                ("down".into(), pad(2)),
+                ("up".into(), pad(8)),
+                ("right".into(), pad(6)),
+                ("space".into(), pad(5)),
+            ]
+        );
+        assert_eq!(
+            numpad("7"),
+            [
+                ("left".into(), pad(4)),
+                ("leftdia".into(), pad(1)),
+                ("down".into(), pad(2)),
+                ("space".into(), pad(5)),
+                ("up".into(), pad(8)),
+                ("rightdia".into(), pad(3)),
+                ("right".into(), pad(6)),
+            ]
+        );
+        assert_eq!(
+            numpad("9B"),
+            [
+                ("left".into(), pad(4)),
+                ("down".into(), pad(2)),
+                ("up".into(), pad(8)),
+                ("right".into(), pad(6)),
+                ("space".into(), pad(5)),
+                ("sleft".into(), pad(7)),
+                ("sdown".into(), pad(1)),
+                ("sup".into(), pad(9)),
+                ("sright".into(), pad(3)),
+            ]
+        );
+        // 9A keeps its keys as danoniplus has them; the key mode's own
+        // definition has none of the pad (a work's header may refer to it).
+        assert!(numpad("9A").iter().all(|(_, p)| p.is_none()));
+        assert_eq!(layout("5").lanes[4].default_keys, ["Space"]);
+        assert_eq!(layout("9B").lanes[0].default_keys, ["KeyA"]);
     }
 
     #[test]

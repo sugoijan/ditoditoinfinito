@@ -287,7 +287,7 @@ impl ControlBindings {
             for keys in table.iter_mut() {
                 keys.retain(|k| !k.is_empty() && seen.insert(k.clone()));
             }
-            Layout::builtin(id).is_none_or(|l| *table != default_keys(&l))
+            Layout::builtin(id).is_none_or(|l| !is_default(id, table, &l))
         });
         let mut ids = HashSet::new();
         self.pads
@@ -587,6 +587,41 @@ impl PadUse {
     }
 }
 
+/// Layouts whose default keys gained the number pad on 2026-10-27 (the
+/// pump and techno layouts had it from the start). Every version writes
+/// the single table (`keys_single`), so a player who never bound keys
+/// comes with the defaults of the version that saved them: a saved table
+/// equal to a layout's defaults without their numpad keys is the defaults
+/// too, and takes the number pad.
+const NUMPAD_ADDED: [&str; 6] = [
+    "dance-single",
+    "dance-solo",
+    "dance-double",
+    "danoni-5",
+    "danoni-7",
+    "danoni-9B",
+];
+
+/// Whether a saved keyboard table of layout `id` is its defaults, of this
+/// version or of one before the number pad.
+fn is_default(id: &str, table: &LaneTable, layout: &Layout) -> bool {
+    let defaults = default_keys(layout);
+    *table == defaults || NUMPAD_ADDED.contains(&id) && *table == without_numpad(&defaults)
+}
+
+/// A table less its number pad keys.
+fn without_numpad(table: &LaneTable) -> LaneTable {
+    table
+        .iter()
+        .map(|keys| {
+            keys.iter()
+                .filter(|k| !k.starts_with("Numpad"))
+                .cloned()
+                .collect()
+        })
+        .collect()
+}
+
 /// A layout's default keys, per lane.
 pub fn default_keys(layout: &Layout) -> LaneTable {
     layout
@@ -742,6 +777,32 @@ mod tests {
         .unwrap();
         d.sanitize();
         assert!(d.keys.is_empty());
+        // So do tables saved by versions before the number pad joined the
+        // defaults, for every layout that gained it; a key added or
+        // removed keeps the table.
+        for id in NUMPAD_ADDED {
+            let layout = Layout::builtin(id).unwrap();
+            let before = without_numpad(&default_keys(&layout));
+            assert_ne!(before, default_keys(&layout), "{id}");
+            let mut c = ControlBindings::default();
+            c.keys.insert(id.to_string(), before.clone());
+            c.sanitize();
+            assert!(c.keys.is_empty(), "{id}");
+            assert_eq!(c.keyboard(&layout), default_keys(&layout), "{id}");
+            let mut custom = before;
+            custom[0].push("KeyZ".into());
+            c.keys.insert(id.to_string(), custom.clone());
+            c.sanitize();
+            assert_eq!(c.keys.get(id), Some(&custom), "{id}");
+        }
+        // Pump's number pad was always there: a table without it is the
+        // player's own.
+        let pump = Layout::pump_single();
+        let mut c = ControlBindings::default();
+        let stripped = without_numpad(&default_keys(&pump));
+        c.keys.insert(pump.id.clone(), stripped.clone());
+        c.sanitize();
+        assert_eq!(c.keys.get(&pump.id), Some(&stripped));
     }
 
     #[test]
