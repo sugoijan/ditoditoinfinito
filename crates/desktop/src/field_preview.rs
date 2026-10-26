@@ -30,10 +30,6 @@ pub struct Field {
     /// The skin wanted, read on its thread (a newer pick lets an older
     /// read go).
     reading: Option<(SkinWant, crate::play::skins::Reading, Layout)>,
-    /// The skin first wanted was shown (or none was wanted): until then
-    /// nothing is drawn, the panel's placeholder showing, never the
-    /// built-in arrows on the way to the skin.
-    settled: bool,
 }
 
 impl Default for Field {
@@ -47,7 +43,6 @@ impl Default for Field {
             registered: None,
             start: Instant::now(),
             reading: None,
-            settled: false,
         }
     }
 }
@@ -183,8 +178,9 @@ impl Field {
             self.shown = Some(want.clone());
             self.reading = None;
         }
-        self.settled |= self.wanted.is_none() || self.shown == self.wanted;
-        if self.settled {
+        // Nothing until the first skin is in (`shown` only ever fills):
+        // the panel's placeholder, never the built-in arrows on the way.
+        if self.wanted.is_none() || self.shown.is_some() {
             let size = [w.round().max(1.0) as u32, h.round().max(1.0) as u32];
             preview.draw(
                 device,
@@ -194,7 +190,6 @@ impl Field {
                 self.start.elapsed().as_secs_f64(),
             );
         }
-        // Before a first frame, no texture: the placeholder.
         if self.registered != Some(preview.generation()) {
             painter.set_external_image(device, SOURCE, preview.texture());
             self.registered = Some(preview.generation());

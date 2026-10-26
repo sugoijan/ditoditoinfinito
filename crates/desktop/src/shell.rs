@@ -1736,7 +1736,7 @@ mod tests {
         let at = |x: usize, y: usize| &rgba[(y * 64 + x) * 4..][..4];
         assert_eq!(at(1, 1)[3], 0);
         assert_eq!(at(46, 32)[3], 0);
-        assert!(rgba.chunks_exact(4).any(|p| {
+        assert!(rgba.as_chunks::<4>().0.iter().any(|p| {
             let (min, max) = (p[..3].iter().min().unwrap(), p[..3].iter().max().unwrap());
             p[3] == 255 && max - min > 80
         }));

@@ -939,6 +939,7 @@ dependencies = [
 name = "ddi-danoni-desktop-probe"
 version = "0.1.0"
 dependencies = [
+ "ddi-chart",
  "ddi-danoni-export",
  "ddi-desktop",
  "ddi-library",

@@ -20,6 +20,7 @@ pub const INPUTS: [&str; 3] = [
     ),
 ];
 
+/// The sides of the Windows executable's icon group.
 pub const WINDOWS_SIDES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +39,21 @@ impl Target {
             Self::Linux => "linux",
             Self::Macos => "macos",
         }
+    }
+
+    /// The inverse of [`Target::name`].
+    pub fn parse(name: &str) -> Result<Target> {
+        Ok(match name {
+            "web" => Self::Web,
+            "windows" => Self::Windows,
+            "linux" => Self::Linux,
+            "macos" => Self::Macos,
+            other => {
+                return Err(format!(
+                    "no icon target {other:?}: web, windows, linux or macos"
+                ));
+            }
+        })
     }
 
     fn profile(self) -> &'static str {
@@ -215,7 +231,7 @@ pub fn fingerprint() -> u64 {
     )
 }
 
-pub fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {
+fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {
     bytes.into_iter().fold(0xcbf29ce484222325, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
     })

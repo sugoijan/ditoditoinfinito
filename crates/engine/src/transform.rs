@@ -56,17 +56,6 @@ pub enum AtOnce {
     One,
 }
 
-impl AtOnce {
-    /// The most panels pressed at once, `None` for any number.
-    pub fn max(self) -> Option<usize> {
-        match self {
-            AtOnce::Any => None,
-            AtOnce::Two => Some(2),
-            AtOnce::One => Some(1),
-        }
-    }
-}
-
 /// Chart transforms of one play.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "StoredTransform")]
@@ -134,8 +123,10 @@ pub fn apply(notes: &[Note], layout: &Layout, opts: &TransformOptions, seed: u64
     if opts.no_holds {
         remove_holds(&mut notes);
     }
-    if let Some(max) = opts.at_once.max() {
-        remove_simultaneous(&mut notes, max);
+    match opts.at_once {
+        AtOnce::Any => {}
+        AtOnce::Two => remove_simultaneous(&mut notes, 2),
+        AtOnce::One => remove_simultaneous(&mut notes, 1),
     }
     let take_from = lane_map(layout, opts.turn, seed);
     let mut dest: Vec<u8> = (0..take_from.len() as u8).collect();

@@ -6,7 +6,7 @@ use super::{Env, ground};
 use crate::look::{Spec, call};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
-use ddi_actor::{Actor, Kind};
+use ddi_actor::{Actor, Kind, Sprite};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
@@ -120,10 +120,9 @@ impl StartScreen {
                     "Text",
                 )
             });
-        title.name = "Title".into();
         if let Some(source) = env.look.image("TitleMenu.Title") {
             let texture = cx.texture(source, spec.size[0].max(spec.size[1]));
-            bind_title(&mut title, texture);
+            sprites_mut(&mut title, &mut |s| s.texture = texture);
         }
         self.animated_title = animate_title(&mut title, self.title_time as f32);
         call(&mut title, "xy", &[w / 2.0, top + title_height / 2.0]);
@@ -231,27 +230,26 @@ impl Screen for StartScreen {
     }
 }
 
-// A component's art stays in the look; the screen supplies its image and clock.
-fn bind_title(actor: &mut Actor, texture: u32) {
+// A component's art stays in the look; the screen supplies its image and
+// clock to every sprite under it.
+fn sprites_mut(actor: &mut Actor, f: &mut impl FnMut(&mut Sprite)) {
     if let Kind::Sprite(sprite) = &mut actor.kind {
-        sprite.texture = texture;
+        f(sprite);
     }
     for child in actor.children_mut() {
-        bind_title(child, texture);
+        sprites_mut(child, f);
     }
 }
 
-fn animate_title(actor: &mut Actor, time: f32) -> bool {
+/// Sets the title's vivid clock; whether any part has one.
+fn animate_title(title: &mut Actor, time: f32) -> bool {
     let mut animated = false;
-    if let Kind::Sprite(sprite) = &mut actor.kind
-        && let Some(vivid) = &mut sprite.shape.vivid
-    {
-        vivid.time = time;
-        animated = true;
-    }
-    for child in actor.children_mut() {
-        animated |= animate_title(child, time);
-    }
+    sprites_mut(title, &mut |s| {
+        if let Some(vivid) = &mut s.shape.vivid {
+            vivid.time = time;
+            animated = true;
+        }
+    });
     animated
 }
 

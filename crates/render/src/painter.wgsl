@@ -53,6 +53,7 @@ struct Instance {
     @location(7) c2: vec4<f32>,
     @location(8) c3: vec4<f32>,
     // The corners' w (top left, top right, bottom right, bottom left).
+    // Bit 7 (vivid, never in perspective): the vivid field's rect.
     @location(9) w: vec4<f32>,
     // Bit 4 (cut): the corners' radius and a soft edge, in the rect's
     // units per axis; an outline's thickness (shape2.xy). Bit 5: the
@@ -60,10 +61,9 @@ struct Instance {
     @location(10) shape: vec4<f32>,
     @location(11) shape2: vec4<f32>,
     // Bit 6: a motion blur along blur.xy, in the rect's units (our
-    // extension; never in perspective).
+    // extension; never in perspective). Bit 7: the vivid material's
+    // seconds and phase in blur.zw.
     @location(12) blur: vec4<f32>,
-    @location(13) vivid_rect: vec4<f32>,
-    @location(14) vivid_clock: vec4<f32>,
 };
 
 struct VsOut {
@@ -81,6 +81,8 @@ struct VsOut {
     // A motion blur: its vector in the rect's units, and the texture's
     // fractions per unit along x and y.
     @location(8) @interpolate(flat) blur: vec4<f32>,
+    // Bit 7: where in the vivid field, and the material's seconds and
+    // phase.
     @location(9) vivid_pos: vec2<f32>,
     @location(10) @interpolate(flat) vivid_clock: vec2<f32>,
 };
@@ -95,8 +97,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     var colors = array<vec4<f32>, 6>(inst.c0, inst.c1, inst.c2, inst.c0, inst.c2, inst.c3);
     let t = corners[vi];
     var out: VsOut;
-    out.vivid_pos = mix(inst.vivid_rect.xy, inst.vivid_rect.zw, t);
-    out.vivid_clock = inst.vivid_clock.xy;
+    out.vivid_pos = mix(inst.w.xy, inst.w.zw, t);
+    out.vivid_clock = inst.blur.zw;
     if ((inst.mode & 8u) != 0u) {
         // Each corner where it is seen, divided by its w again on the way:
         // texturing in perspective.

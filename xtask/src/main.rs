@@ -25,8 +25,8 @@ struct Cli {
 enum Commands {
     /// Generate only the selected platform's app icons, cached under target/icons.
     Icons {
-        #[arg(long, value_enum)]
-        target: icons::Platform,
+        #[arg(long, value_parser = ddi_icon::Target::parse)]
+        target: ddi_icon::Target,
         /// Copy the generated assets here; web hooks default to TRUNK_STAGING_DIR.
         #[arg(long)]
         out: Option<PathBuf>,

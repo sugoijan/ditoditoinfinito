@@ -232,7 +232,7 @@ keeps the archives as the run's artifacts only):
   Cargo's rerun inputs. The Windows resource builder calls the same icon
   renderer directly for its native icon sizes. Linux packaging requests
   only its transparent SVG, and macOS packaging requests only `AppIcon.icns`.
-  Standalone `--target windows` exports SVG and ICO for manual use.
+  Standalone `--target windows` exports the same SVG as Linux's.
 - **macOS uses the current legacy ICNS workflow.** The generated composition
   preserves the 824-unit rounded tile with a 100-unit outer margin; the
   chosen 75% symbol fit is inside that tile. resvg renders each iconset size

@@ -116,9 +116,21 @@ fn cancelled_commit_reopen_duplicate_and_replacement_keep_desktop_identity() {
         "snapshot must not modify the store"
     );
     assert!(songs[0].entry.charts.starts_with(&source.charts));
-    // Each 5-key chart without its onigiri, and on pump single.
-    assert_eq!(songs[0].entry.charts.len(), source.charts.len() * 3);
+    // The originals, then every generated version of each (its 5-key
+    // charts without their onigiri, and on pump single).
+    let charts = &songs[0].entry.charts;
     assert!(!songs[0].entry.needs_chart_variants());
+    assert_eq!(
+        charts.iter().filter(|c| c.derivation.is_none()).count(),
+        source.charts.len()
+    );
+    assert!(charts.len() > source.charts.len());
+    assert!(
+        charts
+            .iter()
+            .filter_map(|c| c.derivation.as_ref())
+            .all(|d| d.source() < source.charts.len())
+    );
     assert_eq!(snapshot(&library).unwrap().1[0].entry, songs[0].entry);
     assert_eq!(songs.len(), 1);
     let id = songs[0].entry.id.clone();

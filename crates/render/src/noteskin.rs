@@ -3102,19 +3102,20 @@ impl NoteskinPlay {
             affine_mul(rotation(c.rotation), [c.zoom, 0.0, 0.0, c.zoom, 0.0, 0.0]),
             own,
         );
-        self.draw_parts(c, turn, at, k, (alpha, tint), clocks, mask_of, out);
+        let outer = affine_mul([k, 0.0, 0.0, k, at[0], at[1]], turn);
+        self.draw_parts(c, turn, outer, (alpha, tint), clocks, mask_of, out);
     }
 
-    /// A component's parts as drawn at `clocks` (seeded), placed in the
-    /// lane by `turn` (in its units), its origin at `at`, `k` screen pixels
-    /// a unit ([`NoteskinPlay::draw_component`]).
+    /// A component's parts `mask_of` keeps as drawn at `clocks` (seeded),
+    /// placed on the screen by `outer`; `lane` is the lane's turn (in its
+    /// units), a material's space ([`NoteskinPlay::draw_component`]; a
+    /// judgment link's `outer` is its bridge alone).
     #[allow(clippy::too_many_arguments)]
     fn draw_parts(
         &mut self,
         c: &ddi_noteskin::component::Component,
-        turn: [f32; 6],
-        at: [f32; 2],
-        k: f32,
+        lane: [f32; 6],
+        outer: [f32; 6],
         (alpha, tint): (f32, f32),
         clocks: &ddi_noteskin::component::Clocks,
         mask_of: &dyn Fn(&ddi_noteskin::component::Part) -> Option<Mask>,
@@ -3124,8 +3125,6 @@ impl NoteskinPlay {
         // Unit square -> the part's image over the view box.
         let image = [vw, 0.0, 0.0, vh, vx + vw / 2.0, vy + vh / 2.0];
         let seed = clocks.seed;
-        let outer = affine_mul([k, 0.0, 0.0, k, at[0], at[1]], turn);
-        let lane = turn;
         for pose in c.pose(clocks) {
             let Some(mask) = mask_of(pose.part) else {
                 continue;

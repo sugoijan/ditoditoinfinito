@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 ddi-danoni-export = { path = "../rust" }
+ddi-chart = { path = "../../../crates/chart" }
 ddi-desktop = { path = "../../../crates/desktop", default-features = false }
 ddi-platform = { path = "../../../crates/platform" }
 ddi-library = { path = "../../../crates/library" }

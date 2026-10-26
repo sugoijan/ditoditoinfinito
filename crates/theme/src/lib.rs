@@ -1244,7 +1244,7 @@ impl Look for Infinito {
     fn component(&self, name: &str, spec: &Spec) -> Option<Actor> {
         let [w, h] = spec.size;
         Some(match name {
-            "TitleMenu.Title" => wordmark::actor(spec.size),
+            "TitleMenu.Title" => wordmark::actor(spec.size, self.c("Text")),
             "TitleMenu.Primary" => self.button(spec, "Accent", "OnAccent", 20.0, 700),
             "TitleMenu.Choice" => self.button(spec, "Plate2", "Text", 18.0, 600),
             "TitleMenu.Disabled" => {

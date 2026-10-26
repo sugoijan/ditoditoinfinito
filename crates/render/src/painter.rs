@@ -90,24 +90,25 @@ struct Instance {
     uv: [f32; 4],
     /// Top left, top right, bottom right, bottom left, as 8-bit RGBA.
     colors: [u32; 4],
-    /// The corners' `w`, in the same order (1 but in perspective).
+    /// The corners' `w`, in the same order (1 but in perspective). With
+    /// [`VIVID`] (never in perspective): the vivid field's rectangle at
+    /// the quad's top left and bottom right.
     w: [f32; 4],
     /// With [`CUT`]: the corners' radius and the soft edge, in the
     /// rectangle's units per axis.
     shape: [f32; 4],
     /// The outline's thickness per axis; the saturation.
     shape2: [f32; 4],
-    /// With [`BLUR`]: the blur's vector in the rectangle's units.
+    /// With [`BLUR`]: the blur's vector in the rectangle's units. With
+    /// [`VIVID`]: the material's seconds and phase in `zw`.
     blur: [f32; 4],
-    vivid_rect: [f32; 4],
-    vivid_clock: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 176);
+const _: () = assert!(std::mem::size_of::<Instance>() == 144);
 
 impl Instance {
     /// By the fields' offsets (`_pad` keeps `rect` 16-byte aligned).
-    const ATTRIBUTES: [wgpu::VertexAttribute; 15] = {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 13] = {
         const fn a(
             shader_location: u32,
             format: wgpu::VertexFormat,
@@ -134,8 +135,6 @@ impl Instance {
             a(10, Float32x4, 96),
             a(11, Float32x4, 112),
             a(12, Float32x4, 128),
-            a(13, Float32x4, 144),
-            a(14, Float32x4, 160),
         ]
     };
 
@@ -153,8 +152,6 @@ impl Instance {
         shape: [0.0; 4],
         shape2: NO_SHAPE2,
         blur: [0.0; 4],
-        vivid_rect: [0.0; 4],
-        vivid_clock: [0.0; 4],
     };
 }
 
@@ -1020,6 +1017,14 @@ impl Painter {
                                 | if sh.saturation != 1.0 { SATURATION } else { 0 }
                                 | if q.blur != [0.0; 2] { BLUR } else { 0 }
                                 | if sh.vivid.is_some() { VIVID } else { 0 };
+                            // Only the palette repeats (every 4 s); the
+                            // evolving noise's time never wraps.
+                            let clock = sh.vivid.map_or([0.0; 2], |v| {
+                                [
+                                    4.0 + v.time,
+                                    (1.0 - v.time / 4.0 + v.phase_offset).rem_euclid(1.0),
+                                ]
+                            });
                             Instance {
                                 axes,
                                 origin,
@@ -1027,13 +1032,10 @@ impl Painter {
                                 rect,
                                 uv,
                                 colors: colors.map(pack),
-                                vivid_rect: sh.vivid.map_or([0.0; 4], |v| v.rect),
-                                vivid_clock: sh
-                                    .vivid
-                                    .map_or([0.0; 4], |v| [v.time, v.phase_offset, 0.0, 0.0]),
+                                w: sh.vivid.map_or(Instance::BASE.w, |v| v.rect),
                                 shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],
                                 shape2: [sh.outline[0], sh.outline[1], sh.saturation, 0.0],
-                                blur: [q.blur[0], q.blur[1], 0.0, 0.0],
+                                blur: [q.blur[0], q.blur[1], clock[0], clock[1]],
                                 ..Instance::BASE
                             }
                         }
@@ -1498,5 +1500,84 @@ mod tests {
         assert_eq!(plain.push_quad(&quad, [0.0, 0.0, 20.0, 20.0]), None);
         assert_eq!(plain.draw(Mask::None), Some(([0, 0, 20, 20], None)));
         assert_eq!(plain.pop(), None);
+    }
+}
+
+/// `vivid.wgsl` retypes Infinito's palette and its arrow's parameters:
+/// they stay the skin's.
+#[cfg(test)]
+mod vivid_source {
+    const SKIN: &str = "../../../assets/noteskins/dance/Infinito/";
+    const COMPONENTS: &str = include_str!(concat!(
+        "../../../assets/noteskins/dance/Infinito/",
+        "_spiral components.svg"
+    ));
+    const COMPONENT: &str = include_str!(concat!(
+        "../../../assets/noteskins/dance/Infinito/",
+        "_spiral component.lua"
+    ));
+    const VIVID: &str = include_str!("vivid.wgsl");
+
+    /// The numbers in `text`, in order.
+    fn numbers(text: &str) -> Vec<f32> {
+        text.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .filter_map(|t| t.parse().ok())
+            .collect()
+    }
+
+    /// `text` between `from` and the next `to`.
+    fn between<'a>(text: &'a str, from: &str, to: &str) -> &'a str {
+        let start = text
+            .find(from)
+            .unwrap_or_else(|| panic!("{SKIN}: no {from:?}"))
+            + from.len();
+        let end = text[start..]
+            .find(to)
+            .unwrap_or_else(|| panic!("{SKIN}: no {to:?}"));
+        &text[start..start + end]
+    }
+
+    #[test]
+    fn the_palette_stops_are_the_skins() {
+        let stops: Vec<[f32; 3]> = between(
+            COMPONENTS,
+            "<linearGradient id=\"palette\">",
+            "</linearGradient>",
+        )
+        .split("stop-color=\"#")
+        .skip(1)
+        .map(|s| {
+            let hex = |i: usize| f32::from(u8::from_str_radix(&s[i..i + 2], 16).unwrap());
+            [hex(0), hex(2), hex(4)]
+        })
+        .collect();
+        let ramp = between(VIVID, "let palette = array<vec3<f32>, 8>(", ");");
+        let shader: Vec<[f32; 3]> = ramp
+            .split("vec3<f32>(")
+            .skip(1)
+            .map(|v| {
+                let n = numbers(v.split(')').next().unwrap());
+                [n[0], n[1], n[2]]
+            })
+            .collect();
+        assert_eq!(stops.len(), 8);
+        assert_eq!(shader, stops);
+    }
+
+    #[test]
+    fn the_parameters_are_the_arrows() {
+        // The arrow shape, Vivid, not rainbow: every number the shader
+        // sets is one the skin's Lua writes (the onigiri's is the one it
+        // does not set).
+        let lua = numbers(between(COMPONENT, "Params=", "Images="));
+        let shader: Vec<f32> = VIVID
+            .lines()
+            .filter(|l| l.contains("m.params["))
+            .flat_map(|l| numbers(l.split('(').nth(1).unwrap().split(')').next().unwrap()))
+            .collect();
+        assert_eq!(shader.len(), 4 + 4 + 1 + 4);
+        for n in &shader {
+            assert!(lua.contains(n), "{n} is not in the skin's Params");
+        }
     }
 }

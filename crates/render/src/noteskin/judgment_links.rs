@@ -120,14 +120,12 @@ impl NoteskinPlay {
             let Element::Component(c) = &lanes[left.lane].explosion else {
                 continue;
             };
-            let start = out.len();
             // Placed by its ends alone: not turned, zoomed or moved as the
             // left lane's explosion is.
             self.draw_parts(
                 c,
                 [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                [0.0; 2],
-                1.0,
+                bridge(left.at, right.at, geo.arrow),
                 ((right.strength / left.strength).min(1.0), 1.0),
                 &clocks(self, left.lane, left.hit),
                 &|p| {
@@ -137,12 +135,6 @@ impl NoteskinPlay {
                 },
                 out,
             );
-            let place = bridge(left.at, right.at, geo.arrow);
-            for q in &mut out[start..] {
-                if let Shape::Quad { transform, .. } = &mut q.shape {
-                    *transform = affine_mul(place, *transform);
-                }
-            }
         }
     }
 }

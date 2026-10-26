@@ -16,12 +16,13 @@ fn ramp(i: u32, t: f32) -> vec3<f32> {
     return mix(palette[stop], palette[stop + 1u], fract(at));
 }
 
+// The paint at `pos` of the field, `clock` the material's seconds and
+// phase (`Instance::blur.zw`).
 fn vivid(pos: vec2<f32>, clock: vec2<f32>) -> vec3<f32> {
     var m: Material;
     m.pos = pos;
-    m.seconds = 4.0 + clock.x;
-    // Only the palette repeats. The evolving noise's time never wraps.
-    m.phase = fract(1.0 - clock.x / 4.0 + clock.y);
+    m.seconds = clock.x;
+    m.phase = clock.y;
     m.params[0] = vec4<f32>(120.6, 1.0, 97.0, 0.43);
     m.params[1] = vec4<f32>(0.5, 1.089, 0.0, 8.712);
     m.params[2] = vec4<f32>(0.0);

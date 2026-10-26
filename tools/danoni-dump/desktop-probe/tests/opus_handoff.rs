@@ -103,15 +103,9 @@ fn ssc_opus_preserves_odd_frame_counts_and_plays_every_supported_layout() {
         );
         for chart in charts {
             let layout = chart["layout"].as_str().unwrap();
-            let lanes = match layout {
-                "danoni-5" | "pump-single" => 5,
-                "danoni-7" => 7,
-                "danoni-9A" | "danoni-9B" => 9,
-                "dance-single" => 4,
-                "dance-solo" => 6,
-                "dance-double" | "techno-single8" => 8,
-                other => panic!("Unexpected layout: {other}"),
-            };
+            let lanes = ddi_chart::Layout::builtin(layout)
+                .unwrap_or_else(|| panic!("Unexpected layout: {layout}"))
+                .lane_count() as u64;
             let runs = chart["runs"].as_array().unwrap();
             assert_eq!(
                 runs.iter()

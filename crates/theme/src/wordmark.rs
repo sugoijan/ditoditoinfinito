@@ -1,13 +1,14 @@
 //! Dosis artwork, shaped offline; the atlas contains three protected outline
 //! masks and the white lettering. Only their paint changes at runtime.
-use ddi_actor::{Actor, Kind, Sprite, State, Vivid};
+use ddi_actor::{Actor, Kind, Rgba, Sprite, State, Vivid};
 use ddi_ui::look::{call, named};
 
 mod geometry {
     include!("wordmark_geometry.rs");
 }
 
-pub fn actor([w, h]: [f32; 2]) -> Actor {
+/// The lettering in `text`, the theme's text color.
+pub fn actor([w, h]: [f32; 2], text: Rgba) -> Actor {
     let width = w.min(h * geometry::ASPECT);
     let size = [width, width / geometry::ASPECT];
     let parts = (0..4)
@@ -30,11 +31,7 @@ pub fn actor([w, h]: [f32; 2]) -> Actor {
             }
             let mut a = named(Kind::Sprite(sprite), &format!("TitleLayer{i}"));
             if i == 3 {
-                call(
-                    &mut a,
-                    "diffuse",
-                    &[242.0 / 255.0, 238.0 / 255.0, 233.0 / 255.0, 1.0],
-                );
+                call(&mut a, "diffuse", &text);
             }
             a
         })

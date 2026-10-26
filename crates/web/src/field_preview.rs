@@ -31,9 +31,9 @@ pub(crate) struct FieldPreviewHost {
     generation: u64,
     /// The preview's texture generation the 2D pass was given.
     registered: Option<u64>,
-    /// The skin shown, the one wanted, the one being loaded, and one
-    /// loaded for the next frame to show (`None` inside: the built-in
-    /// arrows).
+    /// The skin shown (none before the first), the one wanted, the one
+    /// being loaded, and one loaded for the next frame to show (`None`
+    /// inside: the built-in arrows).
     shown: Option<SkinWant>,
     wanted: Option<SkinWant>,
     loading: Option<SkinWant>,
@@ -44,10 +44,6 @@ pub(crate) struct FieldPreviewHost {
     load_number: Rc<Cell<u64>>,
     /// What the shell last read the settings for (ms).
     read_ms: f64,
-    /// The skin first wanted was shown (or none was wanted): until then
-    /// nothing is drawn, the panel's placeholder showing, never the
-    /// built-in arrows on the way to the skin.
-    settled: bool,
     pub(crate) status: String,
 }
 
@@ -69,18 +65,12 @@ impl FieldPreviewHost {
             preview,
             generation: gfx.generation,
             registered: None,
-            shown: Some(SkinWant {
-                key: None,
-                layout: "dance-single".into(),
-                reverse: false,
-                params: Default::default(),
-            }),
+            shown: None,
             wanted: None,
             loading: None,
             ready: None,
             load_number: Rc::default(),
             read_ms: f64::NEG_INFINITY,
-            settled: false,
             status: "built-in arrows".into(),
         }
     }
@@ -133,12 +123,12 @@ impl FieldPreviewHost {
             self.show_skin(gfx, want, prepared);
         }
         self.load_skin(gfx, host);
-        self.settled |= self.wanted.is_none() || self.shown == self.wanted;
-        if self.settled {
+        // Nothing until the first skin is in (`shown` only ever fills):
+        // the panel's placeholder, never the built-in arrows on the way.
+        if self.wanted.is_none() || self.shown.is_some() {
             self.preview
                 .draw(&gfx.device, &gfx.queue, encoder, size, now_ms / 1000.0);
         }
-        // Before a first frame, no texture: the placeholder.
         let generation = self.preview.generation();
         if self.registered != Some(generation) {
             let texture = self.preview.texture();
