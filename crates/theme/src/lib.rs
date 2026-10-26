@@ -1098,28 +1098,40 @@ impl Infinito {
         frame("", vec![inner, extent([w, h])])
     }
 
+    /// The screens' header: the Back button, the wordmark small over
+    /// the screen's name (the screen binds the wordmark's image,
+    /// `ddi_ui::screens::header`).
     fn header(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let m = self.m("Margin");
         let p = plate("Plate", [0.0, 0.0], [w, h], self.c("Header"));
         let line = plate("Line", [0.0, h - 1.0], [w, 1.0], self.c("Line"));
+        let back = at(self.back_button([44.0, 44.0]), m + 22.0, h / 2.0);
+        let mark_h = 20.0;
+        let mark_w = mark_h * wordmark::ASPECT;
+        let mut mark = wordmark::actor([mark_w, mark_h], self.c("Text"));
+        mark.name = "Wordmark".into();
+        let mark = at(mark, m + 56.0 + mark_w / 2.0, h / 2.0 - 13.0);
         let title = at_left(
-            tracked(self.text("Title", &spec.text, 11.0, 600, "Muted"), 260),
-            m,
-            h / 2.0 - 11.0,
+            self.text("Title", &spec.text, 20.0, 700, "Text"),
+            m + 56.0,
+            h / 2.0 + 11.0,
         );
-        let sub = at_left(
-            self.text(
-                "Subtitle",
-                spec.items.first().map_or("", String::as_str),
-                20.0,
-                700,
-                "Text",
-            ),
-            m,
-            h / 2.0 + 9.0,
-        );
-        frame("", vec![p, line, title, sub])
+        frame("", vec![p, line, back, mark, title])
+    }
+
+    /// A Back button: three bars on a plain plate, named `Back`.
+    fn back_button(&self, size: [f32; 2]) -> Actor {
+        let mut b = self.button(&Spec::new(size, ""), "Plate2", "Text", 20.0, 700);
+        if let Kind::Frame(c) = &mut b.kind {
+            let n = c.len().saturating_sub(1);
+            for (i, y) in [-6.0, 0.0, 6.0].into_iter().enumerate() {
+                let bar = round(quad(&format!("Bar{i}"), [18.0, 2.0], self.c("Text")), 1.0);
+                c.insert(n + i, at(bar, 0.0, y));
+            }
+        }
+        b.name = "Back".into();
+        b
     }
 
     fn panel(&self, spec: &Spec) -> Actor {
@@ -1238,7 +1250,7 @@ impl Infinito {
 
 impl Look for Infinito {
     fn image(&self, name: &str) -> Option<&str> {
-        (name == "TitleMenu.Title").then_some("title/dosis.png")
+        matches!(name, "TitleMenu.Title" | "Screen.Header").then_some("title/dosis.png")
     }
 
     fn component(&self, name: &str, spec: &Spec) -> Option<Actor> {
@@ -1256,6 +1268,7 @@ impl Look for Infinito {
             "Button" => self.button(spec, "Plate2", "Text", 15.0, 600),
             "PlayButton" => self.button(spec, "Accent", "OnAccent", 18.0, 700),
             "IconButton" => self.button(spec, "Plate2", "Text", 20.0, 700),
+            "BackButton" => self.back_button(spec.size),
             "StyleButton" => {
                 let mut b = self.button(spec, "Plate2", "Text", 13.0, 600);
                 if let Kind::Frame(c) = &mut b.kind {

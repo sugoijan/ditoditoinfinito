@@ -1960,8 +1960,8 @@ Built in `crates/desktop/src/play/`:
   for the same chart differs in 0.8 % of its pixels (the focus ring,
   text edges).
 - **`host.rs`:** the shell's side: song select's call (`SelectCall` and
-  its `PlayFn`; the autoplay switch, `SelectCall::Autoplay`, kept by
-  `Songs`), the prompt while the song is read, the play, the theme's
+  its `PlayFn`; `Songs` keeps whether plays autoplay, `--auto`), the
+  prompt while the song is read, the play, the theme's
   results with retry (the prompt again) and the song list.
 - **The shell:** a play's keys and pads go to it, not to the menus;
   play mode (the keys read, the present mode) follows the play after

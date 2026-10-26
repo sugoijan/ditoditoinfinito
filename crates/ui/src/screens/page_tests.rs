@@ -469,3 +469,54 @@ fn long_words_are_cut_wherever_they_fall() {
         "--enable-a--disable-everything-at-once-and-morex"
     );
 }
+
+/// The column's scrollbar: shown beside it while there is more than
+/// fits, a press on its track jumps there, its thumb drags, and the
+/// wheel moves it.
+#[test]
+fn the_scrollbar_jumps_and_drags() {
+    let (mut h, state, _) = credits_page();
+    let column = h.ui.bounds("Column").unwrap();
+    let bar = h.ui.bounds("Column.Bar").unwrap();
+    assert!(bar[0] >= column[2], "{bar:?} beside {column:?}");
+    let thumb = h.ui.bounds("Thumb").unwrap();
+    assert!(
+        thumb[3] - thumb[1] < (bar[3] - bar[1]) / 2.0,
+        "{thumb:?} in {bar:?}"
+    );
+    assert_eq!(state.borrow().scroll, 0.0);
+    // A press at the track's end jumps to the end.
+    let x = (bar[0] + bar[2]) / 2.0;
+    h.tap_at(PointerKind::Mouse, [x, bar[3] - 2.0]);
+    h.run(0.2);
+    let end = state.borrow().scroll;
+    assert!(end > 100.0, "{end}");
+    let thumb = h.ui.bounds("Thumb").unwrap();
+    assert!(
+        (thumb[3] - bar[3]).abs() < 1.0,
+        "{thumb:?} at the end of {bar:?}"
+    );
+    // Dragging the thumb up scrolls up by the same share.
+    h.drag(
+        PointerKind::Mouse,
+        [x, (thumb[1] + thumb[3]) / 2.0],
+        [x, bar[1]],
+        0.3,
+        6,
+    );
+    h.run(0.2);
+    assert_eq!(state.borrow().scroll, 0.0);
+    // The wheel over the column moves the thumb.
+    h.wheel_lines(
+        [(column[0] + column[2]) / 2.0, (column[1] + column[3]) / 2.0],
+        [0.0, 5.0],
+    );
+    h.run(0.2);
+    let wheeled = state.borrow().scroll;
+    assert!(wheeled > 0.0 && wheeled < end, "{wheeled}");
+    let thumb = h.ui.bounds("Thumb").unwrap();
+    assert!(
+        thumb[1] > bar[1] && thumb[3] < bar[3],
+        "{thumb:?} within {bar:?}"
+    );
+}

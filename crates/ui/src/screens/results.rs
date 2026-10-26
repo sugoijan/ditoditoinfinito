@@ -320,7 +320,7 @@ impl ResultsScreen {
         children.push(self.score_column(left_col, cx));
         children.push(self.panels_actor(panels));
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
-        children.push(header(&env, screen[0], "RESULTS"));
+        children.push(header(&env, cx, screen[0], "Results"));
         children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
@@ -1389,9 +1389,7 @@ impl Screen for ResultsScreen {
         if !self.replay_in_bar() && self.actions.replay.is_some() {
             v.insert(1, Focusable::new("WatchReplay"));
         }
-        if self.compact {
-            v.push(Focusable::new("Back"));
-        }
+        v.push(Focusable::new("Back"));
         v.extend((0..self.data.panel_sets.len()).map(|i| Focusable::new(format!("PanelSet{i}"))));
         v
     }

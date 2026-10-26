@@ -368,10 +368,43 @@ pub fn play(root: &mut Actor, owner: &str, command: &str) {
 
 /// The screen's header across the top: its name, the game's, and what
 /// is put at its right by the screen.
-pub fn header(env: &Env, width: f32, title: &str) -> Actor {
+/// The header along the top: the Back button (`Back`), the wordmark
+/// (the look's image for `Screen.Header`, bound to its `Wordmark` part's
+/// sprites) over the screen's `title`.
+pub fn header(env: &Env, cx: &mut crate::Cx, width: f32, title: &str) -> Actor {
     let h = env.metric("Header.Height", 64.0);
     let spec = Spec::new([width, h], title).with_items(["Dito Dito Infinito"]);
-    env.component("Screen.Header", "Panel", &spec, "Header", [0.0, 0.0])
+    let mut a = env.component("Screen.Header", "Panel", &spec, "Header", [0.0, 0.0]);
+    if let Some(source) = env.look.image("Screen.Header")
+        && let Some(mark) = crate::widgets::part(&mut a, "Wordmark")
+    {
+        let texture = cx.texture(source, h);
+        sprites_mut(mark, &mut |s| s.texture = texture);
+    }
+    // A look without a Back button of its own gets the plain one.
+    if crate::widgets::part(&mut a, "Back").is_none()
+        && let Kind::Frame(c) = &mut a.kind
+    {
+        let m = env.metric("Margin", 32.0);
+        c.push(back_button(env, [44.0, 44.0], [m + 22.0, h / 2.0]));
+    }
+    a
+}
+
+/// A screen's Back button, named `Back`, its middle at `at`.
+pub fn back_button(env: &Env, size: [f32; 2], at: [f32; 2]) -> Actor {
+    env.component("BackButton", "Button", &Spec::new(size, "‹"), "Back", at)
+}
+
+/// `f` on every sprite under `actor` (a component's art stays in the
+/// look; the screen supplies its image and clock).
+pub(crate) fn sprites_mut(actor: &mut Actor, f: &mut impl FnMut(&mut Sprite)) {
+    if let Kind::Sprite(sprite) = &mut actor.kind {
+        f(sprite);
+    }
+    for child in actor.children_mut() {
+        sprites_mut(child, f);
+    }
 }
 
 /// One key hint: key caps and what they do.

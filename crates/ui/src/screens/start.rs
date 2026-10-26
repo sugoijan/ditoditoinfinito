@@ -6,7 +6,7 @@ use super::{Env, ground};
 use crate::look::{Spec, call};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
-use ddi_actor::{Actor, Kind, Sprite};
+use ddi_actor::{Actor, Kind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
@@ -122,7 +122,7 @@ impl StartScreen {
             });
         if let Some(source) = env.look.image("TitleMenu.Title") {
             let texture = cx.texture(source, spec.size[0].max(spec.size[1]));
-            sprites_mut(&mut title, &mut |s| s.texture = texture);
+            super::sprites_mut(&mut title, &mut |s| s.texture = texture);
         }
         self.animated_title = animate_title(&mut title, self.title_time as f32);
         call(&mut title, "xy", &[w / 2.0, top + title_height / 2.0]);
@@ -230,21 +230,10 @@ impl Screen for StartScreen {
     }
 }
 
-// A component's art stays in the look; the screen supplies its image and
-// clock to every sprite under it.
-fn sprites_mut(actor: &mut Actor, f: &mut impl FnMut(&mut Sprite)) {
-    if let Kind::Sprite(sprite) = &mut actor.kind {
-        f(sprite);
-    }
-    for child in actor.children_mut() {
-        sprites_mut(child, f);
-    }
-}
-
 /// Sets the title's vivid clock; whether any part has one.
 fn animate_title(title: &mut Actor, time: f32) -> bool {
     let mut animated = false;
-    sprites_mut(title, &mut |s| {
+    super::sprites_mut(title, &mut |s| {
         if let Some(vivid) = &mut s.shape.vivid {
             vivid.time = time;
             animated = true;

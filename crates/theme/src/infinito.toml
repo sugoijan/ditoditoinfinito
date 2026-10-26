@@ -137,7 +137,6 @@ numbers_weight = 800
 "Select.Ladder.Y" = 421
 "Select.Ladder.Row" = 44
 "Select.Ladder.Gap" = 5
-"Select.Search.X" = 280
 "Select.Search.Width" = 560
 # The wheel's rows: their left at the design's 640 (kept from the
 # right), their width, their pitch, the selected one's height, the gap

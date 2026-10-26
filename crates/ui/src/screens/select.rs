@@ -104,8 +104,6 @@ pub enum SelectCall {
     RemoveSong(String),
     /// A notice's link was taken (its id).
     Notice(String),
-    /// Autoplay switched on or off (for the session).
-    Autoplay(bool),
     /// A kept play (by id): watch its replay, show its results, or
     /// forget it (`docs/plans/play-history.md`, Replays).
     WatchPlay(String),
@@ -372,8 +370,9 @@ impl Layout {
                 screen[1] - header - footer,
             ],
             row: m("Select.Wheel.Row", 66.0),
+            // The search at the right; the mods left of it (`tree`).
             field: [
-                m("Select.Search.X", 280.0),
+                screen[0] - m("Margin", 32.0) - m("Select.Search.Width", 560.0),
                 (header - 42.0) / 2.0,
                 m("Select.Search.Width", 560.0),
                 42.0,
@@ -1169,8 +1168,12 @@ impl SelectScreen {
         // Header, mods, search.
         if l.compact {
             let margin = l.margin;
+            children.push(super::back_button(
+                &env,
+                [44.0, 44.0],
+                [margin + 22.0, 28.0],
+            ));
             for (name, label, x) in [
-                ("Back", "‹", margin + 22.0),
                 ("AddIcon", "+", screen[0] - margin - 126.0),
                 ("SearchIcon", "/", screen[0] - margin - 74.0),
                 ("OptionsIcon", "•••", screen[0] - margin - 22.0),
@@ -1183,10 +1186,8 @@ impl SelectScreen {
                     [x, 28.0],
                 ));
             }
-            let auto = self.autoplay_switch(screen);
             // The pack's name between Back and the icons.
-            let room = auto.current().pos[0] - auto.size()[0] / 2.0 - 8.0 - (margin + 56.0);
-            children.push(auto);
+            let room = screen[0] - margin - 148.0 - 8.0 - (margin + 56.0);
             let mut title = env.text("PackTitle", "", 16.0, 700, "Text");
             if let Kind::Text(t) = &mut title.kind {
                 t.max_width = room.max(40.0);
@@ -1194,33 +1195,8 @@ impl SelectScreen {
             }
             children.push(left(title, margin + 56.0, 28.0));
         } else {
-            let mut heading = header(&env, screen[0], "SELECT MUSIC");
-            if let Some(title) = part(&mut heading, "Title") {
-                call(title, "x", &[94.0]);
-            }
-            if let Some(subtitle) = part(&mut heading, "Subtitle") {
-                subtitle.visible = false;
-            }
-            children.push(heading);
-            children.push(env.component(
-                "IconButton",
-                "Button",
-                &Spec::new([44.0, 44.0], "‹"),
-                "Back",
-                [54.0, 32.0],
-            ));
-            children.push(left(
-                env.text(
-                    "BackHint",
-                    "Esc / Backspace: start menu",
-                    12.0,
-                    400,
-                    "Muted",
-                ),
-                94.0,
-                42.0,
-            ));
-            children.push(self.mods(screen));
+            children.push(header(&env, cx, screen[0], "Select Music"));
+            children.push(self.mods(l.field[0] - 16.0));
         }
         let [fx, fy, fw, fh] = l.field;
         self.search.centre = [fx + fw / 2.0, fy + fh / 2.0];
@@ -1255,85 +1231,11 @@ impl SelectScreen {
         root
     }
 
-    /// "Playing with" and the pills, from the header's right.
-    /// The autoplay switch: lit when on (every play started then is
-    /// autoplayed, not counted). In the header's right, or among the
-    /// compact icons.
-    fn autoplay_switch(&self, screen: [f32; 2]) -> Actor {
+    /// "Playing with" and the pills, ending at `end`.
+    fn mods(&self, end: f32) -> Actor {
         let env = &self.env;
-        let on = self.autoplay;
-        let (name, label, x, y, h) = if self.layout.compact {
-            let margin = self.layout.margin;
-            (
-                "AutoIcon",
-                if on { "AUTO ON" } else { "AUTO" },
-                screen[0] - margin - 154.0,
-                28.0,
-                44.0,
-            )
-        } else {
-            let margin = env.metric("Margin", 32.0);
-            (
-                "Autoplay",
-                if on { "AUTOPLAY ON" } else { "Autoplay off" },
-                screen[0] - margin,
-                32.0,
-                26.0,
-            )
-        };
-        let w = look::mono_width(label, 14.0) + 24.0;
-        let mut pill = look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, h], label));
-        pill.name = name.into();
-        let w = extent(&mut pill, [w, h])[0];
-        // Its right edge at `x` (the compact one left of "+", the full one
-        // at the margin).
-        call(&mut pill, "xy", &[x - w / 2.0, y]);
-        crate::widgets::play(&mut pill, if on { "Selected" } else { "Available" });
-        pill.finish_tweening();
-        pill
-    }
-
-    /// Autoplay on or off: the switch drawn again, the play button's
-    /// word, the shell told.
-    fn toggle_autoplay(&mut self, root: &mut Actor, cx: &mut Cx) {
-        self.autoplay = !self.autoplay;
-        let screen = self.layout.screen;
-        if self.layout.compact {
-            let fresh = self.autoplay_switch(screen);
-            if let Some(a) = hit::find_mut(root, "AutoIcon") {
-                *a = fresh;
-            }
-            self.left_dirty = true;
-        } else {
-            let fresh = self.mods(screen);
-            if let Some(m) = hit::find_mut(root, "Mods") {
-                *m = fresh;
-            }
-        }
-        if let Some(s) = &self.shell {
-            s(SelectCall::Autoplay(self.autoplay), cx);
-        }
-        self.publish();
-    }
-
-    fn mods(&self, screen: [f32; 2]) -> Actor {
-        let env = &self.env;
-        let margin = env.metric("Margin", 32.0);
-        let mut x = screen[0] - margin;
+        let mut x = end;
         let mut children = Vec::new();
-        // The autoplay switch, rightmost.
-        let auto = self.autoplay_switch(screen);
-        x -= extent(&mut auto.clone(), [0.0, 26.0])[0].max(
-            look::mono_width(
-                if self.autoplay {
-                    "AUTOPLAY ON"
-                } else {
-                    "Autoplay off"
-                },
-                14.0,
-            ) + 24.0,
-        ) + 12.0;
-        children.push(auto);
         for (i, m) in self.data.mods.iter().enumerate().rev() {
             let w = look::mono_width(m, 14.0) + 20.0;
             let mut pill =
@@ -1840,7 +1742,7 @@ impl SelectScreen {
             return;
         }
         self.hints = Some(key);
-        let esc = "Back";
+        let esc = "Start menu";
         // The plays are P's (its hint); the credits and the source are
         // the start menu's and the credits'.
         let mut links: Vec<(&str, &str)> = Vec::new();
@@ -2876,7 +2778,7 @@ impl Screen for SelectScreen {
     fn focusables(&self) -> Vec<Focusable> {
         // The header's row in order, explicitly (the wheel below lies
         // nearer than the next thing to the right): the search, its Clear
-        // while it shows, the mods, the autoplay switch.
+        // while it shows, the mods.
         let n = self.data.mods.len();
         let clear = self.typing || !self.search.text.is_empty();
         let row: Vec<String> = if self.layout.compact {
@@ -2885,7 +2787,6 @@ impl Screen for SelectScreen {
             std::iter::once(self.search.name.clone())
                 .chain(clear.then(|| "ClearSearch".to_string()))
                 .chain((0..n).map(|i| format!("Mod{i}")))
-                .chain(std::iter::once("Autoplay".to_string()))
                 .collect()
         };
         let along = |name: &str| -> Focusable {
@@ -2909,7 +2810,6 @@ impl Screen for SelectScreen {
         if self.layout.compact {
             for n in [
                 "Back",
-                "AutoIcon",
                 "AddIcon",
                 "SearchIcon",
                 "OptionsIcon",
@@ -2920,7 +2820,6 @@ impl Screen for SelectScreen {
             }
             v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
         } else {
-            v.push(along("Autoplay"));
             for n in [
                 "Back",
                 "Link.Manage",
@@ -3370,13 +3269,7 @@ impl SelectScreen {
                 || f.starts_with("Mod")
                 || matches!(
                     f,
-                    "ClearSearch"
-                        | "Autoplay"
-                        | "Back"
-                        | "AutoIcon"
-                        | "AddIcon"
-                        | "SearchIcon"
-                        | "OptionsIcon"
+                    "ClearSearch" | "Back" | "AddIcon" | "SearchIcon" | "OptionsIcon"
                 )
         });
         let on_search = cx.focused() == Some(self.search.name.as_str());
@@ -3517,10 +3410,6 @@ impl SelectScreen {
             .and_then(|n| n.parse::<usize>().ok())
         {
             self.pick_chart(k, root, cx);
-            return Handled::Yes;
-        }
-        if name == "Autoplay" || name == "AutoIcon" {
-            self.toggle_autoplay(root, cx);
             return Handled::Yes;
         }
         if name.starts_with("Mod") || name == "PlayingWith" {

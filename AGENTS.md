@@ -631,6 +631,12 @@ calibrated offset.
 Menu Back is unmodified Escape or Backspace after text/binding/dialog handling.
 Song browsing returns to Start in one press, keeping its filter and place;
 Clear beside Search clears the filter explicitly. Options returns to its caller.
+Every screen's header (`ddi_ui::screens::header`: song select, Options, the
+pages, the results, the editor) has the visible Back, a three-bar button at
+the left, under the small Dosis wordmark over the screen's name; a play has
+no link out of it: the scene's quit button (hold or double-tap it, as
+Escape) shows throughout on a touch screen and for two seconds after the
+mouse moves, on both shells.
 Web route ancestry and Options position live in history state; desktop uses
 the UI stack. Preview audio belongs to visible song select (or an explicit
 Options sample); Start is silent. See `docs/plans/start-menu.md`.

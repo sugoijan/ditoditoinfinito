@@ -7,6 +7,9 @@ mod geometry {
     include!("wordmark_geometry.rs");
 }
 
+/// The artwork's width over its height.
+pub const ASPECT: f32 = geometry::ASPECT;
+
 /// The lettering in `text`, the theme's text color.
 pub fn actor([w, h]: [f32; 2], text: Rgba) -> Actor {
     let width = w.min(h * geometry::ASPECT);

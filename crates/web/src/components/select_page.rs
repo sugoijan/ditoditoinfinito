@@ -983,7 +983,6 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             link.send_message(Msg::Remove(ids));
         }
         SelectCall::RemoveSong(id) => link.send_message(Msg::Remove(vec![id])),
-        SelectCall::Autoplay(on) => crate::router::set_autoplay(on),
         SelectCall::Notice(id) => match id.as_str() {
             "persist" => {
                 if let Some(answer) = storage::request_persist() {

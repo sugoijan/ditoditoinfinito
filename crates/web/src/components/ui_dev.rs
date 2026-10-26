@@ -139,8 +139,6 @@ const THEME_NAMED: &[&str] = &[
     "Option0",
     "Option2",
     "Link.Back",
-    "Autoplay",
-    "AutoIcon",
     "OptionsIcon",
     "Back",
     "ResultsClip",

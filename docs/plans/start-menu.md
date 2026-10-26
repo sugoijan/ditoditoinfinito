@@ -129,7 +129,7 @@ missing context uses the fallbacks above.
 Audit every existing `Route::Home` use: some mean the root, but most
 current play/results/error returns mean Songs. Preserve the session's
 `gfx`, `auto`, `bias` and `slow` parameters across the new root and
-selection routes, including the autoplay switch's address updates.
+selection routes.
 
 Desktop defaults to Start, gains `--screen start`, and keeps explicit
 `--screen select`, `--play`, `--replay`, calibration and developer

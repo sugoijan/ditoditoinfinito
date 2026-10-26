@@ -265,7 +265,7 @@ impl OptionsScreen {
         };
     }
 
-    fn build_tree(&mut self) -> Actor {
+    fn build_tree(&mut self, cx: &mut Cx) -> Actor {
         let env = self.env.clone();
         let p = self.places;
         let screen = p.screen;
@@ -303,13 +303,7 @@ impl OptionsScreen {
         ));
         let margin = env.metric("Margin", 32.0);
         if p.compact {
-            children.push(env.component(
-                "IconButton",
-                "Button",
-                &Spec::new([40.0, 40.0], "‹"),
-                "Back",
-                [12.0 + 20.0, 24.0],
-            ));
+            children.push(super::back_button(&env, [40.0, 40.0], [12.0 + 20.0, 24.0]));
             children.push(left(
                 env.text("Title", "Options", 16.0, 700, "Text"),
                 64.0,
@@ -320,7 +314,7 @@ impl OptionsScreen {
             ellipsize(&mut n);
             children.push(right(n, screen[0] - 12.0, 24.0));
         } else {
-            children.push(header(&env, screen[0], "OPTIONS"));
+            children.push(header(&env, cx, screen[0], "Options"));
             let mut n = env.text("Saved", "", 13.0, 400, "Muted");
             call(&mut n, "maxwidth", &[screen[0] - 600.0]);
             children.push(right(n, screen[0] - margin, 32.0));
@@ -1092,7 +1086,7 @@ impl Screen for OptionsScreen {
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.env.state.borrow_mut().over += 1;
         self.place(cx.viewport().screen);
-        let mut root = self.build_tree();
+        let mut root = self.build_tree(cx);
         self.attach_texture(&mut root, cx);
         self.refresh(&mut root);
         self.told = None;
@@ -1104,9 +1098,8 @@ impl Screen for OptionsScreen {
         if self.data.preview_layout.is_some() {
             v.push(Focusable::new("PreviewLayout"));
         }
-        if self.places.compact {
-            v.push(Focusable::new("Back"));
-        } else {
+        v.push(Focusable::new("Back"));
+        if !self.places.compact {
             v.push(Focusable::new("Link.Back"));
             if self.can_calibrate() {
                 v.push(Focusable::new("Link.Calibrate"));
@@ -1127,7 +1120,7 @@ impl Screen for OptionsScreen {
         let before = self.places;
         self.place(vp);
         if self.places != before {
-            *root = self.build_tree();
+            *root = self.build_tree(cx);
             self.attach_texture(root, cx);
             self.refresh(root);
             root.finish_tweening();

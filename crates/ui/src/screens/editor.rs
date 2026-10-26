@@ -596,7 +596,7 @@ impl EditorScreen {
         };
         let mut children = vec![
             ground(&self.env, g.size),
-            header(&self.env, g.size[0], &title),
+            header(&self.env, cx, g.size[0], &title),
         ];
         children.push(self.field());
         children.push(self.overview_strip());
@@ -2020,6 +2020,7 @@ impl EditorScreen {
         if let Some(name) = t.chain.iter().find_map(|n| n.strip_prefix("Button.")) {
             if *gesture == Gesture::Tap {
                 match name {
+                    "Back" => self.back(cx),
                     "Menu" => self.open_menu(cx),
                     "View" => self.toggle_view(),
                     "Audio" => self.toggle_audio(false),

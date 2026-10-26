@@ -177,8 +177,8 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         ("Link", s(60.0, 32.0, "Options"), &["Label", "Extent"]),
         (
             "Screen.Header",
-            s(1280.0, 64.0, "SELECT MUSIC").with_items(["Dito"]),
-            &["Plate", "Title", "Subtitle"],
+            s(1280.0, 64.0, "Select Music").with_items(["Dito"]),
+            &["Plate", "Back", "Wordmark", "Title"],
         ),
         ("Screen.Footer", s(1280.0, 40.0, ""), &["Plate"]),
         (
@@ -418,8 +418,7 @@ fn the_screens_in_the_theme() {
     h.run(0.5);
     let texts = h.texts();
     for t in [
-        "SELECT MUSIC",
-        "Esc / Backspace: start menu",
+        "Select Music",
         "Some Things Must",
         "(OutFox Edit)",
         "160",
@@ -1613,14 +1612,7 @@ fn song_select_fits_upright_phones() {
                 a[0] < b[2] - 1.0 && b[0] < a[2] - 1.0 && a[1] < b[3] - 1.0 && b[1] < a[3] - 1.0;
             assert!(!overlap, "{size:?} {what}: {a:?} and {b:?} overlap");
         };
-        let bar = [
-            "Back",
-            "PackTitle",
-            "AutoIcon",
-            "AddIcon",
-            "SearchIcon",
-            "OptionsIcon",
-        ];
+        let bar = ["Back", "PackTitle", "AddIcon", "SearchIcon", "OptionsIcon"];
         for n in bar {
             inside(b(n), n);
         }

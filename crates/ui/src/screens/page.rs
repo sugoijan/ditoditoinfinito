@@ -139,9 +139,15 @@ pub struct PageScreen {
     /// opens one only from a key or a tap): its row says so.
     gesture_hint: Option<usize>,
     scroll: f32,
+    /// Dragging the scrollbar's thumb: where it was grabbed (from its
+    /// top).
+    bar: Option<f32>,
 }
 
 const LINE: f32 = 6.0;
+/// The scrollbar's width, and its gap from the column.
+const BAR: f32 = 6.0;
+const BAR_GAP: f32 = 14.0;
 
 impl PageScreen {
     pub fn new(env: Env, name: &str, doc: PageDoc) -> PageScreen {
@@ -161,6 +167,7 @@ impl PageScreen {
             focus: None,
             gesture_hint: None,
             scroll: 0.0,
+            bar: None,
         }
     }
 
@@ -327,26 +334,21 @@ impl PageScreen {
         (self.total() - self.column[3]).max(0.0)
     }
 
-    fn tree(&mut self) -> Actor {
+    fn tree(&mut self, cx: &mut Cx) -> Actor {
         let env = self.env.clone();
         let [w, h] = self.screen;
         let mut children = vec![ground(&env, self.screen)];
         children.push(self.column_actor());
+        children.push(self.bar_actor());
         if self.compact {
-            children.push(env.component(
-                "IconButton",
-                "Button",
-                &Spec::new([40.0, 40.0], "‹"),
-                "Back",
-                [32.0, 28.0],
-            ));
+            children.push(super::back_button(&env, [40.0, 40.0], [32.0, 28.0]));
             children.push(left(
                 env.text("Title", &self.doc.title, 16.0, 700, "Text"),
                 64.0,
                 28.0,
             ));
         } else {
-            children.push(header(&env, w, &self.doc.title.to_uppercase()));
+            children.push(header(&env, cx, w, &self.doc.title));
             let (f, texts) = footer(
                 &env,
                 [w, h],
@@ -465,7 +467,82 @@ impl PageScreen {
         if let Some(c) = hit::find_mut(root, "Column") {
             *c = fresh;
         }
+        if let Some(bar) = hit::find_mut(root, "Column.Bar") {
+            self.place_thumb(bar);
+        }
         self.publish();
+    }
+
+    /// The scrollbar beside the column (`Column.Bar`): a press on its
+    /// track jumps there, its thumb drags.
+    fn bar_actor(&self) -> Actor {
+        let [x, y, w, h] = self.column;
+        let mut bar = look::component_or(
+            &*self.env.look,
+            "Page.Bar",
+            "List.Bar",
+            &Spec::new([BAR, h], ""),
+        );
+        bar.name = "Column.Bar".into();
+        call(&mut bar, "xy", &[x + w + BAR_GAP, y]);
+        self.place_thumb(&mut bar);
+        bar
+    }
+
+    /// The thumb's length: the share shown, at least 24 (or the whole
+    /// bar when shorter).
+    fn thumb_size(&self) -> f32 {
+        let h = self.column[3];
+        (h * h / self.total().max(1.0)).clamp(24.0_f32.min(h), h)
+    }
+
+    /// The bar shows while there is more than fits, its thumb where the
+    /// scroll is.
+    fn place_thumb(&self, bar: &mut Actor) {
+        let range = self.max_scroll();
+        bar.visible = range > 0.0;
+        if !bar.visible {
+            return;
+        }
+        let h = self.column[3];
+        let thumb = self.thumb_size();
+        let y = (self.scroll / range * (h - thumb)).clamp(0.0, h - thumb);
+        if let Some(t) = hit::find_mut(bar, "Thumb") {
+            if let Kind::Sprite(s) = &mut t.kind {
+                s.size = [BAR, thumb];
+            }
+            call(t, "y", &[y]);
+        }
+    }
+
+    /// A gesture on the scrollbar at `y` from its top.
+    fn bar(&mut self, gesture: Gesture, y: f32, root: &mut Actor) {
+        let range = self.max_scroll();
+        if range <= 0.0 {
+            return;
+        }
+        let h = self.column[3];
+        let thumb = self.thumb_size();
+        let thumb_y = self.scroll / range * (h - thumb);
+        let to =
+            |grab: f32| (y - grab).clamp(0.0, (h - thumb).max(0.0)) / (h - thumb).max(1.0) * range;
+        match gesture {
+            Gesture::Press => {
+                let grab = if (thumb_y..thumb_y + thumb).contains(&y) {
+                    y - thumb_y
+                } else {
+                    thumb / 2.0
+                };
+                self.bar = Some(grab);
+                self.scroll_to(to(grab), root);
+            }
+            Gesture::Drag { .. } | Gesture::DragStart => {
+                if let Some(grab) = self.bar {
+                    self.scroll_to(to(grab), root);
+                }
+            }
+            _ => self.bar = None,
+        }
     }
 
     fn scroll_to(&mut self, to: f32, root: &mut Actor) {
@@ -554,7 +631,7 @@ impl PageScreen {
             Some(Item::Button(id)) => {
                 self.env.state.borrow_mut().status = format!("button {id}");
                 if let Some(doc) = self.shell.clone().and_then(|s| s(PageCall::Button(id), cx)) {
-                    self.set_doc(doc, root);
+                    self.set_doc(doc, root, cx);
                     return;
                 }
             }
@@ -569,13 +646,13 @@ impl PageScreen {
         self.rebuild_column(root);
     }
 
-    fn set_doc(&mut self, doc: PageDoc, root: &mut Actor) {
+    fn set_doc(&mut self, doc: PageDoc, root: &mut Actor, cx: &mut Cx) {
         let title_changed = doc.title != self.doc.title;
         self.doc = doc;
         self.lay_out();
         self.scroll = self.scroll.clamp(0.0, self.max_scroll());
         if title_changed {
-            *root = self.tree();
+            *root = self.tree(cx);
             root.finish_tweening();
         } else {
             self.rebuild_column(root);
@@ -630,18 +707,16 @@ impl Screen for PageScreen {
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.place(cx.viewport().screen);
         self.lay_out();
-        let root = self.tree();
+        let root = self.tree(cx);
         self.publish();
         root
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v = vec![Focusable::new_list("Column")];
-        v.push(Focusable::new(if self.compact {
-            "Back"
-        } else {
-            "Link.Back"
-        }));
+        let mut v = vec![Focusable::new_list("Column"), Focusable::new("Back")];
+        if !self.compact {
+            v.push(Focusable::new("Link.Back"));
+        }
         v
     }
 
@@ -652,7 +727,7 @@ impl Screen for PageScreen {
         if self.place(cx.viewport().screen) {
             self.lay_out();
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());
-            *root = self.tree();
+            *root = self.tree(cx);
             root.finish_tweening();
             self.publish();
         }
@@ -661,11 +736,11 @@ impl Screen for PageScreen {
         }
     }
 
-    fn message(&mut self, m: &Message, root: &mut Actor, _cx: &mut Cx) {
+    fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == PAGE_CHANGED
             && let Some(doc) = self.feed.as_ref().and_then(|f| f.borrow_mut().take())
         {
-            self.set_doc(doc, root);
+            self.set_doc(doc, root, cx);
         }
     }
 
@@ -745,6 +820,17 @@ impl Screen for PageScreen {
                 ..
             } if t.within("Column") => {
                 self.scroll_to(self.scroll + delta[1] / self.zoom, root);
+                Handled::Yes
+            }
+            Input::Pointer {
+                target: Some(t),
+                gesture,
+                pos,
+                ..
+            } if t.within("Column.Bar") => {
+                let y = hit::local_point(root, &hit::IDENTITY, "Column.Bar", *pos)
+                    .map_or(pos[1] - self.column[1], |p| p[1]);
+                self.bar(*gesture, y / self.zoom, root);
                 Handled::Yes
             }
             Input::Pointer {

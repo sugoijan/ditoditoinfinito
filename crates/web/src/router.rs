@@ -307,7 +307,6 @@ pub(crate) fn keep_testing(hash: &str) {
         .filter(|kv| matches!(kv.split('=').next(), Some("gfx" | "auto" | "bias" | "slow")))
         .collect();
     if path == "select" || path.is_empty() && !kept.is_empty() {
-        AUTOPLAY.with(|a| a.set(None));
         TESTING.with(|t| {
             let mut t = t.borrow_mut();
             let mut parts: Vec<String> = t
@@ -330,58 +329,17 @@ pub(crate) fn keep_testing(hash: &str) {
     }
 }
 
-thread_local! {
-    /// Song select's autoplay switch, once used: it decides `auto`
-    /// whatever the address said.
-    static AUTOPLAY: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
-}
-
-/// The testing parameters kept ([`keep_testing`]), `&`-joined, `auto` as
-/// the autoplay switch has it once used.
+/// The testing parameters kept ([`keep_testing`]), `&`-joined.
 pub(crate) fn testing() -> String {
-    let kept = TESTING.with(|t| t.borrow().clone());
-    let Some(on) = AUTOPLAY.with(|a| a.get()) else {
-        return kept;
-    };
-    let mut parts: Vec<&str> = kept
-        .split('&')
-        .filter(|kv| !kv.is_empty() && kv.split('=').next() != Some("auto"))
-        .collect();
-    if on {
-        parts.push("auto=1");
-    }
-    parts.join("&")
+    TESTING.with(|t| t.borrow().clone())
 }
 
-/// Whether plays started from song select are autoplayed (the switch,
-/// else `auto=` in the address).
+/// Whether plays started from song select are autoplayed (`auto=` in
+/// the address).
 pub(crate) fn autoplay() -> bool {
     testing()
         .split('&')
         .any(|kv| kv.starts_with("auto=") && kv != "auto=0")
-}
-
-/// Song select's autoplay switch (for the session). The address says so
-/// too (replaced, not navigated: a reload keeps the switch as it is).
-pub(crate) fn set_autoplay(on: bool) {
-    AUTOPLAY.with(|a| a.set(Some(on)));
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let hash = window.location().hash().unwrap_or_default();
-    let path = hash.trim_start_matches('#').split('?').next().unwrap_or("");
-    if matches!(path.trim_start_matches('/'), "select") {
-        let next = Route::Songs.to_hash();
-        if let Ok(h) = window.history() {
-            let state = history_state();
-            let mut current = trail();
-            if let Some(last) = current.routes.last_mut() {
-                *last = next.clone();
-            }
-            put_trail(&state, &current);
-            let _ = h.replace_state_with_url(&state, "", Some(&next));
-        }
-    }
 }
 
 fn parse_bias(params: &BTreeMap<&str, String>) -> i64 {

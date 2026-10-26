@@ -88,7 +88,19 @@ desktop's `--screen`. Where the build differs from the mockups:
   of song select ("Autoplay off", lit "AUTOPLAY ON"), the mods left of
   it; on a phone an `IconButton` "AUTO", left of "+", and the play
   button reads "AUTOPLAY HARD 11". The results show the lamp AUTOPLAY,
-  "· AUTOPLAY" in the chart line and a note.
+  "· AUTOPLAY" in the chart line and a note. **Removed 2026-10-26** (the
+  maintainer: not useful): autoplay is the address's `auto=1` (and
+  desktop's `--auto`) alone; the play button still says AUTOPLAY then.
+- **The screens' header** (2026-10-26, the maintainer's request): one
+  `Screen.Header` on song select, Options, the pages (the credits,
+  calibration's menu), the results and the editor: a Back button at the
+  left (`Back`: three bars on a plain plate, `BackButton`, the compact
+  layouts' too, in place of "‹"), the Dosis wordmark small (20 px) over
+  the screen's name in 20 px bold ("Select Music", "Options",
+  "Credits"), as the start menu's title but still. Song select's search
+  field moved to the header's right, the mods left of it, and its
+  "Esc / Backspace: start menu" hint became the footer's "ESC Start
+  menu".
 - **Song select upright on a phone** (2026-10-16): 480 wide zoomed to
   the width (`Compact.Upright.Margin` 12 at the sides): the compact bar
   on top; the song's banner the column's width, its title and line;

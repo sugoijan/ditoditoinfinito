@@ -740,22 +740,14 @@ fn escape_from_the_search_gives_the_focus_back() {
     assert!(h.ui.text_field().is_none());
     assert_eq!(h.ui.focused(), Some("Wheel"));
     assert_eq!(s.borrow().search, "Swe", "the filter stays");
-    // From a header's switch, back to it; a press elsewhere leaves it too.
-    h.tap(PointerKind::Mouse, "Autoplay");
-    h.run(0.1);
-    assert_eq!(h.ui.focused(), Some("Autoplay"));
+    // A press elsewhere leaves the field too.
     h.key("Slash", "/");
     h.run(0.1);
     assert_eq!(h.ui.focused(), Some("Search"));
-    h.key("Escape", "Escape");
-    h.run(0.1);
-    assert_eq!(h.ui.focused(), Some("Autoplay"));
-    h.key("Slash", "/");
-    h.run(0.1);
     h.send(crate::UiEvent::Text(crate::event::TextEvent::Blurred));
     h.run(0.1);
     assert!(h.ui.text_field().is_none());
-    assert_eq!(h.ui.focused(), Some("Autoplay"));
+    assert_eq!(h.ui.focused(), Some("Wheel"));
 }
 
 #[test]
@@ -803,7 +795,7 @@ fn clearing_a_search_opens_the_shown_songs_pack() {
     }
     h.run(0.1);
     assert!(
-        s.borrow().hints.iter().any(|t| t == "ESC Back"),
+        s.borrow().hints.iter().any(|t| t == "ESC Start menu"),
         "{:?}",
         s.borrow().hints
     );
@@ -1938,65 +1930,6 @@ fn the_shells_folders_offer_opens_over_song_select() {
     h.run(0.5);
     assert_eq!(*answers.borrow(), vec![true]);
     assert!(!h.texts().iter().any(|t| t == "Add it"));
-}
-
-#[test]
-fn the_autoplay_switch_is_shown_and_told() {
-    let (mut h, state, calls, _) = shelled(library(), None);
-    assert!(!state.borrow().autoplay);
-    assert!(
-        h.texts().iter().any(|t| t == "Autoplay off"),
-        "{:?}",
-        h.texts()
-    );
-    // A tap turns it on: the shell is told, the switch says so.
-    h.tap(PointerKind::Mouse, "Autoplay");
-    h.run(0.1);
-    assert!(state.borrow().autoplay);
-    assert!(calls.borrow().contains(&SelectCall::Autoplay(true)));
-    assert!(
-        h.texts().iter().any(|t| t == "AUTOPLAY ON"),
-        "{:?}",
-        h.texts()
-    );
-    // The tap left the focus on it: Start turns it off.
-    assert_eq!(h.ui.focused(), Some("Autoplay"));
-    h.key("Enter", "Enter");
-    assert!(!state.borrow().autoplay);
-    assert_eq!(calls.borrow().last(), Some(&SelectCall::Autoplay(false)));
-}
-
-#[test]
-fn the_autoplay_switch_on_a_phone() {
-    let mut d = library();
-    d.autoplay = true;
-    let env = env();
-    let state = env.state.clone();
-    let mut h = Harness::new(DESIGN, COMPACT, 1.0, TextMode::Mirror);
-    h.ui.set_design(COMPACT);
-    h.push(SelectScreen::new(
-        env,
-        d,
-        Some("some-things-must"),
-        Rc::new(|_, _, _: &Env, _| {}),
-        Rc::new(|_, _| {}),
-    ));
-    h.run(0.5);
-    assert!(state.borrow().autoplay);
-    assert!(
-        h.texts().iter().any(|t| t.starts_with("AUTOPLAY ")),
-        "{:?}",
-        h.texts()
-    );
-    assert!(h.ui.bounds("AutoIcon").is_some());
-    h.tap(PointerKind::Touch, "AutoIcon");
-    h.run(0.3);
-    assert!(!state.borrow().autoplay);
-    assert!(
-        h.texts().iter().any(|t| t.starts_with("PLAY ")),
-        "{:?}",
-        h.texts()
-    );
 }
 
 #[test]

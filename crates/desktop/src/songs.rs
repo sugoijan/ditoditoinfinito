@@ -655,8 +655,6 @@ impl Songs {
                 place.remember(&p);
                 place.save();
             }
-            // Plays from now on autoplayed (never counted).
-            SelectCall::Autoplay(on) => self.autoplay.set(on),
             // A kept play (`docs/plans/play-history.md`, Replays): its
             // replay or its results through the play's host; forgotten.
             SelectCall::WatchPlay(ref id) | SelectCall::ShowPlay(ref id) => {
