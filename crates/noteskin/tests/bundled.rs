@@ -511,7 +511,7 @@ fn spiral_components_keep_shapes_clocks_parameters_and_actor_fallbacks() {
         assert!(pose[1].part.material.is_some());
         for (beat, stage) in [(0.0, 0), (0.25, 1), (0.5, 2), (0.75, 3), (1.0, 0)] {
             let clocks = Clocks {
-                beat,
+                beat: 4.5 + beat,
                 note: Some(4.5),
                 ..Default::default()
             };
@@ -601,7 +601,11 @@ fn infinito_color_modes_preserve_charge_and_encode_timing_on_the_full_tick_grid(
     for color in ["Vivid", "Rainbow", "Flat"] {
         let mut lua = infinito(
             &folders,
-            [("Colors".into(), Value::Text(color.into()))].into(),
+            [
+                ("Colors".into(), Value::Text(color.into())),
+                ("NoteTimedCharge".into(), Value::Bool(false)),
+            ]
+            .into(),
         );
         let mut textures = Textures::default();
         for button in Button::ALL.into_iter().chain([
@@ -686,6 +690,108 @@ fn infinito_color_modes_preserve_charge_and_encode_timing_on_the_full_tick_grid(
             }
         }
         assert!(lua.warnings().is_empty(), "{:?}", lua.warnings());
+    }
+}
+
+#[test]
+fn infinito_note_timed_charge_aligns_each_note_without_changing_its_colors() {
+    use ddi_noteskin::component::{Clocks, Property};
+    use ddi_noteskin::params::{Declared, Value};
+    let folders = bundled();
+    let declared = Declared::of_skin(&folders, "dance", "Infinito");
+    assert_eq!(
+        declared.get("NoteTimedCharge").unwrap().default,
+        Value::Bool(true)
+    );
+    for color in ["Vivid", "Rainbow", "Flat"] {
+        let params = [
+            ("Colors".into(), Value::Text(color.into())),
+            ("NoteTimedCharge".into(), Value::Bool(false)),
+        ]
+        .into();
+        let mut original = infinito(&folders, params);
+        let mut timed = infinito(
+            &folders,
+            [("Colors".into(), Value::Text(color.into()))].into(),
+        );
+        let mut textures = Textures::default();
+        for button in Button::ALL.into_iter().chain([
+            Button::DownLeft,
+            Button::DownRight,
+            Button::Center,
+            Button::Onigiri,
+        ]) {
+            for element in [
+                "Receptor",
+                "Tap Note",
+                "Tap Fake",
+                "Tap Lift",
+                "Hold Body",
+                "Roll Body",
+            ] {
+                let mut load = |lua: &mut LuaSkin| {
+                    let el = lua
+                        .element(button, element, &mut textures, &AnySize)
+                        .unwrap();
+                    assert!(el.notes.is_empty(), "{button:?} {element}: {:?}", el.notes);
+                    el.built
+                };
+                let old = load(&mut original);
+                let new = load(&mut timed);
+                if element == "Receptor" {
+                    assert_eq!(old, new);
+                    continue;
+                }
+                let head = |built: Built| match built {
+                    Built::Component(c) => c,
+                    Built::Lift(lift) => lift.head,
+                    Built::LongNote(note) => note.head.unwrap(),
+                    _ => panic!("{element}: component head"),
+                };
+                let old = head(old);
+                let new = head(new);
+                for (old_part, part) in old.parts.iter().zip(&new.parts) {
+                    if !part.name.as_deref().is_some_and(|n| n.ends_with("-charge")) {
+                        assert_eq!(old_part, part, "{color} {button:?} {element}");
+                        continue;
+                    }
+                    assert_eq!(part.textures, old_part.textures);
+                    // Frame zero is full for taps and long heads, empty for lifts.
+                    // This samples the approach across every subdivision of the chart grid.
+                    for tick in 0..48 {
+                        let note = 8.0 + tick as f32 / 48.0;
+                        for (delta, expected) in
+                            [(-0.625, 1.0), (-0.375, 2.0), (-0.125, 3.0), (0.0, 0.0)]
+                        {
+                            for cycle in [-2.0, -1.0, 0.0] {
+                                let clocks = Clocks {
+                                    beat: note + delta + cycle,
+                                    note: Some(note),
+                                    ..Default::default()
+                                };
+                                assert_eq!(
+                                    part.value(Property::Frame, &clocks),
+                                    expected,
+                                    "{color} {button:?} {element}: {note} {delta} {cycle}"
+                                );
+                                assert_eq!(
+                                    part.value(Property::Phase, &clocks),
+                                    old_part.value(Property::Phase, &clocks)
+                                );
+                            }
+                        }
+                    }
+                    let now = |note| Clocks {
+                        beat: 8.0,
+                        note: Some(note),
+                        ..Default::default()
+                    };
+                    assert_eq!(part.value(Property::Frame, &now(8.0)), 0.0);
+                    assert_eq!(part.value(Property::Frame, &now(8.5)), 2.0);
+                }
+            }
+        }
+        assert!(timed.warnings().is_empty(), "{:?}", timed.warnings());
     }
 }
 

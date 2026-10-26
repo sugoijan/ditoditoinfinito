@@ -1,10 +1,12 @@
 -- The body owns the whole long note; the loader never asks for legacy pieces.
+-- Frame zero is full for taps/long heads, empty for reversed lifts.
+local charge_clock = NOTESKIN:GetParameter("NoteTimedCharge") and "note-relative" or "note"
 local button = Var "Button"
 if button == "Onigiri" and NOTESKIN:GetParameter("Onigiri") == false then button = "Center" end
 local element = string.lower(Var "Element")
 local roll = string.find(element, "^roll ") ~= nil
 local kind = roll and "roll" or "hold"
-local parts = { ["head-charge"] = {Frame=Bind.Steps {clock="note", length=1, count=4}} }
+local parts = { ["head-charge"] = {Frame=Bind.Steps {clock=charge_clock, length=1, count=4}} }
 if roll then
     -- The accepted roll's exact 0.65-power pulse.
     -- Its cycle is 75% of the active scaled ruleset window, independent of BPM.

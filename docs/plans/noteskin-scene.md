@@ -816,6 +816,7 @@ take a `power` (2 unless given).
 | Clock | Value |
 | --- | --- |
 | `note` | for a note: the song's beat, in a cycle (Linear, Steps, a Curve with `length`) moved by Vivid's displacement for the note's subdivision, as StepMania's animation phase (`AnimationIsVivid`); outside one, beats from the note's own (negative before it). Elsewhere, the beat. |
+| `note-relative` | beats from the note's hit beat, negative before it and zero at the hit, including in repeating bindings; no Vivid displacement. Elsewhere, the song's beat. Useful for charge cycles aligned to each note's timing independently of its colors. |
 | `beat` | the song's beat |
 | `seconds` | the song's seconds |
 | `roll` | the song's seconds over the roll timing window (scale it with a binding's `length`) |

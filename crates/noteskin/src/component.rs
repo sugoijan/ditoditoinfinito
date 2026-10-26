@@ -536,6 +536,10 @@ pub enum Clock {
     /// `crate::notes::animation_percent` gives it); outside one, beats
     /// from the note's (negative before it).
     Note,
+    /// Beats from this note's hit beat, negative before it, including in
+    /// repeating bindings. Unlike `Note`, never applies Vivid displacement.
+    /// Without a note, reads the song's beat.
+    NoteRelative,
     /// The song's beat.
     Beat,
     /// The song's seconds.
@@ -561,6 +565,7 @@ impl Clock {
     pub fn parse(name: &str) -> Option<Clock> {
         Some(match name {
             "note" => Clock::Note,
+            "note-relative" => Clock::NoteRelative,
             "beat" => Clock::Beat,
             "seconds" => Clock::Seconds,
             "roll" => Clock::Roll,
@@ -725,6 +730,7 @@ impl Binding {
         let cycle = self.function.cycle().filter(|l| *l > 0.0);
         let clock = match self.clock {
             Clock::Beat => clocks.beat,
+            Clock::NoteRelative => clocks.beat - clocks.note.unwrap_or(0.0),
             Clock::Seconds => clocks.seconds,
             Clock::Roll if clocks.roll_window > 0.0 => clocks.seconds / clocks.roll_window,
             Clock::Roll => 0.0,

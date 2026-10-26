@@ -42,7 +42,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Skin parameters](skin-parameters.md) (2026-10-21): done. Skins declare
   controls in their metrics (our extension), kept per skin, read by
   their Lua and shown under Arrows. Infinito declares Vivid (default),
-  Rainbow and Flat colors, onigiri, mine shape, receptor fill and hit-effect
+  Rainbow and Flat colors, optional per-note charge timing, onigiri, mine shape, receptor fill and hit-effect
   controls (2026-10-25); its original asset variants and procedural controls
   are retired.
 - [Noteskin SVG](noteskin-svg.md) (2026-10-24): in progress. One

@@ -2,7 +2,7 @@
 
 Update 2026-10-25: Infinito is now the authored SVG skin formerly called Spiral
 Base and then Dito. Its controls are Colors (Vivid default, Rainbow, Flat), Onigiri,
-ShockArrows, Explosions, ReceptorFill and HitVariation. Colors now selects
+NoteTimedCharge (on by default), ShockArrows, Explosions, ReceptorFill and HitVariation. Colors now selects
 the SVG material behavior within Infinito; the original color-variant folders
 and ChartColors/Lighter controls are retired; procedural arrows are an internal fallback.
 Settings migrate the old names and move Dito / Spiral Base's saved controls to
@@ -10,6 +10,13 @@ Settings migrate the old names and move Dito / Spiral Base's saved controls to
 (one at its default is not kept); the older `note_colors` and `chart_colors`
 fields are no longer read. The dated design and validation below describe the
 original rollout of the parameter mechanism.
+
+Update 2026-10-26: **Charge by note timing** shifts Infinito's one-beat charge
+cycle by the note's exact beat, including offbeats and triplets. Taps, fakes,
+hold heads and roll heads reach full charge at their hit beat. Lifts keep
+their reversed sequence, empty at release. Color animation, receptor blinks
+and roll-body pulses keep their existing timing. Note-timed charge is the
+default; disabling it restores the shared beat cycle.
 
 `docs/PLAN.md`, "Options follow-up (2026-10-18)": note colors and songs'
 own colors sat under Arrows, shown for Dito and Built-in only; "a future

@@ -165,7 +165,7 @@ Rust and the browser are implementation details, not advertised features.
   settings, shown under Options → Arrows and read by its Lua
   (`NOTESKIN:GetParameter`; `crates/noteskin/src/params.rs`, our extension,
   `docs/plans/skin-parameters.md`; Infinito's Vivid (default), Rainbow and Flat colors, onigiri, mine shape,
-  receptor fill and hit effects are its parameters; Peters-DDR combines
+  per-note charge timing (on by default), receptor fill and hit effects are its parameters; Peters-DDR combines
   the former Note/Vivid choices with Colors and Explosions, retaining
   their names as hidden compatibility variants);
   the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same

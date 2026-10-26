@@ -13,6 +13,8 @@ local function color_phase()
         length=4,from=0.626,to=-0.374}
 end
 
+-- Frame zero is full for taps/long heads, empty for reversed lifts.
+local charge_clock = NOTESKIN:GetParameter("NoteTimedCharge") and "note-relative" or "note"
 local button = Var "Button"
 if button == "Onigiri" and NOTESKIN:GetParameter("Onigiri") == false then button = "Center" end
 local offset = ({Up=1,Down=-1,Onigiri=-7})[button] or 0
@@ -28,7 +30,7 @@ return Def.Lift {
     Phase=seconds(),
     Parts={
         ["head-band"]={Material=wave(0.7), Phase=seconds()},
-        ["head-charge"]={Frame=Bind.Steps {clock="note",length=1,count=4},
+        ["head-charge"]={Frame=Bind.Steps {clock=charge_clock,length=1,count=4},
             Material=Def.Material {File="_spiral material.wgsl",Space="note",Origin={0,offset},
                 Params={{120.6,1,97,0.43},{0.5,1.089,0.0,34.848},
                     {({Up=0,Right=90,Down=180,Left=270,UpRight=45,DownRight=135,DownLeft=225,UpLeft=315})[button] or 0, rainbow and 1 or 0},{0.021,1.35,0.3,2}},

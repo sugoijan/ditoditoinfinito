@@ -13,6 +13,8 @@ local function color_phase()
         length=4,from=0.626,to=-0.374}
 end
 
+-- Frame zero is full for taps/long heads, empty for reversed lifts.
+local charge_clock = NOTESKIN:GetParameter("NoteTimedCharge") and "note-relative" or "note"
 local turns = {Up=0,Right=90,Down=180,Left=270,UpRight=45,DownRight=135,DownLeft=225,UpLeft=315}
 local button = Var "Button"
 local element = string.lower(Var "Element")
@@ -41,7 +43,7 @@ local element = string.lower(Var "Element")
             },
             Phase=color_phase(),
         }
-        parts[id .. "-charge"] = {Frame=Bind.Steps {clock="note", length=1, count=4}}
+        parts[id .. "-charge"] = {Frame=Bind.Steps {clock=charge_clock, length=1, count=4}}
     end
     return Def.Component {
         File="_spiral components.svg", Id=id, Rotation=turns[button] or 0, Parts=parts,
