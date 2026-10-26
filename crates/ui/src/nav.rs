@@ -52,15 +52,17 @@ impl From<MenuInput> for MenuAction {
     }
 }
 
-/// The keyboard's menu keys, by physical code: the arrows, Enter (and the
-/// keypad's) and Space to start, Escape/Backspace to go back, Tab to select (it
-/// is not a focus key here: focus moves with the arrows).
+/// The keyboard's menu keys, by physical code: the arrows (and the number
+/// pad's 8 2 4 6, the arrows of the Single layout's second set, whatever
+/// Num Lock says), Enter (and the keypad's) and Space to start,
+/// Escape/Backspace to go back, Tab to select (it is not a focus key here:
+/// focus moves with the arrows).
 pub fn key_action(code: &str) -> Option<MenuAction> {
     Some(match code {
-        "ArrowUp" => MenuAction::Up,
-        "ArrowDown" => MenuAction::Down,
-        "ArrowLeft" => MenuAction::Left,
-        "ArrowRight" => MenuAction::Right,
+        "ArrowUp" | "Numpad8" => MenuAction::Up,
+        "ArrowDown" | "Numpad2" => MenuAction::Down,
+        "ArrowLeft" | "Numpad4" => MenuAction::Left,
+        "ArrowRight" | "Numpad6" => MenuAction::Right,
         "Enter" | "NumpadEnter" | "Space" => MenuAction::Start,
         "Escape" | "Backspace" => MenuAction::Back,
         "Tab" => MenuAction::Select,
@@ -304,6 +306,12 @@ mod tests {
     fn keys_by_physical_code() {
         assert_eq!(key_action("ArrowDown"), Some(MenuAction::Down));
         assert_eq!(key_action("NumpadEnter"), Some(MenuAction::Start));
+        // The number pad's arrows, as the Single layout has them.
+        assert_eq!(key_action("Numpad8"), Some(MenuAction::Up));
+        assert_eq!(key_action("Numpad2"), Some(MenuAction::Down));
+        assert_eq!(key_action("Numpad4"), Some(MenuAction::Left));
+        assert_eq!(key_action("Numpad6"), Some(MenuAction::Right));
+        assert_eq!(key_action("Numpad5"), None);
         assert_eq!(key_action("KeyQ"), None);
         assert_eq!(MenuAction::from(MenuInput::Confirm), MenuAction::Start);
     }

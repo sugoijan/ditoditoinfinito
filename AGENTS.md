@@ -633,6 +633,9 @@ play (`&auto=1`) it presses on the judged timeline, so it stays exact under any
 calibrated offset.
 
 Menu Back is unmodified Escape or Backspace after text/binding/dialog handling.
+The menus move with the arrow keys or the number pad's 8 2 4 6 on every
+screen (`ddi_ui::nav::key_action`, by physical code), Enter or Numpad Enter
+confirms; a text field being typed into takes the pad's digits as digits.
 Song browsing returns to Start in one press, keeping its filter and place;
 Clear beside Search clears the filter explicitly. Options returns to its caller.
 Every screen's header (`ddi_ui::screens::header`: song select, Options, the

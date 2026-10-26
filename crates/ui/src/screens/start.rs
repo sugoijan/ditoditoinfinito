@@ -285,9 +285,10 @@ mod tests {
             h.tap(PointerKind::Mouse, "Multiplayer");
             h.tap(PointerKind::Touch, "Multiplayer");
             assert!(calls.borrow().is_empty());
-            h.key("ArrowDown", "ArrowDown");
+            // The number pad's 2 is Down (its key "2" with Num Lock on).
+            h.key("Numpad2", "2");
             assert_eq!(h.ui.focused(), Some("Options"));
-            h.key("Enter", "Enter");
+            h.key("NumpadEnter", "Enter");
             assert_eq!(*calls.borrow(), [Choice::Options]);
             assert_eq!(h.texts().iter().any(|s| s == "Quit"), desktop);
             h.pad(MenuAction::Down, true);
