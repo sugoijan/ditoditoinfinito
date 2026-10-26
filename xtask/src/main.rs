@@ -27,6 +27,9 @@ enum Commands {
     Icons {
         #[arg(long, value_parser = ddi_icon::Target::parse)]
         target: ddi_icon::Target,
+        /// Frozen artwork variant (default: Trunk's build profile, else release).
+        #[arg(long, value_parser = ddi_icon::Variant::parse)]
+        variant: Option<ddi_icon::Variant>,
         /// Copy the generated assets here; web hooks default to TRUNK_STAGING_DIR.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -543,9 +546,10 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Icons {
             target,
+            variant,
             out,
             layers,
-        } => icons::generate(target, out, layers),
+        } => icons::generate(target, variant, out, layers),
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),

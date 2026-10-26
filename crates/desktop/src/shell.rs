@@ -100,6 +100,22 @@ fn window_icon(side: u32) -> Option<winit::window::Icon> {
     winit::window::Icon::from_rgba(rgba, side, side).ok()
 }
 
+/// Development binaries launched without an app bundle still have their own Dock icon.
+#[cfg(all(target_os = "macos", ddi_icon_dev))]
+fn dev_dock_icon() {
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+    let Some(main) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/icon.png")));
+    if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        // SAFETY: the window was created on the main thread; NSApplication retains the image.
+        unsafe { NSApplication::sharedApplication(main).setApplicationIconImage(Some(&image)) };
+    }
+}
+
 struct Surface {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
@@ -375,6 +391,8 @@ impl Shell {
         let window = event_loop
             .create_window(attributes)
             .map_err(|e| e.to_string())?;
+        #[cfg(all(target_os = "macos", ddi_icon_dev))]
+        dev_dock_icon();
         let window = Arc::new(window);
         screen_height(&window);
         self.with_gpu(window)
@@ -1786,7 +1804,7 @@ mod tests {
     /// including transparent holes inside its inner outline.
     #[test]
     fn the_window_icon_draws() {
-        let svg = ddi_icon::desktop_svg().unwrap();
+        let svg = ddi_icon::desktop_svg(ddi_icon::Variant::Release).unwrap();
         let rgba = ddi_noteskin::raster::rasterize(&svg, 64, 64).unwrap();
         let at = |x: usize, y: usize| &rgba[(y * 64 + x) * 4..][..4];
         assert_eq!(at(1, 1)[3], 0);

@@ -5,19 +5,36 @@
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=DDI_ICON_VARIANT");
+    println!("cargo:rustc-check-cfg=cfg(ddi_icon_dev)");
+    let icon_variant = ddi_icon::Variant::for_build().expect("icon variant");
+    println!("cargo:rustc-env=DDI_ICON_VARIANT={}", icon_variant.name());
+    if icon_variant == ddi_icon::Variant::Dev {
+        println!("cargo:rustc-cfg=ddi_icon_dev");
+    }
+    for path in ddi_icon::INPUTS {
+        println!("cargo:rerun-if-changed={path}");
+    }
     if matches!(
         env::var("CARGO_CFG_TARGET_OS").as_deref(),
         Ok("windows" | "linux")
     ) {
-        for path in ddi_icon::INPUTS {
-            println!("cargo:rerun-if-changed={path}");
-        }
         let path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("icon.svg");
         std::fs::write(
             path,
-            ddi_icon::desktop_svg().expect("approved desktop icon"),
+            ddi_icon::desktop_svg(icon_variant).expect("desktop icon"),
         )
         .unwrap();
+    }
+    // A plain `cargo run` has no .app bundle to supply its Dock icon.
+    #[cfg(target_os = "macos")]
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
+        && icon_variant == ddi_icon::Variant::Dev
+    {
+        let path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("icon.png");
+        let icon =
+            ddi_icon::render(ddi_icon::Target::Macos, icon_variant, 512).expect("dev Dock icon");
+        std::fs::write(path, icon.encode_png().unwrap()).unwrap();
     }
     println!("cargo:rustc-env=DDI_DANONI_BUNDLE_ID=");
     println!("cargo:rustc-env=DDI_DANONI_BUNDLE_MANIFEST_SHA256=");

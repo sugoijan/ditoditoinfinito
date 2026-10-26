@@ -233,9 +233,11 @@ pub fn run() {
     }
     if args.iter().any(|a| a == "--danoni-bundle-info") {
         #[cfg(danoni_importer)]
-        println!("{}", danoni::bundle_info());
+        let mut info = danoni::bundle_info();
         #[cfg(not(danoni_importer))]
-        println!("{{\"enabled\":false}}");
+        let mut info = serde_json::json!({"enabled":false});
+        info["iconVariant"] = env!("DDI_ICON_VARIANT").into();
+        println!("{info}");
         return;
     }
     if args.iter().any(|a| a == "--danoni-importer-check") {

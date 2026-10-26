@@ -8,17 +8,73 @@ use std::collections::BTreeMap;
 
 const ART: &str = include_str!("../../../assets/icon/arrow.svg");
 const FIELD: &[u8] = include_bytes!("../../../assets/icon/color.png");
+const DEV_FIELD: &[u8] = include_bytes!("../../../assets/icon/color-dev.png");
+const DEV_PROFILE: &str = include_str!("../../../assets/icon/dev.json");
 const PROFILES: &str = include_str!("../../../assets/icon/profiles.json");
 
 /// Cargo build scripts watch exactly the canonical inputs.
-pub const INPUTS: [&str; 3] = [
+pub const INPUTS: [&str; 5] = [
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icon/arrow.svg"),
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icon/color.png"),
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/icon/color-dev.png"
+    ),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icon/dev.json"),
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../assets/icon/profiles.json"
     ),
 ];
+
+/// A build's frozen color field. Geometry and target framing stay shared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Variant {
+    Release,
+    Dev,
+}
+
+impl Variant {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Release => "release",
+            Self::Dev => "dev",
+        }
+    }
+
+    pub fn parse(name: &str) -> Result<Self> {
+        match name {
+            "release" => Ok(Self::Release),
+            "dev" => Ok(Self::Dev),
+            _ => Err(format!("no icon variant {name:?}: dev or release")),
+        }
+    }
+
+    /// An explicit override wins; Cargo/Trunk's debug profile selects dev.
+    /// Standalone generation and release/custom profiles use release art.
+    pub fn select(requested: Option<&str>, profile: Option<&str>) -> Result<Self> {
+        match requested {
+            Some(name) => Self::parse(name),
+            None if profile == Some("debug") => Ok(Self::Dev),
+            None => Ok(Self::Release),
+        }
+    }
+
+    /// Called by Cargo build scripts, using the target build's profile.
+    pub fn for_build() -> Result<Self> {
+        Self::select(
+            std::env::var("DDI_ICON_VARIANT").ok().as_deref(),
+            std::env::var("PROFILE").ok().as_deref(),
+        )
+    }
+
+    fn field(self) -> &'static [u8] {
+        match self {
+            Self::Release => FIELD,
+            Self::Dev => DEV_FIELD,
+        }
+    }
+}
 
 /// The sides of the Windows executable's icon group.
 pub const WINDOWS_SIDES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
@@ -93,19 +149,29 @@ struct Profile {
 
 type Result<T> = std::result::Result<T, String>;
 
-fn profile(target: Target) -> Result<Profile> {
+fn profile(target: Target, variant: Variant) -> Result<Profile> {
     let mut profiles: Profiles = serde_json::from_str(PROFILES).map_err(|e| e.to_string())?;
     if profiles.version != 1 {
         return Err("unsupported icon profile version".into());
     }
-    profiles
+    let mut profile = profiles
         .targets
         .remove(target.profile())
-        .ok_or_else(|| format!("missing {} icon profile", target.profile()))
+        .ok_or_else(|| format!("missing {} icon profile", target.profile()))?;
+    if variant == Variant::Dev {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DevProfile {
+            gap_color: String,
+        }
+        let dev: DevProfile = serde_json::from_str(DEV_PROFILE).map_err(|e| e.to_string())?;
+        profile.gap_color = dev.gap_color;
+    }
+    Ok(profile)
 }
 
-fn compose(target: Target, field: &[u8], foreground: bool) -> Result<String> {
-    compose_profile(target, field, foreground, profile(target)?)
+fn compose(target: Target, variant: Variant, field: &[u8], foreground: bool) -> Result<String> {
+    compose_profile(target, field, foreground, profile(target, variant)?)
 }
 
 fn compose_profile(target: Target, field: &[u8], foreground: bool, p: Profile) -> Result<String> {
@@ -212,17 +278,22 @@ fn compose_profile(target: Target, field: &[u8], foreground: bool, p: Profile) -
 }
 
 /// The SVG embedded by the Windows/Linux desktop's build script.
-pub fn desktop_svg() -> Result<String> {
-    compose(Target::Windows, FIELD, false)
+pub fn desktop_svg(variant: Variant) -> Result<String> {
+    compose(Target::Windows, variant, variant.field(), false)
 }
 
 /// Inputs and compositor revision for the build-output cache (not a security hash).
-pub fn fingerprint() -> u64 {
+pub fn fingerprint(variant: Variant) -> u64 {
     hash(
         [
             ART.as_bytes(),
-            FIELD,
+            variant.field(),
             PROFILES.as_bytes(),
+            if variant == Variant::Dev {
+                DEV_PROFILE.as_bytes()
+            } else {
+                &[]
+            },
             include_bytes!("lib.rs"),
         ]
         .into_iter()
@@ -238,12 +309,12 @@ fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {
 }
 
 #[cfg(feature = "raster")]
-pub fn svg(target: Target) -> Result<String> {
+pub fn svg(target: Target, variant: Variant) -> Result<String> {
     if target != Target::Web {
-        return compose(target, FIELD, false);
+        return compose(target, variant, variant.field(), false);
     }
     use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
-    let original = Pixmap::decode_png(FIELD).map_err(|e| e.to_string())?;
+    let original = Pixmap::decode_png(variant.field()).map_err(|e| e.to_string())?;
     let mut small = Pixmap::new(256, 256).ok_or("empty icon texture")?;
     small.draw_pixmap(
         0,
@@ -261,14 +332,15 @@ pub fn svg(target: Target) -> Result<String> {
     );
     compose(
         target,
+        variant,
         &small.encode_png().map_err(|e| e.to_string())?,
         false,
     )
 }
 
 #[cfg(feature = "raster")]
-pub fn render(target: Target, side: u32) -> Result<resvg::tiny_skia::Pixmap> {
-    render_svg(&svg(target)?, side)
+pub fn render(target: Target, variant: Variant, side: u32) -> Result<resvg::tiny_skia::Pixmap> {
+    render_svg(&svg(target, variant)?, side)
 }
 
 #[cfg(feature = "raster")]
@@ -289,10 +361,10 @@ fn render_svg(text: &str, side: u32) -> Result<resvg::tiny_skia::Pixmap> {
 
 /// Optional authoring outputs, separate from the legacy ICNS composition.
 #[cfg(feature = "raster")]
-pub fn macos_layers() -> Result<(String, String)> {
-    let p = profile(Target::Macos)?;
+pub fn macos_layers(variant: Variant) -> Result<(String, String)> {
+    let p = profile(Target::Macos, variant)?;
     Ok((
-        compose(Target::Macos, FIELD, true)?,
+        compose(Target::Macos, variant, variant.field(), true)?,
         format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1024\" height=\"1024\"><rect width=\"1024\" height=\"1024\" fill=\"{}\"/></svg>\n",
             p.background
@@ -305,9 +377,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn build_profiles_and_explicit_overrides_select_the_expected_art() {
+        for (profile, expected) in [
+            (None, Variant::Release),
+            (Some("debug"), Variant::Dev),
+            (Some("release"), Variant::Release),
+            (Some("desktop"), Variant::Release),
+        ] {
+            assert_eq!(Variant::select(None, profile).unwrap(), expected);
+            assert_eq!(Variant::select(Some("dev"), profile).unwrap(), Variant::Dev);
+            assert_eq!(
+                Variant::select(Some("release"), profile).unwrap(),
+                Variant::Release
+            );
+        }
+        assert!(Variant::select(Some("typo"), Some("debug")).is_err());
+    }
+
+    #[test]
+    fn the_dev_variant_changes_colors_without_changing_the_silhouette() {
+        for target in [Target::Web, Target::Windows, Target::Linux, Target::Macos] {
+            let release = render(target, Variant::Release, 64).unwrap();
+            let dev = render(target, Variant::Dev, 64).unwrap();
+            assert_eq!(
+                release
+                    .pixels()
+                    .iter()
+                    .map(|p| p.alpha())
+                    .collect::<Vec<_>>(),
+                dev.pixels().iter().map(|p| p.alpha()).collect::<Vec<_>>(),
+                "{target:?} silhouette and transparent charge holes",
+            );
+            assert!(
+                release
+                    .pixels()
+                    .iter()
+                    .zip(dev.pixels())
+                    .filter(|(a, b)| a != b)
+                    .count()
+                    > 300,
+                "{target:?}: visibly different colors"
+            );
+            let dev_svg = svg(target, Variant::Dev).unwrap();
+            assert!(dev_svg.contains("#1b2e55"));
+            assert!(!dev_svg.contains("#491b55"));
+        }
+        for variant in [Variant::Release, Variant::Dev] {
+            assert_eq!(
+                desktop_svg(variant).unwrap(),
+                svg(Target::Windows, variant).unwrap()
+            );
+        }
+        assert_ne!(fingerprint(Variant::Dev), fingerprint(Variant::Release));
+    }
+
+    #[test]
     fn the_canonical_art_draws_on_every_target() {
         for target in [Target::Web, Target::Windows, Target::Linux, Target::Macos] {
-            let icon = render(target, 64).unwrap();
+            let icon = render(target, Variant::Release, 64).unwrap();
             assert_eq!(icon.pixel(1, 1).unwrap().alpha(), 0, "{target:?}");
             assert!(
                 icon.pixels().iter().any(|p| {
@@ -318,7 +445,7 @@ mod tests {
             );
         }
         assert_eq!(
-            render(Target::Windows, 64)
+            render(Target::Windows, Variant::Release, 64)
                 .unwrap()
                 .pixel(46, 32)
                 .unwrap()
@@ -329,13 +456,19 @@ mod tests {
 
     #[test]
     fn the_desktop_build_and_packaging_share_the_svg() {
-        assert_eq!(desktop_svg().unwrap(), svg(Target::Windows).unwrap());
-        assert_eq!(svg(Target::Windows).unwrap(), svg(Target::Linux).unwrap());
+        assert_eq!(
+            desktop_svg(Variant::Release).unwrap(),
+            svg(Target::Windows, Variant::Release).unwrap()
+        );
+        assert_eq!(
+            svg(Target::Windows, Variant::Release).unwrap(),
+            svg(Target::Linux, Variant::Release).unwrap()
+        );
     }
 
     #[test]
     fn outer_opacity_leaves_the_inner_edge_and_color_field_unchanged() {
-        let mut p = profile(Target::Windows).unwrap();
+        let mut p = profile(Target::Windows, Variant::Release).unwrap();
         p.shadow = 0.0;
         p.border_opacity = 1.0;
         let opaque = render_svg(

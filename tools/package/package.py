@@ -65,6 +65,9 @@ def folder(app, output, without_video_helper=False):
     output = output.resolve()
     env = dict(os.environ)
     info = json.loads(run([app, '--danoni-bundle-info'], env, capture=True))
+    icon_variant = info.get('iconVariant', 'release')
+    if icon_variant not in ('dev', 'release'):
+        raise ValueError(f'Unknown compiled icon variant: {icon_variant!r}')
     importer = None
     if os.name != 'nt':
         from build import native_dependencies, verify
@@ -149,6 +152,7 @@ def folder(app, output, without_video_helper=False):
                   'Keep assets/, LICENSES/' + (', video/' if (output / 'video').exists() else '')
                   + (' and danoni-importer/' if importer else '') + ' beside the executable.']
         package_info = {'schema': 'ddi-desktop-distribution/1', 'version': version(), 'target': target,
+                        'iconVariant': icon_variant,
                         'appSha256': sha(app.read_bytes()), 'appNativeDependencies': app_dependencies,
                         'videoHelper': (output / 'video').exists()}
         if importer:
@@ -186,14 +190,15 @@ def minimum_macos(executables):
     return '.'.join(str(x) for x in newest)
 
 
-def macos_icon(destination):
+def macos_icon(destination, variant='release'):
     """Generate the ICNS from the canonical artwork, only when packaging macOS."""
-    shutil.copy2(generated_icons('macos') / 'AppIcon.icns', destination)
+    shutil.copy2(generated_icons('macos', variant) / 'AppIcon.icns', destination)
 
 
-def generated_icons(target):
-    run(['cargo', 'run', '-p', 'xtask', '--', 'icons', '--target', target], dict(os.environ))
-    return ROOT / 'target/icons' / target
+def generated_icons(target, variant='release'):
+    run(['cargo', 'run', '-p', 'xtask', '--', 'icons', '--target', target,
+         '--variant', variant], dict(os.environ))
+    return ROOT / 'target/icons' / target / variant
 
 
 def is_macho(path):
@@ -224,7 +229,8 @@ def macos_app(source, app):
         (contents / 'Helpers' / 'video').mkdir(parents=True)
         helper.rename(contents / 'Helpers' / 'video' / HELPER)
         helper = contents / 'Helpers' / 'video' / HELPER
-    macos_icon(resources / 'AppIcon.icns')
+    metadata = json.loads((source / 'PACKAGE.json').read_bytes())
+    macos_icon(resources / 'AppIcon.icns', metadata.get('iconVariant', 'release'))
     # The importer's executables keep the ad hoc signature the linker gave
     # them: the app and the importer check their bytes (manifest hashes), so
     # signing them again would make the bundle "damaged". The app's seal
@@ -291,7 +297,8 @@ def dist(app, out_dir, without_video_helper=False, check=True):
     with tempfile.TemporaryDirectory(prefix='ddi-dist-') as work:
         work = Path(work)
         plain = folder(app, work / 'folder', without_video_helper)
-        target = json.loads((plain / 'PACKAGE.json').read_bytes())['target']
+        metadata = json.loads((plain / 'PACKAGE.json').read_bytes())
+        target = metadata['target']
         made = []
         if 'apple-darwin' in target:
             staging = work / 'dmg'
@@ -320,7 +327,7 @@ def dist(app, out_dir, without_video_helper=False, check=True):
             (share / 'applications').mkdir(parents=True)
             (share / 'icons/hicolor/scalable/apps').mkdir(parents=True)
             shutil.copy2(HERE / f'linux/{BUNDLE_ID}.desktop', share / 'applications')
-            shutil.copy2(generated_icons('linux') / 'icon.svg',
+            shutil.copy2(generated_icons('linux', metadata.get('iconVariant', 'release')) / 'icon.svg',
                          share / f'icons/hicolor/scalable/apps/{BUNDLE_ID}.svg')
             script = plain / 'install-desktop-entry.sh'
             shutil.copy2(HERE / 'linux/install-desktop-entry.sh', script)

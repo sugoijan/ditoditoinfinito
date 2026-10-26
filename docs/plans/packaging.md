@@ -215,15 +215,18 @@ keeps the archives as the run's artifacts only):
   so a renamed build finds what an older one kept.
 - **The icon is the Infinito down-right arrow** (approved 2026-10-26),
   with a frozen holographic color field, purple inner and outer outlines
-  and transparent charge holes. Only `assets/icon/arrow.svg`, `color.png`
-  and `profiles.json` are versioned: the approved geometry/appearance,
+  and transparent charge holes. `assets/icon/arrow.svg`, `color.png`
+  and `profiles.json` describe the release art: the approved geometry/appearance,
   frozen 512 px texture, and target framing/shadow settings. Later noteskin
-  changes do not silently change the brand icon.
+  changes do not silently change the brand icon. `color-dev.png` and
+  `dev.json` add a separate frozen phase (0.881), pattern time (1.47 s)
+  and blue gap/outline color (`#1b2e55`) for development builds, sharing
+  the release geometry and target framing.
 - **Generate only the target being built.** `ddi-icon` is the shared Rust
   compositor. Its optional `raster` feature uses resvg, including the PNG
   decoder, for all generated pixels. The web SVG worker's feature set is
   unchanged. `xtask icons --target web|windows|linux|macos` caches outputs
-  under `target/icons/<target>/`; `--out DIR` stages only deliverables.
+  under `target/icons/<target>/<variant>/`; `--out DIR` stages only deliverables.
   The cache tracks the canonical inputs, compositor, xtask generator and
   renderer lockfile, and also checks that its outputs still exist.
   Trunk runs `icons --target web` after building, producing only
@@ -233,6 +236,15 @@ keeps the archives as the run's artifacts only):
   renderer directly for its native icon sizes. Linux packaging requests
   only its transparent SVG, and macOS packaging requests only `AppIcon.icns`.
   Standalone `--target windows` exports the same SVG as Linux's.
+- **Build variants:** Cargo's debug profile and Trunk's debug hooks select
+  the dev icon; release and `desktop` profile builds select release.
+  `DDI_ICON_VARIANT=dev|release` overrides that choice, including optimized
+  local builds. Standalone xtask commands default to release and accept
+  `--variant dev|release`. The compiled app reports `iconVariant` through
+  `--danoni-bundle-info`; packaging keeps it in `PACKAGE.json` and uses it
+  for the ICNS/Linux SVG, regardless of the packager's own Cargo profile.
+  Plain macOS dev binaries set their generated Dock icon on window creation;
+  release apps keep their bundle's icon.
 - **macOS uses the current legacy ICNS workflow.** The generated composition
   preserves the 824-unit rounded tile with a 100-unit outer margin; the
   chosen 75% symbol fit is inside that tile. resvg renders each iconset size

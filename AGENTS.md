@@ -371,7 +371,11 @@ Rust and the browser are implementation details, not advertised features.
   artwork, frozen color texture and target profiles in `assets/icon/`. Cargo
   builds the Windows/Linux window SVG in `OUT_DIR`; Windows' executable
   resources use the same renderer. Optional `raster` uses resvg for xtask's
-  target-specific output. No shader or editor runs during builds.
+  target-specific output. Debug builds select the dev frozen texture and
+  gap color; release/desktop profiles keep the approved release colors
+  (`DDI_ICON_VARIANT` overrides). Plain macOS dev runs also set the Dock
+  icon. Packaging uses the executable's compiled `iconVariant`, reported
+  by `--danoni-bundle-info`. No shader or editor runs during builds.
 - `xtask/` generators: target-specific icons (`icons --target
   web|windows|linux|macos`, cached under `target/icons/`), SEO fragments, the song manifest, `credits/CREDITS.md`
   and `credits/THIRD_PARTY_RUST.md`.

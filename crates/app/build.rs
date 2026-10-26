@@ -35,6 +35,7 @@ const ICON_SIDES: [u32; 8] = ddi_icon::WINDOWS_SIDES;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=DDI_ICON_VARIANT");
     let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
     if !windows {
@@ -53,6 +54,7 @@ fn main() {
 /// (`GRPICONDIR`), its id 1, the first, which Explorer shows.
 #[cfg(windows)]
 fn icon(res: &mut Res) {
+    let variant = ddi_icon::Variant::for_build().expect("icon variant");
     for path in ddi_icon::INPUTS {
         println!("cargo:rerun-if-changed={path}");
     }
@@ -61,7 +63,7 @@ fn icon(res: &mut Res) {
     group.extend(1u16.to_le_bytes());
     group.extend((ICON_SIDES.len() as u16).to_le_bytes());
     for (id, side) in (1u16..).zip(ICON_SIDES) {
-        let pixmap = ddi_icon::render(ddi_icon::Target::Windows, side).unwrap();
+        let pixmap = ddi_icon::render(ddi_icon::Target::Windows, variant, side).unwrap();
         // PNG at 256 pixels, as icon files have it; a bitmap below, which
         // every reader of icons takes.
         let image = if side == 256 {
