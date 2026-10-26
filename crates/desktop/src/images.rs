@@ -269,6 +269,9 @@ pub fn load_sized(source: &str, max_side: u32) -> Option<Sized> {
             std::fs::read(path).ok()?
         }
     };
+    if source.to_ascii_lowercase().ends_with(".svg") {
+        return decode_svg(&bytes, max_side);
+    }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
@@ -295,9 +298,48 @@ pub fn load_sized(source: &str, max_side: u32) -> Option<Sized> {
     Some(([rgba.width(), rgba.height()], rgba.into_raw(), (w, h)))
 }
 
+/// The same bounded, self-contained SVG subset used by skins. Rasterize
+/// at the requested display size, including upscaling vector sources.
+fn decode_svg(bytes: &[u8], max_side: u32) -> Option<Sized> {
+    if bytes.len() > ddi_noteskin::svg::MAX_SVG {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    let checked = ddi_noteskin::svg::check_svg(text).ok()?;
+    let own = checked.size;
+    let scale = if max_side == 0 {
+        1.0
+    } else {
+        f64::from(max_side.min(MAX_SIDE)) / f64::from(own.0.max(own.1))
+    };
+    let (w, h) = checked.raster_size(scale);
+    let pixels = ddi_noteskin::raster::rasterize(text, w, h).ok()?;
+    Some(([w, h], pixels, own))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn svg_ui_images_preserve_aspect_and_scale_to_the_requested_size() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="8"><rect width="16" height="8" fill="#ff8000" fill-opacity="0.5"/></svg>"##;
+        let (size, pixels, own) = decode_svg(svg, 64).unwrap();
+        assert_eq!(size, [64, 32]);
+        assert_eq!(own, (16, 8));
+        assert_eq!(pixels.len(), 64 * 32 * 4);
+        let center = &pixels[(16 * 64 + 32) * 4..][..4];
+        assert_eq!(center[0], 255);
+        assert!(center[1].abs_diff(128) <= 1);
+        assert!(center[3].abs_diff(128) <= 1);
+        assert!(
+            decode_svg(
+                br#"<svg width="16" height="8"><image href="file:///tmp/image.png"/></svg>"#,
+                64
+            )
+            .is_none()
+        );
+    }
 
     #[test]
     fn images_decode_off_the_calling_thread() {

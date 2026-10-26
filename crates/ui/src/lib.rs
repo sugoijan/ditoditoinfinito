@@ -27,6 +27,7 @@ pub mod event;
 pub mod gesture;
 pub mod graph;
 pub mod hit;
+pub mod keycaps;
 #[cfg(feature = "layout")]
 pub mod layout;
 pub mod look;

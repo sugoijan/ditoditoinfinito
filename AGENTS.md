@@ -112,7 +112,13 @@ Rust and the browser are implementation details, not advertised features.
   chrome, the play's start prompt, `prompt.rs`: Start never waits for
   what loads behind it, a loading screen after Start until the play is
   ready, a countdown on song select's plays, and this play's options,
-  `prompt_options.rs`, `docs/plans/start-prompt.md`) with their sample
+  `prompt_options.rs`; its controls diagram, `prompt_controls.rs`, shows
+  the chart's receptors and primary keyboard bindings through the independent
+  field preview, pressing each pair for a brief looping demonstration (140 ms
+  per key, one-second pause; still under reduced motion). Modifiers sit below
+  the diagram on the same card, without tabs or instructional copy;
+  auto-start always takes priority.
+  `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
   flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and
@@ -136,7 +142,24 @@ Rust and the browser are implementation details, not advertised features.
   start title is shaped Dosis artwork (`tools/title-design/`, `assets/title/`),
   with Infinito Vivid paint on D/D/I through the shared 2D painter; reduced
   motion freezes both its palette and evolving texture. The
-  screens it dresses are `crates/ui/src/screens/` (start menu, song select, results,
+  shortcut indicators use original OEM-inspired SVG keycaps
+  (`tools/keycap-design/`, `assets/ui/keycaps-a1.svg`, `keycaps-a2.svg`,
+  `keycaps-light.svg`, `keycaps-gray.svg`, `keycaps-deep-gray.svg`), preserving charcoal satin/semi-gloss
+  and neutral/darker gray satin alternatives with live legends. Gray caps use dark ink, including
+  their arrow and keyboard marks, through the theme's Keycap.Light colors.
+  UI images decode the bounded noteskin SVG subset on desktop and through
+  the web SVG worker (browser fallback); deeper gray satin (#7d7d7d) is the selected default,
+  with 26 px caps, 10 px legends, no extra inter-key gap and 18 px between hints.
+  `ddi_ui::keycaps` distinguishes a specific keyboard key from custom printing
+  on a normal or space body. The theme's `keycaps.rs` draws equal vector arrows
+  with Cherry-style mixed placement; the shared `KeyHint` helper binds the
+  look's atlas to its `CapN` parts. `Spec::key_prefix` supplies plain text
+  outside the caps (song select's Chart repeat count). Arrow shortcuts use
+  one cap per direction throughout the screens. `tools/keycap-design/playground.html` is the sizing
+  study, with shared controls for cap height, legend size and spacing, now
+  retaining the final deeper gray and previous gray comparison with the selected Iosevka Term Regular
+  Italic legends. Both shells register the real bundled italic face.
+  The screens it dresses are `crates/ui/src/screens/` (start menu, song select, results,
   options; theme-agnostic, fed plain data). Pure, natively tested.
 - `crates/noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins

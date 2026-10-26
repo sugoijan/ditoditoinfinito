@@ -79,6 +79,23 @@ async fn decode(key: &TextureKey, limit: u32) -> Result<web_sys::ImageBitmap, St
         0 => limit,
         s => s.min(limit),
     };
+    if key.source.to_ascii_lowercase().ends_with(".svg") || blob.type_() == "image/svg+xml" {
+        if blob.size() > ddi_noteskin::svg::MAX_SVG as f64 {
+            return Err("the SVG is too large".into());
+        }
+        let bytes = super::files::blob_bytes(&blob).await?;
+        let text = String::from_utf8(bytes).map_err(|_| "the SVG is not text")?;
+        let checked = ddi_noteskin::svg::check_svg(&text)?;
+        let scale = f64::from(side) / f64::from(checked.size.0.max(checked.size.1));
+        let size = checked.raster_size(scale);
+        if let Ok(value) =
+            wasm_bindgen_futures::JsFuture::from(super::svg::rasterise(text.clone(), size)).await
+            && let Some((bitmap, _)) = super::svg::drawn(&value)
+        {
+            return Ok(bitmap);
+        }
+        return super::image::rasterise_svg(&text, size).await;
+    }
     super::image::decode(&blob, side).await
 }
 

@@ -122,6 +122,46 @@ desktop's `--screen`. Where the build differs from the mockups:
   (two rows upright).
 - **Accent buttons' focus:** the ring inside the plate, in the label's
   color (an accent ring around an accent plate barely shows).
+- **Shortcut caps** (2026-10-26): original OEM-inspired SVG paths and
+  gradients in `assets/ui/keycaps-a1.svg` (charcoal satin) and
+  `keycaps-a2.svg` (charcoal semi-gloss), and `keycaps-light.svg` (light gray
+  satin with dark ink), plus `keycaps-gray.svg` (slightly darker neutral gray).
+  Both grays use equal RGB channels and near-black `#111111` printing.
+  All alternatives are retained;
+  `Infinito::set_keycap_material` selects a finish before rebuilding screens,
+  with deeper gray satin (`keycaps-deep-gray.svg`, `#7d7d7d` face) the selected
+  app default. The previous `#858585` option remains available. The look follows the original Blender
+  sculpts and selected B+D monitor lighting (60 cm behind, 27 cm high,
+  15° back tilt, faint room light). `tools/keycap-design/charcoal_vector.py`
+  generates the bodies parametrically, including standalone pressed references.
+  The current sprite bridge retains four width presets plus convex Space;
+  it still scales the nearest preset for arbitrary label widths. `KeyHint`
+  supplies the SVG atlas through `Look::image`; the helper binds `CapN` parts.
+  Song select shows separate up/down caps for Song and Chart; Chart's `2×`
+  is ordinary text through `Spec::key_prefix`. All four navigation arrows
+  retain their bindings. The selected size is 26 px with independent 10 px
+  legends, no extra gap between caps and 18 px between shortcuts. The
+  interactive study in `tools/keycap-design/playground.html` now compares
+  the final deeper gray and previous gray with the selected Iosevka Term Regular Italic
+  printing. Desktop and web load its real italic face. The light option's
+  diffuse face tones are lifted from a separate B+D Blender reference for
+  small dark legends' contrast; the geometric highlight placement is shared.
+  UI image loaders use the existing checked SVG subset and bounded rasterizer
+  on desktop, and the SVG worker with browser fallback on web. No Blender
+  runtime or bitmap embedded in SVG is needed. Legends remain live text and
+  vector marks, with a dark fallback plate during loading.
+  Caps are 26 px high, with 10 px upper-left printing (lowercase names,
+  uppercase letters). `ddi_actor::text::TextCurve` bends adjacent strips of
+  the shaped text atlas cell without changing the font cache; the curve
+  follows the Blender projection (0.568 px full dish depth on the original
+  32 px artboard, scaled to the cap height). Enter and Tab
+  carry keyboard marks. Space has a convex crown, centered label and 52 px
+  minimum width. Typed `Keycap` requests separate keyboard identities from
+  custom labels on `Normal`/`Space` shapes. Equal vector arrows include
+  composite captions; individual arrows use Cherry-style mixed placement.
+  The authoring README records references, preserved 3D/material/lighting
+  studies and A1/A2 pressed renders (4 mm travel, about 2.27 px projected at
+  the 32 px artboard). Pressed runtime behavior remains a later step.
 - **The volume** is a slider row: a thin track, the accent fill, a
   light knob, the value and the dB note after it. A fresh profile
   starts at 69% (−10 dB, `settings::DEFAULT_VOLUME`); stored settings

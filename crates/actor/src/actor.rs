@@ -405,6 +405,8 @@ pub struct Text {
     /// (`BitmapText::UpdateBaseZoom`, here without touching the base
     /// zoom); 0 for none.
     pub max_width: f32,
+    /// Optional surface bend, applied to the shaped run when drawn.
+    pub curve: Option<crate::text::TextCurve>,
     /// `None` until measured again ([`Actor::measure`]).
     metrics: Option<RunMetrics>,
     /// A run much wider than `max_width` is cut and ends with "…"
@@ -424,6 +426,7 @@ impl Text {
             text: text.into(),
             style,
             max_width: 0.0,
+            curve: None,
             metrics: None,
             ellipsis: false,
             cut: None,
@@ -721,6 +724,7 @@ impl FrameCamera {
 /// A run of text to draw ([`Kind::Text`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextDraw {
+    pub curve: Option<crate::text::TextCurve>,
     pub text: Arc<str>,
     pub style: TextStyle,
     pub metrics: RunMetrics,
@@ -2901,6 +2905,7 @@ impl Actor {
                 let run3 = mul4(&m3, &translation4([pen[0], pen[1], 0.0]));
                 let draw = |transform, transform3, diffuse, glow| {
                     Drawn::Text(TextDraw {
+                        curve: text.curve,
                         text: text.shown().clone(),
                         style: text.style.clone(),
                         metrics,

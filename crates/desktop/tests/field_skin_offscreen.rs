@@ -181,3 +181,54 @@ fn a_skin_picked_shows_once_read() {
     }
     assert!(field.frames() >= 4);
 }
+
+#[test]
+fn the_prompt_readies_its_own_skin_and_releases_the_picture() {
+    common::indexes();
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).unwrap();
+    let mut painter = Painter::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut field = Field::default();
+    let mut picture = ddi_ui::screens::prompt_controls::Picture {
+        controls: std::rc::Rc::new(ddi_ui::screens::prompt_controls::Controls::new(
+            &ddi_chart::Layout::builtin("danoni-7").unwrap(),
+            &Settings::default(),
+        )),
+        size: [448.0, 64.0],
+        ready: std::rc::Rc::default(),
+        time: 0.0,
+        active: None,
+    };
+    let mut draw = |field: &mut Field| {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        field.draw(&device, &queue, &mut encoder, &mut painter);
+        queue.submit(Some(encoder.finish()));
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    };
+    field.set_receptors(Some(&picture));
+    let started = std::time::Instant::now();
+    while !picture.ready.get() {
+        assert!(
+            started.elapsed().as_secs() < 10,
+            "preview skin never became ready"
+        );
+        draw(&mut field);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(field.skin_name().as_deref(), Some("Infinito"));
+    assert!(field.holds_targets());
+    for lane in 0..7 {
+        picture.time = 0.25 + lane as f32 * 0.14;
+        picture.active = Some(lane);
+        field.set_receptors(Some(&picture));
+        draw(&mut field);
+        assert!(picture.ready.get());
+    }
+    field.set_receptors(None);
+    draw(&mut field);
+    assert!(!field.holds_targets());
+    assert!(!field.animating());
+}

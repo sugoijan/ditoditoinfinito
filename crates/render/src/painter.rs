@@ -1072,6 +1072,62 @@ impl Painter {
                     let x0 = -placed.pen[0] / r;
                     let y0 = baseline - placed.pen[1] / r;
                     let cell_rect = [x0, y0, x0 + w / r, y0 + h / r];
+                    if let Some(curve) = t.curve {
+                        // Narrow adjacent strips bend the glyphs themselves, not
+                        // just their baselines. Shared endpoints/UVs avoid seams;
+                        // the same cached run works at every bend and cap width.
+                        let snap = if one_for_one {
+                            let pen = t.transform.apply([0.0, baseline]);
+                            pen.map(|p| (p * s).round() - p * s)
+                        } else {
+                            [0.0; 2]
+                        };
+                        let strips = (w / 2.0).ceil().clamp(1.0, 256.0) as u32;
+                        let p = PAGE as f32;
+                        for i in 0..strips {
+                            let a = i as f32 / strips as f32;
+                            let b = (i + 1) as f32 / strips as f32;
+                            let points =
+                                curve.corners([x0 + a * w / r, y0, x0 + b * w / r, y0 + h / r]);
+                            let (points, ws) = if let Some((m, camera)) = &t.perspective {
+                                let Some((seen, ws)) = camera.project_quad(m, points) else {
+                                    continue;
+                                };
+                                (seen.map(|p| [p[0] * s, p[1] * s]), ws)
+                            } else {
+                                (
+                                    points.map(|p| {
+                                        let p = t.transform.apply(p);
+                                        [p[0] * s + snap[0], p[1] * s + snap[1]]
+                                    }),
+                                    [1.0; 4],
+                                )
+                            };
+                            add(
+                                steps,
+                                instances.len() as u32,
+                                Bind::Page(placed.page),
+                                t.blend,
+                                sc,
+                                stencil,
+                            );
+                            instances.push(Instance {
+                                axes: [points[0][0], points[0][1], points[1][0], points[1][1]],
+                                rect: [points[2][0], points[2][1], points[3][0], points[3][1]],
+                                mode: COVERAGE | PROJECTED,
+                                uv: [
+                                    (cell.x as f32 + a * w) / p,
+                                    cell.y as f32 / p,
+                                    (cell.x as f32 + b * w) / p,
+                                    cell.bottom() as f32 / p,
+                                ],
+                                colors: [pack(t.color); 4],
+                                w: ws,
+                                ..Instance::BASE
+                            });
+                        }
+                        continue;
+                    }
                     let blurred = t.blur != [0.0; 2];
                     let (axes, origin, rect, extra, ws, blur) = if let Some(view) = &t.perspective {
                         let Some((top, bottom, ws)) = project_rect(view, cell_rect, s) else {

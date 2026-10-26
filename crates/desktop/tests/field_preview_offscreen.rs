@@ -372,3 +372,54 @@ fn kept_and_dropped_holds_show_ok_and_ng_over_their_lanes() {
         }
     }
 }
+
+#[test]
+fn receptor_diagrams_are_transparent_and_press_only_the_selected_lane() {
+    let Some(gpu) = Gpu::new() else {
+        return;
+    };
+    let mut preview = FieldPreview::new(
+        &gpu.device,
+        &gpu.queue,
+        Some(wgpu::TextureFormat::Rgba16Float),
+        &[FONT],
+    );
+    let mut layout = ddi_chart::Layout::builtin("danoni-7").unwrap();
+    for (i, lane) in layout.lanes.iter_mut().enumerate() {
+        lane.column = i as f32;
+        lane.row = 0;
+        lane.scroll_sign = 1;
+    }
+    let size = [448, 64]; // Seven 64px lanes, rows aligned for a GPU copy.
+    let mut frame = |time, active| {
+        preview.set_receptors(Some(ddi_render::field_preview::ReceptorPreview {
+            layout: layout.clone(),
+            time,
+            active,
+        }));
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        preview.draw(&gpu.device, &gpu.queue, &mut encoder, size, 0.0);
+        gpu.read(preview.texture().unwrap(), encoder)
+    };
+    let idle = frame(0.0, None);
+    assert_eq!(idle[3], 0, "empty corners must remain transparent");
+    for lane in 0..7 {
+        let pressed = frame(0.25 + lane as f32 * 0.14, Some(lane));
+        for other in 0..7 {
+            let different = (0..64)
+                .flat_map(|y| (other * 64..(other + 1) * 64).map(move |x| (y * 448 + x) * 4))
+                .filter(|&i| idle[i..i + 4] != pressed[i..i + 4])
+                .count();
+            if other == lane {
+                assert!(different > 30, "lane {lane} should visibly press");
+            } else {
+                assert_eq!(different, 0, "pressing {lane} changed {other}");
+            }
+        }
+    }
+    assert_eq!(
+        frame(0.0, None),
+        idle,
+        "the loop resets without a stuck receptor"
+    );
+}

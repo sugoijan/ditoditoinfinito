@@ -325,8 +325,8 @@ impl OptionsScreen {
                 &env,
                 screen,
                 &[
-                    (&["↑↓"], "Option"),
-                    (&["←→"], "Change"),
+                    (&["↑", "↓"], "Option"),
+                    (&["←", "→"], "Change"),
                     (&["P"], "Preview"),
                     (&["TAB"], "Section"),
                     (&["ESC"], "Back"),
@@ -337,6 +337,7 @@ impl OptionsScreen {
                 } else {
                     &[("Link.Back", "Back")]
                 },
+                cx,
             );
             env.state.borrow_mut().hints = texts;
             children.push(f);

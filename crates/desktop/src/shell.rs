@@ -665,6 +665,11 @@ impl Shell {
                 UiRequest::SetText { .. } | UiRequest::Navigate(_) | UiRequest::Redraw => {}
                 // Options' field preview: drawn where the screen says,
                 // with the settings as they are now.
+                UiRequest::ReceptorPreview(picture) => {
+                    if let Some(s) = &mut self.surface {
+                        s.gpu.field.set_receptors(picture.as_ref());
+                    }
+                }
                 UiRequest::FieldPreview(rect) => {
                     if let Some(s) = &mut self.surface {
                         s.gpu.field.set_rect(rect);
@@ -701,12 +706,11 @@ impl Shell {
 
     /// Asks for a frame if the UI needs one and none is coming.
     fn ask(&mut self) {
-        let field = self
-            .surface
-            .as_ref()
-            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy() || s.gpu.editor.busy())
-            || self.play.playing()
-            || self.play.prompt_changed();
+        let field =
+            self.surface.as_ref().is_some_and(|s| {
+                s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy()
+            }) || self.play.playing()
+                || self.play.prompt_changed();
         if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
             return;
         }
@@ -1534,11 +1538,10 @@ impl ApplicationHandler for Shell {
         if let Some(s) = &mut self.surface {
             self.loaded |= s.gpu.images_ready();
         }
-        let field = self
-            .surface
-            .as_ref()
-            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy() || s.gpu.editor.busy())
-            || self.play.playing();
+        let field =
+            self.surface.as_ref().is_some_and(|s| {
+                s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy()
+            }) || self.play.playing();
         if self.play.playing() && !self.occluded {
             match self.pace() {
                 // Blocking frames come one after another (each waits for

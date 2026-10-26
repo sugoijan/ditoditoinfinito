@@ -101,6 +101,14 @@ const SOURCES: &[(&str, &str)] = &[
         include_str!("../../ui/src/state/bind.rs"),
     ),
     ("crates/theme/src/lib.rs", include_str!("../src/lib.rs")),
+    (
+        "crates/theme/src/keycaps.rs",
+        include_str!("../src/keycaps.rs"),
+    ),
+    (
+        "crates/ui/src/keycaps.rs",
+        include_str!("../../ui/src/keycaps.rs"),
+    ),
     // The shells' and the shared session's lines the screens show (the
     // prompt's notes, the calibration's card, notices, imports' reports).
     (

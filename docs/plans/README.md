@@ -137,6 +137,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
   or the rest (a loading screen after an early Start), the countdown to
   Start on song select's plays, this play's options on the prompt (Speed,
   Reverse, Turn, Appearance, Lane cover, the noteskin; Save as default).
+  Controls preview added 2026-10-27: the chart's receptors and primary
+  bindings above the modifiers, a brief looping press demo, with auto-start
+  taking priority.
 - [Start menu and returning between screens](start-menu.md) (2026-10-20):
   implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
   Options, silent return from song select and desktop Quit. Animated Dosis
@@ -147,6 +150,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   The Infinito look; one header on every screen, a Back button and the
   live wordmark beside the screen's name; the menus' parts moving in from
   their edges, screens following each other on both shells (2026-10-26).
+  Original OEM-inspired shortcut caps were added the same day, with retained
+  A1/A2 charcoal SVG alternatives and pressed 3D references.
 - [Desktop parity](desktop.md) (2026-10-16): in progress. Steps 7.0–7.9
   done; scripted backgrounds readied off the event loop (2026-10-22).
   Late pacing falls back to blocking where it keeps missing (fullscreen,

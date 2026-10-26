@@ -605,7 +605,7 @@ impl EditorScreen {
         children.push(self.overview_strip());
         children.push(self.overview_marks());
         children.push(self.panel());
-        let (f, texts) = self.footer();
+        let (f, texts) = self.footer(cx);
         children.push(f);
         let mut root = Actor::new(Kind::Frame(children));
         call(&mut root, "zoom", &[g.zoom]);
@@ -679,12 +679,12 @@ impl EditorScreen {
         }
     }
 
-    fn footer(&self) -> (Actor, Vec<String>) {
+    fn footer(&self, cx: &mut Cx) -> (Actor, Vec<String>) {
         let lanes = self.editor.borrow().lanes();
         let lane_keys = format!("1–{}", lanes.min(10) % 10);
         let mut hints: Vec<(Vec<&str>, &str)> = vec![
-            (vec!["↑↓"], "Move"),
-            (vec!["←→"], "Snap"),
+            (vec!["↑", "↓"], "Move"),
+            (vec!["←", "→"], "Snap"),
             (vec![lane_keys.as_str()], "Notes"),
         ];
         if !self.geo.compact {
@@ -699,7 +699,7 @@ impl EditorScreen {
         hints.push((vec!["TAB"], "Menu"));
         hints.push((vec!["ESC"], "Back"));
         let hints: Vec<(&[&str], &str)> = hints.iter().map(|(k, l)| (k.as_slice(), *l)).collect();
-        footer(&self.env, self.geo.size, &hints, "", &[])
+        footer(&self.env, self.geo.size, &hints, "", &[], cx)
     }
 
     /// The field: its plate, the beat grid, the selection, the notes
@@ -1207,7 +1207,7 @@ impl EditorScreen {
             self.attach_texture(cx);
             let field = self.field();
             let panel = self.panel();
-            let (footer, texts) = self.footer();
+            let (footer, texts) = self.footer(cx);
             let (strip, marks) = (self.overview_strip(), self.overview_marks());
             for (name, a) in [
                 ("FieldLayer", field),

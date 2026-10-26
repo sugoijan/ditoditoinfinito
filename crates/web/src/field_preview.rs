@@ -44,6 +44,7 @@ pub(crate) struct FieldPreviewHost {
     load_number: Rc<Cell<u64>>,
     /// What the shell last read the settings for (ms).
     read_ms: f64,
+    receptor_layout: Option<ddi_chart::Layout>,
     pub(crate) status: String,
 }
 
@@ -71,6 +72,7 @@ impl FieldPreviewHost {
             ready: None,
             load_number: Rc::default(),
             read_ms: f64::NEG_INFINITY,
+            receptor_layout: None,
             status: "built-in arrows".into(),
         }
     }
@@ -86,6 +88,9 @@ impl FieldPreviewHost {
         self.preview.seek(seconds);
     }
 
+    pub(crate) fn ready(&self) -> bool {
+        self.shown == self.wanted && self.preview.texture().is_some()
+    }
     pub(crate) fn preview(&self) -> &FieldPreview {
         &self.preview
     }
@@ -93,9 +98,33 @@ impl FieldPreviewHost {
     /// Shows `settings` from the next frame; the skin they want loads
     /// meanwhile.
     pub(crate) fn set_settings(&mut self, settings: &Settings) {
+        if self.receptor_layout.take().is_some() {
+            self.invalidate_layout();
+        }
+        self.preview.set_receptors(None);
         let options = ddi_shell::field_preview_options(settings);
         self.wanted = Some(ddi_shell::field_preview_skin(settings, &options));
         self.preview.set_options(options);
+    }
+
+    pub(crate) fn set_receptors(&mut self, p: &ddi_ui::screens::prompt_controls::Picture) {
+        let (options, want, pose) = ddi_shell::receptor_preview_options(p);
+        if self.receptor_layout.as_ref() != Some(&pose.layout) {
+            self.invalidate_layout();
+        }
+        self.receptor_layout = Some(pose.layout.clone());
+        self.wanted = Some(want);
+        self.preview.set_options(options);
+        self.preview.set_receptors(Some(pose));
+    }
+
+    fn invalidate_layout(&mut self) {
+        self.shown = None;
+        self.load_number.set(self.load_number.get() + 1);
+        self.loading = None;
+        if let Some((_, Some(old))) = self.ready.take() {
+            old.close();
+        }
     }
 
     /// Reads the stored settings again when it is time (`now_ms`).
@@ -166,7 +195,10 @@ impl FieldPreviewHost {
         if self.shown.as_ref() == Some(&want) || self.ready.as_ref().is_some_and(|r| r.0 == want) {
             return;
         }
-        let layout = want.layout();
+        let layout = self
+            .receptor_layout
+            .clone()
+            .unwrap_or_else(|| want.layout());
         let Some(key) = want.key.clone() else {
             // The built-in arrows: at once.
             self.show_skin(gfx, want, None);

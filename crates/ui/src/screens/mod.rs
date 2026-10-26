@@ -13,8 +13,9 @@
 //!
 //! - `Screen.Header` (`Panel`): `Plate`, `Title` (the screen's name),
 //!   `Subtitle`. `Screen.Footer` (`Panel`): `Plate`.
-//! - `KeyHint` (centered; `Button`): its key caps in `Spec::items`, its
-//!   label as the text; `Extent` (a hidden quad as large as it is).
+//! - `KeyHint` (centered; `Button`): its typed key caps in `Spec::keycaps`, its
+//!   label as the text, optional plain prefix in `Spec::key_prefix`;
+//!   `Extent` (a hidden quad as large as it is).
 //!   `Pill` (centered; `Button`): `Label`, `Extent`.
 //!   `Link` (centered; `Button`): `Label`, `Extent`.
 //! - `SongList.Row` (`List.Row`): `Plate`, `Banner`, `Title`, `Subtitle`
@@ -75,6 +76,7 @@ pub mod page;
 mod page_tests;
 pub mod play;
 pub mod prompt;
+pub mod prompt_controls;
 pub mod prompt_options;
 pub mod results;
 pub mod sample;
@@ -445,17 +447,35 @@ pub(crate) fn sprites_mut(actor: &mut Actor, f: &mut impl FnMut(&mut Sprite)) {
     }
 }
 
-/// One key hint: key caps and what they do.
-pub fn key_hint(env: &Env, name: &str, keys: &[&str], label: &str) -> (Actor, f32) {
+/// One key hint: key caps and what they do. A look may supply a `KeyHint`
+/// image atlas; its `Cap0`, `Cap1`, … sprites receive that texture.
+pub fn key_hint(
+    env: &Env,
+    name: &str,
+    keys: &[crate::keycaps::Keycap],
+    label: &str,
+    cx: &mut crate::Cx,
+) -> (Actor, f32) {
+    key_hint_prefixed(env, name, keys, "", label, cx)
+}
+
+fn key_hint_prefixed(
+    env: &Env,
+    name: &str,
+    keys: &[crate::keycaps::Keycap],
+    prefix: &str,
+    label: &str,
+    cx: &mut crate::Cx,
+) -> (Actor, f32) {
     let h = 22.0;
-    let text = format!("{} {label}", keys.join(" "));
+    let labels: Vec<_> = keys.iter().map(crate::keycaps::Keycap::label).collect();
+    let text = format!("{prefix} {} {label}", labels.join(" "))
+        .trim_start()
+        .to_string();
     let w = look::mono_width(&text, 13.0) + 24.0;
-    let mut a = look::component_or(
-        &*env.look,
-        "KeyHint",
-        "Button",
-        &Spec::new([0.0, h], label).with_items(keys.iter().copied()),
-    );
+    let mut spec = Spec::new([0.0, h], label).with_keycaps(keys.iter().cloned());
+    spec.key_prefix = prefix.into();
+    let mut a = look::component_or(&*env.look, "KeyHint", "Button", &spec);
     let mut fallback = false;
     if crate::widgets::part(&mut a, "Extent").is_none() {
         // The plain button: sized here, its label all of it.
@@ -463,6 +483,16 @@ pub fn key_hint(env: &Env, name: &str, keys: &[&str], label: &str) -> (Actor, f3
         fallback = true;
     }
     a.name = name.into();
+    if !fallback && let Some(source) = env.look.image("KeyHint") {
+        let texture = cx.texture(source, 1280.0);
+        for i in 0..keys.len() {
+            if let Some(cap) = crate::widgets::part(&mut a, &format!("Cap{i}"))
+                && let Kind::Sprite(sprite) = &mut cap.kind
+            {
+                sprite.texture = texture;
+            }
+        }
+    }
     let w = if fallback {
         w
     } else {
@@ -479,8 +509,36 @@ pub fn footer(
     hints: &[(&[&str], &str)],
     note: &str,
     links: &[(&str, &str)],
+    cx: &mut crate::Cx,
+) -> (Actor, Vec<String>) {
+    let hints: Vec<_> = hints
+        .iter()
+        .map(|&(keys, label)| FooterHint {
+            keys,
+            label,
+            prefix: "",
+        })
+        .collect();
+    footer_hints(env, screen, &hints, note, links, cx)
+}
+
+/// A footer shortcut, with optional plain text outside its keycaps.
+pub struct FooterHint<'a> {
+    pub keys: &'a [&'a str],
+    pub label: &'a str,
+    pub prefix: &'a str,
+}
+
+pub fn footer_hints(
+    env: &Env,
+    screen: [f32; 2],
+    hints: &[FooterHint<'_>],
+    note: &str,
+    links: &[(&str, &str)],
+    cx: &mut crate::Cx,
 ) -> (Actor, Vec<String>) {
     let h = env.metric("Footer.Height", 40.0);
+    let hint_gap = env.metric("Footer.HintGap", 20.0);
     let margin = env.metric("Margin", 32.0);
     let y = screen[1] - h;
     let mut plate = look::component_or(
@@ -493,12 +551,28 @@ pub fn footer(
     let mut children = vec![plate];
     let mut x = margin;
     let mut texts = Vec::new();
-    for (i, (keys, label)) in hints.iter().enumerate() {
-        let (mut a, w) = key_hint(env, &format!("Hint{i}"), keys, label);
+    for (
+        i,
+        FooterHint {
+            keys,
+            label,
+            prefix,
+        },
+    ) in hints.iter().enumerate()
+    {
+        let caps: Vec<_> = keys
+            .iter()
+            .map(|k| crate::keycaps::Keycap::from_hint(k))
+            .collect();
+        let (mut a, w) = key_hint_prefixed(env, &format!("Hint{i}"), &caps, prefix, label, cx);
         call(&mut a, "xy", &[x + w / 2.0, h / 2.0]);
-        x += w + 20.0;
+        x += w + hint_gap;
         children.push(a);
-        texts.push(format!("{} {label}", keys.join(" ")));
+        texts.push(
+            format!("{prefix} {} {label}", keys.join(" "))
+                .trim_start()
+                .to_string(),
+        );
     }
     if !note.is_empty() {
         children.push(left(

@@ -46,3 +46,34 @@ license = "OFL-1.1"
 holders = "Renzhi Li (aka. Belleve Invis)"
 source = "https://github.com/be5invis/Iosevka"
 modified = "subset with fonttools pyftsubset to Latin-1, Latin Extended-A and the theme's symbols, layout features removed (assets/fonts/PROVENANCE.toml)"
+
+# Keycap italic comparison, 2026-10-26. Same pinned 34.9.0 archive and
+# subset command as above; not registered as a runtime theme face yet.
+[[file]]
+path = "IosevkaTerm-SemiBoldItalic-latin.ttf"
+license = "OFL-1.1"
+holders = "Renzhi Li (aka. Belleve Invis)"
+source = "https://github.com/be5invis/Iosevka/releases/download/v34.9.0/PkgTTF-Unhinted-IosevkaTerm-34.9.0.zip"
+modified = "subset with fonttools 4.67.0 to Latin-1, Latin Extended-A and the theme's symbols, layout features removed; same command as the upright faces"
+
+# Lighter keycap comparisons from the same archive and subset command.
+[[file]]
+path = "IosevkaTerm-Italic-latin.ttf"
+license = "OFL-1.1"
+holders = "Renzhi Li (aka. Belleve Invis)"
+source = "https://github.com/be5invis/Iosevka/releases/download/v34.9.0/PkgTTF-Unhinted-IosevkaTerm-34.9.0.zip"
+modified = "subset with fonttools 4.67.0 to Latin-1, Latin Extended-A and the theme's symbols, layout features removed; selected regular italic keycap face"
+
+[[file]]
+path = "IosevkaTerm-Medium-latin.ttf"
+license = "OFL-1.1"
+holders = "Renzhi Li (aka. Belleve Invis)"
+source = "https://github.com/be5invis/Iosevka/releases/download/v34.9.0/PkgTTF-Unhinted-IosevkaTerm-34.9.0.zip"
+modified = "subset with fonttools 4.67.0 to Latin-1, Latin Extended-A and the theme's symbols, layout features removed; preview face"
+
+[[file]]
+path = "IosevkaTerm-MediumItalic-latin.ttf"
+license = "OFL-1.1"
+holders = "Renzhi Li (aka. Belleve Invis)"
+source = "https://github.com/be5invis/Iosevka/releases/download/v34.9.0/PkgTTF-Unhinted-IosevkaTerm-34.9.0.zip"
+modified = "subset with fonttools 4.67.0 to Latin-1, Latin Extended-A and the theme's symbols, layout features removed; preview face"

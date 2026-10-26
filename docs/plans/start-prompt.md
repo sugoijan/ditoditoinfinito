@@ -170,3 +170,31 @@ those played, bests and the results' mod line are the play's.
 1. Background loading, Start never blocked, the loading screen.
 2. The countdown and its setting.
 3. Per-play options.
+
+## Controls preview (2026-10-27)
+
+The card shows every receptor of the selected chart, with its primary
+keyboard binding underneath and the per-play modifiers directly below.
+There are no tabs, binding captions or start/quit/loading instructions on
+this ready-to-start card. The separate loading screen after an early Start
+and errors keep their status messages; an active countdown keeps its number.
+The controls use the resolved saved keyboard table (including explicitly
+unbound lanes), not the currently selected menu style. Save as default
+remains beside the modifiers.
+
+A brief demonstration presses each key and its receptor together, at 140 ms
+per key, then loops after a one-second pause, without a replay button. It uses
+the actual noteskin through the shared field preview renderer. The diagram
+wraps large layouts into balanced rows; it never feeds events to gameplay.
+Reduced motion keeps a still diagram. Start stays immediate and the existing
+countdown/gesture contract remains; the automatic demo never delays or resets
+it. The preview uses an independent skin instance so its clock and demonstration
+presses cannot leak into the song.
+
+Coverage: the UI harness checks chart-specific defaults, saved primary and
+unbound keys, the combined diagram/modifier layout, synchronized key travel, the looping clock, reduced motion
+and auto-start taking priority while a skin loads. Native GPU tests check
+transparent receptor images, per-lane presses, skin readiness and cleanup;
+the existing prompt countdown/loading/options tests cover the play handoff.
+Browser checks cover DanOni-7, saved mappings on WebGL2, wrapped Pump Double,
+Retina sizing and phone layouts.

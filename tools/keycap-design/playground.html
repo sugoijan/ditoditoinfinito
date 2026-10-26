@@ -1,0 +1,133 @@
+<style>
+@font-face { font-family: DdiKeyStudy; src: url(data:font/ttf;base64,__REGULAR_FONT__); font-weight: 400; }
+@font-face { font-family: DdiKeyStudy; src: url(data:font/ttf;base64,__SEMIBOLD_FONT__); font-weight: 600; }
+#ddi-key-size-playground .key-stage { padding: 54px 12px 24px; min-height: 330px; box-sizing: border-box; }
+#ddi-key-size-playground .key-product { color-scheme: dark; background: #0a090d; color: #f2eee9; font: 400 13px/1.4 DdiKeyStudy, monospace; padding: 20px; border-radius: 8px; }
+#ddi-key-size-playground .key-caption { color: #a39c95; margin: 0 0 12px; font-size: 12px; }
+#ddi-key-size-playground .key-row { display: flex; align-items: center; flex-wrap: wrap; row-gap: 12px; }
+#ddi-key-size-playground .key-hint { display: inline-flex; align-items: center; white-space: nowrap; color: #a39c95; }
+#ddi-key-size-playground .key-hint .key-action { margin-left: 6px; }
+#ddi-key-size-playground .key-prefix { margin-right: 4px; }
+#ddi-key-size-playground .key-pair { display: inline-flex; align-items: center; }
+#ddi-key-size-playground .key-art { display: block; overflow: visible; flex-shrink: 0; }
+#ddi-key-size-playground .key-product > .key-section:last-child { margin-top: 28px; }
+#ddi-key-size-playground .key-extra { margin-top: 20px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+#ddi-key-size-playground .key-extra-label { margin-right: 10px; color: #8a837d; font-size: 12px; }
+</style>
+<div id="ddi-key-size-playground" aria-label="Shortcut key appearance">
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute;overflow:hidden"><defs>__CAP_BODIES__</defs></svg>
+  <div class="viz-carousel viz-dotted-background" aria-label="Satin keycap colors">
+    <section data-variant="Deeper gray" aria-label="Deeper gray shortcut bar">
+      <div class="key-stage"><div class="key-product" data-finish="deep-gray">
+        <div class="key-section"><p class="key-caption" data-caption></p><div class="key-row" data-adjusted role="img" aria-label="Song list shortcuts at the selected size"></div></div>
+        <div class="key-extra" data-extras aria-label="Letter, horizontal arrows and space key at the selected size"></div>
+        <div class="key-section"><p class="key-caption">Lettering detail · 3×</p><div class="key-row" data-detail role="img" aria-label="Three times enlarged key legends"></div></div>
+      </div></div>
+    </section>
+    <section data-variant="Darker gray" aria-label="Darker gray shortcut bar" hidden>
+      <div class="key-stage"><div class="key-product" data-finish="gray">
+        <div class="key-section"><p class="key-caption" data-caption></p><div class="key-row" data-adjusted role="img" aria-label="Song list shortcuts at the selected size"></div></div>
+        <div class="key-extra" data-extras aria-label="Letter, horizontal arrows and space key at the selected size"></div>
+        <div class="key-section"><p class="key-caption">Lettering detail · 3×</p><div class="key-row" data-detail role="img" aria-label="Three times enlarged key legends"></div></div>
+      </div></div>
+    </section>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('ddi-key-size-playground');
+  const defaults = { height: 26, legend: 10, keyGap: 0, groupGap: 18 };
+  const state = { ...defaults };
+  const limits = { height: [20,36], legend: [9,14], keyGap: [0,8], groupGap: [8,28] };
+  function restore(saved) {
+    const source = saved?.modelContent?.keycapSizing;
+    for (const [key, [min,max]] of Object.entries(limits)) {
+      state[key] = Number.isFinite(source?.[key]) ? Math.max(min, Math.min(max, source[key])) : defaults[key];
+    }
+  }
+  restore(window.openai?.widgetState);
+  const esc = text => text.replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const arrows = { '↑': -90, '↓': 90, '←': 180, '→': 0 };
+  const printOutlines = __PRINT_OUTLINES__;
+  function cap(label, finish, settings, zoom=1) {
+    const ink=['light','gray','deep-gray'].includes(finish)?'#111111':'#f2eee9';
+    const s = settings.height / 32, fs = settings.legend;
+    const isArrow = Object.hasOwn(arrows, label), space = label === 'space';
+    const mark = label === 'enter' || label === 'tab';
+    const letterWidth = isArrow ? 10 : label.length * fs / 2;
+    const minimum = space || label === 'enter' ? 64 : label === 'tab' ? 48 : 32;
+    const width = Math.max(minimum*s, letterWidth + (15 + (mark ? 12 : 0))*s);
+    const model = Math.min(3, Math.max(0, Math.round((width/s/32-1)/.375)));
+    const artWidth = space ? 64 : 32+model*12;
+    const source = `${finish}-${space ? 'space' : model}`;
+    const inset = space ? (width-letterWidth)/2 : 7.5*s;
+    const faceHalf = (6.8+model*4.75)*(32/23)*width/(32+model*12);
+    const quadratic = space ? 0 : -.568*s/(faceHalf*faceHalf);
+    const curve = (x, origin) => quadratic*((x-(width/2-origin))**2-(width/2-origin)**2);
+    const warp = (x,y,origin,base) => [origin+x,base+y+curve(x,origin)];
+    const path = (points, origin, base, rotate=0) => {
+      const angle = rotate*Math.PI/180, c=Math.cos(angle), sn=Math.sin(angle);
+      let result = '';
+      for (let i=1;i<points.length;i++) {
+        for (let j=0;j<=8;j++) {
+          const t=j/8, a=points[i-1], b=points[i];
+          const x=a[0]+(b[0]-a[0])*t, y=a[1]+(b[1]-a[1])*t;
+          const [wx,wy]=warp(x*c-y*sn,x*sn+y*c,origin,base);
+          result += `${result?'L':'M'}${wx.toFixed(3)},${wy.toFixed(3)} `;
+        }
+      }
+      return result;
+    };
+    let print = '';
+    if (isArrow) {
+      const factor=1, origin=(label==='↑'||label==='↓')?12*s:width/2;
+      const base=12.5*s;
+      const lines=[[[-4,0],[4,0]],[[1,-3],[4,0],[1,3]]];
+      print = lines.map(line=>`<path d="${path(line.map(p=>p.map(v=>v*factor)),origin,base,arrows[label])}" fill="none" stroke="${ink}" stroke-width="${.8*factor}"/>`).join('');
+    } else {
+      // Project Iosevka's outlines onto the same shallow surface as the game.
+      const baseline=(space?14:10.5)*s+fs*.34;
+      const outline=Array.from(label).map((char,i)=>printOutlines[settings.style][char].map(contour=>contour.map(([x,y],j)=>{
+        const [wx,wy]=warp((x+i*.5)*fs,-y*fs,inset,baseline);
+        return `${j?'L':'M'}${wx.toFixed(3)},${wy.toFixed(3)}`;
+      }).join(' ')+' Z').join(' ')).join(' ');
+      print=`<path d="${outline}" fill="${ink}"/>`;
+      if(mark) {
+        const lines=label==='enter'?[[[7,-3],[7,1],[0,1]],[[2.5,-1.5],[0,1],[2.5,3.5]]]:[[[0,0],[6,0]],[[3.5,-2.5],[6,0],[3.5,2.5]],[[8,-3.5],[8,3.5]]];
+        print += lines.map(line=>`<path d="${path(line.map(([x,y])=>[x*s+letterWidth+3*s,y*s]),inset,11.5*s)}" fill="none" stroke="${ink}" stroke-width="${.8*s}"/>`).join('');
+      }
+    }
+    return `<svg class="key-art" width="${width*zoom}" height="${settings.height*zoom}" viewBox="0 0 ${width} ${settings.height}" role="img" aria-label="${esc(label)} key"><use href="#ddi-body-${source}" transform="scale(${width/artWidth},${s})"/>${print}</svg>`;
+  }
+  const hints = [ [['↑','↓'],'Song',''], [['↑','↓'],'Chart','2×'], [['tab'],'Style',''], [['enter'],'Play',''], [['/'],'Search',''], [['esc'],'Back',''] ];
+  function bar(target, finish, settings) {
+    target.style.columnGap=`${settings.groupGap}px`;
+    target.innerHTML=hints.map(([keys,label,prefix])=>`<span class="key-hint">${prefix?`<span class="key-prefix">${prefix}</span>`:''}<span class="key-pair" style="gap:${settings.keyGap}px">${keys.map(key=>cap(key,finish,settings)).join('')}</span><span class="key-action">${label}</span></span>`).join('');
+  }
+  function render() {
+    for(const product of root.querySelectorAll('.key-product')) {
+      const finish=product.dataset.finish, settings={...state,style:'regular-italic'};
+      product.querySelector('[data-caption]').textContent=`${finish==='deep-gray'?'Deeper gray · #7d7d7d':'Chosen gray · #858585'} · ${state.height} px / ${state.legend} px · Regular Italic`;
+      bar(product.querySelector('[data-adjusted]'),finish,settings);
+      product.querySelector('[data-detail]').style.columnGap='8px';
+      product.querySelector('[data-detail]').innerHTML=['E','tab','enter','space'].map(label=>cap(label,finish,settings,3)).join('');
+      product.querySelector('[data-extras]').innerHTML=`<span class="key-extra-label">Other keys</span>${['E','←','→','space'].map(label=>cap(label,finish,settings)).join('')}`;
+    }
+  }
+  function change() {
+    render();
+    window.openai?.setWidgetState({modelContent:{keycapSizing:{...state},songKeys:['↑','↓'],chartPrefix:'2×'},privateContent:null}).catch(()=>{});
+  }
+  render();
+  window.addEventListener('openai:set_globals', event => {
+    if(Object.hasOwn(event.detail?.globals || {},'widgetState')) { restore(event.detail.globals.widgetState); render(); }
+  });
+  if(globalThis.Tweak) {
+    const tweak=new Tweak({container:root,onChange:change});
+    tweak.addSlider(state,'height',{label:'Key height',min:20,max:36,step:1,unit:'px'});
+    tweak.addSlider(state,'legend',{label:'Legend size',min:9,max:14,step:.5,unit:'px'});
+    tweak.addSlider(state,'keyGap',{label:'Gap between keys',min:0,max:8,step:1,unit:'px'});
+    tweak.addSlider(state,'groupGap',{label:'Gap between shortcuts',min:8,max:28,step:1,unit:'px'});
+  }
+})();
+</script>

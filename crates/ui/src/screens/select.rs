@@ -41,7 +41,10 @@ use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 use super::data::{
     ChartEntry, ImportView, Notice, SelectData, SongEntry, closest, difficulty_name,
 };
-use super::{Backdrop, Env, Pulse, extent, footer, frame, ground, header, left, light, right};
+use super::{
+    Backdrop, Env, FooterHint, Pulse, extent, footer_hints, frame, ground, header, left, light,
+    right,
+};
 use crate::hit;
 use crate::look::{self, Spec, call, quad};
 use crate::message::Message;
@@ -1777,7 +1780,7 @@ impl SelectScreen {
         }
     }
 
-    fn fill_footer(&mut self, root: &mut Actor) {
+    fn fill_footer(&mut self, root: &mut Actor, cx: &mut Cx) {
         if self.layout.compact {
             self.env.state.borrow_mut().hints.clear();
             return;
@@ -1815,8 +1818,8 @@ impl SelectScreen {
         let (hints, note): (&[(&[&str], &str)], &str) = match now {
             Hints::Song => (
                 &[
-                    (&["↑↓←→"], "Song"),
-                    (&["2×↑↓←→"], "Chart"),
+                    (&["↑", "↓"], "Song"),
+                    (&["↑", "↓"], "Chart"),
                     (&["TAB"], "Style"),
                     (&["ENTER"], "Play"),
                     (&["/"], "Search"),
@@ -1826,7 +1829,7 @@ impl SelectScreen {
             ),
             Hints::Greyed => (
                 &[
-                    (&["↑↓←→"], "Song"),
+                    (&["↑", "↓"], "Song"),
                     (&["TAB"], "Style"),
                     (&["/"], "Search"),
                     (&["ESC"], esc),
@@ -1834,12 +1837,12 @@ impl SelectScreen {
                 "",
             ),
             Hints::Header if searching => (
-                &[(&["↑↓←→"], "Song"), (&["/"], "Search"), (&["ESC"], esc)],
+                &[(&["↑", "↓"], "Song"), (&["/"], "Search"), (&["ESC"], esc)],
                 "",
             ),
             Hints::Header => (
                 &[
-                    (&["↑↓←→"], "Song"),
+                    (&["↑", "↓"], "Song"),
                     (&["ENTER"], "Open or close"),
                     (&["/"], "Search"),
                 ],
@@ -1847,7 +1850,7 @@ impl SelectScreen {
             ),
             Hints::Typing => (
                 &[
-                    (&["↑↓"], "Choose"),
+                    (&["↑", "↓"], "Choose"),
                     (&["ENTER"], "Go to"),
                     (&["ESC"], "Close"),
                 ],
@@ -1875,7 +1878,18 @@ impl SelectScreen {
         } else {
             note
         };
-        let (mut f, texts) = footer(&self.env, self.layout.screen, &hints, note, links);
+        let mut hints: Vec<_> = hints
+            .iter()
+            .map(|&(keys, label)| FooterHint {
+                keys,
+                label,
+                prefix: "",
+            })
+            .collect();
+        if now == Hints::Song {
+            hints[1].prefix = "2×";
+        }
+        let (mut f, texts) = footer_hints(&self.env, self.layout.screen, &hints, note, links, cx);
         if let Some(old) = hit::find_mut(root, "Footer") {
             super::refill(old, f);
         } else if let Kind::Frame(c) = &mut root.kind {
@@ -2935,7 +2949,7 @@ impl Screen for SelectScreen {
             self.gesture_note -= dt;
             if self.gesture_note <= 0.0 {
                 self.hints = None;
-                self.fill_footer(root);
+                self.fill_footer(root, cx);
             }
         }
         if [vp.width, vp.height] != self.layout.vp
@@ -2982,7 +2996,7 @@ impl Screen for SelectScreen {
             self.start(root, cx);
         }
         self.show(root, cx);
-        self.fill_footer(root);
+        self.fill_footer(root, cx);
         self.fill_notices(root);
         self.tell(cx);
         // The scrollbar: where the selection is in the list.
@@ -3146,7 +3160,7 @@ impl Screen for SelectScreen {
             self.gesture_note = 4.0;
             self.gesture_text = "Press Enter or tap to open the link.";
             self.hints = None;
-            self.fill_footer(root);
+            self.fill_footer(root, cx);
             self.status("press Enter or tap to open".into());
             self.publish_dirty = true;
             self.publish();
@@ -3162,7 +3176,7 @@ impl Screen for SelectScreen {
             self.gesture_note = 4.0;
             self.gesture_text = "Press / or tap the field to type.";
             self.hints = None;
-            self.fill_footer(root);
+            self.fill_footer(root, cx);
             self.sync_field(root);
             // A phone's field shows only while typed into: back on its icon.
             if self.layout.compact && cx.focused() == Some(self.search.name.as_str()) {

@@ -38,10 +38,11 @@ pub(crate) const BUNDLED_FAMILY: &str = "Iosevka Custom";
 /// The theme's text face (`ddi_theme`'s `fonts.text`): its weights and
 /// where they are served (`index.html` copies them from `assets/fonts`).
 pub(crate) const THEME_FAMILY: &str = "Iosevka Term";
-const THEME_FACES: [(&str, &str); 3] = [
-    ("400 500", "fonts/IosevkaTerm-Regular-latin.ttf"),
-    ("600", "fonts/IosevkaTerm-SemiBold-latin.ttf"),
-    ("700 900", "fonts/IosevkaTerm-Bold-latin.ttf"),
+const THEME_FACES: [(&str, &str, &str); 4] = [
+    ("400 500", "normal", "fonts/IosevkaTerm-Regular-latin.ttf"),
+    ("400", "italic", "fonts/IosevkaTerm-Italic-latin.ttf"),
+    ("600", "normal", "fonts/IosevkaTerm-SemiBold-latin.ttf"),
+    ("700 900", "normal", "fonts/IosevkaTerm-Bold-latin.ttf"),
 ];
 
 thread_local! {
@@ -75,7 +76,7 @@ fn loaded() {
     });
 }
 
-/// Registers the theme's text face, its three weights fetched from their
+/// Registers the theme's text face, three upright weights and regular italic from their
 /// files (27 KB each, not in the wasm); once.
 pub(crate) fn load_theme_fonts() {
     if THEME_ASKED.with(|a| a.replace(true)) {
@@ -84,9 +85,10 @@ pub(crate) fn load_theme_fonts() {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {
         return;
     };
-    for (weight, url) in THEME_FACES {
+    for (weight, style, url) in THEME_FACES {
         let descriptors = web_sys::FontFaceDescriptors::new();
         descriptors.set_weight(weight);
+        descriptors.set_style(style);
         let face = match web_sys::FontFace::new_with_str_and_descriptors(
             THEME_FAMILY,
             &format!("url({url})"),

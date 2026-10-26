@@ -170,8 +170,8 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         ),
         (
             "KeyHint",
-            s(0.0, 22.0, "Song").with_items(["↑↓"]),
-            &["Label", "Extent", "Key0"],
+            s(0.0, 22.0, "Song").with_items(["↑", "↓"]),
+            &["Label", "Extent", "Key0", "Key1"],
         ),
         ("Pill", s(60.0, 26.0, "×2.5"), &["Plate", "Label", "Extent"]),
         ("Link", s(60.0, 32.0, "Options"), &["Label", "Extent"]),
@@ -373,6 +373,18 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         assert!(state.borrow().compact);
     }
     // The plain components the screens do not use.
+    for material in [
+        KeycapMaterial::Satin,
+        KeycapMaterial::LightSatin,
+        KeycapMaterial::GraySatin,
+    ] {
+        theme.set_keycap_material(material);
+        theme.component(
+            "KeyHint",
+            &Spec::new([0.0, 26.0], "Play").with_items(["enter"]),
+        );
+    }
+    theme.set_keycap_material(KeycapMaterial::DeepGraySatin);
     for name in [
         "Toggle",
         "Slider",
@@ -1537,7 +1549,10 @@ fn the_prompt_fits_every_size_at_every_step() {
                 );
             }
             // Text stays inside the card, and the picture is drawn.
-            for n in ["SongTitle", "Status0"] {
+            for n in ["SongTitle", "Status0"]
+                .into_iter()
+                .filter(|n| *n != "Status0" || *step != PromptStep::Ready)
+            {
                 let r =
                     h.ui.bounds(n)
                         .unwrap_or_else(|| panic!("{size:?} {step:?}: no {n}"));
@@ -1549,6 +1564,10 @@ fn the_prompt_fits_every_size_at_every_step() {
             assert!(h.ui.actor("Picture").is_some());
             // The play options, on the card (Start offered).
             if *step == PromptStep::Ready {
+                assert!(h.ui.actor("BindingKey0").is_some());
+                assert!(h.ui.actor("Tab.Controls").is_none());
+                assert!(h.ui.actor("Status0").is_none());
+                let card = h.ui.bounds("Card").unwrap();
                 for n in ["Opt.speed.Light", "Opt.noteskin.Light", "Opt.noteskin.Up"] {
                     let r = h.ui.bounds(n).unwrap_or_else(|| panic!("{size:?}: no {n}"));
                     assert!(
@@ -1563,8 +1582,10 @@ fn the_prompt_fits_every_size_at_every_step() {
             // Readable on a phone: CSS pixels of the status line and the
             // buttons.
             let css = |r: [f32; 4]| (r[3] - r[1]) * size[0] / vp.width;
-            let status = css(h.ui.bounds("Status0").unwrap());
-            assert!(status >= 12.0, "{size:?} {step:?}: status {status} CSS px");
+            if let Some(r) = h.ui.bounds("Status0") {
+                let status = css(r);
+                assert!(status >= 12.0, "{size:?} {step:?}: status {status} CSS px");
+            }
             for b in buttons {
                 let px = css(h.ui.bounds(b).unwrap());
                 assert!(px >= 30.0, "{size:?} {step:?} {b}: {px} CSS px");
@@ -2027,4 +2048,46 @@ fn the_chrome_arriving_keeps_a_screens_entrance() {
         sample::options_screen(&env, None),
     );
     check("select", "Song", false, sample::select_screen(&env, None));
+}
+
+#[test]
+fn specific_keys_and_custom_printing_keep_distinct_semantics() {
+    use ddi_ui::keycaps::{KeyShape, KeyboardKey as K, Keycap};
+    let theme = Infinito::new();
+    let mut hint = theme
+        .component(
+            "KeyHint",
+            &Spec::new([0.0, 32.0], "Play").with_keycaps([
+                K::Enter.into(),
+                Keycap::custom("Enter", KeyShape::Normal),
+                Keycap::custom("SPACE", KeyShape::Normal),
+                Keycap::custom("Jump", KeyShape::Space),
+                K::Character('e').into(),
+                Keycap::custom("e", KeyShape::Normal),
+            ]),
+        )
+        .unwrap();
+    for (i, expected) in ["enter", "Enter", "SPACE", "Jump", "E", "e"]
+        .iter()
+        .enumerate()
+    {
+        let part = ddi_ui::widgets::part(&mut hint, &format!("Key{i}")).unwrap();
+        let Kind::Text(t) = &part.kind else {
+            panic!("text legend");
+        };
+        assert_eq!(t.text(), *expected);
+        assert!(t.style().italic);
+        assert_eq!(t.style().weight, 400);
+        assert_eq!(t.style().size(), 10.0);
+    }
+    // Spelling alone never supplies a special shape or the Enter mark.
+    assert!(ddi_ui::widgets::part(&mut hint, "Mark0").is_some());
+    assert!(ddi_ui::widgets::part(&mut hint, "Mark1").is_none());
+    for (i, space) in [(2, false), (3, true)] {
+        let part = ddi_ui::widgets::part(&mut hint, &format!("Cap{i}")).unwrap();
+        let Kind::Sprite(cap) = &part.kind else {
+            panic!("cap body");
+        };
+        assert_eq!(cap.states[0].rect[1] == 0.8, space);
+    }
 }

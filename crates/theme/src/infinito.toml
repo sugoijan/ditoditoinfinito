@@ -32,6 +32,11 @@ numbers_weight = 800
 "Secondary" = "#c9c2bb"
 "Muted" = "#a39c95"
 "Faint" = "#8a837d"
+"Keycap.Face" = "#111213"
+"Keycap.LightFace" = "#a2a2a2"
+"Keycap.GrayFace" = "#858585"
+"Keycap.DeepGrayFace" = "#7d7d7d"
+"Keycap.LightInk" = "#111111"
 "Off" = "#5f5866"
 "Accent" = "#ff6ea0"
 "OnAccent" = "#120d12"
@@ -124,6 +129,7 @@ numbers_weight = 800
 # Where the header's row (Back, the wordmark, the screen's name) ends.
 "Header.TitleEnd" = 460
 "Footer.Height" = 40
+"Footer.HintGap" = 18
 "Margin" = 32
 # Song select: the selected song on the left, the wheel on the right.
 "Select.Song.X" = 32

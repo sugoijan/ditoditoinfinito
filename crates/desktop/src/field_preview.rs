@@ -24,6 +24,8 @@ pub struct Field {
     /// Where it shows, physical pixels `[x, y, w, h]`.
     rect: Option<[f32; 4]>,
     options: FieldPreviewOptions,
+    receptors: Option<ddi_render::field_preview::ReceptorPreview>,
+    receptor_ready: Option<std::rc::Rc<std::cell::Cell<bool>>>,
     /// The texture generation the painter was given.
     registered: Option<u64>,
     start: Instant,
@@ -40,6 +42,8 @@ impl Default for Field {
             shown: None,
             rect: None,
             options: FieldPreviewOptions::default(),
+            receptors: None,
+            receptor_ready: None,
             registered: None,
             start: Instant::now(),
             reading: None,
@@ -54,6 +58,8 @@ impl Field {
         Field {
             rect: self.rect,
             options: self.options.clone(),
+            receptors: self.receptors.clone(),
+            receptor_ready: self.receptor_ready.clone(),
             wanted: self.wanted.clone().or_else(|| self.shown.clone()),
             ..Field::default()
         }
@@ -80,9 +86,32 @@ impl Field {
     /// The options and the noteskin under `settings` (the skin readied
     /// on the next frame when it changed).
     pub fn set_settings(&mut self, settings: &Settings) {
+        if self.receptors.take().is_some() {
+            self.shown = None;
+            self.reading = None;
+        }
+        self.receptor_ready = None;
         let options = ddi_shell::field_preview_options(settings);
         self.wanted = Some(ddi_shell::field_preview_skin(settings, &options));
         self.options = options;
+    }
+
+    pub fn set_receptors(&mut self, picture: Option<&ddi_ui::screens::prompt_controls::Picture>) {
+        self.receptor_ready = picture.map(|p| p.ready.clone());
+        self.rect = picture.map(|p| [0.0, 0.0, p.size[0], p.size[1]]);
+        self.receptors = picture.map(|p| {
+            let (options, want, pose) = ddi_shell::receptor_preview_options(p);
+            if self.receptors.as_ref().map(|old| &old.layout) != Some(&pose.layout) {
+                self.shown = None;
+                self.reading = None;
+            }
+            self.options = options;
+            self.wanted = Some(want);
+            pose
+        });
+    }
+    pub fn animating(&self) -> bool {
+        self.rect.is_some() && (self.receptors.is_none() || self.reading.is_some())
     }
 
     /// The noteskin drawn (`None`: the built-in arrows), its name.
@@ -144,13 +173,18 @@ impl Field {
             )
         });
         preview.set_options(self.options.clone());
+        preview.set_receptors(self.receptors.clone());
         // A skin picked: read on a thread (the older pick's read let
         // go), made and drawn once it comes; the one shown until then.
         if let Some(want) = self.wanted.clone()
             && self.shown.as_ref() != Some(&want)
             && self.reading.as_ref().is_none_or(|(w, ..)| *w != want)
         {
-            let layout = want.layout();
+            let layout = self
+                .receptors
+                .as_ref()
+                .map(|p| p.layout.clone())
+                .unwrap_or_else(|| want.layout());
             match &want.key {
                 Some(key) => {
                     let env = want.env(&layout);
@@ -189,6 +223,9 @@ impl Field {
                 size,
                 self.start.elapsed().as_secs_f64(),
             );
+        }
+        if let Some(ready) = &self.receptor_ready {
+            ready.set(self.shown == self.wanted && preview.texture().is_some());
         }
         if self.registered != Some(preview.generation()) {
             painter.set_external_image(device, SOURCE, preview.texture());

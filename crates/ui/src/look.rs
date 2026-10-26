@@ -47,8 +47,12 @@ pub struct Spec {
     pub size: [f32; 2],
     /// Its label or first text.
     pub text: String,
-    /// More texts some components take (a key hint's key caps).
+    /// More texts some components take.
     pub items: Vec<String>,
+    /// Explicit key identities or custom printing for `KeyHint`.
+    pub keycaps: Vec<crate::keycaps::Keycap>,
+    /// Plain text before `KeyHint`'s caps, such as a repeat count.
+    pub key_prefix: String,
 }
 
 impl Spec {
@@ -57,7 +61,23 @@ impl Spec {
             size,
             text: text.into(),
             items: Vec::new(),
+            keycaps: Vec::new(),
+            key_prefix: String::new(),
         }
+    }
+
+    /// Typed keycaps; also supplies plain labels to older looks via `items`.
+    pub fn with_keycaps(
+        mut self,
+        keycaps: impl IntoIterator<Item = crate::keycaps::Keycap>,
+    ) -> Spec {
+        self.keycaps = keycaps.into_iter().collect();
+        self.items = self
+            .keycaps
+            .iter()
+            .map(crate::keycaps::Keycap::label)
+            .collect();
+        self
     }
 
     /// With `items`.
@@ -582,5 +602,24 @@ mod tests {
             &Spec::new([100.0, 48.0], ""),
         );
         assert!(other.children().iter().any(|c| c.name == "Banner"));
+    }
+}
+
+#[cfg(test)]
+mod keycap_spec_tests {
+    use super::*;
+    use crate::keycaps::{KeyShape, KeyboardKey, Keycap};
+
+    #[test]
+    fn typed_caps_keep_plain_look_labels_and_custom_spelling() {
+        let custom = Keycap::custom("Enter", KeyShape::Space);
+        let spec = Spec::new([0.0, 32.0], "Action")
+            .with_keycaps([KeyboardKey::Character('e').into(), custom.clone()]);
+        assert_eq!(spec.items, ["E", "Enter"]);
+        assert_eq!(spec.keycaps[1], custom);
+        assert_eq!(
+            Keycap::from_hint("↑↓"),
+            Keycap::custom("↑↓", KeyShape::Normal)
+        );
     }
 }

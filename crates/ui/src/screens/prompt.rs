@@ -160,6 +160,8 @@ pub struct PromptView {
     pub options_saved: bool,
     /// What the shell said still loads ([`PromptState::waiting`]).
     pub waiting: Vec<String>,
+    pub bindings: Vec<String>,
+    pub active_lane: Option<usize>,
 }
 
 /// What the shell shows; `version` goes up with every change.
@@ -196,6 +198,7 @@ pub struct PromptState {
     /// The play options this play runs with (`super::prompt_options`),
     /// whether they differ from the stored settings, and whether they were
     /// just saved as the defaults; none: not offered (a replay, a test).
+    pub bindings: Option<Rc<super::prompt_controls::Controls>>,
     pub options: Vec<super::data::OptionDef>,
     pub options_differ: bool,
     pub options_saved: bool,
@@ -203,6 +206,24 @@ pub struct PromptState {
 }
 
 impl PromptState {
+    pub fn set_bindings(
+        &mut self,
+        layout: Option<&ddi_chart::Layout>,
+        settings: &crate::state::settings::Settings,
+    ) {
+        if let (Some(layout), Some(old)) = (layout, self.bindings.as_ref())
+            && old.layout == *layout
+            && old.settings == *settings
+        {
+            return;
+        }
+        let fresh = layout.map(|l| Rc::new(super::prompt_controls::Controls::new(l, settings)));
+        if self.bindings != fresh {
+            self.bindings = fresh;
+            self.version += 1;
+        }
+    }
+
     pub fn set_info(&mut self, info: PromptInfo) {
         if self.info != info {
             self.info = info;
@@ -419,6 +440,11 @@ pub struct PromptScreen {
     /// The play options' rows (`Opt.<id>`) and their `SaveOptions`, as
     /// built.
     controls: Vec<String>,
+    demo_time: f32,
+    preview_ready: Rc<std::cell::Cell<bool>>,
+    demo_config: Option<Rc<super::prompt_controls::Controls>>,
+    preview_size: std::cell::Cell<Option<[f32; 2]>>,
+    preview_told: Option<super::prompt_controls::Picture>,
 }
 
 /// Where the countdown is (`docs/plans/start-prompt.md`).
@@ -556,6 +582,11 @@ impl PromptScreen {
             start_at: std::cell::Cell::new(None),
             swallow_tap: false,
             controls: Vec::new(),
+            demo_time: 0.0,
+            preview_ready: Rc::default(),
+            demo_config: None,
+            preview_size: std::cell::Cell::new(None),
+            preview_told: None,
         }
     }
 
@@ -649,6 +680,12 @@ impl PromptScreen {
     }
 
     fn choose(&self, choice: PromptChoice, cx: &mut Cx) {
+        if matches!(
+            choice,
+            PromptChoice::Start | PromptChoice::Back | PromptChoice::Retry
+        ) {
+            cx.request(crate::UiRequest::ReceptorPreview(None));
+        }
         (self.act)(choice, cx);
     }
 
@@ -665,6 +702,7 @@ impl PromptScreen {
         } else {
             ([vp.width, vp.height], 1.0)
         };
+        self.preview_size.set(None);
         let state = self.state.borrow().clone();
         self.built = state.version;
         self.built_step = Some(std::mem::discriminant(&state.step));
@@ -695,7 +733,7 @@ impl PromptScreen {
             children.push(loading_label(&env, screen));
             env.state.borrow_mut().hints = Vec::new();
         } else {
-            let (card, buttons, controls) = self.card(&state);
+            let (card, buttons, controls) = self.card(&state, cx);
             self.buttons = buttons;
             self.controls = controls;
             self.card_shown = Some(card.clone());
@@ -703,7 +741,7 @@ impl PromptScreen {
         }
         if !state.touch && state.step == PromptStep::Ready {
             let hints: &[(&[&str], &str)] = &[(&["ENTER"], "Start"), (&["ESC"], "Back")];
-            let (f, texts) = footer(&env, screen, hints, "", &[]);
+            let (f, texts) = footer(&env, screen, hints, "", &[], cx);
             env.state.borrow_mut().hints = texts;
             children.push(f);
         } else if !matches!(state.step, PromptStep::Loading(_)) {
@@ -718,7 +756,7 @@ impl PromptScreen {
 
     /// The card in the middle, its buttons (the first focused), and the
     /// play options' rows and their Save.
-    fn card(&self, state: &PromptState) -> (Actor, Vec<String>, Vec<String>) {
+    fn card(&self, state: &PromptState, cx: &mut Cx) -> (Actor, Vec<String>, Vec<String>) {
         let env = &self.env;
         let [sw, sh] = self.screen;
         // A phone sideways: wider, so fewer lines and buttons lie on it.
@@ -774,19 +812,30 @@ impl PromptScreen {
         if !i.badge.is_empty() {
             line(&mut c, "Badge", &i.badge, SMALL, 700, "Accent", &mut y);
         }
-        if !i.mods.is_empty() {
+        if !i.mods.is_empty() && (state.step != PromptStep::Ready || state.options.is_empty()) {
             line(&mut c, "Mods", &i.mods, SMALL, 400, "Muted", &mut y);
         }
         // The play options (while Start is offered): this play's,
         // Options' own rows.
         let mut controls: Vec<String> = Vec::new();
+        if state.step == PromptStep::Ready
+            && let Some(binding) = &state.bindings
+        {
+            y += 12.0;
+            let (actors, height, size) =
+                super::prompt_controls::draw(env, binding, inner, y, sh < 480.0, cx);
+            c.extend(actors);
+            y += height;
+            self.preview_size.set(Some(size));
+        }
         if state.step == PromptStep::Ready && !state.options.is_empty() {
             y += 14.0;
             let head = look::tracked(
-                env.text("OptionsHeading", "THIS PLAY", 11.0, 600, "Faint"),
+                env.text("OptionsHeading", "MODIFIERS", 11.0, 600, "Faint"),
                 120,
             );
             c.push(left(head, 24.0, y + 9.0));
+            let save_y = y + 9.0;
             if state.options_differ {
                 let label = "Save as default";
                 let bw = look::mono_width(label, 13.0) + 24.0;
@@ -797,14 +846,14 @@ impl PromptScreen {
                     &Spec::new([bw, 26.0], label),
                 );
                 b.name = "SaveOptions".into();
-                call(&mut b, "xy", &[w - 24.0 - bw / 2.0, y + 9.0]);
+                call(&mut b, "xy", &[w - 24.0 - bw / 2.0, save_y]);
                 c.push(b);
                 controls.push("SaveOptions".into());
             } else if state.options_saved {
                 c.push(right(
                     env.text("OptionsSaved", "Saved as default", 12.0, 400, "Muted"),
                     w - 24.0,
-                    y + 9.0,
+                    save_y,
                 ));
             }
             y += 22.0;
@@ -874,19 +923,6 @@ impl PromptScreen {
                     let n = left.ceil().max(1.0) as u32;
                     let status = format!("Starting in {n}");
                     line(&mut c, "Status", &status, BODY + 3.0, 700, "Text", &mut y);
-                    let how = if state.touch {
-                        "Tap Start to start now, anywhere else to wait"
-                    } else {
-                        "Enter starts now · any other key waits"
-                    };
-                    line(&mut c, "Countdown", how, SMALL, 400, "Muted", &mut y);
-                } else {
-                    let status = if state.touch {
-                        "Tap to start"
-                    } else {
-                        "Press Enter, or Start on a controller, or click to start"
-                    };
-                    line(&mut c, "Status", status, BODY + 3.0, 700, "Text", &mut y);
                 }
                 buttons.push(("Start".into(), "Start".into(), "PlayButton"));
                 buttons.push(("Back".into(), "Back".into(), "Button"));
@@ -977,16 +1013,10 @@ impl PromptScreen {
                 }
             }
         }
-        for (k, n) in state.notes.iter().enumerate() {
-            line(&mut c, &format!("Note{k}."), n, SMALL, 400, "Muted", &mut y);
-        }
-        if matches!(state.step, PromptStep::Ready) {
-            let quit = if state.touch {
-                "During play, hold or double-tap the ✕ button to quit."
-            } else {
-                "During play, hold or double-tap Esc (or Back) to quit."
-            };
-            line(&mut c, "Quit", quit, SMALL, 400, "Faint", &mut y);
+        if state.step != PromptStep::Ready {
+            for (k, n) in state.notes.iter().enumerate() {
+                line(&mut c, &format!("Note{k}."), n, SMALL, 400, "Muted", &mut y);
+            }
         }
         y += 18.0;
         // Taller on a phone upright (a thumb's).
@@ -1076,6 +1106,11 @@ impl PromptScreen {
         let room = sh - 16.0 - if state.touch { 0.0 } else { 40.0 };
         let zoom = (room / h).min(1.0);
         call(&mut card, "zoom", &[zoom]);
+        if let Some(size) = self.preview_size.get() {
+            let ratio = zoom * self.zoom;
+            self.preview_size
+                .set(Some([size[0] * ratio, size[1] * ratio]));
+        }
         let top = ((sh - if state.touch { 0.0 } else { 40.0 }) - h * zoom) / 2.0;
         call(&mut card, "xy", &[(sw - w * zoom) / 2.0, top.max(8.0)]);
         (
@@ -1184,6 +1219,53 @@ impl PromptScreen {
     }
 
     /// What tests read of the prompt (`__DDI_DEBUG.ui.theme.prompt`).
+    fn active_lane(&self) -> Option<usize> {
+        if self.env.reduced() || self.state.borrow().step != PromptStep::Ready {
+            return None;
+        }
+        self.state
+            .borrow()
+            .bindings
+            .as_ref()
+            .and_then(|c| c.active(self.demo_time))
+    }
+    fn draw_controls(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let active = self.active_lane();
+        let st = self.state.borrow();
+        let picture = self
+            .preview_size
+            .get()
+            .zip(st.bindings.clone())
+            .filter(|_| st.step == PromptStep::Ready)
+            .map(|(size, controls)| super::prompt_controls::Picture {
+                controls,
+                size: size.map(|v| v * cx.viewport().scale),
+                ready: self.preview_ready.clone(),
+                time: self.demo_time,
+                active,
+            });
+        if let Some(p) = &picture {
+            for i in 0..p.controls.keys.len() {
+                if let Some(key) = crate::hit::find_mut(root, &format!("KeyMotion{i}")) {
+                    // 4 mm travel in the study's camera projects to 2.271 px at 32 px.
+                    call(
+                        key,
+                        "y",
+                        &[if active == Some(i) && p.controls.keys[i].is_some() {
+                            2.271 * 26.0 / 32.0
+                        } else {
+                            0.0
+                        }],
+                    );
+                }
+            }
+        }
+        if self.preview_told != picture {
+            cx.request(crate::UiRequest::ReceptorPreview(picture.clone()));
+            self.preview_told = picture;
+        }
+    }
+
     fn publish_view(&self) {
         let view = PromptView {
             loading: self.loading.is_some(),
@@ -1200,6 +1282,19 @@ impl PromptScreen {
             options_differ: self.state.borrow().options_differ,
             options_saved: self.state.borrow().options_saved,
             waiting: self.state.borrow().waiting.clone(),
+            bindings: self
+                .state
+                .borrow()
+                .bindings
+                .as_ref()
+                .map(|b| {
+                    b.keys
+                        .iter()
+                        .map(|k| k.clone().unwrap_or_default())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            active_lane: self.active_lane(),
         };
         let mut st = self.env.state.borrow_mut();
         if st.prompt.as_ref() != Some(&view) {
@@ -1429,6 +1524,7 @@ impl Screen for PromptScreen {
         // a frame builds it, whatever the step.
         let st = self.state.borrow();
         matches!(st.step, PromptStep::Loading(_))
+            || (st.bindings.is_some() && !self.env.reduced() && st.step == PromptStep::Ready)
             || st.done
             || self.counting().is_some()
             || (self.countdown == Countdown::Off && st.countdown.is_some())
@@ -1439,6 +1535,7 @@ impl Screen for PromptScreen {
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         // The shell started the play: gone.
         if self.state.borrow().done {
+            cx.request(crate::UiRequest::ReceptorPreview(None));
             cx.close(false);
             return;
         }
@@ -1518,6 +1615,19 @@ impl Screen for PromptScreen {
                 false
             }
         };
+        let config = self.state.borrow().bindings.clone();
+        if self.demo_config != config {
+            self.demo_time = 0.0;
+            self.preview_ready.set(false);
+            self.demo_config = config;
+        }
+        if self.preview_ready.get()
+            && !reduced
+            && !loading
+            && let Some(c) = &self.demo_config
+        {
+            self.demo_time = (self.demo_time + dt) % (c.duration() + 1.0);
+        }
         self.tick_countdown(dt, root, cx);
         // Built again only while it moves: any other change bumps the
         // version, which builds the whole tree below.
@@ -1540,6 +1650,7 @@ impl Screen for PromptScreen {
         }
         let focused = cx.focused().map(str::to_string);
         self.light(root, focused.as_deref());
+        self.draw_controls(root, cx);
         self.publish_view();
     }
 
@@ -1737,6 +1848,92 @@ mod tests {
         (h, seen)
     }
 
+    fn controls_state() -> SharedPrompt {
+        let state = SharedPrompt::default();
+        let settings = crate::state::settings::Settings::default();
+        let layout = ddi_chart::Layout::builtin("danoni-7").unwrap();
+        state.borrow_mut().set_bindings(Some(&layout), &settings);
+        super::super::prompt_options::PlayOptions::new(
+            settings,
+            &layout.id,
+            super::super::data::Platform::Web,
+        )
+        .show(&mut state.borrow_mut());
+        state
+    }
+
+    fn latest_picture(h: &Harness) -> &super::super::prompt_controls::Picture {
+        h.requests
+            .iter()
+            .rev()
+            .find_map(|r| match r {
+                crate::UiRequest::ReceptorPreview(Some(p)) => Some(p),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn controls_wait_for_the_skin_and_animate_keys_with_receptors() {
+        let state = controls_state();
+        let (mut h, seen) = prompt(&state);
+        assert_eq!(view().bindings.len(), 7);
+        assert!(h.ui.actor("BindingKey6").is_some());
+        h.run(1.0);
+        assert_eq!(latest_picture(&h).time, 0.0);
+        latest_picture(&h).ready.set(true);
+        h.run(0.25);
+        assert_eq!(latest_picture(&h).active, Some(0));
+        assert!(h.actor("KeyMotion0").current().pos[1] > 0.0);
+        h.run(1.5);
+        assert_eq!(latest_picture(&h).active, None);
+        assert!(seen.borrow().is_empty());
+        assert!(h.ui.actor("Opt.speed").is_some());
+        assert!(h.ui.actor("BindingKey0").is_some());
+        assert!(h.ui.actor("Tab.Controls").is_none());
+        for name in ["BindingCaption", "Status0", "Note0.0", "Quit0"] {
+            assert!(
+                h.ui.actor(name).is_none(),
+                "unexpected explanatory line {name}"
+            );
+        }
+        let key = h.ui.bounds("BindingKey0").unwrap();
+        let row = h.ui.bounds("Opt.speed").unwrap();
+        assert!(row[1] > key[3], "modifiers belong below the bindings");
+        // With no replay button, the sequence loops after its quiet pause.
+        let until_next =
+            latest_picture(&h).controls.duration() + 1.0 - latest_picture(&h).time + 0.25;
+        h.run(until_next);
+        assert_eq!(latest_picture(&h).active, Some(0));
+        assert!(h.ui.actor("ReplayControls").is_none());
+        h.tap(PointerKind::Mouse, "Start");
+        assert_eq!(*seen.borrow(), [(PromptChoice::Start, true)]);
+        assert!(matches!(
+            h.requests.last(),
+            Some(crate::UiRequest::ReceptorPreview(None))
+        ));
+    }
+
+    #[test]
+    fn auto_start_cuts_the_demo_even_if_the_skin_is_not_ready() {
+        let state = controls_state();
+        state.borrow_mut().set_countdown(Some(0.5));
+        let (mut h, seen) = prompt(&state);
+        h.run(0.3);
+        assert_eq!(starts(&seen), [false]);
+    }
+
+    #[test]
+    fn reduced_motion_shows_bindings_without_synthetic_presses() {
+        let state = controls_state();
+        let (mut h, seen) = prompt_with(&state, true);
+        latest_picture(&h).ready.set(true);
+        h.run(2.0);
+        assert_eq!(latest_picture(&h).time, 0.0);
+        assert_eq!(latest_picture(&h).active, None);
+        assert!(seen.borrow().is_empty());
+    }
+
     #[test]
     fn start_and_back_reach_the_shell_inside_the_gesture() {
         let state = SharedPrompt::default();
@@ -1800,7 +1997,7 @@ mod tests {
             .set_notes(vec!["loading the video decoder… 40 %".into()]);
         state.borrow_mut().set_step(PromptStep::Ready);
         h.run(0.1);
-        assert!(h.texts().iter().any(|t| t.contains("40 %")));
+        assert!(!h.texts().iter().any(|t| t.contains("40 %")));
     }
 
     #[test]
@@ -2133,7 +2330,7 @@ mod tests {
             h.run(4.0);
             assert!(starts(&seen).is_empty(), "{what}: {:?}", seen.borrow());
             assert!(
-                h.texts().iter().any(|t| t.starts_with("Press Enter")),
+                !h.texts().iter().any(|t| t.starts_with("Press Enter")),
                 "{what}"
             );
             assert!(h.ui.actor("CountdownBar").is_none(), "{what}");

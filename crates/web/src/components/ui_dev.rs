@@ -285,6 +285,7 @@ pub(crate) struct Host {
     /// Where the options screen shows the field's preview, physical
     /// pixels of the canvas ([`UiRequest::FieldPreview`]).
     pub(crate) field_preview: Option<[f32; 4]>,
+    receptor_preview: Option<ddi_ui::screens::prompt_controls::Picture>,
     /// The settings the options page is editing, handed over as they
     /// change (taken by the next frame); the preview reads the stored
     /// ones on the developer routes, where nothing hands them over.
@@ -805,6 +806,7 @@ fn new_host(
         listeners: Vec::new(),
         notices: None,
         field_preview: None,
+        receptor_preview: None,
         field_settings: Rc::default(),
         field_last: None,
         field_busy: 0,
@@ -1692,16 +1694,23 @@ impl Host {
 
     /// Whether the field preview is a still frame (reduced motion).
     fn field_still(&self) -> bool {
-        self.theme
-            .as_ref()
-            .is_some_and(|t| t.env.reduced_motion.get())
+        self.receptor_preview.is_some()
+            || self
+                .theme
+                .as_ref()
+                .is_some_and(|t| t.env.reduced_motion.get())
     }
 
     /// Carries out requests (inside the platform's handler when they come
     /// from an event).
     fn run(&mut self, requests: Vec<UiRequest>) {
         for r in requests {
-            self.requests.push_back(format!("{r:?}"));
+            self.requests.push_back(match &r {
+                UiRequest::ReceptorPreview(p) => {
+                    format!("ReceptorPreview({:?})", p.as_ref().map(|p| p.active))
+                }
+                _ => format!("{r:?}"),
+            });
             while self.requests.len() > KEPT_REQUESTS {
                 self.requests.pop_front();
             }
@@ -1816,7 +1825,17 @@ impl Host {
                 // Where the options screen shows the field (the preview
                 // is drawn by the play's renderer: kept for it and the
                 // debug state).
-                UiRequest::FieldPreview(rect) => self.field_preview = rect,
+                UiRequest::FieldPreview(rect) => {
+                    self.field_preview = rect;
+                    self.receptor_preview = None;
+                }
+                UiRequest::ReceptorPreview(picture) => {
+                    self.field_preview = picture.as_ref().map(|p| [0.0, 0.0, p.size[0], p.size[1]]);
+                    if self.receptor_preview != picture {
+                        self.field_busy = 2;
+                    }
+                    self.receptor_preview = picture;
+                }
             }
         }
     }
@@ -2051,12 +2070,16 @@ impl Host {
                 self.field_size = size;
             }
             if let Some(f) = slot.as_mut() {
-                match &self.field_last {
-                    Some(s) if fresh => f.set_settings(s),
-                    Some(_) => {}
-                    None => f.poll_settings(time_ms),
+                if let Some(picture) = &self.receptor_preview {
+                    f.set_receptors(picture);
+                } else {
+                    match &self.field_last {
+                        Some(s) if fresh => f.set_settings(s),
+                        Some(_) => {}
+                        None => f.poll_settings(time_ms),
+                    }
                 }
-                if still {
+                if still && self.receptor_preview.is_none() {
                     f.seek(FIELD_STILL_MS / 1000.0);
                 }
                 f.draw(
@@ -2066,6 +2089,9 @@ impl Host {
                     if still { FIELD_STILL_MS } else { time_ms },
                     &Rc::downgrade(&self.field),
                 );
+                if let Some(picture) = &self.receptor_preview {
+                    picture.ready.set(f.ready());
+                }
                 if f.status.contains("loading") {
                     self.field_busy = self.field_busy.max(2);
                 }
@@ -2360,6 +2386,7 @@ fn publish(h: &Host) {
             names.push("Card".into());
             names.push("SaveOptions".into());
             if let Some(p) = &st.prompt {
+                names.extend((0..p.bindings.len()).map(|i| format!("BindingKey{i}")));
                 for o in &p.options {
                     let id = o.split('=').next().unwrap_or_default();
                     for part in ["", ".Down", ".Up"] {
@@ -2560,6 +2587,12 @@ fn publish(h: &Host) {
                 set(&v, "countdownState", p.countdown_state.as_str().into());
                 set(&v, "options", strings(&p.options));
                 set(&v, "optionsDiffer", p.options_differ.into());
+                set(&v, "bindings", strings(&p.bindings));
+                set(
+                    &v,
+                    "activeLane",
+                    p.active_lane.map_or(JsValue::NULL, |i| (i as f64).into()),
+                );
                 set(&v, "saved", p.options_saved.into());
                 set(&v, "waiting", strings(&p.waiting));
                 v.into()

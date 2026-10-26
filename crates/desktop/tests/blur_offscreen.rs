@@ -128,6 +128,7 @@ fn quads_and_runs_smear_along_their_blur() {
     let run = |blur: [f32; 2]| {
         let mut l = DrawList::new();
         l.push(draw2d::Command::Text(draw2d::TextRun {
+            curve: None,
             text: "DITO".into(),
             style: TextStyle::new("Iosevka Term", 40.0),
             transform: draw2d::Affine::translate(40.0, 60.0),
@@ -167,4 +168,58 @@ fn quads_and_runs_smear_along_their_blur() {
         rows(&smeared),
         rows(&sharp)
     );
+}
+
+/// Surface bending preserves each column's ink while moving it by the
+/// curve, including inside individual glyphs (not just between letters).
+#[test]
+fn curved_text_preserves_coverage_and_bends_inside_glyphs() {
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).expect("device");
+    let curve = ddi_actor::text::TextCurve {
+        center: 50.0,
+        quadratic: -0.004,
+    };
+    let run = |bend| {
+        let mut l = DrawList::new();
+        l.push(draw2d::Command::Text(draw2d::TextRun {
+            curve: bend,
+            text: "MMMMM".into(),
+            style: TextStyle::new("Iosevka Term", 40.0),
+            transform: draw2d::Affine::translate(40.0, 60.0),
+            color: [1.0; 4],
+            blend: draw2d::Blend::Normal,
+            mask: draw2d::Mask::None,
+            perspective: None,
+            blur: [0.0; 2],
+        }));
+        l
+    };
+    let flat = draw(&device, &queue, &run(None));
+    let bent = draw(&device, &queue, &run(Some(curve)));
+    let column = |p: &[u8], x| {
+        let ink: f32 = (0..SIZE[1]).map(|y| red(p, x, y)).sum();
+        let moment: f32 = (0..SIZE[1]).map(|y| red(p, x, y) * y as f32).sum();
+        (ink, moment / ink)
+    };
+    let mut checked = 0;
+    for x in 40..140 {
+        let (ink, y) = column(&flat, x);
+        if ink < 4.0 {
+            continue;
+        }
+        let (curved_ink, curved_y) = column(&bent, x);
+        assert!((curved_ink - ink).abs() < 0.25, "column {x} lost ink");
+        let expected = curve.offset(x as f32 + 0.5 - 40.0);
+        assert!(
+            (curved_y - y - expected).abs() < 0.3,
+            "column {x}: {} expected {expected}",
+            curved_y - y
+        );
+        checked += 1;
+    }
+    assert!(checked > 40);
 }

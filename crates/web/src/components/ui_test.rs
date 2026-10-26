@@ -438,6 +438,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         rgb(64, 200, 255),
     );
     l.push(Command::Text(TextRun {
+        curve: None,
         text: "turned 回転".into(),
         style: sans.clone(),
         transform: Affine::rotate(-0.2).then(Affine::translate(420.0, 330.0)),
@@ -448,6 +449,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         blur: [0.0; 2],
     }));
     l.push(Command::Text(TextRun {
+        curve: None,
         text: "×2".into(),
         style: sans.clone(),
         transform: Affine::scale(2.0, 2.0).then(Affine::translate(600.0, 380.0)),

@@ -866,6 +866,18 @@ impl Host {
             return;
         };
         let settings = r.settings();
+        let layout = if r.request.calibration.is_none() && r.request.replay.is_none() {
+            loaded
+                .song
+                .charts
+                .get(r.request.chart)
+                .and_then(|c| loaded.song.layout_of(c))
+        } else {
+            None
+        };
+        r.prompt
+            .borrow_mut()
+            .set_bindings(layout.as_ref(), &settings);
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, dev.formats);
             view.set_song(&loaded, &settings);

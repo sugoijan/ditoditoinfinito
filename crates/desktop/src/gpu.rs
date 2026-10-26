@@ -30,6 +30,10 @@ pub const FACES: &[(&str, &[u8])] = &[
     ),
     (
         "Iosevka Term",
+        include_bytes!("../../../assets/fonts/IosevkaTerm-Italic-latin.ttf"),
+    ),
+    (
+        "Iosevka Term",
         include_bytes!("../../../assets/fonts/IosevkaTerm-SemiBold-latin.ttf"),
     ),
     (

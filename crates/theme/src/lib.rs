@@ -34,6 +34,8 @@ pub const TUNABLES: &str = include_str!("infinito.toml");
 #[cfg(test)]
 mod tunables;
 
+mod keycaps;
+pub use keycaps::KeycapMaterial;
 mod wordmark;
 
 mod tables {
@@ -42,6 +44,7 @@ mod tables {
 
 /// Our theme.
 pub struct Infinito {
+    keycap_material: std::cell::Cell<KeycapMaterial>,
     text_font: Arc<str>,
     numbers_font: Arc<str>,
     numbers_weight: u16,
@@ -65,6 +68,7 @@ impl Infinito {
     /// The theme from the shipped tunables.
     pub fn new() -> Infinito {
         Infinito {
+            keycap_material: std::cell::Cell::new(KeycapMaterial::DeepGraySatin),
             text_font: tables::TEXT_FONT.into(),
             numbers_font: tables::NUMBERS_FONT.into(),
             numbers_weight: tables::NUMBERS_WEIGHT,
@@ -1059,45 +1063,6 @@ impl Infinito {
         )
     }
 
-    fn key_hint(&self, spec: &Spec) -> Actor {
-        let h = spec.size[1].max(20.0);
-        let mut c = Vec::new();
-        let mut x = 0.0;
-        for (i, k) in spec.items.iter().enumerate() {
-            let kw = mono_width(k, 11.0) + 12.0;
-            c.push(outline(
-                &format!("Cap{i}"),
-                [x, -10.0, kw, 20.0],
-                1.0,
-                self.c("Line2"),
-            ));
-            // A heavier bottom edge, as a key cap's.
-            c.push(outline_r(
-                "",
-                [x, -9.0, kw, 20.0],
-                1.0,
-                self.c("Line2"),
-                4.0,
-            ));
-            c.push(at(
-                self.num(&format!("Key{i}"), k, 11.0, "Text"),
-                x + kw / 2.0,
-                -0.5,
-            ));
-            x += kw + 4.0;
-        }
-        x += 2.0;
-        let label = at_left(self.text("Label", &spec.text, 13.0, 400, "Muted"), x, 0.0);
-        let w = x + mono_width(&spec.text, 13.0);
-        // Centred on its middle.
-        let mut inner = frame("Inner", {
-            c.push(label);
-            c
-        });
-        call(&mut inner, "x", &[-w / 2.0]);
-        frame("", vec![inner, extent([w, h])])
-    }
-
     /// The screens' header, one row: the Back button, the wordmark
     /// filling the height (live, as the start menu's title; the screen
     /// binds its image and ticks it, `ddi_ui::screens::header`, `Live`),
@@ -1260,7 +1225,11 @@ impl Infinito {
 
 impl Look for Infinito {
     fn image(&self, name: &str) -> Option<&str> {
-        matches!(name, "TitleMenu.Title" | "Screen.Header").then_some("title/dosis.png")
+        match name {
+            "TitleMenu.Title" | "Screen.Header" => Some("title/dosis.png"),
+            "KeyHint" => Some(self.keycap_material.get().image()),
+            _ => None,
+        }
     }
 
     fn component(&self, name: &str, spec: &Spec) -> Option<Actor> {

@@ -122,6 +122,8 @@ pub enum UiRequest {
     /// [`crate::screens::options::FIELD_PREVIEW`] at that size. Sent when
     /// it changes.
     FieldPreview(Option<[f32; 4]>),
+    /// The pre-start controls diagram, using the play's skin and bindings.
+    ReceptorPreview(Option<crate::screens::prompt_controls::Picture>),
 }
 
 impl UiRequest {

@@ -355,9 +355,14 @@ impl PageScreen {
             let (f, texts) = footer(
                 &env,
                 [w, h],
-                &[(&["↑↓"], "Move"), (&["ENTER"], "Open"), (&["ESC"], "Back")],
+                &[
+                    (&["↑", "↓"], "Move"),
+                    (&["ENTER"], "Open"),
+                    (&["ESC"], "Back"),
+                ],
                 "",
                 &[("Link.Back", "Back")],
+                cx,
             );
             env.state.borrow_mut().hints = texts;
             children.push(f);

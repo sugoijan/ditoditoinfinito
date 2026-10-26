@@ -45,6 +45,14 @@ use crate::noteskin::{NoteLayer, NoteskinPlay};
 use crate::renderer::{Renderer, SkinBlending};
 use crate::scene::{ColorScheme, RenderOptions};
 
+/// A receptor-only diagram, with an independent presentation clock.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReceptorPreview {
+    pub layout: Layout,
+    pub time: f32,
+    pub active: Option<usize>,
+}
+
 /// The texture source the 2D pass draws the preview under.
 pub const SOURCE: &str = "field-preview";
 
@@ -168,6 +176,8 @@ impl SkinWant {
             })
             .unwrap_or_default();
         ddi_noteskin::lua::Env {
+            columns: layout.lane_count() as u32,
+            reversed: self.reverse,
             params: self.params.clone(),
             ..env
         }
@@ -200,6 +210,9 @@ pub struct FieldPreview {
     /// Frames drawn, and textures made (a new one wants registering).
     frames: u64,
     generation: u64,
+    receptors: Option<ReceptorPreview>,
+    receptor_time: Option<f32>,
+    receptor_active: Option<usize>,
 }
 
 impl FieldPreview {
@@ -236,6 +249,9 @@ impl FieldPreview {
             stepped: None,
             frames: 0,
             generation: 0,
+            receptors: None,
+            receptor_time: None,
+            receptor_active: None,
         };
         preview.replay();
         preview
@@ -282,6 +298,118 @@ impl FieldPreview {
         self.stepped = None;
     }
 
+    /// Switch between Options' demo and the pre-start receptor diagram.
+    pub fn set_receptors(&mut self, pose: Option<ReceptorPreview>) {
+        if self.receptors.is_some() != pose.is_some() {
+            self.replay();
+            self.receptor_time = None;
+            self.receptor_active = None;
+        }
+        self.receptors = pose;
+    }
+
+    fn draw_receptors(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        size: [u32; 2],
+        pose: &ReceptorPreview,
+    ) {
+        use crate::scene::{FieldGeometry, Preview};
+        use ddi_engine::frame::{ReceptorState, SkinEvent, SkinEventKind};
+        let Some(demo) = &mut self.demo else {
+            return;
+        };
+        let mut frame = demo.step(0.0).frame;
+        frame.song_time = 2.0 + f64::from(pose.time);
+        frame.beat = 0.0;
+        frame.lanes = pose.layout.lane_count() as u8;
+        frame.notes.clear();
+        frame.receptors = vec![
+            ReceptorState {
+                pressed: false,
+                flash: None,
+                holding: None
+            };
+            pose.layout.lane_count()
+        ];
+        let reverse = self.options.play.scroll.reverse;
+        if let Some(skin) = &mut self.noteskin
+            && self.receptor_time.is_none_or(|last| pose.time < last)
+        {
+            skin.restart();
+            for i in 0..=8 {
+                frame.song_time = f64::from(i) * 0.25;
+                skin.update(&frame, std::iter::empty(), reverse);
+            }
+            self.receptor_active = None;
+            frame.song_time = 2.0 + f64::from(pose.time);
+        }
+        if let Some(i) = pose.active.and_then(|i| frame.receptors.get_mut(i)) {
+            i.pressed = true;
+        }
+        let mut events = Vec::new();
+        if self.receptor_active != pose.active {
+            for (lane, kind) in [
+                (self.receptor_active, SkinEventKind::Lift),
+                (pose.active, SkinEventKind::Press),
+                (pose.active, SkinEventKind::Step(None)),
+            ] {
+                if let Some(lane) = lane {
+                    events.push(SkinEvent {
+                        seq: self.frames * 3 + events.len() as u64,
+                        lane: lane as u8,
+                        kind,
+                        song_time: frame.song_time,
+                        autoplay: false,
+                        danoni_judgments: false,
+                        note: None,
+                    });
+                }
+            }
+        }
+        if let Some(skin) = &mut self.noteskin {
+            skin.update(&frame, events.iter(), reverse);
+        }
+        self.receptor_active = pose.active;
+        self.receptor_time = Some(pose.time);
+        let background = self.renderer.skin.background;
+        self.renderer.skin.background = wgpu::Color::TRANSPARENT;
+        let opts = RenderOptions {
+            reverse,
+            background: 0.0,
+            preview: Some(Preview {
+                geometry: FieldGeometry {
+                    arrow: size[0] as f32 / pose.layout.lane_count().max(1) as f32,
+                    left: 0.0,
+                    receptor_y: size[1] as f32 / 2.0,
+                    direction: 1.0,
+                    width: size[0] as f32,
+                    height: size[1] as f32,
+                },
+                receptors: true,
+            }),
+            ..RenderOptions::default()
+        };
+        self.renderer.render(
+            device,
+            queue,
+            encoder,
+            &self.target.as_ref().unwrap().view,
+            None,
+            size[0],
+            size[1],
+            &frame,
+            &pose.layout,
+            &self.names,
+            opts,
+            self.noteskin.as_mut().map(|p| p as &mut dyn NoteLayer),
+        );
+        self.renderer.skin.background = background;
+        self.frames += 1;
+    }
+
     /// The renderer, for the shell to put a noteskin's textures on (as
     /// play does) inside [`FieldPreview::set_noteskin`].
     pub fn renderer_mut(&mut self) -> &mut Renderer {
@@ -306,6 +434,8 @@ impl FieldPreview {
             upload(&mut self.renderer, &mut p);
             p
         });
+        self.receptor_time = None;
+        self.receptor_active = None;
         // At the same time, the effects under way played on the new skin.
         self.replay();
     }
@@ -375,7 +505,11 @@ impl FieldPreview {
         size: [u32; 2],
         now: f64,
     ) {
-        let size = [size[0].max(1), size[1].max(1)];
+        // A wide custom layout's strip can exceed the device's texture limit.
+        // Keep its aspect ratio; the UI still crops every lane from the strip.
+        let limit = device.limits().max_texture_dimension_2d;
+        let scale = (limit as f32 / size[0].max(size[1]).max(1) as f32).min(1.0);
+        let size = size.map(|v| ((v as f32 * scale).round() as u32).clamp(1, limit));
         if self.target.as_ref().is_none_or(|t| t.size != size) {
             let texture = crate::gpu::texture_2d(
                 device,
@@ -396,6 +530,10 @@ impl FieldPreview {
                 view,
             });
             self.generation += 1;
+        }
+        if let Some(pose) = self.receptors.clone() {
+            self.draw_receptors(device, queue, encoder, size, &pose);
+            return;
         }
         // The demo's time goes on with the host's, a long gap a pause.
         if let Some(last) = self.last {

@@ -153,6 +153,7 @@ pub fn draw(
                 (0.0, [COLOR[0], COLOR[1], COLOR[2], alpha]),
             ] {
                 list.push(Command::Text(TextRun {
+                    curve: None,
                     text: part.as_str().into(),
                     style: style.clone(),
                     transform: Affine::translate(x + dx, y + dx),
@@ -252,6 +253,7 @@ fn draw_stepmania(
                 ),
             ] {
                 list.push(Command::Text(TextRun {
+                    curve: None,
                     text: text.as_str().into(),
                     style: style.clone(),
                     transform: Affine::translate(x, top + dy),

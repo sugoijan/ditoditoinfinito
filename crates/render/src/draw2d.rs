@@ -202,6 +202,8 @@ impl Quad {
 /// A run of text on one line.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextRun {
+    /// Bend in the run's local units; shaping and cache keys stay unchanged.
+    pub curve: Option<ddi_actor::text::TextCurve>,
     pub text: Arc<str>,
     pub style: TextStyle,
     /// Places the line box, whose top left is the origin.
@@ -284,6 +286,7 @@ impl DrawList {
         color: [f32; 4],
     ) {
         self.push(Command::Text(TextRun {
+            curve: None,
             text: text.into(),
             style: style.clone(),
             transform: Affine::translate(x, y),

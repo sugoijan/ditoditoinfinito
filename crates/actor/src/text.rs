@@ -10,6 +10,34 @@
 
 use std::sync::Arc;
 
+/// A shallow cylindrical bend, applied after shaping without changing the
+/// text cache or its advance. Coordinates are relative to the run's pen;
+/// y grows down. The offset is zero at x=0 and has its turning point at
+/// `center`. A negative quadratic makes a keycap's legend dip in the middle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextCurve {
+    pub center: f32,
+    pub quadratic: f32,
+}
+
+impl TextCurve {
+    pub fn offset(self, x: f32) -> f32 {
+        self.quadratic * x * (x - 2.0 * self.center)
+    }
+
+    /// Corners of a strip: top left, top right, bottom right, bottom left.
+    pub fn corners(self, [left, top, right, bottom]: [f32; 4]) -> [[f32; 2]; 4] {
+        let l = self.offset(left);
+        let r = self.offset(right);
+        [
+            [left, top + l],
+            [right, top + r],
+            [right, bottom + r],
+            [left, bottom + l],
+        ]
+    }
+}
+
 /// How a run is set. Two runs with equal styles and text draw alike.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TextStyle {

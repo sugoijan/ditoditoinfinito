@@ -2067,6 +2067,14 @@ impl GameCanvas {
         }
         let picture = self.prompt_picture(ctx);
         let info = self.prompt_info(ctx);
+        let layout = match (&self.song, &ctx.props().source) {
+            (Status::Ready(song), SongSource::Song { chart, .. }) if self.replay.is_none() => song
+                .song
+                .charts
+                .get(*chart)
+                .and_then(|c| song.song.layout_of(c)),
+            _ => None,
+        };
         let waiting = self.waiting_for().into_iter().map(String::from).collect();
         let changed = {
             let mut st = self.prompt_state.borrow_mut();
@@ -2076,6 +2084,7 @@ impl GameCanvas {
             st.set_waiting(waiting);
             let before = st.version;
             st.set_info(info);
+            st.set_bindings(layout.as_ref(), &self.settings);
             st.set_step(step);
             st.set_notes(notes);
             st.set_touch(self.touch);

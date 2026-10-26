@@ -573,6 +573,10 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
         }),
         ..PromptState::default()
     }));
+    state.borrow_mut().set_bindings(
+        Some(&ddi_chart::Layout::dance_single()),
+        &crate::state::settings::Settings::default(),
+    );
     let mut options = PlayOptions::new(
         crate::state::settings::Settings::default(),
         "dance-single",
@@ -595,6 +599,11 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
             if let PromptChoice::Option { id, index } = c {
                 options.borrow_mut().change(&id, index);
                 options.borrow().show(&mut shown.borrow_mut());
+                let mut settings = crate::state::settings::Settings::default();
+                options.borrow().over(&mut settings);
+                shown
+                    .borrow_mut()
+                    .set_bindings(Some(&ddi_chart::Layout::dance_single()), &settings);
             }
         }),
     )

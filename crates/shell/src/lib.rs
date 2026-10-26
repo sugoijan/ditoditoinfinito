@@ -204,6 +204,28 @@ pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> Option<(Stri
     ))
 }
 
+/// Settings for the pre-start diagram, following the selected chart rather
+/// than the menu's style. Both hosts use the same skin and pose.
+pub fn receptor_preview_options(
+    p: &ddi_ui::screens::prompt_controls::Picture,
+) -> (
+    FieldPreviewOptions,
+    SkinWant,
+    ddi_render::field_preview::ReceptorPreview,
+) {
+    let mut settings = p.controls.settings.clone();
+    settings.style = p.controls.layout.id.clone();
+    let mut options = field_preview_options(&settings);
+    options.layout = p.controls.layout.id.clone();
+    let want = field_preview_skin(&settings, &options);
+    let pose = ddi_render::field_preview::ReceptorPreview {
+        layout: p.controls.diagram_layout(),
+        time: p.time,
+        active: p.active,
+    };
+    (options, want, pose)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -367,8 +367,8 @@ impl ResultsScreen {
         if self.actions.replay.is_some() && self.data.kind != ResultsKind::Replay {
             hints.push((&["W"], "Watch replay"));
         }
-        hints.push((&["←→"], "Panels"));
-        let (f, texts) = footer(&env, screen, &hints, &note, &[]);
+        hints.push((&["←", "→"], "Panels"));
+        let (f, texts) = footer(&env, screen, &hints, &note, &[], cx);
         env.state.borrow_mut().hints = texts;
         children.push(f);
         self.finish_root(children, cx)

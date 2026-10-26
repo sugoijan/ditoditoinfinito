@@ -101,8 +101,7 @@ fn play_options_are_this_plays_kept_with_it_and_saved_when_asked() {
     *host.requested.borrow_mut() = Some(Request::song("beatucada", 2, true));
     until_ready(&mut host, &mut ui);
     assert_eq!(options(&env)[1], "reverse=Off");
-    // Up from Start to the last row, then up to Reverse; Right turns it
-    // on; once more up, Speed one step faster.
+    // Modifiers sit below the bindings; Up from Start reaches the last row.
     for _ in 0..5 {
         key(&mut ui, "ArrowUp", "ArrowUp");
     }
@@ -189,9 +188,7 @@ fn play_options_are_this_plays_kept_with_it_and_saved_when_asked() {
     assert!(host.prompting());
     assert_eq!(options(&env)[..2], ["speed=×2.75", "reverse=On"]);
     // Save as default: the rows' values stored.
-    for _ in 0..1 {
-        key(&mut ui, "ArrowUp", "ArrowUp");
-    }
+    key(&mut ui, "ArrowUp", "ArrowUp");
     assert_eq!(ui.focused(), Some("SaveOptions"));
     key(&mut ui, "Enter", "Enter");
     ui.update(0.05);

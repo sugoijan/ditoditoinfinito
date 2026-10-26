@@ -153,6 +153,7 @@ pub fn append(
                 // From the line box's top left, as the list places runs.
                 let transform = Affine(t.line_box_transform());
                 let run = TextRun {
+                    curve: t.curve,
                     text: t.text.clone(),
                     style: t.style.clone(),
                     transform,
@@ -284,6 +285,13 @@ mod tests {
     fn text_runs_from_their_line_box() {
         let style = TextStyle::new("sans-serif", 20.0);
         let mut t = Actor::new(Kind::Text(Text::new("abc", style)));
+        let curve = ddi_actor::text::TextCurve {
+            center: 15.0,
+            quadratic: -0.01,
+        };
+        if let Kind::Text(text) = &mut t.kind {
+            text.curve = Some(curve);
+        }
         t.measure(&mut FixedMeasure);
         run(&mut t, "x,100;y,50;diffuse,1,0.5,0,1");
         let l = draw(&mut t);
@@ -292,6 +300,7 @@ mod tests {
         };
         // 30 wide, a line of 25, centered on (100, 50).
         assert_eq!(r.transform.apply([0.0, 0.0]), [85.0, 37.5]);
+        assert_eq!(r.curve, Some(curve));
         assert_eq!(r.color, [1.0, 0.5, 0.0, 1.0]);
     }
 
