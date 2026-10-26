@@ -1838,3 +1838,193 @@ fn the_headers_wordmark_is_live() {
     check("select", &env, sample::select_screen(&env, None));
     check("start", &env, sample::start_screen(&env, false));
 }
+
+/// The menus' parts come in from their edges and leave to them, screens
+/// following each other (`docs/plans/theme.md`, "Transitions"): song
+/// select's header from above, its footer from below, the wheel from the
+/// right and the song's side from the left; the start menu leaves before
+/// song select comes in, and comes in again after it; reduced motion
+/// moves nothing.
+#[test]
+fn the_menus_move_part_by_part_and_follow_each_other() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let rects = |h: &Harness| {
+        ["Header", "Footer", "Wheel", "Song"].map(|n| h.ui.bounds(n).unwrap_or([0.0; 4]))
+    };
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::select_screen(&env, None));
+    h.frame(1.0 / 60.0);
+    h.frame(1.0 / 60.0);
+    let [header, footer, wheel, song] = rects(&h);
+    h.run(1.0);
+    let [header_at, footer_at, wheel_at, song_at] = rects(&h);
+    assert!(
+        header[1] < header_at[1],
+        "the header from above: {header:?} to {header_at:?}"
+    );
+    assert!(
+        footer[1] > footer_at[1],
+        "the footer from below: {footer:?} to {footer_at:?}"
+    );
+    assert!(
+        wheel[0] > wheel_at[0],
+        "the wheel from the right: {wheel:?} to {wheel_at:?}"
+    );
+    assert!(
+        song[0] < song_at[0],
+        "the song's side from the left: {song:?} to {song_at:?}"
+    );
+    assert_eq!(h.ui.layers()[0].phase, "active");
+
+    // Reduced motion: in place from the first frame.
+    env.reduced_motion.set(true);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::select_screen(&env, None));
+    h.frame(1.0 / 60.0);
+    let early = rects(&h);
+    h.run(1.0);
+    assert_eq!(early, rects(&h), "reduced motion: nothing moves");
+    env.reduced_motion.set(false);
+
+    // The start menu leaves (its title up, its choices down) before song
+    // select comes in, and comes in again once song select has left.
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::start_screen(&env, false));
+    h.run(0.5);
+    let title = h.ui.bounds("Title").unwrap();
+    let choice = h.ui.bounds("Singleplayer").unwrap();
+    h.key("Enter", "Enter");
+    h.run(0.05);
+    let phases = |h: &Harness| -> Vec<(String, &'static str)> {
+        h.ui.layers()
+            .into_iter()
+            .map(|l| (l.name, l.phase))
+            .collect()
+    };
+    assert_eq!(phases(&h), vec![("start".to_string(), "covering")]);
+    assert!(
+        h.ui.bounds("Title").unwrap()[1] < title[1],
+        "the title leaves up"
+    );
+    assert!(
+        h.ui.bounds("Singleplayer").unwrap()[1] > choice[1],
+        "the choices leave down"
+    );
+    h.run(0.6);
+    assert_eq!(
+        phases(&h),
+        vec![
+            ("start".to_string(), "covered"),
+            ("select".to_string(), "active")
+        ]
+    );
+    assert_eq!(
+        h.ui.bounds("Singleplayer").unwrap(),
+        choice,
+        "back in place, unseen"
+    );
+    h.key("Escape", "Escape");
+    h.run(0.05);
+    assert_eq!(
+        phases(&h),
+        vec![
+            ("start".to_string(), "covered"),
+            ("select".to_string(), "out")
+        ]
+    );
+    h.run(0.15);
+    assert_eq!(phases(&h), vec![("start".to_string(), "in")]);
+    assert!(
+        h.ui.bounds("Title").unwrap()[1] < title[1],
+        "the title comes down again"
+    );
+    h.run(0.5);
+    assert_eq!(phases(&h), vec![("start".to_string(), "active")]);
+    assert_eq!(h.ui.bounds("Title").unwrap(), title);
+    assert_eq!(h.ui.focused(), Some("Singleplayer"));
+}
+
+/// The credits arrive after their page came in (the web reads them
+/// later): the column keeps its motion, the title changes in place.
+#[test]
+fn a_page_filled_later_keeps_its_entrance() {
+    use ddi_ui::screens::page::{PAGE_CHANGED, PageFeed, PageScreen, PageShell};
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let feed: PageFeed = Rc::default();
+    let shell: PageShell = Rc::new(|_, _| None);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(
+        PageScreen::new(env.clone(), "credits", screens::credits::waiting(None))
+            .with_shell(shell, feed.clone()),
+    );
+    h.frame(1.0 / 60.0);
+    let early = h.ui.bounds("Column").unwrap();
+    *feed.borrow_mut() = Some(screens::credits::doc(&screens::credits::sample()));
+    h.ui.broadcast(ddi_ui::Message::new(PAGE_CHANGED));
+    h.run(0.1);
+    let filled = h.ui.bounds("Column").unwrap();
+    h.run(1.0);
+    let rest = h.ui.bounds("Column").unwrap();
+    assert!(
+        early[0] > rest[0],
+        "coming in from the right: {early:?} to {rest:?}"
+    );
+    assert!(
+        filled[0] > rest[0] && filled[0] < early[0],
+        "still coming in once filled: {filled:?}"
+    );
+    assert!(h.texts().iter().any(|t| t == "CREDITS"), "{:?}", h.texts());
+}
+
+/// The app's notices (the chrome) take their room at the top right after
+/// a screen was built: the screen lays itself out below them without
+/// losing its entrance.
+#[test]
+fn the_chrome_arriving_keeps_a_screens_entrance() {
+    struct Strip;
+    impl ddi_ui::Screen for Strip {
+        fn name(&self) -> &str {
+            "strip"
+        }
+        fn build(&mut self, _cx: &mut ddi_ui::Cx) -> ddi_actor::Actor {
+            ddi_actor::Actor::new(ddi_actor::Kind::Frame(vec![]))
+        }
+        fn reserve(&self) -> f32 {
+            69.0
+        }
+    }
+    fn check(name: &str, part: &str, from_right: bool, screen: impl ddi_ui::Screen + 'static) {
+        let mut h = harness([1280.0, 720.0], DESIGN);
+        h.push(screen);
+        h.ui.push_chrome(Strip);
+        h.run(0.1);
+        let early = h.ui.bounds(part).unwrap();
+        h.run(1.0);
+        let rest = h.ui.bounds(part).unwrap();
+        assert!(
+            if from_right {
+                early[0] > rest[0]
+            } else {
+                early[0] < rest[0]
+            },
+            "{name}: {part} still coming in from its side after the chrome came: {early:?} to {rest:?}"
+        );
+    }
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    check(
+        "credits",
+        "Column",
+        true,
+        sample::credits_screen(&env, &screens::credits::sample()),
+    );
+    check(
+        "options",
+        "RowsClip",
+        true,
+        sample::options_screen(&env, None),
+    );
+    check("select", "Song", false, sample::select_screen(&env, None));
+}

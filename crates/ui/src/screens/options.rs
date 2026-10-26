@@ -342,7 +342,28 @@ impl OptionsScreen {
             children.push(f);
         }
         let mut root = Actor::new(Kind::Frame(children));
-        super::entrance(&mut root, &env);
+        // The header's row from above, the footer and the description
+        // from below, the sections from the left (the compact layout's
+        // strip from above), the rows and the preview from the right.
+        {
+            use super::Edge::{Bottom, Left, Right, Top};
+            super::transitions(
+                &mut root,
+                &env,
+                &[
+                    ("Header", Top),
+                    ("Back", Top),
+                    ("Title", Top),
+                    ("Saved", Top),
+                    ("Footer", Bottom),
+                    ("Description", Bottom),
+                    ("Sections", if p.compact { Top } else { Left }),
+                    ("RowsClip", Right),
+                    ("PreviewLayout", Right),
+                    ("Preview", Right),
+                ],
+            );
+        }
         if p.zoom != 1.0 {
             call(&mut root, "zoom", &[p.zoom]);
         }
@@ -724,16 +745,16 @@ impl OptionsScreen {
         self.reveal();
         let fresh = self.rows_actor();
         if let Some(r) = hit::find_mut(root, "RowsClip") {
-            *r = fresh;
+            super::refill(r, fresh);
         }
         let fresh = self.sections_actor();
         if let Some(r) = hit::find_mut(root, "Sections") {
-            *r = fresh;
+            super::refill(r, fresh);
         }
         if let Some(fresh) = self.preview_selector()
             && let Some(selector) = hit::find_mut(root, "PreviewLayout")
         {
-            *selector = fresh;
+            super::refill(selector, fresh);
         }
         let (label, description) = self
             .selected_option()
@@ -1127,10 +1148,11 @@ impl Screen for OptionsScreen {
         let before = self.places;
         self.place(vp);
         if self.places != before {
+            let left = super::time_left(root);
             *root = self.build_tree(cx);
             self.attach_texture(root, cx);
             self.refresh(root);
-            root.finish_tweening();
+            super::relaid(root, left);
         }
         if self.env.state.borrow().screen != "options" {
             self.publish();
@@ -1251,7 +1273,7 @@ impl Screen for OptionsScreen {
                 self.tabs_follow = false;
                 let fresh = self.sections_actor();
                 if let Some(r) = hit::find_mut(root, "Sections") {
-                    *r = fresh;
+                    super::refill(r, fresh);
                 }
                 Handled::Yes
             }
@@ -1272,7 +1294,7 @@ impl Screen for OptionsScreen {
                 self.tabs_follow = false;
                 let fresh = self.sections_actor();
                 if let Some(r) = hit::find_mut(root, "Sections") {
-                    *r = fresh;
+                    super::refill(r, fresh);
                 }
                 Handled::Yes
             }

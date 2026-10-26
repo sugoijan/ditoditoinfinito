@@ -207,10 +207,33 @@ impl ResultsScreen {
     fn finish_root(&mut self, children: Vec<Actor>, cx: &mut Cx) -> Actor {
         let env = self.env.clone();
         let mut root = Actor::new(Kind::Frame(children));
-        super::entrance(&mut root, &env);
+        // The header's row and the tabs from above, the footer and the
+        // buttons from below, the score from the left, the panels from
+        // the right, the backdrop fading.
+        {
+            use super::Edge::{Bottom, Left, None, Right, Top};
+            super::transitions(
+                &mut root,
+                &env,
+                &[
+                    ("Header", Top),
+                    ("Back", Top),
+                    ("Title", Top),
+                    ("PanelSets", Top),
+                    ("WatchReplay", Top),
+                    ("Footer", Bottom),
+                    ("Bottom", Bottom),
+                    ("ScoreColumn", Left),
+                    ("Panels", Right),
+                    ("ResultsClip", Right),
+                    ("Backdrop", None),
+                ],
+            );
+        }
         if let Some(src) = self.data.song.backdrop().map(str::to_string) {
             self.backdrop.set(Some(&src), &mut root, cx, &env);
-            // At once: the screen fades in as a whole.
+            // At once: the backdrop fades in with the screen, not after
+            // it.
             if let Some(b) = hit::find_mut(&mut root, "Backdrop") {
                 b.finish_tweening();
                 for c in b.children_mut() {
@@ -1253,12 +1276,12 @@ impl ResultsScreen {
             let (_, rect, _) = self.places();
             let fresh = self.panels_actor(rect);
             if let Some(p) = hit::find_mut(root, "Panels") {
-                *p = fresh;
+                super::refill(p, fresh);
             }
         }
         let tabs = self.panel_tabs();
         if let Some(p) = hit::find_mut(root, "PanelSets") {
-            *p = tabs;
+            super::refill(p, tabs);
         }
         if let Some(f) = &self.actions.panels {
             f(&self.data.panel_sets[i].name);
@@ -1286,7 +1309,7 @@ impl ResultsScreen {
             self.bottom_bar([panels[0], bar_y, panels[2], 76.0])
         };
         if let Some(b) = hit::find_mut(root, "Bottom") {
-            *b = fresh;
+            super::refill(b, fresh);
         }
         // Focus stays where it was, or on Retry when its button went.
         if let Some(f) = cx.focused()
@@ -1408,8 +1431,9 @@ impl Screen for ResultsScreen {
         }
         if self.place(cx.viewport().screen) {
             self.scroll = 0.0;
+            let left = super::time_left(root);
             *root = self.make_root(cx);
-            root.finish_tweening();
+            super::relaid(root, left);
             self.publish();
         }
         if self.env.state.borrow().screen != "results" {

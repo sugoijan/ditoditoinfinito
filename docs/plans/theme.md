@@ -338,10 +338,54 @@ the right holding the charts as buttons and a large Play button.
 - **Beat pulse:** the selected row and the accent pulse once per beat of
   the previewed song, at its BPM.
 - **Rows:** slide in and out along the wheel's curve.
-- **Screens:** cross-fade, with a short slide.
+- **Screens:** cross-fade, with a short slide (see "Transitions" below
+  for what was built).
 - **Off with reduced motion:** the beat pulse and the slides. This
   follows the system's reduced-motion setting, and a setting of our own
   overrides it.
+
+### Transitions (2026-10-26)
+
+The maintainer's request: the menus' parts move in from the edges they
+belong to and leave to them, rather than the whole screen fading and
+sliding as one. `ddi_ui::screens::transitions` gives each named child of
+a screen's root `On`, `Off` and `Cancel` commands for its edge: the
+header's row (the header, the search, the mods, the compact layouts'
+Back, title and icons) from above, as the start menu's title; the footer
+(and the start menu's choices, the results' buttons, Options'
+description) from below; a list (song select's wheel and its bar,
+Options' rows and preview, a page's column, the results' panels) from the
+right; a song's side (song select's song panel, Options' sections, the
+results' score) from the left; the song's backdrop fading where it is.
+A part slides `Motion.Slide.X` (sideways) or `Motion.Slide.Y` (up or
+down) virtual pixels over `Motion.Screen` in, decelerating, and
+`Motion.Screen.Out` out, accelerating, fading with it; the sides follow
+the top and bottom by `Motion.Stagger`. Out, a part goes back to its
+place unseen, so that coming in again slides it from the same edge.
+Reduced motion keeps the fades alone. The chart editor keeps the whole
+screen's fade and short slide (`transitions_whole`). A part built again
+while it moves (song select's footer when its hints change, Options' rows,
+a page's column) keeps its place and tweens: only its contents change
+(`refill`); a screen laid out again while it comes in (the web's device
+notices take their strip at the top right after a page is built, the
+credits arrive later) goes on coming in from as far as it had come
+(`relaid`).
+
+Screens follow each other, never cross, on both shells (`ddi_ui::Ui`,
+"Transitions"): a screen pushed over another waits for the one under it to
+leave (its `Off`), which stays covered as that left it and comes in again
+(`On`) once the screen over it has gone; a `Navigate` or `Back` request
+from a screen (the web's way between its pages) plays the screen's `Off`
+(or `Cancel`) first and goes out to the shell once it has left, the
+layer kept as it ended until the page changes. So the web shows the
+same sequence as desktop's stack, out then in, and the browser's own Back
+(which changes the address before the page could leave) shows the
+entrance alone. The shell's own `Ui::push` (the first screen, desktop's
+`--screen`) is immediate. Checked natively (`crates/ui/src/ui.rs`'
+transition tests, `crates/theme/src/tests.rs`) and in Chrome
+(`target/scratch/pw/transitions.mjs`: the parts' places frame by frame
+between the start menu and song select, Options and the credits, both
+ways).
 
 ### Into the song (2026-10-20)
 

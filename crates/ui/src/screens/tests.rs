@@ -420,7 +420,8 @@ fn the_pulse_runs_on_the_beat_and_not_with_reduced_motion() {
 fn results_and_options_come_and_go() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
     h.key("Enter", "Enter");
-    h.run(0.7);
+    // Song select leaves first, then the results come in and settle.
+    h.run(0.9);
     assert_eq!(s.borrow().screen, "results");
     assert_eq!(s.borrow().panels, "Overview");
     assert!(
@@ -440,13 +441,13 @@ fn results_and_options_come_and_go() {
     // Start goes back to the songs (Song list has focus when results come
     // in), once they have settled; R retries; Backspace goes back.
     h.key("Enter", "Enter");
-    h.run(0.7);
+    h.run(0.9);
     assert_eq!(s.borrow().screen, "results");
     h.key("Enter", "Enter");
     h.run(0.5);
     assert_eq!(s.borrow().screen, "select");
     h.key("Enter", "Enter");
-    h.run(0.7);
+    h.run(0.9);
     h.key("KeyR", "r");
     h.run(0.2);
     assert_eq!(s.borrow().status, "retry");

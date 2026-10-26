@@ -53,6 +53,30 @@ use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, Lis
 use crate::widgets::{part, set_image, set_text};
 
 use super::data::PackEntry;
+
+/// The parts that move as the screen comes and goes ([`super::transitions`]),
+/// both layouts' (a part the layout lacks is skipped).
+const SELECT_PARTS: [(&str, super::Edge); 16] = {
+    use super::Edge::{Bottom, Left, None, Right, Top};
+    [
+        ("Header", Top),
+        ("Mods", Top),
+        ("Search", Top),
+        ("ClearSearch", Top),
+        ("Back", Top),
+        ("AddIcon", Top),
+        ("SearchIcon", Top),
+        ("OptionsIcon", Top),
+        ("PackTitle", Top),
+        ("Footer", Bottom),
+        ("Wheel", Right),
+        ("Wheel.Track", Right),
+        ("Wheel.Thumb", Right),
+        ("Song", Left),
+        ("Notices", None),
+        ("Backdrop", None),
+    ]
+};
 use super::select_dialogs::{ImportDialog, Manage, ManageDialog, NoticesDialog};
 use super::select_navigation::{Event as NavEvent, Motion, Navigation};
 
@@ -1233,7 +1257,10 @@ impl SelectScreen {
         ));
         children.push(frame("Notices", Vec::new()));
         let mut root = Actor::new(Kind::Frame(children));
-        super::entrance(&mut root, &env);
+        // The header's row from above, the footer from below, the wheel
+        // from the right, the song's side from the left, the backdrop
+        // fading (the compact layout's header parts are its own).
+        super::transitions(&mut root, &env, &SELECT_PARTS);
         if l.zoom != 1.0 {
             call(&mut root, "zoom", &[l.zoom]);
         }
@@ -1848,10 +1875,14 @@ impl SelectScreen {
         } else {
             note
         };
-        let (f, texts) = footer(&self.env, self.layout.screen, &hints, note, links);
+        let (mut f, texts) = footer(&self.env, self.layout.screen, &hints, note, links);
         if let Some(old) = hit::find_mut(root, "Footer") {
-            *old = f;
+            super::refill(old, f);
         } else if let Kind::Frame(c) = &mut root.kind {
+            // Its first hints come after the screen's `On`: it comes in
+            // on its own, a frame later.
+            super::transitions(&mut f, &self.env, &[("Footer", super::Edge::Bottom)]);
+            f.play("On", &mut ddi_actor::Problems::default());
             c.push(f);
         }
         self.env.state.borrow_mut().hints = texts;
@@ -2915,14 +2946,16 @@ impl Screen for SelectScreen {
             self.reduced = self.env.reduced();
             self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
             let selected = self.list.selected();
+            let left = super::time_left(root);
             *root = self.build_tree(cx);
             self.reload();
             if let Some(s) = selected {
                 self.list.select(s);
                 self.list.finish();
             }
-            // The first frame of the new tree shows it as it is.
-            root.finish_tweening();
+            // The first frame of the new tree shows it as it is (or still
+            // coming in).
+            super::relaid(root, left);
         }
         if let Some(m) = &self.wheel_motion {
             self.list.visual_scroll(m.sample(cx.time()).0);

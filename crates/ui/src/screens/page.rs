@@ -363,7 +363,23 @@ impl PageScreen {
             children.push(f);
         }
         let mut root = Actor::new(Kind::Frame(children));
-        super::entrance(&mut root, &env);
+        // The header's row from above, the footer from below, the column
+        // and its bar from the right.
+        {
+            use super::Edge::{Bottom, Right, Top};
+            super::transitions(
+                &mut root,
+                &env,
+                &[
+                    ("Header", Top),
+                    ("Back", Top),
+                    ("Title", Top),
+                    ("Footer", Bottom),
+                    ("Column", Right),
+                    ("Column.Bar", Right),
+                ],
+            );
+        }
         if self.zoom != 1.0 {
             call(&mut root, "zoom", &[self.zoom]);
         }
@@ -468,7 +484,7 @@ impl PageScreen {
     fn rebuild_column(&mut self, root: &mut Actor) {
         let fresh = self.column_actor();
         if let Some(c) = hit::find_mut(root, "Column") {
-            *c = fresh;
+            super::refill(c, fresh);
         }
         if let Some(bar) = hit::find_mut(root, "Column.Bar") {
             self.place_thumb(bar);
@@ -649,17 +665,22 @@ impl PageScreen {
         self.rebuild_column(root);
     }
 
-    fn set_doc(&mut self, doc: PageDoc, root: &mut Actor, cx: &mut Cx) {
+    fn set_doc(&mut self, doc: PageDoc, root: &mut Actor, _cx: &mut Cx) {
         let title_changed = doc.title != self.doc.title;
         self.doc = doc;
         self.lay_out();
         self.scroll = self.scroll.clamp(0.0, self.max_scroll());
+        // The title in place and the column's contents: the parts keep
+        // their motion (the credits arrive as the screen comes in).
         if title_changed {
-            *root = self.tree(cx);
-            root.finish_tweening();
-        } else {
-            self.rebuild_column(root);
+            let title = if self.compact {
+                self.doc.title.clone()
+            } else {
+                self.doc.title.to_uppercase()
+            };
+            crate::widgets::set_text(root, "Title", &title);
         }
+        self.rebuild_column(root);
         self.publish();
     }
 
@@ -734,8 +755,9 @@ impl Screen for PageScreen {
         if self.place(cx.viewport().screen) {
             self.lay_out();
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());
+            let left = super::time_left(root);
             *root = self.tree(cx);
-            root.finish_tweening();
+            super::relaid(root, left);
             self.publish();
         }
         if self.env.state.borrow().screen != self.name {

@@ -135,7 +135,11 @@ impl StartScreen {
         }
         let mut root = Actor::new(Kind::Frame(children));
         call(&mut root, "zoom", &[zoom]);
-        super::entrance(&mut root, env);
+        // The title from above (as the screens' header), the choices from
+        // below (as their footer).
+        let mut parts = vec![("Title", super::Edge::Top)];
+        parts.extend(entries.iter().map(|(id, _, _)| (*id, super::Edge::Bottom)));
+        super::transitions(&mut root, env, &parts);
         self.publish();
         root
     }
@@ -183,6 +187,7 @@ impl Screen for StartScreen {
         }
         let (size, zoom) = super::narrow_fit(&self.env, cx.viewport().screen);
         if self.size != size || self.zoom != zoom {
+            let left = super::time_left(root);
             *root = self.tree(cx);
             if let Some(actor) = cx
                 .focused()
@@ -190,7 +195,7 @@ impl Screen for StartScreen {
             {
                 crate::widgets::play(actor, "GainFocus");
             }
-            root.finish_tweening();
+            super::relaid(root, left);
         }
         self.live.tick(root, "Title", &self.env, dt);
         self.publish();
@@ -360,7 +365,8 @@ mod tests {
         h.key("ArrowDown", "ArrowDown");
         h.key("ArrowDown", "ArrowDown");
         h.key("Enter", "Enter");
-        h.run(0.3);
+        // The start menu leaves first, then Options comes in.
+        h.run(0.5);
         assert_eq!(h.ui.layers().last().unwrap().name, "options");
         h.key("Escape", "Escape");
         h.run(0.3);

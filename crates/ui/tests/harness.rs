@@ -703,7 +703,7 @@ fn screens_come_in_and_back_out_with_their_transitions() {
     assert_eq!(r, vec![UiRequest::StartAudio]);
     assert_eq!(
         layers(&h),
-        vec![("menu".into(), "active"), ("second".into(), "in")]
+        vec![("menu".into(), "covered"), ("second".into(), "in")]
     );
     // Coming in for 0.5 s (its `In` sleeps); input meanwhile goes nowhere.
     h.run(0.25);
@@ -740,7 +740,7 @@ fn screens_come_in_and_back_out_with_their_transitions() {
     h.run(0.25);
     assert_eq!(
         layers(&h),
-        vec![("menu".into(), "active"), ("third".into(), "active")]
+        vec![("menu".into(), "covered"), ("third".into(), "active")]
     );
 }
 

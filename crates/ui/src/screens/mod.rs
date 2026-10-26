@@ -765,14 +765,137 @@ pub fn leave(env: &Env, cx: &mut crate::Cx, cancel: bool) {
     cx.close(cancel);
 }
 
-/// The root's `On` command: a fade, and a short slide unless motion is
-/// reduced.
-pub fn entrance(root: &mut Actor, env: &Env) {
-    let t = env.metric("Motion.Screen", 0.2);
-    let s = if env.reduced() {
-        format!("diffusealpha,0;linear,{t};diffusealpha,1")
+/// The edge of the screen a part comes in from and leaves to
+/// ([`transitions`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    /// Fades where it is.
+    None,
+}
+
+/// The screen's transitions, part by part (`docs/plans/theme.md`,
+/// "Transitions"): each of `parts` (the name of a child of `root`, or of
+/// `root` itself, and its edge) gets `On`, `Off` and `Cancel` commands that slide
+/// it in from its edge over `Motion.Screen` seconds and out to it over
+/// `Motion.Screen.Out`, fading with it, by `Motion.Slide.X` or
+/// `Motion.Slide.Y` virtual pixels; the parts at the top and bottom edges
+/// come first, the rest `Motion.Stagger` later. Reduced motion keeps the
+/// fades alone. The root itself gets no command: what is not listed
+/// (the ground) stays as it is.
+pub fn transitions(root: &mut Actor, env: &Env, parts: &[(&str, Edge)]) {
+    let t_in = env.metric("Motion.Screen", 0.2);
+    let t_out = env.metric("Motion.Screen.Out", 0.15);
+    let dx = env.metric("Motion.Slide.X", 120.0);
+    let dy = env.metric("Motion.Slide.Y", 56.0);
+    let stagger = env.metric("Motion.Stagger", 0.05);
+    let reduced = env.reduced();
+    for (name, edge) in parts {
+        // The root or one of its children (not a part of a part: a
+        // header's Back moves with the header).
+        let part = if root.name == *name {
+            Some(&mut *root)
+        } else {
+            root.children_mut().iter_mut().find(|c| c.name == *name)
+        };
+        let Some(part) = part else {
+            continue;
+        };
+        let (axis, d) = match edge {
+            Edge::Top => ("addy", -dy),
+            Edge::Bottom => ("addy", dy),
+            Edge::Left => ("addx", -dx),
+            Edge::Right => ("addx", dx),
+            Edge::None => ("addx", 0.0),
+        };
+        let delay = match edge {
+            Edge::Top | Edge::Bottom => 0.0,
+            _ => stagger,
+        };
+        let wait = if delay > 0.0 {
+            format!("sleep,{delay};")
+        } else {
+            String::new()
+        };
+        // Out, a part goes back to its place unseen (`sleep,0`), so that
+        // the next `On` (uncovered) slides it in from the same edge.
+        let (on, off) = if reduced || d == 0.0 {
+            (
+                format!("diffusealpha,0;{wait}linear,{t_in};diffusealpha,1"),
+                format!("finishtweening;linear,{t_out};diffusealpha,0"),
+            )
+        } else {
+            (
+                format!(
+                    "diffusealpha,0;{axis},{d};{wait}decelerate,{t_in};diffusealpha,1;{axis},{}",
+                    -d
+                ),
+                format!(
+                    "finishtweening;accelerate,{t_out};diffusealpha,0;{axis},{d};sleep,0;{axis},{}",
+                    -d
+                ),
+            )
+        };
+        look::command_of(part, "On", &on);
+        look::command_of(part, "Off", &off);
+        look::command_of(part, "Cancel", &off);
+    }
+}
+
+/// The screen's transitions as one: the root fades, and slides a little
+/// unless motion is reduced (the chart editor's; the menus move part by
+/// part, [`transitions`]).
+pub fn transitions_whole(root: &mut Actor, env: &Env) {
+    let t_in = env.metric("Motion.Screen", 0.2);
+    let t_out = env.metric("Motion.Screen.Out", 0.15);
+    let (on, off) = if env.reduced() {
+        (
+            format!("diffusealpha,0;linear,{t_in};diffusealpha,1"),
+            format!("linear,{t_out};diffusealpha,0"),
+        )
     } else {
-        format!("diffusealpha,0;addx,24;decelerate,{t};diffusealpha,1;addx,-24")
+        (
+            format!("diffusealpha,0;addx,24;decelerate,{t_in};diffusealpha,1;addx,-24"),
+            format!("accelerate,{t_out};diffusealpha,0;addx,24;sleep,0;addx,-24"),
+        )
     };
-    look::command_of(root, "On", &s);
+    look::command_of(root, "On", &on);
+    look::command_of(root, "Off", &off);
+    look::command_of(root, "Cancel", &off);
+}
+
+/// `fresh` takes the place of `old`, a part built again (its rows, its
+/// hints changed): only what is inside changes, so a part in motion (the
+/// screen coming in or leaving) keeps its place and its tweens.
+pub(crate) fn refill(old: &mut Actor, fresh: Actor) {
+    old.kind = fresh.kind;
+}
+
+/// How long the tweens anywhere under `a` have left (the longest).
+pub(crate) fn time_left(a: &Actor) -> f32 {
+    a.children()
+        .iter()
+        .map(time_left)
+        .fold(a.tween_time_left(), f32::max)
+}
+
+/// A screen laid out again (a new size, the chrome's room taken at the
+/// top): `fresh` took the old root's place, which had `left` seconds of
+/// tweens to go ([`time_left`]). A screen still coming in goes on coming
+/// in, from as far as it had come; otherwise its first frame shows the
+/// new tree as it is.
+pub(crate) fn relaid(fresh: &mut Actor, left: f32) {
+    let mut problems = ddi_actor::Problems::default();
+    fresh.play("On", &mut problems);
+    let total = time_left(fresh);
+    // Longer tweens than an entrance (a backdrop fading, rows gliding)
+    // are not one.
+    if left <= 0.0 || left > total {
+        fresh.finish_tweening();
+    } else {
+        fresh.update(total - left, &ddi_actor::Clocks::default(), &mut problems);
+    }
 }

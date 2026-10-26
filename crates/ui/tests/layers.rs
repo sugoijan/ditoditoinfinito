@@ -394,3 +394,207 @@ fn an_idle_shell_wakes_for_a_deadline_of_the_top_screen() {
     assert_eq!(h.ui.wake_in(), None, "covered");
     assert_eq!(log.borrow().len(), 1);
 }
+
+/// A screen whose button asks the shell to navigate (the web's way
+/// between pages); its root slides out over 0.2 s when it leaves.
+struct Leaver(&'static str);
+
+impl Screen for Leaver {
+    fn name(&self) -> &str {
+        "leaver"
+    }
+
+    fn build(&mut self, _cx: &mut Cx) -> Actor {
+        let mut root = Actor::new(Kind::Frame(vec![quad("Btn", [100.0, 40.0], "xy,320,180")]));
+        root.set_command("Off", parse("linear,0.2;addx,50").unwrap());
+        root.set_command("Cancel", parse("linear,0.2;addx,-50").unwrap());
+        root
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![Focusable::new("Btn")]
+    }
+
+    fn input(&mut self, input: &Input, _r: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Input::Activate { .. } = input {
+            cx.request(if self.0 == "back" {
+                UiRequest::Back
+            } else {
+                UiRequest::Navigate(self.0.into())
+            });
+            return Handled::Yes;
+        }
+        Handled::No
+    }
+}
+
+#[test]
+fn a_navigation_leaves_the_screen_first() {
+    for (what, dx) in [("#/select", 50.0), ("back", -50.0)] {
+        let mut h = Harness::new([640.0, 360.0], [640.0, 360.0], 1.0, TextMode::Mirror);
+        h.push(Leaver(what));
+        h.run(0.1);
+        let rest = h.ui.bounds("Btn").unwrap()[0];
+        let at_once = h.key("Enter", "Enter");
+        let navigates = |r: &[UiRequest]| {
+            r.iter()
+                .any(|r| matches!(r, UiRequest::Navigate(_) | UiRequest::Back))
+        };
+        assert!(
+            !navigates(&at_once),
+            "{what}: the screen leaves first: {at_once:?}"
+        );
+        assert_eq!(h.ui.layers()[0].phase, "out");
+        assert_eq!(
+            h.ui.focused(),
+            Some("Btn"),
+            "{what}: still known while leaving"
+        );
+        // Out, slid its way (`Off` going on, `Cancel` back).
+        h.run(0.1);
+        let mid = h.ui.bounds("Btn").unwrap()[0];
+        assert!((mid - rest) * dx > 0.0, "{what}: moving: {mid} from {rest}");
+        assert!(!navigates(&h.requests), "{what}: not before it has left");
+        h.run(0.15);
+        assert!(
+            navigates(&h.requests),
+            "{what}: once it has left: {:?}",
+            h.requests
+        );
+        // Kept as it ended, taking nothing, until the shell acts.
+        assert_eq!(h.ui.layers().len(), 1);
+        assert_eq!(h.ui.layers()[0].phase, "out");
+        assert_eq!(h.ui.focused(), Some("Btn"));
+        let n = h.requests.len();
+        h.key("Enter", "Enter");
+        h.run(0.1);
+        assert_eq!(h.requests.len(), n, "{what}: nothing more");
+        assert!(!h.ui.needs_redraw(), "{what}: at rest");
+    }
+}
+
+/// A screen whose root comes in from the left and leaves to the right
+/// (back where it was, unseen, as the theme's parts do); its button
+/// pushes `Over`, whose button closes it.
+struct Under;
+
+impl Screen for Under {
+    fn name(&self) -> &str {
+        "under"
+    }
+
+    fn build(&mut self, _cx: &mut Cx) -> Actor {
+        let mut root = Actor::new(Kind::Frame(vec![quad("Btn", [100.0, 40.0], "xy,320,180")]));
+        root.set_command("On", parse("addx,-50;linear,0.2;addx,50").unwrap());
+        root.set_command("Off", parse("linear,0.2;addx,50;sleep,0;addx,-50").unwrap());
+        root
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![Focusable::new("Btn")]
+    }
+
+    fn input(&mut self, input: &Input, _r: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Input::Activate { .. } = input {
+            cx.push(Over);
+            return Handled::Yes;
+        }
+        Handled::No
+    }
+}
+
+struct Over;
+
+impl Screen for Over {
+    fn name(&self) -> &str {
+        "over"
+    }
+
+    fn build(&mut self, _cx: &mut Cx) -> Actor {
+        let mut root = Actor::new(Kind::Frame(vec![quad("Go", [100.0, 40.0], "xy,320,180")]));
+        root.set_command(
+            "On",
+            parse("diffusealpha,0;linear,0.2;diffusealpha,1").unwrap(),
+        );
+        root.set_command("Cancel", parse("linear,0.2;diffusealpha,0").unwrap());
+        root
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![Focusable::new("Go")]
+    }
+
+    fn input(&mut self, input: &Input, _r: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Input::Activate { .. } = input {
+            cx.close(true);
+            return Handled::Yes;
+        }
+        Handled::No
+    }
+}
+
+#[test]
+fn a_pushed_screen_waits_for_the_one_under_it_which_comes_back() {
+    let mut h = Harness::new([640.0, 360.0], [640.0, 360.0], 1.0, TextMode::Mirror);
+    h.push(Under);
+    h.run(0.3);
+    let rest = h.ui.bounds("Btn").unwrap()[0];
+    let phases = |h: &Harness| -> Vec<(String, &'static str)> {
+        h.ui.layers()
+            .into_iter()
+            .map(|l| (l.name, l.phase))
+            .collect()
+    };
+    h.key("Enter", "Enter");
+    assert_eq!(phases(&h), vec![("under".to_string(), "covering")]);
+    h.run(0.1);
+    let mid = h.ui.bounds("Btn").unwrap()[0];
+    assert!(mid > rest, "leaving to the right: {mid} from {rest}");
+    assert_eq!(phases(&h), vec![("under".to_string(), "covering")]);
+    assert_eq!(h.ui.focused(), Some("Btn"), "kept while covered");
+    // Gone: back where it was, the pushed screen coming in over it.
+    h.run(0.15);
+    assert_eq!(
+        phases(&h),
+        vec![("under".to_string(), "covered"), ("over".to_string(), "in")]
+    );
+    assert_eq!(h.ui.bounds("Btn").unwrap()[0], rest);
+    h.run(0.3);
+    assert_eq!(
+        phases(&h),
+        vec![
+            ("under".to_string(), "covered"),
+            ("over".to_string(), "active")
+        ]
+    );
+    assert!(!h.ui.needs_redraw(), "covered, at rest");
+    assert_eq!(h.ui.focused(), Some("Go"));
+    // Closed, the one under it comes in again, from the left.
+    h.key("Enter", "Enter");
+    assert_eq!(
+        phases(&h),
+        vec![
+            ("under".to_string(), "covered"),
+            ("over".to_string(), "out")
+        ]
+    );
+    h.run(0.25);
+    assert_eq!(phases(&h), vec![("under".to_string(), "in")]);
+    let back = h.ui.bounds("Btn").unwrap()[0];
+    assert!(back < rest, "coming in from the left: {back} to {rest}");
+    assert_eq!(h.ui.focused(), Some("Btn"));
+    h.run(0.3);
+    assert_eq!(phases(&h), vec![("under".to_string(), "active")]);
+    assert_eq!(h.ui.bounds("Btn").unwrap()[0], rest);
+    // The shell's own push is immediate: the screen under is covered as
+    // it is, and comes in again when uncovered.
+    h.push(Over);
+    assert_eq!(
+        phases(&h),
+        vec![("under".to_string(), "covered"), ("over".to_string(), "in")]
+    );
+    h.run(0.3);
+    h.key("Enter", "Enter");
+    h.run(0.25);
+    assert_eq!(phases(&h), vec![("under".to_string(), "in")]);
+}

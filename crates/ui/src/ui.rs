@@ -41,7 +41,16 @@
 //! transition lasts as long as the tweens these queued anywhere in the
 //! tree, measured once when it starts (StepMania measures the screen's
 //! tween time left and hibernates its `Out` to end with it), so a looping
-//! command cannot hold a screen forever.
+//! command cannot hold a screen forever. Screens follow each other, never
+//! cross: a screen pushed over another ([`Cx::push`]) waits for the one
+//! under it to play `Off` and `Out` (covered, it stays as those left it),
+//! and that one plays `On` and `In` again once the screen over it has
+//! left. A [`UiRequest::Navigate`] or [`UiRequest::Back`] from a screen
+//! (the web's way between its pages) leaves the same way: the current
+//! screen plays `Off` (or `Cancel`, backing out) and the request goes out
+//! once it has, the layer kept as it ended, taking nothing, until the
+//! shell acts on it. Both shells see the same sequence; the shell's own
+//! [`Ui::push`] is immediate.
 
 use ddi_actor::screen::Viewport;
 use ddi_actor::text::TextMeasure;
@@ -100,6 +109,30 @@ enum Phase {
     Entering(f32),
     Active,
     Leaving(f32),
+    /// A screen playing its `Off` before the one pushed over it
+    /// ([`Layer::then`]) comes in.
+    Covering(f32),
+    /// A screen under another, as its `Off` left it: it plays `On` again
+    /// once the one over it has left.
+    Covered,
+    /// Left with a request ([`Layer::leave_with`]) the shell has yet to
+    /// act on: drawn as it ended, taking nothing.
+    Left,
+}
+
+impl Phase {
+    /// Moving: a frame is needed.
+    fn in_transition(&self) -> bool {
+        matches!(
+            self,
+            Phase::Entering(_) | Phase::Leaving(_) | Phase::Covering(_)
+        )
+    }
+
+    /// On its way out, or out: not the current screen.
+    fn going(&self) -> bool {
+        matches!(self, Phase::Leaving(_) | Phase::Covering(_) | Phase::Left)
+    }
 }
 
 struct Layer {
@@ -107,8 +140,12 @@ struct Layer {
     screen: Box<dyn Screen>,
     root: Actor,
     phase: Phase,
-    /// What comes in once this one has left ([`Cx::replace`]).
+    /// What comes in once this one has left ([`Cx::replace`]) or played
+    /// its `Off` under it ([`Cx::push`]).
     then: Option<Box<dyn Screen>>,
+    /// The request this screen leaves with ([`UiRequest::Navigate`],
+    /// [`UiRequest::Back`]): sent once it has left.
+    leave_with: Option<UiRequest>,
     focused: Option<String>,
     overlay: bool,
     modal: bool,
@@ -149,7 +186,10 @@ pub struct LayerInfo {
     pub name: String,
     pub overlay: bool,
     pub modal: bool,
-    /// `"in"`, `"active"` or `"out"`.
+    /// `"in"`, `"active"`, `"out"` (leaving, or left with a request the
+    /// shell has yet to act on), `"covering"` (playing its `Off` before
+    /// the screen pushed over it comes in) or `"covered"` (under another
+    /// screen).
     pub phase: &'static str,
     pub focused: Option<String>,
 }
@@ -273,10 +313,93 @@ impl Ui {
         self.broadcast(Message::new(DESIGN_MESSAGE));
     }
 
-    /// Pushes a screen (the first one, at boot).
+    /// Pushes a screen (the first one, at boot), at once: a screen under
+    /// it is covered as it is, and comes in again when uncovered (a
+    /// screen's own [`Cx::push`] lets the one under it leave first).
     pub fn push(&mut self, screen: impl Screen + 'static) {
+        if let Some(l) = self.current_screen_mut()
+            && matches!(l.phase, Phase::Active | Phase::Entering(_))
+        {
+            l.phase = Phase::Covered;
+        }
         self.push_layer(Box::new(screen), false, false, None, false);
         self.dirty = true;
+    }
+
+    /// The current screen's layer: the topmost that is neither an
+    /// overlay nor the chrome.
+    fn current_screen_mut(&mut self) -> Option<&mut Layer> {
+        self.layers
+            .iter_mut()
+            .rev()
+            .find(|l| !l.chrome && !l.overlay)
+    }
+
+    /// A screen pushed from a call: the current screen plays `Off` and
+    /// `Out` first (its typing ended, its pointers cancelled), and
+    /// `screen` comes in once it has.
+    fn push_screen(&mut self, screen: Box<dyn Screen>, gesture: bool) {
+        let mut problems = Problems::default();
+        let mut screen = Some(screen);
+        let covering = match self.current_screen_mut() {
+            Some(top) if matches!(top.phase, Phase::Active | Phase::Entering(_)) => {
+                let left = start_transition(&mut top.root, "Off", &["Out"], &mut problems);
+                if left > 0.0 {
+                    top.phase = Phase::Covering(left);
+                    top.then = screen.take();
+                    Some(top.id)
+                } else {
+                    top.phase = Phase::Covered;
+                    None
+                }
+            }
+            _ => None,
+        };
+        self.problems.messages.extend(problems.messages);
+        if let Some(id) = covering {
+            self.release_layer(id);
+            self.cancel_directions();
+            self.prune_inputs();
+            self.dirty = true;
+        } else if let Some(screen) = screen {
+            self.push_layer(screen, false, false, None, gesture);
+        }
+    }
+
+    /// The current screen comes in again once nothing covers it.
+    fn uncover(&mut self) {
+        let mut problems = Problems::default();
+        let Some(top) = self.current_screen_mut() else {
+            return;
+        };
+        if !matches!(top.phase, Phase::Covered) {
+            return;
+        }
+        let left = start_transition(&mut top.root, "On", &["In"], &mut problems);
+        top.phase = if left > 0.0 {
+            Phase::Entering(left)
+        } else {
+            Phase::Active
+        };
+        self.problems.messages.extend(problems.messages);
+        self.dirty = true;
+    }
+
+    /// A request the current screen leaves with: it plays `Off` (or
+    /// `Cancel` for [`UiRequest::Back`]) and the request goes out once it
+    /// has left. Sent at once where no screen is shown.
+    fn leave_with(&mut self, request: UiRequest) {
+        let cancel = matches!(request, UiRequest::Back);
+        let Some(top) = self.current_screen_mut() else {
+            self.out.push(request);
+            return;
+        };
+        if top.phase.going() {
+            return;
+        }
+        top.leave_with = Some(request);
+        let id = top.id;
+        self.close(id, cancel);
     }
 
     /// Puts `screen` over every screen and dialog for as long as the UI
@@ -519,6 +642,7 @@ impl Ui {
             layer.root.update(dt, &clocks, &mut problems);
             layer.screen.update(dt, &mut layer.root, &mut cx);
             let mut entered = false;
+            let mut covered = None;
             let done = match &mut layer.phase {
                 Phase::Entering(left) => {
                     *left -= dt;
@@ -529,7 +653,15 @@ impl Ui {
                     *left -= dt;
                     *left <= 0.0
                 }
-                Phase::Active => false,
+                Phase::Covering(left) => {
+                    *left -= dt;
+                    if *left <= 0.0 {
+                        covered = layer.then.take();
+                        layer.phase = Phase::Covered;
+                    }
+                    false
+                }
+                Phase::Active | Phase::Covered | Phase::Left => false,
             };
             if entered {
                 layer.phase = Phase::Active;
@@ -537,7 +669,10 @@ impl Ui {
             self.problems.messages.extend(problems.messages);
             self.apply(id, cx);
             if done {
-                self.remove(id);
+                self.left(id);
+            }
+            if let Some(next) = covered {
+                self.push_layer(next, false, false, None, false);
             }
         }
         self.problems.messages.truncate(64);
@@ -678,10 +813,7 @@ impl Ui {
         self.dirty
             || self.repeater.holding()
             || self.pointers.iter().any(|p| p.tracker.waiting())
-            || self
-                .layers
-                .iter()
-                .any(|l| !matches!(l.phase, Phase::Active))
+            || self.layers.iter().any(|l| l.phase.in_transition())
             || self
                 .awake()
                 .iter()
@@ -747,7 +879,9 @@ impl Ui {
                 phase: match l.phase {
                     Phase::Entering(_) => "in",
                     Phase::Active => "active",
-                    Phase::Leaving(_) => "out",
+                    Phase::Leaving(_) | Phase::Left => "out",
+                    Phase::Covering(_) => "covering",
+                    Phase::Covered => "covered",
                 },
                 focused: l.focused.clone(),
             })
@@ -919,7 +1053,7 @@ impl Ui {
             .iter()
             .rev()
             .find(|l| !l.chrome && !l.overlay)
-            .is_some_and(|l| l.id == id && !matches!(l.phase, Phase::Leaving(_)));
+            .is_some_and(|l| l.id == id && !l.phase.going());
         cx
     }
 
@@ -959,6 +1093,7 @@ impl Ui {
                 Phase::Active
             },
             then: None,
+            leave_with: None,
             focused: None,
             overlay,
             modal,
@@ -1004,7 +1139,7 @@ impl Ui {
         let Some(layer) = self.layer_mut(id) else {
             return;
         };
-        if matches!(layer.phase, Phase::Leaving(_)) {
+        if matches!(layer.phase, Phase::Leaving(_) | Phase::Left) {
             return;
         }
         let left = if cancel {
@@ -1030,9 +1165,24 @@ impl Ui {
         }
         self.release_layer(id);
         if left <= 0.0 {
-            self.remove(id);
+            self.left(id);
         }
         self.prune_inputs();
+    }
+
+    /// Layer `id`'s leaving transition ended: it goes, unless it leaves
+    /// with a request ([`Layer::leave_with`]), which goes out now while
+    /// the layer stays as it ended for the shell to act on it.
+    fn left(&mut self, id: u64) {
+        let Some(request) = self.layer_mut(id).and_then(|l| l.leave_with.take()) else {
+            self.remove(id);
+            return;
+        };
+        if let Some(l) = self.layer_mut(id) {
+            l.phase = Phase::Left;
+        }
+        self.out.push(request);
+        self.dirty = true;
     }
 
     /// What a leaving layer held: typing, pointers, hover, held keys.
@@ -1069,9 +1219,14 @@ impl Ui {
             self.remove(o);
         }
         self.release_layer(id);
-        let then = self.index(id).and_then(|i| self.layers.remove(i).then);
-        if let Some(next) = then {
+        let removed = self.index(id).map(|i| self.layers.remove(i));
+        let Some(removed) = removed else {
+            return;
+        };
+        if let Some(next) = removed.then {
             self.push_layer(next, false, false, None, false);
+        } else if !removed.overlay {
+            self.uncover();
         }
         self.prune_inputs();
         self.dirty = true;
@@ -1101,8 +1256,9 @@ impl Ui {
         for op in cx.ops {
             self.dirty = true;
             match op {
+                Op::Request(r @ (UiRequest::Navigate(_) | UiRequest::Back)) => self.leave_with(r),
                 Op::Request(r) => self.emit(id, r, gesture),
-                Op::Push(s) => self.push_layer(s, false, false, None, gesture),
+                Op::Push(s) => self.push_screen(s, gesture),
                 Op::Overlay { screen, modal } => {
                     self.push_layer(screen, true, modal, Some(id), gesture)
                 }

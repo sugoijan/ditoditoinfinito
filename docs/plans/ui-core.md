@@ -527,7 +527,14 @@ window follow):
   children (a transition lasts the tweens queued at its start), and
   overlays owned by a screen or dialog, drawn right above it and closed
   with it; dialogs trap focus, take Back and report presses outside; a
-  layer leaving the input chain has its pointers cancelled.
+  layer leaving the input chain has its pointers cancelled. Screens
+  follow each other, never cross (2026-10-26, `docs/plans/theme.md`,
+  "Transitions"): a screen pushed from a call waits for the one under it
+  to play `Off` (`covering`, then `covered`), which plays `On` again when
+  the screen over it leaves; a `Navigate` or `Back` request leaves the
+  current screen first and goes out once it has (`out`, the layer kept
+  as it ended for the shell to act); the shell's own `Ui::push` is
+  immediate.
 - **Messages (P7)** play `<Name>MessageCommand` through the actors'
   commands, as noteskins' Lua does, and reach screens with parameters.
 - **Text field (P5).** Mirror mode re-reads the textarea (UTF-16 offsets,

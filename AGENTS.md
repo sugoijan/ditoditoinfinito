@@ -641,7 +641,11 @@ the left, then the Dosis wordmark filling the height (live, as the start
 menu's), a divider and the screen's name in small caps; a play has
 no link out of it: the scene's quit button (hold or double-tap it, as
 Escape) shows throughout on a touch screen and for two seconds after the
-mouse moves, on both shells.
+mouse moves, on both shells. Screens follow each other, never cross: a
+screen's parts leave to their edges (the header up, the footer down, the
+list right, the song's side left; `ddi_ui::screens::transitions`), then
+the next screen's come in; on the web a `Navigate` or `Back` request waits
+for that exit, so the address changes about 0.14 s after the press.
 Web route ancestry and Options position live in history state; desktop uses
 the UI stack. Preview audio belongs to visible song select (or an explicit
 Options sample); Start is silent. See `docs/plans/start-menu.md`.

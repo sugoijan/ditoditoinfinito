@@ -2346,7 +2346,7 @@ impl Screen for EditorScreen {
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.shown = self.editor.borrow().cursor().0 as f64;
         let mut root = self.tree(cx);
-        super::entrance(&mut root, &self.env);
+        super::transitions_whole(&mut root, &self.env);
         self.publish();
         root
     }
