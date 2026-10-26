@@ -2344,6 +2344,7 @@ mod tests {
             [
                 "noteskin",
                 "skin.Colors",
+                "skin.NoteTimedCharge",
                 "skin.Onigiri",
                 "skin.ShockArrows",
                 "skin.Explosions",
