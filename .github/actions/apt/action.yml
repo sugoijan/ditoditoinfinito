@@ -1,0 +1,44 @@
+# Ubuntu packages for a Linux job, off the critical path of the Azure
+# apt mirror: the runner image's mirror list puts azure.archive.ubuntu.com
+# first and apt fails over only when a server stops answering, not when
+# it trickles, which took installs of a few MB from 20 s to 3, 9 and 28
+# minutes within a day (2026-10-27; actions/runner-images#15142, #14823).
+# The packages' .deb files are kept in the Actions cache, keyed by the
+# package list and the image's version (the files fit the image they were
+# resolved against): a hit installs them with dpkg and fetches nothing;
+# a miss, once per image update, downloads them with Canonical's archive
+# put before the Azure mirror, and saves them at once, whatever the job
+# does after (install.sh; AGENTS.md, "Deployment").
+name: Ubuntu packages
+description: Installs apt packages from the Actions cache, or from Canonical's archive before the Azure mirror
+inputs:
+  packages:
+    description: The packages, space-separated
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      # The prune script keeps the newest entry of a key less its last
+      # hash: the image's, so a package set keeps one image's files.
+      run: |
+        packages=$(tr -s ' ' '\n' <<<"$PACKAGES" | sed '/^$/d' | sort | sha256sum | cut -c1-8)
+        image=$(printf '%s-%s' "${ImageOS:-$(uname -s)}" "${ImageVersion:-none}" | sha256sum | cut -c1-8)
+        echo "key=apt-${ImageOS:-linux}-p$packages-$image" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/ddi-apt
+        key: ${{ steps.key.outputs.key }}
+    - shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: "$GITHUB_ACTION_PATH/install.sh"
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/ddi-apt
+        key: ${{ steps.key.outputs.key }}

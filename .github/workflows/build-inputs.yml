@@ -95,7 +95,9 @@ jobs:
           fi
       - name: nasm for FFmpeg's assembly
         if: runner.os == 'Linux' && steps.have.outputs.have != '1'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nasm
+        uses: ./.github/actions/apt
+        with:
+          packages: nasm
       - name: Build the helper's FFmpeg
         if: steps.have.outputs.have != '1'
         run: video/build-native.sh

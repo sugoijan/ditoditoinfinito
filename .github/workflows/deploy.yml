@@ -48,12 +48,15 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The desktop's sound (cpal) links ALSA, its controllers (gilrs)
       # libudev; nasm assembles the video helper's FFmpeg when it is built
-      # here. The ffmpeg command decodes the decoders' references (bundled
-      # songs, MP3s) and encodes the video tests' clips: a pinned static
-      # build from GitHub, not Ubuntu's package, whose mirror throttled
-      # the install to 28 minutes (.github/scripts/ffmpeg-command.sh).
+      # here (.github/actions/apt: from the Actions cache, or Canonical's
+      # archive before the throttling Azure mirror). The ffmpeg command
+      # decodes the decoders' references (bundled songs, MP3s) and encodes
+      # the video tests' clips: a pinned static build from GitHub, not
+      # Ubuntu's package (.github/scripts/ffmpeg-command.sh).
       - name: ALSA and udev headers, nasm
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev nasm
+        uses: ./.github/actions/apt
+        with:
+          packages: libasound2-dev libudev-dev nasm
       - name: The ffmpeg command
         run: .github/scripts/ffmpeg-command.sh
       # The video helper's static FFmpeg (video/build-native.sh), as the
@@ -105,7 +108,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: ALSA and udev headers, nasm
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev nasm
+        uses: ./.github/actions/apt
+        with:
+          packages: libasound2-dev libudev-dev nasm
       # The command generates reference clips; the decoder helper's static
       # FFmpeg libraries contain no encoders or command-line executable.
       - name: Video test fixture encoders on macOS

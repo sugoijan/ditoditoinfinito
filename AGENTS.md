@@ -847,6 +847,12 @@ dependency's licence before adding it.
   BtbN/FFmpeg-Builds' GitHub releases, pinned by tag and SHA-256
   (`.github/scripts/ffmpeg-command.sh`), not Ubuntu's package: the Azure
   apt mirror throttled that install to 28 minutes; macOS jobs use brew's.
+  The Ubuntu packages the Linux jobs do install (the ALSA and udev
+  headers, nasm, the importer's Vulkan and Mesa) go through
+  `.github/actions/apt`: their `.deb` files kept in the Actions cache by
+  package set and image version, installed with dpkg on a hit, and on a
+  miss downloaded with Canonical's archive put before the Azure mirror,
+  which apt never leaves while it trickles.
 
 ## Conventions
 
