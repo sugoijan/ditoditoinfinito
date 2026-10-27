@@ -30,8 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 # No debug info (smaller caches, faster links); the Rust caches are saved
-# on main only, and deploy.yml's prune-caches job keeps them under the
-# repository's cap.
+# on main only and pruned after the run (prune-caches below, as in
+# deploy.yml) to stay under the repository's cap.
 env:
   CARGO_PROFILE_DEV_DEBUG: "0"
 
@@ -156,3 +156,21 @@ jobs:
           env = dict(os.environ, PATH=str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'empty-path'))
           subprocess.run([root / 'danoni-importer' / info['id'] / 'bin/ddi-danoni-importer', '--check-bundle'], env=env, check=True)
           PY
+
+  # This run's caches are saved long after deploy.yml's prune ran on the
+  # same push (the handoff takes most of an hour), so the predecessors
+  # it superseded go here: every key's, and every cache of another ref
+  # (.github/scripts/prune-caches.sh).
+  prune-caches:
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [handoff, portable, native-package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete the stale caches
+        run: .github/scripts/prune-caches.sh

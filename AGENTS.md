@@ -823,8 +823,8 @@ dependency's licence before adding it.
   loop the dev server.
 - CI's storage (`.github/workflows/`): the Actions cache holds Rust build
   output only, saved on main only (`rust-cache`'s `save-if`) and pruned
-  after each deploy run (`.github/scripts/prune-caches.sh`: the newest
-  of each key stays) so it fits the repository's 10 GB cap, under which
+  after each deploy and DanOni run (`.github/scripts/prune-caches.sh`:
+  the newest of each key stays) so it fits the repository's 10 GB cap, under which
   GitHub evicts whatever was used least recently; the FFmpeg builds (the
   web's decoder module, the desktop helper's libraries) are assets of
   the rolling `build-inputs` pre-release named by their recipes' hashes
