@@ -842,7 +842,11 @@ dependency's licence before adding it.
   (`.github/scripts/video-assets.sh`, `build-inputs.yml`; the build
   scripts' `--recipe`), fetched by the jobs and built only where the
   release lacks the recipe. CI builds without debug info
-  (`CARGO_PROFILE_DEV_DEBUG=0`).
+  (`CARGO_PROFILE_DEV_DEBUG=0`). The Linux jobs' `ffmpeg` command (the
+  tests' reference decoder and clip encoder) is a static build from
+  BtbN/FFmpeg-Builds' GitHub releases, pinned by tag and SHA-256
+  (`.github/scripts/ffmpeg-command.sh`), not Ubuntu's package: the Azure
+  apt mirror throttled that install to 28 minutes; macOS jobs use brew's.
 
 ## Conventions
 

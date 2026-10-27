@@ -56,9 +56,13 @@ jobs:
         with:
           key: danoni
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: ALSA and udev headers, independent audio decoder
+      - name: ALSA and udev headers
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      # A pinned static build from GitHub (.github/scripts/ffmpeg-command.sh).
+      - name: Independent audio decoder
+        if: runner.os == 'Linux'
+        run: .github/scripts/ffmpeg-command.sh
       - name: Independent audio decoder on macOS
         if: runner.os == 'macOS'
         run: command -v ffmpeg || brew install ffmpeg
