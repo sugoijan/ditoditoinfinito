@@ -487,3 +487,25 @@ the spatial field evolves on unwrapped time. Reduced motion freezes both
 and allows the screen to idle; resizing preserves the clock. The look's
 ordinary text title remains the fallback. The app's other text faces stay
 as configured in the theme.
+
+
+### Title-menu outline rain (2026-10-27)
+
+`rain.rs` dresses `TitleMenu.Background` with 50 small outlines. The
+`assets/ui/menu-rain.svg` atlas uses Infinito's outer arrow/onigiri contours,
+four baked cardinal orientations and eight stroke weights, keeping the
+outlines about 1.15 study pixels wide at their different depths. Onigiri
+keeps its note alignment and upright orientation. A deterministic seed
+chooses depth and position; the shape changes only at an offscreen respawn,
+with a 1% onigiri chance. Portrait resizing preserves glyph proportions.
+
+The existing Vivid painter samples a fixed snapshot (phase .363, seconds
+9.04, a 96-unit field) with 35% saturation. Every sprite's field rectangle
+comes from its viewport position, so colors belong to the screen while the
+outlines move through them. This recreates the approved shared-texture
+study with the same material rather than shipping another bitmap. A quiet
+center preserves the title/menu's contrast. `Look::animate_component`
+receives a screen-owned elapsed clock; reduced motion holds both title and
+rain still, letting the screen idle. Relayout keeps the clock. Theme metrics
+`TitleMenu.RainSpeed` (8 study px/s) and `TitleMenu.RainStrength` (22) keep
+this independent of song tempo and selection.

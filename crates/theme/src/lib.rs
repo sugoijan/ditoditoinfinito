@@ -36,6 +36,7 @@ mod tunables;
 
 mod keycaps;
 pub use keycaps::KeycapMaterial;
+mod rain;
 mod wordmark;
 
 mod tables {
@@ -1227,14 +1228,30 @@ impl Look for Infinito {
     fn image(&self, name: &str) -> Option<&str> {
         match name {
             "TitleMenu.Title" | "Screen.Header" => Some("title/dosis.png"),
+            "TitleMenu.Background" => Some("ui/menu-rain.svg"),
             "KeyHint" => Some(self.keycap_material.get().image()),
             _ => None,
         }
     }
 
+    fn animate_component(
+        &self,
+        name: &str,
+        actor: &mut Actor,
+        size: [f32; 2],
+        seconds: f64,
+    ) -> bool {
+        if name != "TitleMenu.Background" {
+            return false;
+        }
+        rain::update(actor, size, seconds, self);
+        true
+    }
+
     fn component(&self, name: &str, spec: &Spec) -> Option<Actor> {
         let [w, h] = spec.size;
         Some(match name {
+            "TitleMenu.Background" => rain::actor(),
             "TitleMenu.Title" => wordmark::actor(spec.size, self.c("Text")),
             "TitleMenu.Primary" => self.button(spec, "Accent", "OnAccent", 20.0, 700),
             "TitleMenu.Choice" => self.button(spec, "Plate2", "Text", 18.0, 600),

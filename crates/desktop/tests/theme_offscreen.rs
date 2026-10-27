@@ -73,3 +73,50 @@ fn song_select_draws_in_the_theme() {
     assert!(!close(b, [0x1f, 0x1b, 0x28]), "banner {b:?}");
     assert_eq!(env.state.borrow().song, "Some Things Must");
 }
+
+/// The actual title menu's small outline atlas is decoded, painted and animated
+/// by the shared painter (rather than a browser-only background).
+#[test]
+fn start_menu_rain_draws_and_freezes() {
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).expect("device");
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut gpu = Gpu::new(device, queue, format);
+    let fold: FoldFn = Rc::new(str::to_string);
+    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
+    let size = [1280, 720];
+    ui.handle(UiEvent::Resize {
+        size: [1280.0, 720.0],
+        ratio: 1.0,
+    });
+    ui.update(1.0);
+    let first = gpu.draw_offscreen(&mut ui, size, format);
+    ui.update(1.0);
+    let moving = gpu.draw_offscreen(&mut ui, size, format);
+    // Away from title, choices and hints: only background rain can move here.
+    let changes = (40..600)
+        .flat_map(|y| (20..350).map(move |x| (y * 1280 + x) * 4))
+        .filter(|&i| first[i..i + 3] != moving[i..i + 3])
+        .count();
+    assert!(changes > 100, "rain not visible: {changes} changed pixels");
+    env.reduced_motion.set(true);
+    ui.update(1.0);
+    let still = gpu.draw_offscreen(&mut ui, size, format);
+    ui.update(1.0);
+    assert_eq!(still, gpu.draw_offscreen(&mut ui, size, format));
+    if let Some(path) = std::env::var_os("DDI_MENU_PPM") {
+        let mut ppm = b"P6\n1280 720\n255\n".to_vec();
+        ppm.extend(
+            still
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|p| [p[0], p[1], p[2]]),
+        );
+        std::fs::write(path, ppm).expect("ppm");
+    }
+}

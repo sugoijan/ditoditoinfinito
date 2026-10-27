@@ -141,7 +141,10 @@ Rust and the browser are implementation details, not advertised features.
   `crates/theme/src/infinito.toml` (turned into tables at build time). The
   start title is shaped Dosis artwork (`tools/title-design/`, `assets/title/`),
   with Infinito Vivid paint on D/D/I through the shared 2D painter; reduced
-  motion freezes both its palette and evolving texture. The
+  motion freezes both its palette and evolving texture. The start menu's
+  slow outline rain (`crates/theme/src/rain.rs`, `assets/ui/menu-rain.svg`)
+  shares a stationary muted Vivid field; the screen supplies its elapsed
+  clock through `Look::animate_component` and freezes it for reduced motion. The
   shortcut indicators use original OEM-inspired SVG keycaps
   (`tools/keycap-design/`, `assets/ui/keycaps-a1.svg`, `keycaps-a2.svg`,
   `keycaps-light.svg`, `keycaps-gray.svg`, `keycaps-deep-gray.svg`), preserving charcoal satin/semi-gloss

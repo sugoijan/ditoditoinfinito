@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="1024" viewBox="0 0 320 512">
+<!-- Infinito outer contours. Columns: up, right, down, left, onigiri.
+     Rows: eight line weights to keep strokes near 1.15 px at each depth. -->
+<defs><path id="arrow" d="M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z"/><path id="onigiri" d="M24.924 20.762A8.17 8.17 0 0 1 39.076 20.762L52.052 43.238A8.17 8.17 0 0 1 44.976 55.493L43.246 55.493A1.377 1.377 0 0 1 41.869 54.116L41.869 41.448A1.377 1.377 0 0 0 40.492 40.07L23.508 40.07A1.377 1.377 0 0 0 22.131 41.448L22.131 54.116A1.377 1.377 0 0 1 20.754 55.493L19.024 55.493A8.17 8.17 0 0 1 11.948 43.238Z"/></defs>
+<g fill="none" stroke="white" stroke-linejoin="round" stroke-linecap="round">
+<use href="#arrow" transform="translate(0 0) rotate(0 32 32)" stroke-width="4.0657"/>
+<use href="#arrow" transform="translate(64 0) rotate(90 32 32)" stroke-width="4.0657"/>
+<use href="#arrow" transform="translate(128 0) rotate(180 32 32)" stroke-width="4.0657"/>
+<use href="#arrow" transform="translate(192 0) rotate(270 32 32)" stroke-width="4.0657"/>
+<use href="#onigiri" transform="translate(256 0) translate(0 -7)" stroke-width="4.0657"/>
+<use href="#arrow" transform="translate(0 64) rotate(0 32 32)" stroke-width="3.2953"/>
+<use href="#arrow" transform="translate(64 64) rotate(90 32 32)" stroke-width="3.2953"/>
+<use href="#arrow" transform="translate(128 64) rotate(180 32 32)" stroke-width="3.2953"/>
+<use href="#arrow" transform="translate(192 64) rotate(270 32 32)" stroke-width="3.2953"/>
+<use href="#onigiri" transform="translate(256 64) translate(0 -7)" stroke-width="3.2953"/>
+<use href="#arrow" transform="translate(0 128) rotate(0 32 32)" stroke-width="2.7704"/>
+<use href="#arrow" transform="translate(64 128) rotate(90 32 32)" stroke-width="2.7704"/>
+<use href="#arrow" transform="translate(128 128) rotate(180 32 32)" stroke-width="2.7704"/>
+<use href="#arrow" transform="translate(192 128) rotate(270 32 32)" stroke-width="2.7704"/>
+<use href="#onigiri" transform="translate(256 128) translate(0 -7)" stroke-width="2.7704"/>
+<use href="#arrow" transform="translate(0 192) rotate(0 32 32)" stroke-width="2.3897"/>
+<use href="#arrow" transform="translate(64 192) rotate(90 32 32)" stroke-width="2.3897"/>
+<use href="#arrow" transform="translate(128 192) rotate(180 32 32)" stroke-width="2.3897"/>
+<use href="#arrow" transform="translate(192 192) rotate(270 32 32)" stroke-width="2.3897"/>
+<use href="#onigiri" transform="translate(256 192) translate(0 -7)" stroke-width="2.3897"/>
+<use href="#arrow" transform="translate(0 256) rotate(0 32 32)" stroke-width="2.1010"/>
+<use href="#arrow" transform="translate(64 256) rotate(90 32 32)" stroke-width="2.1010"/>
+<use href="#arrow" transform="translate(128 256) rotate(180 32 32)" stroke-width="2.1010"/>
+<use href="#arrow" transform="translate(192 256) rotate(270 32 32)" stroke-width="2.1010"/>
+<use href="#onigiri" transform="translate(256 256) translate(0 -7)" stroke-width="2.1010"/>
+<use href="#arrow" transform="translate(0 320) rotate(0 32 32)" stroke-width="1.8746"/>
+<use href="#arrow" transform="translate(64 320) rotate(90 32 32)" stroke-width="1.8746"/>
+<use href="#arrow" transform="translate(128 320) rotate(180 32 32)" stroke-width="1.8746"/>
+<use href="#arrow" transform="translate(192 320) rotate(270 32 32)" stroke-width="1.8746"/>
+<use href="#onigiri" transform="translate(256 320) translate(0 -7)" stroke-width="1.8746"/>
+<use href="#arrow" transform="translate(0 384) rotate(0 32 32)" stroke-width="1.6922"/>
+<use href="#arrow" transform="translate(64 384) rotate(90 32 32)" stroke-width="1.6922"/>
+<use href="#arrow" transform="translate(128 384) rotate(180 32 32)" stroke-width="1.6922"/>
+<use href="#arrow" transform="translate(192 384) rotate(270 32 32)" stroke-width="1.6922"/>
+<use href="#onigiri" transform="translate(256 384) translate(0 -7)" stroke-width="1.6922"/>
+<use href="#arrow" transform="translate(0 448) rotate(0 32 32)" stroke-width="1.5421"/>
+<use href="#arrow" transform="translate(64 448) rotate(90 32 32)" stroke-width="1.5421"/>
+<use href="#arrow" transform="translate(128 448) rotate(180 32 32)" stroke-width="1.5421"/>
+<use href="#arrow" transform="translate(192 448) rotate(270 32 32)" stroke-width="1.5421"/>
+<use href="#onigiri" transform="translate(256 448) translate(0 -7)" stroke-width="1.5421"/>
+</g>
+</svg>

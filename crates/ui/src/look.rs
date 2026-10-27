@@ -111,6 +111,19 @@ pub trait Look {
         None
     }
 
+    /// Update a look-owned component at a screen's elapsed animation time.
+    /// The host holds this clock still for reduced motion and preserves it on
+    /// resize. Return true when the component wants continuous frames.
+    fn animate_component(
+        &self,
+        _name: &str,
+        _actor: &mut Actor,
+        _size: [f32; 2],
+        _seconds: f64,
+    ) -> bool {
+        false
+    }
+
     /// A named color (`Graph.Line`, `Graph.Bar`, `Text`, `Accent`, …).
     fn color(&self, _name: &str) -> Option<Rgba> {
         None

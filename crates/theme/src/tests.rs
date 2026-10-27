@@ -1860,6 +1860,47 @@ fn the_headers_wordmark_is_live() {
     check("start", &env, sample::start_screen(&env, false));
 }
 
+/// Rain uses the screen clock, pauses for reduced motion, and survives relayout.
+#[test]
+fn title_background_freezes_without_losing_its_place() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::start_screen(&env, false));
+    let positions = |h: &Harness| {
+        h.ui.actor("MenuBackground")
+            .unwrap()
+            .children()
+            .iter()
+            .map(|a| a.current().pos)
+            .collect::<Vec<_>>()
+    };
+    let initial = positions(&h);
+    h.run(1.0);
+    assert_ne!(initial, positions(&h));
+    env.reduced_motion.set(true);
+    h.run(1.0);
+    let still = positions(&h);
+    h.run(1.0);
+    assert_eq!(still, positions(&h));
+    assert!(!h.ui.needs_redraw());
+    // A relayout at the same dimensions must keep the animation clock.
+    h.ui.handle(ddi_ui::UiEvent::Resize {
+        size: [640.0, 360.0],
+        ratio: 1.0,
+    });
+    h.ui.handle(ddi_ui::UiEvent::Resize {
+        size: [1280.0, 720.0],
+        ratio: 1.0,
+    });
+    h.run(0.1);
+    assert_eq!(still, positions(&h));
+    env.reduced_motion.set(false);
+    h.run(0.5);
+    assert_ne!(still, positions(&h));
+    assert!(h.ui.needs_redraw());
+}
+
 /// The menus' parts come in from their edges and leave to them, screens
 /// following each other (`docs/plans/theme.md`, "Transitions"): song
 /// select's header from above, its footer from below, the wheel from the

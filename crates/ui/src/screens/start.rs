@@ -37,6 +37,8 @@ pub struct StartScreen {
     zoom: f32,
     initial_focus: Option<String>,
     live: super::Live,
+    background_time: f64,
+    background_animating: bool,
 }
 
 impl StartScreen {
@@ -49,6 +51,8 @@ impl StartScreen {
             zoom: 1.0,
             initial_focus: None,
             live: Default::default(),
+            background_time: 0.0,
+            background_animating: false,
         }
     }
 
@@ -99,6 +103,25 @@ impl StartScreen {
         let total = menu_height + header;
         let top = ((h - total) / 2.0).max(8.0);
         let mut children = vec![ground(env, size)];
+        if let Some(mut background) = env
+            .look
+            .component("TitleMenu.Background", &Spec::new(size, ""))
+        {
+            background.name = "MenuBackground".into();
+            if let Some(source) = env.look.image("TitleMenu.Background") {
+                // The atlas has small outlines: keep enough pixels per cell
+                // even though the individual sprites are drawn much smaller.
+                let texture = cx.texture(source, 1024.0);
+                super::sprites_mut(&mut background, &mut |s| s.texture = texture);
+            }
+            self.background_animating = env.look.animate_component(
+                "TitleMenu.Background",
+                &mut background,
+                size,
+                self.background_time,
+            );
+            children.push(background);
+        }
         let spec = Spec::new(
             [
                 env.metric("TitleMenu.TitleWidth", 520.0).min(w - 32.0),
@@ -197,11 +220,22 @@ impl Screen for StartScreen {
             }
             super::relaid(root, left);
         }
+        if !self.env.reduced() {
+            self.background_time += f64::from(dt.max(0.0));
+        }
+        if let Some(background) = crate::hit::find_mut(root, "MenuBackground") {
+            self.background_animating = self.env.look.animate_component(
+                "TitleMenu.Background",
+                background,
+                self.size,
+                self.background_time,
+            );
+        }
         self.live.tick(root, "Title", &self.env, dt);
         self.publish();
     }
     fn animating(&self) -> bool {
-        self.live.animating(&self.env)
+        self.live.animating(&self.env) || (self.background_animating && !self.env.reduced())
     }
     fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {

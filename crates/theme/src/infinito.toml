@@ -112,6 +112,9 @@ numbers_weight = 800
 "TitleMenu.Gap" = 12
 "TitleMenu.TitleWidth" = 520
 "TitleMenu.TitleHeight" = 104
+# Quiet, screen-aligned outline rain; speed in the 960×540 study's px/s.
+"TitleMenu.RainSpeed" = 8
+"TitleMenu.RainStrength" = 22
 # The design size.
 "Design.Width" = 1280
 "Design.Height" = 720

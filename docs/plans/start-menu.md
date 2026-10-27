@@ -40,6 +40,16 @@ setup, player count or new session model. Pointer/touch activation does
 nothing. Singleplayer keeps all existing layouts, including Double;
 the label describes the player flow, not a chart layout.
 
+Since 2026-10-27 the theme's background is slow outline rain: the four
+cardinal Infinito arrows, with a 1% chance of an upright onigiri on each
+offscreen respawn. All outlines sample one stationary, muted Vivid field
+across the viewport. Directions stay fixed during each fall; the center
+is quieter behind the menu. The theme owns the artwork and motion through
+`TitleMenu.Background`; the shared start screen supplies elapsed time,
+preserves it on resize and pauses it for reduced motion. Both shells use
+the ordinary 2D painter, with no extra browser layer. `TitleMenu.RainSpeed`
+and `TitleMenu.RainStrength` tune its pace and visibility.
+
 The menu is silent, including after coming back from song select. No
 title music or attract-mode autoplay in this version. Use the theme's
 own background, independent of the last selected song. Keep transitions
