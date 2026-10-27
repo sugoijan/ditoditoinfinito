@@ -110,6 +110,9 @@ pub struct OptionsScreen {
     /// The preview's place last told the shell.
     told: Option<Option<[f32; 4]>>,
     texture: u32,
+    /// The P keycap on the preview's selector (built with the tree: it
+    /// needs the keycaps' texture), and its width.
+    preview_hint: Option<(Actor, f32)>,
 }
 
 impl OptionsScreen {
@@ -131,6 +134,7 @@ impl OptionsScreen {
             feed: None,
             told: None,
             texture: ddi_actor::UNTEXTURED,
+            preview_hint: None,
         }
     }
 
@@ -275,6 +279,15 @@ impl OptionsScreen {
         let mut children = vec![ground(&env, screen)];
         children.push(self.sections_actor());
         children.push(self.rows_actor());
+        self.preview_hint = (!p.compact && self.data.preview_layout.is_some()).then(|| {
+            super::key_hint(
+                &env,
+                "PreviewKey",
+                &[super::prompt_controls::keycap("KeyP")],
+                "",
+                cx,
+            )
+        });
         if let Some(selector) = self.preview_selector() {
             children.push(selector);
         }
@@ -382,8 +395,9 @@ impl OptionsScreen {
             "PreviewLayout",
             [x + w / 2.0, y - 8.0 - ROW / 2.0],
         );
+        let hint_w = self.preview_hint.as_ref().map_or(0.0, |(_, hw)| hw + 8.0);
         if let Some(label) = part(&mut selector, "Label") {
-            call(label, "maxwidth", &[w - 96.0]);
+            call(label, "maxwidth", &[w - 96.0 - 2.0 * hint_w]);
             ellipsize(label);
         }
         if let Kind::Frame(children) = &mut selector.kind {
@@ -394,6 +408,12 @@ impl OptionsScreen {
                 let mut button = frame(&format!("PreviewLayout.{name}"), vec![hit, arrow]);
                 call(&mut button, "x", &[x]);
                 children.push(button);
+            }
+            // The key that cycles it, inside the right arrow.
+            if let Some((hint, hw)) = &self.preview_hint {
+                let mut hint = hint.clone();
+                call(&mut hint, "x", &[w / 2.0 - 44.0 - hw / 2.0 - 4.0]);
+                children.push(hint);
             }
         }
         crate::widgets::play(
@@ -857,9 +877,21 @@ impl OptionsScreen {
         self.refresh(root);
     }
 
+    /// Moves the focused row's (or the preview selector's) value by
+    /// `by`, stopping at the ends.
     fn change(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
+        self.change_in(self.preview_focused, by, false, root, cx);
+    }
+
+    /// Cycles the preview's layout by `by`, on past the ends (the P key,
+    /// from anywhere on the screen).
+    fn cycle_preview(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
+        self.change_in(true, by, true, root, cx);
+    }
+
+    fn change_in(&mut self, preview: bool, by: i32, wrap: bool, root: &mut Actor, cx: &mut Cx) {
         let section = self.section;
-        let option = if self.preview_focused {
+        let option = if preview {
             self.data.preview_layout.as_mut()
         } else {
             self.data
@@ -871,7 +903,11 @@ impl OptionsScreen {
             return;
         };
         let n = o.values().len() as i32;
-        let to = (o.index as i32 + by).clamp(0, (n - 1).max(0)) as usize;
+        let to = if wrap && n > 0 {
+            (o.index as i32 + by).rem_euclid(n) as usize
+        } else {
+            (o.index as i32 + by).clamp(0, (n - 1).max(0)) as usize
+        };
         if to == o.index {
             return;
         }
@@ -882,7 +918,7 @@ impl OptionsScreen {
             self.refresh(root);
             return;
         }
-        let name = if self.preview_focused {
+        let name = if preview {
             "Preview".to_string()
         } else {
             self.data.sections[section].name.clone()
@@ -1398,13 +1434,9 @@ impl Screen for OptionsScreen {
                     && k.key.eq_ignore_ascii_case("p")
                     && self.data.preview_layout.is_some() =>
             {
-                self.preview_focused = !on_preview;
-                cx.focus(if self.preview_focused {
-                    "PreviewLayout"
-                } else {
-                    "RowsClip"
-                });
-                self.refresh(root);
+                // P cycles the preview's layout from anywhere on the
+                // screen (Shift+P backwards); the focus stays put.
+                self.cycle_preview(if k.modifiers.shift { -1 } else { 1 }, root, cx);
                 Handled::Yes
             }
             // The rows' frame took or lost focus: its commands reached

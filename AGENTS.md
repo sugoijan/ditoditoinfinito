@@ -115,7 +115,13 @@ Rust and the browser are implementation details, not advertised features.
   `prompt_options.rs`; its controls diagram, `prompt_controls.rs`, shows
   the chart's receptors and primary keyboard bindings through the independent
   field preview, pressing each pair for a brief looping demonstration (140 ms
-  per key, one-second pause; still under reduced motion). Modifiers sit below
+  per key, one-second pause; still under reduced motion); song select readies
+  the diagram's skin for the chart it shows (`Controls::for_chart` from its
+  place report, each shell's field preview's `warm`), so the prompt shows it
+  from its first frame. That preview draws nothing until the skin wanted is
+  in, readied for the layout wanted (the last frame holds meanwhile), never
+  the built-in arrows on the way; on the web one preview outlives the pages.
+  Modifiers sit below
   the diagram on the same card, without tabs or instructional copy;
   auto-start always takes priority.
   `docs/plans/start-prompt.md`) with their sample
@@ -663,7 +669,10 @@ The menus move with the arrow keys or the number pad's 8 2 4 6 on every
 screen (`ddi_ui::nav::key_action`, by physical code), Enter or Numpad Enter
 confirms; a text field being typed into takes the pad's digits as digits.
 Song browsing returns to Start in one press, keeping its filter and place;
-Clear beside Search clears the filter explicitly. Options returns to its caller.
+Clear beside Search clears the filter explicitly. Options returns to its caller;
+its P cycles the field preview's layout from anywhere on the screen (Shift+P
+backwards), the preview following the edited settings on that layout on both
+shells.
 Every screen's header (`ddi_ui::screens::header`: song select, Options, the
 pages, the results, the editor) has the visible Back, a three-bar button at
 the left, then the Dosis wordmark filling the height (live, as the start

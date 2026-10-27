@@ -1216,9 +1216,14 @@ Done, 6.3's field preview (2026-10-16):
   off the debug overlay in a real Firefox.
 - **Desktop** (`crates/desktop/src/field_preview.rs`, `Gpu::field`): the
   window answers `UiRequest::FieldPreview` the same way, with the
-  settings read from `storage.json` when the panel shows, frames going
-  on while it does; the built-in arrows only until desktop loads
-  noteskins (step 7). `cargo run -- --screen options`;
+  settings read from `storage.json` when the panel shows (the options'
+  edited ones, on the layout picked for the preview, while the screen is
+  open), frames going on while it does; the built-in arrows only until
+  desktop loads noteskins (step 7). On both shells (2026-10-27) the
+  preview draws nothing until the skin wanted is in, readied for the
+  layout wanted, the last frame holding while another layout's loads:
+  never the built-in arrows on the way; P on Options cycles the
+  preview's layout from anywhere (Shift+P backwards). `cargo run -- --screen options`;
   `crates/desktop/tests/options_offscreen.rs` draws the screen with the
   preview (Reverse moving the receptors to the panel's bottom).
 

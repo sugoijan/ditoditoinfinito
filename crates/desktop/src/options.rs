@@ -127,6 +127,12 @@ impl Shared {
     pub fn take_edited(&self) -> Option<Settings> {
         self.edited.borrow_mut().take()
     }
+
+    /// The settings as the field preview shows them: as edited, on the
+    /// layout picked for the preview.
+    pub fn preview_settings(&self) -> Settings {
+        self.model.borrow().preview_settings()
+    }
 }
 
 /// The noteskins one can choose, `(key, name)`, and the parameters they
@@ -325,7 +331,8 @@ impl OptionsPlatform for Desktop {
     }
 
     fn changed(&self, id: &str, model: &OptionsModel) {
-        *self.0.edited.borrow_mut() = Some(model.settings.clone());
+        // As the preview shows them: on the layout picked for it.
+        *self.0.edited.borrow_mut() = Some(model.preview_settings());
         if id == "reduced_motion" {
             let env = &self.0.env;
             env.follow_motion(model.settings.reduced_motion, false);

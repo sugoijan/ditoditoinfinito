@@ -191,6 +191,15 @@ countdown/gesture contract remains; the automatic demo never delays or resets
 it. The preview uses an independent skin instance so its clock and demonstration
 presses cannot leak into the song.
 
+Readied ahead (2026-10-27): the diagram's skin used to load when the prompt
+opened, its receptors appearing a moment later (hidden until then). Now song
+select's place report (the song, chart and style shown) has each shell
+ready the diagram's skin for that chart (`Controls::for_chart`,
+`ddi_shell::receptor_skin`; desktop's `Field::warm`, the web's
+`FieldPreviewHost::warm` on the app's one preview, which outlives the
+pages), so the prompt's first frame has it; a chart whose skin was not
+ready yet (Start pressed at once) shows it as before, when it comes.
+
 Coverage: the UI harness checks chart-specific defaults, saved primary and
 unbound keys, the combined diagram/modifier layout, synchronized key travel, the looping clock, reduced motion
 and auto-start taking priority while a skin loads. Native GPU tests check

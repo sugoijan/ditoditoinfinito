@@ -204,8 +204,25 @@ pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> Option<(Stri
     ))
 }
 
-/// Settings for the pre-start diagram, following the selected chart rather
-/// than the menu's style. Both hosts use the same skin and pose.
+/// The pre-start diagram's skin for `controls` (a chart's, following it
+/// rather than the menu's style): the preview's options, the skin
+/// wanted and the layout it is readied for (the diagram's, one strip).
+/// Both hosts use it, for the prompt's picture
+/// ([`receptor_preview_options`]) and to ready the skin ahead, while
+/// song select shows the chart.
+pub fn receptor_skin(
+    controls: &ddi_ui::screens::prompt_controls::Controls,
+) -> (FieldPreviewOptions, SkinWant, Layout) {
+    let mut settings = controls.settings.clone();
+    settings.style = controls.layout.id.clone();
+    let mut options = field_preview_options(&settings);
+    options.layout = controls.layout.id.clone();
+    let want = field_preview_skin(&settings, &options);
+    (options, want, controls.diagram_layout())
+}
+
+/// Settings for the pre-start diagram's picture ([`receptor_skin`] with
+/// the picture's pose). Both hosts use the same skin and pose.
 pub fn receptor_preview_options(
     p: &ddi_ui::screens::prompt_controls::Picture,
 ) -> (
@@ -213,13 +230,9 @@ pub fn receptor_preview_options(
     SkinWant,
     ddi_render::field_preview::ReceptorPreview,
 ) {
-    let mut settings = p.controls.settings.clone();
-    settings.style = p.controls.layout.id.clone();
-    let mut options = field_preview_options(&settings);
-    options.layout = p.controls.layout.id.clone();
-    let want = field_preview_skin(&settings, &options);
+    let (options, want, layout) = receptor_skin(&p.controls);
     let pose = ddi_render::field_preview::ReceptorPreview {
-        layout: p.controls.diagram_layout(),
+        layout,
         time: p.time,
         active: p.active,
     };

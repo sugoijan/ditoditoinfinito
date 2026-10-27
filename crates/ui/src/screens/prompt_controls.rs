@@ -26,6 +26,25 @@ impl Controls {
                 .collect(),
         }
     }
+    /// The controls of chart `chart` (its index) of `entry`, as the
+    /// prompt will show them: on the layout the song defines for it,
+    /// else the built-in one; `None` for a chart or a layout the game
+    /// does not know. Song select readies the diagram's skin with it
+    /// while the chart is shown, before Start.
+    pub fn for_chart(
+        entry: &ddi_library::manifest::ManifestEntry,
+        chart: usize,
+        settings: &Settings,
+    ) -> Option<Self> {
+        let c = entry.charts.iter().find(|c| c.index == chart)?;
+        let layout = entry
+            .layouts
+            .iter()
+            .find(|l| l.id == c.layout)
+            .cloned()
+            .or_else(|| Layout::builtin(&c.layout))?;
+        Some(Self::new(&layout, settings))
+    }
     pub fn duration(&self) -> f32 {
         0.2 + self.keys.len() as f32 * 0.14
     }

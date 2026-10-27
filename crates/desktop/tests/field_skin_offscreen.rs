@@ -232,3 +232,184 @@ fn the_prompt_readies_its_own_skin_and_releases_the_picture() {
     assert!(!field.holds_targets());
     assert!(!field.animating());
 }
+
+/// The options screen as the window runs it: a pick on its Arrows row
+/// reaches the preview through the edited settings
+/// (`options::Shared::take_edited`, as `shell.rs` polls them each
+/// loop), which then shows the skin picked.
+#[test]
+fn the_options_screen_switches_the_preview_skin() {
+    use ddi_desktop::gpu::Gpu;
+    use ddi_ui::event::{KeyEvent, UiEvent};
+    use ddi_ui::{Ui, UiRequest};
+    common::indexes();
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        return;
+    };
+    ddi_platform::storage::install(std::rc::Rc::new(
+        ddi_platform::storage::MemoryStore::default(),
+    ));
+    let (device, queue) = gpu::device(&adapter).unwrap();
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut gpu = Gpu::new(device, queue, format);
+    let fold: ddi_ui::dev_widgets::FoldFn = std::rc::Rc::new(|s: &str| s.to_string());
+    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
+    let (screen, shared) = ddi_desktop::options::screen(&env, None, None);
+    ui.push(screen);
+    ui.handle(UiEvent::Resize {
+        size: [1280.0, 720.0],
+        ratio: 1.0,
+    });
+    let size = [1280, 720];
+    let apply = |gpu: &mut Gpu, requests: Vec<UiRequest>| {
+        for r in requests {
+            if let UiRequest::FieldPreview(rect) = r {
+                gpu.field.set_rect(rect);
+                if rect.is_some() {
+                    gpu.field.set_settings(&Settings::load());
+                }
+            }
+        }
+    };
+    let tick = |ui: &mut Ui, gpu: &mut Gpu| {
+        ui.update(1.0 / 60.0);
+        apply(gpu, ui.take_requests());
+        if let Some(s) = shared.take_edited() {
+            gpu.field.set_settings(&s);
+        }
+        gpu.draw_offscreen(ui, size, format);
+    };
+    let key = |ui: &mut Ui, gpu: &mut Gpu, code: &str| {
+        let k = code
+            .strip_prefix("Key")
+            .map_or(code, |k| k.to_lowercase().leak());
+        apply(
+            gpu,
+            ui.handle(UiEvent::Key(KeyEvent::down(code, k))).requests,
+        );
+        apply(gpu, ui.handle(UiEvent::Key(KeyEvent::up(code, k))).requests);
+        tick(ui, gpu);
+    };
+    let mut frames = 0;
+    while gpu.field.skin_name().as_deref() != Some("Infinito") || gpu.field.reading() {
+        tick(&mut ui, &mut gpu);
+        frames += 1;
+        assert!(frames < 500, "{:?}", gpu.field.skin_name());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(gpu.field.shown());
+    // The Arrows section's noteskin row.
+    for _ in 0..12 {
+        if env
+            .state
+            .borrow()
+            .option_rows
+            .iter()
+            .any(|r| r == "noteskin")
+        {
+            break;
+        }
+        key(&mut ui, &mut gpu, "Tab");
+    }
+    for _ in 0..40 {
+        if env.state.borrow().option_id == "noteskin" {
+            break;
+        }
+        key(&mut ui, &mut gpu, "ArrowDown");
+    }
+    eprintln!("sections: {:?}", env.state.borrow().section);
+    eprintln!("rows: {:?}", env.state.borrow().option_rows);
+    assert_eq!(env.state.borrow().option_id, "noteskin");
+    let before = shared.model.borrow().settings.noteskin.clone();
+    key(&mut ui, &mut gpu, "ArrowRight");
+    let after = shared.model.borrow().settings.noteskin.clone();
+    assert_ne!(before, after, "the row picked another skin");
+    let mut frames = 0;
+    while gpu.field.skin_name().as_deref() == Some("Infinito") || gpu.field.reading() {
+        tick(&mut ui, &mut gpu);
+        frames += 1;
+        assert!(frames < 500, "{after:?}: {:?}", gpu.field.skin_name());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let name = gpu.field.skin_name();
+    assert_eq!(
+        gpu.field.shown_layout().map(|l| l.id.as_str()),
+        Some("dance-single")
+    );
+    // P picks the preview's next layout, which is no setting: the
+    // preview follows it (the edited settings carry it), the stored
+    // style does not.
+    key(&mut ui, &mut gpu, "KeyP");
+    let style = shared.preview_settings().style;
+    assert_ne!(style, "dance-single");
+    assert_eq!(Settings::load().style, "dance-single");
+    let mut frames = 0;
+    while gpu.field.shown_layout().map(|l| l.id.as_str()) != Some(style.as_str())
+        || gpu.field.reading()
+    {
+        tick(&mut ui, &mut gpu);
+        frames += 1;
+        assert!(
+            frames < 500,
+            "{style}: {:?}",
+            gpu.field.shown_layout().map(|l| &l.id)
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(gpu.field.skin_name(), name);
+    eprintln!("picked {after:?}: {name:?} on {style}");
+}
+
+/// Song select's chart readies the prompt's diagram's skin ahead
+/// (`Field::warm`): nothing is drawn meanwhile, and the diagram is ready
+/// on the prompt's first frame.
+#[test]
+fn a_warmed_skin_is_ready_on_the_prompts_first_frame() {
+    common::indexes();
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).unwrap();
+    let mut painter = Painter::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut field = Field::default();
+    let controls = std::rc::Rc::new(ddi_ui::screens::prompt_controls::Controls::new(
+        &ddi_chart::Layout::builtin("pump-single").unwrap(),
+        &Settings::default(),
+    ));
+    let mut draw = |field: &mut Field| {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        field.draw(&device, &queue, &mut encoder, &mut painter);
+        queue.submit(Some(encoder.finish()));
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    };
+    field.warm(&controls);
+    assert!(!field.ready());
+    let started = std::time::Instant::now();
+    while !field.ready() {
+        // Frames go on (the shell's loop polls the read with them).
+        assert!(field.animating(), "frames go on while the skin is read");
+        assert!(started.elapsed().as_secs() < 10, "the skin never came");
+        draw(&mut field);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(field.frames(), 0);
+    assert!(!field.holds_targets() && !field.animating());
+    assert_eq!(
+        field.shown_layout().map(|l| l.id.as_str()),
+        Some("pump-single")
+    );
+    let picture = ddi_ui::screens::prompt_controls::Picture {
+        controls,
+        size: [320.0, 64.0],
+        ready: std::rc::Rc::default(),
+        time: 0.0,
+        active: None,
+    };
+    field.set_receptors(Some(&picture));
+    draw(&mut field);
+    assert!(picture.ready.get(), "ready on the first frame");
+    assert_eq!(field.frames(), 1);
+    assert!(!field.reading());
+}

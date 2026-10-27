@@ -80,6 +80,10 @@ struct Shared {
     folders: RefCell<HashMap<String, JsValue>>,
     feed: SharedFeed,
     host: RefCell<Option<Weak<RefCell<Host>>>>,
+    /// Where the chart shown goes for its prompt's diagram's skin to be
+    /// readied ahead (the host's, `ui_dev::use_warm_cell`; the screen's
+    /// first place report comes before the host is handed out).
+    warm: ui_dev::WarmCell,
     folder_input: NodeRef,
     file_input: NodeRef,
     music_input: NodeRef,
@@ -169,6 +173,7 @@ impl Component for SelectPage {
             folders: RefCell::new(HashMap::new()),
             feed: Rc::new(RefCell::new(Feed::default())),
             host: RefCell::new(None),
+            warm: Rc::default(),
             folder_input: NodeRef::default(),
             file_input: NodeRef::default(),
             music_input: NodeRef::default(),
@@ -546,6 +551,7 @@ impl SelectPage {
         match ui_dev::start_ui(&el, ui, Some(theme), Some(extra)) {
             Ok(started) => {
                 *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+                ui_dev::use_warm_cell(&started.0, self.shared.warm.clone());
                 ui_dev::set_frame_hook(&started.0, Some(movie_hook(&self.shared, env.clone())));
                 let link = ctx.link().clone();
                 ui_dev::attach_gfx(started.0.clone(), move |e| {
@@ -865,6 +871,22 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             if settings.style != p.style && !p.style.is_empty() {
                 settings.style = p.style;
                 settings.save();
+            }
+            // The chart shown: its prompt's diagram's skin readied ahead
+            // (the app's field preview, at the host's next frame).
+            if let (Some(song), Some(chart)) = (&p.song, p.chart) {
+                let library = shared.library.borrow();
+                let controls = library.as_ref().and_then(|l| {
+                    let entry = l
+                        .bundled
+                        .iter()
+                        .chain(l.imported.iter().map(|s| &s.entry))
+                        .find(|e| e.id == *song)?;
+                    ddi_ui::screens::prompt_controls::Controls::for_chart(entry, chart, &settings)
+                });
+                if let Some(c) = controls {
+                    *shared.warm.borrow_mut() = Some(Rc::new(c));
+                }
             }
         }
         SelectCall::Leave => {

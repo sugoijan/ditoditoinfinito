@@ -268,11 +268,23 @@ fn the_preview_layout_is_available_in_every_section_without_changing_play() {
             assert_eq!(r.model.borrow().preview_settings().style, "dance-single");
             r.h.key("ArrowUp", "ArrowUp");
             assert_ne!(r.state.borrow().option_id, "preview_layout");
+            // P cycles the preview's layout from anywhere, the focus
+            // staying on the row; Shift+P backwards, past the ends.
+            let row = r.state.borrow().option_id.clone();
             r.h.key("KeyP", "p");
-            assert_eq!(r.state.borrow().option_id, "preview_layout");
-            r.h.key("ArrowRight", "ArrowRight");
             assert_eq!(r.model.borrow().preview_settings().style, "dance-solo");
-            r.h.key("ArrowLeft", "ArrowLeft");
+            assert_eq!(r.state.borrow().option_id, row);
+            let shift = crate::event::Modifiers {
+                shift: true,
+                ..Default::default()
+            };
+            r.h.key_with("KeyP", "P", shift);
+            assert_eq!(r.model.borrow().preview_settings().style, "dance-single");
+            r.h.key_with("KeyP", "P", shift);
+            let last = r.model.borrow().bind_layouts().last().unwrap().id.clone();
+            assert_eq!(r.model.borrow().preview_settings().style, last);
+            r.h.key("KeyP", "p");
+            assert_eq!(r.model.borrow().preview_settings().style, "dance-single");
             assert_eq!(r.model.borrow().settings, settings);
             assert_eq!(stored(), settings);
             r.h.key("Tab", "Tab");

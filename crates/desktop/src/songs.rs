@@ -55,6 +55,9 @@ pub struct Songs {
     notices: RefCell<Vec<ddi_ui::screens::data::Notice>>,
     pub bundled: Vec<ManifestEntry>,
     place: RefCell<MenuPlace>,
+    /// The chart song select shows, for the shell to ready its prompt's
+    /// diagram's skin ahead (taken each loop).
+    pub warm: RefCell<Option<Rc<ddi_ui::screens::prompt_controls::Controls>>>,
     history_seen: Cell<u64>,
     /// When song select last got the history's bests: a change within
     /// [`HISTORY_EVERY`] of it waits (a pass working out stale plays
@@ -94,6 +97,7 @@ impl Songs {
             notices: RefCell::default(),
             bundled: crate::library::bundled(),
             place: RefCell::new(MenuPlace::load()),
+            warm: RefCell::default(),
             history_seen: Cell::new(u64::MAX),
             history_sent: Cell::new(None),
             options: Rc::default(),
@@ -651,6 +655,25 @@ impl Songs {
                 self.hidden.borrow().save();
             }
             SelectCall::Place(p) => {
+                // The chart shown: its prompt's diagram's skin readied
+                // ahead (the shell's field preview, `Field::warm`).
+                if let (Some(song), Some(chart)) = (&p.song, p.chart) {
+                    let library = self.library.borrow();
+                    let entry = library
+                        .as_ref()
+                        .and_then(|l| l.songs.iter().find(|s| s.entry.id == *song))
+                        .map(|s| &s.entry)
+                        .or_else(|| self.bundled.iter().find(|e| e.id == *song));
+                    if let Some(c) = entry.and_then(|e| {
+                        ddi_ui::screens::prompt_controls::Controls::for_chart(
+                            e,
+                            chart,
+                            &Settings::load(),
+                        )
+                    }) {
+                        *self.warm.borrow_mut() = Some(Rc::new(c));
+                    }
+                }
                 let mut place = self.place.borrow_mut();
                 place.remember(&p);
                 place.save();

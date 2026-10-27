@@ -5,7 +5,14 @@
 //! noteskin play would draw its layout with (`Settings::noteskin_for`:
 //! the pump skin for pump layouts), readied natively as play readies it
 //! (`crate::play::skins`) and shown from the next frame after a pick, as
-//! the web's preview does. Nothing is drawn until the first skin is in.
+//! the web's preview does. Nothing is drawn until the first skin is in,
+//! and a frame holds while the skin for another layout is read: never
+//! the built-in arrows, nor a skin on a layout it was not readied for.
+//!
+//! The same preview draws the start prompt's receptor diagram
+//! ([`Field::set_receptors`]), and readies its skin ahead while song
+//! select shows a chart ([`Field::warm`], from the select screen's place
+//! report), so the prompt shows its receptors at once.
 
 use std::time::Instant;
 
@@ -13,14 +20,16 @@ use ddi_chart::Layout;
 use ddi_render::Painter;
 pub use ddi_render::field_preview::SkinWant;
 use ddi_render::field_preview::{FieldPreview, FieldPreviewOptions, SOURCE};
+use ddi_ui::screens::prompt_controls::Controls;
 use ddi_ui::state::settings::Settings;
 
 /// The preview, while a screen shows it.
 pub struct Field {
     preview: Option<FieldPreview>,
-    /// The skin wanted, and the one shown.
-    wanted: Option<SkinWant>,
-    shown: Option<SkinWant>,
+    /// The skin wanted and the layout it is readied for, and the one
+    /// shown with its (a demo's layout, or the diagram's strip).
+    wanted: Option<(SkinWant, Layout)>,
+    shown: Option<(SkinWant, Layout)>,
     /// Where it shows, physical pixels `[x, y, w, h]`.
     rect: Option<[f32; 4]>,
     options: FieldPreviewOptions,
@@ -31,7 +40,7 @@ pub struct Field {
     start: Instant,
     /// The skin wanted, read on its thread (a newer pick lets an older
     /// read go).
-    reading: Option<(SkinWant, crate::play::skins::Reading, Layout)>,
+    reading: Option<(SkinWant, Layout, crate::play::skins::Reading)>,
 }
 
 impl Default for Field {
@@ -84,34 +93,44 @@ impl Field {
     }
 
     /// The options and the noteskin under `settings` (the skin readied
-    /// on the next frame when it changed).
+    /// on the next frame when it changed), for Options' demo.
     pub fn set_settings(&mut self, settings: &Settings) {
-        if self.receptors.take().is_some() {
-            self.shown = None;
-            self.reading = None;
-        }
+        self.receptors = None;
         self.receptor_ready = None;
         let options = ddi_shell::field_preview_options(settings);
-        self.wanted = Some(ddi_shell::field_preview_skin(settings, &options));
+        let want = ddi_shell::field_preview_skin(settings, &options);
+        let layout = want.layout();
+        self.wanted = Some((want, layout));
         self.options = options;
     }
 
+    /// The prompt's receptor diagram (`None`: gone), its skin readied
+    /// when it is not the one in.
     pub fn set_receptors(&mut self, picture: Option<&ddi_ui::screens::prompt_controls::Picture>) {
         self.receptor_ready = picture.map(|p| p.ready.clone());
         self.rect = picture.map(|p| [0.0, 0.0, p.size[0], p.size[1]]);
         self.receptors = picture.map(|p| {
             let (options, want, pose) = ddi_shell::receptor_preview_options(p);
-            if self.receptors.as_ref().map(|old| &old.layout) != Some(&pose.layout) {
-                self.shown = None;
-                self.reading = None;
-            }
             self.options = options;
-            self.wanted = Some(want);
+            self.wanted = Some((want, pose.layout.clone()));
             pose
         });
     }
+
+    /// Readies the diagram's skin for `controls` (a chart song select
+    /// shows) without showing anything, so the prompt's diagram is in
+    /// from its first frame.
+    pub fn warm(&mut self, controls: &Controls) {
+        let (options, want, layout) = ddi_shell::receptor_skin(controls);
+        self.options = options;
+        self.wanted = Some((want, layout));
+    }
+
+    /// Whether frames must go on: the demo plays, or the skin wanted is
+    /// not in yet (its read started and polled by the frames).
     pub fn animating(&self) -> bool {
-        self.rect.is_some() && (self.receptors.is_none() || self.reading.is_some())
+        (self.wanted.is_some() && self.shown != self.wanted)
+            || (self.rect.is_some() && self.receptors.is_none())
     }
 
     /// The noteskin drawn (`None`: the built-in arrows), its name.
@@ -131,6 +150,17 @@ impl Field {
             .unwrap_or_default()
     }
 
+    /// Whether the skin in is the one wanted, readied for the layout
+    /// wanted.
+    pub fn ready(&self) -> bool {
+        self.wanted.is_none() || self.shown == self.wanted
+    }
+
+    /// The layout the skin in was readied for (tests).
+    pub fn shown_layout(&self) -> Option<&Layout> {
+        self.shown.as_ref().map(|(_, l)| l)
+    }
+
     /// Whether the preview holds its textures (tests).
     pub fn holds_targets(&self) -> bool {
         self.preview.as_ref().is_some_and(FieldPreview::has_targets)
@@ -141,27 +171,10 @@ impl Field {
         self.preview.as_ref().map_or(0, FieldPreview::frames)
     }
 
-    /// While shown, records its frame into `encoder` (before the painter
-    /// draws) and gives the painter its texture when it is a new one;
-    /// once no screen shows it, takes the texture from the painter and
-    /// lets the preview's textures go (its renderer and skin stay, for
-    /// the next time).
-    pub fn draw(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        painter: &mut Painter,
-    ) {
-        let Some([_, _, w, h]) = self.rect else {
-            if self.registered.take().is_some() {
-                painter.set_external_image(device, SOURCE, None);
-            }
-            if let Some(p) = &mut self.preview {
-                p.release_targets();
-            }
-            return;
-        };
+    /// Readies the skin wanted: read on a thread (the older pick's read
+    /// let go), made and put on the preview once it comes; the one shown
+    /// until then.
+    fn ready_skin(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         // Half floats render and blend on every native backend (WebGPU's
         // core features).
         let preview = self.preview.get_or_insert_with(|| {
@@ -174,31 +187,35 @@ impl Field {
         });
         preview.set_options(self.options.clone());
         preview.set_receptors(self.receptors.clone());
-        // A skin picked: read on a thread (the older pick's read let
-        // go), made and drawn once it comes; the one shown until then.
-        if let Some(want) = self.wanted.clone()
-            && self.shown.as_ref() != Some(&want)
-            && self.reading.as_ref().is_none_or(|(w, ..)| *w != want)
+        let Some((want, layout)) = self.wanted.clone() else {
+            return;
+        };
+        if self.shown == self.wanted {
+            self.reading = None;
+            return;
+        }
+        if self
+            .reading
+            .as_ref()
+            .is_some_and(|(w, l, _)| (w, l) != (&want, &layout))
         {
-            let layout = self
-                .receptors
-                .as_ref()
-                .map(|p| p.layout.clone())
-                .unwrap_or_else(|| want.layout());
+            self.reading = None;
+        }
+        if self.reading.is_none() {
             match &want.key {
                 Some(key) => {
                     let env = want.env(&layout);
                     let reading = crate::play::skins::Reading::start(key, &layout, env, None);
-                    self.reading = Some((want, reading, layout));
+                    self.reading = Some((want, layout, reading));
                 }
                 None => {
                     preview.set_noteskin(device, queue, None, |_, _| {});
-                    self.reading = None;
-                    self.shown = Some(want);
+                    self.shown = Some((want, layout));
                 }
             }
+            return;
         }
-        if let Some((want, reading, layout)) = &self.reading
+        if let Some((want, layout, reading)) = &self.reading
             && let Some(read) = reading.poll()
         {
             let prepared = read.and_then(|r| crate::play::skins::build(r, layout));
@@ -209,12 +226,42 @@ impl Field {
             preview.set_noteskin(device, queue, play, |renderer, play| {
                 crate::play::view::upload_noteskin(renderer, device, queue, play, &images);
             });
-            self.shown = Some(want.clone());
+            self.shown = Some((want.clone(), layout.clone()));
             self.reading = None;
         }
-        // Nothing until the first skin is in (`shown` only ever fills):
-        // the panel's placeholder, never the built-in arrows on the way.
-        if self.wanted.is_none() || self.shown.is_some() {
+    }
+
+    /// Readies the skin wanted ([`Field::ready_skin`]) and, while shown,
+    /// records its frame into `encoder` (before the painter draws) and
+    /// gives the painter its texture when it is a new one; once no screen
+    /// shows it, takes the texture from the painter and lets the
+    /// preview's textures go (its renderer and skin stay, for the next
+    /// time).
+    pub fn draw(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        painter: &mut Painter,
+    ) {
+        self.ready_skin(device, queue);
+        let Some([_, _, w, h]) = self.rect else {
+            if self.registered.take().is_some() {
+                painter.set_external_image(device, SOURCE, None);
+            }
+            if let Some(p) = &mut self.preview {
+                p.release_targets();
+            }
+            return;
+        };
+        let ready = self.ready();
+        let Some(preview) = &mut self.preview else {
+            return;
+        };
+        // Nothing until the skin wanted is in, readied for the layout
+        // wanted: the panel's placeholder, or the last frame, never the
+        // built-in arrows on the way.
+        if ready {
             let size = [w.round().max(1.0) as u32, h.round().max(1.0) as u32];
             preview.draw(
                 device,
@@ -224,8 +271,8 @@ impl Field {
                 self.start.elapsed().as_secs_f64(),
             );
         }
-        if let Some(ready) = &self.receptor_ready {
-            ready.set(self.shown == self.wanted && preview.texture().is_some());
+        if let Some(r) = &self.receptor_ready {
+            r.set(ready && preview.texture().is_some());
         }
         if self.registered != Some(preview.generation()) {
             painter.set_external_image(device, SOURCE, preview.texture());

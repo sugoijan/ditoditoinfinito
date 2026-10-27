@@ -674,7 +674,15 @@ impl Shell {
                     if let Some(s) = &mut self.surface {
                         s.gpu.field.set_rect(rect);
                         if rect.is_some() {
-                            let settings = ddi_ui::state::settings::Settings::load();
+                            // As the options screen edits them, on the
+                            // layout picked for the preview.
+                            let settings = self
+                                .input
+                                .options
+                                .as_ref()
+                                .map_or_else(ddi_ui::state::settings::Settings::load, |o| {
+                                    o.preview_settings()
+                                });
                             s.gpu.field.set_settings(&settings);
                         }
                     }
@@ -1436,6 +1444,13 @@ impl ApplicationHandler for Shell {
                         .broadcast(Message::new(theme_screens::options::OPTIONS_CHANGED));
                 }
                 self.input.options = Some(o);
+            }
+            // The chart song select shows: its prompt's diagram's skin
+            // readied ahead.
+            if let Some(c) = songs.warm.borrow_mut().take()
+                && let Some(s) = &mut self.surface
+            {
+                s.gpu.field.warm(&c);
             }
         }
         // The controllers' news (their thread woke the loop): a play's

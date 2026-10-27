@@ -5,7 +5,15 @@
 //! has its own), loads the noteskin play would use (in slices, off the
 //! frame, as play loads it) and puts it on the preview once ready, and
 //! makes the preview again on a new device. Nothing is drawn until the
-//! first skin is in.
+//! first skin is in, and a frame holds while the skin for another
+//! layout loads: never the built-in arrows, nor a skin on a layout it
+//! was not readied for.
+//!
+//! One preview serves the whole app ([`slot`]), outliving the pages:
+//! its skin stays in between Options, song select and the start prompt,
+//! whose receptor diagram it draws too, and song select readies the
+//! diagram's skin ahead ([`FieldPreviewHost::warm`]) so the prompt shows
+//! its receptors at once.
 //!
 //! A screen showing it (Options) says where each frame, in canvas
 //! pixels; [`FieldPreviewHost::draw`] records the preview's frame into
@@ -15,14 +23,27 @@
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
+use ddi_chart::Layout;
 use ddi_render::Renderer;
 use ddi_render::field_preview::{FieldPreview, SkinWant};
 use ddi_render::noteskin::NoteskinPlay;
+use ddi_ui::screens::prompt_controls::Controls;
 
 pub(crate) use ddi_render::field_preview::SOURCE;
 
 use crate::settings::Settings;
 use crate::web::gfx::Gfx;
+
+thread_local! {
+    /// The app's one preview (made on first use, on the device of the
+    /// time; made again on a new one).
+    static SLOT: Rc<RefCell<Option<FieldPreviewHost>>> = Rc::default();
+}
+
+/// The app's preview's slot, shared by every page's host.
+pub(crate) fn slot() -> Rc<RefCell<Option<FieldPreviewHost>>> {
+    SLOT.with(Rc::clone)
+}
 
 /// The preview on one device.
 pub(crate) struct FieldPreviewHost {
@@ -31,20 +52,19 @@ pub(crate) struct FieldPreviewHost {
     generation: u64,
     /// The preview's texture generation the 2D pass was given.
     registered: Option<u64>,
-    /// The skin shown (none before the first), the one wanted, the one
-    /// being loaded, and one loaded for the next frame to show (`None`
-    /// inside: the built-in arrows).
-    shown: Option<SkinWant>,
-    wanted: Option<SkinWant>,
-    loading: Option<SkinWant>,
-    ready: Option<(SkinWant, Option<crate::noteskins::Prepared>)>,
+    /// The skin shown (none before the first) and the layout it was
+    /// readied for, the one wanted, the one being loaded, and one loaded
+    /// for the next frame to show (`None` inside: the built-in arrows).
+    shown: Option<(SkinWant, Layout)>,
+    wanted: Option<(SkinWant, Layout)>,
+    loading: Option<(SkinWant, Layout)>,
+    ready: Option<(SkinWant, Layout, Option<crate::noteskins::Prepared>)>,
     /// The number of the load wanted: a load whose number is not it any
     /// more gives up (`noteskins::prepare_while`), so stepping through
     /// skins loads only the last.
     load_number: Rc<Cell<u64>>,
     /// What the shell last read the settings for (ms).
     read_ms: f64,
-    receptor_layout: Option<ddi_chart::Layout>,
     pub(crate) status: String,
 }
 
@@ -72,7 +92,6 @@ impl FieldPreviewHost {
             ready: None,
             load_number: Rc::default(),
             read_ms: f64::NEG_INFINITY,
-            receptor_layout: None,
             status: "built-in arrows".into(),
         }
     }
@@ -88,6 +107,8 @@ impl FieldPreviewHost {
         self.preview.seek(seconds);
     }
 
+    /// Whether the skin wanted is in, readied for the layout wanted, and
+    /// a frame was drawn.
     pub(crate) fn ready(&self) -> bool {
         self.shown == self.wanted && self.preview.texture().is_some()
     }
@@ -98,33 +119,37 @@ impl FieldPreviewHost {
     /// Shows `settings` from the next frame; the skin they want loads
     /// meanwhile.
     pub(crate) fn set_settings(&mut self, settings: &Settings) {
-        if self.receptor_layout.take().is_some() {
-            self.invalidate_layout();
-        }
         self.preview.set_receptors(None);
         let options = ddi_shell::field_preview_options(settings);
-        self.wanted = Some(ddi_shell::field_preview_skin(settings, &options));
+        let want = ddi_shell::field_preview_skin(settings, &options);
+        let layout = want.layout();
+        self.wanted = Some((want, layout));
         self.preview.set_options(options);
     }
 
+    /// The prompt's receptor diagram, its skin loaded when it is not the
+    /// one in.
     pub(crate) fn set_receptors(&mut self, p: &ddi_ui::screens::prompt_controls::Picture) {
         let (options, want, pose) = ddi_shell::receptor_preview_options(p);
-        if self.receptor_layout.as_ref() != Some(&pose.layout) {
-            self.invalidate_layout();
-        }
-        self.receptor_layout = Some(pose.layout.clone());
-        self.wanted = Some(want);
+        self.wanted = Some((want, pose.layout.clone()));
         self.preview.set_options(options);
         self.preview.set_receptors(Some(pose));
     }
 
-    fn invalidate_layout(&mut self) {
-        self.shown = None;
-        self.load_number.set(self.load_number.get() + 1);
-        self.loading = None;
-        if let Some((_, Some(old))) = self.ready.take() {
-            old.close();
-        }
+    /// Loads the diagram's skin for `controls` (a chart song select
+    /// shows) without showing anything, so the prompt's diagram is in
+    /// from its first frame (`host` is this preview's slot, for the load
+    /// to come back to).
+    pub(crate) fn warm(
+        &mut self,
+        gfx: &Gfx,
+        host: &Weak<RefCell<Option<FieldPreviewHost>>>,
+        controls: &Controls,
+    ) {
+        let (options, want, layout) = ddi_shell::receptor_skin(controls);
+        self.wanted = Some((want, layout));
+        self.preview.set_options(options);
+        self.load_skin(gfx, host);
     }
 
     /// Reads the stored settings again when it is time (`now_ms`).
@@ -138,7 +163,7 @@ impl FieldPreviewHost {
 
     /// Records a frame of `size` pixels at `now_ms` into `encoder`, and
     /// gives the 2D pass the texture when it is a new one. Starts loading
-    /// the skin wanted (`host` is this preview's owner, for the load to
+    /// the skin wanted (`host` is this preview's slot, for the load to
     /// come back to).
     pub(crate) fn draw(
         &mut self,
@@ -148,13 +173,14 @@ impl FieldPreviewHost {
         now_ms: f64,
         host: &Weak<RefCell<Option<FieldPreviewHost>>>,
     ) {
-        if let Some((want, prepared)) = self.ready.take() {
-            self.show_skin(gfx, want, prepared);
+        if let Some((want, layout, prepared)) = self.ready.take() {
+            self.show_skin(gfx, want, layout, prepared);
         }
         self.load_skin(gfx, host);
-        // Nothing until the first skin is in (`shown` only ever fills):
-        // the panel's placeholder, never the built-in arrows on the way.
-        if self.wanted.is_none() || self.shown.is_some() {
+        // Nothing until the skin wanted is in, readied for the layout
+        // wanted: the panel's placeholder, or the last frame, never the
+        // built-in arrows on the way.
+        if self.wanted.is_none() || self.shown == self.wanted {
             self.preview
                 .draw(&gfx.device, &gfx.queue, encoder, size, now_ms / 1000.0);
         }
@@ -182,29 +208,30 @@ impl FieldPreviewHost {
 
     /// Starts loading the wanted skin unless it is shown or loading.
     fn load_skin(&mut self, gfx: &Gfx, host: &Weak<RefCell<Option<FieldPreviewHost>>>) {
-        let Some(want) = self.wanted.clone() else {
+        let Some((want, layout)) = self.wanted.clone() else {
             return;
         };
-        if self.loading.as_ref() == Some(&want) {
+        if self.loading.as_ref() == Some(&(want.clone(), layout.clone())) {
             return;
         }
         // The load running, if any, is not wanted any more: it gives up.
         let number = self.load_number.get() + 1;
         self.load_number.set(number);
         self.loading = None;
-        if self.shown.as_ref() == Some(&want) || self.ready.as_ref().is_some_and(|r| r.0 == want) {
+        if self.shown == self.wanted
+            || self
+                .ready
+                .as_ref()
+                .is_some_and(|(w, l, _)| (w, l) == (&want, &layout))
+        {
             return;
         }
-        let layout = self
-            .receptor_layout
-            .clone()
-            .unwrap_or_else(|| want.layout());
         let Some(key) = want.key.clone() else {
             // The built-in arrows: at once.
-            self.show_skin(gfx, want, None);
+            self.show_skin(gfx, want, layout, None);
             return;
         };
-        self.loading = Some(want.clone());
+        self.loading = Some((want.clone(), layout.clone()));
         self.status = format!("loading {key}…");
         let host = host.clone();
         let current = self.load_number.clone();
@@ -221,13 +248,13 @@ impl FieldPreviewHost {
             let mut slot = rc.borrow_mut();
             match slot.as_mut() {
                 // Still wanted, on the same preview.
-                Some(h) if h.loading.as_ref() == Some(&want) => {
+                Some(h) if h.loading.as_ref() == Some(&(want.clone(), layout.clone())) => {
                     h.loading = None;
                     if prepared.is_none() {
                         h.status = format!("no noteskin {key}: the built-in arrows");
                     }
                     // Shown by the next frame, which has the device.
-                    if let Some((_, Some(old))) = h.ready.replace((want, prepared)) {
+                    if let Some((_, _, Some(old))) = h.ready.replace((want, layout, prepared)) {
                         old.close();
                     }
                 }
@@ -240,11 +267,13 @@ impl FieldPreviewHost {
         });
     }
 
-    /// Shows `prepared` (`None`: the built-in arrows) for `want`.
+    /// Shows `prepared` (`None`: the built-in arrows) for `want`, readied
+    /// for `layout`.
     fn show_skin(
         &mut self,
         gfx: &Gfx,
         want: SkinWant,
+        layout: Layout,
         prepared: Option<crate::noteskins::Prepared>,
     ) {
         let (play, images): (Option<NoteskinPlay>, _) = match prepared {
@@ -274,7 +303,7 @@ impl FieldPreviewHost {
         // On the device once the frame is submitted (WebGL2 copies then):
         // closed after it, not before.
         crate::web::screen::close_after_submit(uploaded);
-        self.shown = Some(want);
+        self.shown = Some((want, layout));
     }
 }
 
@@ -282,7 +311,7 @@ impl Drop for FieldPreviewHost {
     fn drop(&mut self) {
         // A load running gives up.
         self.load_number.set(u64::MAX);
-        if let Some((_, Some(p))) = self.ready.take() {
+        if let Some((_, _, Some(p))) = self.ready.take() {
             p.close();
         }
     }

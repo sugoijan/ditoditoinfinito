@@ -286,6 +286,10 @@ pub(crate) struct Host {
     /// pixels of the canvas ([`UiRequest::FieldPreview`]).
     pub(crate) field_preview: Option<[f32; 4]>,
     receptor_preview: Option<ddi_ui::screens::prompt_controls::Picture>,
+    /// The chart song select shows ([`warm_cell`]), its prompt's
+    /// diagram's skin to ready ahead on the app's preview at the next
+    /// frame (which has the device).
+    warm: WarmCell,
     /// The settings the options page is editing, handed over as they
     /// change (taken by the next frame); the preview reads the stored
     /// ones on the developer routes, where nothing hands them over.
@@ -490,15 +494,28 @@ pub(crate) fn stop_ui(host: &Rc<RefCell<Host>>, pads: Option<&Gamepads>) {
     }
 }
 
-/// The field's preview goes with the page: the 2D pass (which outlives
-/// pages) forgets its image, and its textures, skin and load go.
+/// The field's preview outlives the page (its skin stays in for the
+/// next screen that draws it: Options, the start prompt), but the 2D
+/// pass forgets its image and its textures go.
 fn drop_field(h: &Host) {
-    let field = h.field.borrow_mut().take();
-    if let (Some(mut f), Some(gfx)) = (field, h.gfx.as_ref())
+    let mut slot = h.field.borrow_mut();
+    if let (Some(f), Some(gfx)) = (slot.as_mut(), h.gfx.as_ref())
         && f.on(gfx)
     {
         f.release(gfx);
     }
+}
+
+/// Where song select puts the controls of the chart it shows (set from
+/// its calls, inside the host's own frame): the start prompt's
+/// diagram's skin is readied for them ahead on the app's field preview
+/// at the host's next frame, so the prompt shows its receptors at once.
+pub(crate) type WarmCell = Rc<RefCell<Option<Rc<ddi_ui::screens::prompt_controls::Controls>>>>;
+
+/// Gives the host song select's [`WarmCell`] (the page's own, filled
+/// from the screen's first calls, before the host was handed out).
+pub(crate) fn use_warm_cell(host: &Rc<RefCell<Host>>, cell: WarmCell) {
+    host.borrow_mut().warm = cell;
 }
 
 /// Where a page editing the settings hands them to the field's preview
@@ -794,7 +811,7 @@ fn new_host(
         closed: false,
         caret: None,
         loading: false,
-        field: Rc::default(),
+        field: crate::field_preview::slot(),
         cpu_ms: 0.0,
         worst_ms: 0.0,
         total_ms: 0.0,
@@ -807,6 +824,7 @@ fn new_host(
         notices: None,
         field_preview: None,
         receptor_preview: None,
+        warm: Rc::default(),
         field_settings: Rc::default(),
         field_last: None,
         field_busy: 0,
@@ -2049,6 +2067,18 @@ impl Host {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ui-dev"),
             });
+        // The chart song select shows: its prompt's diagram's skin
+        // readied ahead on the app's preview ([`warm_cell`]).
+        let warm = self.warm.borrow_mut().take();
+        if let Some(c) = warm {
+            let mut slot = self.field.borrow_mut();
+            if slot.as_ref().is_none_or(|f| !f.on(&gfx)) {
+                *slot = Some(crate::field_preview::FieldPreviewHost::new(&gfx));
+            }
+            if let Some(f) = slot.as_mut() {
+                f.warm(&gfx, &Rc::downgrade(&self.field), &c);
+            }
+        }
         // Options' field preview: its frame first, then the 2D pass that
         // shows it.
         if let Some([_, _, pw, ph]) = self.field_preview {
