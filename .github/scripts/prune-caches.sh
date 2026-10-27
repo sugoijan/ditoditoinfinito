@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Deletes the repository's stale Actions caches: of every key prefix (a
 # key less its trailing hashes) only the newest entry on main stays, and
-# nothing of other refs. The caches must fit the repository's 10 GB cap
+# nothing of other refs; the apt action's entries (.github/actions/apt,
+# a package set's .deb files for one runner image) stay for every image,
+# since GitHub rolls an image out over days, during which a run's jobs
+# land on either version and the newest entry alone would be the wrong
+# image's for half of them (a few MB each; GitHub drops an entry unused
+# for a week). The caches must fit the repository's 10 GB cap
 # or GitHub evicts whatever was used least recently, which had whole jobs
 # start cold; rust-cache saves on main only (`save-if`), and this keeps
 # each lock file's or recipe's predecessor from lingering (AGENTS.md,
@@ -16,8 +21,11 @@ import json, os, re, subprocess
 caches = json.load(open("caches.json"))
 dry = os.environ.get("DRY_RUN") == "1"
 # rust-cache keys end in the environment's hash and the lock file's;
-# actions/cache keys here end in one hash of their inputs.
+# actions/cache keys here end in one hash of their inputs; the apt
+# action's, in the runner image's, stay one entry per image.
 def prefix(key):
+    if key.startswith("apt-"):
+        return key
     if key.startswith("v0-rust-"):
         return re.sub(r"-[0-9a-f]{8}-[0-9a-f]{8}$", "", key)
     return re.sub(r"-[0-9a-f]{8,}$", "", key)

@@ -868,7 +868,9 @@ dependency's licence before adding it.
   The Ubuntu packages the Linux jobs do install (the ALSA and udev
   headers, nasm, the importer's Vulkan and Mesa) go through
   `.github/actions/apt`: their `.deb` files kept in the Actions cache by
-  package set and image version, installed with dpkg on a hit, and on a
+  package set and image version (an entry per image, which the prune
+  script leaves alone: a run's jobs land on two image versions while
+  GitHub rolls one out), installed with dpkg on a hit, and on a
   miss downloaded with Canonical's archive put before the Azure mirror,
   which apt never leaves while it trickles.
 

@@ -22,8 +22,9 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
-      # The prune script keeps the newest entry of a key less its last
-      # hash: the image's, so a package set keeps one image's files.
+      # The prune script keeps an entry per image: while GitHub rolls an
+      # image out, a run's jobs land on either version (2026-10-27:
+      # 20261012.334.1 and 20261025.353.1 in one run).
       run: |
         packages=$(tr -s ' ' '\n' <<<"$PACKAGES" | sed '/^$/d' | sort | sha256sum | cut -c1-8)
         image=$(printf '%s-%s' "${ImageOS:-$(uname -s)}" "${ImageVersion:-none}" | sha256sum | cut -c1-8)
