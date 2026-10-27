@@ -135,6 +135,17 @@ pub trait Screen {
         Handled::No
     }
 
+    /// The look that dresses this screen, including its motion preference.
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        None
+    }
+
+    /// The one element emphasized by the look. Most screens use focus;
+    /// screens with independent selections can choose their primary item.
+    fn active_element(&self, focused: Option<&str>) -> Option<String> {
+        focused.map(str::to_owned)
+    }
+
     /// A frame of `dt` seconds, after the actors' own update.
     fn update(&mut self, _dt: f32, _root: &mut Actor, _cx: &mut Cx) {}
 
@@ -168,6 +179,13 @@ pub trait Screen {
     /// `down` false; menu keys' too): a screen that acts on keys held
     /// down (the chart editor's lanes).
     fn key_releases(&self) -> bool {
+        false
+    }
+
+    /// Begin without automatically focusing a control. The first keyboard or
+    /// menu-button press then focuses the first shown control without acting
+    /// on it. Explicit focus requests and pointer interaction still work.
+    fn defer_initial_focus(&self) -> bool {
         false
     }
 

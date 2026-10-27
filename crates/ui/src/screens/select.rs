@@ -2910,6 +2910,14 @@ impl ListModel for EmptyModel {
 }
 
 impl Screen for SelectScreen {
+    fn active_element(&self, _focused: Option<&str>) -> Option<String> {
+        self.list.selected().and_then(|i| self.list.item_actor(i))
+    }
+
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
         self.search.cursor(target)
     }

@@ -81,11 +81,19 @@ struct VsOut {
     // A motion blur: its vector in the rect's units, and the texture's
     // fractions per unit along x and y.
     @location(8) @interpolate(flat) blur: vec4<f32>,
-    // Bit 7: where in the vivid field, and the material's seconds and
+    // Bits 7/8: where in the vivid field, and the material's seconds and
     // phase.
     @location(9) vivid_pos: vec2<f32>,
     @location(10) @interpolate(flat) vivid_clock: vec2<f32>,
 };
+
+// The same field at a screen pixel, whatever quad happens to reveal it.
+// Use a viewport-width square so resizing never stretches the pattern.
+fn screen_field(clip: vec4<f32>, field: vec4<f32>) -> vec2<f32> {
+    let uv = clip.xy / clip.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+    let square = vec2<f32>(uv.x, 0.5 + (uv.y - 0.5) * abs(globals.scale.x / globals.scale.y));
+    return mix(field.xy, field.zw, square);
+}
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
@@ -133,11 +141,17 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
         out.shape2 = inst.shape2;
         out.ppu = vec2<f32>(length(inst.axes.xy), length(inst.axes.zw));
         out.blur = vec4<f32>(inst.blur.xy, per);
+        if ((inst.mode & 256u) != 0u) {
+            out.vivid_pos = screen_field(out.position, inst.w);
+        }
         return out;
     } else {
         let local = mix(inst.rect.xy, inst.rect.zw, t);
         let px = inst.origin + inst.axes.xy * local.x + inst.axes.zw * local.y;
         out.position = vec4<f32>(px * globals.scale + globals.translate, 0.0, 1.0);
+    }
+    if ((inst.mode & 256u) != 0u) {
+        out.vivid_pos = screen_field(out.position, inst.w);
     }
     out.uv = mix(inst.uv.xy, inst.uv.zw, t);
     out.color = colors[vi];

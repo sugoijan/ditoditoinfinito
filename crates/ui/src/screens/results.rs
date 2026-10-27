@@ -1471,6 +1471,10 @@ pub fn signed(v: impl Into<f64>, decimals: usize) -> String {
 }
 
 impl Screen for ResultsScreen {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "results"
     }

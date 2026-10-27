@@ -1663,3 +1663,17 @@ than web-audio-api).
   leaving pay some of it back. Measured every step.
 - **Power.** Menus that redraw every frame drain laptops and phones;
   rendering on demand (P13) is part of step 3, not an afterthought.
+
+
+### Shared active decoration (2026-10-27)
+
+The UI asks `Screen::presentation` for its look and motion preference, and
+`Screen::active_element` for its one primary target (focus by default).
+`Look::active_element` updates the decoration in the actor tree at draw time,
+after layout and measurement. Only the current input layer receives a target;
+other layers receive None, including when a modal dialog takes focus. The UI
+owns an unwrapped clock and requests frames only while the active look needs
+them and motion is not reduced. Infinito uses this for its screen-aligned
+flowing outline; song selection remains the primary target independently of
+chart selection. Visual-only actors (`Actor::decoration`) are drawn normally
+but do not take input or enlarge their containing control's bounds.

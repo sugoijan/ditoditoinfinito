@@ -481,6 +481,7 @@ impl PageScreen {
                 c.insert(0, lit);
             }
             let mut hit = quad(&format!("Item{item}"), [iw, ih], [0.0, 0.0, 0.0, 0.004]);
+            call(&mut hit, "cornerradius", &[4.0]);
             call(&mut hit, "xy", &[ix + iw / 2.0, iy + ih / 2.0]);
             c.push(hit);
         }
@@ -730,6 +731,20 @@ impl PageScreen {
 }
 
 impl Screen for PageScreen {
+    fn active_element(&self, focused: Option<&str>) -> Option<String> {
+        if focused == Some("Column") {
+            self.focus.map(|i| format!("Item{i}"))
+        } else if focused == Some("Back") && !self.compact {
+            Some("Link.Back".into())
+        } else {
+            focused.map(str::to_owned)
+        }
+    }
+
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     /// A pointer over the column's items.
     fn cursor(&self, target: &hit::Target) -> Option<crate::request::Cursor> {
         Self::item_of(target).map(|_| crate::request::Cursor::Pointer)

@@ -62,6 +62,10 @@ impl ActionsDialog {
 }
 
 impl Screen for ActionsDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "editor-actions"
     }
@@ -229,6 +233,10 @@ impl ValueDialog {
 }
 
 impl Screen for ValueDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
         self.field.cursor(target)
     }

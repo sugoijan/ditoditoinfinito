@@ -123,7 +123,9 @@ Rust and the browser are implementation details, not advertised features.
   the built-in arrows on the way; on the web one preview outlives the pages.
   Modifiers sit below
   the diagram on the same card, without tabs or instructional copy;
-  auto-start always takes priority.
+  auto-start always takes priority. Its countdown fills the Start button's
+  background beneath the label (whole-second steps under reduced motion),
+  without a separate bar or countdown text.
   `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
@@ -164,7 +166,20 @@ Rust and the browser are implementation details, not advertised features.
   motion freezes both its palette and evolving texture. The start menu's
   slow outline rain (`crates/theme/src/rain.rs`, `assets/ui/menu-rain.svg`)
   shares a stationary muted Vivid field; the screen supplies its elapsed
-  clock through `Look::animate_component` and freezes it for reduced motion. The
+  clock through `Look::animate_component` and freezes it for reduced motion.
+  Start-menu choices use neutral plates and open without focus; the first
+  key/menu-button press only focuses Singleplayer. Hover moves button focus,
+  while direct clicks/taps and explicit return-focus requests still work
+  (`Screen::defer_initial_focus`). The web shell clears saved start-route
+  focus at boot, so reloading also opens unfocused. A shared Vivid active outline
+  (`crates/theme/src/active.rs`) has a 3 px line and 3 px gap, with the title's
+  palette cadence and 8× spatial evolution (`Active.EvolutionSpeed`).
+  `Screen::presentation`/`active_element` select one target on the input layer;
+  song select uses the song, options the active row, pages the active item.
+  Dialogs take exclusive ownership. `Look::active_element` paints the outline;
+  `Ui` owns its clock and idle/reduced-motion handling. `Actor::decoration`
+  excludes visual adornments from bounds and hit-testing. The field stays
+  viewport-anchored, and `Vivid::clock` keeps palette/evolution independent. The
   shortcut indicators use original OEM-inspired SVG keycaps
   (`tools/keycap-design/`, `assets/ui/keycaps-a1.svg`, `keycaps-a2.svg`,
   `keycaps-light.svg`, `keycaps-gray.svg`, `keycaps-deep-gray.svg`), preserving charcoal satin/semi-gloss

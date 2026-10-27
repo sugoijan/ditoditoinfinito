@@ -1860,6 +1860,149 @@ fn the_headers_wordmark_is_live() {
     check("start", &env, sample::start_screen(&env, false));
 }
 
+fn active_count(h: &Harness) -> usize {
+    h.drawn
+        .iter()
+        .filter(|d| {
+            matches!(d, ddi_actor::Drawn::Quad(q)
+        if q.shape.vivid.is_some_and(|v| v.screen_space && v.evolution_speed == 8.0))
+        })
+        .count()
+}
+
+#[test]
+fn title_focus_has_a_centered_three_pixel_gap_and_only_one_live_outline() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::start_screen(&env, false));
+    h.run(1.0);
+    assert_eq!(active_count(&h), 0);
+    h.key("a", "a");
+    h.frame(1.0 / 60.0);
+    let primary = h.ui.actor("Singleplayer").unwrap();
+    let part =
+        |name| ddi_ui::hit::actor_at(primary, &ddi_ui::hit::find(primary, name).unwrap()).unwrap();
+    let plate = part("Plate");
+    let outline = h.ui.actor("ActiveOutline").unwrap();
+    assert_ne!(plate.current().diffuse[0], theme.c("Accent"));
+    let Kind::Sprite(ring) = &outline.kind else {
+        panic!()
+    };
+    assert_eq!(ring.shape.outline, 3.0);
+    let bounds = |name| {
+        ddi_ui::hit::bounds(
+            primary,
+            &ddi_actor::TRANSFORM_IDENTITY,
+            &ddi_ui::hit::find(primary, name).unwrap(),
+        )
+        .unwrap()
+    };
+    let [px0, py0, px1, py1] = bounds("Plate");
+    let [rx0, ry0, rx1, ry1] = h.ui.bounds("ActiveOutline").unwrap();
+    for gap in [px0 - rx0, py0 - ry0, rx1 - px1, ry1 - py1] {
+        assert!(
+            (gap - 6.0).abs() < 0.001,
+            "3 px line + 3 px clear gap on every side: {gap}"
+        );
+    }
+    assert_eq!(active_count(&h), 1);
+    h.key("ArrowDown", "ArrowDown");
+    h.key("ArrowDown", "ArrowDown");
+    for _ in 0..20 {
+        h.frame(1.0 / 60.0);
+        assert!(active_count(&h) <= 1);
+    }
+    assert_eq!(h.ui.focused(), Some("Options"));
+    assert_eq!(active_count(&h), 1);
+    let paint = |h: &Harness| {
+        let control = h.ui.actor("Options").unwrap();
+        let a = ddi_ui::hit::actor_at(
+            control,
+            &ddi_ui::hit::find(control, "ActiveOutline").unwrap(),
+        )
+        .unwrap();
+        let Kind::Sprite(s) = &a.kind else { panic!() };
+        s.shape.vivid.unwrap()
+    };
+    env.reduced_motion.set(true);
+    h.run(0.5);
+    let frozen = paint(&h);
+    h.run(0.5);
+    assert_eq!(paint(&h), frozen);
+    assert!(!h.ui.needs_redraw());
+}
+
+#[test]
+fn the_song_is_the_only_active_element_even_when_a_chart_is_selected() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    for size in [[1280.0, 720.0], [390.0, 844.0]] {
+        let mut h = harness(size, DESIGN);
+        h.push(sample::select_screen(&env, None));
+        h.run(0.5);
+        assert_eq!(active_count(&h), 1);
+        let wheel = h.ui.actor("Wheel").unwrap();
+        assert!(ddi_ui::hit::find(wheel, "ActiveOutline").is_some());
+        let slots = h.ui.actor("Wheel.Items").unwrap();
+        assert!(
+            slots
+                .children()
+                .iter()
+                .all(|a| a.name.starts_with("Wheel#")),
+            "decorations must not displace the list's indexed row slots"
+        );
+        h.key("ArrowDown", "ArrowDown");
+        for _ in 0..30 {
+            h.frame(1.0 / 60.0);
+            assert!(active_count(&h) <= 1);
+        }
+        assert_eq!(active_count(&h), 1);
+        if let Some(ladder) = h.ui.actor("Ladder") {
+            assert!(ddi_ui::hit::find(ladder, "ActiveOutline").is_none());
+        }
+    }
+}
+
+#[test]
+fn options_pages_and_dialogs_share_one_active_decoration() {
+    use ddi_ui::screens::options_dialogs::ConfirmDialog;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::options_screen(&env, None));
+    h.run(0.5);
+    assert_eq!(active_count(&h), 1);
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.2);
+    assert_eq!(active_count(&h), 1);
+    h.ui.push(ConfirmDialog::new(
+        env.clone(),
+        "Example",
+        "Confirm?",
+        "Apply",
+        Rc::new(|_| {}),
+    ));
+    for _ in 0..30 {
+        h.frame(1.0 / 60.0);
+        assert!(active_count(&h) <= 1);
+    }
+    assert_eq!(
+        active_count(&h),
+        1,
+        "only the dialog, never its covered screen"
+    );
+    h.ui.push(sample::credits_screen(&env, &screens::credits::sample()));
+    h.run(0.5);
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.2);
+    assert_eq!(
+        active_count(&h),
+        1,
+        "the page's selected item uses the same visual"
+    );
+}
+
 /// Rain uses the screen clock, pauses for reduced motion, and survives relayout.
 #[test]
 fn title_background_freezes_without_losing_its_place() {
@@ -1954,6 +2097,8 @@ fn the_menus_move_part_by_part_and_follow_each_other() {
     let mut h = harness([1280.0, 720.0], DESIGN);
     h.push(sample::start_screen(&env, false));
     h.run(0.5);
+    h.key("a", "a");
+    h.frame(1.0 / 60.0);
     let title = h.ui.bounds("Title").unwrap();
     let choice = h.ui.bounds("Singleplayer").unwrap();
     h.key("Enter", "Enter");

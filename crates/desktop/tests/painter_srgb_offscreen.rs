@@ -94,3 +94,48 @@ fn a_color_reads_back_alike_through_srgb_and_plain_targets() {
     assert!(at(&plain, 48).abs_diff(128) <= 1, "{}", at(&plain, 48));
     assert!(at(&srgb, 48).abs_diff(188) <= 2, "{}", at(&srgb, 48));
 }
+
+/// Moving/resizing a mask reveals another crop of the same viewport field,
+/// instead of carrying its own copy of the texture along with it.
+#[test]
+fn screen_vivid_is_continuous_across_different_quads() {
+    use ddi_actor::Vivid;
+    use ddi_render::draw2d::{Affine, Quad};
+
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).expect("device");
+    let mut full = Quad::plain([0.0, 0.0, 64.0, 64.0], [1.0; 4]);
+    full.shape.vivid = Some(Vivid {
+        time: 1.25,
+        phase_offset: 0.0,
+        evolution_speed: 8.0,
+        screen_space: true,
+        rect: [-64.0, -64.0, 64.0, 64.0],
+    });
+    let mut cropped = full.clone();
+    cropped.transform = Affine([0.75, 0.0, 0.0, 0.75, 10.0, 14.0]);
+    let mut list = DrawList::new();
+    list.quad(full);
+    let field = draw(&device, &queue, wgpu::TextureFormat::Rgba8Unorm, &list);
+    let mut list = DrawList::new();
+    list.quad(cropped);
+    let crop = draw(&device, &queue, wgpu::TextureFormat::Rgba8Unorm, &list);
+    let mut painted = 0;
+    for y in 20..50 {
+        for x in 20..40 {
+            let at = (y * 64 + x) * 4;
+            for channel in 0..3 {
+                assert!(
+                    field[at + channel].abs_diff(crop[at + channel]) <= 2,
+                    "field moved with the quad at {x},{y}"
+                );
+                painted += usize::from(field[at + channel] > 64);
+            }
+        }
+    }
+    assert!(painted > 300, "the field must actually draw");
+}

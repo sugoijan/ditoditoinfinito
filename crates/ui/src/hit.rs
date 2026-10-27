@@ -119,7 +119,7 @@ fn walk(
     out: &mut Vec<Hit>,
     depth: usize,
 ) {
-    if !a.visible || a.hibernating() || depth > MAX_DEPTH {
+    if !a.visible || a.decoration || a.hibernating() || depth > MAX_DEPTH {
         return;
     }
     // `Actor::draw`'s `PartiallyOpaque`: the corners' alphas times what
@@ -347,7 +347,8 @@ pub fn bounds_deep(root: &Actor, transform: &Affine, path: &[usize]) -> Option<[
     let mut child = path.to_vec();
     for i in 0..a.children().len() {
         child.push(i);
-        if shown(root, &child)
+        if !a.children()[i].decoration
+            && shown(root, &child)
             && let Some(b) = bounds_deep(root, transform, &child)
         {
             out = Some(match out {
@@ -392,6 +393,21 @@ mod tests {
         a.name = name.into();
         run(&mut a, commands);
         a
+    }
+
+    #[test]
+    fn visual_decorations_do_not_capture_input_or_enlarge_control_bounds() {
+        let plate = quad("Plate", [20.0, 20.0], "");
+        let mut outline = quad("Outline", [32.0, 32.0], "");
+        outline.decoration = true;
+        let root = frame("", vec![frame("Button", vec![plate, outline], "")], "");
+        assert_eq!(
+            bounds_deep(&root, &IDENTITY, &[0]),
+            Some([-10.0, -10.0, 10.0, 10.0])
+        );
+        assert!(hits(&root, &IDENTITY, [14.0, 0.0]).is_empty());
+        let target = target_at(&root, &IDENTITY, [0.0, 0.0]).unwrap();
+        assert_eq!(target.name, "Plate");
     }
 
     #[test]

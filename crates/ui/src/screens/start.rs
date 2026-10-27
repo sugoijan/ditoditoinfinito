@@ -147,8 +147,9 @@ impl StartScreen {
         }
         call(&mut title, "xy", &[w / 2.0, top + title_height / 2.0]);
         children.push(title);
+        let mut choices = Vec::new();
         for (i, (id, label, component)) in entries.iter().enumerate() {
-            children.push(env.component(
+            choices.push(env.component(
                 component,
                 "Button",
                 &Spec::new([width, row], *label),
@@ -156,13 +157,21 @@ impl StartScreen {
                 [w / 2.0, top + header + row / 2.0 + i as f32 * (row + gap)],
             ));
         }
+        let mut choices = Actor::new(Kind::Frame(choices));
+        choices.name = "MenuChoices".into();
+        children.push(choices);
         let mut root = Actor::new(Kind::Frame(children));
         call(&mut root, "zoom", &[zoom]);
         // The title from above (as the screens' header), the choices from
         // below (as their footer).
-        let mut parts = vec![("Title", super::Edge::Top)];
-        parts.extend(entries.iter().map(|(id, _, _)| (*id, super::Edge::Bottom)));
-        super::transitions(&mut root, env, &parts);
+        super::transitions(
+            &mut root,
+            env,
+            &[
+                ("Title", super::Edge::Top),
+                ("MenuChoices", super::Edge::Bottom),
+            ],
+        );
         self.publish();
         root
     }
@@ -199,6 +208,14 @@ impl StartScreen {
 }
 
 impl Screen for StartScreen {
+    fn defer_initial_focus(&self) -> bool {
+        true
+    }
+
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "start"
     }
@@ -263,6 +280,18 @@ impl Screen for StartScreen {
     }
     fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
+            Input::Hover {
+                target: Some(target),
+            } => {
+                if let Some(button) = self
+                    .focusables()
+                    .into_iter()
+                    .find(|b| target.within(&b.name))
+                {
+                    cx.focus(button.name);
+                }
+                Handled::Yes
+            }
             // Back goes to Quit where there is one, and no further: the
             // menu is the first screen.
             Input::Menu {
@@ -301,6 +330,62 @@ mod tests {
     }
 
     #[test]
+    fn first_key_only_focuses_singleplayer_and_hover_moves_focus() {
+        for (code, key) in [
+            ("Enter", "Enter"),
+            ("Space", " "),
+            ("Escape", "Escape"),
+            ("ArrowDown", "ArrowDown"),
+            ("a", "a"),
+            ("ShiftLeft", "Shift"),
+            ("F2", "F2"),
+        ] {
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let sink = calls.clone();
+            let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+            h.push(StartScreen::new(
+                env(),
+                true,
+                Rc::new(move |c, _| sink.borrow_mut().push(c)),
+            ));
+            h.run(0.3);
+            assert_eq!(h.ui.focused(), None);
+            h.key(code, key);
+            assert_eq!(h.ui.focused(), Some("Singleplayer"), "{code}");
+            assert!(
+                calls.borrow().is_empty(),
+                "the wake-up key must not activate: {code}"
+            );
+            h.hover(h.centre("Options"));
+            assert_eq!(h.ui.focused(), Some("Options"));
+            h.hover(h.centre("Credits"));
+            assert_eq!(h.ui.focused(), Some("Credits"));
+            assert!(calls.borrow().is_empty(), "hover never activates");
+        }
+    }
+
+    #[test]
+    fn deferred_focus_does_not_add_an_extra_click_or_lose_explicit_restoration() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let sink = calls.clone();
+        let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+        h.push(StartScreen::new(
+            env(),
+            false,
+            Rc::new(move |c, _| sink.borrow_mut().push(c)),
+        ));
+        h.run(0.3);
+        h.tap(PointerKind::Touch, "Credits");
+        assert_eq!(*calls.borrow(), [Choice::Credits]);
+        let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+        h.push(
+            StartScreen::new(env(), false, Rc::new(|_, _| {})).with_focus(Some("Options".into())),
+        );
+        h.run(0.3);
+        assert_eq!(h.ui.focused(), Some("Options"));
+    }
+
+    #[test]
     fn title_choices_focus_but_do_not_activate_multiplayer_and_put_quit_last() {
         for desktop in [false, true] {
             let calls = Rc::new(RefCell::new(Vec::new()));
@@ -312,6 +397,8 @@ mod tests {
                 Rc::new(move |choice, _| sink.borrow_mut().push(choice)),
             ));
             h.run(0.3);
+            assert_eq!(h.ui.focused(), None);
+            h.key("a", "a");
             assert_eq!(h.ui.focused(), Some("Singleplayer"));
             // Back goes to Quit on desktop (again and again: no further),
             // and does nothing where there is no Quit.
@@ -367,6 +454,7 @@ mod tests {
             let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
             h.push(StartScreen::new(env(), desktop, Rc::new(|_, _| {})));
             h.run(0.3);
+            h.key("a", "a");
             h.pad(MenuAction::Down, true);
             h.pad(MenuAction::Down, false);
             assert_eq!(h.ui.focused(), Some("Multiplayer"));
@@ -402,6 +490,8 @@ mod tests {
         let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
         h.push(super::super::sample::start_screen(&env, true));
         h.run(0.3);
+        h.key("Enter", "Enter");
+        assert_eq!(h.ui.layers().last().unwrap().name, "start");
         h.key_down("Enter", "Enter");
         h.run(0.5);
         assert_eq!(h.ui.layers().last().unwrap().name, "select");
@@ -421,6 +511,7 @@ mod tests {
         let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
         h.push(super::super::sample::start_screen(&env(), true));
         h.run(0.3);
+        h.key("a", "a");
         h.key("ArrowDown", "ArrowDown");
         h.key("ArrowDown", "ArrowDown");
         h.key("Enter", "Enter");

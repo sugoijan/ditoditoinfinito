@@ -181,9 +181,8 @@ from the mockups:
   column, cut to fit, their links after it.
 - **Dialogs** for adding songs and for managing a pack or a song, on the
   `Dialog` panel with the theme's buttons and toggles.
-- **The wheel's rows** are drawn 5 px in, so the selected row's ring is
-  never cut by the list's edge; the list starts 5 px further out, so
-  nothing moved.
+- **The wheel's rows** reserve 8 px on each side for the active outline,
+  keeping its 3 px line and 3 px gap inside the list's clip.
 - **Compact** has a "+" icon for adding songs. Pack headers have no
   banners yet.
 
@@ -509,3 +508,47 @@ receives a screen-owned elapsed clock; reduced motion holds both title and
 rain still, letting the screen idle. Relayout keeps the clock. Theme metrics
 `TitleMenu.RainSpeed` (8 study px/s) and `TitleMenu.RainStrength` (22) keep
 this independent of song tempo and selection.
+
+
+### Shared active-element outline (2026-10-27)
+
+The theme uses a 3 px Infinito outline with a 3 px clear gap, configured by
+`Active.Width` and `Active.Gap`. Start-menu plates are neutral, including
+Singleplayer, whose label stays larger and heavier. The outline reveals one
+viewport-anchored field with the title's four-second palette cadence and
+8× spatial evolution (`Active.EvolutionSpeed`). Reduced motion freezes it.
+
+The shared UI grants the decoration to only one input layer. Each themed
+screen exposes its presentation and primary target: ordinary screens use
+focus; song select uses the selected wheel item, options the active option
+row, and reading pages the active link/fold. Dialogs own the decoration while
+open; covered screens have none. Changing focus replaces the outline without
+cross-fading two active outlines. Secondary choices retain their selected
+plates, text and underlines, rather than receiving another animated ring.
+
+`active.rs` derives the outline from the actual plate's geometry, including
+animated wheel rows, wrappers, press transforms and transitions. It keeps the
+old named Ring/Pulse parts for widget commands but suppresses their paint.
+The new outline is visual-only (`Actor::decoration`), excluded from control
+bounds and hit-testing. Frame controls own it without changing a list's row
+slots; primitive page hit areas use their manually-built parent. The wheel reserves 8 px at both sides so the
+6 px total extension is not clipped. `Screen::presentation` and
+`Screen::active_element` keep the policy shared by web, desktop and dialogs;
+`Look::active_element` owns the artwork. `Ui` supplies one animation clock
+and idle/reduced-motion handling. Other looks retain their existing behavior.
+
+
+The pre-start card's `Prompt.Start` uses a neutral plate with white lettering.
+Its countdown is a muted pink background wash revealed left to right below
+the label, clipped against the full rounded button shape. `CountdownFill`
+is a visual-only frame; the prompt sets its elapsed fraction in place,
+without a separate countdown bar/text or a card rebuild every second.
+Reduced motion advances the fill in whole-second steps.
+
+
+A fresh start menu has no active target. `Screen::defer_initial_focus` keeps
+its first control unfocused until the first keyboard/menu-button press,
+which reveals Singleplayer without activation. Start-menu hover follows the
+pointed button, while explicit return focus and direct clicks/taps still
+work. The web shell clears saved start-route focus at boot so reloads also
+start unfocused. This opt-in policy leaves other screens' navigation unchanged.

@@ -53,6 +53,10 @@ impl ConfirmDialog {
 }
 
 impl Screen for ConfirmDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "confirm"
     }
@@ -353,6 +357,10 @@ impl BindDialog {
 }
 
 impl Screen for BindDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "bind"
     }
@@ -637,6 +645,10 @@ impl KeyDialog {
 }
 
 impl Screen for KeyDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "key"
     }

@@ -36,6 +36,7 @@ mod tunables;
 
 mod keycaps;
 pub use keycaps::KeycapMaterial;
+mod active;
 mod rain;
 mod wordmark;
 
@@ -209,9 +210,9 @@ const LAMPS: [&str; 15] = [
     "Aaa",
 ];
 
-/// How far in from the list's left edge the wheel's rows are drawn: the
-/// selected row's pulse (5 out) starts at the edge.
-pub const ROW_INSET: f32 = 5.0;
+/// Room on each side of the wheel's rows for the 3 px active outline,
+/// its 3 px gap, and antialiasing inside the list clip.
+pub const ROW_INSET: f32 = 8.0;
 
 /// A row's actors moved [`ROW_INSET`] right, inside an unnamed frame
 /// (the list places that one).
@@ -399,7 +400,7 @@ impl Infinito {
     /// [`ROW_INSET`] in from the left so the selected row's ring and
     /// pulse lie within the list (which clips at its edges).
     fn song_row(&self, spec: &Spec) -> Actor {
-        let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
+        let [w, h] = [spec.size[0] - 2.0 * ROW_INSET, spec.size[1]];
         let (compact, row, big) = self.wheel_row(h);
         let t = self.m("Motion.Select");
         let grow = big / row;
@@ -606,7 +607,7 @@ impl Infinito {
     }
 
     fn song_header(&self, spec: &Spec) -> Actor {
-        let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
+        let [w, h] = [spec.size[0] - 2.0 * ROW_INSET, spec.size[1]];
         let (compact, row, big) = self.wheel_row(h);
         let t = self.m("Motion.Select");
         let (_, mut ring) = self.halo([0.0, 0.0, w, big]);
@@ -1225,6 +1226,10 @@ impl Infinito {
 }
 
 impl Look for Infinito {
+    fn active_element(&self, root: &mut Actor, target: Option<&str>, seconds: f64) -> bool {
+        active::update(root, target, seconds, self)
+    }
+
     fn image(&self, name: &str) -> Option<&str> {
         match name {
             "TitleMenu.Title" | "Screen.Header" => Some("title/dosis.png"),
@@ -1253,7 +1258,7 @@ impl Look for Infinito {
         Some(match name {
             "TitleMenu.Background" => rain::actor(),
             "TitleMenu.Title" => wordmark::actor(spec.size, self.c("Text")),
-            "TitleMenu.Primary" => self.button(spec, "Accent", "OnAccent", 20.0, 700),
+            "TitleMenu.Primary" => self.button(spec, "Plate2", "Text", 20.0, 700),
             "TitleMenu.Choice" => self.button(spec, "Plate2", "Text", 18.0, 600),
             "TitleMenu.Disabled" => {
                 let mut button = self.button(spec, "Plate2", "Muted", 18.0, 600);
@@ -1262,6 +1267,16 @@ impl Look for Infinito {
                 button
             }
             "Button" => self.button(spec, "Plate2", "Text", 15.0, 600),
+            "Prompt.Start" => {
+                let mut color = self.c("Accent");
+                color[3] = 0.32;
+                ddi_ui::look::countdown_button(
+                    self.button(spec, "Plate2", "Text", 18.0, 700),
+                    spec.size,
+                    color,
+                    if h >= 44.0 { 8.0 } else { 6.0 },
+                )
+            }
             "PlayButton" => self.button(spec, "Accent", "OnAccent", 18.0, 700),
             "IconButton" => self.button(spec, "Plate2", "Text", 20.0, 700),
             "BackButton" => self.back_button(spec.size),
@@ -1631,7 +1646,7 @@ impl Look for Infinito {
             let tx = 12.0 + 144.0 + 14.0;
             let tx2 = 12.0 + 224.0 + 16.0;
             let cells = 5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0;
-            let width = width - ROW_INSET;
+            let width = width - 2.0 * ROW_INSET;
             let room = mix(width - tx - cells - 8.0, width - tx2 - cells - 8.0);
             let zoom = mix(1.0, 21.0 / 17.0);
             set(

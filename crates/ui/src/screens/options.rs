@@ -1159,6 +1159,18 @@ impl OptionsScreen {
 }
 
 impl Screen for OptionsScreen {
+    fn active_element(&self, focused: Option<&str>) -> Option<String> {
+        if focused.is_some_and(|f| f == "RowsClip" || f.starts_with("Option")) {
+            Some(format!("Option{}", self.focus))
+        } else {
+            focused.map(str::to_owned)
+        }
+    }
+
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     /// A pointer over what a tap acts on in a row: a choice, a button, a
     /// stepper's arrow, the slider (not the rest of the row, which a tap
     /// only focuses).

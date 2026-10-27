@@ -2614,6 +2614,10 @@ fn parse_display_bpm(t: &str) -> Result<DisplayBpm, String> {
 }
 
 impl Screen for EditorScreen {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "editor"
     }

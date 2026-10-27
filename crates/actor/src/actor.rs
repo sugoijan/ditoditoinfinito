@@ -986,6 +986,9 @@ pub struct Actor {
     pub base_scale: [f32; 3],
     pub base_alpha: f32,
     pub visible: bool,
+    /// Visual-only UI adornment: drawn normally, excluded from hit-testing
+    /// and from the bounds of a containing control.
+    pub decoration: bool,
     pub blend: Blend,
     pub depth: Depth,
     pub halign: f32,
@@ -1229,8 +1232,25 @@ pub struct Vivid {
     /// Elapsed animation seconds; both the palette and noise evolve with it.
     pub time: f32,
     pub phase_offset: f32,
-    /// Field coordinates at the sprite's top left and bottom right.
+    /// Rate of the spatial field's evolution, independent of the four-second
+    /// palette loop. 1 matches the title; 0 freezes only the field's shape.
+    pub evolution_speed: f32,
+    /// Anchor the paint to the viewport rather than the sprite. In this mode
+    /// `rect` describes a square as wide as the viewport, centered on it;
+    /// the field keeps its aspect ratio on portrait and ultrawide targets.
+    pub screen_space: bool,
+    /// Field coordinates at the sprite's (or viewport square's) corners.
     pub rect: [f32; 4],
+}
+
+impl Vivid {
+    /// Material seconds and palette phase. Only the palette wraps.
+    pub fn clock(self) -> [f32; 2] {
+        [
+            4.0 + self.time * self.evolution_speed,
+            (1.0 - self.time / 4.0 + self.phase_offset).rem_euclid(1.0),
+        ]
+    }
 }
 
 /// What a getter returns to Lua.
@@ -1358,6 +1378,7 @@ impl Actor {
             base_scale: [1.0; 3],
             base_alpha: 1.0,
             visible: true,
+            decoration: false,
             blend: Blend::Normal,
             depth: Depth::default(),
             halign: 0.5,
@@ -3456,6 +3477,31 @@ pub const TRANSFORM_IDENTITY: [f32; 6] = IDENTITY;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vivid_evolution_rate_does_not_speed_up_the_palette() {
+        let normal = super::Vivid {
+            time: 17.25,
+            phase_offset: 0.0,
+            evolution_speed: 1.0,
+            screen_space: false,
+            rect: [-32.0, -32.0, 32.0, 32.0],
+        };
+        let fast = super::Vivid {
+            evolution_speed: 8.0,
+            ..normal
+        };
+        assert_eq!(normal.clock()[1], fast.clock()[1]);
+        assert_eq!(normal.clock()[0], 21.25);
+        assert_eq!(fast.clock()[0], 142.0);
+        // Shape keeps evolving across a palette loop, without a four-second reset.
+        let next = super::Vivid {
+            time: normal.time + 4.0,
+            ..fast
+        };
+        assert_eq!(fast.clock()[1], next.clock()[1]);
+        assert_eq!(next.clock()[0] - fast.clock()[0], 32.0);
+    }
+
     #[test]
     fn every_listed_method_is_one_call_runs() {
         for &m in super::METHODS {

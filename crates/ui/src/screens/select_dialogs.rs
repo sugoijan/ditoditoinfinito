@@ -374,6 +374,10 @@ impl ManageDialog {
 }
 
 impl Screen for ManageDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "manage"
     }
@@ -932,6 +936,10 @@ impl ImportDialog {
 }
 
 impl Screen for ImportDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
         self.url.cursor(target)
     }
@@ -1413,6 +1421,10 @@ impl NoticesDialog {
 }
 
 impl Screen for NoticesDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "notices"
     }
@@ -1674,6 +1686,10 @@ impl PlaysDialog {
 }
 
 impl Screen for PlaysDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "plays"
     }

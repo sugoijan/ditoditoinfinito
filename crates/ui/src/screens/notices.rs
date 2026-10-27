@@ -239,6 +239,10 @@ impl NoticeBar {
 }
 
 impl Screen for NoticeBar {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "notices"
     }

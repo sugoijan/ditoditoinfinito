@@ -112,6 +112,10 @@ numbers_weight = 800
 "TitleMenu.Gap" = 12
 "TitleMenu.TitleWidth" = 520
 "TitleMenu.TitleHeight" = 104
+# Focus keeps the title's palette pace, with a faster spatial field.
+"Active.EvolutionSpeed" = 8
+"Active.Width" = 3
+"Active.Gap" = 3
 # Quiet, screen-aligned outline rain; speed in the 960×540 study's px/s.
 "TitleMenu.RainSpeed" = 8
 "TitleMenu.RainStrength" = 22

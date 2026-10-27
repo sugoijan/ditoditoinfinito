@@ -69,10 +69,10 @@ Start countdown: Off, 3 s (default, also for settings stored before it),
 5 s, 10 s. There is no switch on song select or the prompt.
 
 It runs from when the prompt shows Start, on the prompt of a play chosen
-in song select, and is shown on the status line ("Starting in 3", and
-under it "Enter starts now · any other key waits"; on touch screens "Tap
-Start to start now, anywhere else to wait") with a thin bar under Start
-that empties (none under reduced motion). At zero it presses Start for the player
+in song select. Start's background fills from left to right as the countdown
+advances, beneath its label, with no separate bar or countdown text. The
+full-size rounded fill is clipped to the elapsed fraction; reduced motion
+uses whole-second steps. At zero it presses Start for the player
 (the loading screen follows if loading is not done).
 
 - **Skips it** (starts now): Enter, Space or Numpad Enter; a pad's
@@ -177,7 +177,8 @@ The card shows every receptor of the selected chart, with its primary
 keyboard binding underneath and the per-play modifiers directly below.
 There are no tabs, binding captions or start/quit/loading instructions on
 this ready-to-start card. The separate loading screen after an early Start
-and errors keep their status messages; an active countdown keeps its number.
+and errors keep their status messages; an active countdown uses Start's
+background fill.
 The controls use the resolved saved keyboard table (including explicitly
 unbound lanes), not the currently selected menu style. Save as default
 remains beside the modifiers.

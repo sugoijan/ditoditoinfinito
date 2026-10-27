@@ -431,11 +431,6 @@ pub struct PromptScreen {
     /// The last card built, which the loading screen fades out.
     card_shown: Option<Actor>,
     countdown: Countdown,
-    /// The whole seconds the status line says, while it counts down.
-    countdown_shown: u32,
-    /// Where the Start button is on the card (its centre's x, its bottom,
-    /// its width), for the countdown's bar.
-    start_at: std::cell::Cell<Option<[f32; 3]>>,
     /// A press that cancelled the countdown: its tap does not start.
     swallow_tap: bool,
     /// The play options' rows (`Opt.<id>`) and their `SaveOptions`, as
@@ -579,8 +574,6 @@ impl PromptScreen {
             loading: None,
             card_shown: None,
             countdown: Countdown::Off,
-            countdown_shown: 0,
-            start_at: std::cell::Cell::new(None),
             swallow_tap: false,
             controls: Vec::new(),
             demo_time: 0.0,
@@ -659,19 +652,28 @@ impl PromptScreen {
         }
     }
 
-    /// The countdown's bar under Start: as long as the time left, from the
-    /// left (none under reduced motion).
-    fn countdown_bar(&self) -> Option<Actor> {
-        let (left, of) = self.counting()?;
-        let [x, bottom, w] = self.start_at.get()?;
-        if self.env.reduced() {
-            return None;
-        }
-        let f = (left / of).clamp(0.0, 1.0);
-        let mut bar = quad("CountdownBar", [w * f, 3.0], self.env.color("Accent"));
-        call(&mut bar, "cornerradius", &[1.5]);
-        call(&mut bar, "xy", &[x - w / 2.0 + w * f / 2.0, bottom + 6.0]);
-        Some(bar)
+    /// Fill Start's background as the countdown advances. Reduced motion
+    /// uses whole-second steps instead of a continuous wipe.
+    fn update_countdown_fill(&self, root: &mut Actor) {
+        let Some(fill) = crate::hit::find_mut(root, "CountdownFill") else {
+            return;
+        };
+        let Some((left, total)) = self.counting() else {
+            fill.visible = false;
+            return;
+        };
+        let left = if self.env.reduced() {
+            left.ceil().min(total)
+        } else {
+            left
+        };
+        let fraction = (1.0 - left / total).clamp(0.0, 1.0);
+        let Some(ink) = fill.children().first() else {
+            return;
+        };
+        let [w, h] = ink.size();
+        fill.visible = true;
+        fill.clip = Some([-w / 2.0, -h / 2.0, -w / 2.0 + w * fraction, h / 2.0]);
     }
     /// Shown over song select, as its other screens are (it says what it
     /// does again once none is).
@@ -931,12 +933,7 @@ impl PromptScreen {
             // Not a card: the loading screen (`tree`).
             PromptStep::Loading(_) => {}
             PromptStep::Ready => {
-                if let Some((left, _)) = self.counting() {
-                    let n = left.ceil().max(1.0) as u32;
-                    let status = format!("Starting in {n}");
-                    line(&mut c, "Status", &status, BODY + 3.0, 700, "Text", &mut y);
-                }
-                buttons.push(("Start".into(), "Start".into(), "PlayButton"));
+                buttons.push(("Start".into(), "Start".into(), "Prompt.Start"));
                 buttons.push(("Back".into(), "Back".into(), "Button"));
             }
             PromptStep::Access { folder, refused } => {
@@ -1039,7 +1036,11 @@ impl PromptScreen {
             .iter()
             .map(|(_, l, kind)| {
                 // The play button's label is larger (the theme's 18).
-                let size = if *kind == "PlayButton" { 18.0 } else { 15.0 };
+                let size = if matches!(*kind, "PlayButton" | "Prompt.Start") {
+                    18.0
+                } else {
+                    15.0
+                };
                 // Its letter spacing too (the play button's is 0.08 em).
                 let spacing = if *kind == "PlayButton" {
                     l.chars().count() as f32 * 0.08 * size
@@ -1054,9 +1055,6 @@ impl PromptScreen {
             // The first (focused) rightmost, as results put Retry.
             let mut x = w - 24.0;
             for ((name, label, kind), bw) in buttons.iter().zip(&widths) {
-                if name == "Start" {
-                    self.start_at.set(Some([x - bw / 2.0, y + bh, *bw]));
-                }
                 c.push(pbutton(
                     env,
                     bh,
@@ -1081,9 +1079,6 @@ impl PromptScreen {
                 if let [a, b] = row[..] {
                     for (j, x) in [(a, 24.0 + half / 2.0), (b, w - 24.0 - half / 2.0)] {
                         let (name, label, kind) = &buttons[j];
-                        if name == "Start" {
-                            self.start_at.set(Some([x, y + bh, half]));
-                        }
                         c.push(pbutton(env, bh, name, label, [x, y + bh / 2.0], half, kind));
                     }
                 } else {
@@ -1101,9 +1096,6 @@ impl PromptScreen {
             y -= 10.0;
         }
         let h = y + 24.0;
-        if let Some(bar) = self.countdown_bar() {
-            c.push(bar);
-        }
         let mut children = vec![env.component(
             "Dialog",
             "Panel",
@@ -1113,6 +1105,7 @@ impl PromptScreen {
         )];
         children.extend(c);
         let mut card = frame("Prompt", children);
+        self.update_countdown_fill(&mut card);
         // Too tall for the screen (a phone sideways, many devices):
         // smaller.
         let room = sh - 16.0 - if state.touch { 0.0 } else { 40.0 };
@@ -1204,7 +1197,6 @@ impl PromptScreen {
             Countdown::Off => {
                 if let Some(s) = asked {
                     self.countdown = Countdown::Running(s, s);
-                    self.countdown_shown = s.ceil() as u32;
                     self.rebuild(root, cx);
                 }
             }
@@ -1217,14 +1209,7 @@ impl PromptScreen {
                     return;
                 }
                 self.countdown = Countdown::Running(left, of);
-                let shown = left.ceil() as u32;
-                if shown != std::mem::replace(&mut self.countdown_shown, shown) {
-                    self.rebuild(root, cx);
-                } else if let Some(bar) = self.countdown_bar()
-                    && let Some(old) = crate::hit::find_mut(root, "CountdownBar")
-                {
-                    *old = bar;
-                }
+                self.update_countdown_fill(root);
             }
             Countdown::Cancelled | Countdown::Done => {}
         }
@@ -1495,6 +1480,10 @@ const DOT_STEP: f32 = 0.4;
 const DOT_STEP_REDUCED: f32 = 1.0;
 
 impl Screen for PromptScreen {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "play-prompt"
     }
@@ -2310,10 +2299,17 @@ mod tests {
         let v = view();
         assert_eq!(v.countdown_state, "running");
         assert!((v.countdown.unwrap() - 2.7).abs() < 0.05, "{v:?}");
-        assert!(h.texts().iter().any(|t| t == "Starting in 3"));
-        assert!(h.ui.actor("CountdownBar").is_some());
+        assert!(!h.texts().iter().any(|t| t.starts_with("Starting in")));
+        assert!(h.ui.actor("CountdownBar").is_none());
+        let initial = h.ui.actor("CountdownFill").unwrap().clip.unwrap();
         h.run(1.0);
-        assert!(h.texts().iter().any(|t| t == "Starting in 2"));
+        let later = h.ui.actor("CountdownFill").unwrap().clip.unwrap();
+        assert!(
+            later[2] > initial[2],
+            "button background fills left to right"
+        );
+        assert_eq!(later[0], initial[0]);
+        assert!(!h.texts().iter().any(|t| t.starts_with("Starting in")));
         assert!(starts(&seen).is_empty());
         h.run(2.0);
         // Not a gesture: the shell decides what may start now.
@@ -2421,13 +2417,17 @@ mod tests {
     }
 
     #[test]
-    fn under_reduced_motion_the_countdown_shows_its_number_alone() {
+    fn under_reduced_motion_the_countdown_fill_advances_in_steps() {
         let state = SharedPrompt::default();
         state.borrow_mut().set_countdown(Some(3.0));
         let (mut h, seen) = prompt_with(&state, true);
-        assert!(h.texts().iter().any(|t| t == "Starting in 3"));
-        assert!(h.ui.actor("CountdownBar").is_none());
-        h.run(3.0);
+        assert!(!h.texts().iter().any(|t| t.starts_with("Starting in")));
+        let initial = h.ui.actor("CountdownFill").unwrap().clip;
+        h.run(0.2);
+        assert_eq!(h.ui.actor("CountdownFill").unwrap().clip, initial);
+        h.run(0.8);
+        assert_ne!(h.ui.actor("CountdownFill").unwrap().clip, initial);
+        h.run(2.0);
         assert_eq!(starts(&seen), [false]);
     }
 

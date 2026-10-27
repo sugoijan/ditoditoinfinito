@@ -95,6 +95,8 @@ pub(super) fn update(root: &mut Actor, size: [f32; 2], seconds: f64, theme: &Inf
         // units across the viewport, phase .363, seconds 9.04. Only sampling
         // coordinates move; neither the field nor its palette animates.
         s.shape.vivid = Some(Vivid {
+            evolution_speed: 1.0,
+            screen_space: false,
             time: 5.04,
             phase_offset: 0.623,
             rect: [

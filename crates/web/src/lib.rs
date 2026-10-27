@@ -40,6 +40,7 @@ mod web;
 /// Starts the app in the page (`#app-root`).
 pub fn start() {
     crash::install_hook();
+    router::reset_start_focus();
     // Settings and the song list's place, from the browser's storage.
     web::kv::install();
     // The app's canvas and device, made once for every route.

@@ -67,6 +67,10 @@ impl FoldersOfferDialog {
 }
 
 impl Screen for FoldersOfferDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
     fn name(&self) -> &str {
         "folders-offer"
     }

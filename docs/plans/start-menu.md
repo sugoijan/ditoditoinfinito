@@ -29,7 +29,7 @@ evolve continuously; reduced motion freezes both. See
 
 | Entry | Behavior |
 |---|---|
-| **Singleplayer** | Default focus; opens the existing song list. |
+| **Singleplayer** | First-key focus; opens the existing song list. |
 | Multiplayer · Coming soon | Muted but readable; focusable by keyboard/pad, but cannot activate. |
 | Options | Opens the same Options screen used from song select. |
 | Credits | Opens the credits and returns to its caller. |
@@ -49,6 +49,21 @@ is quieter behind the menu. The theme owns the artwork and motion through
 preserves it on resize and pauses it for reduced motion. Both shells use
 the ordinary 2D painter, with no extra browser layer. `TitleMenu.RainSpeed`
 and `TitleMenu.RainStrength` tune its pace and visibility.
+
+A fresh menu, including a browser reload, starts with no focused choice or
+active outline. The web shell clears the start route's saved focus at app
+boot; returning to it within the running app still restores focus. The first key
+or controller/menu-button press focuses Singleplayer and is consumed without
+activation or navigation. Subsequent input behaves normally. Mouse hover
+moves focus to a button without activating it; leaving the buttons retains
+the last focus. Clicking/tapping a button still activates it directly.
+Explicit return-focus requests (such as Options) retain their place.
+
+The choices use neutral plates, including Singleplayer. Focus uses an
+Infinito flowing outline with the title's color-cycle pace and a faster
+spatial evolution (8× initially), replacing the pink ring. Its 3 px line
+has a 3 px gap to the plate and reveals one viewport-anchored field shared
+by all choices. Singleplayer keeps its larger, heavier label. Reduced motion freezes the live paint.
 
 The menu is silent, including after coming back from song select. No
 title music or attract-mode autoplay in this version. Use the theme's

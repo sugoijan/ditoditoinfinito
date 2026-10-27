@@ -262,6 +262,13 @@ impl Env {
         }
     }
 
+    pub fn presentation(&self) -> crate::look::Presentation<'_> {
+        crate::look::Presentation {
+            look: &*self.look,
+            reduced_motion: self.reduced(),
+        }
+    }
+
     pub fn reduced(&self) -> bool {
         self.reduced_motion.get()
     }

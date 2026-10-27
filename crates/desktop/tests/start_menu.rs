@@ -26,6 +26,8 @@ fn the_title_is_quiet_and_options_returns_to_each_caller() {
     h.run(0.5);
     assert_eq!(env.state.borrow().screen, "start");
     assert_eq!(sound.borrow().status(), (None, None));
+    assert_eq!(h.ui.focused(), None);
+    h.key("a", "a");
     h.key("ArrowDown", "ArrowDown");
     h.key("ArrowDown", "ArrowDown");
     h.key("Enter", "Enter");

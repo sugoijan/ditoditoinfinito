@@ -75,6 +75,8 @@ const SATURATION: u32 = 32;
 /// Smeared along `blur` (a motion blur).
 const BLUR: u32 = 64;
 const VIVID: u32 = 128;
+/// Vivid paint anchored to the viewport, independent of the quad transform.
+const VIVID_SCREEN: u32 = 256;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -1016,15 +1018,15 @@ impl Painter {
                                 | if sh.is_cut() { CUT } else { 0 }
                                 | if sh.saturation != 1.0 { SATURATION } else { 0 }
                                 | if q.blur != [0.0; 2] { BLUR } else { 0 }
-                                | if sh.vivid.is_some() { VIVID } else { 0 };
+                                | if sh.vivid.is_some() { VIVID } else { 0 }
+                                | if sh.vivid.is_some_and(|v| v.screen_space) {
+                                    VIVID_SCREEN
+                                } else {
+                                    0
+                                };
                             // Only the palette repeats (every 4 s); the
                             // evolving noise's time never wraps.
-                            let clock = sh.vivid.map_or([0.0; 2], |v| {
-                                [
-                                    4.0 + v.time,
-                                    (1.0 - v.time / 4.0 + v.phase_offset).rem_euclid(1.0),
-                                ]
-                            });
+                            let clock = sh.vivid.map_or([0.0; 2], ddi_actor::Vivid::clock);
                             Instance {
                                 axes,
                                 origin,

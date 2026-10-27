@@ -236,6 +236,8 @@ pub struct Ui {
     last_mouse_down: Option<f64>,
     time: f64,
     input_time: Option<f64>,
+    active_time: f64,
+    active_animating: bool,
     dirty: bool,
     problems: Problems,
     /// A keyboard key's menu action is being handled ([`Cx::menu_from_keyboard`]).
@@ -288,6 +290,8 @@ impl Ui {
             last_mouse_down: None,
             time: 0.0,
             input_time: None,
+            active_time: 0.0,
+            active_animating: false,
             dirty: true,
             problems: Problems::default(),
             menu_key: false,
@@ -642,6 +646,14 @@ impl Ui {
         self.refresh_hints();
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.time += f64::from(dt);
+        if self
+            .decoration_layer()
+            .and_then(|id| self.layer(id))
+            .and_then(|l| l.screen.presentation())
+            .is_some_and(|p| !p.reduced_motion)
+        {
+            self.active_time += f64::from(dt);
+        }
         self.follow_inset();
         if self.text.as_ref().is_some_and(|t| t.field.is_composing()) {
             self.repeater.clear();
@@ -775,6 +787,8 @@ impl Ui {
             size: [self.viewport.screen.width, self.viewport.screen.height],
         };
         let focus_layer = self.focus_layer();
+        let active_layer = self.decoration_layer();
+        let mut active_animating = false;
         let mut ime = None;
         let ring = self.draw_ring && self.ring_shown;
         let (k, sh) = self.map_for(false);
@@ -807,6 +821,17 @@ impl Ui {
                 run.set_text(shown);
             }
             layer.root.measure(measure);
+            if let Some(presentation) = layer.screen.presentation() {
+                let target = (Some(layer.id) == active_layer)
+                    .then(|| layer.screen.active_element(layer.focused.as_deref()))
+                    .flatten();
+                let live = presentation.look.active_element(
+                    &mut layer.root,
+                    target.as_deref(),
+                    self.active_time,
+                );
+                active_animating |= live && !presentation.reduced_motion;
+            }
             layer
                 .root
                 .draw_in(&view, transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
@@ -836,6 +861,7 @@ impl Ui {
                 self.out.push(UiRequest::SetImeCursorArea(css));
             }
         }
+        self.active_animating = active_animating;
         self.dirty = false;
         out
     }
@@ -859,6 +885,12 @@ impl Ui {
             return true;
         }
         self.dirty
+            || (self.active_animating
+                && self
+                    .decoration_layer()
+                    .and_then(|id| self.layer(id))
+                    .and_then(|l| l.screen.presentation())
+                    .is_some_and(|p| !p.reduced_motion))
             || self.repeater.holding()
             || self.pointers.iter().any(|p| p.tracker.waiting())
             || self.layers.iter().any(|l| l.phase.in_transition())
@@ -1069,6 +1101,10 @@ impl Ui {
         chain
     }
 
+    fn decoration_layer(&self) -> Option<u64> {
+        self.chrome_focus.or_else(|| self.focus_layer())
+    }
+
     fn focus_layer(&self) -> Option<u64> {
         self.input_chain().last().copied()
     }
@@ -1171,7 +1207,9 @@ impl Ui {
         self.repeater.clear();
         self.apply(id, cx);
         // The first focusable takes focus, unless the screen chose.
-        if self.layer(id).is_some_and(|l| l.focused.is_none())
+        if self
+            .layer(id)
+            .is_some_and(|l| l.focused.is_none() && !l.screen.defer_initial_focus())
             && let Some(first) = self
                 .layer(id)
                 .and_then(|l| l.screen.focusables().into_iter().next())
@@ -1395,6 +1433,27 @@ impl Ui {
 
     // Focus.
 
+    /// A deferred-focus screen uses the initial press only to reveal its
+    /// first control, including non-navigation keys and controller buttons.
+    fn wake_focus(&mut self, id: u64, gesture: bool) -> bool {
+        let Some(layer) = self.layer(id) else {
+            return false;
+        };
+        if !self.active(id) || layer.focused.is_some() || !layer.screen.defer_initial_focus() {
+            return false;
+        }
+        let first = layer
+            .screen
+            .focusables()
+            .into_iter()
+            .find(|f| visible_bounds(&layer.root, &f.name).is_some())
+            .map(|f| f.name);
+        let Some(first) = first else { return false };
+        self.repeater.clear();
+        self.set_focus(id, Some(first), gesture);
+        true
+    }
+
     fn set_focus(&mut self, id: u64, to: Option<String>, gesture: bool) {
         let mut problems = Problems::default();
         let Some(layer) = self.layer_mut(id) else {
@@ -1521,6 +1580,9 @@ impl Ui {
                     return;
                 }
                 continue;
+            }
+            if self.focus_layer() == Some(id) && self.wake_focus(id, gesture) {
+                return;
             }
             if self.dispatch(id, Input::Menu { action, repeat }, gesture) == Handled::Yes {
                 return;
@@ -1667,6 +1729,17 @@ impl Ui {
         }
         if self.typing_layer().is_some() {
             self.text_key(k, gesture);
+            return;
+        }
+        if k.down
+            && !k.repeat
+            && self.chrome_focus.is_none()
+            && self
+                .focus_layer()
+                .is_some_and(|id| self.wake_focus(id, gesture))
+        {
+            // Focusing should not suppress browser/OS command shortcuts.
+            self.consumed = !k.modifiers.any_but_shift();
             return;
         }
         // F2: the chrome's actions (the app's notices), and back; not

@@ -99,6 +99,12 @@ pub struct WheelPlace {
     pub alpha: f32,
 }
 
+/// A screen's look and its current motion preference, shared with overlays.
+pub struct Presentation<'a> {
+    pub look: &'a dyn Look,
+    pub reduced_motion: bool,
+}
+
 /// A look: components by name.
 pub trait Look {
     /// Component `name` built for `spec`; `None` to use the plain one.
@@ -121,6 +127,12 @@ pub trait Look {
         _size: [f32; 2],
         _seconds: f64,
     ) -> bool {
+        false
+    }
+
+    /// Update a single active-element decoration. `None` clears it on a
+    /// covered layer. Return true when the current decoration wants frames.
+    fn active_element(&self, _root: &mut Actor, _target: Option<&str>, _seconds: f64) -> bool {
         false
     }
 
@@ -306,6 +318,26 @@ pub fn tracked(mut a: Actor, thousandths: i16) -> Actor {
     a
 }
 
+/// Add a clipped, full-size background wash below the button's label.
+/// The host controls `CountdownFill`'s clip rectangle; rounding belongs to
+/// the full button shape, so the moving interior edge stays straight.
+pub fn countdown_button(mut button: Actor, size: [f32; 2], color: Rgba, radius: f32) -> Actor {
+    let mut ink = quad("CountdownInk", size, color);
+    call(&mut ink, "cornerradius", &[radius]);
+    let mut fill = named(Kind::Frame(vec![ink]), "CountdownFill");
+    fill.decoration = true;
+    fill.visible = false;
+    fill.clip = Some([0.0; 4]);
+    if let Kind::Frame(children) = &mut button.kind {
+        let at = children
+            .iter()
+            .position(|a| a.name == "Label")
+            .unwrap_or(children.len());
+        children.insert(at, fill);
+    }
+    button
+}
+
 /// Sets command `name` from a command string (what fails to parse is
 /// left out).
 pub fn command_of(a: &mut Actor, name: &str, s: &str) {
@@ -338,6 +370,12 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
         let [w, h] = spec.size;
         let size = (h * 0.45).clamp(12.0, 22.0);
         let a = match name {
+            "Prompt.Start" => countdown_button(
+                plain("Button", spec, font)?,
+                spec.size,
+                [0.22, 0.33, 0.72, 0.5],
+                0.0,
+            ),
             "Button" => {
                 let mut f = frame(vec![
                     lit_plate(spec.size),

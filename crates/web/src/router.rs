@@ -527,6 +527,22 @@ pub(crate) fn back() {
     }
 }
 
+/// A fresh launch or reload starts the title menu without focus. History
+/// still restores its focus when returning from another route in this run.
+pub(crate) fn reset_start_focus() {
+    if Route::parse(&hash()) != Route::Home {
+        return;
+    }
+    let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
+        return;
+    };
+    let state = history_state();
+    if js_sys::Reflect::has(&state, &"ddiFocus".into()).unwrap_or(false) {
+        let _ = js_sys::Reflect::delete_property(&state, &"ddiFocus".into());
+        let _ = history.replace_state_with_url(&state, "", None);
+    }
+}
+
 pub(crate) fn saved_focus() -> Option<String> {
     js_sys::Reflect::get(&history_state(), &"ddiFocus".into())
         .ok()?

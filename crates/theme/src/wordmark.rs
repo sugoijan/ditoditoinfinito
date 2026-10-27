@@ -27,6 +27,8 @@ pub fn actor([w, h]: [f32; 2], text: Rgba) -> Actor {
             sprite.shape.hide_unloaded = true;
             if i < 3 {
                 sprite.shape.vivid = Some(Vivid {
+                    evolution_speed: 1.0,
+                    screen_space: false,
                     time: 0.0,
                     phase_offset: -(i as f32) * 0.25,
                     rect: geometry::FIELDS[i],
