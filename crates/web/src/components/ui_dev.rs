@@ -1607,7 +1607,7 @@ pub(crate) fn pad_edge(weak: &Weak<RefCell<Host>>, edge: &ddi_platform::RawInput
         let Ok(h) = rc.try_borrow() else { return };
         let Some(action) = h
             .controls
-            .menu_input(id, pad_standard(edge.slot), &edge.control)
+            .menu_control(id, pad_standard(edge.slot), &edge.control)
         else {
             return;
         };
@@ -2407,6 +2407,27 @@ fn publish(h: &Host) {
     // the notices' buttons.
     if let Some(t) = &h.theme {
         let st = t.env.state.borrow();
+        names.extend(st.page_items.iter().cloned());
+        names.extend(
+            [
+                "More",
+                "PreviousPage",
+                "NextPage",
+                "Capture",
+                "Number0",
+                "Number1",
+                "Units",
+                "Step",
+                "Type",
+                "Reset",
+                "Remove",
+                "Tap",
+                "Apply",
+                "ApplyOffset",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        );
         names.extend(st.app_actions.iter().map(|a| format!("AppNotice.{a}")));
         names.push("AppNotice".into());
         // The plays list's rows (by their place in the list).

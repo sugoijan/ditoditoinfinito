@@ -54,3 +54,5 @@ pub use screen::{Cx, Handled, Input, Screen, TextChange};
 pub use text_field::{TextField, TextMode};
 pub use ui::{ACTIVATION_WINDOW, DESIGN_MESSAGE, RING_COLOR};
 pub use ui::{LayerInfo, Outcome, Ui};
+
+pub mod controller_hints;

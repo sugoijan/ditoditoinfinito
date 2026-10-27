@@ -174,7 +174,26 @@ impl StartScreen {
         st.backdrop = None;
         st.pulsing = false;
         st.pulse = 0.0;
-        st.hints = vec!["↑↓ Move".into(), "ENTER Choose".into()];
+        st.hints = if crate::controller_hints::active() {
+            let label = |caps: Vec<crate::keycaps::Keycap>| {
+                caps.iter()
+                    .map(crate::keycaps::Keycap::label)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            vec![
+                format!(
+                    "{} Move",
+                    label(crate::controller_hints::actions(&[
+                        ddi_engine::MenuInput::Up,
+                        ddi_engine::MenuInput::Down
+                    ]))
+                ),
+                format!("{} Choose", label(crate::controller_hints::activate())),
+            ]
+        } else {
+            vec!["↑↓ Move".into(), "ENTER Choose".into()]
+        };
         st.page_items = self.focusables().into_iter().map(|f| f.name).collect();
     }
 }
@@ -193,6 +212,11 @@ impl Screen for StartScreen {
             cx.focus(f);
         }
         root
+    }
+    fn message(&mut self, m: &crate::Message, _root: &mut Actor, _cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            self.publish();
+        }
     }
     fn focusables(&self) -> Vec<Focusable> {
         let mut focus: Vec<_> = self

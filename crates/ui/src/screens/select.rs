@@ -30,6 +30,7 @@
 //! back, search and options, no key hints, 48 px kept clear for a
 //! notch.
 
+use ddi_engine::MenuInput as HintAction;
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
@@ -567,7 +568,7 @@ pub struct SelectScreen {
     layout: Layout,
     /// The footer's hints, whether a search was in them, its note and
     /// whether Manage was offered.
-    hints: Option<(Hints, bool, String, bool)>,
+    hints: Option<(Hints, bool, String, bool, bool)>,
     /// A link a controller pressed could not open, or the search field
     /// could not start typing (a browser does either only from a key or
     /// a tap): how long the footer still says so, and what.
@@ -1135,13 +1136,13 @@ impl SelectScreen {
             let [sw, _] = self.layout.screen;
             let margin = self.layout.margin;
             let room =
-                sw - margin - env.metric("Header.TitleEnd", 460.0) - self.mods_width() - 32.0;
+                sw - margin - env.metric("Header.TitleEnd", 460.0) - self.mods_width() - 108.0;
             let w = env
                 .metric("Select.Search.Width", 560.0)
                 .min(room)
                 .max(200.0);
             let [_, fy, _, fh] = self.layout.field;
-            self.layout.field = [sw - margin - w, fy, w, fh];
+            self.layout.field = [sw - margin - w - 76.0, fy, w, fh];
         }
         let l = self.layout;
         let screen = l.screen;
@@ -1220,7 +1221,7 @@ impl SelectScreen {
             for (name, label, x) in [
                 ("AddIcon", "+", screen[0] - margin - 126.0),
                 ("SearchIcon", "/", screen[0] - margin - 74.0),
-                ("OptionsIcon", "•••", screen[0] - margin - 22.0),
+                ("More", "•••", screen[0] - margin - 22.0),
             ] {
                 children.push(env.component(
                     "IconButton",
@@ -1241,6 +1242,10 @@ impl SelectScreen {
         } else {
             children.push(header(&env, cx, screen[0], "SELECT MUSIC"));
             children.push(self.mods(l.field[0] - 16.0));
+            children.push(super::more_button(
+                &env,
+                [screen[0] - l.margin - 32.0, 32.0],
+            ));
         }
         let [fx, fy, fw, fh] = l.field;
         self.search.centre = [fx + fw / 2.0, fy + fh / 2.0];
@@ -1780,6 +1785,17 @@ impl SelectScreen {
         }
     }
 
+    fn in_header(&self, cx: &Cx) -> bool {
+        cx.focused().is_some_and(|f| {
+            f == self.search.name
+                || f.starts_with("Mod")
+                || matches!(
+                    f,
+                    "ClearSearch" | "Back" | "AddIcon" | "SearchIcon" | "OptionsIcon" | "More"
+                )
+        })
+    }
+
     fn fill_footer(&mut self, root: &mut Actor, cx: &mut Cx) {
         if self.layout.compact {
             self.env.state.borrow_mut().hints.clear();
@@ -1798,11 +1814,39 @@ impl SelectScreen {
                 n => format!("{n} songs match."),
             },
         };
-        let key = (now, searching, found.clone(), manage);
+        let in_header = self.in_header(cx);
+        let key = (now, searching, found.clone(), manage, in_header);
         if self.hints.as_ref() == Some(&key) {
             return;
         }
         self.hints = Some(key);
+        if let Some(old) = hit::find_mut(root, "TabKey") {
+            let mut hint = if crate::controller_hints::active() {
+                let caps = crate::controller_hints::actions(&[HintAction::Select]);
+                if caps.is_empty() {
+                    frame("TabKey", Vec::new())
+                } else {
+                    let (mut a, w) = super::key_hint(&self.env, "TabKey", &caps, "", cx);
+                    call(
+                        &mut a,
+                        "xy",
+                        &[
+                            self.layout.song[2] - w / 2.0,
+                            self.layout.tabs_y - self.layout.song[1] + 16.0,
+                        ],
+                    );
+                    a
+                }
+            } else {
+                right(
+                    self.env.numbers("TabKey", "TAB", 11.0, "Muted"),
+                    self.layout.song[2],
+                    self.layout.tabs_y - self.layout.song[1] + 16.0,
+                )
+            };
+            hint.name = "TabKey".into();
+            *old = hint;
+        }
         let esc = "Start menu";
         // The plays are P's (its hint); the credits and the source are
         // the start menu's and the credits'.
@@ -1889,7 +1933,38 @@ impl SelectScreen {
         if now == Hints::Song {
             hints[1].prefix = "2×";
         }
-        let (mut f, texts) = footer_hints(&self.env, self.layout.screen, &hints, note, links, cx);
+        let mut controller: Vec<(&[HintAction], &str)> = vec![(
+            &[
+                HintAction::Up,
+                HintAction::Down,
+                HintAction::Left,
+                HintAction::Right,
+            ],
+            if in_header { "Navigate" } else { "Song" },
+        )];
+        if now == Hints::Song && !in_header {
+            controller.push((&[HintAction::Previous, HintAction::Next], "Chart"));
+        }
+        if now != Hints::Typing {
+            controller.extend([
+                (&[HintAction::Select][..], "Style"),
+                (&[HintAction::More][..], "More"),
+            ]);
+        }
+        controller.push((&[HintAction::Confirm, HintAction::Start], "Activate"));
+        controller.push((
+            &[HintAction::Back],
+            if now == Hints::Typing { "Close" } else { esc },
+        ));
+        let (mut f, texts) = footer_hints(
+            &self.env,
+            self.layout.screen,
+            &hints,
+            &controller,
+            note,
+            links,
+            cx,
+        );
         if let Some(old) = hit::find_mut(root, "Footer") {
             super::refill(old, f);
         } else if let Kind::Frame(c) = &mut root.kind {
@@ -2863,6 +2938,7 @@ impl Screen for SelectScreen {
             std::iter::once(self.search.name.clone())
                 .chain(clear.then(|| "ClearSearch".to_string()))
                 .chain((0..n).map(|i| format!("Mod{i}")))
+                .chain(std::iter::once("More".to_string()))
                 .collect()
         };
         let along = |name: &str| -> Focusable {
@@ -2879,16 +2955,18 @@ impl Screen for SelectScreen {
         // A fresh Up on the list's first row: the search field (a phone's
         // goes up to the icons over it).
         let mut wheel = Focusable::new_list("Wheel");
-        if !self.layout.compact {
-            wheel.up = Some(self.search.name.clone());
-        }
+        wheel.up = Some(if self.layout.compact {
+            "More".into()
+        } else {
+            self.search.name.clone()
+        });
         let mut v = vec![wheel, along(&self.search.name), along("ClearSearch")];
         if self.layout.compact {
             for n in [
                 "Back",
                 "AddIcon",
                 "SearchIcon",
-                "OptionsIcon",
+                "More",
                 "StyleButton",
                 "Play",
             ] {
@@ -2913,6 +2991,9 @@ impl Screen for SelectScreen {
         }
         v.extend((0..self.notices.len()).map(|i| Focusable::new(format!("Notice.Link{i}"))));
         v.extend((0..n).map(|i| along(&format!("Mod{i}"))));
+        if !self.layout.compact {
+            v.push(along("More"));
+        }
         v
     }
 
@@ -2938,6 +3019,7 @@ impl Screen for SelectScreen {
             self.cancel_navigation();
             return;
         }
+        self.fill_footer(root, cx);
         self.live.tick(root, "Wordmark", &self.env, dt);
         let events = self.navigation.advance(cx.time());
         self.apply_navigation(events, root, cx);
@@ -3135,7 +3217,12 @@ impl Screen for SelectScreen {
             // Starting or changing style immediately after a single tap acts
             // on the requested song, even before its tap window has elapsed.
             Input::Menu {
-                action: MenuAction::Start | MenuAction::Select,
+                action:
+                    MenuAction::Start
+                    | MenuAction::Select
+                    | MenuAction::More
+                    | MenuAction::Previous
+                    | MenuAction::Next,
                 ..
             } => {
                 self.flush_move(root, cx);
@@ -3201,6 +3288,26 @@ impl Screen for SelectScreen {
     }
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            self.hints = None;
+            self.fill_footer(root, cx);
+        }
+        if let Some(id) = super::menu_pick(m, "Select.Suggestion")
+            && let Ok(i) = id.parse::<i64>()
+        {
+            let pick = Message::new(crate::widgets::field::PICK_MESSAGE)
+                .with(
+                    "Field",
+                    crate::message::Param::Str(self.search.name.clone()),
+                )
+                .with("Item", crate::message::Param::Int(i));
+            if let Some(e) = self.search.message(&pick, root, cx) {
+                self.field_event(e, root, cx);
+            }
+        }
+        if let Some(id) = super::menu_pick(m, "Select.More") {
+            self.activate(id, root, cx);
+        }
         if m.name == FEED {
             self.take_feed(root, cx);
         }
@@ -3230,6 +3337,17 @@ impl SelectScreen {
     }
 
     fn input_inner(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if matches!(
+            input,
+            Input::Menu {
+                action: MenuAction::More,
+                ..
+            }
+        ) {
+            self.leave_typing(root, cx);
+            self.open_more(cx);
+            return Handled::Yes;
+        }
         // The field first: while typing, keys are its.
         let popup_before = self.search.popup_open();
         let (h, e) = {
@@ -3344,14 +3462,7 @@ impl SelectScreen {
         // The header (the search, the switch, the mods, a phone's
         // icons): menu directions move the focus there, not the chart or
         // the wheel.
-        let in_header = cx.focused().is_some_and(|f| {
-            f == self.search.name
-                || f.starts_with("Mod")
-                || matches!(
-                    f,
-                    "ClearSearch" | "Back" | "AddIcon" | "SearchIcon" | "OptionsIcon"
-                )
-        });
+        let in_header = self.in_header(cx);
         let on_search = cx.focused() == Some(self.search.name.as_str());
         // A controller's buttons on the search field (a keyboard's keys
         // are the field's while typing; its arrows browse the wheel).
@@ -3365,6 +3476,7 @@ impl SelectScreen {
         {
             if self.typing {
                 match action {
+                    MenuAction::Up => self.open_suggestions(cx),
                     MenuAction::Start => {
                         let text = self.search.text.clone();
                         self.leave_typing(root, cx);
@@ -3426,7 +3538,7 @@ impl SelectScreen {
             action: MenuAction::Up,
             repeat: false,
         } = input
-            && self.list.selected() == Some(0)
+            && self.list.selected().is_none_or(|i| i == 0)
         {
             return Handled::No;
         }
@@ -3450,6 +3562,17 @@ impl SelectScreen {
         }
         match input {
             Input::Menu { action, .. } => match action {
+                MenuAction::Previous | MenuAction::Next if !in_header => {
+                    self.move_chart(
+                        if *action == MenuAction::Previous {
+                            -1
+                        } else {
+                            1
+                        },
+                        root,
+                    );
+                    Handled::Yes
+                }
                 MenuAction::Select => {
                     self.next_style(root);
                     Handled::Yes
@@ -3473,6 +3596,69 @@ impl SelectScreen {
             },
             _ => Handled::No,
         }
+    }
+
+    fn open_suggestions(&self, cx: &mut Cx) {
+        let items = self
+            .search
+            .suggestions
+            .iter()
+            .enumerate()
+            .map(|(i, (text, note))| (i.to_string(), format!("{text} {note}")))
+            .collect();
+        super::action_menu(
+            &self.env,
+            "Search suggestions",
+            items,
+            "Select.Suggestion",
+            cx,
+        );
+    }
+
+    fn open_more(&self, cx: &mut Cx) {
+        let mut items = vec![("SearchIcon".into(), "Search".into())];
+        if !self.search.text.trim().is_empty() && !self.search.suggestions.is_empty() {
+            items.push(("Suggestions".into(), "Search suggestions…".into()));
+        }
+        if !self.search.text.is_empty() {
+            items.push(("ClearSearch".into(), "Clear search".into()));
+        }
+        let (charts, pick) = self.charts();
+        let chart = pick.and_then(|i| charts.get(i));
+        if self.plays.is_some() && chart.is_some() {
+            items.push(("History".into(), "Chart history".into()));
+        }
+        if chart
+            .and_then(|c| c.best.as_ref())
+            .is_some_and(|b| !b.play.is_empty())
+        {
+            items.push(("WatchBest".into(), "Watch best".into()));
+        }
+        if self.editing && self.song().is_some() {
+            items.push(("EditChart".into(), "Edit chart".into()));
+        }
+        if self.manageable().is_some() {
+            items.push(("Link.Manage".into(), "Manage song / pack".into()));
+        }
+        if charts.len() > 1 {
+            items.extend([
+                ("PreviousChart".into(), "Previous chart".into()),
+                ("NextChart".into(), "Next chart".into()),
+            ]);
+        }
+        items.extend(
+            self.data
+                .styles
+                .iter()
+                .enumerate()
+                .map(|(i, style)| (format!("Tab{i}"), format!("Style: {}", style.name))),
+        );
+        items.extend([
+            ("Link.Add".into(), "Add songs".into()),
+            ("Link.Options".into(), "Options".into()),
+            ("Link.Calibrate".into(), "Calibrate".into()),
+        ]);
+        super::action_menu(&self.env, "Song actions", items, "Select.More", cx);
     }
 
     fn activate(&mut self, name: &str, root: &mut Actor, cx: &mut Cx) -> Handled {
@@ -3516,6 +3702,19 @@ impl SelectScreen {
             return Handled::Yes;
         }
         match name {
+            "More" => {
+                self.open_more(cx);
+                return Handled::Yes;
+            }
+            "Suggestions" => {
+                self.open_suggestions(cx);
+                return Handled::Yes;
+            }
+            "History" => self.open_plays(cx),
+            "WatchBest" => self.watch_best(cx),
+            "EditChart" => self.edit(cx),
+            "PreviousChart" => self.move_chart(-1, root),
+            "NextChart" => self.move_chart(1, root),
             "Link.Options" | "OptionsIcon" => {
                 let env = self.env.clone();
                 (self.options)(&env, cx);

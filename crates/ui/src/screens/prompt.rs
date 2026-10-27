@@ -31,6 +31,7 @@
 //! `Difficulty.<name>`; metric `Prompt.Width` (the card's), and
 //! `Backdrop.Side` for the cached Gaussian-blurred copy.
 
+use ddi_engine::MenuInput as HintAction;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -741,7 +742,18 @@ impl PromptScreen {
         }
         if !state.touch && state.step == PromptStep::Ready {
             let hints: &[(&[&str], &str)] = &[(&["ENTER"], "Start"), (&["ESC"], "Back")];
-            let (f, texts) = footer(&env, screen, hints, "", &[], cx);
+            let (f, texts) = footer(
+                &env,
+                screen,
+                hints,
+                &[
+                    (&[HintAction::Confirm, HintAction::Start], "Activate"),
+                    (&[HintAction::Back], "Back"),
+                ],
+                "",
+                &[],
+                cx,
+            );
             env.state.borrow_mut().hints = texts;
             children.push(f);
         } else if !matches!(state.step, PromptStep::Loading(_)) {
@@ -1245,18 +1257,25 @@ impl PromptScreen {
                 active,
             });
         if let Some(p) = &picture {
-            for i in 0..p.controls.keys.len() {
+            for (i, cap) in p.controls.caps().iter().enumerate() {
                 if let Some(key) = crate::hit::find_mut(root, &format!("KeyMotion{i}")) {
-                    // 4 mm travel in the study's camera projects to 2.271 px at 32 px.
+                    let pressed = active == Some(i) && cap.is_some();
+                    let controller = matches!(cap, Some(crate::keycaps::Keycap::Controller(_)));
                     call(
                         key,
                         "y",
-                        &[if active == Some(i) && p.controls.keys[i].is_some() {
+                        &[if pressed && !controller {
                             2.271 * 26.0 / 32.0
                         } else {
                             0.0
                         }],
                     );
+                    if controller && let Some(body) = crate::hit::find_mut(key, "Cap0") {
+                        call(body, "setstate", &[if pressed { 1.0 } else { 0.0 }]);
+                    }
+                    if controller && let Some(ink) = crate::hit::find_mut(key, "Key0") {
+                        call(ink, "y", &[if pressed { -1.2 } else { -2.0 }]);
+                    }
                 }
             }
         }
@@ -1288,10 +1307,21 @@ impl PromptScreen {
                 .bindings
                 .as_ref()
                 .map(|b| {
-                    b.keys
-                        .iter()
-                        .map(|k| k.clone().unwrap_or_default())
-                        .collect()
+                    if crate::controller_hints::active() {
+                        b.caps()
+                            .iter()
+                            .map(|k| {
+                                k.as_ref()
+                                    .map(crate::keycaps::Keycap::label)
+                                    .unwrap_or_default()
+                            })
+                            .collect()
+                    } else {
+                        b.keys
+                            .iter()
+                            .map(|k| k.clone().unwrap_or_default())
+                            .collect()
+                    }
                 })
                 .unwrap_or_default(),
             active_lane: self.active_lane(),
@@ -1652,6 +1682,13 @@ impl Screen for PromptScreen {
         self.light(root, focused.as_deref());
         self.draw_controls(root, cx);
         self.publish_view();
+    }
+
+    fn message(&mut self, m: &crate::Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            self.rebuild(root, cx);
+            self.draw_controls(root, cx);
+        }
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {

@@ -250,6 +250,7 @@ impl ddi_session::play::Inputs for WebInputs {
                 g.pads()
                     .into_iter()
                     .map(|p| ConnectedPad {
+                        vendor_product: None,
                         id: p.id,
                         index: p.index,
                         standard: p.standard,

@@ -132,6 +132,15 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## UI and desktop
 
+- [Controller hints and reachability](controller-hints.md) (2026-10-27):
+  implemented: automatic Xbox, PlayStation and Nintendo hints, generic fallback,
+  per-controller artwork overrides and LB/LT/RT/RB primary Dance Single defaults;
+  saved bindings remain intact. Physical hardware coverage is still unverified.
+  Earlier reachability fixes include:
+  More actions, shoulder navigation, results focus, binding capture and editor
+  controls. Free-text typing is exempt; numeric editing is controller-operable.
+  No virtual keyboard; dance-pad hint profiles deferred; browser/OS boundaries
+  tracked separately. [Audit](../research/controller-reachability.md).
 - [The start prompt, loading in the background](start-prompt.md)
   (2026-10-24): done (decision 61). Start never waits for the noteskin
   or the rest (a loading screen after an early Start), the countdown to

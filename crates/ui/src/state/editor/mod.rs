@@ -53,6 +53,8 @@ pub enum NoteTool {
     /// A tap; held while the cursor moves, a hold.
     #[default]
     Tap,
+    /// An explicit hold tool, allowing two-step controller placement.
+    Hold,
     /// A tap; held while the cursor moves, a roll.
     Roll,
     Mine,
@@ -61,17 +63,18 @@ pub enum NoteTool {
 }
 
 impl NoteTool {
-    pub const ALL: [NoteTool; 5] = [
+    pub const ALL: [NoteTool; 6] = [
         NoteTool::Tap,
         NoteTool::Roll,
         NoteTool::Mine,
         NoteTool::Lift,
         NoteTool::Fake,
+        NoteTool::Hold,
     ];
 
     fn single(self) -> NoteKind {
         match self {
-            NoteTool::Tap | NoteTool::Roll => NoteKind::Tap,
+            NoteTool::Tap | NoteTool::Hold | NoteTool::Roll => NoteKind::Tap,
             NoteTool::Mine => NoteKind::Mine,
             NoteTool::Lift => NoteKind::Lift,
             NoteTool::Fake => NoteKind::Fake,
@@ -80,7 +83,7 @@ impl NoteTool {
 
     fn long(self, end: Tick) -> Option<NoteKind> {
         match self {
-            NoteTool::Tap => Some(NoteKind::HoldHead { end }),
+            NoteTool::Tap | NoteTool::Hold => Some(NoteKind::HoldHead { end }),
             NoteTool::Roll => Some(NoteKind::RollHead { end }),
             _ => None,
         }
@@ -89,6 +92,7 @@ impl NoteTool {
     pub fn name(self) -> &'static str {
         match self {
             NoteTool::Tap => "Tap / hold",
+            NoteTool::Hold => "Hold",
             NoteTool::Roll => "Roll",
             NoteTool::Mine => "Mine",
             NoteTool::Lift => "Lift",

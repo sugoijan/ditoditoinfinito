@@ -1,0 +1,138 @@
+<style>
+@font-face{font-family:DDIContext;src:url(data:font/ttf;base64,__FONT__) format('truetype')}
+@font-face{font-family:DDIContextBold;src:url(data:font/ttf;base64,__BOLD__) format('truetype')}
+#ddi-controller-context{font:14px/1.4 DDIContext,monospace;color:#f2eee9;--press:1px;--ink:#c9c2bb}
+#ddi-controller-context *{box-sizing:border-box}
+#ddi-controller-context .context-label{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;background:#0a090d;color:#a39c95;font-size:12px}
+#ddi-controller-context .screen{background:#0a090d;overflow:hidden}
+#ddi-controller-context .song-picture{position:relative;line-height:0}
+#ddi-controller-context .song-picture>img{display:block;width:100%;height:auto}
+#ddi-controller-context .style-hint{position:absolute;left:44.1%;top:55.5%;width:2.6%;height:5%;background:#100b1a;display:flex;align-items:center;justify-content:center}
+#ddi-controller-context .style-hint img{height:75%;width:auto}
+#ddi-controller-context .footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 24px;border-top:1px solid #26222e;padding:5px 26px;min-height:42px;background:#0a090d}
+#ddi-controller-context .hints{display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px}
+#ddi-controller-context .hint{display:flex;align-items:center;gap:5px;white-space:nowrap;color:#c9c2bb;font-size:12px;min-height:35.1px}
+#ddi-controller-context .pair{display:flex;align-items:center;gap:0}
+#ddi-controller-context .glyph{position:relative;display:inline-block;flex-shrink:0;vertical-align:middle}
+#ddi-controller-context .glyph img{display:block;width:100%;height:100%}
+#ddi-controller-context .arm{position:absolute;inset:0;opacity:0;transform:translateY(var(--press));filter:brightness(.77)}
+#ddi-controller-context .glyph.pressed:not(.directional){transform:translateY(var(--press));filter:brightness(.82)}
+#ddi-controller-context .trigger{transform-origin:50% 15%}
+#ddi-controller-context .glyph.trigger.pressed{transform:perspective(90px) translateY(var(--press)) rotateX(var(--hinge));filter:brightness(.82)}
+#ddi-controller-context .directional.pressed>.rest{clip-path:var(--rest-clip)}
+#ddi-controller-context .directional.pressed>.arm{opacity:1;clip-path:var(--arm-clip)}
+#ddi-controller-context .links{display:flex;gap:24px;font-size:12px}
+#ddi-controller-context .prompt-context{margin-top:18px;background:#090612}
+#ddi-controller-context .prompt-stage{display:flex;justify-content:center;align-items:center;padding:40px 16px;background:radial-gradient(ellipse at 50% 60%,#271a44 0%,#0d081b 45%,#090612 78%)}
+#ddi-controller-context .prompt-card{width:560px;max-width:100%;padding:20px 23px 23px;background:#14121a;border:1px solid #26222e;border-radius:7px}
+#ddi-controller-context h2{font-family:DDIContextBold,monospace;font-size:28px;line-height:1.2;margin:2px 0 2px;font-weight:400}
+#ddi-controller-context .artist{color:#a39c95;font-size:16px}
+#ddi-controller-context .chart{color:#ff5946;margin-top:3px}
+#ddi-controller-context .lanes{display:flex;justify-content:center;margin:12px 0 24px}
+#ddi-controller-context .lane{width:72px;min-width:0;display:flex;flex-direction:column;align-items:center}
+#ddi-controller-context .receptor{width:72px;height:72px;max-width:100%;object-fit:contain}
+#ddi-controller-context .lane.active .receptor{filter:brightness(1.45) drop-shadow(0 0 4px #57cffc)}
+#ddi-controller-context .press-target{display:flex;align-items:center;justify-content:center;border:0;background:transparent;color:inherit;width:100%;height:44px;padding:0}
+#ddi-controller-context .mods-label{font-size:11px;letter-spacing:1px;color:#8a837d;margin:0 0 6px}
+#ddi-controller-context .mods{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
+#ddi-controller-context .mod{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:28px;color:#a39c95}
+#ddi-controller-context .value{display:flex;align-items:center;justify-content:space-between;width:155px;color:#f2eee9}
+#ddi-controller-context .value::before{content:'◂';color:#ff6ea0;font-size:11px}
+#ddi-controller-context .value::after{content:'▸';color:#ff6ea0;font-size:11px}
+#ddi-controller-context .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:30px}
+#ddi-controller-context .action{width:104px;padding:10px;text-align:center;background:#1c1924;border-radius:6px}
+#ddi-controller-context .action.start{color:#08050b;background:#ff6ea0;font-size:16px}
+#ddi-controller-context .demo-bar{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;background:#0a090d;padding:12px 16px;font-size:12px;color:#a39c95}
+#ddi-controller-context .demo-button{font:inherit;color:#f2eee9;background:#241f2d;border:1px solid #393140;border-radius:5px;padding:7px 12px}
+@media(max-width:620px){#ddi-controller-context .footer{padding:8px 16px}#ddi-controller-context .prompt-stage{padding:20px 8px}#ddi-controller-context .prompt-card{padding:18px 14px}#ddi-controller-context h2{font-family:DDIContextBold,monospace;font-size:23px}#ddi-controller-context .mods{grid-template-columns:1fr}#ddi-controller-context .value{width:160px}#ddi-controller-context .lanes{margin-top:14px}#ddi-controller-context .context-label{padding-right:95px;flex-wrap:wrap}}
+</style>
+<div id="ddi-controller-context" aria-label="Controller hints in the song list and pre-start preview">
+ <section class="screen" aria-label="Song list controller hint mockup">
+  <div class="context-label"><span>Song list</span><span data-family-label>Xbox</span></div>
+  <div class="song-picture"><img src="__SELECT__" alt="Song list with Some Things Must selected, chart ladder on the left and song wheel on the right"><span class="style-hint" data-style-hint></span></div>
+  <div class="footer"><div class="hints" data-song-hints></div><div class="links"><span>+ Add songs</span><span>Options</span><span>Calibrate</span></div></div>
+ </section>
+ <section class="prompt-context" aria-label="Pre-start controller binding and press mockup">
+  <div class="context-label"><span>Pre-start</span><span data-binding-label>Primary shoulders + triggers</span></div>
+  <div class="prompt-stage"><div class="prompt-card">
+   <h2>Some Things Must (OutFox Edit)</h2><div class="artist">Sevish</div><div class="chart">Hard 13 · Single</div>
+   <div class="lanes" data-lanes></div>
+   <div class="mods-label">MODIFIERS</div>
+   <div class="mods"><div class="mod">Speed<span class="value">×2.5</span></div><div class="mod">Appearance<span class="value">Normal</span></div><div class="mod">Reverse<span class="value">Off</span></div><div class="mod">Lane cover<span class="value">Off</span></div><div class="mod">Turn<span class="value">Off</span></div><div class="mod">Arrows<span class="value">Infinito</span></div></div>
+   <div class="actions"><span class="action">Back</span><span class="action start">Start</span></div>
+  </div></div>
+  <div class="footer"><div class="hints" data-prompt-hints></div></div>
+  <div class="demo-bar"><button type="button" class="demo-button cursor-interaction" data-demo>Play press demo</button><span data-travel>1 px press travel</span></div>
+ </section>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('ddi-controller-context');
+ const images=__IMAGES__, receptors=__RECEPTORS__, proportions=__PROPORTIONS__;
+ const defaults={family:'xbox',binding:'shoulders',travel:1,held:'none'};
+ const saved=window.openai?.widgetState?.modelContent;
+ function choices(value){return Object.fromEntries(['family','binding','travel'].filter(k=>value&&k in value).map(k=>[k,value[k]]));}
+ const state={...defaults,...choices(saved)};
+ if(saved?.revision!==2)state.binding='shoulders';
+ const families={xbox:'Xbox',playstation:'PlayStation · classic',dualsense:'PlayStation · DualSense',nintendo:'Nintendo',generic:'Generic'};
+ const laneNames=['Left','Down','Up','Right'], dpad=['dpad_left','dpad_down','dpad','dpad_right'], face=['west','south','north','east'], shoulders=['lb','lt','rt','rb'];
+ const bindings={shoulders,dpad,face};
+ const bindingLabels={shoulders:'Primary shoulders + triggers',dpad:'D-pad alternatives',face:'Face-button alternatives'};
+ const heldLanes={none:[],Left:[0],Down:[1],Up:[2],Right:[3],'Left + Right':[0,3],'Down + Up':[1,2],'All four':[0,1,2,3]};
+ let timers=[],demoLanes=[],manualLane=-1;
+ function persist(){window.openai?.setWidgetState({modelContent:{revision:2,...choices(state)}})?.catch(()=>{});}
+ function glyph(c){
+  const rec=images[state.family+'-'+c];
+  const isFace=face.includes(c);
+  const direction=c.startsWith('dpad');
+  const scale=direction||state.family==='generic'&&isFace?proportions.direction:isFace?proportions.face:proportions.other;
+  const el=document.createElement('span');el.className='glyph'+(direction?' directional':'')+(['lt','rt'].includes(c)?' trigger':'');el.dataset.control=c;el.style.width=26*scale*rec.aspect+'px';el.style.height=26*scale+'px';
+  const img=document.createElement('img');img.src=rec.src;img.alt=c.replaceAll('_',' ');img.className='rest';el.append(img);
+  if(direction){
+   const shape={dpad_left:'0% 30%,45% 30%,45% 72%,0% 72%',dpad_down:'30% 52%,70% 52%,70% 100%,30% 100%',dpad:'30% 0%,70% 0%,70% 48%,30% 48%',dpad_right:'55% 30%,100% 30%,100% 72%,55% 72%'}[c];
+   if(shape){el.style.setProperty('--arm-clip',`polygon(${shape})`);el.style.setProperty('--rest-clip',`polygon(evenodd,0% 0%,100% 0%,100% 100%,0% 100%,0% 0%,${shape},${shape.split(',')[0]})`);const arm=img.cloneNode();arm.className='arm';arm.alt='';el.append(arm);}
+  }
+  return el;
+ }
+ function hint(controls,label){const h=document.createElement('span');h.className='hint';const pair=document.createElement('span');pair.className='pair';controls.forEach(c=>pair.append(glyph(c)));h.append(pair,document.createTextNode(label));return h;}
+ function press(){
+  const lanes=manualLane>=0?[manualLane]:demoLanes.length?demoLanes:(heldLanes[state.held]||[]);
+  root.querySelectorAll('.lane').forEach((el,i)=>{el.classList.toggle('active',lanes.includes(i));el.querySelector('.glyph').classList.toggle('pressed',lanes.includes(i));el.querySelector('button').setAttribute('aria-pressed',String(lanes.includes(i)));});
+ }
+ function render(){
+  if(!families[state.family])state.family='xbox';if(!bindings[state.binding])state.binding='shoulders';state.travel=Math.min(2,Math.max(0,Number(state.travel)||0));
+  root.style.setProperty('--press',state.travel+'px');
+  root.style.setProperty('--hinge',state.travel*8+'deg');
+  root.querySelector('[data-family-label]').textContent=families[state.family];
+  root.querySelector('[data-binding-label]').textContent=bindingLabels[state.binding];
+  root.querySelector('[data-travel]').textContent=state.travel+' px press travel';
+  root.querySelector('[data-song-hints]').replaceChildren(hint(['dpad_all'],'Song'),hint(['lb','rb'],'Chart'),hint(['north'],'Style'),hint(['south'],'Play'),hint(['west'],'More'),hint(['east'],'Start menu'));
+  root.querySelector('[data-prompt-hints]').replaceChildren(hint(['south'],'Start'),hint(['east'],'Back'));
+  const style=glyph('north');root.querySelector('[data-style-hint]').replaceChildren(style.querySelector('img'));
+  root.querySelector('[data-lanes]').replaceChildren(...laneNames.map((name,i)=>{
+   const lane=document.createElement('div');lane.className='lane';
+   const receptor=document.createElement('img');receptor.className='receptor';receptor.src=receptors[i];receptor.alt=name+' receptor';
+   const button=document.createElement('button');button.type='button';button.className='press-target cursor-interaction';button.setAttribute('aria-label','Preview '+name.toLowerCase()+' press');button.append(glyph(bindings[state.binding][i]));
+   button.addEventListener('pointerdown',()=>{manualLane=i;press();});button.addEventListener('click',()=>{manualLane=-1;state.held=state.held===name?'none':name;press();});
+   lane.append(receptor,button);return lane;
+  }));press();
+ }
+ root.addEventListener('pointerup',()=>{manualLane=-1;press();});root.addEventListener('pointercancel',()=>{manualLane=-1;press();});
+ const demo=root.querySelector('[data-demo]');
+ function stop(){timers.forEach(clearTimeout);timers=[];demoLanes=[];demo.textContent='Play press demo';press();}
+ demo.addEventListener('click',()=>{
+  if(timers.length){stop();return;}state.held='none';manualLane=-1;demoLanes=[];press();demo.textContent='Stop demo';
+  const sequence=[[0],[1],[2],[3],[0,3],[1,2]];
+  sequence.forEach((lanes,i)=>{const at=i<4?200+i*140:1000+(i-4)*450;const duration=i<4?110:220;timers.push(setTimeout(()=>{demoLanes=lanes;press();},at));timers.push(setTimeout(()=>{demoLanes=[];press();},at+duration));});
+  timers.push(setTimeout(stop,2670));
+ });
+ render();
+ window.addEventListener('openai:set_globals',e=>{const value=e.detail?.globals?.widgetState?.modelContent;if(value&&typeof value==='object'){const restored=choices(value);if(value.revision!==2)delete restored.binding;Object.assign(state,restored);render();}});
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{stop();render();persist();}});
+  tweak.addSelect(state,'family',{label:'Controller family',options:Object.entries(families).map(([value,label])=>({value,label}))});
+  tweak.addSelect(state,'binding',{label:'Pre-start bindings',options:[{value:'shoulders',label:'Primary shoulders + triggers'},{value:'dpad',label:'D-pad alternatives'},{value:'face',label:'Face alternatives'}]});
+  tweak.addSlider(state,'travel',{label:'Press travel',min:0,max:2,step:.25,unit:'px'});
+  tweak.addSelect(state,'held',{label:'Hold a press',options:[{value:'none',label:'None'},...laneNames,'Left + Right','Down + Up','All four']});
+ }
+})();
+</script>

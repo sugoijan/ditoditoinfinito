@@ -151,6 +151,7 @@ impl PadHub {
                     Self::track(&mut old, now, out);
                 }
                 let info = ConnectedPad {
+                    vendor_product: vendor.zip(product).map(|(v, p)| [v, p]),
                     id: pad_id(&name, vendor, product),
                     index: pad as u32,
                     standard,
@@ -745,6 +746,7 @@ mod tests {
         assert_eq!(
             out[0],
             PadOut::Connected(ConnectedPad {
+                vendor_product: Some([0x045e, 0x0b13]),
                 id: "Xbox Wireless Controller (Vendor: 045e Product: 0b13)".into(),
                 index: 0,
                 standard: true,

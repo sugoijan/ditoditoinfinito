@@ -137,6 +137,9 @@ pub struct Settings {
     /// Poll controllers every millisecond during play; off polls once per
     /// frame (less CPU, coarser timing).
     pub fast_pad_poll: bool,
+    /// Presentation only, keyed like controller bindings; absent means Auto.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub controller_styles: std::collections::BTreeMap<String, crate::controller_hints::Style>,
     /// Reduced motion in the menus (no beat pulse, no slides): as the
     /// system says, or always, or never.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -370,6 +373,7 @@ impl Default for Settings {
             song_offsets: BTreeMap::new(),
             controls: ControlBindings::default(),
             fast_pad_poll: true,
+            controller_styles: Default::default(),
         }
     }
 }
@@ -556,6 +560,7 @@ impl Settings {
         let stored: Settings = storage::load(Area::Local, KEY).unwrap_or_default();
         let mut s = stored.clone();
         s.sanitize();
+        crate::controller_hints::configure(&s.controls, &s.controller_styles);
         if s != stored {
             // Persist migrations and clamping so storage matches what runs.
             s.save();
@@ -688,6 +693,7 @@ impl Settings {
     }
 
     pub fn save(&self) {
+        crate::controller_hints::configure(&self.controls, &self.controller_styles);
         let _ = storage::save(Area::Local, KEY, self);
     }
 

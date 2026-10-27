@@ -396,6 +396,21 @@ What each phase delivered and how it was checked, in full.
 
 ### Beyond the original plan
 
+Controller hints and reachability (bindings/reachability implemented 2026-10-27;
+[plan](plans/controller-hints.md)): detect Xbox, PlayStation and Nintendo
+families conservatively, with generic glyphs and saved per-controller hint
+overrides. Resolve hints from actual bindings and the active device. The
+[reachability audit](research/controller-reachability.md) records gaps in
+song-select entry points, empty search, results focus, binding capture and
+editor controls. Defaults retain positional Confirm/Back and North shortcuts,
+add West for More and contextual shoulders, and separate editor Place/Listen.
+Reachability fixes now precede the remaining hints work (decision 73). All free-text entry
+may use a keyboard (no virtual keyboard); numeric editing and continuation
+after typing must work with controllers. Track browser/OS activation limits
+separately. More menus, results focus/scrolling, explicit binding capture,
+controller editor operations and numeric forms are implemented. Detection,
+hints and overrides are next; dance-pad and arcade hint profiles are deferred.
+
 Start menu (implemented 2026-10-21; [plan](plans/start-menu.md)): a
 Singleplayer-first entry before song select, disabled Multiplayer hint,
 Options returning to its caller, and desktop Quit. Back from ordinary
@@ -768,6 +783,26 @@ remain separate work.
 70. **The number pad is every layout's second set of keys** (2026-10-27; `crates/chart/src/layout/mod.rs`). The maintainer's request. A pad seen from above: 4 2 8 6 for the arrows, 7 and 9 for the up diagonals, 1 and 3 for the down ones, 5 for the middle panel or the onigiri; Single, Solo, Double's right pad, 5 keys, 7 keys and 9B keys (the whole pad, its second set of arrows on the corners) join pump and techno, which had it. The main keys stay first and unchanged; `Numpad*` codes are the number pad's alone on both shells (the physical `KeyboardEvent.code`, whatever Num Lock says), so the number row never plays. 9A keeps danoniplus's keys: its two hands do not map to one pad. Every version writes the single table, so `ControlBindings::sanitize` reads a table equal to a layout's defaults less the numpad keys as the defaults (`NUMPAD_ADDED`), and a player who never bound keys gets the pad; a table changed by hand stays as it is. The menus take the pad's 8 2 4 6 as the arrows on every screen (`ddi_ui::nav::key_action`), with Numpad Enter as before; a text field being typed into keeps the digits.
 71. **CI keeps its FFmpeg builds in a release and its caches under the cap** (2026-10-27; `docs/plans/video-backgrounds.md`, "CI"; AGENTS.md, "Deployment"). The maintainer asked for faster CI. The caches held 12.5 GB against a 10 GB cap, so GitHub evicted entries in use: the web's decoder module was rebuilt on cold runs, the test job took 14 min instead of 6, the DanOni handoff 42. Now the FFmpeg builds, pure functions of pinned recipes, are assets of the rolling `build-inputs` pre-release named by their recipes' hashes, built by `build-inputs.yml` when a recipe changes and fetched by every job (`.github/scripts/video-assets.sh`); Rust caches are saved on main only, pruned to the newest of each key after every deploy and DanOni run (`prune-caches.sh`; the first run showed the DanOni caches saved after deploy's prune, their predecessors keeping the total over the cap), and built without debug info. The DanOni importer's pinned Ruffle worker (the two largest entries left) may join the release later; caching our own crates' compiles (sccache) is the next step if the measured runs still spend their time compiling. The Linux jobs' `ffmpeg` command came from Ubuntu's package next: the Azure apt mirror throttled its 150 packages to 40 KB/s on three runs in a day (9, 18 and 28 minutes against the usual 30 s), so it is a static build from BtbN/FFmpeg-Builds' releases, pinned by tag and SHA-256 and installed by `.github/scripts/ffmpeg-command.sh` (the same major as the helper's FFmpeg). The next run had the mirror throttle the headers' own install (a systemd upgrade `libudev-dev` requires, 3 minutes) and the importer's Mesa (9 minutes), and the same reports stand against the Ubuntu 26.04 image (actions/runner-images#15142): the image is not the cause, so `.github/actions/apt` keeps each job's `.deb` files in the Actions cache by package set and image version (dpkg installs them on a hit, nothing fetched) and, on a miss, puts Canonical's archive before the Azure mirror in the runner's mirror list before downloading.
 72. **The field preview's skin is readied ahead and never stands in** (2026-10-27; `docs/plans/start-prompt.md`, "Readied ahead"; `docs/plans/ui-core.md`, 6.3's desktop note). The maintainer saw the start prompt's receptors appear late, Options' preview show the built-in arrows for a moment when its layout changed on the web, and no change at all on desktop. Now song select's place report has each shell ready the diagram's skin for the chart shown (`Controls::for_chart`, `ddi_shell::receptor_skin`; `Field::warm`, `FieldPreviewHost::warm`), the web's one preview outliving its pages; both previews draw nothing until the skin wanted is in, readied for the layout wanted (the last frame holds meanwhile); desktop hands the preview the options' edited settings on the layout picked for it (`Shared::preview_settings`), as the web did; and P on Options cycles that layout from anywhere (Shift+P backwards), its keycap on the selector.
+
+73. **Controller hints follow actual bindings, with reachability fixed first**
+    (2026-10-27, implemented; [plan](plans/controller-hints.md),
+    [audit](research/controller-reachability.md)). Keep positional South/East
+    Confirm/Back on every family, including Nintendo B/A; hint-style overrides
+    never remap input. Preserve North's contextual shortcuts, add West for a
+    visible More actions menu and shoulders for chart/section/panel navigation
+    (editor: lane selection). Controller results directions navigate focus;
+    shoulders change panels. Editor South places while dedicated Start listens.
+    Dance Single defaults use LB/LT/RT/RB for Left/Down/Up/Right, retaining
+    D-pad and face alternatives. Saved/cleared tables and other layouts stay
+    unchanged. Per-layout manual setup remains where defaults do not exist. The maintainer permits keyboard/IME entry in all free-text fields,
+    with controller access before and after typing; numeric editing must work
+    with a controller. No virtual keyboard. Both shells use the shared
+    contextual resolver; More menus, armed capture and numeric forms provide
+    the audited alternate paths. Shared binding-derived hints use conservative
+    family detection, Generic fallback and per-model presentation overrides.
+    The receptor diagram follows the play's device assignment with pressed
+    states. Native GPU and shared tests cover synthetic inputs; real hardware
+    and transport combinations still need verification.
 
 ## 7. Risks
 

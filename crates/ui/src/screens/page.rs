@@ -10,6 +10,7 @@
 //! - **Pointers**: a tap on a link, button or fold; a wheel or a drag
 //!   scrolls.
 
+use ddi_engine::MenuInput as HintAction;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -359,6 +360,11 @@ impl PageScreen {
                     (&["↑", "↓"], "Move"),
                     (&["ENTER"], "Open"),
                     (&["ESC"], "Back"),
+                ],
+                &[
+                    (&[HintAction::Up, HintAction::Down], "Move"),
+                    (&[HintAction::Confirm, HintAction::Start], "Activate"),
+                    (&[HintAction::Back], "Back"),
                 ],
                 "",
                 &[("Link.Back", "Back")],
@@ -771,6 +777,12 @@ impl Screen for PageScreen {
     }
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            let left = super::time_left(root);
+            *root = self.tree(cx);
+            super::relaid(root, left);
+            self.publish();
+        }
         if m.name == PAGE_CHANGED
             && let Some(doc) = self.feed.as_ref().and_then(|f| f.borrow_mut().take())
         {

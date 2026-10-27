@@ -113,9 +113,9 @@ Rust and the browser are implementation details, not advertised features.
   what loads behind it, a loading screen after Start until the play is
   ready, a countdown on song select's plays, and this play's options,
   `prompt_options.rs`; its controls diagram, `prompt_controls.rs`, shows
-  the chart's receptors and primary keyboard bindings through the independent
-  field preview, pressing each pair for a brief looping demonstration (140 ms
-  per key, one-second pause; still under reduced motion); song select readies
+  the chart's receptors and primary bindings for the active keyboard/controller
+  through the independent field preview, pressing each pair for a brief looping demonstration (140 ms
+  per key, one-second pause; static under reduced motion); song select readies
   the diagram's skin for the chart it shows (`Controls::for_chart` from its
   place report, each shell's field preview's `warm`), so the prompt shows it
   from its first frame. That preview draws nothing until the skin wanted is
@@ -127,7 +127,21 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
-  flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and
+  flow in `crates/ui/src/state/bind.rs`). Controller menus use shared
+  `ControlBindings::menu_control`: West opens visible More actions, shoulders
+  change charts/sections/panels (editor: lanes), and dedicated Start stays
+  distinct until the screen resolves it. Standard-controller binding has
+  explicit Capture and navigation phases; raw devices keep guided learning.
+  `screens/numbers.rs` supplies controller-editable numeric/compound forms;
+  free-text entry alone may require keyboard/IME. Editor South places notes,
+  Start listens, holds/rolls use head/tail confirmation; More exposes the same
+  operations for minimal custom controllers. `controller_hints.rs` retains the
+  deliberate input source across screens, classifies controller metadata and
+  resolves hints through the effective dispatcher/play assignment. Overrides
+  live separately in `Settings::controller_styles`; raw controls stay numbered
+  even under a family override. New Dance Single defaults are LB/LT/RT/RB,
+  then D-pad/face alternatives; existing saved/cleared tables are preserved
+  (`docs/plans/controller-hints.md`). The state screens read (settings and
   their migrations, the song list's place, song select's data from a
   library (`select_view.rs`), the play
   history and its replays, `crates/ui/src/state/history/`, and when its
@@ -168,6 +182,10 @@ Rust and the browser are implementation details, not advertised features.
   study, with shared controls for cap height, legend size and spacing, now
   retaining the final deeper gray and previous gray comparison with the selected Iosevka Term Regular
   Italic legends. Both shells register the real bundled italic face.
+  Controller hints use original shared-satin rendered art from
+  `tools/controller-design/` in `assets/ui/controllers.png` (family-specific
+  faces, shoulders/triggers, fixed-size D-pad direction masks and pressed states).
+  The atlas is shipped directly; Blender/Pillow are authoring-only dependencies.
   The screens it dresses are `crates/ui/src/screens/` (start menu, song select, results,
   options; theme-agnostic, fed plain data). Pure, natively tested.
 - `crates/noteskin/` StepMania noteskins: fallback chains, file lookup and

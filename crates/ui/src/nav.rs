@@ -24,6 +24,10 @@ pub enum MenuAction {
     Left,
     Right,
     Start,
+    ControllerStart,
+    More,
+    Previous,
+    Next,
     Back,
     Select,
 }
@@ -46,6 +50,10 @@ impl From<MenuInput> for MenuAction {
             MenuInput::Left => MenuAction::Left,
             MenuInput::Right => MenuAction::Right,
             MenuInput::Confirm => MenuAction::Start,
+            MenuInput::Start => MenuAction::ControllerStart,
+            MenuInput::More => MenuAction::More,
+            MenuInput::Previous => MenuAction::Previous,
+            MenuInput::Next => MenuAction::Next,
             MenuInput::Back => MenuAction::Back,
             MenuInput::Select => MenuAction::Select,
         }

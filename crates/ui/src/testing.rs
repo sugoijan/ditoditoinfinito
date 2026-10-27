@@ -53,6 +53,7 @@ impl Harness {
         mode: TextMode,
         gestures: bool,
     ) -> Harness {
+        crate::controller_hints::reset();
         let mut h = Harness {
             ui: Ui::new(design, mode, gestures),
             measure: FixedMeasure,
@@ -287,6 +288,49 @@ impl Harness {
         for &d in deltas {
             self.wheel(at, [0.0, d], source);
             self.frame(every);
+        }
+    }
+
+    /// A physical controller edge through the shared bindings, or raw capture
+    /// when the foremost screen owns it, as both shells route it.
+    pub fn controller(
+        &mut self,
+        controls: &ddi_engine::ControlBindings,
+        id: &str,
+        standard: bool,
+        control: &str,
+        pressed: bool,
+    ) {
+        crate::controller_hints::devices(vec![ddi_engine::ConnectedPad {
+            id: id.into(),
+            index: 0,
+            standard,
+            vendor_product: None,
+        }]);
+        crate::controller_hints::configure(controls, &Default::default());
+        crate::controller_hints::edge(&ddi_platform::RawInput {
+            device: ddi_platform::DeviceId::Gamepad(id.into()),
+            control: control.into(),
+            pressed,
+            host_time: ddi_platform::HostTime(self.now / 1000.0),
+            slot: 0,
+        });
+        if self.ui.wants_raw() {
+            self.send(UiEvent::Raw(ddi_platform::RawInput {
+                device: ddi_platform::DeviceId::Gamepad(id.into()),
+                control: control.into(),
+                pressed,
+                host_time: ddi_platform::HostTime(self.now / 1000.0),
+                slot: 0,
+            }));
+        } else if let Some(action) = controls.menu_control(id, standard, control) {
+            self.send(UiEvent::Menu(MenuEvent {
+                action: action.into(),
+                down: pressed,
+                source: 0,
+                gesture: true,
+                time: self.now,
+            }));
         }
     }
 

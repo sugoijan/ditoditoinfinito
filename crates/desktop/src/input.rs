@@ -53,6 +53,9 @@ pub struct Input {
 impl Input {
     /// The time of winit's key event: the OS's stamp of it, else now.
     pub fn key_time(&mut self, key: PhysicalKey, down: bool, repeat: bool) -> HostTime {
+        if down && !repeat {
+            ddi_ui::controller_hints::keyboard();
+        }
         crate::keyboard::monitor::take(&mut self.stamps);
         // A key winit cannot name keeps the OS's own code (JIS Eisu, Kana
         // and Ro on macOS).
@@ -111,6 +114,7 @@ impl Input {
             return Vec::new();
         }
         let connected = pads.connected();
+        ddi_ui::controller_hints::devices(connected.clone());
         CONNECTED.with(|c| c.borrow_mut().clone_from(&connected));
         self.standard = connected
             .iter()
@@ -128,7 +132,10 @@ impl Input {
         }
         news.into_iter()
             .filter_map(|n| match n {
-                PadOut::Edge(e) if matches!(e.device, DeviceId::Gamepad(_)) => Some(e),
+                PadOut::Edge(e) if matches!(e.device, DeviceId::Gamepad(_)) => {
+                    ddi_ui::controller_hints::edge(&e);
+                    Some(e)
+                }
                 _ => None,
             })
             .collect()
@@ -139,6 +146,7 @@ impl Input {
     /// sends the next ones raw): raw while a screen binds, else a menu
     /// action.
     pub fn route(&mut self, ui: &Ui, e: RawInput) -> Option<UiEvent> {
+        ddi_ui::controller_hints::edge(&e);
         let DeviceId::Gamepad(id) = &e.device else {
             return None;
         };
@@ -148,7 +156,7 @@ impl Input {
         }
         let id = id.clone();
         let std = self.standard.contains(&e.slot);
-        let action = self.controls().menu_input(&id, std, &e.control)?;
+        let action = self.controls().menu_control(&id, std, &e.control)?;
         self.menu_edges += 1;
         Some(UiEvent::Menu(MenuEvent {
             action: action.into(),

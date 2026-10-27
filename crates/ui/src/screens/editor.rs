@@ -43,6 +43,8 @@
 //! cursor with a tap left of the lanes and scrolls with the wheel.
 //! With reduced motion the field jumps to the cursor instead of gliding.
 
+use super::numbers::{Format as NumberFormat, Number, Numbers};
+use ddi_engine::MenuInput as HintAction;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -344,6 +346,9 @@ pub struct EditorScreen {
     /// Bumped by every change: the field and the panel are drawn again.
     version: u64,
     held: Vec<u8>,
+    controller_lane: u8,
+    controller_anchor: Option<(u8, Tick)>,
+    range_anchor: Option<Tick>,
     shift: bool,
     retime: Rc<Cell<Retime>>,
     listening: bool,
@@ -400,6 +405,9 @@ impl EditorScreen {
             drawn: None,
             version: 0,
             held: Vec::new(),
+            controller_lane: 0,
+            controller_anchor: None,
+            range_anchor: None,
             shift: false,
             retime: Rc::new(Cell::new(Retime::KeepBeats)),
             listening: false,
@@ -601,6 +609,7 @@ impl EditorScreen {
             ground(&self.env, g.size),
             header(&self.env, cx, g.size[0], &title),
         ];
+        children.push(super::more_button(&self.env, [g.size[0] - 48.0, 32.0]));
         children.push(self.field());
         children.push(self.overview_strip());
         children.push(self.overview_marks());
@@ -699,7 +708,20 @@ impl EditorScreen {
         hints.push((vec!["TAB"], "Menu"));
         hints.push((vec!["ESC"], "Back"));
         let hints: Vec<(&[&str], &str)> = hints.iter().map(|(k, l)| (k.as_slice(), *l)).collect();
-        footer(&self.env, self.geo.size, &hints, "", &[], cx)
+        let mut controller: Vec<(&[HintAction], &str)> = vec![
+            (&[HintAction::Up, HintAction::Down], "Move"),
+            (&[HintAction::Left, HintAction::Right], "Snap"),
+            (&[HintAction::Previous, HintAction::Next], "Lane"),
+            (&[HintAction::Confirm], "Place"),
+        ];
+        if self.place.listen {
+            controller.push((&[HintAction::Start], "Listen"));
+        }
+        controller.extend([
+            (&[HintAction::More][..], "Menu"),
+            (&[HintAction::Back][..], "Back"),
+        ]);
+        footer(&self.env, self.geo.size, &hints, &controller, "", &[], cx)
     }
 
     /// The field: its plate, the beat grid, the selection, the notes
@@ -982,6 +1004,36 @@ impl EditorScreen {
             &[g.lanes_x + lanes_w / 2.0, y_of(e.cursor().0 as f64)],
         );
         c.push(line);
+        if !self.recording() {
+            let lane = self.controller_lane.min(lanes.saturating_sub(1) as u8);
+            let mut cell = quad(
+                "ControllerLane",
+                [g.lane_w - 4.0, 12.0],
+                with_alpha(env.color("Accent"), 0.35),
+            );
+            call(
+                &mut cell,
+                "xy",
+                &[g.lanes_x + (f32::from(lane) + 0.5) * g.lane_w, cursor_y],
+            );
+            c.push(cell);
+            if let Some((lane, tick)) = self.controller_anchor {
+                let mut head = quad(
+                    "ControllerAnchor",
+                    [g.lane_w - 4.0, 6.0],
+                    env.color("Accent"),
+                );
+                call(
+                    &mut head,
+                    "xy",
+                    &[
+                        g.lanes_x + (f32::from(lane) + 0.5) * g.lane_w,
+                        y_of(tick.0 as f64),
+                    ],
+                );
+                c.push(head);
+            }
+        }
         let mut f = frame("FieldLayer", c);
         f.clip = Some([fx, fy, fx + fw, fy + fh]);
         f
@@ -1291,6 +1343,7 @@ impl EditorScreen {
     }
 
     fn listen(&mut self, cx: &mut Cx) {
+        self.controller_anchor = None;
         if !self.place.listen {
             return;
         }
@@ -1489,6 +1542,23 @@ impl EditorScreen {
                 .into(),
             ));
         }
+        items.extend([
+            ("place", "Place / remove note".into()),
+            ("lane-prev", "Previous lane".into()),
+            ("lane-next", "Next lane".into()),
+            ("range-start", "Start range here".into()),
+            ("range-end", "End range here".into()),
+            ("range-clear", "Clear range".into()),
+            ("nudge-back", "Nudge earlier".into()),
+            ("nudge-forward", "Nudge later".into()),
+            ("jump-start", "Jump to start".into()),
+            ("jump-end", "Jump to end".into()),
+            ("measure-back", "Previous measure".into()),
+            ("measure-forward", "Next measure".into()),
+            ("zoom-in", "Zoom in".into()),
+            ("zoom-out", "Zoom out".into()),
+            ("tap-tempo", "Tap tempo…".into()),
+        ]);
         items.push(("leave", "Leave the editor".into()));
         drop(e);
         let items = items
@@ -1503,6 +1573,20 @@ impl EditorScreen {
 
     /// What the menu's action `id` does.
     fn action(&mut self, id: &str, cx: &mut Cx) {
+        cx.focus("FieldLayer");
+        if let Some(i) = id
+            .strip_prefix("tool:")
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            if let Some(tool) = NoteTool::ALL.get(i) {
+                self.controller_anchor = None;
+                self.edit(|e| e.set_tool(*tool));
+            }
+            return;
+        }
+        if id.starts_with("record") {
+            self.controller_anchor = None;
+        }
         if self.record_action(id, cx) {
             return;
         }
@@ -1510,13 +1594,56 @@ impl EditorScreen {
             return;
         }
         match id {
+            "place" => self.controller_place(),
+            "lane-prev" => self.controller_lane(-1),
+            "lane-next" => self.controller_lane(1),
+            "range-start" => {
+                self.range_anchor = Some(self.editor.borrow().cursor());
+                self.say("Range start set");
+            }
+            "range-end" => {
+                if let Some(from) = self.range_anchor.take() {
+                    self.edit(|e| e.select(from, e.cursor()));
+                }
+            }
+            "range-clear" => {
+                self.range_anchor = None;
+                self.edit(Editor::clear_selection);
+            }
+            "nudge-back" => self.edit(|e| e.shift_selection(-1)),
+            "nudge-forward" => self.edit(|e| e.shift_selection(1)),
+            "jump-start" => self.edit(|e| e.set_cursor(Tick::ZERO, false)),
+            "jump-end" => self.edit(|e| e.set_cursor(e.end(), false)),
+            "measure-back" => self.edit(|e| e.move_measures(-1, false)),
+            "measure-forward" => self.edit(|e| e.move_measures(1, false)),
+            "zoom-in" => {
+                self.zoom_steps = (self.zoom_steps + 1).min(3);
+                self.changed();
+            }
+            "zoom-out" => {
+                self.zoom_steps = (self.zoom_steps - 1).max(-3);
+                self.changed();
+            }
+            "tap-tempo" => self.open_tap(cx),
             "listen" => self.listen(cx),
             "play" => self.playtest(true, false, cx),
             "play-start" => self.playtest(false, false, cx),
             "auto" => self.playtest(true, true, cx),
             "undo" => self.edit(Editor::undo),
             "redo" => self.edit(Editor::redo),
-            "tool" => self.next_tool(1),
+            "tool" => cx.overlay(
+                ActionsDialog::new(
+                    self.env.clone(),
+                    "Note tool",
+                    NoteTool::ALL
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| (format!("tool:{i}"), t.name().into()))
+                        .collect(),
+                    pick(ACTION),
+                ),
+                true,
+            ),
             "timing" => self.open_timing(cx),
             "song" => self.open_song(cx),
             "chart" => self.open_chart(cx),
@@ -1561,7 +1688,48 @@ impl EditorScreen {
         });
     }
 
+    fn controller_lane(&mut self, by: i32) {
+        self.controller_lane = (i32::from(self.controller_lane) + by)
+            .clamp(0, i32::from(self.editor.borrow().lanes().saturating_sub(1)))
+            as u8;
+        self.say(format!("Lane {}", self.controller_lane + 1));
+    }
+
+    fn controller_place(&mut self) {
+        if let Some((lane, from)) = self.controller_anchor.take() {
+            self.edit(|e| e.place_long(lane, from, e.cursor()));
+            self.say("Long note placed");
+            return;
+        }
+        let lane = self
+            .controller_lane
+            .min(self.editor.borrow().lanes().saturating_sub(1));
+        let e = self.editor.borrow();
+        let tick = e.cursor();
+        let long = matches!(e.tool(), NoteTool::Hold | NoteTool::Roll);
+        // Removal is immediate, including a cursor within an existing hold.
+        let covered = e.chart().notes.iter().any(|n| {
+            n.lane == lane
+                && n.tick <= tick
+                && match n.kind {
+                    ddi_chart::NoteKind::HoldHead { end }
+                    | ddi_chart::NoteKind::RollHead { end } => tick <= end,
+                    _ => n.tick == tick,
+                }
+        });
+        drop(e);
+        if long && !covered {
+            self.controller_anchor = Some((lane, tick));
+            self.say("Head set; move to the tail and confirm. Back cancels.");
+        } else {
+            self.edit(|e| {
+                e.toggle_at(lane, tick);
+            });
+        }
+    }
+
     fn next_tool(&mut self, by: i32) {
+        self.controller_anchor = None;
         let tools = NoteTool::ALL;
         let at = tools
             .iter()
@@ -1572,20 +1740,7 @@ impl EditorScreen {
         self.say(format!("Tool: {}", next.name()));
     }
 
-    /// A value dialog whose text `apply` takes: the song is drawn again
-    /// once it is.
-    fn ask(
-        &self,
-        cx: &mut Cx,
-        title: &str,
-        note: &str,
-        value: &str,
-        apply: impl Fn(&mut Editor, &str) -> Result<(), String> + 'static,
-    ) {
-        cx.overlay(self.value_dialog(title, note, value, apply), true);
-    }
-
-    /// [`EditorScreen::ask`]'s dialog.
+    /// A validated value; numeric callers provide controller controls too.
     fn value_dialog(
         &self,
         title: &str,
@@ -1656,8 +1811,7 @@ impl EditorScreen {
         match id {
             "offset" => {
                 let value = trim_number(self.editor.borrow().timing().offset_seconds);
-                self.ask(
-                    cx,
+                let dialog = self.value_dialog(
                     "Offset",
                     "Seconds; the music's start is at minus the offset (StepMania's sign).",
                     &value,
@@ -1666,6 +1820,15 @@ impl EditorScreen {
                         e.set_offset(v, retime.get());
                         Ok(())
                     },
+                );
+                cx.overlay(
+                    dialog.numbers(Numbers::scalar(
+                        value.parse().unwrap_or(0.0),
+                        0.001,
+                        -1e6,
+                        1e6,
+                    )),
+                    true,
                 );
             }
             "retime" => {
@@ -1720,8 +1883,7 @@ impl EditorScreen {
             SegmentKind::Label => "A name for this place.",
         };
         let retime = self.retime.clone();
-        self.ask(
-            cx,
+        let dialog = self.value_dialog(
             &format!("{} at beat {}", kind.name(), trim_number(tick.beat())),
             note,
             &value,
@@ -1738,6 +1900,78 @@ impl EditorScreen {
                 }
             },
         );
+        if kind == SegmentKind::Label {
+            cx.overlay(dialog, true);
+            return;
+        }
+        let scalar = |fallback, step, min, max| {
+            Numbers::scalar(value.parse().unwrap_or(fallback), step, min, max)
+        };
+        let mut numbers = match kind {
+            SegmentKind::Bpm => scalar(
+                self.editor.borrow().timing().bpm_at_beat(tick.beat()),
+                0.01,
+                0.01,
+                1e6,
+            ),
+            SegmentKind::Stop | SegmentKind::Delay => scalar(0.0, 0.001, -1e6, 1e6),
+            SegmentKind::Warp | SegmentKind::Fake => scalar(1.0, 1.0 / 48.0, 0.0, 1e6),
+            SegmentKind::Scroll => scalar(1.0, 0.01, -1e6, 1e6),
+            SegmentKind::TickCount => scalar(4.0, 1.0, 0.0, 48.0),
+            SegmentKind::Speed => {
+                let parts: Vec<_> = value.split_whitespace().collect();
+                let value = |i, fallback| {
+                    parts
+                        .get(i)
+                        .and_then(|v: &&str| v.parse().ok())
+                        .unwrap_or(fallback)
+                };
+                Numbers {
+                    fields: vec![
+                        Number::new("Ratio", value(0, 1.0), 0.01, -1e6, 1e6),
+                        Number::new("Duration", value(1, 0.0), 0.01, 0.0, 1e6),
+                    ],
+                    format: NumberFormat::Speed,
+                    choice: usize::from(parts.get(2) == Some(&"s")),
+                    remove: true,
+                }
+            }
+            SegmentKind::TimeSignature | SegmentKind::Combo => {
+                let default = if kind == SegmentKind::TimeSignature {
+                    4.0
+                } else {
+                    1.0
+                };
+                let parts: Vec<_> = value.split('/').collect();
+                let value = |i| {
+                    parts
+                        .get(i)
+                        .and_then(|v: &&str| v.parse().ok())
+                        .unwrap_or(default)
+                };
+                let labels = if kind == SegmentKind::TimeSignature {
+                    ["Numerator", "Denominator"]
+                } else {
+                    ["Hit", "Miss"]
+                };
+                let min = if kind == SegmentKind::TimeSignature {
+                    1.0
+                } else {
+                    0.0
+                };
+                Numbers {
+                    fields: (0..2)
+                        .map(|i| Number::new(labels[i], value(i), 1.0, min, u32::MAX as f64))
+                        .collect(),
+                    format: NumberFormat::Pair("/"),
+                    choice: 0,
+                    remove: true,
+                }
+            }
+            SegmentKind::Label => unreachable!(),
+        };
+        numbers.remove = true;
+        cx.overlay(dialog.numbers(numbers), true);
     }
 
     /// The song's fields.
@@ -1758,18 +1992,44 @@ impl EditorScreen {
             return;
         };
         let value = field.value(&mut self.editor.borrow().song_info());
-        self.ask(
-            cx,
-            &field.title(label),
-            field.note(),
-            &value,
-            move |e, t| {
-                let mut info = e.song_info();
-                field.set(&mut info, t)?;
-                e.set_song_info(info);
-                Ok(())
-            },
-        );
+        let dialog = self.value_dialog(&field.title(label), field.note(), &value, move |e, t| {
+            let mut info = e.song_info();
+            field.set(&mut info, t)?;
+            e.set_song_info(info);
+            Ok(())
+        });
+        match field {
+            SongField::Seconds(_) => cx.overlay(
+                dialog.numbers(Numbers::scalar(
+                    value.parse().unwrap_or(0.0),
+                    0.001,
+                    0.0,
+                    1e6,
+                )),
+                true,
+            ),
+            SongField::DisplayBpm => {
+                let (a, b, choice) = match self.editor.borrow().song_info().display_bpm {
+                    DisplayBpm::Actual => (120.0, 120.0, 0),
+                    DisplayBpm::Random => (120.0, 120.0, 1),
+                    DisplayBpm::Single(a) => (a, a, 2),
+                    DisplayBpm::Range(a, b) => (a, b, 3),
+                };
+                cx.overlay(
+                    dialog.numbers(Numbers {
+                        fields: vec![
+                            Number::new("BPM", a, 0.01, 0.01, 1e6),
+                            Number::new("Upper BPM", b, 0.01, 0.01, 1e6),
+                        ],
+                        format: NumberFormat::DisplayBpm,
+                        choice,
+                        remove: false,
+                    }),
+                    true,
+                );
+            }
+            _ => cx.overlay(dialog, true),
+        }
     }
 
     /// The chart's fields, and the song's other charts.
@@ -1807,6 +2067,8 @@ impl EditorScreen {
     }
 
     fn chart_action(&mut self, id: &str, cx: &mut Cx) {
+        self.controller_anchor = None;
+        self.range_anchor = None;
         let info = self.editor.borrow().chart_info();
         let count = self.editor.borrow().song().charts.len();
         let index = self.editor.borrow().chart_index();
@@ -1893,7 +2155,19 @@ impl EditorScreen {
                     e.set_chart_info(info);
                     Ok(())
                 });
-                cx.overlay(if numeric { dialog.numeric() } else { dialog }, true);
+                if numeric {
+                    cx.overlay(
+                        dialog.numbers(Numbers::scalar(
+                            info.meter as f64,
+                            1.0,
+                            0.0,
+                            u32::MAX as f64,
+                        )),
+                        true,
+                    );
+                } else {
+                    cx.overlay(dialog, true);
+                }
             }
         }
     }
@@ -2052,6 +2326,7 @@ impl EditorScreen {
         let (lane, tick) = self.field_point(pos);
         match gesture {
             Gesture::Press => {
+                self.controller_anchor = None;
                 self.drag = Some(Drag {
                     lane,
                     from: tick,
@@ -2355,6 +2630,17 @@ impl Screen for EditorScreen {
         true
     }
 
+    fn separate_controller_start(&self) -> bool {
+        true
+    }
+
+    fn focusables(&self) -> Vec<crate::nav::Focusable> {
+        vec![
+            crate::nav::Focusable::new_list("FieldLayer"),
+            crate::nav::Focusable::new("More"),
+        ]
+    }
+
     fn raw_input(&self) -> bool {
         // Recording: keys and controls as they are, the lanes a play's.
         self.recording()
@@ -2420,6 +2706,31 @@ impl Screen for EditorScreen {
     }
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            let (footer, texts) = self.footer(cx);
+            if let Some(old) = crate::hit::find_mut(root, "Footer") {
+                *old = footer;
+            }
+            self.env.state.borrow_mut().hints = texts;
+        }
+        if m.name == "Editor.Tap" {
+            if let Some(Param::Num(time)) = m.get("Time") {
+                self.tap(*time * 1000.0, cx);
+            }
+            if let Some(Param::Str(action)) = m.get("Action") {
+                match action.as_str() {
+                    "Apply" => self.apply_tap(false),
+                    "ApplyOffset" => self.apply_tap(true),
+                    "Reset" => self.sound.taps.clear(),
+                    _ => {}
+                }
+            }
+            let text = self.sound.taps.estimate().map_or_else(
+                || format!("{} taps — tap along to the beat", self.sound.taps.len()),
+                |e| format!("{:.2} BPM ({} taps)", e.bpm, e.taps),
+            );
+            cx.broadcast(Message::new("Editor.TapStatus").with("Text", Param::Str(text)));
+        }
         let id = match m.get("Id") {
             Some(Param::Str(s)) => s.clone(),
             _ => String::new(),
@@ -2457,9 +2768,29 @@ impl Screen for EditorScreen {
             return handled;
         }
         let handled = match input {
-            Input::Menu { action, .. } => {
+            Input::Menu { action, repeat } => {
                 let shift = self.shift;
                 match action {
+                    MenuAction::Up if cx.focused() == Some("More") && !cx.menu_from_keyboard() => {
+                        cx.enter_chrome()
+                    }
+                    MenuAction::Up
+                        if self.editor.borrow().cursor() == Tick::ZERO
+                            && !repeat
+                            && !cx.menu_from_keyboard() =>
+                    {
+                        cx.focus("More");
+                    }
+                    MenuAction::Down
+                        if cx.focused() == Some("More") && !cx.menu_from_keyboard() =>
+                    {
+                        cx.focus("FieldLayer");
+                    }
+                    MenuAction::Start | MenuAction::ControllerStart
+                        if cx.focused() == Some("More") && !cx.menu_from_keyboard() =>
+                    {
+                        self.open_menu(cx)
+                    }
                     MenuAction::Up => self.edit(|e| e.move_snaps(-1, shift)),
                     MenuAction::Down => self.edit(|e| e.move_snaps(1, shift)),
                     MenuAction::Left => {
@@ -2472,13 +2803,31 @@ impl Screen for EditorScreen {
                         let s = snap_name(self.editor.borrow().snap());
                         self.say(format!("Snap {s}"));
                     }
-                    MenuAction::Start => self.listen(cx),
-                    MenuAction::Select => self.open_menu(cx),
+                    MenuAction::Start if !cx.menu_from_keyboard() => self.controller_place(),
+                    MenuAction::Start | MenuAction::ControllerStart => self.listen(cx),
+                    MenuAction::Select | MenuAction::More => self.open_menu(cx),
+                    MenuAction::Previous => self.controller_lane(-1),
+                    MenuAction::Next => self.controller_lane(1),
+                    MenuAction::Back if self.controller_anchor.take().is_some() => {
+                        self.say("Long note cancelled")
+                    }
+                    MenuAction::Back if self.range_anchor.take().is_some() => {
+                        self.say("Range cancelled")
+                    }
                     MenuAction::Back => self.back(cx),
                 }
                 Handled::Yes
             }
-            Input::Key(k) => self.key(k, cx),
+            Input::Activate { name } if name == "More" => {
+                self.open_menu(cx);
+                Handled::Yes
+            }
+            Input::Key(k) => {
+                if k.down {
+                    self.controller_anchor = None;
+                }
+                self.key(k, cx)
+            }
             Input::Pointer {
                 target,
                 gesture,

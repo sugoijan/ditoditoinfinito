@@ -32,6 +32,11 @@ pub enum MenuInput {
     Left,
     Right,
     Confirm,
+    /// Dedicated, possibly rebound Start (distinct from the South face button).
+    Start,
+    More,
+    Previous,
+    Next,
     Back,
     /// StepMania's Select: a standard pad's Y (its Back/Select button is
     /// Back).
@@ -86,8 +91,8 @@ impl PadBindings {
             && self.back.is_none()
     }
 
-    /// Defaults for a pad with the standard mapping: d-pad and face
-    /// buttons, Start and Back. Pads without it have no defaults; their
+    /// Defaults for a pad with the standard mapping: shoulders/triggers,
+    /// d-pad and face alternatives, Start and Back. Pads without it have no defaults; their
     /// buttons are numbered arbitrarily.
     pub fn standard(id: &str) -> PadBindings {
         use ddi_platform::gamepad::standard::{BACK, START};
@@ -101,7 +106,8 @@ impl PadBindings {
     }
 
     /// Standard-mapping defaults for a built-in layout: `dance-single` on
-    /// the d-pad and the face buttons, `dance-solo` the same with the
+    /// LB/LT/RT/RB, with d-pad and face alternatives; `dance-solo` on d-pad/face
+    /// buttons with the
     /// shoulder buttons as diagonals, `dance-double` the left pad on the
     /// d-pad and the right pad on the face buttons; the pump layouts alike,
     /// their centres on the shoulders.
@@ -114,10 +120,10 @@ impl PadBindings {
         };
         Some(match layout.id.as_str() {
             "dance-single" => t(&[
-                &[DPAD_LEFT, X],
-                &[DPAD_DOWN, A],
-                &[DPAD_UP, Y],
-                &[DPAD_RIGHT, B],
+                &[LB, DPAD_LEFT, X],
+                &[LT, DPAD_DOWN, A],
+                &[RT, DPAD_UP, Y],
+                &[RB, DPAD_RIGHT, B],
             ]),
             "dance-solo" => t(&[
                 &[DPAD_LEFT, X],
@@ -251,6 +257,8 @@ pub struct ConnectedPad {
     pub index: u32,
     /// `Gamepad.mapping == "standard"`.
     pub standard: bool,
+    /// Structured USB identity, when the shell exposes it. Never part of binding keys.
+    pub vendor_product: Option<[u16; 2]>,
 }
 
 /// Every saved binding: the keyboard's tables and each controller's.
@@ -371,11 +379,20 @@ impl ControlBindings {
     /// confirms and goes back with its Start and Back. Saved Start and Back
     /// controls count for both.
     pub fn menu_input(&self, id: &str, standard: bool, control: &str) -> Option<MenuInput> {
+        self.menu_control(id, standard, control).map(|m| match m {
+            MenuInput::Start => MenuInput::Confirm,
+            other => other,
+        })
+    }
+
+    /// Menu resolution preserving dedicated Start for contexts such as the editor.
+    /// Saved Start/Back take precedence over every positional shortcut.
+    pub fn menu_control(&self, id: &str, standard: bool, control: &str) -> Option<MenuInput> {
         use ddi_platform::gamepad::standard::*;
         let pad = self.pad(id, standard);
         if let Some(p) = &pad {
             if p.start.as_deref() == Some(control) {
-                return Some(MenuInput::Confirm);
+                return Some(MenuInput::Start);
             }
             if p.back.as_deref() == Some(control) {
                 return Some(MenuInput::Back);
@@ -387,7 +404,11 @@ impl ControlBindings {
                 c if c == button(DPAD_DOWN) || c == "axis:1+" => Some(MenuInput::Down),
                 c if c == button(DPAD_LEFT) || c == "axis:0-" => Some(MenuInput::Left),
                 c if c == button(DPAD_RIGHT) || c == "axis:0+" => Some(MenuInput::Right),
-                c if c == button(A) || c == button(START) => Some(MenuInput::Confirm),
+                c if c == button(A) => Some(MenuInput::Confirm),
+                c if c == button(START) => Some(MenuInput::Start),
+                c if c == button(X) => Some(MenuInput::More),
+                c if c == button(LB) => Some(MenuInput::Previous),
+                c if c == button(RB) => Some(MenuInput::Next),
                 c if c == button(B) || c == button(BACK) => Some(MenuInput::Back),
                 c if c == button(Y) => Some(MenuInput::Select),
                 _ => None,
@@ -404,6 +425,31 @@ impl ControlBindings {
             .zip(lanes)
             .find(|(controls, _)| controls.iter().any(|c| c == control))
             .map(|(_, input)| input)
+    }
+
+    /// Inverse of dispatch, including saved precedence. Candidates are checked
+    /// through `menu_control`, so a stolen default cannot advertise an action.
+    pub fn menu_controls(&self, id: &str, standard: bool, action: MenuInput) -> Vec<String> {
+        let mut candidates: Vec<String> = if standard {
+            (0..17)
+                .map(button)
+                .chain(["axis:0-", "axis:0+", "axis:1-", "axis:1+"].map(String::from))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if let Some(pad) = self.pad(id, standard) {
+            candidates.extend(pad.single.into_iter().flatten());
+            candidates.extend(pad.start);
+            candidates.extend(pad.back);
+        }
+        let mut seen = HashSet::new();
+        candidates
+            .into_iter()
+            .filter(|c| {
+                seen.insert(c.clone()) && self.menu_control(id, standard, c) == Some(action)
+            })
+            .collect()
     }
 
     /// Stores a controller's bindings, replacing earlier ones.
@@ -647,7 +693,34 @@ mod tests {
         );
         assert_eq!(b.menu_input("x", true, "button:8"), Some(MenuInput::Back));
         assert_eq!(b.menu_input("x", true, "button:3"), Some(MenuInput::Select));
-        assert_eq!(b.menu_input("x", true, "button:2"), None);
+        assert_eq!(b.menu_input("x", true, "button:2"), Some(MenuInput::More));
+        assert_eq!(
+            b.menu_control("x", true, "button:9"),
+            Some(MenuInput::Start)
+        );
+        assert_eq!(
+            b.menu_control("x", true, "button:4"),
+            Some(MenuInput::Previous)
+        );
+        assert_eq!(b.menu_control("x", true, "button:5"), Some(MenuInput::Next));
+        let mut overridden = PadBindings::standard("overridden");
+        overridden.start = Some("button:2".into());
+        overridden.back = Some("button:5".into());
+        overridden.single.clear();
+        overridden.layouts.clear();
+        b.set_pad(overridden, 0.0);
+        assert_eq!(
+            b.menu_control("overridden", true, "button:2"),
+            Some(MenuInput::Start)
+        );
+        assert_eq!(
+            b.menu_control("overridden", true, "button:5"),
+            Some(MenuInput::Back)
+        );
+        assert_eq!(
+            b.menu_control("overridden", true, "button:12"),
+            Some(MenuInput::Up)
+        );
         // A dance pad: its arrows and its Start and Back.
         let mut pad = PadBindings {
             id: "mat".into(),
@@ -686,6 +759,7 @@ mod tests {
 
     fn pad(id: &str, index: u32, standard: bool) -> ConnectedPad {
         ConnectedPad {
+            vendor_product: None,
             id: id.into(),
             index,
             standard,
@@ -1040,5 +1114,78 @@ mod tests {
         // Other layouts keep their defaults; single keeps the saved table.
         let b = c.resolve(&Layout::dance_single(), &[pad("x", 0, true)]);
         assert_eq!(press(&b, x, 0, "button:14"), Some(0));
+    }
+}
+
+#[cfg(test)]
+mod controller_primary_tests {
+    use super::*;
+    #[test]
+    fn primary_shoulders_leave_old_tables_and_explicit_empties_intact() {
+        let layout = Layout::dance_single();
+        let fresh = PadBindings::standard("pad");
+        assert_eq!(
+            fresh
+                .single
+                .iter()
+                .map(|r| r[0].as_str())
+                .collect::<Vec<_>>(),
+            ["button:4", "button:6", "button:7", "button:5"]
+        );
+        let mut controls = ControlBindings::default();
+        let old = vec![
+            vec!["button:14".into(), "button:2".into()],
+            vec![],
+            vec!["axis:3+".into()],
+            vec!["button:15".into()],
+        ];
+        controls.pads.push(PadBindings {
+            single: old.clone(),
+            ..fresh
+        });
+        let mut loaded: ControlBindings =
+            serde_json::from_str(&serde_json::to_string(&controls).unwrap()).unwrap();
+        loaded.sanitize();
+        assert_eq!(loaded.pad_table("pad", true, &layout), Some(old));
+        loaded.reset_pad_table("pad", &layout.id, true);
+        assert_eq!(
+            loaded.pad_table("pad", true, &layout),
+            PadBindings::standard_table(&layout)
+        );
+    }
+    #[test]
+    fn every_advertised_menu_control_reaches_its_action_after_conflicts() {
+        let mut bindings = ControlBindings::default();
+        let mut pad = PadBindings::standard("pad");
+        pad.start = Some("button:4".into());
+        pad.back = Some("button:0".into());
+        bindings.pads.push(pad);
+        for action in [
+            MenuInput::Up,
+            MenuInput::Down,
+            MenuInput::Left,
+            MenuInput::Right,
+            MenuInput::Confirm,
+            MenuInput::Start,
+            MenuInput::Back,
+            MenuInput::Previous,
+            MenuInput::Next,
+            MenuInput::More,
+            MenuInput::Select,
+        ] {
+            for c in bindings.menu_controls("pad", true, action) {
+                assert_eq!(bindings.menu_control("pad", true, &c), Some(action));
+            }
+        }
+        assert!(
+            bindings
+                .menu_controls("pad", true, MenuInput::Previous)
+                .is_empty()
+        );
+        assert!(
+            bindings
+                .menu_controls("pad", true, MenuInput::Confirm)
+                .is_empty()
+        );
     }
 }

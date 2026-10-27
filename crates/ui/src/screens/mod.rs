@@ -65,6 +65,7 @@ pub mod editor_dialogs;
 pub mod editor_field;
 pub mod folders_offer;
 pub mod notices;
+pub mod numbers;
 pub mod options;
 pub mod options_dialogs;
 pub mod options_model;
@@ -485,11 +486,15 @@ fn key_hint_prefixed(
     a.name = name.into();
     if !fallback && let Some(source) = env.look.image("KeyHint") {
         let texture = cx.texture(source, 1280.0);
-        for i in 0..keys.len() {
+        for (i, key) in keys.iter().enumerate() {
             if let Some(cap) = crate::widgets::part(&mut a, &format!("Cap{i}"))
                 && let Kind::Sprite(sprite) = &mut cap.kind
             {
-                sprite.texture = texture;
+                sprite.texture = if matches!(key, crate::keycaps::Keycap::Controller(_)) {
+                    cx.texture("ui/controllers.png", 2048.0)
+                } else {
+                    texture
+                };
             }
         }
     }
@@ -507,6 +512,7 @@ pub fn footer(
     env: &Env,
     screen: [f32; 2],
     hints: &[(&[&str], &str)],
+    controller: &[(&[ddi_engine::MenuInput], &str)],
     note: &str,
     links: &[(&str, &str)],
     cx: &mut crate::Cx,
@@ -519,7 +525,7 @@ pub fn footer(
             prefix: "",
         })
         .collect();
-    footer_hints(env, screen, &hints, note, links, cx)
+    footer_hints(env, screen, &hints, controller, note, links, cx)
 }
 
 /// A footer shortcut, with optional plain text outside its keycaps.
@@ -533,6 +539,7 @@ pub fn footer_hints(
     env: &Env,
     screen: [f32; 2],
     hints: &[FooterHint<'_>],
+    controller: &[(&[ddi_engine::MenuInput], &str)],
     note: &str,
     links: &[(&str, &str)],
     cx: &mut crate::Cx,
@@ -551,25 +558,51 @@ pub fn footer_hints(
     let mut children = vec![plate];
     let mut x = margin;
     let mut texts = Vec::new();
-    for (
-        i,
-        FooterHint {
-            keys,
-            label,
-            prefix,
-        },
-    ) in hints.iter().enumerate()
-    {
-        let caps: Vec<_> = keys
-            .iter()
-            .map(|k| crate::keycaps::Keycap::from_hint(k))
-            .collect();
-        let (mut a, w) = key_hint_prefixed(env, &format!("Hint{i}"), &caps, prefix, label, cx);
+    let resolved: Vec<(Vec<crate::keycaps::Keycap>, &str, &str)> =
+        if crate::controller_hints::active() {
+            controller
+                .iter()
+                .filter_map(|(actions, label)| {
+                    let caps = if *actions
+                        == [ddi_engine::MenuInput::Confirm, ddi_engine::MenuInput::Start]
+                    {
+                        crate::controller_hints::activate()
+                    } else {
+                        crate::controller_hints::actions(actions)
+                    };
+                    (!caps.is_empty()).then_some((caps, "", *label))
+                })
+                .collect()
+        } else {
+            hints
+                .iter()
+                .map(|h| {
+                    (
+                        h.keys
+                            .iter()
+                            .map(|k| crate::keycaps::Keycap::from_hint(k))
+                            .collect(),
+                        h.prefix,
+                        h.label,
+                    )
+                })
+                .collect()
+        };
+    for (i, (caps, prefix, label)) in resolved.iter().enumerate() {
+        let (mut a, w) = key_hint_prefixed(env, &format!("Hint{i}"), caps, prefix, label, cx);
         call(&mut a, "xy", &[x + w / 2.0, h / 2.0]);
         x += w + hint_gap;
         children.push(a);
+        let printed = if crate::controller_hints::active() {
+            caps.iter()
+                .map(crate::keycaps::Keycap::label)
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            hints[i].keys.join(" ")
+        };
         texts.push(
-            format!("{prefix} {} {label}", keys.join(" "))
+            format!("{prefix} {printed} {label}")
                 .trim_start()
                 .to_string(),
         );
@@ -971,5 +1004,58 @@ pub(crate) fn relaid(fresh: &mut Actor, left: f32) {
         fresh.finish_tweening();
     } else {
         fresh.update(total - left, &ddi_actor::Clocks::default(), &mut problems);
+    }
+}
+
+/// A visible route to the same contextual actions as a controller's West button.
+pub(crate) fn more_button(env: &Env, centre: [f32; 2]) -> Actor {
+    env.component(
+        "Button",
+        "Button",
+        &Spec::new([64.0, 40.0], "More"),
+        "More",
+        centre,
+    )
+}
+
+pub(crate) fn action_menu(
+    env: &Env,
+    title: &str,
+    items: Vec<(String, String)>,
+    message: &'static str,
+    cx: &mut crate::Cx,
+) {
+    cx.overlay(
+        editor_dialogs::ActionsDialog::new(
+            env.clone(),
+            title,
+            items,
+            std::rc::Rc::new(move |id, cx| {
+                cx.broadcast(
+                    crate::Message::new(message)
+                        .with("Action", crate::message::Param::Str(id.into())),
+                )
+            }),
+        ),
+        true,
+    );
+}
+
+pub(crate) fn menu_pick<'a>(m: &'a crate::Message, name: &str) -> Option<&'a str> {
+    if m.name != name {
+        return None;
+    }
+    match m.get("Action") {
+        Some(crate::message::Param::Str(s)) => Some(s),
+        _ => None,
+    }
+}
+
+/// Rebuilding a dialog keeps its focus name but replaces the actor carrying
+/// the focus appearance. Restore that appearance without moving focus.
+pub(crate) fn restore_focus(root: &mut Actor, name: Option<&str>) {
+    if let Some(actor) = name.and_then(|name| crate::hit::find_mut(root, name)) {
+        actor.play("GainFocus", &mut ddi_actor::Problems::default());
+        actor.finish_tweening();
     }
 }

@@ -182,6 +182,7 @@ impl DesktopInputs {
 
     fn test_pad() -> ConnectedPad {
         ConnectedPad {
+            vendor_product: None,
             id: crate::pads::pad_id(TEST_PAD, None, None),
             index: 99,
             standard: true,

@@ -67,6 +67,54 @@ const SIZES: [([f32; 2], [f32; 2]); 3] = [
     ([390.0, 844.0], COMPACT),
 ];
 
+#[test]
+fn a_raw_controller_with_only_directions_start_and_back_can_place_a_note() {
+    let mut controls = ddi_engine::ControlBindings::default();
+    controls.set_pad(
+        ddi_engine::PadBindings {
+            id: "Raw".into(),
+            single: (10..14).map(|n| vec![format!("button:{n}")]).collect(),
+            start: Some("button:14".into()),
+            back: Some("button:15".into()),
+            ..Default::default()
+        },
+        0.0,
+    );
+    for (size, design) in SIZES {
+        let mut s = setup(size, design);
+        let press = |h: &mut Harness, n| {
+            let control = format!("button:{n}");
+            h.controller(&controls, "Raw", false, &control, true);
+            h.controller(&controls, "Raw", false, &control, false);
+            h.run(0.3);
+        };
+        press(&mut s.h, 12); // Up from the first row reaches More.
+        assert_eq!(s.h.ui.focused(), Some("More"));
+        press(&mut s.h, 14); // Start confirms More instead of listening.
+        for _ in 0..200 {
+            if s.h.ui.focused() == Some("Item.place") {
+                break;
+            }
+            let next = if s.h.ui.focused() == Some("NextPage") {
+                14
+            } else {
+                11
+            };
+            press(&mut s.h, next);
+        }
+        assert_eq!(s.h.ui.focused(), Some("Item.place"));
+        press(&mut s.h, 14);
+        assert_eq!(s.editor.borrow().note_count(), 1);
+        assert!(
+            !s.host
+                .calls
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, EditorCall::Listen { .. }))
+        );
+    }
+}
+
 struct Setup {
     h: Harness,
     env: Env,
@@ -104,6 +152,37 @@ fn view(s: &Setup) -> EditorView {
         .editor
         .clone()
         .expect("the editor's view")
+}
+
+fn show_action(h: &mut Harness, name: &str) {
+    for _ in 0..20 {
+        if h.ui.bounds(name).is_some() {
+            return;
+        }
+        if h.ui.bounds("NextPage").is_some() {
+            h.tap(PointerKind::Touch, "NextPage");
+        } else {
+            break;
+        }
+        h.run(0.02);
+    }
+    for _ in 0..20 {
+        if h.ui.bounds(name).is_some() {
+            return;
+        }
+        if h.ui.bounds("PreviousPage").is_some() {
+            h.tap(PointerKind::Touch, "PreviousPage");
+        } else {
+            break;
+        }
+        h.run(0.02);
+    }
+    panic!("missing action {name}");
+}
+
+fn type_number(h: &mut Harness) {
+    h.tap(PointerKind::Touch, "Type");
+    h.run(0.3);
 }
 
 #[test]
@@ -235,8 +314,8 @@ fn listening_follows_the_music_and_stops_on_the_grid() {
     assert_eq!(s.host.calls.borrow().last(), Some(&EditorCall::Stop));
     assert_eq!(view(&s).cursor, 120, "the 16th nearest beat 2.52");
     // A pad's Start does the same.
-    s.h.pad(MenuAction::Start, true);
-    s.h.pad(MenuAction::Start, false);
+    s.h.controller(&Default::default(), "Pad", true, "button:9", true);
+    s.h.controller(&Default::default(), "Pad", true, "button:9", false);
     assert!(view(&s).listening);
     s.host.time.set(None);
     s.h.frame(1.0 / 60.0);
@@ -337,12 +416,14 @@ fn the_menu_and_the_timing_dialog() {
             "Item.leave",
             "Close",
         ] {
+            show_action(&mut s.h, item);
             let [x0, y0, x1, y1] = s.h.ui.bounds(item).unwrap_or_else(|| panic!("{item}"));
             assert!(
                 x0 >= 0.0 && y0 >= 0.0 && x1 <= vp.width && y1 <= vp.height,
                 "{item} at {size:?}"
             );
         }
+        show_action(&mut s.h, "Item.timing");
         s.h.tap(PointerKind::Touch, "Item.timing");
         s.h.run(0.3);
         assert!(
@@ -353,7 +434,8 @@ fn the_menu_and_the_timing_dialog() {
         // A BPM at the cursor, typed.
         s.h.tap(PointerKind::Touch, "Item.seg:bpm");
         s.h.run(0.3);
-        assert_eq!(s.h.ui.layers().last().unwrap().name, "editor-value");
+        assert_eq!(s.h.ui.layers().last().unwrap().name, "number-value");
+        type_number(&mut s.h);
         for _ in 0..3 {
             s.h.key("Backspace", "Backspace");
         }
@@ -366,6 +448,7 @@ fn the_menu_and_the_timing_dialog() {
         // What a file cannot hold is refused, saying why.
         s.h.key("KeyB", "b");
         s.h.run(0.3);
+        type_number(&mut s.h);
         for _ in 0..3 {
             s.h.key("Backspace", "Backspace");
         }
@@ -374,6 +457,8 @@ fn the_menu_and_the_timing_dialog() {
         s.h.run(0.2);
         assert_eq!(s.h.ui.layers().last().unwrap().name, "editor-value");
         assert!(s.h.texts().iter().any(|t| t.contains("cannot be kept")));
+        s.h.key("Escape", "Escape");
+        s.h.run(0.3);
         s.h.key("Escape", "Escape");
         s.h.run(0.3);
         assert_eq!(s.h.ui.layers().last().unwrap().name, "editor");
@@ -404,6 +489,7 @@ fn song_and_chart_fields() {
     s.h.run(0.3);
     s.h.tap(PointerKind::Mouse, "Item.meter");
     s.h.run(0.3);
+    type_number(&mut s.h);
     s.h.key("Backspace", "Backspace");
     type_text(&mut s.h, "9");
     s.h.key("Enter", "Enter");

@@ -31,6 +31,7 @@
 //! "Watch again" for Retry, a kept play's ([`ResultsKind::Kept`]) its
 //! replay and no Retry; both are marked REPLAY.
 
+use ddi_engine::MenuInput as HintAction;
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind, Sprite};
@@ -189,15 +190,12 @@ impl ResultsScreen {
             "Back",
             [m + 20.0, top / 2.0],
         ));
-        children.push(left(
-            env.text("Title", "Results", 16.0, 700, "Text"),
-            m + 52.0,
-            top / 2.0,
-        ));
+        children.push(super::more_button(&env, [m + 84.0, top / 2.0]));
         children.push(self.panel_tabs());
-        if let Some(b) = self.top_replay([m + 150.0, top / 2.0]) {
+        if let Some(b) = self.top_replay([m + 130.0, top / 2.0]) {
             children.push(b);
         }
+
         children.push(self.bottom_bar([m, h - bottom, w - 2.0 * m, bottom]));
         env.state.borrow_mut().hints = Vec::new();
         self.finish_root(children, cx)
@@ -347,6 +345,7 @@ impl ResultsScreen {
         children.push(self.panels_actor(panels));
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
         children.push(header(&env, cx, screen[0], "RESULTS"));
+        children.push(super::more_button(&env, [screen[0] - 64.0, 32.0]));
         children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
@@ -368,7 +367,21 @@ impl ResultsScreen {
             hints.push((&["W"], "Watch replay"));
         }
         hints.push((&["←", "→"], "Panels"));
-        let (f, texts) = footer(&env, screen, &hints, &note, &[], cx);
+        let mut controller: Vec<(&[HintAction], &str)> = vec![
+            (&[HintAction::Confirm, HintAction::Start], "Activate"),
+            (&[HintAction::Previous, HintAction::Next], "Panels"),
+            (&[HintAction::More], "More"),
+            (&[HintAction::Back], "Song list"),
+        ];
+        controller.push((
+            &[HintAction::Select],
+            if self.data.kind == ResultsKind::Kept {
+                "Watch replay"
+            } else {
+                "Retry"
+            },
+        ));
+        let (f, texts) = footer(&env, screen, &hints, &controller, &note, &[], cx);
         env.state.borrow_mut().hints = texts;
         children.push(f);
         self.finish_root(children, cx)
@@ -1359,6 +1372,76 @@ impl ResultsScreen {
         }
     }
 
+    fn open_more(&self, cx: &mut Cx) {
+        let mut items: Vec<_> = self
+            .bar_buttons()
+            .into_iter()
+            .map(|(id, label, _)| (id.into(), label.into()))
+            .collect();
+        if !self.replay_in_bar() && self.actions.replay.is_some() {
+            items.push(("WatchReplay".into(), "Watch replay".into()));
+        }
+        if let Some(offset) = self.data.offset {
+            items.extend([
+                ("OffsetDown".into(), "Offset −1 ms".into()),
+                ("OffsetUp".into(), "Offset +1 ms".into()),
+                ("ResetOffset".into(), "Reset offset".into()),
+            ]);
+            if offset.suggested.is_some() {
+                items.push(("UseMean".into(), "Use mean offset".into()));
+            }
+        }
+        items.extend(
+            self.data
+                .panel_sets
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (format!("PanelSet{i}"), p.name.clone())),
+        );
+        super::action_menu(&self.env, "Results", items, "Results.More", cx);
+    }
+
+    fn controller_focus(&mut self, action: MenuAction, root: &mut Actor, cx: &mut Cx) {
+        let controls: Vec<_> = self
+            .focusables()
+            .into_iter()
+            .filter(|f| hit::find(root, &f.name).is_some_and(|p| hit::shown(root, &p)))
+            .collect();
+        if controls.is_empty() {
+            return;
+        }
+        let at = controls
+            .iter()
+            .position(|f| Some(f.name.as_str()) == cx.focused())
+            .unwrap_or(0);
+        if action == MenuAction::Up && at == 0 {
+            cx.enter_chrome();
+            return;
+        }
+        let next = if matches!(action, MenuAction::Up | MenuAction::Left) {
+            at.saturating_sub(1)
+        } else {
+            (at + 1).min(controls.len() - 1)
+        };
+        let name = &controls[next].name;
+        if self.compact
+            && let Some(path) = hit::find(root, name)
+            && hit::target_of(root, &path).is_some_and(|t| t.within("ResultsClip"))
+            && let Some(rect) = hit::bounds(root, &hit::IDENTITY, &path)
+        {
+            let (top, bottom, _) = self.compact_bars();
+            let y0 = rect[1] / self.zoom;
+            let y1 = rect[3] / self.zoom;
+            let delta = if y0 < top {
+                y0 - top
+            } else {
+                (y1 - (self.screen[1] - bottom)).max(0.0)
+            };
+            self.scroll_by(delta, root);
+        }
+        cx.focus(name.clone());
+    }
+
     fn song_list(&mut self, cx: &mut Cx) {
         self.env.state.borrow_mut().status = "song list".into();
         match self.actions.song_list.clone() {
@@ -1415,6 +1498,7 @@ impl Screen for ResultsScreen {
         if !self.replay_in_bar() && self.actions.replay.is_some() {
             v.insert(1, Focusable::new("WatchReplay"));
         }
+        v.insert(1, Focusable::new("More"));
         v.push(Focusable::new("Back"));
         v.extend((0..self.data.panel_sets.len()).map(|i| Focusable::new(format!("PanelSet{i}"))));
         v
@@ -1441,6 +1525,18 @@ impl Screen for ResultsScreen {
         }
     }
 
+    fn message(&mut self, m: &crate::Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            let left = super::time_left(root);
+            *root = self.make_root(cx);
+            super::relaid(root, left);
+            self.publish();
+        }
+        if let Some(id) = super::menu_pick(m, "Results.More") {
+            self.input(&Input::Activate { name: id.into() }, root, cx);
+        }
+    }
+
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         // Keys and pads held or mashed at the song's end, and any held
         // key's repeat, are let go.
@@ -1454,6 +1550,10 @@ impl Screen for ResultsScreen {
             _ => {}
         }
         match input {
+            Input::Menu { action, .. } if action.is_direction() && !cx.menu_from_keyboard() => {
+                self.controller_focus(*action, root, cx);
+                Handled::Yes
+            }
             // A phone's column scrolls: by Up and Down, a wheel, a drag.
             Input::Menu {
                 action: MenuAction::Up | MenuAction::Down,
@@ -1491,11 +1591,15 @@ impl Screen for ResultsScreen {
                 Handled::Yes
             }
             Input::Menu { action, .. } => match action {
-                MenuAction::Left => {
+                MenuAction::More => {
+                    self.open_more(cx);
+                    Handled::Yes
+                }
+                MenuAction::Left | MenuAction::Previous => {
                     self.set_panels(self.data.panel_set.saturating_sub(1), root);
                     Handled::Yes
                 }
-                MenuAction::Right => {
+                MenuAction::Right | MenuAction::Next => {
                     self.set_panels(self.data.panel_set + 1, root);
                     Handled::Yes
                 }
@@ -1538,6 +1642,7 @@ impl Screen for ResultsScreen {
             Input::Activate { name } => {
                 let current = self.data.offset.map_or(0.0, |o| o.current);
                 match name.as_str() {
+                    "More" => self.open_more(cx),
                     "SongList" | "Back" => self.song_list(cx),
                     "Retry" => self.retry(cx),
                     "WatchReplay" => self.watch_replay(cx),

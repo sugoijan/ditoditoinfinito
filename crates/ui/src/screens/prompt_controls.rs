@@ -45,6 +45,10 @@ impl Controls {
             .or_else(|| Layout::builtin(&c.layout))?;
         Some(Self::new(&layout, settings))
     }
+    pub fn caps(&self) -> Vec<Option<Keycap>> {
+        crate::controller_hints::lanes(&self.layout, &self.settings.controls)
+            .unwrap_or_else(|| self.keys.iter().map(|k| k.as_deref().map(keycap)).collect())
+    }
     pub fn duration(&self) -> f32 {
         0.2 + self.keys.len() as f32 * 0.14
     }
@@ -131,7 +135,12 @@ pub(super) fn draw(
 ) -> (Vec<ddi_actor::Actor>, f32, [f32; 2]) {
     use crate::look::{call, named};
     use ddi_actor::{Actor, Kind, Sprite, State};
-    let n = controls.keys.len();
+    let caps = controls.caps();
+    let n = caps.len();
+    let side_labels = caps
+        .iter()
+        .any(|c| matches!(c,Some(Keycap::Controller(cap)) if cap.side.is_some()));
+    let extra = if side_labels { 52.0 } else { 42.0 };
     let rows = n.div_ceil(if compact { 12 } else { 8 }).max(1);
     let cols = n.div_ceil(rows).max(1);
     let cell = (inner / cols as f32).min(if compact { 48.0 } else { 72.0 });
@@ -142,7 +151,7 @@ pub(super) fn draw(
         let count = (n - start).min(cols);
         let width = count as f32 * cell;
         let left = 24.0 + (inner - width) / 2.0;
-        let y = top + row as f32 * (cell + 42.0);
+        let y = top + row as f32 * (cell + extra);
         let mut image = named(
             Kind::Sprite(Sprite::new(
                 texture,
@@ -164,9 +173,9 @@ pub(super) fn draw(
         }
         call(&mut image, "xy", &[left + width / 2.0, y + cell / 2.0]);
         actors.push(image);
-        for i in start..start + count {
+        for (i, cap) in caps.iter().enumerate().skip(start).take(count) {
             let x = left + (i - start) as f32 * cell + cell / 2.0;
-            let key = controls.keys[i].as_deref().map(keycap);
+            let key = cap.clone();
             let (mut hint, width) = match key {
                 Some(key) => super::key_hint(env, &format!("KeyMotion{i}"), &[key], "", cx),
                 None => (
@@ -183,9 +192,26 @@ pub(super) fn draw(
             holder.name = format!("BindingKey{i}");
             call(&mut holder, "xy", &[x, y + cell + 18.0]);
             actors.push(holder);
+            if let Some(Keycap::Controller(cap)) = cap
+                && let Some(side) = cap.side
+            {
+                let mut label = env.text(
+                    &format!("ControllerSide{i}"),
+                    &format!("Pad {side}"),
+                    10.0,
+                    400,
+                    "Muted",
+                );
+                call(&mut label, "xy", &[x, y + cell + 40.0]);
+                actors.push(label);
+            }
         }
     }
-    (actors, rows as f32 * (cell + 42.0), [cell * n as f32, cell])
+    (
+        actors,
+        rows as f32 * (cell + extra),
+        [cell * n as f32, cell],
+    )
 }
 
 #[cfg(test)]

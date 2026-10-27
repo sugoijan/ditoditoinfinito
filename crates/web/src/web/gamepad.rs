@@ -286,6 +286,20 @@ impl State {
             kept
         });
 
+        ddi_ui::controller_hints::devices(
+            self.slots
+                .iter()
+                .map(|(&index, p)| ddi_engine::ConnectedPad {
+                    id: p.id.clone(),
+                    index,
+                    standard: p.standard,
+                    vendor_product: None,
+                })
+                .collect(),
+        );
+        for edge in &self.queue[before..] {
+            ddi_ui::controller_hints::edge(edge);
+        }
         if now_ms - self.window_start >= 1000.0 {
             self.polls_per_second = self.window_polls;
             self.window_polls = 0;
@@ -356,6 +370,7 @@ pub(crate) fn page_pads() -> Vec<ddi_engine::ConnectedPad> {
         .pads()
         .into_iter()
         .map(|p| ddi_engine::ConnectedPad {
+            vendor_product: None,
             id: p.id,
             index: p.index,
             standard: p.standard,

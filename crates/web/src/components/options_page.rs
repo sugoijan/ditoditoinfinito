@@ -212,6 +212,7 @@ impl Component for OptionsPage {
                     .pads()
                     .into_iter()
                     .map(|p| ConnectedPad {
+                        vendor_product: None,
                         id: p.id,
                         index: p.index,
                         standard: p.standard,

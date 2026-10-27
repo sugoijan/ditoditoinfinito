@@ -10,7 +10,7 @@ use std::rc::Rc;
 use ddi_actor::{Actor, Kind};
 use ddi_platform::DeviceId;
 
-use super::select_dialogs::{button, dialog_root, shell, wrap, wrap_lines};
+use super::select_dialogs::{button, dialog_root, fitted_dialog, shell, wrap, wrap_lines};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
@@ -133,23 +133,29 @@ pub type BoundFn = Rc<dyn Fn(Bound, &mut Cx)>;
 pub struct BindDialog {
     env: Env,
     flow: BindFlow,
+    capture: bool,
+    candidate_release: Option<String>,
     /// Controllers' buttons held (a second cancels).
     holds: Holds,
     /// The layout's name ("Single").
     layout: String,
     on_save: BoundFn,
     screen: [f32; 2],
+    scale: f32,
 }
 
 impl BindDialog {
     pub fn new(env: Env, flow: BindFlow, layout: &str, on_save: BoundFn) -> BindDialog {
         BindDialog {
             env,
+            capture: !flow.standard_device(),
+            candidate_release: None,
             flow,
             holds: Holds::default(),
             layout: layout.into(),
             on_save,
             screen: super::DESIGN,
+            scale: 1.0,
         }
     }
 
@@ -163,6 +169,10 @@ impl BindDialog {
 
     fn buttons(&self) -> Vec<(&'static str, &'static str, &'static str)> {
         let mut v = Vec::new();
+        if self.flow.standard_device() && !self.capture && matches!(self.flow.phase, Phase::Step(_))
+        {
+            v.push(("Capture", "Capture", "PlayButton"));
+        }
         if self.flow.phase == Phase::Review {
             v.push(("Save", "Save", "PlayButton"));
             v.push(("Redo", "Redo", "Button"));
@@ -186,7 +196,23 @@ impl BindDialog {
         };
         let cols = if w > 480.0 { 3 } else { 2 };
         let step_rows = steps.div_ceil(cols);
-        let mut lines: Vec<(String, &str)> = vec![(f.prompt(), "Text")];
+        let prompt = if f.phase == Phase::Review && f.is_pad() {
+            "Bindings ready. Choose Save, Redo or Cancel.".to_string()
+        } else {
+            f.prompt()
+        };
+        let mut lines: Vec<(String, &str)> = vec![(prompt, "Text")];
+        if f.standard_device() {
+            lines.push((
+                if self.capture {
+                    "Recording a control; any button may be bound. Hold to cancel."
+                } else {
+                    "Choose Capture to record this step. Directions navigate actions."
+                }
+                .into(),
+                "Muted",
+            ));
+        }
         if f.phase == Phase::Choose {
             lines.push((
                 "Controllers appear once one of their buttons is pressed.".into(),
@@ -211,8 +237,11 @@ impl BindDialog {
         }
         lines.push((
             match (f.phase == Phase::Review, f.is_pad()) {
-                (true, true) => "Start saves; Back, Escape or holding a button cancels.",
+                (true, true) => {
+                    "Directions choose an action; confirm activates it. Hold a button to cancel."
+                }
                 (true, false) => "Enter (or Space) saves; Escape cancels.",
+                (false, true) if self.capture => "Escape or holding a controller button cancels.",
                 (false, _) => "Escape, a controller's Back or holding its button cancels.",
             }
             .into(),
@@ -290,14 +319,12 @@ impl BindDialog {
             ));
             bx += bw + 10.0;
         }
-        dialog_root(c)
+        fitted_dialog(c, screen, h, self.scale)
     }
 
-    fn rebuild(&self, root: &mut Actor) {
-        let fresh = self.tree();
-        if let (Kind::Frame(old), Kind::Frame(new)) = (&mut root.kind, fresh.kind) {
-            *old = new;
-        }
+    fn rebuild(&self, root: &mut Actor, cx: &Cx) {
+        *root = self.tree();
+        super::restore_focus(root, cx.focused());
         self.publish();
     }
 
@@ -349,7 +376,7 @@ impl Screen for BindDialog {
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
-        self.screen = [vp.width, vp.height];
+        (self.screen, self.scale) = super::narrow_fit(&self.env, vp);
         self.publish();
         self.tree()
     }
@@ -369,24 +396,115 @@ impl Screen for BindDialog {
         match input {
             Input::Raw(e) => {
                 self.holds.edge(e);
-                match self.flow.edge(e) {
-                    Edge::Cancel => cx.close(true),
-                    Edge::Save => self.save(cx),
-                    Edge::Changed => self.rebuild(root),
-                    Edge::Ignored => {}
+                let chosen = self.flow.device.as_ref() == Some(&e.device);
+                // Navigation is separate from capture, so face buttons have no
+                // reserved meaning while a candidate is being recorded.
+                let navigate = chosen
+                    && (!self.capture || self.flow.phase == Phase::Review)
+                    && self.flow.waiting.is_none();
+                if navigate && let Some(action) = self.flow.menu_control(&e.control) {
+                    if e.pressed {
+                        let buttons = self.buttons();
+                        let at = buttons
+                            .iter()
+                            .position(|(n, _, _)| Some(*n) == cx.focused())
+                            .unwrap_or(0);
+                        match MenuAction::from(action) {
+                            MenuAction::Left
+                            | MenuAction::Up
+                            | MenuAction::Right
+                            | MenuAction::Down => {
+                                let next = if matches!(
+                                    action,
+                                    ddi_engine::MenuInput::Left | ddi_engine::MenuInput::Up
+                                ) {
+                                    at.saturating_sub(1)
+                                } else {
+                                    (at + 1).min(buttons.len() - 1)
+                                };
+                                cx.focus(buttons[next].0);
+                            }
+                            MenuAction::Start | MenuAction::ControllerStart => {
+                                let name = buttons[at].0;
+                                if name == "Capture" {
+                                    self.capture = true;
+                                    self.flow.waiting = Some(e.control.clone());
+                                    self.flow.held.insert(e.control.clone());
+                                    self.rebuild(root, cx);
+                                } else {
+                                    self.input(&Input::Activate { name: name.into() }, root, cx);
+                                }
+                            }
+                            MenuAction::Back => cx.close(true),
+                            _ => {}
+                        }
+                    }
+                    return Handled::Yes;
+                }
+                if !chosen
+                    || self.capture
+                    || self.flow.phase == Phase::Choose
+                    || self.flow.waiting.is_some()
+                {
+                    let before = self.flow.phase;
+                    match self.flow.edge(e) {
+                        Edge::Cancel => cx.close(true),
+                        Edge::Save => self.save(cx),
+                        Edge::Changed => {
+                            if self.flow.standard_device() {
+                                if before == Phase::Choose {
+                                    self.capture = false;
+                                } else if e.pressed && before != self.flow.phase {
+                                    self.candidate_release = Some(e.control.clone());
+                                }
+                                if !e.pressed && self.candidate_release.as_ref() == Some(&e.control)
+                                {
+                                    self.candidate_release = None;
+                                    self.capture = false;
+                                    self.holds = Holds::default();
+                                    cx.focus(if self.flow.phase == Phase::Review {
+                                        "Save"
+                                    } else {
+                                        "Capture"
+                                    });
+                                }
+                            }
+                            self.rebuild(root, cx);
+                        }
+                        Edge::Ignored => {}
+                    }
+                } else if chosen && self.flow.phase == Phase::Review {
+                    // Non-menu lanes still light in review without saving.
+                    if e.pressed {
+                        self.flow.held.insert(e.control.clone());
+                    } else {
+                        self.flow.held.remove(&e.control);
+                    }
+                    self.rebuild(root, cx);
                 }
                 Handled::Yes
             }
             Input::Activate { name } => {
                 match name.as_str() {
+                    "Capture" => {
+                        self.capture = true;
+                        self.rebuild(root, cx);
+                    }
                     "Save" => self.save(cx),
                     "Redo" => {
                         self.flow.redo();
-                        self.rebuild(root);
+                        self.capture = !self.flow.standard_device();
+                        cx.focus(if self.capture { "Cancel" } else { "Capture" });
+                        self.rebuild(root, cx);
                     }
                     "Skip" => {
                         self.flow.skip();
-                        self.rebuild(root);
+                        cx.focus(if self.flow.phase == Phase::Review {
+                            "Save"
+                        } else {
+                            "Capture"
+                        });
+                        self.rebuild(root, cx);
                     }
                     _ => cx.close(true),
                 }

@@ -307,6 +307,11 @@ impl OptionsModel {
             .collect();
         saved.sort_by(|a, b| b.last_seen.total_cmp(&a.last_seen));
         pads.extend(saved.into_iter().map(|p| (p.id.clone(), false, 0)));
+        for id in self.settings.controller_styles.keys() {
+            if !pads.iter().any(|p| &p.0 == id) {
+                pads.push((id.clone(), false, 0));
+            }
+        }
         pads
     }
 
@@ -471,9 +476,14 @@ impl OptionsModel {
                 "Lane cover",
                 &["Off", "Sudden+", "Hidden+", "Both"],
                 pos(&COVER_MODES, cover.mode),
-                "A panel over the lanes. Sudden+ covers the end the notes come from, Hidden+ \
-                     the end they go to. In play, Page Up and Page Down move it and Enter hides \
-                     it (on a controller: hold Start and press up or down; tap Start).",
+                &format!(
+                    "A panel over the lanes. Sudden+ covers the end the notes come from, Hidden+ the end they go to. {}",
+                    if crate::controller_hints::active() {
+                        crate::controller_hints::cover_instruction().unwrap_or_else(|| "Bind a controller Start control to move or toggle the cover during play.".into())
+                    } else {
+                        "In play, Page Up and Page Down move it and Enter hides or shows it.".into()
+                    }
+                ),
             ),
         ];
         if cover.mode.sudden() {
@@ -1169,6 +1179,7 @@ impl OptionsModel {
         let mut pads = self.world.connected.clone();
         if count == 0 {
             pads.push(ConnectedPad {
+                vendor_product: None,
                 id: id.to_string(),
                 index: u32::MAX,
                 standard,
@@ -1205,7 +1216,7 @@ impl OptionsModel {
         if has_table && (!is_one_pad || standard) {
             buttons.push("Use defaults");
         }
-        if saved.is_some() {
+        if saved.is_some() || self.settings.controller_styles.contains_key(id) {
             buttons.push("Forget");
         }
         let mut head = actions(
@@ -1218,11 +1229,24 @@ impl OptionsModel {
         );
         head.heading = Some(id.to_uppercase());
         let mut rows = vec![head];
-        let label = |c: &String| {
-            c.parse::<Control>()
-                .map(|c| c.label())
-                .unwrap_or_else(|_| c.clone())
-        };
+        let style = self
+            .settings
+            .controller_styles
+            .get(id)
+            .copied()
+            .unwrap_or_default();
+        let detected = pads
+            .iter()
+            .find(|p| p.id == id)
+            .map(crate::controller_hints::detect);
+        let auto = detected.map_or("Auto".to_string(), |(f, _)| format!("Auto ({})", f.label()));
+        rows.push(choice(&format!("pad_style.{j}"),"Button hints",&[&auto,"Xbox","PlayStation","Nintendo","Generic"],crate::controller_hints::Style::ALL.iter().position(|s|*s==style).unwrap_or(0),"Changes artwork only. Unmapped controls retain numbered button/axis labels. Identical controller models share this preference."));
+        let device = pads
+            .iter()
+            .find(|p| p.id == id)
+            .expect("connected or saved placeholder");
+        let family = crate::controller_hints::presentation(device, style);
+        let label = |c: &String| crate::controller_hints::Cap::control(device, family, c).label();
         let list = |controls: &[String]| {
             if controls.is_empty() {
                 "—".to_string()
@@ -1429,9 +1453,26 @@ impl OptionsModel {
     pub fn change(&mut self, id: &str, i: usize) -> bool {
         let before = self.settings.clone();
         let layout_before = self.bind_layout.id.clone();
+        let style_pad = id
+            .strip_prefix("pad_style.")
+            .and_then(|n| n.parse::<usize>().ok())
+            .and_then(|n| self.pads().into_iter().nth(n))
+            .map(|p| p.0);
         let s = &mut self.settings;
         let on = i == 1;
         match id {
+            _ if style_pad.is_some() => {
+                let id = style_pad.unwrap();
+                let style = crate::controller_hints::Style::ALL
+                    .get(i)
+                    .copied()
+                    .unwrap_or_default();
+                if style == crate::controller_hints::Style::Auto {
+                    s.controller_styles.remove(&id);
+                } else {
+                    s.controller_styles.insert(id, style);
+                }
+            }
             "speed" => {
                 if let Some(v) = self.speeds().get(i) {
                     self.settings.speed = *v;
@@ -1674,6 +1715,7 @@ impl OptionsModel {
             }
             "Forget" => {
                 self.settings.controls.forget_pad(&id);
+                self.settings.controller_styles.remove(&id);
                 self.notice = format!("{id} forgotten.");
                 Act::Done
             }
@@ -2167,6 +2209,7 @@ mod tests {
                 pads_supported: true,
                 sample: Sample::Ready,
                 connected: vec![ConnectedPad {
+                    vendor_product: None,
                     id: "Pad".into(),
                     index: 0,
                     standard: true,
@@ -2486,6 +2529,52 @@ mod tests {
     }
 
     #[test]
+    fn controller_artwork_preferences_never_materialize_or_replace_bindings() {
+        use crate::controller_hints::Style;
+        let mut m = model();
+        let before = m.settings.controls.clone();
+        assert!(m.change("pad_style.0", 2));
+        assert_eq!(m.settings.controls, before);
+        assert_eq!(
+            Settings::load().controller_styles["Pad"],
+            Style::PlayStation
+        );
+        let mut saved = PadBindings::standard("Pad");
+        saved.single[0] = vec!["button:14".into()];
+        saved.single[1].clear();
+        m.settings.set_pad_bindings(saved);
+        let before = m.settings.controls.clone();
+        m.change("pad_style.0", 3);
+        assert_eq!(m.settings.controls, before);
+        let reset = find(&m.data(), "pad.0")
+            .values()
+            .iter()
+            .position(|s| s == "Use defaults")
+            .unwrap();
+        m.action("pad.0", reset);
+        assert_eq!(m.settings.controller_styles["Pad"], Style::Nintendo);
+        m.world.connected.clear();
+        assert_eq!(find(&m.data(), "pad_style.0").index, 3);
+        let forget = find(&m.data(), "pad.0")
+            .values()
+            .iter()
+            .position(|s| s == "Forget")
+            .unwrap();
+        m.action("pad.0", forget);
+        assert!(m.settings.controller_styles.is_empty());
+        assert!(m.settings.controls.pads.is_empty());
+        // A future/invalid artwork value cannot discard unrelated custom input.
+        let mut json = serde_json::to_value(Settings {
+            controls: before.clone(),
+            ..Settings::default()
+        })
+        .unwrap();
+        json["controller_styles"] = serde_json::json!({"Pad":"future_style"});
+        let loaded: Settings = serde_json::from_value(json).unwrap();
+        assert_eq!(loaded.controls, before);
+    }
+
+    #[test]
     fn keys_bindings_and_resets() {
         let mut m = model();
         assert_eq!(m.action("keys.lane.0", 0), Act::AddKey(0));
@@ -2514,7 +2603,7 @@ mod tests {
             back: None,
         });
         let d = m.data();
-        assert_eq!(find(&d, "pad.0.lane.0").note, "button 1");
+        assert_eq!(find(&d, "pad.0.lane.0").note, "East");
         assert_eq!(find(&d, "pad.0").note, "saved · connected");
         assert!(
             find(&d, "pad.0")

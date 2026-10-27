@@ -2,7 +2,7 @@
 //! through the same thread, hub and routing as gilrs's events
 //! (`ddi_desktop::pads`, `ddi_desktop::input`): the pad moves through the
 //! rows as a menu, opens its own row's bind flow with A, is then handed
-//! to the dialog as it is, and binds its d-pad and Start; the bindings
+//! to the dialog as it is, arms Capture and binds its d-pad and Start; the bindings
 //! are saved and the menus read them at once.
 
 use std::rc::Rc;
@@ -80,14 +80,13 @@ fn a_fake_pad_binds_itself_on_the_options() {
             pressed: false,
         });
     };
-    // To the controls by the keyboard's Tab, then down the rows by the
-    // pad's d-pad to its own row.
+    // Shoulders switch sections, then d-pad moves to this controller's row.
     for _ in 0..12 {
         if state.borrow().section == "Controls" {
             break;
         }
-        h.key("Tab", "Tab");
-        h.run(0.05);
+        press(&fake, 5);
+        pump(&mut input, &mut h, 2);
     }
     assert_eq!(state.borrow().section, "Controls");
     for _ in 0..40 {
@@ -112,10 +111,13 @@ fn a_fake_pad_binds_itself_on_the_options() {
     assert!(h.ui.wants_raw(), "the bind dialog takes the pad");
     // Left, Down, Up, Right, then Start and Back.
     for b in [14, 13, 12, 15, 9, 8] {
+        assert_eq!(h.ui.focused(), Some("Capture"));
+        press(&fake, 0);
+        pump(&mut input, &mut h, 2);
         press(&fake, b);
         pump(&mut input, &mut h, 2);
     }
-    assert!(input.raw_edges >= 12, "{}", input.raw_edges);
+    assert!(input.raw_edges >= 24, "{}", input.raw_edges);
     assert!(
         state.borrow().status.starts_with("bind review"),
         "{}",

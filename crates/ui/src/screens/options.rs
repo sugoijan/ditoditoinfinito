@@ -22,6 +22,7 @@
 //!   P focuses the preview layout; Down past a section's last row does
 //!   too. Left/Right change it, Up/Down return to the options.
 
+use ddi_engine::MenuInput as HintAction;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -279,7 +280,10 @@ impl OptionsScreen {
         let mut children = vec![ground(&env, screen)];
         children.push(self.sections_actor());
         children.push(self.rows_actor());
-        self.preview_hint = (!p.compact && self.data.preview_layout.is_some()).then(|| {
+        self.preview_hint = (!crate::controller_hints::active()
+            && !p.compact
+            && self.data.preview_layout.is_some())
+        .then(|| {
             super::key_hint(
                 &env,
                 "PreviewKey",
@@ -328,12 +332,12 @@ impl OptionsScreen {
             let mut n = env.text("Saved", "", 12.0, 400, "Muted");
             call(&mut n, "maxwidth", &[screen[0] - 200.0]);
             ellipsize(&mut n);
-            children.push(right(n, screen[0] - 12.0, 24.0));
+            children.push(right(n, screen[0] - 92.0, 24.0));
         } else {
             children.push(header(&env, cx, screen[0], "OPTIONS"));
             let mut n = env.text("Saved", "", 13.0, 400, "Muted");
             call(&mut n, "maxwidth", &[screen[0] - 600.0]);
-            children.push(right(n, screen[0] - margin, 32.0));
+            children.push(right(n, screen[0] - margin - 80.0, 32.0));
             let (f, texts) = footer(
                 &env,
                 screen,
@@ -343,6 +347,13 @@ impl OptionsScreen {
                     (&["P"], "Preview"),
                     (&["TAB"], "Section"),
                     (&["ESC"], "Back"),
+                ],
+                &[
+                    (&[HintAction::Up, HintAction::Down], "Option"),
+                    (&[HintAction::Left, HintAction::Right], "Change"),
+                    (&[HintAction::Previous, HintAction::Next], "Section"),
+                    (&[HintAction::More], "More"),
+                    (&[HintAction::Back], "Back"),
                 ],
                 "",
                 if self.can_calibrate() {
@@ -355,6 +366,7 @@ impl OptionsScreen {
             env.state.borrow_mut().hints = texts;
             children.push(f);
         }
+        children.push(super::more_button(&env, [screen[0] - 44.0, 28.0]));
         let mut root = Actor::new(Kind::Frame(children));
         // The header's row from above, the footer and the description
         // from below, the sections from the left (the compact layout's
@@ -879,6 +891,24 @@ impl OptionsScreen {
 
     /// Moves the focused row's (or the preview selector's) value by
     /// `by`, stopping at the ends.
+    fn open_more(&self, cx: &mut Cx) {
+        let mut items: Vec<_> = self
+            .data
+            .sections
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (format!("Section{i}"), s.name.clone()))
+            .collect();
+        if self.data.preview_layout.is_some() {
+            items.push(("PreviewLayout".into(), "Change preview layout".into()));
+        }
+        if self.can_calibrate() {
+            items.push(("Link.Calibrate".into(), "Calibrate".into()));
+        }
+        items.push(("Back".into(), "Back".into()));
+        super::action_menu(&self.env, "Options", items, "Options.More", cx);
+    }
+
     fn change(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
         self.change_in(self.preview_focused, by, false, root, cx);
     }
@@ -1162,6 +1192,9 @@ impl Screen for OptionsScreen {
         if self.data.preview_layout.is_some() {
             v.push(Focusable::new("PreviewLayout"));
         }
+        let mut more = Focusable::new("More");
+        more.down = Some("RowsClip".into());
+        v.push(more);
         v.push(Focusable::new("Back"));
         if !self.places.compact {
             v.push(Focusable::new("Link.Back"));
@@ -1198,7 +1231,17 @@ impl Screen for OptionsScreen {
         self.tell(rect, cx);
     }
 
-    fn message(&mut self, m: &Message, root: &mut Actor, _cx: &mut Cx) {
+    fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == crate::controller_hints::CHANGED {
+            let left = super::time_left(root);
+            *root = self.build_tree(cx);
+            self.attach_texture(root, cx);
+            self.refresh(root);
+            super::relaid(root, left);
+        }
+        if let Some(id) = super::menu_pick(m, "Options.More") {
+            self.input(&Input::Activate { name: id.into() }, root, cx);
+        }
         if m.name == OPTIONS_CHANGED
             && let Some(d) = self.feed.as_ref().and_then(|f| f.borrow_mut().take())
         {
@@ -1225,16 +1268,13 @@ impl Screen for OptionsScreen {
                 // the sections' tabs above, otherwise (and from the top
                 // bar) past the top, to the app's notices.
                 MenuAction::Up if on_rows && self.focus == 0 && !repeat => {
-                    if !self.places.compact {
-                        cx.enter_chrome();
-                        return Handled::Yes;
-                    }
-                    Handled::No
+                    cx.focus("More");
+                    Handled::Yes
                 }
                 MenuAction::Up
                     if !repeat
                         && cx.focused().is_some_and(|f| {
-                            matches!(f, "Back" | "Link.Back") || f.starts_with("Section")
+                            matches!(f, "Back" | "Link.Back" | "More") || f.starts_with("Section")
                         }) =>
                 {
                     cx.enter_chrome();
@@ -1269,8 +1309,19 @@ impl Screen for OptionsScreen {
                     self.change(1, root, cx);
                     Handled::Yes
                 }
-                MenuAction::Select => {
-                    let next = (self.section + 1) % self.data.sections.len().max(1);
+                MenuAction::More => {
+                    self.open_more(cx);
+                    Handled::Yes
+                }
+                MenuAction::Previous | MenuAction::Next | MenuAction::Select => {
+                    let n = self.data.sections.len().max(1);
+                    let next = (self.section
+                        + if *action == MenuAction::Previous {
+                            n - 1
+                        } else {
+                            1
+                        })
+                        % n;
                     self.set_section(next, root);
                     cx.focus("RowsClip");
                     Handled::Yes
@@ -1403,7 +1454,9 @@ impl Screen for OptionsScreen {
                 Handled::Yes
             }
             Input::Activate { name } => {
-                if let Some(i) = name.strip_prefix("Section").and_then(|n| n.parse().ok()) {
+                if name == "More" {
+                    self.open_more(cx);
+                } else if let Some(i) = name.strip_prefix("Section").and_then(|n| n.parse().ok()) {
                     self.set_section(i, root);
                     // On to its rows, as Tab does.
                     cx.focus("RowsClip");

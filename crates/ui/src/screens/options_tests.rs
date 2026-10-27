@@ -72,6 +72,7 @@ fn rig(size: [f32; 2], design: [f32; 2]) -> Rig {
         pads_supported: true,
         sample: Sample::Ready,
         connected: vec![ConnectedPad {
+            vendor_product: None,
             id: "Pad".into(),
             index: 0,
             standard: true,
@@ -380,6 +381,9 @@ fn a_controller_is_bound_with_its_own_presses() {
         "button:9",
         "button:8",
     ] {
+        // Arm capture and release its trigger before the candidate.
+        r.h.send(edge("button:0", true));
+        r.h.send(edge("button:0", false));
         r.h.send(edge(b, true));
         r.h.send(edge(b, false));
     }
@@ -843,9 +847,15 @@ fn a_controller_lane_takes_one_more_control_as_the_keyboard_does() {
     // A shoulder button: added to Left, kept with the others.
     press(&mut r, "button:5");
     assert_ne!(r.top(), "key");
-    assert_eq!(table()[0], ["button:14", "button:2", "button:5"]);
+    assert_eq!(
+        table()[0],
+        ["button:4", "button:14", "button:2", "button:5"]
+    );
     assert!(
-        r.state.borrow().notice.ends_with("added to Left."),
+        r.state
+            .borrow()
+            .notice
+            .ends_with("moved from Right to Left."),
         "{}",
         r.state.borrow().notice
     );
@@ -853,6 +863,7 @@ fn a_controller_lane_takes_one_more_control_as_the_keyboard_does() {
     let b = stored().controls.resolve(
         &single,
         &[ConnectedPad {
+            vendor_product: None,
             id: "Pad".into(),
             index: 0,
             standard: true,
@@ -868,7 +879,7 @@ fn a_controller_lane_takes_one_more_control_as_the_keyboard_does() {
     press(&mut r, "button:1");
     assert_eq!(
         table()[0],
-        ["button:14", "button:2", "button:5", "button:1"]
+        ["button:4", "button:14", "button:2", "button:5", "button:1"]
     );
     assert!(table()[3].iter().all(|c| c != "button:1"));
     assert!(
@@ -886,11 +897,56 @@ fn a_controller_lane_takes_one_more_control_as_the_keyboard_does() {
     assert_eq!(r.top(), "key");
     press(&mut r, "button:8");
     assert_ne!(r.top(), "key");
-    assert_eq!(table()[1], ["button:13", "button:0"]);
+    assert_eq!(table()[1], ["button:6", "button:13", "button:0"]);
     // Clear empties the lane.
     r.h.key("ArrowRight", "ArrowRight");
     r.h.key("Enter", "Enter");
     r.h.run(0.2);
     assert!(table()[1].is_empty());
-    assert_eq!(table()[0].len(), 4);
+    assert_eq!(table()[0].len(), 5);
+}
+
+#[test]
+fn controller_capture_can_bind_face_buttons_skip_and_redo() {
+    fn press(h: &mut Harness, n: u16) {
+        let control = format!("button:{n}");
+        for down in [true, false] {
+            h.controller(&Default::default(), "Pad", true, &control, down);
+        }
+        h.run(0.02);
+    }
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], super::COMPACT),
+        ([390.0, 844.0], super::COMPACT),
+    ] {
+        let mut r = rig(size, design);
+        r.section("Controls");
+        r.row("pad.0");
+        r.h.key("Enter", "Enter");
+        r.h.run(0.3);
+        for n in [2, 0, 3, 1] {
+            press(&mut r.h, 0); // arm; the release must never become a binding
+            press(&mut r.h, n);
+            assert_eq!(r.top(), "bind", "East is capturable");
+        }
+        assert!(r.state.borrow().status.starts_with("bind step 4"));
+        for _ in 0..2 {
+            press(&mut r.h, 13);
+            assert_eq!(r.h.ui.focused(), Some("Skip"));
+            press(&mut r.h, 0);
+        }
+        assert!(r.state.borrow().status.starts_with("bind review"));
+        press(&mut r.h, 13);
+        assert_eq!(r.h.ui.focused(), Some("Redo"));
+        press(&mut r.h, 0);
+        assert!(r.state.borrow().status.starts_with("bind step 0"));
+        press(&mut r.h, 1);
+        r.h.run(0.3);
+        assert_ne!(r.top(), "bind");
+        assert!(
+            stored().controls.pads.is_empty(),
+            "cancelled capture saves nothing"
+        );
+    }
 }

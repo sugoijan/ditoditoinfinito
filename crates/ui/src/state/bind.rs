@@ -394,6 +394,44 @@ impl BindFlow {
         (&self.controls, &self.standard)
     }
 
+    /// Menu navigation with the provisional bindings during review. Until then
+    /// a standard device uses its saved menu controls, independently of capture.
+    pub fn menu_control(&self, control: &str) -> Option<MenuInput> {
+        let DeviceId::Gamepad(id) = self.device.as_ref()? else {
+            return None;
+        };
+        let standard = self.standard.contains(id);
+        if self.phase == Phase::Review {
+            let mut controls = self.controls.clone();
+            let mut pad = controls
+                .pad(id, standard)
+                .unwrap_or_else(|| ddi_engine::PadBindings {
+                    id: id.clone(),
+                    ..Default::default()
+                });
+            if self.layout == "dance-single" {
+                pad.single = self.recorded[..self.lanes]
+                    .iter()
+                    .map(|r| r.iter().cloned().collect())
+                    .collect();
+            }
+            if let Some(start) = &self.recorded[self.lanes] {
+                pad.start = Some(start.clone());
+            }
+            if let Some(back) = &self.recorded[self.lanes + 1] {
+                pad.back = Some(back.clone());
+            }
+            controls.set_pad(pad, 0.0);
+            controls.menu_input(id, standard, control)
+        } else {
+            self.controls.menu_input(id, standard, control)
+        }
+    }
+
+    pub fn standard_device(&self) -> bool {
+        matches!(&self.device, Some(DeviceId::Gamepad(id)) if self.standard.contains(id))
+    }
+
     /// Start and Back keep what they had.
     pub fn skip(&mut self) {
         if let Phase::Step(step) = self.phase

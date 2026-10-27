@@ -1633,7 +1633,7 @@ fn song_select_fits_upright_phones() {
                 a[0] < b[2] - 1.0 && b[0] < a[2] - 1.0 && a[1] < b[3] - 1.0 && b[1] < a[3] - 1.0;
             assert!(!overlap, "{size:?} {what}: {a:?} and {b:?} overlap");
         };
-        let bar = ["Back", "PackTitle", "AddIcon", "SearchIcon", "OptionsIcon"];
+        let bar = ["Back", "PackTitle", "AddIcon", "SearchIcon", "More"];
         for n in bar {
             inside(b(n), n);
         }

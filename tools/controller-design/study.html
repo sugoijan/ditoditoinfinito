@@ -1,0 +1,109 @@
+<style>
+@font-face{font-family:DDIController;src:url(data:font/ttf;base64,__FONT__) format('truetype');font-weight:400;font-style:normal}
+@font-face{font-family:DDIControllerItalic;src:url(data:font/ttf;base64,__ITALIC__) format('truetype');font-weight:400;font-style:italic}
+#ddi-controller-study{--hint:26px;--detail:56px;--surface:#131019;--gap:18px;color:#eeeaf3;font:14px/1.4 DDIController,monospace}
+#ddi-controller-study *{box-sizing:border-box}
+#ddi-controller-study .study-board{background:var(--surface);padding:24px;border-radius:12px}
+#ddi-controller-study .study-top{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:baseline;padding-right:90px;margin-bottom:18px}
+#ddi-controller-study h2,#ddi-controller-study h3,#ddi-controller-study p{margin:0;font-size:inherit;font-weight:400}
+#ddi-controller-study h2{font-size:20px}
+#ddi-controller-study .muted{color:#b0a8ba;font-size:12px}
+#ddi-controller-study .family{padding:18px 0;border-top:1px solid #332d3d}
+#ddi-controller-study .family-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+#ddi-controller-study .family-head h3{font-size:17px}
+#ddi-controller-study .specimens{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:0 0 16px}
+#ddi-controller-study figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:32px}
+#ddi-controller-study .specimens img{height:calc(var(--detail) * var(--control-scale,1));width:auto;display:block;filter:var(--treatment,none)}
+#ddi-controller-study figcaption{color:#b0a8ba;font-size:11px}
+#ddi-controller-study .footer{display:flex;align-items:center;flex-wrap:wrap;gap:8px var(--gap);min-height:36px}
+#ddi-controller-study .hint{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;color:#c1b9cc;font-size:12px}
+#ddi-controller-study .hint img{height:calc(var(--hint) * var(--control-scale,1));width:auto;display:block;filter:var(--treatment,none)}
+#ddi-controller-study .pair{display:inline-flex;gap:0;align-items:center}
+#ddi-controller-study .key{display:inline-flex;position:relative;align-items:center;justify-content:center;height:26px;width:35.75px;color:#111;font:italic 10px DDIControllerItalic,monospace;isolation:isolate}
+#ddi-controller-study .key img{height:26px;width:35.75px;position:absolute;inset:0;z-index:-1;filter:none}
+#ddi-controller-study .key span{transform:translateY(-3px)}
+#ddi-controller-study .keyboard{padding-bottom:18px}
+#ddi-controller-study .keyboard .muted{margin-bottom:8px}
+#ddi-controller-study .family:last-child{padding-bottom:0}
+#ddi-controller-study .center-proof{margin-top:10px}
+@media(max-width:430px){#ddi-controller-study .study-board{padding:16px}#ddi-controller-study .study-top{padding-right:72px}#ddi-controller-study .specimens{gap:8px}#ddi-controller-study .family-head{display:block}#ddi-controller-study .family-head h3{margin-bottom:3px}}
+</style>
+<div id="ddi-controller-study" class="viz-dotted-background" aria-label="Controller button material and sizing study">
+ <div class="study-board">
+  <header class="study-top"><h2>Controller buttons</h2><span class="muted" data-size aria-live="polite">26 px base · 56 px detail</span></header>
+  <section class="keyboard" aria-label="Existing keyboard hint reference">
+   <p class="muted">Existing keyboard reference · 26 px</p>
+   <div class="footer"><span class="hint"><span class="key"><img src="__KEYCAP__" alt=""><span>enter</span></span>Play</span><span class="hint"><span class="key"><img src="__KEYCAP__" alt=""><span>esc</span></span>Back</span></div>
+  </section>
+  <div data-families></div>
+ </div>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('ddi-controller-study');
+ const images=__IMAGES__;
+ const proportions=__PROPORTIONS__;
+ const state={size:26,detail:56,playstation:'classic',material:'shared',monochrome:false,surface:'#131019'};
+ const definitions=[
+  ['xbox','Xbox','Glossy charcoal · colored letters'],
+  ['playstation','PlayStation','Classic colored symbols'],
+  ['nintendo','Nintendo','Satin barrel · light letters'],
+  ['generic','Generic · standard mapping','Position cues · neutral materials']
+ ];
+ const controls=['south','east','west','north','lb','rb','lt','rt','start','back','dpad','dpad_ud','dpad_lr','dpad_all'];
+ const positions=['South','East','West','North'];
+ function label(f,c){
+  if(c==='raw')return 'Raw button 7';
+  if(controls.indexOf(c)<4)return positions[controls.indexOf(c)];
+  if(['lb','rb','lt','rt'].includes(c)){
+   const side=c[0].toUpperCase(),trigger=c[1]==='t';
+   return f==='xbox'||f==='generic'?c.toUpperCase():f==='playstation'||f==='dualsense'?side+(trigger?'2':'1'):(trigger?'Z':'')+side;
+  }
+  if(c.startsWith('dpad'))return {dpad:'Up',dpad_ud:'Up / down',dpad_lr:'Left / right',dpad_all:'Four directions'}[c];
+  if(f==='generic')return c==='start'?'Start':'Select';
+  return c==='start'?(f==='nintendo'?'+':f==='xbox'?'Menu':'Options'):(f==='nintendo'?'−':f==='xbox'?'View':'Create / share');
+ }
+ function picture(f,c){const image=document.createElement('img');const record=images[state.material+'-'+f+'-'+c];image.src=record.src;image.alt=label(f,c);image.width=record.aspect*144;image.height=144;
+  const face=['south','east','west','north'].includes(c);
+  const category=c.startsWith('dpad')||(f==='generic'&&face)?'direction':f==='generic'&&['start','back'].includes(c)?'center_word':face||c==='raw'?'face':'other';
+  image.dataset.control=c;image.dataset.category=category;image.style.setProperty('--control-scale',proportions[category]);return image;
+ }
+ function hint(f,cs,text){const span=document.createElement('span');span.className='hint';const pair=document.createElement('span');pair.className='pair';for(const c of cs)pair.append(picture(f,c));span.append(pair,document.createTextNode(text));return span;}
+ function render(){
+  root.style.setProperty('--hint',state.size+'px');root.style.setProperty('--detail',state.detail+'px');root.style.setProperty('--surface',state.surface);root.style.setProperty('--treatment',state.monochrome?'grayscale(1)':'none');
+  root.querySelector('[data-size]').textContent=state.size+' px base · '+state.detail+' px detail';
+  const container=root.querySelector('[data-families]');container.replaceChildren();
+  for(const [family,title,description] of definitions){
+   const f=family==='playstation'&&state.playstation==='dualsense'?'dualsense':family;
+   const section=document.createElement('section');section.className='family';section.setAttribute('aria-label',title+' hints');
+   const head=document.createElement('header');head.className='family-head';const h=document.createElement('h3');h.textContent=title;
+   const p=document.createElement('span');p.className='muted';p.textContent=state.material==='shared'?'Shared charcoal satin':f==='dualsense'?'DualSense-inspired · pale glossy face':description;head.append(h,p);section.append(head);
+   for(const group of [['south','east','west','north',...(f==='generic'?[]:['start','back'])],['lb','rb','lt','rt','dpad_all',...(f==='generic'?['start','back','raw']:[])]]){
+    const strip=document.createElement('div');strip.className='specimens';
+    for(const c of group){const figure=document.createElement('figure');const caption=document.createElement('figcaption');caption.textContent=label(f,c);figure.append(picture(f,c),caption);strip.append(figure);}
+    section.append(strip);
+   }
+   const footer=document.createElement('div');footer.className='footer';footer.setAttribute('aria-label','Song select footer at '+state.size+' pixels');
+   footer.append(hint(f,['dpad_all'],'Navigate'),hint(f,['south'],'Play'),hint(f,['east'],'Back'),hint(f,['west'],'More'),hint(f,['lb','rb'],'Chart'));
+   section.append(footer);
+   if(f==='generic'){
+    const proof=document.createElement('div');proof.className='footer center-proof';proof.setAttribute('aria-label','Generic center and raw buttons at actual hint size');
+    proof.append(hint(f,['start'],'Confirm'),hint(f,['back'],'Back'),hint(f,['raw'],'Button 7'));
+    section.append(proof);
+   }
+   container.append(section);
+  }
+ }
+ function restore(value){const s=value?.modelContent;if(!s)return;for(const k of ['size','detail'])if(Number.isFinite(s[k]))state[k]=Math.max(k==='size'?20:40,Math.min(k==='size'?52:88,s[k]));if(['classic','dualsense'].includes(s.playstation))state.playstation=s.playstation;if(['family','shared'].includes(s.material))state.material=s.material;if(typeof s.monochrome==='boolean')state.monochrome=s.monochrome;if(/^#[0-9a-f]{6}$/i.test(s.surface||''))state.surface=s.surface;}
+ restore(window.openai?.widgetState);render();
+ window.addEventListener('openai:set_globals',e=>{restore(e.detail?.globals?.widgetState);render();});
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{render();window.openai?.setWidgetState?.({modelContent:{...state}})?.catch(()=>{});}});
+  tweak.addSlider(state,'size',{label:'Base hint size',min:20,max:52,step:1,unit:'px'});
+  tweak.addSlider(state,'detail',{label:'Enlarged specimens',min:40,max:88,step:4,unit:'px'});
+  tweak.addSelect(state,'material',{label:'Button material',options:[{label:'Shared charcoal satin',value:'shared'},{label:'Hardware-inspired finishes',value:'family'}]});
+  tweak.addSelect(state,'playstation',{label:'PlayStation appearance',options:[{label:'Classic colored symbols',value:'classic'},{label:'DualSense pale buttons',value:'dualsense'}]});
+  tweak.addToggle(state,'monochrome',{label:'Grayscale legibility check'});
+  tweak.addColorPicker(state,'surface',{label:'Game surface',reference:'--surface'});
+ }
+})();
+</script>

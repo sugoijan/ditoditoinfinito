@@ -276,6 +276,7 @@ fn autoplay_through_a_test_pad_is_all_top_tier() {
     let clock: Clock = Rc::new(RefCell::new(5.0));
     let mut inputs = FakeInputs::new(&clock);
     inputs.pads.push(ConnectedPad {
+        vendor_product: None,
         id: "Test pad (STANDARD GAMEPAD)".into(),
         index: 0,
         standard: true,
@@ -1146,6 +1147,7 @@ fn lane_covers_move_and_hide_in_play_and_replay_alike() {
     let mut inputs = FakeInputs::new(&clock);
     let pad = "Pad (STANDARD GAMEPAD)";
     inputs.pads.push(ConnectedPad {
+        vendor_product: None,
         id: pad.into(),
         index: 0,
         standard: true,

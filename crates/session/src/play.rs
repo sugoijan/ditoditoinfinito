@@ -39,8 +39,6 @@ pub const CANCEL_HOLD: f64 = 0.7;
 pub const CANCEL_HINT: f64 = 1.5;
 /// The hint when the quit button was touched (no Esc key on a phone).
 pub const TOUCH_CANCEL_HINT: &str = "hold or double-tap the quit button";
-/// The hint when a controller's Back button was pressed.
-pub const PAD_CANCEL_HINT: &str = "hold or double-tap Back to quit";
 /// The control the touch lanes' quit button sends.
 pub const TOUCH_CANCEL_CONTROL: &str = "cancel";
 
@@ -670,7 +668,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     self.cancel_held = true;
                     self.view.cancel_hint = match raw.device {
                         DeviceId::Touch => TOUCH_CANCEL_HINT,
-                        DeviceId::Gamepad(_) => PAD_CANCEL_HINT,
+                        DeviceId::Gamepad(_) => ddi_ui::controller_hints::quit_hint(&raw),
                         _ => "",
                     };
                 } else {

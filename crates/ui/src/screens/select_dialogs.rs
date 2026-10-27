@@ -114,6 +114,28 @@ pub(crate) fn dialog_root(children: Vec<Actor>) -> Actor {
     root
 }
 
+/// Keep a form's actions on screen when chrome or a short window leaves less
+/// room than its natural height. Positions remain in the form's own space.
+pub(crate) fn fitted_dialog(
+    children: Vec<Actor>,
+    screen: [f32; 2],
+    height: f32,
+    scale: f32,
+) -> Actor {
+    let mut root = dialog_root(children);
+    let zoom = ((screen[1] - 16.0).max(1.0) / height).min(1.0);
+    call(&mut root, "zoom", &[zoom * scale]);
+    call(
+        &mut root,
+        "xy",
+        &[
+            screen[0] * (1.0 - zoom) * scale / 2.0,
+            screen[1] * (1.0 - zoom) * scale / 2.0,
+        ],
+    );
+    root
+}
+
 /// What can be managed: the selected pack, or the selected song (and its
 /// pack).
 #[derive(Clone, Debug, PartialEq)]
@@ -681,6 +703,7 @@ impl ImportDialog {
         let focused = cx.focused().map(str::to_string);
         *root = self.build(cx);
         root.finish_tweening();
+        super::restore_focus(root, focused.as_deref());
         if let Some(f) = focused.filter(|f| self.focusables().iter().any(|a| &a.name == f)) {
             cx.focus(f);
         } else {
@@ -1174,6 +1197,25 @@ impl Screen for ImportDialog {
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         let busy = self.view.borrow().running.is_some();
         if self.tab == ImportTab::Danoni && !busy && !self.origin_pending() {
+            if let Input::Menu { action, .. } = input
+                && cx.menu_from_pad()
+                && cx.focused() == Some("DanoniUrlField")
+            {
+                match action {
+                    MenuAction::Start if !self.url.text.trim().is_empty() => {
+                        cx.end_text();
+                        self.submit(root, cx);
+                        return Handled::Yes;
+                    }
+                    MenuAction::Back => {
+                        cx.end_text();
+                        cx.focus("TabDanoni");
+                        return Handled::Yes;
+                    }
+                    action if action.is_direction() => cx.end_text(),
+                    _ => {}
+                }
+            }
             let (handled, event) = self.url.input(input, root, cx, &|_| Vec::new());
             match event {
                 Some(FieldEvent::Submitted(_)) => self.submit(root, cx),
@@ -1217,6 +1259,14 @@ impl Screen for ImportDialog {
                 Handled::Yes
             }
             Input::Activate { name } => {
+                if matches!(name.as_str(), "PickFolder" | "PickFiles" | "NewSong")
+                    && self.view.borrow().platform != Platform::Desktop
+                    && (!cx.in_gesture() || cx.menu_from_pad())
+                {
+                    self.url_error = Some("Press a keyboard key, click or tap to open the browser's file picker; or drop files here. Back returns to the song list.".into());
+                    self.refresh(root, cx);
+                    return Handled::Yes;
+                }
                 match name.as_str() {
                     "TabFiles" => self.set_tab(ImportTab::Files, root, cx),
                     "TabDanoni" => self.set_tab(ImportTab::Danoni, root, cx),

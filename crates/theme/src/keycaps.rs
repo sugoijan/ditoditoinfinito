@@ -183,10 +183,54 @@ impl Infinito {
             x += mono_width(&spec.key_prefix, 13.0) + 4.0;
         }
         for (i, cap) in caps.iter().enumerate() {
+            if let Keycap::Controller(cap) = cap {
+                let (column, size) = cap.art();
+                let row = cap.family.row() * 2;
+                let states = (0..2)
+                    .map(|pressed| ddi_actor::State {
+                        rect: [
+                            column as f32 / 29.0,
+                            (row + pressed) as f32 / 10.0,
+                            (column + 1) as f32 / 29.0,
+                            (row + pressed + 1) as f32 / 10.0,
+                        ],
+                        delay: 1.0,
+                    })
+                    .collect();
+                let mut body = Sprite::new(0, states, size);
+                body.shape.hide_unloaded = true;
+                let mut body = named(Kind::Sprite(body), &format!("Cap{i}"));
+                call(&mut body, "animate", &[0.0]);
+                children.push(at(body, x + size[0] / 2.0, 0.0));
+                // Numbered raw controls and stick clicks share a round body with
+                // live printing; their identity never depends on guessed artwork.
+                if column == 28 || matches!(column, 10 | 11) {
+                    let label = cap.label();
+                    let long_raw = matches!(&cap.glyph,ddi_ui::controller_hints::Glyph::Raw(s) if !s.starts_with("button "));
+                    let print = if long_raw {
+                        "•"
+                    } else {
+                        label.strip_prefix("button ").unwrap_or(&label)
+                    };
+                    let mut ink = self.text(&format!("Key{i}"), print, 10.0, 400, "Text");
+                    call(&mut ink, "maxwidth", &[size[0] - 4.0]);
+                    children.push(at(ink, x + size[0] / 2.0, -2.0));
+                    if long_raw {
+                        children.push(at_left(
+                            self.text(&format!("Raw{i}"), &label, 11.0, 400, "Text"),
+                            x + size[0] + 4.0,
+                            0.0,
+                        ));
+                        x += 4.0 + mono_width(&label, 11.0);
+                    }
+                }
+                x += size[0];
+                continue;
+            }
             let legend = cap.label();
             let key = match cap {
                 Keycap::Key(k) => Some(*k),
-                Keycap::Custom { .. } => None,
+                Keycap::Custom { .. } | Keycap::Controller(_) => None,
             };
             let space = cap.shape() == KeyShape::Space;
             let mark = matches!(key, Some(KeyboardKey::Enter | KeyboardKey::Tab));

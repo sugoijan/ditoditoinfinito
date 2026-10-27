@@ -86,6 +86,7 @@ impl KeyboardKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Keycap {
+    Controller(crate::controller_hints::Cap),
     Key(KeyboardKey),
     Custom { label: String, shape: KeyShape },
 }
@@ -101,6 +102,7 @@ impl Keycap {
     pub fn label(&self) -> String {
         match self {
             Self::Key(key) => key.label(),
+            Self::Controller(cap) => cap.label(),
             Self::Custom { label, .. } => label.clone(),
         }
     }
@@ -109,7 +111,7 @@ impl Keycap {
         match self {
             Self::Key(KeyboardKey::Space) => KeyShape::Space,
             Self::Custom { shape, .. } => *shape,
-            Self::Key(_) => KeyShape::Normal,
+            Self::Key(_) | Self::Controller(_) => KeyShape::Normal,
         }
     }
 

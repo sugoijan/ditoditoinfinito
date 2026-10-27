@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use ddi_actor::Actor;
 
-use super::select_dialogs::{button, dialog_root, shell, wrap, wrap_lines};
+use super::select_dialogs::{button, fitted_dialog, shell, wrap, wrap_lines};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode};
@@ -33,6 +33,8 @@ pub struct ActionsDialog {
     /// `(id, label)`.
     items: Vec<(String, String)>,
     on_pick: PickFn,
+    page: usize,
+    per_page: usize,
 }
 
 impl ActionsDialog {
@@ -43,6 +45,8 @@ impl ActionsDialog {
             note: String::new(),
             items,
             on_pick,
+            page: 0,
+            per_page: usize::MAX,
         }
     }
 
@@ -64,16 +68,22 @@ impl Screen for ActionsDialog {
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
-        let screen = [vp.width, vp.height];
+        let (screen, scale) = super::narrow_fit(&self.env, vp);
         let env = self.env.clone();
-        let n = self.items.len() + 1;
         let top = if self.note.is_empty() { 64.0 } else { 86.0 };
-        // As many rows as fit, in as many columns as that takes.
         let fit = (((screen[1] - 32.0 - top - 20.0) / (ROW + GAP)).floor() as usize).max(3);
-        let columns = n.div_ceil(fit);
+        let columns = if screen[0] >= 720.0 { 2 } else { 1 };
+        self.per_page = (fit * columns).saturating_sub(3).max(1);
+        self.page = self
+            .page
+            .min(self.items.len().saturating_sub(1) / self.per_page);
+        let start = self.page * self.per_page;
+        let end = (start + self.per_page).min(self.items.len());
+        let n = end - start + 1 + usize::from(self.page > 0) + usize::from(end < self.items.len());
+        let columns = columns.min(n);
         let rows = n.div_ceil(columns);
-        let col_w = ((screen[0] - 32.0 - 48.0 - (columns - 1) as f32 * 10.0) / columns as f32)
-            .clamp(120.0, 300.0);
+        let col_w =
+            ((screen[0] - 32.0 - 48.0 - (columns - 1) as f32 * 10.0) / columns as f32).min(300.0);
         let w = (columns as f32 * col_w + (columns - 1) as f32 * 10.0 + 48.0).max(320.0);
         let w = w.min(screen[0] - 16.0);
         let h = top + rows as f32 * (ROW + GAP) + 20.0;
@@ -86,7 +96,11 @@ impl Screen for ActionsDialog {
         let ids = self
             .items
             .iter()
+            .skip(start)
+            .take(self.per_page)
             .map(|(id, label)| (Self::name(id), label.clone()))
+            .chain((self.page > 0).then(|| ("PreviousPage".into(), "Previous page".into())))
+            .chain((end < self.items.len()).then(|| ("NextPage".into(), "Next page".into())))
             .chain(std::iter::once(("Close".to_string(), "Close".to_string())));
         for (i, (name, label)) in ids.enumerate() {
             let (col, row) = (i / rows, i % rows);
@@ -96,19 +110,51 @@ impl Screen for ActionsDialog {
         }
         // Where the shells' debug views find the buttons.
         env.state.borrow_mut().page_items = self.focusables().into_iter().map(|f| f.name).collect();
-        dialog_root(c)
+        fitted_dialog(c, screen, h, scale)
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        self.items
+        let start = self.page.saturating_mul(self.per_page);
+        let mut names: Vec<_> = self
+            .items
             .iter()
-            .map(|(id, _)| Focusable::new(Self::name(id)))
-            .chain(std::iter::once(Focusable::new("Close")))
+            .skip(start)
+            .take(self.per_page)
+            .map(|(id, _)| Self::name(id))
+            .collect();
+        if self.page > 0 {
+            names.push("PreviousPage".into());
+        }
+        if start.saturating_add(self.per_page) < self.items.len() {
+            names.push("NextPage".into());
+        }
+        names.push("Close".into());
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let mut f = Focusable::new(n);
+                f.up = i.checked_sub(1).map(|j| names[j].clone());
+                f.down = names.get(i + 1).cloned();
+                f
+            })
             .collect()
     }
 
-    fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
+            Input::Activate { name } if name == "PreviousPage" || name == "NextPage" => {
+                if name == "PreviousPage" {
+                    self.page = self.page.saturating_sub(1);
+                } else {
+                    self.page += 1;
+                }
+                *root = self.build(cx);
+                if let Some(f) = self.focusables().first() {
+                    cx.focus(f.name.clone());
+                }
+                Handled::Yes
+            }
             Input::Activate { name } if name == "Close" => {
                 cx.close(true);
                 Handled::Yes
@@ -163,10 +209,9 @@ impl ValueDialog {
         }
     }
 
-    /// Typing numbers (a phone's keyboard shows them).
-    pub fn numeric(mut self) -> Self {
-        self.field.hints.mode = InputMode::Decimal;
-        self
+    /// The same validated value, edited through numeric controls.
+    pub fn numbers(self, numbers: super::numbers::Numbers) -> super::numbers::NumberDialog {
+        super::numbers::NumberDialog::new(self.env, &self.title, numbers, self.on_submit)
     }
 
     fn submit(&mut self, text: &str, root: &mut Actor, cx: &mut Cx) {
@@ -194,7 +239,7 @@ impl Screen for ValueDialog {
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
-        let screen = [vp.width, vp.height];
+        let (screen, scale) = super::narrow_fit(&self.env, vp);
         let env = self.env.clone();
         let w = 480.0_f32.min(screen[0] - 32.0);
         let note = wrap_lines(&self.note, w - 48.0, 13.0);
@@ -234,7 +279,7 @@ impl Screen for ValueDialog {
             bw,
             "Button",
         ));
-        let mut root = dialog_root(c);
+        let mut root = fitted_dialog(c, screen, h, scale);
         if !self.started {
             // Typing at once: the dialog is opened by a press.
             self.started = true;
@@ -256,6 +301,18 @@ impl Screen for ValueDialog {
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Input::Menu { action, .. } = input
+            && cx.menu_from_pad()
+        {
+            if *action == MenuAction::Start && cx.focused() == Some(self.field.name.as_str()) {
+                let text = self.field.text.clone();
+                self.submit(&text, root, cx);
+                return Handled::Yes;
+            }
+            if action.is_direction() {
+                cx.end_text();
+            }
+        }
         let (handled, event) = self.field.input(input, root, cx, &|_| Vec::new());
         if let Some(FieldEvent::Submitted(text)) = event {
             self.submit(&text, root, cx);

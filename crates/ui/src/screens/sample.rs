@@ -499,6 +499,7 @@ pub fn options(reduced_motion: usize) -> OptionsData {
         ],
         pads_supported: true,
         connected: vec![ddi_engine::ConnectedPad {
+            vendor_product: None,
             id: "Xbox Wireless Controller (STANDARD GAMEPAD)".into(),
             index: 0,
             standard: true,

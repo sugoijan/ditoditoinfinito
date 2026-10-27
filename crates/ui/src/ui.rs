@@ -196,6 +196,9 @@ pub struct LayerInfo {
 
 /// The UI: screens, input routing, focus, typing, transitions.
 pub struct Ui {
+    hint_revision: u64,
+    controller_devices_revision: u64,
+    controller_identities: Vec<(u32, String)>,
     design: [f32; 2],
     viewport: Viewport,
     mode: TextMode,
@@ -232,6 +235,7 @@ pub struct Ui {
     ime_rect: Option<CssRect>,
     last_mouse_down: Option<f64>,
     time: f64,
+    input_time: Option<f64>,
     dirty: bool,
     problems: Problems,
     /// A keyboard key's menu action is being handled ([`Cx::menu_from_keyboard`]).
@@ -254,6 +258,9 @@ impl Ui {
     /// [`UiEvent::Resize`] the surface is the design at a ratio of 1.
     pub fn new(design: [f32; 2], mode: TextMode, gestures: bool) -> Ui {
         Ui {
+            hint_revision: crate::controller_hints::revision(),
+            controller_devices_revision: crate::controller_hints::devices_revision(),
+            controller_identities: crate::controller_hints::connected_identities(),
             design,
             viewport: Viewport::new(design, design, 1.0),
             mode,
@@ -280,6 +287,7 @@ impl Ui {
             ime_rect: None,
             last_mouse_down: None,
             time: 0.0,
+            input_time: None,
             dirty: true,
             problems: Problems::default(),
             menu_key: false,
@@ -556,6 +564,14 @@ impl Ui {
 
     /// Handles one event.
     pub fn handle(&mut self, event: UiEvent) -> Outcome {
+        match &event {
+            UiEvent::Key(k) if k.down && !k.repeat => crate::controller_hints::keyboard(),
+            UiEvent::Menu(m) if m.down => crate::controller_hints::pad_press(m.source),
+            UiEvent::Raw(e) => crate::controller_hints::edge(e),
+            UiEvent::Focus(false) => crate::controller_hints::focus_lost(),
+            _ => {}
+        }
+        self.refresh_hints();
         self.dirty = true;
         self.consumed = false;
         match event {
@@ -591,10 +607,45 @@ impl Ui {
 
     /// Steps `dt` seconds: key repeats, long presses, actors, screens,
     /// transitions.
+    fn refresh_hints(&mut self) {
+        let devices_revision = crate::controller_hints::devices_revision();
+        if self.controller_devices_revision != devices_revision {
+            self.controller_devices_revision = devices_revision;
+            let connected = crate::controller_hints::connected_identities();
+            let previous = std::mem::replace(&mut self.controller_identities, connected);
+            for (slot, id) in previous {
+                if self.controller_identities.contains(&(slot, id)) {
+                    continue;
+                }
+                // Disconnect releases may no longer resolve after the shell
+                // removes its mapping. Release the old slot's UI holds here.
+                for action in [
+                    MenuAction::Up,
+                    MenuAction::Down,
+                    MenuAction::Left,
+                    MenuAction::Right,
+                ] {
+                    let source = Source::Pad(slot, action);
+                    self.repeater.release(&source);
+                    self.menu_release(source);
+                }
+            }
+        }
+        let revision = crate::controller_hints::revision();
+        if self.hint_revision != revision {
+            self.hint_revision = revision;
+            self.broadcast(Message::new(crate::controller_hints::CHANGED));
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
+        self.refresh_hints();
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.time += f64::from(dt);
         self.follow_inset();
+        if self.text.as_ref().is_some_and(|t| t.field.is_composing()) {
+            self.repeater.clear();
+        }
         for action in self.repeater.update(dt) {
             self.menu(action, true, false);
         }
@@ -802,6 +853,11 @@ impl Ui {
     /// screen's deadline came. Otherwise the shell may stop its frames
     /// until the next event or [`Ui::wake_in`] (P13).
     pub fn needs_redraw(&self) -> bool {
+        if self.hint_revision != crate::controller_hints::revision()
+            || self.controller_devices_revision != crate::controller_hints::devices_revision()
+        {
+            return true;
+        }
         self.dirty
             || self.repeater.holding()
             || self.pointers.iter().any(|p| p.tracker.waiting())
@@ -1036,6 +1092,7 @@ impl Ui {
             self.layer(id).and_then(|l| l.focused.clone()),
             self.textures.clone(),
         );
+        cx.input_time = self.input_time;
         cx.menu_key = self.menu_key;
         cx.menu_source = self.menu_source.clone();
         cx.menu_pad = self.menu_pad;
@@ -1426,6 +1483,17 @@ impl Ui {
     // Input.
 
     fn menu(&mut self, action: MenuAction, repeat: bool, gesture: bool) {
+        let action = if action == MenuAction::ControllerStart
+            && (self.chrome_focus.is_some()
+                || !self
+                    .focus_layer()
+                    .and_then(|id| self.layer(id))
+                    .is_some_and(|l| l.screen.separate_controller_start()))
+        {
+            MenuAction::Start
+        } else {
+            action
+        };
         self.ring_shown = true;
         self.dirty = true;
         // The chrome's actions, while it has the focus: Left and Right
@@ -1514,6 +1582,14 @@ impl Ui {
     }
 
     fn menu_event(&mut self, e: MenuEvent) {
+        // The IME owns an unfinished composition. Controller navigation resumes
+        // after it commits, without submitting its provisional text.
+        if self.text.as_ref().is_some_and(|t| t.field.is_composing()) {
+            self.repeater.clear();
+            self.consumed = true;
+            return;
+        }
+        self.input_time = Some(e.time / 1000.0);
         let source = Source::Pad(e.source, e.action);
         if e.down {
             self.repeater.press(source.clone(), e.action);
@@ -1533,6 +1609,7 @@ impl Ui {
                 self.menu_release(source);
             }
         }
+        self.input_time = None;
     }
 
     /// Whether the screen on top takes keys and controls as they are

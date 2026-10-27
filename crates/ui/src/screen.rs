@@ -177,6 +177,11 @@ pub trait Screen {
         Vec::new()
     }
 
+    /// Keep dedicated controller Start distinct from Confirm on this screen.
+    fn separate_controller_start(&self) -> bool {
+        false
+    }
+
     /// Whether, on top, it takes keys and controllers' controls as they
     /// are ([`Input::Raw`]) instead of as menu actions: binding them.
     /// Pointers still come as gestures.
@@ -240,6 +245,7 @@ pub struct Cx {
     gesture: bool,
     viewport: Viewport,
     time: f64,
+    pub(crate) input_time: Option<f64>,
     focused: Option<String>,
     /// The menu action being handled came from a keyboard key.
     pub(crate) menu_key: bool,
@@ -265,6 +271,7 @@ impl Cx {
             gesture,
             viewport,
             time,
+            input_time: None,
             focused,
             menu_key: false,
             menu_source: None,
@@ -317,6 +324,11 @@ impl Cx {
 
     /// Seconds since the UI started: its updates, and the shell's idle
     /// waits it was told of ([`crate::Ui::idle_for`]).
+    /// Timestamp of the current controller edge, in seconds on the host clock.
+    pub fn input_time(&self) -> Option<f64> {
+        self.input_time
+    }
+
     pub fn time(&self) -> f64 {
         self.time
     }

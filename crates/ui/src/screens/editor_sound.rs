@@ -320,3 +320,103 @@ impl EditorScreen {
         self.edit(|e| e.set_cursor(tick, false));
     }
 }
+
+impl EditorScreen {
+    pub(super) fn open_tap(&self, cx: &mut Cx) {
+        cx.overlay(
+            TapDialog {
+                env: self.env.clone(),
+                status: "Tap along to the beat, then apply.".into(),
+            },
+            true,
+        );
+    }
+}
+
+struct TapDialog {
+    env: crate::screens::Env,
+    status: String,
+}
+impl crate::Screen for TapDialog {
+    fn name(&self) -> &str {
+        "tap-tempo"
+    }
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        use crate::screens::select_dialogs::{button, fitted_dialog, shell, wrap};
+        let vp = cx.viewport().screen;
+        let (screen, scale) = crate::screens::narrow_fit(&self.env, vp);
+        let w = 480.0_f32.min(screen[0] - 24.0);
+        let (mut c, [x, y]) = shell(&self.env, screen, [w, 276.0], "Tap tempo");
+        let mut text = self.env.text("Estimate", &self.status, 14.0, 400, "Text");
+        wrap(&mut text, w - 48.0);
+        c.push(crate::screens::left(text, x + 24.0, y + 64.0));
+        let bw = (w - 58.0) / 2.0;
+        for (i, (id, label)) in [
+            ("Tap", "Tap"),
+            ("Apply", "Apply BPM"),
+            ("ApplyOffset", "Apply BPM + offset"),
+            ("Reset", "Reset taps"),
+            ("Close", "Back"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            c.push(button(
+                &self.env,
+                id,
+                label,
+                [
+                    x + 24.0 + bw / 2.0 + (i % 2) as f32 * (bw + 10.0),
+                    y + 120.0 + (i / 2) as f32 * 48.0,
+                ],
+                bw,
+                "Button",
+            ));
+        }
+        fitted_dialog(c, screen, 276.0, scale)
+    }
+    fn focusables(&self) -> Vec<crate::nav::Focusable> {
+        let names = ["Tap", "Apply", "ApplyOffset", "Reset", "Close"];
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let mut f = crate::nav::Focusable::new(*n);
+                f.up = i.checked_sub(1).map(|j| names[j].into());
+                f.down = names.get(i + 1).map(|n| (*n).into());
+                f
+            })
+            .collect()
+    }
+    fn message(&mut self, m: &crate::Message, root: &mut Actor, _: &mut Cx) {
+        if m.name == "Editor.TapStatus"
+            && let Some(crate::message::Param::Str(text)) = m.get("Text")
+        {
+            self.status = text.clone();
+            crate::widgets::set_text(root, "Estimate", text);
+        }
+    }
+    fn input(
+        &mut self,
+        input: &crate::screen::Input,
+        _: &mut Actor,
+        cx: &mut Cx,
+    ) -> crate::Handled {
+        use crate::message::Param;
+        use crate::{Handled, Message};
+        if let crate::screen::Input::Activate { name } = input {
+            match name.as_str() {
+                "Close" => cx.close(true),
+                "Tap" => cx.broadcast(Message::new("Editor.Tap").with(
+                    "Time",
+                    Param::Num(cx.input_time().unwrap_or_else(|| cx.time())),
+                )),
+                action => cx.broadcast(
+                    Message::new("Editor.Tap").with("Action", Param::Str(action.into())),
+                ),
+            }
+            return Handled::Yes;
+        }
+        Handled::No
+    }
+}
