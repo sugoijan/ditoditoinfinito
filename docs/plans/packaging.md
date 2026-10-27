@@ -195,10 +195,12 @@ keeps the archives as the run's artifacts only):
 - `package` on `macos-latest`, `ubuntu-latest` and `windows-latest`: the
   tag must be `v` + Cargo's version; the toolchain, Python 3.12, JDK 17,
   CMake, pkg-config and the ALSA/udev/Vulkan packages as `danoni.yml`'s
-  native lane installs them; the importer's and the helper's FFmpeg caches
-  under the same keys as `danoni.yml` and `deploy.yml` (a tag's run
-  restores main's); `cargo build --locked -p ddi --profile
-  desktop` (fat LTO); `package.py dist`; the archives uploaded.
+  native lane installs them; the importer's cache under the same key as
+  `danoni.yml` (a tag's run restores main's), deploy's desktop Rust
+  cache restored (never saved from here) and the helper's FFmpeg from
+  the `build-inputs` pre-release (`.github/scripts/video-assets.sh`,
+  `docs/plans/video-backgrounds.md`, "CI"); `cargo build --locked -p ddi
+  --profile desktop` (fat LTO); `package.py dist`; the archives uploaded.
 - `release` (tags only, `contents: write`): the archives and a
   `SHA256SUMS.txt` attached to a draft release (`gh release create
   --draft --generate-notes`, then `gh release upload --clobber`, so a

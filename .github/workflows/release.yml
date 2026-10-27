@@ -20,6 +20,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# As deploy.yml: no debug info (its dev-profile xtask runs then share
+# deploy's desktop caches, restored, never saved from here), and the
+# helper's FFmpeg from the build-inputs release.
+env:
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
   package:
     strategy:
@@ -71,8 +78,7 @@ jobs:
         run: |
           command -v cmake || brew install cmake
           command -v pkg-config || brew install pkgconf
-      # The same keys as danoni.yml's and deploy.yml's, so a tag's run starts
-      # from main's caches.
+      # The same key as danoni.yml's, so a tag's run starts from main's cache.
       - name: Cache the importer's build
         if: runner.os != 'Windows'
         uses: actions/cache@v4
@@ -80,18 +86,13 @@ jobs:
           path: ~/.cache/ditoditoinfinito/danoni-importer
           key: ${{ runner.os }}-${{ runner.arch }}-danoni-native-${{ hashFiles('Cargo.lock', 'tools/danoni-dump/ruffle/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-danoni-native-
-      - name: Cache the helper's FFmpeg
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: |
-            target/video/native
-            target/video/downloads/ffmpeg-*.tar.xz
-            target/video/downloads/zlib-*.tar.gz
-          key: ffmpeg-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('video/build-native.sh', 'video/lib.sh', 'video/FFMPEG.toml') }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release
+          shared-key: desktop
+          save-if: false
+      - name: The helper's FFmpeg, built already
+        if: runner.os != 'Windows'
+        run: .github/scripts/video-assets.sh fetch native || true
       - name: Generated indexes and credits
         run: |
           cargo run --locked -p xtask -- gen-songs

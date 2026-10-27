@@ -8,6 +8,11 @@
 #
 # Hosts: macOS and Linux, arm64 or x86_64. Needs bash, curl, tar with xz,
 # GNU make and a host C compiler (configure's checks). No containers.
+#
+# Usage: video/build.sh [--recipe]
+# (--recipe: print the SHA-256 of what the module is built from, this
+# script, lib.sh, FFMPEG.toml and the shims, and exit; CI names the built
+# module by it, .github/scripts/video-assets.sh.)
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,12 +21,19 @@ shim="$root/video/ddivideo.c"
 packets="$root/video/packets.c"
 out="$root/target/video"
 
+# shellcheck source=video/lib.sh
+. "$root/video/lib.sh"
+
+recipe=$(cat "$toml" "$root/video/build.sh" "$root/video/lib.sh" "$shim" "$packets" | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1)
+case "${1:-}" in
+  --recipe) printf '%s\n' "$recipe"; exit 0 ;;
+  "") ;;
+  *) die "unknown argument $1" ;;
+esac
+
 # Include and library paths meant for the host (Homebrew sets these) would
 # reach the wasm compiler too.
 unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH LIBRARY_PATH
-
-# shellcheck source=video/lib.sh
-. "$root/video/lib.sh"
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) host=arm64-macos ;;

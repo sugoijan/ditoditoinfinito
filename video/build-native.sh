@@ -14,8 +14,11 @@
 # (built without it otherwise, slower). Windows: MSYS2's bash with the MSVC
 # tools on PATH (`--toolchain=msvc`), untested here.
 #
-# Usage: video/build-native.sh [--target <rust target>] [--check]
-# (--check: exit 0 when the output is current, 1 when it needs a build).
+# Usage: video/build-native.sh [--target <rust target>] [--check | --recipe]
+# (--check: exit 0 when the output is current, 1 when it needs a build;
+# --recipe: print the SHA-256 of the recipe, this script, lib.sh and
+# FFMPEG.toml, which ffmpeg.json records and CI names the built libraries
+# by, .github/scripts/video-assets.sh).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -27,10 +30,13 @@ unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH LIBRARY_PATH
 
 want_target=""
 check=0
+# What the output depends on: a change rebuilds (FFmpeg's make does the rest).
+recipe=$(cat "$toml" "$root/video/build-native.sh" "$root/video/lib.sh" | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1)
 while [ $# -gt 0 ]; do
   case $1 in
     --target) want_target=$2; shift 2 ;;
     --check) check=1; shift ;;
+    --recipe) printf '%s\n' "$recipe"; exit 0 ;;
     *) die "unknown argument $1" ;;
   esac
 done
@@ -85,8 +91,6 @@ case $target in
     configure_flags+=("--toolchain=msvc") ;;
 esac
 
-# What the output depends on: a change rebuilds (FFmpeg's make does the rest).
-recipe=$(cat "$toml" "$root/video/build-native.sh" "$root/video/lib.sh" | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1)
 if [ -f "$out/ffmpeg.json" ] && grep -q "\"recipe_sha256\": \"$recipe\"" "$out/ffmpeg.json"; then
   [ "$check" = 1 ] && exit 0
   say "$out is current"

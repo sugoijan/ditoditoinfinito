@@ -818,6 +818,17 @@ dependency's licence before adding it.
 - `credits/CREDITS.md` and `credits/THIRD_PARTY_RUST.md` are generated and committed;
   `Trunk.toml` ignores them in the watcher so regenerating them does not
   loop the dev server.
+- CI's storage (`.github/workflows/`): the Actions cache holds Rust build
+  output only, saved on main only (`rust-cache`'s `save-if`) and pruned
+  after each deploy run (`.github/scripts/prune-caches.sh`: the newest
+  of each key stays) so it fits the repository's 10 GB cap, under which
+  GitHub evicts whatever was used least recently; the FFmpeg builds (the
+  web's decoder module, the desktop helper's libraries) are assets of
+  the rolling `build-inputs` pre-release named by their recipes' hashes
+  (`.github/scripts/video-assets.sh`, `build-inputs.yml`; the build
+  scripts' `--recipe`), fetched by the jobs and built only where the
+  release lacks the recipe. CI builds without debug info
+  (`CARGO_PROFILE_DEV_DEBUG=0`).
 
 ## Conventions
 

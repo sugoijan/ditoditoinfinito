@@ -115,8 +115,10 @@ hashes; `check.mjs` decodes the three codecs.
   committed (`reuse lint` rejects a licence no tracked file uses); the
   build copies FFmpeg's `COPYING.LGPLv2.1` to
   `target/video/ddivideo.LICENSE.txt`, served next to the module.
-- CI caches only the outputs, keyed on `build.sh`, `FFMPEG.toml` and the
+- CI cached only the outputs, keyed on `build.sh`, `FFMPEG.toml` and the
   shim, and uploads them as the `ddivideo` artifact for step 2's build.
+  Since 2026-10-27 the module comes from the `build-inputs` pre-release
+  instead ("CI" below): the cache evicted it under the repository's cap.
 - Reproducible across hosts (fixed 2026-10-10): CI's Linux module first
   came out 22 % larger than the macOS one. The verbose link showed why:
   clang's wasm driver runs whichever `wasm-opt` is on `PATH` after
@@ -200,6 +202,24 @@ Safari by the maintainer, which settles research section 7's first item.
   `DDI_NO_VIDEO=1` builds without it on purpose. CI's `build` job needs `video`, downloads
   its artifact after rust-cache (which may clean `target/`) and fails if
   the site lacks the module.
+- CI (2026-10-27): the module and the helper's static FFmpeg are pure
+  functions of pinned recipes, and the Actions cache evicts under the
+  repository's 10 GB cap and after a week unused, so the module was
+  rebuilt (104 s plus the toolchain downloads and the 53 s clip check)
+  on every cold run. They are now assets of the rolling `build-inputs`
+  pre-release, named by their recipes' SHA-256 (`video/build.sh --recipe`:
+  the script, `lib.sh`, `FFMPEG.toml` and the shims;
+  `video/build-native.sh --recipe`: the hash `ffmpeg.json` records) and,
+  for the libraries, the target (`ddivideo-<hash>.tar.gz`,
+  `ffmpeg-native-<target>-<hash>.tar.gz`, with the FFmpeg and zlib
+  tarballs the site and the package serve). `.github/workflows/build-inputs.yml`
+  builds and uploads them when a recipe changes (the module checked on
+  the clips once, there); `.github/scripts/video-assets.sh fetch` unpacks
+  them into `target/video/` in deploy's `video`, `test` and `desktop`
+  jobs and the release's, with the module's times set to now so
+  `stage-video` sees it as current, and a job whose recipe the release
+  lacks builds as before (the first run after a recipe change). The
+  release is not a release of the game: `--prerelease`, never latest.
 - Protocol: `want` carries the seek generation; a seek cancels the wants
   from before it and the end cancels the rest (`eof` once per generation).
   `VideoDecoder::pending()` says how many frames are still coming, so step
@@ -703,8 +723,8 @@ state says which decoder); Firefox and Safari by the maintainer.
   checked next to the module (`video/ffmpeg-<version>.tar.xz`, 12 MB, not
   downloaded by players) and refuses to stage the module without it, as
   LGPL 2.1 §4 asks (source offered from the same place); the credits and
-  the notice link that copy, ffmpeg.org's as the release. CI caches the
-  tarball with the module.
+  the notice link that copy, ffmpeg.org's as the release. CI keeps the
+  tarball with the module (in the `build-inputs` asset since 2026-10-27).
 - "Without the module" below: movies that fail are now named on the
   results card once, after the song ("3 videos could not play: the video
   decoder is not included in this build; the song background showed"),

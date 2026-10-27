@@ -1,0 +1,104 @@
+name: Build inputs
+
+# The FFmpeg builds the other workflows download instead of building
+# (.github/scripts/video-assets.sh): the web's decoder module
+# (video/build.sh, checked on generated clips) and the desktop helper's
+# static libraries (video/build-native.sh) on Linux and macOS, kept as
+# assets of the rolling `build-inputs` pre-release, named by their
+# recipes' hashes. Runs when a recipe changes and by hand; an asset the
+# release has already is not built again.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-inputs.yml
+      - .github/scripts/video-assets.sh
+      - video/FFMPEG.toml
+      - video/lib.sh
+      - video/build.sh
+      - video/build-native.sh
+      - video/ddivideo.c
+      - video/packets.c
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  module:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Built already
+        id: have
+        run: |
+          if .github/scripts/video-assets.sh exists module; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.have.outputs.have != '1'
+        with:
+          node-version: 22
+      - name: Build the module
+        if: steps.have.outputs.have != '1'
+        run: video/build.sh
+      - name: Describe the module
+        if: steps.have.outputs.have != '1'
+        run: cat target/video/ddivideo.json
+      # What configure found, to compare builds on different hosts.
+      - name: Keep the build's configuration
+        if: always() && steps.have.outputs.have != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddivideo-build
+          path: |
+            target/video/ffmpeg-build/config.h
+            target/video/ffmpeg-build/config_components.h
+            target/video/ffmpeg-build/ffbuild/config.mak
+            target/video/ffmpeg-build/ffbuild/config.log
+            target/video/ffmpeg-build/configure.out
+            target/video/ffmpeg-build/make.out
+            target/video/ffmpeg-build/link.out
+            target/video/ffmpeg-build/lib*/lib*.a
+      - name: Install ffmpeg
+        if: steps.have.outputs.have != '1'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Check the module on generated clips
+        if: steps.have.outputs.have != '1'
+        run: video/clips.sh
+      - name: Upload it
+        if: steps.have.outputs.have != '1'
+        run: .github/scripts/video-assets.sh upload module
+
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # For the host's target name only.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Built already
+        id: have
+        run: |
+          if .github/scripts/video-assets.sh exists native; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+          fi
+      - name: nasm for FFmpeg's assembly
+        if: runner.os == 'Linux' && steps.have.outputs.have != '1'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nasm
+      - name: Build the helper's FFmpeg
+        if: steps.have.outputs.have != '1'
+        run: video/build-native.sh
+      - name: Upload it
+        if: steps.have.outputs.have != '1'
+        run: .github/scripts/video-assets.sh upload native
