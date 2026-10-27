@@ -688,14 +688,6 @@ impl Ui {
         self.refresh_cursor();
     }
 
-    /// The shell set the pointer's look itself (the default, over a play
-    /// that is not the UI's): told again when what the mouse is over
-    /// calls for another.
-    pub fn forget_cursor(&mut self) {
-        self.cursor = Cursor::Default;
-        self.cursor_for = None;
-    }
-
     /// Tells the shell the pointer's look when what the mouse is over
     /// calls for another: its screen's [`Screen::cursor`], else a pointer
     /// over a focusable actor or a list's item (not a list's empty space,

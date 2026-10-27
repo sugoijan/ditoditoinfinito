@@ -521,8 +521,15 @@ window follow):
   a pointer over a focusable actor or a list's item (`Wheel#3`), else the
   default, a list's empty space and a row a tap only focuses included.
   The hover, and with it the cursor, follows what moves under a still
-  mouse (a list scrolled, a screen come in); desktop shows the default
-  over a play, which is not the UI's.
+  mouse (a list scrolled, a screen come in). A play's surface is not the
+  UI's (2026-10-27: the maintainer saw a pointer over a play at places
+  with nothing, song select's items under the prompt that closed):
+  desktop sends the UI the mouse's leave as the play starts and keeps
+  its moves, presses and wheel from the UI while it runs
+  (`Shell::pointer`), so the menus drop their hover and the pointer's
+  look with it, and tell it again on the results; the web's host puts
+  the canvas's cursor back to the default as it closes, a hidden one
+  showing again as the mouse moves over the play (`touch::mouse_moved`).
 - **Layers.** Screens with StepMania's `On`/`Off`/`Cancel` and `In`/`Out`
   children (a transition lasts the tweens queued at its start), and
   overlays owned by a screen or dialog, drawn right above it and closed

@@ -679,7 +679,9 @@ the left, then the Dosis wordmark filling the height (live, as the start
 menu's), a divider and the screen's name in small caps; a play has
 no link out of it: the scene's quit button (hold or double-tap it, as
 Escape) shows throughout on a touch screen and for two seconds after the
-mouse moves, on both shells. Screens follow each other, never cross: a
+mouse moves, on both shells, and the mouse over a play hovers and presses
+nothing of the screens under it, with the default pointer (a play's
+surface is not the UI's). Screens follow each other, never cross: a
 screen's parts leave to their edges (the header up, the footer down, the
 list right, the song's side left; `ddi_ui::screens::transitions`), then
 the next screen's come in; on the web a `Navigate` or `Back` request waits

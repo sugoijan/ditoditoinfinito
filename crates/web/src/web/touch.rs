@@ -71,6 +71,16 @@ pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
 /// [`QUIT_LINGER_MS`].
 pub(crate) fn mouse_moved(now_ms: f64) {
     MOUSE_AT.with(|m| m.set(now_ms));
+    // A pointer the prompt's screen hid (a key pressed on it) shows again
+    // as the mouse moves, as it would over the menus
+    // (`crate::components::ui_dev`), which hold the canvas no more while
+    // the play runs.
+    if PLAYING.with(|p| p.get())
+        && let Some(c) = super::screen::canvas()
+        && c.style().get_property_value("cursor").ok().as_deref() == Some("none")
+    {
+        let _ = c.style().set_property("cursor", "default");
+    }
 }
 
 /// Whether the quit button shows at `now_ms`.

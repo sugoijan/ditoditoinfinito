@@ -694,7 +694,14 @@ impl Shell {
         }
     }
 
-    fn pointer(&mut self, id: u64, kind: PointerKind, phase: PointerPhase, pos: [f32; 2]) {
+    /// A pointer's event for the UI. A play's surface is not the UI's: a
+    /// pointer over it is the quit button's alone ([`Shell::quit_button`]),
+    /// never the menus' under it (song select under the prompt that
+    /// closed, whose items it would hover and press).
+    pub fn pointer(&mut self, id: u64, kind: PointerKind, phase: PointerPhase, pos: [f32; 2]) {
+        if self.play.playing() {
+            return;
+        }
         self.send(UiEvent::Pointer(PointerEvent {
             id,
             kind,
@@ -1064,12 +1071,18 @@ impl Shell {
         ddi_platform::InputSource::poll(&mut self.input.keyboard, &mut Vec::new());
         if on {
             self.sound.borrow_mut().pause();
-            // The play is not the UI's: no pointer from the menus over it,
-            // and the UI tells it again after.
-            if let Some(s) = &self.surface {
-                s.window.set_cursor(CursorIcon::Default);
-            }
-            self.ui.forget_cursor();
+            // The play's surface is not the UI's (`Shell::pointer`): the
+            // mouse leaves the menus, which drop their hover and the
+            // pointer's look with it, and meet it again after the play.
+            self.send(UiEvent::Pointer(PointerEvent {
+                id: MOUSE,
+                kind: PointerKind::Mouse,
+                phase: PointerPhase::Leave,
+                pos: self.cursor,
+                buttons: self.buttons,
+                modifiers: self.modifiers,
+                time: self.now_ms(),
+            }));
         }
         let link = self.surface.as_ref().and_then(|s| s.link.as_ref());
         if let Some(l) = link {
@@ -1285,6 +1298,10 @@ impl ApplicationHandler for Shell {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                // A play's surface is not the UI's (`Shell::pointer`).
+                if self.play.playing() {
+                    return;
+                }
                 // winit's positive y scrolls up; the DOM's down. Lines are
                 // a wheel's notches (or fractions of one: Windows'
                 // precision touchpads, X11's smooth scrolling); pixels

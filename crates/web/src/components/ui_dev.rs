@@ -1018,6 +1018,13 @@ impl Drop for Embedded {
             h.raf = None;
             h.listeners.clear();
             let _ = h.textarea.blur();
+            // The canvas is the app's one: a pointer this host's screen
+            // asked for (over the prompt's Start, pressed) would stay on
+            // whatever draws next (a play) with no host to change it. A
+            // hidden pointer stays hidden until the mouse moves.
+            if !h.pointer_hidden {
+                let _ = h.canvas.style().set_property("cursor", "default");
+            }
             drop_field(&h);
             h.textarea.remove();
             h.files.remove();
