@@ -95,7 +95,7 @@ fn search_handoff_empty_results_and_more_have_a_direction_only_path() {
 }
 
 #[test]
-fn results_reveal_every_control_and_shoulders_alone_change_panels() {
+fn results_reveal_every_control_and_shoulders_change_nothing() {
     use screens::results::{ResultsActions, ResultsScreen};
     for size in SIZES {
         let (mut h, env) = setup(size);
@@ -132,18 +132,17 @@ fn results_reveal_every_control_and_shoulders_alone_change_panels() {
             "OffsetUp",
             "UseMean",
             "ResetOffset",
-            "PanelSet0",
-            "PanelSet1",
-            "PanelSet2",
         ] {
             assert!(
                 visited.iter().any(|n| n == name),
                 "{size:?}: missing {name} in {visited:?}"
             );
         }
+        // The panel sets' tabs went with the results' bar (the sets wait
+        // for a picker): the shoulders have nothing to change here.
         let before = env.state.borrow().panels.clone();
         button(&mut h, 5);
-        assert_ne!(env.state.borrow().panels, before);
+        assert_eq!(env.state.borrow().panels, before);
         button(&mut h, 4);
         assert_eq!(env.state.borrow().panels, before);
     }
