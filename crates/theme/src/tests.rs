@@ -399,6 +399,9 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     let _ = theme.color("Background");
     // An ITG FA+ play's white Fantastics (the sample plays ITG).
     let _ = theme.color("Judgement.W1White");
+    // The results' timing histogram, in a panel set the results do not
+    // show until the sets' picker comes (`Settings::results_panels`).
+    let _ = theme.color("Graph.Bar");
     // The chart editor's audio view (the editor is not run here).
     for i in 1..=5 {
         let _ = theme.color(&format!("Editor.Audio.Ramp{i}"));
@@ -1427,7 +1430,7 @@ fn results_fit_every_size() {
             );
         };
         let screen = [0.0, 0.0, vp.width, vp.height];
-        for n in ["SongList", "Retry", "OffsetDown", "OffsetUp", "PanelSet0"] {
+        for n in ["SongList", "Retry", "OffsetDown", "OffsetUp"] {
             let b = h.ui.bounds(n).unwrap_or_else(|| panic!("{size:?} {n}"));
             inside(b, screen, n);
         }
