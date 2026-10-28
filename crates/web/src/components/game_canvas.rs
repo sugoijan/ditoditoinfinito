@@ -577,6 +577,8 @@ impl Component for GameCanvas {
             SongSource::Song { .. } if refused.is_some() => {}
             SongSource::Song { id, chart } => {
                 crate::history::set_current(Some(&id));
+                // The shell waits for the prompt, as for a page's screen.
+                crate::boot::expect_host();
                 load(ctx, id, chart, play_settings.clone())
             }
             SongSource::Calibration(mode) => {
@@ -682,12 +684,20 @@ impl Component for GameCanvas {
         // with its own, nor a test's); the skins for its skin row come
         // from storage.
         let options = match &ctx.props().source {
-            SongSource::Song { .. } if replay.is_none() => {
-                let o = PlayOptions::new(
+            SongSource::Song { id, chart } if replay.is_none() => {
+                let mut o = PlayOptions::new(
                     play_settings.clone(),
                     "",
                     ddi_ui::screens::data::Platform::Web,
                 );
+                // The chart's layout, where song select showed it: its
+                // skin row from the first frame (else once the song is read).
+                if let Some(layout) = crate::songs::shown_chart_layout(id, *chart) {
+                    o.set_layout(&layout.id);
+                }
+                if let Some(c) = crate::noteskins::choices_cached() {
+                    o.set_noteskins(c.skins.clone(), c.complete);
+                }
                 o.show(&mut prompt_state.borrow_mut());
                 ctx.link()
                     .send_future(async { Msg::PromptSkins(crate::noteskins::choices().await) });
@@ -1067,6 +1077,8 @@ impl GameCanvas {
             }
             Msg::SongLoaded(Err(e)) => {
                 self.song = Status::Failed(e.message());
+                // No prompt comes: the shell shows the page as it is.
+                crate::boot::ready();
                 true
             }
             Msg::Access(granted) => {
@@ -2052,6 +2064,12 @@ impl GameCanvas {
                 .charts
                 .get(*chart)
                 .and_then(|c| song.song.layout_of(c)),
+            // Before the song is read: the layout song select showed the
+            // chart with, so the prompt's first frame has the diagram's
+            // space (the song's own takes over).
+            (_, SongSource::Song { id, chart }) if self.replay.is_none() => {
+                crate::songs::shown_chart_layout(id, *chart)
+            }
             _ => None,
         };
         let waiting = self.waiting_for().into_iter().map(String::from).collect();
@@ -2210,6 +2228,32 @@ impl GameCanvas {
                 },
                 ..PromptInfo::default()
             },
+            // Before the song is read, what song select showed of it (the
+            // card laid out as it will be; `SongLoaded` takes over).
+            (_, SongSource::Song { id, chart })
+                if self.replay.is_none()
+                    && let Some((entry, layout)) = crate::songs::shown_chart(id, *chart) =>
+            {
+                let c = entry.charts.iter().find(|c| c.index == *chart);
+                let difficulty = c.and_then(|c| ddi_chart::Difficulty::from_name(&c.difficulty));
+                PromptInfo {
+                    title: entry.title.clone(),
+                    artist: entry.artist.clone(),
+                    chart: c
+                        .zip(difficulty)
+                        .map(|(c, d)| chart_line(d, c.meter, &layout.name))
+                        .unwrap_or_default(),
+                    difficulty: difficulty
+                        .map(|d| ddi_ui::screens::data::difficulty_name(d).to_string())
+                        .unwrap_or_default(),
+                    mods: mods_line(&self.settings),
+                    badge: if props.auto {
+                        "AUTOPLAY".into()
+                    } else {
+                        String::new()
+                    },
+                }
+            }
             // Its name comes once it is read (`SongLoaded`).
             _ => PromptInfo {
                 title: match &props.source {
@@ -2280,6 +2324,8 @@ impl GameCanvas {
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.set_focus_ring(false);
         ui.push(PromptScreen::new(env, self.prompt_state.clone(), act));
         // What tests read: `__DDI_DEBUG.prompt` and `prompt_backdrop`.
@@ -2658,6 +2704,8 @@ impl GameCanvas {
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.set_focus_ring(false);
         ui.push(ResultsScreen::new(
             env.clone(),
@@ -3324,6 +3372,30 @@ fn noteskin_ready(
     Some(async move {
         if let Some(ms) = test_skin_delay() {
             gloo::timers::future::TimeoutFuture::new(ms).await;
+        }
+        // After the boot shell has faded and the preview's load of the
+        // prompt's diagram is done, where one runs (a direct play route:
+        // the shell waits for the diagram's skin; from song select the
+        // shell is long gone and the preview has it): the play's skin is
+        // needed at Start only, and two loads of one skin at once draw
+        // it twice, which the diagram pays for where the SVG workers
+        // are slow (Firefox).
+        let mut waited = false;
+        for _ in 0..150 {
+            let preview_loading = crate::field_preview::slot()
+                .borrow()
+                .as_ref()
+                .is_some_and(|f| f.skin_loading());
+            if crate::boot::revealed() && !preview_loading {
+                break;
+            }
+            waited = true;
+            gloo::timers::future::TimeoutFuture::new(100).await;
+        }
+        if waited {
+            // And the prompt's entrance: a load parses the skin's
+            // components on the main thread.
+            gloo::timers::future::TimeoutFuture::new(800).await;
         }
         crate::noteskins::prepare_first(wants, &layout)
             .await

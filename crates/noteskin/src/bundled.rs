@@ -31,6 +31,10 @@ pub struct Bundled {
     /// build's file is never taken from an old one's cache.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hashes: Vec<String>,
+    /// Each of `folder.files`' size in bytes, in the same order: the web
+    /// weighs a skin's download by them (its boot's bar).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sizes: Vec<u64>,
 }
 
 /// The start of a bundled skin's key.

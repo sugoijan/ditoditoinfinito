@@ -78,17 +78,27 @@ pub(crate) fn start(root: Element) {
         })
     });
     app.borrow_mut().show();
+    // The SVG worker's module fetched and compiled now, under the boot
+    // shell, for the start menu's rain (its atlas is an SVG): otherwise
+    // the first SVG asked for pays for it, and the rain comes late.
+    crate::web::svg::warm();
     // The boot shell stays until the device is there (or known not to
-    // be) and every face loaded (or failed to): the first paint has what
-    // it draws with, in its own font. Each moves the bar.
+    // be), every face loaded (or failed to), and the first screen is at
+    // rest with its textures in: the first paint has what it draws with,
+    // in its own font, whole. Each moves the bar, the screen its last
+    // stretch (`boot::settling`).
     let faces = crate::web::text::faces();
     let steps = faces.len() + 1;
+    // The first screen's stretch, against a face's or the device's: it
+    // takes the longest (the skin among it), and its progress is told.
+    const SCREEN_WEIGHT: f64 = 6.0;
     let done = Rc::new(Cell::new(0));
     let step = move || {
         done.set(done.get() + 1);
-        crate::boot::progress(done.get() as f64 / steps as f64);
+        let ratio = done.get() as f64 / (steps as f64 + SCREEN_WEIGHT);
+        crate::boot::progress(ratio);
         if done.get() == steps {
-            crate::boot::ready_when_settled();
+            crate::boot::ready_when_settled(ratio);
         }
     };
     for face in faces {

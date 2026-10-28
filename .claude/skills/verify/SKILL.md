@@ -139,16 +139,48 @@ same title, rain and a bar painted alike on one canvas (`#boot-canvas`,
 `page.route(/\/ddi-[^/]*_bg\.wasm$/, r => setTimeout(() => r.continue(), 2500))`
 (a pattern that catches the SVG worker's wasm too stalls the worker, and the
 menu's rain never comes), screenshot after a second, then poll for
-`is-ready` on the shell (the fade starts about 0.25 s after
-`ui.theme.screen` is `start`: the menu's entrance first) and screenshot
-again. The lettering's bounding box must match the menu's, the bar is
+`is-ready` on the shell (the fade starts once the menu's entrance is done
+and the preload is in: the theme's atlases, the song manifest, the skins'
+index and the settings' skin readied for their style, about 0.3 s after
+`ui.theme.screen` is `start` on a warm cache, longer on a cold one, up to
+8 s; `target/scratch/loader/cold.mjs PORT KBPS LATENCY_MS` throttles a
+fresh profile through CDP, a per-request latency included, and samples
+`__DDI_ART.shown` and `.target` with the SVG worker's and the textures'
+counts and the boot's share from the first frame; `PRELOAD_MEMORY` and
+`BOOT_PLAN` seed `ddi.preload.v1` (`<style>:<skin>;<draws>;<bytes>`)
+and `ddi.boot.v1` (`<bytes>;<ms>`) for a remembered load, `SKIN_REQS=1`
+lists the skin's requests with their timing on stderr; `summ.py` on its
+output prints the bar's steps and the longest holds) and screenshot
+again (the fade now follows the bar's 0.24 s fill, so a settle measures
+about 0.24 s longer than the app's ready). The screens built under the
+shell keep their entrances until the fade begins (`__DDI_DEBUG.ui.holding`
+while they do, `.revealed` once the fade began; `.choicesAlpha` the start
+menu's choices' alpha, `.cardAlpha` the prompt's card's): the choices
+slide in and the card fades in over the 0.2 s after `is-ready`, the
+title standing; `target/scratch/loader/entry.mjs PORT ROUTE` samples a
+route's screen, rects and these every frame around the fade, a direct
+`#/play?song=…` among them, whose shell waits for the prompt's skin and
+textures (`__DDI_DEBUG.ui.fieldPreviewDrawn.status` says the skin), and
+lists Chrome's long tasks and frame gaps after the fade (none expected);
+`entry-ff.mjs` is the same in Playwright's Firefox and `skin-ff.mjs PORT
+ROUTE` waits there for the skin, printing the SVG workers' counts along
+the way (that build draws an SVG in about 30 ms against Chrome's 3.5, so
+the prompt's skin takes about 10 s there where Chrome takes 1.5). The lettering's bounding box must match the menu's, the bar is
 centered on `ui.rects.Singleplayer`, and the rain's outlines stand where the
 menu's do; seed `ddi.settings.v1` with an `audio_profiles` and
 `display_profiles` entry first, or the first-run notice lays the menu out
 lower. With `reducedMotion: 'reduce'` both stand at time zero: the first
 ring's mean color in the loader and in the menu must agree.
 `window.__DDI_ART.cost` has the frames drawn and their milliseconds (about
-2.5 ms on this Mac at 1280x800 and a ratio of 2).
+2.5 ms on this Mac at 1280x800 and a ratio of 2), `__DDI_ART.shown` the
+bar's fill as drawn and `.target` as reported (0 to 1: the download to
+`__DDI_BOOT.share`, the download's expected time against the rest's on
+the link measured, `__DDI_BOOT.bandwidth` bytes a second, then the
+fonts, the device, the preload's textures and units weighted by their
+expected milliseconds and the first screen's rest; the fill follows at a
+bounded pace under 0.95 of the report and reaches 1 over 0.24 s once
+the app is ready, as the fade begins; `__DDI_SVG` is `{asked, drawn,
+drawingMs}`).
 
 Check Start → Options → Back, Songs → Options → Back, and each with a
 Timing → Calibration detour and reload. Check browser Back/Forward,
@@ -221,7 +253,7 @@ Under reduced motion (`reducedMotion: 'reduce'` or the setting) the preview is a
 
 ### The field preview
 
-`#/options` and `#/ui-dev?screen=options` show the demo chart as play draws it: on `#/options` with the settings as edited (handed over at once), on the developer route with the stored ones (read again every 0.4 s). `__DDI_DEBUG.ui.fieldPreview` is the panel's rect in canvas pixels (`null` when not shown; frames stop; for a screenshot `clip` use `__DDI_DEBUG.ui.rects.Preview`, CSS pixels), `__DDI_DEBUG.ui.fieldPreviewDrawn` is `{frames, status ("Infinito on WebGPU", "loading …"), skin, layout, demoTime, texture: [w, h] (gone once the screen is left), loads, loadsGivenUp (skin loads run to their end and given up: stepping through skins quickly gives up the ones passed)}`; `__DDI_DEBUG.pass2d.externals` is 1 while the preview shows, 0 after leaving. Screenshot the rect with `clip` after `status` stops saying loading. The preview draws nothing until the skin wanted is in, readied for the layout wanted (`frames` holds while another layout's loads; never the built-in arrows on the way), and the one preview outlives the pages: its skin stays in between `#/options`, `#/select` and the start prompt, whose diagram it draws, readied for the chart song select shows (its first frame has it). Worth covering: `reverse`, `speed`, `appearance` (`Hidden`, `Sudden`, `Stealth`), `scroll_action`, `transform: {turn, cut}`, `noteskin` (`builtin`, `bundled:dance/cf_chrome`), `note_colors`, `field_filter`, `show_deltas`, `bg_brightness`, `background_frame`, `style` (`pump-single`, `danoni-7`), `ruleset` (`ddr-a`), and `__DDI_LOSE_DEVICE()`. `crates/desktop/tests/field_preview_offscreen.rs` checks the same natively on the GPU.
+`#/options` and `#/ui-dev?screen=options` show the demo chart as play draws it: on `#/options` with the settings as edited (handed over at once), on the developer route with the stored ones (read again every 0.4 s). `__DDI_DEBUG.ui.fieldPreview` is the panel's rect in canvas pixels (`null` when not shown; frames stop; for a screenshot `clip` use `__DDI_DEBUG.ui.rects.Preview`, CSS pixels), `__DDI_DEBUG.ui.fieldPreviewDrawn` is `{frames, status ("Infinito on WebGPU", "loading …"), skin, layout, demoTime, texture: [w, h] (gone once the screen is left), loads, loadsGivenUp (skin loads run to their end and given up: stepping through skins quickly gives up the ones passed), wants (what is wanted against what is shown, and whether a load runs)}`; a skin loaded is uploaded as soon as its load ends, not on the preview's next draw (`target/scratch/loader/flow.mjs PORT` drives start menu → song select → a song's prompt in Chrome and prints the preview's state changes: the prompt's first frame must say the skin, `loads` 1 there, the play's own load the second a second later; the prompt's rects `Card`, `Receptors0`, `OptionsHeading` and `Start` must hold their places from its first frame, the card laid out from the chart song select showed, `__DDI_DEBUG.prompt.waiting` still listing `song`); `__DDI_DEBUG.pass2d.externals` is 1 while the preview shows, 0 after leaving. Screenshot the rect with `clip` after `status` stops saying loading. The preview draws nothing until the skin wanted is in, readied for the layout wanted (`frames` holds while another layout's loads; never the built-in arrows on the way), and the one preview outlives the pages: its skin stays in between `#/options`, `#/select` and the start prompt, whose diagram it draws, readied for the chart song select shows (its first frame has it). Worth covering: `reverse`, `speed`, `appearance` (`Hidden`, `Sudden`, `Stealth`), `scroll_action`, `transform: {turn, cut}`, `noteskin` (`builtin`, `bundled:dance/cf_chrome`), `note_colors`, `field_filter`, `show_deltas`, `bg_brightness`, `background_frame`, `style` (`pump-single`, `danoni-7`), `ruleset` (`ddr-a`), and `__DDI_LOSE_DEVICE()`. `crates/desktop/tests/field_preview_offscreen.rs` checks the same natively on the GPU.
 
 ## Background changes
 

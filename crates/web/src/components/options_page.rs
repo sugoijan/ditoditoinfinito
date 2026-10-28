@@ -398,6 +398,8 @@ impl OptionsPage {
             .with_position(crate::router::saved_options())
             .with_shell(shell, self.shared.feed.clone());
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.set_focus_ring(false);
         ui.push(screen);
         let extra: ui_dev::DebugFn = {

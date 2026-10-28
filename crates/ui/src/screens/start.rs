@@ -268,9 +268,10 @@ impl Screen for StartScreen {
         if !cx.is_current_screen() {
             return;
         }
-        if self.in_place {
+        if self.in_place && !cx.holding() {
             // The first `On` was played at the push: the title's entrance
-            // is back for the next (the screen uncovered again).
+            // is back for the next (the screen uncovered again; under the
+            // web's loader, once it has faded).
             self.in_place = false;
             super::transitions(root, &self.env, &[("Title", super::Edge::Top)]);
         }
@@ -284,7 +285,7 @@ impl Screen for StartScreen {
             {
                 crate::widgets::play(actor, "GainFocus");
             }
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
         }
         if !self.env.reduced() {
             self.background_time = cx.clock();
@@ -561,6 +562,54 @@ mod tests {
         let settled = h.ui.bounds("Title").expect("the title");
         assert_eq!(settled, rest);
         assert!(back[1] < settled[1] - 10.0, "{back:?} {settled:?}");
+    }
+
+    #[test]
+    fn held_entrances_come_in_at_the_reveal_with_the_title_in_place() {
+        let env = env();
+        let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+        h.ui.hold_entrances(true);
+        h.push(super::super::sample::start_screen(&env, false).in_place(true));
+        h.run(0.5);
+        // Unseen under the loader, the title standing where it will.
+        assert_eq!(
+            h.actor("MenuChoices").current().diffuse()[3],
+            0.0,
+            "the choices showed"
+        );
+        let title = h.ui.bounds("Title").expect("the title");
+        let before = h.ui.bounds("MenuChoices").expect("the choices");
+        h.ui.reveal();
+        h.frame(0.01);
+        let entering = h.ui.bounds("MenuChoices").expect("the choices");
+        assert!(entering[1] > before[1] + 10.0, "{entering:?} {before:?}");
+        h.run(0.5);
+        assert_eq!(
+            h.actor("MenuChoices").current().diffuse()[3],
+            1.0,
+            "the choices stayed hidden"
+        );
+        assert_eq!(h.ui.bounds("MenuChoices").expect("the choices"), before);
+        assert_eq!(h.ui.bounds("Title").expect("the title"), title);
+        // A later screen, and back: the usual entrances.
+        h.key("a", "a");
+        h.key("ArrowDown", "ArrowDown");
+        h.key("ArrowDown", "ArrowDown");
+        h.key("Enter", "Enter");
+        h.run(0.5);
+        assert_eq!(h.ui.layers().last().unwrap().name, "options");
+        h.key("Escape", "Escape");
+        let mut frames = 0;
+        while h.ui.layers().last().unwrap().name != "start" {
+            h.frame(0.01);
+            frames += 1;
+            assert!(frames < 100, "never back");
+        }
+        h.frame(0.01);
+        let back = h.ui.bounds("MenuChoices").expect("the choices");
+        h.run(0.5);
+        assert!(back[1] > before[1] + 10.0, "{back:?} {before:?}");
+        assert_eq!(h.ui.bounds("MenuChoices").expect("the choices"), before);
     }
 
     #[test]

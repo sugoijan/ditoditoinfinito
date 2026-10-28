@@ -140,6 +140,8 @@ impl PagePage {
         };
         let screen = PageScreen::new(env, name, doc).with_shell(shell, self.feed.clone());
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.set_focus_ring(false);
         if which == Which::Start {
             ui.push(

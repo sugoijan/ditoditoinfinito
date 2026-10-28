@@ -15,7 +15,7 @@
 //! its Lua off until the skin is imported again (`docs/plans/lua.md`).
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use std::future::Future;
 use std::pin::Pin;
@@ -132,6 +132,13 @@ pub(crate) async fn bundled() -> Result<Vec<StoredSkin>, String> {
         for b in &index.skins {
             for (f, hash) in b.folder.files.iter().zip(&b.hashes) {
                 h.insert((b.path.clone(), f.clone()), hash.clone());
+            }
+        }
+    });
+    BUNDLED_SIZES.with_borrow_mut(|h| {
+        for b in &index.skins {
+            for (f, size) in b.folder.files.iter().zip(&b.sizes) {
+                h.insert((b.path.clone(), f.clone()), *size);
             }
         }
     });
@@ -259,6 +266,7 @@ pub(crate) async fn delete(key: &str) -> Result<(), String> {
 }
 
 /// The dance skins one can pick: the bundled ones, then the imported ones.
+#[derive(Clone)]
 pub(crate) struct Choices {
     /// `(key, name)`.
     pub(crate) skins: Vec<(String, String)>,
@@ -271,8 +279,25 @@ pub(crate) struct Choices {
     pub(crate) parameters: std::collections::BTreeMap<String, Vec<ddi_noteskin::params::Parameter>>,
 }
 
+thread_local! {
+    /// The last [`choices`] read ([`choices_cached`]).
+    static CHOICES: RefCell<Option<Rc<Choices>>> = const { RefCell::new(None) };
+}
+
+/// The skins one can pick as last read ([`choices`]): the prompt's
+/// options from their first frame (the boot's preload reads them).
+pub(crate) fn choices_cached() -> Option<Rc<Choices>> {
+    CHOICES.with_borrow(Clone::clone)
+}
+
 /// The dance skins one can pick; an error when none could be read.
 pub(crate) async fn choices() -> Result<Choices, String> {
+    let read = read_choices().await?;
+    CHOICES.with_borrow_mut(|c| *c = Some(Rc::new(read.clone())));
+    Ok(read)
+}
+
+async fn read_choices() -> Result<Choices, String> {
     let imported = match Db::open().await {
         Ok(db) => all(&db).await,
         Err(e) => Err(e),
@@ -1011,6 +1036,20 @@ async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
         .ok()
 }
 
+thread_local! {
+    /// The bundled skins' files fetched this session, in bytes (the
+    /// index's sizes; a byte for a file it does not size): begun, and
+    /// done. How far a skin's download is (the boot's bar,
+    /// `crate::preload`).
+    static FETCHES: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+}
+
+/// The bundled skins' files fetched this session, in bytes: begun, and
+/// done.
+pub(crate) fn fetches() -> (u64, u64) {
+    FETCHES.with(Cell::get)
+}
+
 /// The promise of a bundled skin's file's `Blob` (its download started
 /// now, unless it already was): `null` when it could not be fetched, and
 /// then forgotten, for the next load to try again. Fetched under its
@@ -1038,14 +1077,17 @@ fn file_promise(dir: &str, path: &str) -> js_sys::Promise {
         Some("svg") => "image/svg+xml",
         _ => "",
     };
+    let size = bundled_size(dir, path).unwrap_or(1).max(1);
     FILES.with_borrow_mut(|files| {
         files
             .entry(url.clone())
             .or_insert_with(|| {
+                FETCHES.with(|f| f.set((f.get().0 + size, f.get().1)));
                 wasm_bindgen_futures::future_to_promise(async move {
                     let blob = fetch_again(&url)
                         .await
                         .and_then(|bytes| crate::web::files::bytes_blob(&bytes, mime));
+                    FETCHES.with(|f| f.set((f.get().0, f.get().1 + size)));
                     Ok(match blob {
                         Ok(blob) => blob.into(),
                         Err(e) => {
@@ -1084,6 +1126,10 @@ thread_local! {
     /// the index.
     static BUNDLED_HASHES: RefCell<HashMap<(String, String), String>> =
         RefCell::new(HashMap::new());
+    /// The bundled skins' files' sizes in bytes, by `(folder, path)`,
+    /// from the index.
+    static BUNDLED_SIZES: RefCell<HashMap<(String, String), u64>> =
+        RefCell::new(HashMap::new());
 }
 
 /// A bundled skin's file's content hash, from the index.
@@ -1091,13 +1137,94 @@ fn bundled_hash(dir: &str, path: &str) -> Option<String> {
     BUNDLED_HASHES.with_borrow(|h| h.get(&(dir.to_string(), path.to_string())).cloned())
 }
 
-/// Readies the chosen skin in the background soon after the app starts
-/// (its index and files fetched, [`fetch_blob`]), so that a play or the
-/// preview need not wait for the network: as the preview would draw it,
-/// on the chosen layout. Not counted as a load ([`loads`]).
+/// A bundled skin's file's size in bytes, from the index.
+fn bundled_size(dir: &str, path: &str) -> Option<u64> {
+    BUNDLED_SIZES.with_borrow(|h| h.get(&(dir.to_string(), path.to_string())).copied())
+}
+
+/// Starts the downloads of the files of the bundled skin `key` (its
+/// folder's, from the index) a load for `layout` is about to read, at
+/// once ([`prefetch_folder`]). The bytes begun.
+pub(crate) fn prefetch(key: &str, layout: &Layout) -> u64 {
+    let skins = BUNDLED_SKINS
+        .with(|b| b.borrow().clone())
+        .unwrap_or_default();
+    match skins
+        .iter()
+        .find(|s| s.key() == key)
+        .and_then(|s| s.bundled.as_deref())
+    {
+        Some(dir) => prefetch_folder(dir, Some(layout)),
+        None => 0,
+    }
+}
+
+/// Starts the downloads of a bundled folder's files (`dir` under
+/// `noteskins/`, its files from the index), at once and in a useful
+/// order: its texts (metrics, Lua, shaders) first, since a load reads
+/// them before any image, then its images, but for `layout` those named
+/// for other layouts' buttons alone (`upleft` for a dance-single load),
+/// which [`warm`] fetches later. A load reads its files in turn, and a
+/// slow link pays for every file ahead of the one it waits for
+/// (`crate::preload`, the boot's skin). The bytes begun.
+fn prefetch_folder(dir: &str, layout: Option<&Layout>) -> u64 {
+    let files: Vec<String> = BUNDLED_SIZES.with_borrow(|sizes| {
+        sizes
+            .keys()
+            .filter(|(d, _)| d == dir)
+            .map(|(_, f)| f.clone())
+            .collect()
+    });
+    let lanes: HashSet<String> = layout
+        .map(|l| {
+            l.lanes
+                .iter()
+                .map(|l| l.name.to_ascii_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    let others: HashSet<String> = match layout {
+        Some(_) => Layout::builtins()
+            .iter()
+            .flat_map(|l| l.lanes.iter().map(|l| l.name.to_ascii_lowercase()))
+            .chain(["onigiri".to_string(), "center".to_string()])
+            .filter(|n| n.len() > 1 && !n.bytes().all(|b| b.is_ascii_digit()) && !lanes.contains(n))
+            .collect(),
+        None => HashSet::new(),
+    };
+    let mut files: Vec<&String> = files
+        .iter()
+        .filter(|f| {
+            !f.to_ascii_lowercase()
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|word| others.contains(word))
+        })
+        .collect();
+    files.sort_by_key(|f| !ddi_noteskin::import::kept_text(f));
+    let mut bytes = 0;
+    for path in files {
+        let _ = file_promise(dir, path);
+        bytes += bundled_size(dir, path).unwrap_or(1);
+    }
+    bytes
+}
+
+/// Fetches the rest of the chosen skin's files in the background (every
+/// file of each bundled folder in its chain, texts first,
+/// [`fetch_blob`]: those a chart's mines, rolls or other layouts use),
+/// so that a play need not wait for the network: once the boot shell
+/// has faded and the first screen's entrance is done (the preload
+/// readied the preview's skin; a load here parsed the skin's components
+/// again, 150 ms on the main thread as the menu came in), and
+/// [`WARM_AFTER_MS`] later. Nothing is parsed or drawn.
 pub(crate) fn warm() {
     wasm_bindgen_futures::spawn_local(async {
-        // After what the start screen itself needs.
+        for _ in 0..60 {
+            if crate::boot::revealed() {
+                break;
+            }
+            gloo::timers::future::TimeoutFuture::new(250).await;
+        }
         gloo::timers::future::TimeoutFuture::new(WARM_AFTER_MS).await;
         let settings = crate::settings::Settings::load();
         let options = ddi_shell::field_preview_options(&settings);
@@ -1105,31 +1232,39 @@ pub(crate) fn warm() {
         let Some(key) = want.key.clone() else {
             return;
         };
-        let layout = want.layout();
-        let env = want.env(&layout);
-        let wanted: Wanted = Rc::new(|| true);
-        let done = Rc::new(Cell::new(false));
-        let mut images = Vec::new();
-        let with = LoadWith {
-            images: Some(&mut images),
-            ..LoadWith::default()
-        };
-        let prepared = prepare_until(&key, &layout, env, &wanted, &done, with).await;
-        done.set(true);
-        if let Some(p) = prepared {
-            p.close();
+        if !key.starts_with(BUNDLED) {
+            return;
         }
-        // Then the rest of its images (and of the skins it falls back
-        // on): those a chart's mines, rolls or other layouts use.
-        if key.starts_with(BUNDLED) {
-            for (dir, path) in &images {
-                let _ = file_promise(dir, path);
-            }
+        let layout = want.layout();
+        for dir in chain_folders(&key, &want.env(&layout)).await {
+            prefetch_folder(&dir, None);
         }
     });
 }
 
-/// How long after the app starts [`warm`] begins, in ms.
+/// The bundled folders the skin `key` (its parameters' head) draws
+/// from, in its chain's order: the folder's path under `noteskins/`.
+async fn chain_folders(key: &str, env: &Env) -> Vec<String> {
+    let stored = bundled_or_none().await;
+    let Some(chosen) = stored.iter().find(|s| s.key() == key) else {
+        return Vec::new();
+    };
+    let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
+    let Ok(skin) = ddi_noteskin::params::head(&folders, &chosen.game, &chosen.name, &env.params)
+    else {
+        return Vec::new();
+    };
+    skin.chain
+        .iter()
+        .filter_map(|d| match d {
+            Dir::Folder(i) => stored.get(*i)?.bundled.clone(),
+            Dir::BuiltIn(_) => None,
+        })
+        .collect()
+}
+
+/// How long after the shell's fade [`warm`] begins, in ms: after the
+/// first screen's entrance.
 const WARM_AFTER_MS: u32 = 1500;
 
 /// A hash seed for a skin's VMs, from the platform's randomness.
@@ -1173,12 +1308,9 @@ type Among = (Option<Db>, Vec<StoredSkin>);
 /// What a load reads among and draws for besides its skin
 /// ([`prepare_until`]).
 #[derive(Default)]
-struct LoadWith<'a> {
+struct LoadWith {
     /// The skins it reads among, when they were read already.
     among: Option<Among>,
-    /// Gets the bundled images of the skin's chain, `(folder, path)`
-    /// ([`warm`]).
-    images: Option<&'a mut Vec<(String, String)>>,
     /// Arrows a page draws at its own size, device pixels: the skin's
     /// SVGs drawn sharp for those too ([`svg_scale`]).
     arrows: Option<f64>,
@@ -1211,7 +1343,7 @@ async fn load(
     layout: &Layout,
     env: Env,
     wanted: Wanted,
-    with: LoadWith<'_>,
+    with: LoadWith,
 ) -> Option<Prepared> {
     let done = Rc::new(Cell::new(false));
     let prepared = prepare_until(key, layout, env, &wanted, &done, with).await;
@@ -1252,13 +1384,9 @@ async fn prepare_until(
     env: Env,
     wanted: &Wanted,
     done: &Rc<Cell<bool>>,
-    with: LoadWith<'_>,
+    with: LoadWith,
 ) -> Option<Prepared> {
-    let LoadWith {
-        among,
-        images,
-        arrows,
-    } = with;
+    let LoadWith { among, arrows } = with;
     let scale = svg_scale(arrows);
     let clock = || load_clock(wanted.clone(), done.clone());
     // A bundled skin plays without storage.
@@ -1312,18 +1440,6 @@ async fn prepare_until(
             .collect();
         (skin.name, chain)
     };
-    if let Some(images) = images {
-        for s in chain.iter().filter_map(|i| stored.get(*i)) {
-            if let Some(dir) = &s.bundled {
-                images.extend(
-                    s.files
-                        .iter()
-                        .filter(|f| ddi_noteskin::is_image(f))
-                        .map(|f| (dir.clone(), f.clone())),
-                );
-            }
-        }
-    }
     for i in chain {
         if let (Some(s), Some(db)) = (stored.get_mut(i), &db)
             && s.bundled.is_none()

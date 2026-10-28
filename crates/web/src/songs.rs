@@ -77,8 +77,47 @@ pub(crate) async fn fetch_bytes(path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) async fn load_manifest() -> Result<Manifest, String> {
+    if let Some(m) = MANIFEST.with(|m| m.borrow().clone()) {
+        return Ok(m);
+    }
     let text = fetch_text_fresh("songs/index.json").await?;
-    serde_json::from_str(&text).map_err(|e| format!("songs/index.json: {e}"))
+    let manifest: Manifest =
+        serde_json::from_str(&text).map_err(|e| format!("songs/index.json: {e}"))?;
+    MANIFEST.with(|m| *m.borrow_mut() = Some(manifest.clone()));
+    Ok(manifest)
+}
+
+thread_local! {
+    /// The bundled songs' manifest, read once a session (the boot's
+    /// preload reads it under the shell; song select finds it here).
+    static MANIFEST: std::cell::RefCell<Option<Manifest>> = const { std::cell::RefCell::new(None) };
+    /// The chart song select shows: the song's entry, the chart's index
+    /// and its layout ([`note_shown_chart`]).
+    static SHOWN_CHART: std::cell::RefCell<Option<(ManifestEntry, usize, ddi_chart::Layout)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Song select shows chart `chart` of `entry`, of `layout`: a play
+/// opened from it lays its prompt out for them before the song is read
+/// ([`shown_chart`]), so the song's lines, the diagram's space and the
+/// options' skin row are there from the prompt's first frame.
+pub(crate) fn note_shown_chart(entry: &ManifestEntry, chart: usize, layout: ddi_chart::Layout) {
+    SHOWN_CHART.with_borrow_mut(|s| *s = Some((entry.clone(), chart, layout)));
+}
+
+/// Chart `chart` of song `id` as song select showed it, if it did: the
+/// song's entry and the chart's layout ([`note_shown_chart`]).
+pub(crate) fn shown_chart(id: &str, chart: usize) -> Option<(ManifestEntry, ddi_chart::Layout)> {
+    SHOWN_CHART.with_borrow(|s| {
+        s.as_ref()
+            .filter(|(e, c, _)| e.id == id && *c == chart)
+            .map(|(e, _, l)| (e.clone(), l.clone()))
+    })
+}
+
+/// The layout of chart `chart` of song `id`, when song select showed it.
+pub(crate) fn shown_chart_layout(id: &str, chart: usize) -> Option<ddi_chart::Layout> {
+    shown_chart(id, chart).map(|(_, l)| l)
 }
 
 /// An imported song as stored in IndexedDB (JSON under its id).

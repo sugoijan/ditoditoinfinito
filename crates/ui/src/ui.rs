@@ -237,6 +237,10 @@ pub struct Ui {
     time: f64,
     /// The shell's clock, seconds on its origin ([`Ui::set_clock`]).
     clock: Option<f64>,
+    /// Screens pushed now keep their entrances for [`Ui::reveal`]
+    /// ([`Ui::hold_entrances`]), and one has.
+    hold_entrances: bool,
+    held: bool,
     input_time: Option<f64>,
     active_time: f64,
     active_animating: bool,
@@ -292,6 +296,8 @@ impl Ui {
             last_mouse_down: None,
             time: 0.0,
             clock: None,
+            hold_entrances: false,
+            held: false,
             input_time: None,
             active_time: 0.0,
             active_animating: false,
@@ -554,6 +560,39 @@ impl Ui {
     pub fn chrome_focused(&self) -> Option<&str> {
         let id = self.chrome_focus?;
         self.layer(id)?.focused.as_deref()
+    }
+
+    /// Whether screens pushed from now on keep their parts' entrances
+    /// (each part's `On`, as `screens::transitions` sets it, with an
+    /// `Off`) for [`Ui::reveal`], the parts unseen meanwhile: a screen
+    /// built under the web's loader comes in as the loader fades, not
+    /// under it.
+    pub fn hold_entrances(&mut self, yes: bool) {
+        self.hold_entrances = yes;
+    }
+
+    /// Whether entrances are held for [`Ui::reveal`].
+    pub fn holding(&self) -> bool {
+        self.held
+    }
+
+    /// Plays the entrances [`Ui::hold_entrances`] kept, every layer's,
+    /// and gives each part its `On` back for its next.
+    pub fn reveal(&mut self) {
+        if !self.held {
+            return;
+        }
+        self.held = false;
+        let command = Message::new("Reveal").command();
+        for i in 0..self.layers.len() {
+            let left =
+                start_transition(&mut self.layers[i].root, &command, &[], &mut self.problems);
+            crate::screens::unhold_entrances(&mut self.layers[i].root, &command);
+            if left > 0.0 && matches!(self.layers[i].phase, Phase::Active) {
+                self.layers[i].phase = Phase::Entering(left);
+            }
+        }
+        self.dirty = true;
     }
 
     /// Broadcasts a message to every layer (the app's own:
@@ -1153,6 +1192,7 @@ impl Ui {
             self.textures.clone(),
         );
         cx.input_time = self.input_time;
+        cx.holding = self.held;
         cx.menu_key = self.menu_key;
         cx.menu_source = self.menu_source.clone();
         cx.menu_pad = self.menu_pad;
@@ -1196,7 +1236,12 @@ impl Ui {
             None,
             self.textures.clone(),
         );
+        cx.holding = self.hold_entrances;
         let mut root = screen.build(&mut cx);
+        if self.hold_entrances {
+            crate::screens::hold_entrances(&mut root);
+            self.held = true;
+        }
         let left = start_transition(&mut root, "On", &["In"], &mut self.problems);
         let owner = if overlay { owner } else { None };
         let layer = Layer {

@@ -59,6 +59,10 @@ pub(crate) struct FieldPreviewHost {
     wanted: Option<(SkinWant, Layout)>,
     loading: Option<(SkinWant, Layout)>,
     ready: Option<(SkinWant, Layout, Option<crate::noteskins::Prepared>)>,
+    /// The device, for a skin loaded to be shown as soon as it is (its
+    /// textures uploaded then, not on the preview's next draw, which is
+    /// the prompt's first frame when song select readied it).
+    gfx: Weak<Gfx>,
     /// The number of the load wanted: a load whose number is not it any
     /// more gives up (`noteskins::prepare_while`), so stepping through
     /// skins loads only the last.
@@ -75,7 +79,7 @@ const READ_EVERY_MS: f64 = 400.0;
 
 impl FieldPreviewHost {
     /// A preview on `gfx`'s device.
-    pub(crate) fn new(gfx: &Gfx) -> FieldPreviewHost {
+    pub(crate) fn new(gfx: &Rc<Gfx>) -> FieldPreviewHost {
         let preview = FieldPreview::new(
             &gfx.device,
             &gfx.queue,
@@ -90,6 +94,7 @@ impl FieldPreviewHost {
             wanted: None,
             loading: None,
             ready: None,
+            gfx: Rc::downgrade(gfx),
             load_number: Rc::default(),
             read_ms: f64::NEG_INFINITY,
             status: "built-in arrows".into(),
@@ -111,6 +116,40 @@ impl FieldPreviewHost {
     /// a frame was drawn.
     pub(crate) fn ready(&self) -> bool {
         self.shown == self.wanted && self.preview.texture().is_some()
+    }
+
+    /// What is wanted against what is shown, for the verify skill: each
+    /// as `key layout-id lanes reverse params`, and whether a load runs.
+    pub(crate) fn debug_wants(&self) -> String {
+        let one = |v: &Option<(SkinWant, Layout)>| match v {
+            Some((w, l)) => format!(
+                "{} {} {} lanes rev={} {:?}",
+                w.key.as_deref().unwrap_or("builtin"),
+                l.id,
+                l.lanes.len(),
+                w.reverse,
+                w.params
+            ),
+            None => "none".into(),
+        };
+        format!(
+            "wanted: {} | shown: {} | loading: {} | same: {}",
+            one(&self.wanted),
+            one(&self.shown),
+            self.loading.is_some(),
+            self.wanted == self.shown
+        )
+    }
+
+    /// Whether a skin is wanted and not in yet: its load runs.
+    pub(crate) fn skin_loading(&self) -> bool {
+        self.wanted.is_some() && !self.skin_in()
+    }
+
+    /// Whether the skin wanted is in: shown, or loaded for the next
+    /// frame to show (the boot's preload waits for this, not a frame).
+    pub(crate) fn skin_in(&self) -> bool {
+        self.ready.is_some() || (self.wanted.is_some() && self.shown == self.wanted)
     }
     pub(crate) fn preview(&self) -> &FieldPreview {
         &self.preview
@@ -253,9 +292,18 @@ impl FieldPreviewHost {
                     if prepared.is_none() {
                         h.status = format!("no noteskin {key}: the built-in arrows");
                     }
-                    // Shown by the next frame, which has the device.
                     if let Some((_, _, Some(old))) = h.ready.replace((want, layout, prepared)) {
                         old.close();
+                    }
+                    // Shown now, its textures uploaded, so the screen
+                    // that draws it next (the prompt's diagram) has it
+                    // from its first frame; by the next frame where the
+                    // device is gone.
+                    if let Some(gfx) = h.gfx.upgrade()
+                        && h.on(&gfx)
+                        && let Some((want, layout, prepared)) = h.ready.take()
+                    {
+                        h.show_skin(&gfx, want, layout, prepared);
                     }
                 }
                 _ => {

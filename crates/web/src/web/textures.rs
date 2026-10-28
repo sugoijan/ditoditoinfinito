@@ -22,6 +22,27 @@ thread_local! {
     /// Files already in memory, by the source they stand for: the play's
     /// background, which its results draw again without reading it twice.
     static KEPT: RefCell<HashMap<String, Blob>> = RefCell::new(HashMap::new());
+    /// Textures asked for, and of them decoded (or failed), since the
+    /// page loaded: the boot shell's bar runs its last stretch on them
+    /// and stays until the first screen's are in ([`counts`]).
+    static REQUESTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static DONE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The bytes textures were fetched from the site for, since the page
+    /// loaded (the boot shell's plan, `crate::preload`).
+    static BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many textures were asked for and how many of them are in.
+pub(crate) fn counts() -> (usize, usize) {
+    (
+        REQUESTED.with(std::cell::Cell::get),
+        DONE.with(std::cell::Cell::get),
+    )
+}
+
+/// The bytes textures were fetched from the site for.
+pub(crate) fn bytes() -> u64 {
+    BYTES.with(std::cell::Cell::get)
 }
 
 /// Keeps `blob` as the file of `source` (replacing any before), or lets
@@ -49,12 +70,14 @@ pub(crate) fn load(id: TextureId, key: TextureKey, limit: u32) {
     if &*key.source == ddi_ui::screens::options::FIELD_PREVIEW {
         return;
     }
+    REQUESTED.with(|p| p.set(p.get() + 1));
     wasm_bindgen_futures::spawn_local(async move {
         let result = decode(&key, limit).await;
         if let Some(ms) = delay_ms() {
             gloo::timers::future::TimeoutFuture::new(ms).await;
         }
         super::screen::texture_decoded(id, result);
+        DONE.with(|p| p.set(p.get() + 1));
     });
 }
 
@@ -72,6 +95,7 @@ async fn decode(key: &TextureKey, limit: u32) -> Result<web_sys::ImageBitmap, St
         }
         None => {
             let bytes = crate::songs::fetch_bytes(&key.source).await?;
+            BYTES.with(|b| b.set(b.get() + bytes.len() as u64));
             super::files::bytes_blob(&bytes, "")?
         }
     };

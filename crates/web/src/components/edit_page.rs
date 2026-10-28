@@ -150,6 +150,8 @@ impl EditPage {
             .with_host(host)
             .with_status(status);
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.set_focus_ring(false);
         ui.push(screen);
         match ui_dev::start_ui(&el, ui, Some(theme), Some(debug)) {

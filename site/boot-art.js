@@ -86,7 +86,35 @@
   // The theme's colors, the page's variables (target/seo/theme.css).
   const color = (name, fallback) =>
     getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-  let canvas = null, ctx = null, layout = null, raf = 0, progress = 0.04, reduced = false;
+  let canvas = null, ctx = null, layout = null, raf = 0, reduced = false;
+  // The bar: what is reported (`target`) and what is drawn (`shown`),
+  // which follows CAP of it at a bounded pace (the reports come in
+  // steps whose size and timing depend on the link and the device; the
+  // fill moves evenly regardless, between FLOOR and MAXV a second,
+  // closing a gap by RATE of it a second), creeps on by up to AHEAD
+  // while a report is late and fills the rest over FINISH_MS once the
+  // game is ready (`finish`). Reduced motion takes each step whole.
+  const CAP = 0.95, FINISH_MS = 240, RATE = 4, FLOOR = 0.1, MAXV = 1, CREEP = 0.3, AHEAD = 0.04;
+  let target = 0.04, shown = 0.04, finishing = 0, lastStep = 0;
+  const step = (nowMs) => {
+    const dt = lastStep ? Math.min(0.1, (nowMs - lastStep) / 1000) : 0;
+    lastStep = nowMs;
+    if (finishing) {
+      shown = reduced ? 1 : Math.min(1, shown + dt * 1000 / FINISH_MS * finishing);
+      return;
+    }
+    const goal = CAP * target;
+    if (reduced) {
+      shown = Math.max(shown, goal);
+      return;
+    }
+    const gap = goal - shown;
+    if (gap > 0) {
+      shown += Math.min(gap, dt * Math.min(MAXV, Math.max(RATE * gap, FLOOR)));
+    } else {
+      shown += dt * CREEP * Math.max(0, Math.min(CAP, goal + AHEAD) - shown);
+    }
+  };
   const layer = document.createElement("canvas"), lc = layer.getContext("2d");
   const rings = initials.map(() => {
     const c = document.createElement("canvas");
@@ -234,7 +262,7 @@
     const { bar: b, W, H, dpr } = layout;
     ctx.fillStyle = color("--line", "#3a3542");
     ctx.fillRect(b.x, b.y - 1, b.w, 2);
-    const done = Math.max(0.04, progress) * b.w;
+    const done = Math.max(0.04, shown) * b.w;
     const cols = Math.max(1, Math.ceil(done * dpr / 2));
     if (!bar.image || bar.image.width !== cols) {
       bar.c.width = cols;
@@ -258,6 +286,7 @@
     if (!layout || !ctx) return;
     const began = performance.now();
     const time = reduced ? 0 : now();
+    step(began);
     const { W, H, dpr } = layout;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -268,7 +297,7 @@
     cost.max = Math.max(cost.max, cost.last);
     cost.total += cost.last;
     cost.frames++;
-    if (!reduced && !document.hidden) raf = requestAnimationFrame(frame);
+    if ((!reduced || (finishing && shown < 1)) && !document.hidden) raf = requestAnimationFrame(frame);
   };
   const wake = () => {
     if (!raf && layout && ctx) raf = requestAnimationFrame(frame);
@@ -277,6 +306,14 @@
 
   window.__DDI_ART = {
     cost,
+    // The bar's fill as drawn and as reported, 0 to 1, for the verify
+    // skill.
+    get shown() {
+      return shown;
+    },
+    get target() {
+      return target;
+    },
     // `l`: the window's size and pixel ratio, the title's box and the
     // bar's rect in CSS pixels, the menu's layout size and scale.
     layout(l) {
@@ -294,8 +331,15 @@
       wake();
     },
     progress(ratio) {
-      progress = ratio;
+      target = Math.max(target, ratio);
       wake();
+    },
+    // The game is ready: the fill's rest over FINISH_MS, the ms until
+    // it is full (none under reduced motion).
+    finish() {
+      finishing = 1 - shown;
+      wake();
+      return reduced ? 0 : FINISH_MS;
     },
     stop() {
       if (raf) cancelAnimationFrame(raf);

@@ -441,6 +441,9 @@ pub struct PromptScreen {
     demo_config: Option<Rc<super::prompt_controls::Controls>>,
     preview_size: std::cell::Cell<Option<[f32; 2]>>,
     preview_told: Option<super::prompt_controls::Picture>,
+    /// When the diagram's picture came in (the screen's time): it fades
+    /// in from then, over [`RECEPTORS_FADE`] s, through rebuilds.
+    receptors_fade_at: Option<f64>,
 }
 
 /// Where the countdown is (`docs/plans/start-prompt.md`).
@@ -581,6 +584,7 @@ impl PromptScreen {
             demo_config: None,
             preview_size: std::cell::Cell::new(None),
             preview_told: None,
+            receptors_fade_at: None,
         }
     }
 
@@ -1268,6 +1272,24 @@ impl PromptScreen {
             cx.request(crate::UiRequest::ReceptorPreview(picture.clone()));
             self.preview_told = picture;
         }
+        // The picture fades in once it is there (its texture drawn by the
+        // host): set each frame, since the card is built again as the
+        // state changes.
+        if self.preview_ready.get() && self.receptors_fade_at.is_none() {
+            self.receptors_fade_at = Some(cx.time());
+        }
+        if let Some(at) = self.receptors_fade_at {
+            let alpha = if self.env.reduced() {
+                1.0
+            } else {
+                ((cx.time() - at) / RECEPTORS_FADE).clamp(0.0, 1.0) as f32
+            };
+            for row in 0..4 {
+                if let Some(image) = crate::hit::find_mut(root, &format!("Receptors{row}")) {
+                    call(image, "diffusealpha", &[alpha]);
+                }
+            }
+        }
     }
 
     fn publish_view(&self) {
@@ -1470,6 +1492,10 @@ fn loading_label(env: &Env, [w, h]: [f32; 2]) -> Actor {
     f
 }
 
+/// How long the diagram's picture fades in, s, once its texture is
+/// there.
+const RECEPTORS_FADE: f64 = 0.15;
+
 /// How long the loading screen waits before it says "Loading" (the
 /// backdrop's unblur), seconds: a short wait looks like the entrance alone.
 const LOADING_DELAY: f32 = ddi_actor::background::PLAY_SECONDS;
@@ -1561,11 +1587,19 @@ impl Screen for PromptScreen {
         // Fades in from the first frame, taking keys at once: built into
         // the tree, the fade would be the screen's entrance, which holds
         // input back (a quick Enter or Escape was lost). None under
-        // reduced motion.
-        if !std::mem::replace(&mut self.faded, true) && !self.env.reduced() {
-            let t = self.env.metric("Motion.Screen", 0.2);
-            if let Some(card) = crate::hit::find_mut(root, "Prompt") {
-                look::run(card, &format!("diffusealpha,0;linear,{t};diffusealpha,1"));
+        // reduced motion. Under the web's loader, unseen until the
+        // loader fades (`Cx::holding`), then the fade.
+        if !self.faded
+            && let Some(card) = crate::hit::find_mut(root, "Prompt")
+        {
+            if cx.holding() {
+                call(card, "diffusealpha", &[0.0]);
+            } else {
+                self.faded = true;
+                if !self.env.reduced() {
+                    let t = self.env.metric("Motion.Screen", 0.2);
+                    look::run(card, &format!("diffusealpha,0;linear,{t};diffusealpha,1"));
+                }
             }
         }
         let reduced = self.env.reduced();
@@ -1638,6 +1672,7 @@ impl Screen for PromptScreen {
         if self.demo_config != config {
             self.demo_time = 0.0;
             self.preview_ready.set(false);
+            self.receptors_fade_at = None;
             self.demo_config = config;
         }
         if self.preview_ready.get()

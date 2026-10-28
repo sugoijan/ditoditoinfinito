@@ -24,6 +24,7 @@ mod movies;
 mod noteskins;
 mod notices;
 mod play;
+mod preload;
 mod preview;
 mod preview_movie;
 mod replay;

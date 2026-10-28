@@ -783,7 +783,7 @@ impl Screen for PageScreen {
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());
             let left = super::time_left(root);
             *root = self.tree(cx);
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
             self.publish();
         }
         if self.env.state.borrow().screen != self.name {
@@ -795,7 +795,7 @@ impl Screen for PageScreen {
         if m.name == crate::controller_hints::CHANGED {
             let left = super::time_left(root);
             *root = self.tree(cx);
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
             self.publish();
         }
         if m.name == PAGE_CHANGED

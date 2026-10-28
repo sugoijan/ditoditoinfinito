@@ -98,7 +98,8 @@ struct Pool {
     idle: Option<gloo::timers::callback::Timeout>,
     /// Why no worker starts, once one did not.
     broken: Option<String>,
-    /// Images drawn, and the workers' time drawing them, ms.
+    /// Images asked for, drawn, and the workers' time drawing them, ms.
+    asked: u32,
     drawn: u32,
     drawing_ms: f64,
 }
@@ -291,6 +292,7 @@ async fn draw(text: String, size: (u32, u32), raw: bool) -> Result<JsValue, JsVa
             job.id = p.next;
             p.waiting.insert(job.id, (resolve, reject));
             p.queue.push_back(job);
+            p.asked += 1;
         });
     });
     pump();
@@ -523,12 +525,19 @@ fn lost(n: u32, why: &str) {
     }
 }
 
-/// `window.__DDI_SVG`: `{drawn, drawingMs}`.
+/// The images asked of the workers this session, and drawn: how far a
+/// skin's first drawing is (the boot's bar, `crate::preload`).
+pub(crate) fn counts() -> (u32, u32) {
+    POOL.with_borrow(|p| (p.asked, p.drawn))
+}
+
+/// `window.__DDI_SVG`: `{asked, drawn, drawingMs}`.
 fn publish(p: &Pool) {
     let Some(w) = web_sys::window() else {
         return;
     };
     let o = Object::new();
+    let _ = Reflect::set(&o, &"asked".into(), &JsValue::from(p.asked));
     let _ = Reflect::set(&o, &"drawn".into(), &JsValue::from(p.drawn));
     let _ = Reflect::set(&o, &"drawingMs".into(), &JsValue::from(p.drawing_ms));
     let _ = Reflect::set(&w, &JsValue::from_str("__DDI_SVG"), &o);

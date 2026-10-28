@@ -268,6 +268,8 @@ pub struct Cx {
     focused: Option<String>,
     /// The menu action being handled came from a keyboard key.
     pub(crate) menu_key: bool,
+    /// Entrances are held for the web's loader ([`crate::Ui::hold_entrances`]).
+    pub(crate) holding: bool,
     pub(crate) menu_source: Option<crate::nav::Source>,
     /// ... or from a controller.
     pub(crate) menu_pad: bool,
@@ -295,6 +297,7 @@ impl Cx {
             input_time: None,
             focused,
             menu_key: false,
+            holding: false,
             menu_source: None,
             menu_pad: false,
             by_keys: false,
@@ -306,6 +309,14 @@ impl Cx {
     /// Dialogs and app chrome do not change the owning screen.
     pub fn is_current_screen(&self) -> bool {
         self.current_screen
+    }
+
+    /// Whether the screens' entrances are held for the web's loader to
+    /// fade ([`crate::Ui::hold_entrances`]): a tree laid out again keeps
+    /// its parts unseen (`screens::relaid`), and a part standing in
+    /// place stays so.
+    pub fn holding(&self) -> bool {
+        self.holding
     }
 
     /// Whether the player last used keys or a pad (the focus ring shows),

@@ -572,6 +572,8 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         let t = theme_host(fold.clone());
         let env = &t.env;
         let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         // The theme draws its own focus.
         ui.set_focus_ring(false);
         ui.push(sample::start_screen(env, false));
@@ -602,6 +604,8 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         ui
     } else {
         let mut ui = Ui::new(dev::DESIGN, TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.push(DevScreen::with_widgets(
             dev.clone(),
             widgets.clone(),
@@ -834,6 +838,10 @@ fn new_host(
         hook_busy: false,
     }));
     host.borrow().show_cursor();
+    UP.with_borrow_mut(|up| {
+        up.retain(|w| w.strong_count() > 0);
+        up.push(Rc::downgrade(&host));
+    });
     host
 }
 
@@ -1016,11 +1024,23 @@ thread_local! {
     /// The hosts alive: whether a UI screen draws on the canvas
     /// (`crate::boot::ready_when_settled` waits for its screen).
     static HOSTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The hosts up, to wake for the shell's fade ([`wake_all`]).
+    static UP: RefCell<Vec<Weak<RefCell<Host>>>> = const { RefCell::new(Vec::new()) };
 }
 
 /// How many UI hosts are alive.
 pub(crate) fn hosts() -> usize {
     HOSTS.with(std::cell::Cell::get)
+}
+
+/// A frame for every host up (the shell's fade begins: the screens
+/// held under it come in, `Ui::reveal`).
+pub(crate) fn wake_all() {
+    let up: Vec<Rc<RefCell<Host>>> =
+        UP.with_borrow_mut(|up| up.iter().filter_map(Weak::upgrade).collect());
+    for host in &up {
+        schedule(host);
+    }
 }
 
 impl Drop for Host {
@@ -1683,7 +1703,12 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
     // frame, drawn again only when it changes).
     let field = h.field_preview.is_some() && (!h.field_still() || h.field_busy > 0);
     let field = field || h.hook_busy;
-    if !h.ui.needs_redraw() && !h.loading && !field {
+    // While the shell waits for the first screen, frames poll what is
+    // still coming (`crate::boot::settling`): a still screen under
+    // reduced motion asks for none; and one comes for the held
+    // entrances once the shell fades (`Ui::reveal`).
+    let reveal = h.ui.holding() && crate::boot::revealed();
+    if !h.ui.needs_redraw() && !h.loading && !field && !crate::boot::waiting() && !reveal {
         // Idle: the next frame starts its clock afresh, and a screen's
         // deadline wakes frames (the UI needs one once it is met).
         h.last_ms = None;
@@ -2024,8 +2049,22 @@ impl Host {
             .map_or(0.0, |p| p.time_origin());
         self.ui.set_clock((origin + time_ms) / 1000.0);
         self.ui.update(dt);
-        if crate::boot::waiting() && self.ui.settled() {
-            crate::boot::ready();
+        // What the first screens need, loaded under the shell from the
+        // first frame on (`preload`); the loader's bar runs its last
+        // stretch on it and the loader fades once the screen is at rest
+        // with it all in, so the menu shows whole under it, its rain
+        // where the loader's stood.
+        if let Some(theme) = &self.theme {
+            crate::preload::start(theme.env(), self.ui.viewport().screen, &gfx, !self.embedded);
+        }
+        if crate::boot::waiting() {
+            crate::preload::poll();
+            if crate::boot::settling(self.ui.settled()) {
+                crate::boot::ready();
+            }
+        }
+        if crate::boot::revealed() {
+            self.ui.reveal();
         }
         if !self.embedded
             && let Some(theme) = &self.theme
@@ -2384,6 +2423,7 @@ fn publish(h: &Host) {
             let (done, given_up) = crate::noteskins::loads();
             set(&f, "loads", (done as f64).into());
             set(&f, "loadsGivenUp", (given_up as f64).into());
+            set(&f, "wants", fp.debug_wants().as_str().into());
             if let Some(t) = p.texture() {
                 let a = js_sys::Array::new();
                 a.push(&f64::from(t.width()).into());
@@ -2472,6 +2512,8 @@ fn publish(h: &Host) {
             names.extend(st.page_items.iter().cloned());
             names.push("Card".into());
             names.push("SaveOptions".into());
+            names.push("Receptors0".into());
+            names.push("OptionsHeading".into());
             if let Some(p) = &st.prompt {
                 names.extend((0..p.bindings.len()).map(|i| format!("BindingKey{i}")));
                 for o in &p.options {
@@ -2560,6 +2602,17 @@ fn publish(h: &Host) {
         }
     }
     set(&ui, "rects", rects.into());
+    // The entrances held under the boot shell (`Ui::hold_entrances`):
+    // whether they still are, and a part's alpha, for the verify skill.
+    set(&ui, "holding", h.ui.holding().into());
+    set(&ui, "revealed", crate::boot::revealed().into());
+    let alpha = |name: &str| {
+        h.ui.actor(name).map_or(JsValue::NULL, |a| {
+            JsValue::from_f64(f64::from(a.current().diffuse()[3]))
+        })
+    };
+    set(&ui, "choicesAlpha", alpha("MenuChoices"));
+    set(&ui, "cardAlpha", alpha("Prompt"));
     {
         let w = h.widgets.borrow();
         let o = js_sys::Object::new();

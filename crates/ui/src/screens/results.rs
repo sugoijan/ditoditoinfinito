@@ -1430,7 +1430,7 @@ impl Screen for ResultsScreen {
             self.scroll = 0.0;
             let left = super::time_left(root);
             *root = self.make_root(cx);
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
             self.publish();
         }
         if self.env.state.borrow().screen != "results" {
@@ -1442,7 +1442,7 @@ impl Screen for ResultsScreen {
         if m.name == crate::controller_hints::CHANGED {
             let left = super::time_left(root);
             *root = self.make_root(cx);
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
             self.publish();
         }
         if let Some(id) = super::menu_pick(m, "Results.More") {

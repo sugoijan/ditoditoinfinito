@@ -57,8 +57,70 @@ The menu built under the shell stands its title in place from its first
 frame (`StartScreen::in_place`: its `On` emptied for that one entrance,
 the choices still coming in from below; the next entrances, coming back
 from another screen, slide it in as before), and the shell fades once
-that screen is at rest (`boot::ready_when_settled`), so the menu
-appears under the title rather than its title sliding in. Reduced motion
+that screen is at rest with everything the first screens need in
+(`boot::ready_when_settled`; the web's `preload` loads, from the first
+host's first frame, the theme's essential images at the sides the
+screens draw them, `ddi_ui::screens::essential_images`, the song
+manifest, the skins' index and the skin the settings name readied for
+their style on the app's field preview, the SVG worker warmed at boot
+so the rain's atlas, an SVG, is not the first to pay for it; an 8 s
+cap), the bar's last stretch running on those loads and the screen's
+rest so that it fills as the fade begins (`boot::settling`; the
+maintainer chose to wait for the skin too: a snappy first play over
+showing the menu a moment sooner; the skin, many files and hundreds of
+SVG drawings, is waited for 4 s at most, and not at all where it
+should take longer, loading on behind the menu from the fade where a
+link is slower; frames keep coming while the shell waits, a still
+screen under reduced motion asking for none). The maintainer then
+asked for a bar that moves evenly, a little pessimistic, its last bit
+animated, wondering how much its pauses depend on the link and the
+device: they depended on both, the bar's parts being fixed shares
+(the download four fifths, the skin four of twelve units) of stretches
+whose times vary with each (on a fast link the download takes 0.4 s
+and the first screen 1.3 s, most of it the skin's drawings; at
+6 Mbit/s the download 12 s and the screen 5 s). So each part is now
+weighted by the milliseconds it should take: the boot script measures
+the link over the download's first half and sizes the download's share
+against the rest's expected time (the rest's bytes and own time as the
+app left them in `localStorage` at the last fade, `ddi.boot.v1`); the
+app weighs the skin's files by their bytes (the index sizes them; they
+are all asked for at once once it is in, texts first,
+`noteskins::prefetch`, where before the load fetched them one round
+trip after another) on that link and its drawings by the count its
+last load took (`ddi.preload.v1`), a texture and a round trip at fixed
+costs; and the bar as drawn (`site/boot-art.js`) follows what is
+reported at a bounded pace under 0.95 of it, creeps a little while a
+report is late, and fills the rest over 0.24 s once the app is ready,
+the shell fading after. Measured cold with Chrome's throttling: the
+longest hold between percent steps is about 0.13 s on a fast link,
+0.4 s at 40 Mbit/s with 100 ms of latency, and about 1 s at 6 Mbit/s
+with 300 ms (the first bytes' wait, then the SVG worker's module
+behind the theme's atlases). The menu then just appeared under the
+fade, its choices' entrance having played under the shell while it
+waited, and a direct play route showed its prompt before the skin was
+in, the shell fading with no UI host up yet; so the screens built
+under the shell keep their entrances (`Ui::hold_entrances`: each
+part's `On` kept as its `RevealMessage` and the part unseen, through a
+relayout too, `screens::relaid`) and play them from the frame the fade
+begins (`Ui::reveal`, `boot::revealed`, the host woken for it), the
+title standing in place meanwhile (`Cx::holding` holds the restoring of
+its entrance back) and the prompt's card waiting to fade in; the play
+route tells the shell a prompt is coming (`boot::expect_host`), so the
+shell waits for the prompt's skin and textures as for a page's (10 s
+for the skin rather than 4, as the diagram shows it from the first
+frame; the play's own skin load waits for the fade, the preview's load
+and the entrance, where it drew the same skin twice at once, 810
+drawings for 405, which Firefox's slower SVG workers paid for), and fades at once on a song that fails to
+load. The maintainer then saw the menu's entrance stutter at the fade,
+smooth between the screens: a 150 ms task landed on it, the skin warm
+`lib.rs` starts 1.5 s after boot loading the skin a second time and
+parsing its components again on the main thread; the warm now only
+fetches the rest of the skin chain's files, 1.5 s after the fade, a
+skin put off on a slow link is readied 1 s after the fade, and no long
+task or dropped frame follows the fade in Chrome, so the menu
+appears whole under the title rather than its title sliding in or its
+rain arriving after the loader's left (the maintainer saw it come
+late on a cold load). Reduced motion
 holds both titles at time zero. The first run's device notice lays the
 menu out lower than the loader placed the title; the loader cannot know
 it, and that one visit shows the title move.

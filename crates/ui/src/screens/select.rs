@@ -3059,7 +3059,7 @@ impl Screen for SelectScreen {
             }
             // The first frame of the new tree shows it as it is (or still
             // coming in).
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
         }
         if let Some(m) = &self.wheel_motion {
             self.list.visual_scroll(m.sample(cx.time()).0);

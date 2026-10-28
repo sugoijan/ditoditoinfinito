@@ -42,6 +42,28 @@ screen with the prompt's error; a skin that fails draws the built-in
 arrows; pictures and scripts that never come are given up after their
 wait. The loading screen therefore always ends, in the play or an error.
 
+From song select, the diagram's skin is readied on the app's preview
+ahead and uploaded to the device as soon as its load ends
+(`FieldPreviewHost::show_skin` from the load's completion, not from
+the preview's next draw: that draw was the prompt's first frame, which
+went without the diagram while 400 textures uploaded, a second in
+Firefox). The prompt opens before the song is read, and its first
+frame used to lack the song's lines, the diagram and the options'
+skin row, each coming a frame or two later and pushing the modifiers
+and Start down; so song select leaves the chart it shows (its entry
+and layout, `songs::note_shown_chart`) and the skins one can pick are
+read under the boot shell (`noteskins::choices_cached`), and the web
+lays the prompt out from those until `SongLoaded` takes over
+(`prompt_info`, the bindings, `PlayOptions::set_layout`): the card has
+its size and its contents from the first frame. The diagram's picture
+fades in over 0.15 s once its texture is there (`receptors_fade_at`,
+set each frame since the card is built again as the state changes;
+none under reduced motion). Opened as the page's first screen (a direct `#/play?…`), the prompt
+comes up under the web's loader, which waits for it as for a page's
+screen (its textures and its diagram's skin, `boot::expect_host`,
+`docs/plans/start-menu.md`), the card unseen until the loader fades
+(`Cx::holding`) and fading in then.
+
 ## The loading screen
 
 `PromptStep::Loading` now means only this screen (it no longer stands

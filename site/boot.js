@@ -128,14 +128,47 @@
     applyState();
   };
   // The bar's share for the game's download; the rest is what the
-  // game readies before its first screen (the device, the fonts),
-  // which it reports through setStartProgress.
-  const DOWNLOAD_SHARE = 0.85;
-  const setDownloadProgress = (ratio) => {
-    setProgress(ratio == null ? null : clamp01(ratio) * DOWNLOAD_SHARE);
+  // game readies before its first screen (the fonts, the device, the
+  // screen's textures, its skin and its entrance), reported through
+  // setStartProgress as each comes in, so the bar fills as the fade
+  // begins. The share is the download's expected time against the
+  // rest's, so the bar keeps one pace across both: the link measured
+  // as the download goes (counted on at seven tenths: the measure runs
+  // high, and a bar short of the mark looks better than one past it),
+  // the rest's bytes and own time as the game left them last time
+  // (ddi.boot.v1; a guess the first time). Until the link is measured,
+  // three fifths; the bar never goes back, so the share is settled
+  // over the download's first half, not changed in its second.
+  const PLAN_KEY = "ddi.boot.v1";
+  const plan = (() => {
+    try {
+      const [b, c] = String(localStorage.getItem(PLAN_KEY) || "").split(";").map(Number);
+      if (b > 0 && c > 0) return [b, c];
+    } catch (e) {}
+    return [8e6, 1200];
+  })();
+  let share = 0.6, bandwidth = 0, began = 0, firstLoaded = 0;
+  const measure = (loaded, total) => {
+    const now = performance.now();
+    if (!began) {
+      began = now;
+      firstLoaded = loaded;
+      return;
+    }
+    const seconds = (now - began) / 1000;
+    if (seconds < 0.2 || loaded - firstLoaded < 2e5) return;
+    bandwidth = (loaded - firstLoaded) / seconds;
+    if (loaded > total / 2) return;
+    const counted = bandwidth * 0.7;
+    const download = total / counted, rest = plan[0] / counted + plan[1] / 1000;
+    share = Math.min(0.9, Math.max(0.2, download / (download + rest)));
+  };
+  const setDownloadProgress = (ratio, loaded, total) => {
+    if (ratio != null && total > 0) measure(loaded, total);
+    setProgress(ratio == null ? null : clamp01(ratio) * share);
   };
   const setStartProgress = (ratio) => {
-    setProgress(DOWNLOAD_SHARE + clamp01(ratio) * (1 - DOWNLOAD_SHARE));
+    setProgress(share + clamp01(ratio) * (1 - share));
   };
   const fail = (code, message, hint) => {
     state.blocked = {
@@ -183,14 +216,19 @@
       window.sessionStorage?.removeItem(CRASH_RELOADS_KEY);
     } catch (err) {}
   };
+  // The game is ready: the bar fills its last stretch, then the shell
+  // fades (the game draws on under it, its screens coming in as the
+  // fade begins: the ms until then are returned); the art stops once
+  // the shell has faded.
   const ready = () => {
     state.ready = true;
-    applyState();
-    // The game draws on: the art stops once the shell has faded.
-    window.setTimeout(() => art() && art().stop(), 400);
+    const fill = art() ? art().finish() : 0;
+    window.setTimeout(applyState, fill);
+    window.setTimeout(() => art() && art().stop(), fill + 400);
     // A session that stays healthy for a while earns fresh crash-reload
     // budget; a boot-loop burns through it and lands on the overlay.
     window.setTimeout(clearCrashReloads, CRASH_COUNTER_RESET_MS);
+    return fill;
   };
   const showCrashOverlay = (message, hint) => {
     state.ready = false;
@@ -259,6 +297,14 @@
     }
   });
   window.__DDI_BOOT = {
+    // The link as the download measured it, bytes a second (0: not yet),
+    // and the download's share of the bar (for the verify skill).
+    get bandwidth() {
+      return bandwidth;
+    },
+    get share() {
+      return share;
+    },
     setProgress,
     setStartProgress,
     fail,
@@ -377,7 +423,7 @@
         }
         if (progress && progress.total > 0) {
           const ratio = progress.loaded / progress.total;
-          setDownloadProgress(ratio);
+          setDownloadProgress(ratio, progress.loaded, progress.total);
           if (!downloadCompleted && ratio >= 1) {
             downloadCompleted = true;
           }

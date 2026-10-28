@@ -896,9 +896,58 @@ dependency's licence before adding it.
   menu built under the loader stands its title in place from its first
   frame (`StartScreen::in_place`, the entrance kept for its later
   visits) and the web shell fades the loader once that screen is at
-  rest (`boot::ready_when_settled`, `Ui::settled`), so the menu appears
-  in place under the same title and rain. A frame of the art costs a
-  few milliseconds (`__DDI_ART.cost`).
+  rest with everything the first screens need in: the web's `preload`
+  (from the first UI host's first frame) loads the theme's essential
+  images (`ddi_ui::screens::essential_images`: the title, the rain, the
+  wordmark, the keycap and controller atlases, at the sides the screens
+  draw them, into the painter's cache), the song manifest and the
+  bundled skins' index into their caches, and readies the skin the
+  settings name for their style on the app's field preview, so the
+  first screens, the first prompt and the first play are instant; the
+  bar's last stretch runs on them (`boot::settling`: each texture and
+  the three units, then the screen's rest, each weighted by the
+  milliseconds it should take, so the bar keeps one pace: the skin's
+  files by their bytes, sized by the index, on the link as the boot
+  script measured it downloading the game, and its SVG drawings at the
+  count its last load took, remembered in `localStorage`'s
+  `ddi.preload.v1`; its files are all asked for at once as soon as the
+  index names them, texts first, `noteskins::prefetch`) so that it ends
+  as the fade begins (`boot::ready_when_settled`, `Ui::settled`,
+  `web::textures::counts`; the SVG worker is warmed at boot; the skin
+  waited for 4 s at most, and not at all where it should take longer,
+  loading on behind the menu, deferred to the fade so its files do not
+  take the link from the textures; an 8 s cap should something never
+  come), and the menu appears whole in place under the same title and
+  rain. The download's share of the bar is the download's expected
+  time against the rest's (the boot script measures the link over the
+  download's first half; the rest's bytes and own time are what the
+  app left in `ddi.boot.v1` at the last fade, a guess the first time;
+  0.6 until measured), and the bar as drawn follows what is reported
+  at a bounded pace, held under 0.95 of it, creeping a little while a
+  report is late, filling the rest over 0.24 s once the app is ready
+  and the shell fading after (`site/boot-art.js`; reduced motion takes
+  each step whole and fades at once). The screens built under the shell
+  keep their entrances for the fade (`Ui::hold_entrances` at each web
+  UI's creation while the shell shows, `Ui::reveal` from the frame the
+  fade begins, `boot::revealed`; each part's `On` kept as its
+  `RevealMessage`, `screens::hold_entrances`, through a relayout,
+  `relaid`; the start title stands in place meanwhile and the prompt's
+  card waits to fade in, `Cx::holding`), so the menu's choices and a
+  direct play route's prompt come in as the shell goes rather than
+  under it; the play route tells the shell a prompt is coming
+  (`boot::expect_host`) so it waits for it as for a page's screen (its
+  skin for 10 s rather than 4, the cap 12 s rather than 8, the diagram
+  showing it from the first frame; the play's own skin load waits for
+  the fade, the preview's load, `skin_loading`, and the entrance, so
+  one skin is not drawn twice at once and nothing is parsed under the
+  entrance), and fades on a song that fails to load. Nothing heavy lands on
+  the entrance: `noteskins::warm` no longer loads the skin again (it
+  parsed the components a second time, 150 ms on the main thread, as
+  the menu came in) but fetches the rest of the skin chain's files 1.5 s
+  after the fade, and a skin put off on a slow link is readied 1 s
+  after it. What is per song or per choice (banners, other skins,
+  movies) loads when drawn, as before. A frame of the art costs a few
+  milliseconds (`__DDI_ART.cost`).
   The page follows the game's theme alone, never the system's color
   scheme: its colors are the theme's (`xtask regen-seo` writes them from
   `crates/theme/src/infinito.toml` to `target/seo/theme.css`, inlined;

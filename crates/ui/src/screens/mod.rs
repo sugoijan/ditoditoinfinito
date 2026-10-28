@@ -93,6 +93,7 @@ mod wording_tests;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use ddi_actor::commands::{Call, parse};
 use ddi_actor::{Actor, Kind, Rgba, Sprite};
 
 use crate::dev_widgets::FoldFn;
@@ -868,6 +869,34 @@ pub(crate) fn narrow_fit(env: &Env, vp: ddi_actor::screen::VirtualScreen) -> ([f
     }
 }
 
+/// The images every player's first screens draw, at the sides they are
+/// drawn at (virtual pixels), for a shell to load under its loader so
+/// the screens come whole (the web's `preload`): the start menu's title
+/// and rain, the header's wordmark, the keycap and controller hint
+/// atlases. Kept beside the screens that draw them: the same looks, the
+/// same sides ([`crate::Cx::texture`]'s).
+pub fn essential_images(env: &Env, vp: ddi_actor::screen::VirtualScreen) -> Vec<(String, f32)> {
+    let ([w, _], _) = narrow_fit(env, vp);
+    let mut v = Vec::new();
+    if let Some(s) = env.look.image("TitleMenu.Title") {
+        v.push((
+            s.to_string(),
+            env.metric("TitleMenu.TitleWidth", 520.0).min(w - 32.0),
+        ));
+    }
+    if let Some(s) = env.look.image("TitleMenu.Background") {
+        v.push((s.to_string(), 1024.0));
+    }
+    if let Some(s) = env.look.image("Screen.Header") {
+        v.push((s.to_string(), env.metric("Header.Height", 64.0)));
+    }
+    if let Some(s) = env.look.image("KeyHint") {
+        v.push((s.to_string(), 1280.0));
+    }
+    v.push(("ui/controllers.png".to_string(), 2048.0));
+    v
+}
+
 /// `s` with its first letter capitalized ("audio" → "Audio").
 pub(crate) fn capitalized(s: &str) -> String {
     let mut c = s.chars();
@@ -1006,8 +1035,11 @@ pub(crate) fn time_left(a: &Actor) -> f32 {
 /// tweens to go ([`time_left`]). A screen still coming in goes on coming
 /// in, from as far as it had come; otherwise its first frame shows the
 /// new tree as it is.
-pub(crate) fn relaid(fresh: &mut Actor, left: f32) {
+pub(crate) fn relaid(fresh: &mut Actor, left: f32, cx: &crate::Cx) {
     let mut problems = ddi_actor::Problems::default();
+    if cx.holding() {
+        hold_entrances(fresh);
+    }
     fresh.play("On", &mut problems);
     let total = time_left(fresh);
     // Longer tweens than an entrance (a backdrop fading, rows gliding)
@@ -1016,6 +1048,41 @@ pub(crate) fn relaid(fresh: &mut Actor, left: f32) {
         fresh.finish_tweening();
     } else {
         fresh.update(total - left, &ddi_actor::Clocks::default(), &mut problems);
+    }
+}
+
+/// Keeps the entrances under `a` for the web's loader to fade
+/// (`Ui::hold_entrances`, `Ui::reveal`): a part with an `On` and an
+/// `Off` ([`transitions`]) gets its `On` as its `RevealMessage` and an
+/// `On` that keeps it unseen; its children move with it. An empty `On`
+/// (a title standing in place) and a part already held are left alone.
+pub(crate) fn hold_entrances(a: &mut Actor) {
+    let reveal = crate::message::Message::new("Reveal").command();
+    if a.has_command(&reveal) {
+        return;
+    }
+    let part = a.has_command("Off") && a.command("On").is_some_and(|c| !c.is_empty());
+    if part {
+        let on = a.command("On").map(<[Call]>::to_vec).unwrap_or_default();
+        a.set_command(&reveal, on);
+        a.set_command("On", parse("diffusealpha,0").unwrap_or_default());
+        return;
+    }
+    for child in a.children_mut() {
+        hold_entrances(child);
+    }
+}
+
+/// Gives the parts under `a` their `On` back after the reveal
+/// (`reveal`: the reveal's command).
+pub(crate) fn unhold_entrances(a: &mut Actor, reveal: &str) {
+    if let Some(on) = a.command(reveal).map(<[Call]>::to_vec) {
+        a.set_command("On", on);
+        a.remove_command(reveal);
+        return;
+    }
+    for child in a.children_mut() {
+        unhold_entrances(child, reveal);
     }
 }
 

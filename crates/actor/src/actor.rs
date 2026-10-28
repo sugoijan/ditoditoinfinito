@@ -1513,6 +1513,19 @@ impl Actor {
         self.commands.iter().any(|(n, _)| n == name)
     }
 
+    /// Command `name`'s calls, if it is set.
+    pub fn command(&self, name: &str) -> Option<&[Call]> {
+        self.commands
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, c)| &**c)
+    }
+
+    /// Forgets command `name`.
+    pub fn remove_command(&mut self, name: &str) {
+        self.commands.retain(|(n, _)| n != name);
+    }
+
     /// `SetX`, `SetY`, `SetZ` at once: where the tweens queued so far end,
     /// or where it is (`DestTweenState`), as a particle layer moves its
     /// particles each frame (StepMania 3.9's `BGAnimationLayer::Update`).

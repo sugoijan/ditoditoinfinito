@@ -542,6 +542,8 @@ impl SelectPage {
                 Rc::new(crate::history::tz_minutes),
             ));
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
+        // Under the boot shell, the screen comes in as the shell fades.
+        ui.hold_entrances(crate::boot::shown());
         ui.set_focus_ring(false);
         ui.push(screen);
         let extra: ui_dev::DebugFn = {
@@ -883,7 +885,11 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
                         .iter()
                         .chain(l.imported.iter().map(|s| &s.entry))
                         .find(|e| e.id == *song)?;
-                    ddi_ui::screens::prompt_controls::Controls::for_chart(entry, chart, &settings)
+                    let c = ddi_ui::screens::prompt_controls::Controls::for_chart(
+                        entry, chart, &settings,
+                    )?;
+                    crate::songs::note_shown_chart(entry, chart, c.layout.clone());
+                    Some(c)
                 });
                 if let Some(c) = controls {
                     *shared.warm.borrow_mut() = Some(Rc::new(c));

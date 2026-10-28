@@ -1234,7 +1234,7 @@ impl Screen for OptionsScreen {
             *root = self.build_tree(cx);
             self.attach_texture(root, cx);
             self.refresh(root);
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
         }
         if self.env.state.borrow().screen != "options" {
             self.publish();
@@ -1249,7 +1249,7 @@ impl Screen for OptionsScreen {
             *root = self.build_tree(cx);
             self.attach_texture(root, cx);
             self.refresh(root);
-            super::relaid(root, left);
+            super::relaid(root, left, cx);
         }
         if let Some(id) = super::menu_pick(m, "Options.More") {
             self.input(&Input::Activate { name: id.into() }, root, cx);

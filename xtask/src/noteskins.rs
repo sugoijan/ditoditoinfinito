@@ -161,21 +161,21 @@ pub(crate) fn gen_noteskins(check: bool) -> Result<()> {
         skins: skins
             .into_iter()
             .map(|(path, prov, folder)| {
-                let hashes = folder
+                let (hashes, sizes) = folder
                     .files
                     .iter()
                     .map(|f| {
-                        Ok(ddi_noteskin::report::hash(&fs::read(
-                            dir.join(&path).join(f),
-                        )?))
+                        let bytes = fs::read(dir.join(&path).join(f))?;
+                        Ok((ddi_noteskin::report::hash(&bytes), bytes.len() as u64))
                     })
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<Result<(Vec<_>, Vec<_>)>>()?;
                 Ok(Bundled {
                     path,
                     folder,
                     credit: prov.credit,
                     variant_of: prov.variant_of,
                     hashes,
+                    sizes,
                 })
             })
             .collect::<Result<_>>()?,

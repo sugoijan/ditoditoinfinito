@@ -714,6 +714,15 @@ impl Painter {
         self.textures.id(key)
     }
 
+    /// [`Painter::texture`], and the texture asked of the platform now
+    /// if it is not loaded, as a draw would: what a shell loads ahead of
+    /// the screens that draw it.
+    pub fn load_texture(&mut self, key: TextureKey) -> TextureId {
+        let id = self.textures.id(key);
+        self.textures.get(id);
+        id
+    }
+
     /// Textures drawn and not loaded: the platform loads each and answers
     /// with [`Painter::insert_texture`] or [`Painter::fail_texture`].
     pub fn take_texture_requests(&mut self) -> Vec<(TextureId, TextureKey)> {
