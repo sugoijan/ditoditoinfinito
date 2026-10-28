@@ -57,8 +57,11 @@ metadata out again when something changes.
   Re-working never changes this record of what happened. A re-worked
   play shows the new judgement beside it when they differ. About 8 bytes
   a judgement.
-- **How it ended:** finished, failed, or quit. Quits are not stored for
-  now (below).
+- **How it ended:** finished, failed, or quit (since 2026-10-28: a quit
+  is kept too, judged to the quit with the notes left missed and graded
+  QUIT, `Results::quit`; it never counts toward the bests or the ghost,
+  and its log says where it quit, `PlayLog::end`, so its replay and a
+  judging again quit there).
 - **Flags:** autoplay (any kind: `auto=1`, `auto=pad`), and the bias of an
   autoplay.
 - **When,** and the app's version.
@@ -167,8 +170,6 @@ export, base64 included (5,004 such short plays export to 40 MB).
 
 ## What is not kept (for now)
 
-- **Quits** (Escape, the touch quit button): a quit is not a play. To
-  revisit if players want "attempts".
 - **Calibration plays.**
 - **Plays on the developer routes.**
 
@@ -321,7 +322,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    (`GameCanvas::record_play`, from `PlayFacts` the session hands over:
    the log, the options as played, the `RulesetKey`, the input devices
    whose presses reached a lane, the latency at the start and its range,
-   the sample rate); quits, interruptions and calibration are not kept,
+   the sample rate); interruptions and calibration are not kept (a quit is, graded QUIT),
    and the play routes are the only ones that record. Stale summaries are
    worked out again when a song's chart loads for a play, and by a
    background pass (every 1.5 s, four plays of one song from its chart

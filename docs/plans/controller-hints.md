@@ -226,7 +226,7 @@ contract. Raw capture and recording retain their own dispatch.
 | Options | Up/Down row; Left/Right value or action-button selection | Change value / activate selected action | Next section | More, including Calibrate | Previous/next section, wrapping like North |
 | Ready prompt | Up/Down option chain; Left/Right value on row | Start from rows; activate Back/Save when focused, as today | No new shortcut | No menu unless actions are added | No default |
 | Loading prompt | No hidden shortcuts | Existing start/skip behavior only where offered | None | None | None |
-| Results/history-result view | Move focus; reveal focused controls while scrolling | Activate focused item | Retry, or Watch replay for kept results, as today | More | Previous/next panel set, clamped |
+| Results/history-result view | Move focus; reveal focused controls while scrolling | Activate focused item | Retry, or Watch replay for kept results, as today | More | Previous/next button of the bar, clamped |
 | Editor grid | Up/Down snap row; Left/Right snap size | South places/removes; dedicated bound Start listens/stops | Existing editor menu | Same editor menu | Previous/next lane, clamped |
 | Import dialog | Focus/report scroll; Left/Right on tabs | Activate | Next tab where URL import exists | None | No default |
 | Binding navigation/review | Focus steps/actions | Arm Capture / activate selected action | None | None | None |

@@ -57,7 +57,9 @@ pub struct ChartKey {
     pub index: u32,
 }
 
-/// How a play ended. Quits are not kept for now.
+/// How a play ended. A quit is kept too (its results graded QUIT, the
+/// notes left counted missed) but never counts toward the bests
+/// ([`PlaySummary::counts`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ending {
@@ -214,6 +216,8 @@ fn first_judge() -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Lamp {
+    /// The player quit ([`Results::quit`]): no lamp, not a fail.
+    Quit,
     Failed,
     Clear,
     Life4Clear,
@@ -233,7 +237,9 @@ pub enum Lamp {
 
 impl Lamp {
     pub fn of(r: &Results) -> Lamp {
-        if r.failed {
+        if r.quit {
+            Lamp::Quit
+        } else if r.failed {
             Lamp::Failed
         } else {
             Lamp::played(r)
@@ -273,6 +279,7 @@ impl Lamp {
     /// The lamp as colors and commands name it, and written short.
     pub fn names(self) -> (&'static str, &'static str) {
         match self {
+            Lamp::Quit => ("Quit", "QUIT"),
             Lamp::Failed => ("Failed", "FAILED"),
             Lamp::Clear => ("Clear", "CLEAR"),
             Lamp::Life4Clear => ("Life4Clear", "LIFE4"),
@@ -291,11 +298,11 @@ impl Lamp {
         }
     }
 
-    /// The lamp written out as the results show it; failed and a plain
-    /// clear show none.
+    /// The lamp written out as the results show it; a quit, failed and a
+    /// plain clear show none.
     pub fn label(self) -> Option<&'static str> {
         match self {
-            Lamp::Failed | Lamp::Clear => None,
+            Lamp::Quit | Lamp::Failed | Lamp::Clear => None,
             Lamp::Life4Clear => Some("LIFE4 CLEAR"),
             Lamp::FullCombo => Some("FULL COMBO"),
             Lamp::GreatFullCombo => Some("GREAT FULL COMBO"),

@@ -429,9 +429,12 @@ fn results_and_options_come_and_go() {
         "{:?}",
         h.texts()
     );
+    // Left and Right move along the bar's buttons: Retry, Song list.
+    h.key("ArrowLeft", "ArrowLeft");
+    assert_eq!(h.ui.focused(), Some("Retry"));
     h.key("ArrowRight", "ArrowRight");
-    h.run(0.1);
-    assert_eq!(s.borrow().panels, "Timing");
+    assert_eq!(h.ui.focused(), Some("SongList"));
+    assert_eq!(s.borrow().panels, "Overview");
     h.tap(PointerKind::Mouse, "OffsetUp");
     h.run(0.1);
     assert_eq!(s.borrow().song_offset, 1);
@@ -1013,15 +1016,11 @@ fn results_ask_the_shell_and_keep_what_they_show() {
             as super::results::ActionFn
     };
     let offsets = log.clone();
-    let panels = log.clone();
     let actions = ResultsActions {
         retry: Some(l("retry")),
         song_list: Some(l("song list")),
         offset: Some(Rc::new(move |s| {
             offsets.borrow_mut().push(format!("offset {s}"))
-        })),
-        panels: Some(Rc::new(move |n| {
-            panels.borrow_mut().push(format!("panels {n}"))
         })),
         replay: None,
     };
@@ -1083,18 +1082,31 @@ fn results_ask_the_shell_and_keep_what_they_show() {
         ["offset 0.001", "offset 0.002", "offset -0.002", "offset 0"]
     );
     log.borrow_mut().clear();
-    // Panels, told to the shell; kept through a new layout.
+    // Left and Right move the focus along the bar: Retry first, Song
+    // list last (from the offset editor, to the bar's ends); Enter then
+    // acts on it. The main panel set shows, through a new layout.
+    h.key("ArrowLeft", "ArrowLeft");
+    assert_eq!(h.ui.focused(), Some("Retry"));
+    h.key("ArrowLeft", "ArrowLeft");
+    assert_eq!(h.ui.focused(), Some("Retry"));
     h.key("ArrowRight", "ArrowRight");
+    assert_eq!(h.ui.focused(), Some("SongList"));
+    h.tap(PointerKind::Mouse, "OffsetDown");
+    h.run(0.1);
     h.key("ArrowRight", "ArrowRight");
-    assert_eq!(*log.borrow(), ["panels Timing", "panels Song"]);
+    assert_eq!(h.ui.focused(), Some("Retry"));
+    h.key("ArrowRight", "ArrowRight");
+    assert_eq!(h.ui.focused(), Some("SongList"));
+    h.key("ArrowLeft", "ArrowLeft");
+    h.key("Enter", "Enter");
+    assert_eq!(log.borrow().last().map(String::as_str), Some("retry"));
+    assert!(h.ui.bounds("PanelSet0").is_none());
     h.send(crate::UiEvent::Resize {
         size: [1000.0, 700.0],
         ratio: 1.0,
     });
     h.run(0.2);
-    assert_eq!(state.borrow().panels, "Song");
-    assert!(h.ui.bounds("Panel.Life").is_some());
-    assert!(h.ui.bounds("Panel.Timing").is_none());
+    assert_eq!(state.borrow().panels, "Overview");
 }
 
 #[test]
@@ -1139,9 +1151,6 @@ fn results_offer_the_replay_and_a_replays_results_watch_again() {
             "UseMean",
             "ResetOffset",
             "Back",
-            "PanelSet0",
-            "PanelSet1",
-            "PanelSet2",
         ] {
             if let Some(o) = h.ui.bounds(other) {
                 // Corners: `[x0, y0, x1, y1]`.

@@ -94,9 +94,13 @@ uses whole-second steps. At zero it presses Start for the player
 context, `web::audio::take_for_play`). Not for a direct `#/play?…` URL or
 `--play` (the web makes the context at Start there: an automatic Start is
 no user gesture), replays, the editor's playtests, calibration, the
-prompt after the results' Retry or an interruption (the player just chose
-to go again), nor where the testing flags start the play (`--start`
-presses Start once the prompt is up, as before).
+prompt after an interruption, nor where the testing flags start the play
+(`--start` presses Start once the prompt is up, as before). The results'
+Retry asks for it too (2026-10-28, the maintainer's wish): on the web its
+press makes and starts a context and keeps it for the play as song select
+does (`keep_for_play`; `Msg::Retry` takes it, decodes the music on it
+ahead and sets the prompt's countdown), on desktop the retry sets the
+prompt's countdown from the settings again.
 
 **Web gesture rule.** The countdown's Start is not a gesture. It only
 runs where song select handed over a running context (`hand_over`, made

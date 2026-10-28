@@ -511,6 +511,8 @@ pub struct ResultsData {
     /// "EX 1234 / 1400" where the ruleset has EX.
     pub ex: Option<String>,
     pub failed: bool,
+    /// The player quit: QUIT where the grade goes, no lamp ([`ddi_engine::player::Results::quit`]).
+    pub quit: bool,
     /// "FULL COMBO", "PERFECT FULL COMBO · ASSIST", "ASSIST".
     pub lamp: Option<String>,
     /// The ruleset's tiers that have names, in order.

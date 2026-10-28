@@ -113,7 +113,9 @@ pub fn play_record(p: &Played, results: &Results, facts: &PlayFacts) -> Option<P
             .stored_settings
             .clone()
             .unwrap_or_else(|| serde_json::to_value(settings).unwrap_or_default()),
-        ended: if results.failed {
+        ended: if results.quit {
+            Ending::Quit
+        } else if results.failed {
             Ending::Failed
         } else {
             Ending::Finished

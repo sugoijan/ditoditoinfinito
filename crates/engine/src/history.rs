@@ -39,6 +39,10 @@ pub struct PlayLog {
     /// ([`crate::cover`]), so that a replay shows them as the play did.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub covers: Vec<CoverChange>,
+    /// Where the player quit, the judged song second ([`crate::Player::quit_at`]):
+    /// a replay quits there, and judging the log again ends there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<f64>,
 }
 
 /// Why a stored log or timing could not be read.
@@ -74,9 +78,11 @@ impl core::fmt::Display for LogError {
 impl std::error::Error for LogError {}
 
 /// The log's binary format: 1 for the edges alone, 2 with the lane
-/// covers' changes after them.
+/// covers' changes after them, 3 with where the player quit after those
+/// (their count then present, 0 or more).
 const LOG_VERSION: u8 = 1;
 const LOG_VERSION_COVERS: u8 = 2;
+const LOG_VERSION_END: u8 = 3;
 /// The timing's binary format: 1, then 2 with each judgement's place in
 /// the beat in its kind byte's upper bits.
 const TIMING_VERSION_1: u8 = 1;
@@ -202,10 +208,14 @@ impl PlayLog {
     /// ([`crate::Player::input`]). With lane covers changed (version 2),
     /// then their number and per change its time the same way (from the
     /// change before, a signed varint), its mode (a byte) and its two
-    /// heights (a byte each); a log without them keeps version 1.
+    /// heights (a byte each); a log without them keeps version 1. A quit
+    /// play's (version 3) has the covers' count (0 or more) and then where
+    /// it quit, the judged song second as an f64.
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(16 + self.inputs.len() * 3 + self.covers.len() * 6);
-        out.push(if self.covers.is_empty() {
+        let mut out = Vec::with_capacity(24 + self.inputs.len() * 3 + self.covers.len() * 6);
+        out.push(if self.end.is_some() {
+            LOG_VERSION_END
+        } else if self.covers.is_empty() {
             LOG_VERSION
         } else {
             LOG_VERSION_COVERS
@@ -224,7 +234,7 @@ impl PlayLog {
                 out.push(i.lane);
             }
         }
-        if !self.covers.is_empty() {
+        if !self.covers.is_empty() || self.end.is_some() {
             put_varint(&mut out, self.covers.len() as u64);
             let mut last = 0i64;
             for c in &self.covers {
@@ -236,6 +246,9 @@ impl PlayLog {
                 out.push(c.cover.hidden);
             }
         }
+        if let Some(end) = self.end {
+            out.extend_from_slice(&end.to_le_bytes());
+        }
         out
     }
 
@@ -243,7 +256,7 @@ impl PlayLog {
     pub fn decode(bytes: &[u8]) -> Result<PlayLog, LogError> {
         let mut r = Reader { bytes, at: 0 };
         let version = r.byte().map_err(|_| LogError::Empty)?;
-        if version != LOG_VERSION && version != LOG_VERSION_COVERS {
+        if !matches!(version, LOG_VERSION | LOG_VERSION_COVERS | LOG_VERSION_END) {
             return Err(LogError::Version(version));
         }
         let start = r.f64()?;
@@ -266,7 +279,7 @@ impl PlayLog {
             });
         }
         let mut covers = Vec::new();
-        if version == LOG_VERSION_COVERS {
+        if version != LOG_VERSION {
             let n = r.count(4)?;
             covers.reserve(n);
             let mut last = 0i64;
@@ -286,11 +299,13 @@ impl PlayLog {
                 });
             }
         }
+        let end = (version == LOG_VERSION_END).then(|| r.f64()).transpose()?;
         r.end()?;
         Ok(PlayLog {
             start,
             inputs,
             covers,
+            end,
         })
     }
 
@@ -320,6 +335,7 @@ impl PlayLog {
                     ..*c
                 })
                 .collect(),
+            end: self.end.map(|e| to_microsecond(e + seconds)),
         }
     }
 }
@@ -367,6 +383,12 @@ pub fn replay_with(
         player.set_cover_at(c.cover, c.time);
     }
     let last = log.inputs.last().map_or(log.start, |i| i.time);
+    // A quit play: judged to where it quit, then quit there.
+    if let Some(end) = log.end {
+        player.update_at(end);
+        player.quit_at(end);
+        return player.results();
+    }
     player.update_at(last.max(player.song_end_time()));
     // Past the last O.K. or N.G. those updates showed.
     player.update_at(player.end_time());
@@ -696,6 +718,21 @@ mod tests {
         assert_eq!(PlayLog::decode(&bad), Err(LogError::Kind(7)));
         // Shifted with the edges.
         assert_eq!(log.shifted(0.5).covers[0].time, 0.75);
+        // A quit play's log: version 3, where it quit after the covers
+        // (their count there with none too), shifted with the rest.
+        log.end = Some(to_microsecond(14.25));
+        let bytes = log.encode();
+        assert_eq!(bytes[0], LOG_VERSION_END);
+        assert_eq!(PlayLog::decode(&bytes), Ok(log.clone()));
+        assert_eq!(log.shifted(0.5).end, Some(14.75));
+        log.covers.clear();
+        let bytes = log.encode();
+        assert_eq!(bytes[0], LOG_VERSION_END);
+        assert_eq!(PlayLog::decode(&bytes), Ok(log.clone()));
+        assert_eq!(
+            PlayLog::decode(&bytes[..bytes.len() - 1]),
+            Err(LogError::Truncated)
+        );
     }
 
     #[test]

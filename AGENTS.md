@@ -689,7 +689,17 @@ automatic Start is no gesture, so it runs only where song select handed
 over a running context (never on a direct `#/play?…`, a replay, a
 playtest or calibration), and where that context does not run any more
 the prompt asks for a tap or key, as for a pad's Start
-(`docs/plans/start-prompt.md`).
+(`docs/plans/start-prompt.md`). The results' Retry counts down too: its
+press hands a context over the same way (desktop sets the prompt's
+countdown again). A quit (Escape held or twice, the quit button) ends
+the play on the results: judged to the quit with the notes left missed,
+graded QUIT in place of a letter (`Results::quit`, `Player::quit_at`),
+kept in the history as a quit (`Ending::Quit`, the lamp QUIT) that never
+counts for the bests or the ghost; its replay quits where it did
+(`PlayLog::end`). The results show the ruleset's main panel set alone
+(the sets' tabs went; `Settings::results_panels` waits for a picker),
+Retry then Song list as plain buttons, Song list focused first, Left and
+Right moving the focus along them.
 
 In calibration the autoplayer
 follows the physical cue (heard audio, or drawn arrows in the muted test), not

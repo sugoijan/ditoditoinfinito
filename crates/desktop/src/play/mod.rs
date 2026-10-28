@@ -271,8 +271,9 @@ pub enum Ended {
         /// A calibration test's outcome.
         calibration: Option<ddi_session::calibration::Outcome>,
     },
-    /// The player quit.
-    Aborted,
+    /// The player quit: the play's results to there, graded QUIT (kept
+    /// in `plays` as a quit).
+    Aborted { results: Box<Results> },
     /// The window was hidden or the sound stopped.
     Interrupted,
 }
@@ -433,7 +434,10 @@ impl Play {
                 self.record(&results, &facts, plays);
                 None
             }
-            SessionEvent::Aborted => Some(Ended::Aborted),
+            SessionEvent::Aborted { results, facts } => {
+                self.record(&results, &facts, plays);
+                Some(Ended::Aborted { results })
+            }
             SessionEvent::Interrupted => Some(Ended::Interrupted),
         }
     }

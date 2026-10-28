@@ -7,18 +7,20 @@
 //!   tiers with bars (`Results.Judgement`; tiers it does not name are
 //!   left out), then holds (under the ruleset's names), hold ticks, mines,
 //!   stray presses, max combo, fast and slow, the mean and σ.
-//! - **Right**: panels in sets the ruleset offers and the player picks
-//!   ([`super::data::PanelSet`]): the timing histogram colored by the
+//! - **Right**: the main set of the panels the ruleset offers
+//!   ([`super::data::PanelSet`]; the other sets wait for a picker): the
+//!   timing histogram colored by the
 //!   ruleset's windows, life over the song with the gauge's danger line,
 //!   offsets over the song with misses marked, and hits short of the best
 //!   tier by lane.
 //! - **Bottom**: the song offset editor (a millisecond either way, this
-//!   play's mean error when it is worth taking, reset), then Song list
-//!   and Retry.
+//!   play's mean error when it is worth taking, reset), then Retry and
+//!   Song list, plain buttons both.
 //! - **Keys**: Start activates the focused button (Song list at first,
 //!   as the mockup and StepMania's evaluation screen have it), Back
 //!   (Escape, Backspace, a pad's Back) goes to the songs too; `R` and a
-//!   pad's Select (Y; not Tab) retry; Left and Right change the panels.
+//!   pad's Select (Y; not Tab) retry; Left and Right move the focus
+//!   along the bar's buttons. A quit play's grade is QUIT.
 //!   Menu input and taps in the first [`SETTLE`] seconds, and repeats of
 //!   held keys, are let go. The footer says notes worth saying
 //!   (a device changed, the videos stopped).
@@ -50,18 +52,6 @@ use crate::widgets::{part, set_image, set_text};
 pub type ActionFn = Rc<dyn Fn(&Env, &mut Cx)>;
 /// The song offset set (seconds).
 pub type OffsetFn = Rc<dyn Fn(f64)>;
-/// The panel set picked (its name).
-pub type PanelsFn = Rc<dyn Fn(&str)>;
-
-/// The panel set picked, kept in the settings
-/// ([`Settings::results_panels`](crate::state::settings::Settings::results_panels)).
-pub fn stored_panels() -> PanelsFn {
-    Rc::new(|name| {
-        let mut s = crate::state::settings::Settings::load();
-        s.results_panels = name.to_string();
-        s.save();
-    })
-}
 
 /// The shell's part of the screen.
 #[derive(Clone, Default)]
@@ -71,17 +61,11 @@ pub struct ResultsActions {
     /// Watch the play's replay (offered once the play is kept).
     pub replay: Option<ActionFn>,
     pub offset: Option<OffsetFn>,
-    pub panels: Option<PanelsFn>,
 }
 
 /// The life panel's largest drop is the largest fall within this many
 /// seconds (the maintainer's choice: one bad burst, not the lowest point).
 pub const DROP_WINDOW: f32 = 4.0;
-
-/// The panel sets' tabs: their height, and the room they take above the
-/// panels.
-const TAB_H: f32 = 30.0;
-const TABS_ROOM: f32 = 40.0;
 
 /// The offset editor's buttons focus moves through after the bar's.
 const OFFSET_BUTTONS: [&str; 4] = ["OffsetDown", "OffsetUp", "UseMean", "ResetOffset"];
@@ -191,7 +175,6 @@ impl ResultsScreen {
             [m + 20.0, top / 2.0],
         ));
         children.push(super::more_button(&env, [m + 84.0, top / 2.0]));
-        children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([m + 130.0, top / 2.0]) {
             children.push(b);
         }
@@ -217,7 +200,6 @@ impl ResultsScreen {
                     ("Header", Top),
                     ("Back", Top),
                     ("Title", Top),
-                    ("PanelSets", Top),
                     ("WatchReplay", Top),
                     ("Footer", Bottom),
                     ("Bottom", Bottom),
@@ -326,12 +308,7 @@ impl ResultsScreen {
                 84.0,
                 env.metric("Results.Score.Width", 400.0),
             ],
-            [
-                panels_x,
-                84.0 + TABS_ROOM,
-                panels_w,
-                bar_y - 24.0 - 84.0 - TABS_ROOM,
-            ],
+            [panels_x, 84.0, panels_w, bar_y - 24.0 - 84.0],
             bar_y,
         )
     }
@@ -346,7 +323,6 @@ impl ResultsScreen {
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
         children.push(header(&env, cx, screen[0], "RESULTS"));
         children.push(super::more_button(&env, [screen[0] - 64.0, 32.0]));
-        children.push(self.panel_tabs());
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
         }
@@ -366,10 +342,8 @@ impl ResultsScreen {
         if self.actions.replay.is_some() && self.data.kind != ResultsKind::Replay {
             hints.push((&["W"], "Watch replay"));
         }
-        hints.push((&["←", "→"], "Panels"));
         let mut controller: Vec<(&[HintAction], &str)> = vec![
             (&[HintAction::Confirm, HintAction::Start], "Activate"),
-            (&[HintAction::Previous, HintAction::Next], "Panels"),
             (&[HintAction::More], "More"),
             (&[HintAction::Back], "Song list"),
         ];
@@ -456,6 +430,12 @@ impl ResultsScreen {
             [0.0, ty],
         );
         set_text(&mut score, "Grade", &d.grade);
+        // A quit's grade is QUIT, in the danger color.
+        if d.quit
+            && let Some(g) = part(&mut score, "Grade")
+        {
+            call(g, "diffuse", &env.color("Danger"));
+        }
         // One run, the percent sign in it (how wide the number is is not
         // known here).
         set_text(&mut score, "Score", &d.score);
@@ -1193,113 +1173,50 @@ impl ResultsScreen {
         ))
     }
 
-    /// The bar's buttons, left to right: name, label, component.
+    /// The bar's buttons, left to right: name, label, component. Retry
+    /// first, Song list last, all plain buttons (the accent's look read
+    /// as a focus beside the focus outline on Song list).
     fn bar_buttons(&self) -> Vec<(&'static str, &'static str, &'static str)> {
-        let mut v = vec![("SongList", "Song list", "Button")];
+        let mut v = Vec::new();
         let replay = self.actions.replay.is_some();
         match self.data.kind {
             ResultsKind::Play => {
+                v.push(("Retry", "Retry", "Button"));
                 if replay && self.replay_in_bar() {
                     v.push(("WatchReplay", "Watch replay", "Button"));
                 }
-                v.push(("Retry", "Retry", "PlayButton"));
             }
-            ResultsKind::Replay => v.push(("Retry", "Watch again", "PlayButton")),
+            ResultsKind::Replay => v.push(("Retry", "Watch again", "Button")),
             ResultsKind::Kept => {
                 if replay {
-                    v.push(("WatchReplay", "Watch replay", "PlayButton"));
+                    v.push(("WatchReplay", "Watch replay", "Button"));
                 }
             }
         }
+        v.push(("SongList", "Song list", "Button"));
         v
     }
 
-    /// The panel sets as tabs: over the panels, left to right with a
-    /// line under them (on a phone, in the bar, from its right).
-    fn panel_tabs(&self) -> Actor {
-        let env = &self.env;
-        let sizes: Vec<f32> = self
-            .data
-            .panel_sets
-            .iter()
-            .map(|s| look::mono_width(&s.name, 13.0) + 24.0)
+    /// Left and Right: the focus along the bar's buttons (from anywhere
+    /// else, to its first or last).
+    fn bar_focus(&self, action: MenuAction, root: &Actor, cx: &mut Cx) {
+        let names: Vec<&str> = self
+            .bar_buttons()
+            .into_iter()
+            .map(|(n, _, _)| n)
+            .filter(|n| hit::find(root, n).is_some())
             .collect();
-        let gap = 4.0;
-        let (mut x, y) = if self.compact {
-            let total = sizes.iter().sum::<f32>() + gap * sizes.len().saturating_sub(1) as f32;
-            (
-                self.screen[0] - self.compact_bars().2 - total,
-                self.compact_bars().0 / 2.0,
-            )
-        } else {
-            let (_, [px, py, ..], _) = self.places();
-            (px, py - TABS_ROOM + TAB_H / 2.0)
+        if names.is_empty() {
+            return;
+        }
+        let left = matches!(action, MenuAction::Left | MenuAction::Previous);
+        let next = match names.iter().position(|n| Some(*n) == cx.focused()) {
+            Some(i) if left => i.saturating_sub(1),
+            Some(i) => (i + 1).min(names.len() - 1),
+            None if left => names.len() - 1,
+            None => 0,
         };
-        let mut c = Vec::new();
-        if !self.compact && !sizes.is_empty() {
-            let (_, [px, py, pw, _], _) = self.places();
-            let mut line = quad("TabsLine", [pw, 1.0], env.color("Line2"));
-            call(&mut line, "xy", &[px + pw / 2.0, py - TABS_ROOM + TAB_H]);
-            c.push(line);
-        }
-        for (i, (set, &w)) in self.data.panel_sets.iter().zip(&sizes).enumerate() {
-            let mut tab = look::component_or(
-                &*env.look,
-                "Tab",
-                "Button",
-                &Spec::new([w, TAB_H], set.name.as_str()),
-            );
-            tab.name = format!("PanelSet{i}");
-            call(&mut tab, "xy", &[x + w / 2.0, y]);
-            crate::widgets::play(
-                &mut tab,
-                if i == self.data.panel_set {
-                    "Selected"
-                } else {
-                    "Available"
-                },
-            );
-            tab.finish_tweening();
-            x += w + gap;
-            c.push(tab);
-        }
-        frame("PanelSets", c)
-    }
-
-    fn set_panels(&mut self, i: usize, root: &mut Actor) {
-        let n = self.data.panel_sets.len();
-        if n == 0 {
-            return;
-        }
-        let i = i.min(n - 1);
-        if i == self.data.panel_set {
-            return;
-        }
-        self.data.panel_set = i;
-        if self.compact {
-            let (_, _, m) = self.compact_bars();
-            let (mut fresh, content_h) = self.compact_content(self.screen[0] - 2.0 * m);
-            self.content_h = content_h;
-            self.scroll = self.scroll.min(self.max_scroll());
-            call(&mut fresh, "y", &[-self.scroll]);
-            if let Some(p) = hit::find_mut(root, "ResultsContent") {
-                *p = fresh;
-            }
-        } else {
-            let (_, rect, _) = self.places();
-            let fresh = self.panels_actor(rect);
-            if let Some(p) = hit::find_mut(root, "Panels") {
-                super::refill(p, fresh);
-            }
-        }
-        let tabs = self.panel_tabs();
-        if let Some(p) = hit::find_mut(root, "PanelSets") {
-            super::refill(p, tabs);
-        }
-        if let Some(f) = &self.actions.panels {
-            f(&self.data.panel_sets[i].name);
-        }
-        self.publish();
+        cx.focus(names[next]);
     }
 
     /// A new song offset (seconds): kept by the shell, the bar drawn
@@ -1391,13 +1308,6 @@ impl ResultsScreen {
                 items.push(("UseMean".into(), "Use mean offset".into()));
             }
         }
-        items.extend(
-            self.data
-                .panel_sets
-                .iter()
-                .enumerate()
-                .map(|(i, p)| (format!("PanelSet{i}"), p.name.clone())),
-        );
         super::action_menu(&self.env, "Results", items, "Results.More", cx);
     }
 
@@ -1504,7 +1414,6 @@ impl Screen for ResultsScreen {
         }
         v.insert(1, Focusable::new("More"));
         v.push(Focusable::new("Back"));
-        v.extend((0..self.data.panel_sets.len()).map(|i| Focusable::new(format!("PanelSet{i}"))));
         v
     }
 
@@ -1599,12 +1508,8 @@ impl Screen for ResultsScreen {
                     self.open_more(cx);
                     Handled::Yes
                 }
-                MenuAction::Left | MenuAction::Previous => {
-                    self.set_panels(self.data.panel_set.saturating_sub(1), root);
-                    Handled::Yes
-                }
-                MenuAction::Right | MenuAction::Next => {
-                    self.set_panels(self.data.panel_set + 1, root);
+                MenuAction::Left | MenuAction::Previous | MenuAction::Right | MenuAction::Next => {
+                    self.bar_focus(*action, root, cx);
                     Handled::Yes
                 }
                 MenuAction::Back => {
@@ -1658,12 +1563,7 @@ impl Screen for ResultsScreen {
                         }
                     }
                     "ResetOffset" => self.set_offset(0.0, root, cx),
-                    other => {
-                        if let Some(i) = other.strip_prefix("PanelSet").and_then(|n| n.parse().ok())
-                        {
-                            self.set_panels(i, root);
-                        }
-                    }
+                    _ => {}
                 }
                 Handled::Yes
             }

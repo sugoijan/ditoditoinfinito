@@ -425,6 +425,7 @@ pub fn results() -> ResultsData {
         score: "96.77%".into(),
         ex: Some("EX 1680 / 1785".into()),
         failed: false,
+        quit: false,
         lamp: None,
         judgements: vec![
             j("Fantastic", "Judgement.W1", counts[0]),

@@ -105,6 +105,10 @@ pub struct Results {
     pub grade: String,
     pub full_combo: FullCombo,
     pub failed: bool,
+    /// The player quit: the notes left were judged missed and the play
+    /// finished there, graded QUIT ([`Player::quit_at`]).
+    #[serde(default)]
+    pub quit: bool,
     /// Hits early by more than the ruleset's dead zone
     /// ([`JudgeTable::fast_slow`](crate::rules::JudgeTable::fast_slow)).
     pub fast: u32,
@@ -243,6 +247,8 @@ pub struct Player {
     /// checkpoints are their judgement; shocks' still are).
     holds_shown: bool,
     failed: bool,
+    /// The player quit ([`Player::quit_at`]).
+    quit: bool,
     /// When the gauge first said failed ([`Results::gauge_failed_at`]).
     gauge_failed_at: Option<f64>,
     finished: bool,
@@ -361,6 +367,7 @@ impl Player {
             hold_place,
             holds_shown,
             failed: false,
+            quit: false,
             gauge_failed_at: None,
             finished: false,
             log: PlayLog::default(),
@@ -728,6 +735,27 @@ impl Player {
         events
     }
 
+    /// The player quit at judged song time `song_time`: the notes left are
+    /// judged missed (the tiers, the score and the combo count them; the
+    /// gauge stays as it was, so a quit never reads as a fail), the play
+    /// is finished, and its results say so ([`Results::quit`], graded
+    /// QUIT). The log keeps the time ([`PlayLog::end`]), so a replay quits
+    /// there. Nothing changes once the play finished: a quit in a fail's
+    /// hold keeps the fail.
+    pub fn quit_at(&mut self, song_time: f64) {
+        if !self.started || self.finished || !song_time.is_finite() {
+            return;
+        }
+        self.quit = true;
+        self.log.end = Some(to_microsecond(song_time));
+        // Every note left, missed: judged as if its time ran out.
+        let far = self.end_time().max(song_time) + 1.0;
+        let mut events = self.judge.update(to_microsecond(far));
+        self.apply(&mut events);
+        self.finished = true;
+        self.ruleset.score.finish();
+    }
+
     fn finish(&mut self) {
         self.finished = true;
         self.ruleset.score.finish();
@@ -1030,7 +1058,7 @@ impl Player {
         // A player failed and playing on gets no life back (StepMania's
         // `LifeMeterBar::ChangeLife`: "no point in letting them fill up
         // the bar again").
-        if !self.failed {
+        if !self.failed && !self.quit {
             self.ruleset.gauge.on_event(ev, &self.ctx);
         }
         let life = self.ruleset.gauge.life();
@@ -1047,7 +1075,7 @@ impl Player {
         if self.gauge_failed_at.is_none() && self.ruleset.gauge.failed() {
             self.gauge_failed_at = Some(ev.song_time);
         }
-        if !self.failed && self.ruleset.gauge.failed() {
+        if !self.failed && !self.quit && self.ruleset.gauge.failed() {
             match self.ruleset.fail {
                 FailPolicy::Immediate => {
                     self.failed = true;
@@ -1290,9 +1318,14 @@ impl Player {
             tally: self.tally,
             max_combo: self.max_combo,
             score,
-            grade: self.ruleset.grades.grade(&score, &self.tally, self.failed),
+            grade: if self.quit {
+                "QUIT".into()
+            } else {
+                self.ruleset.grades.grade(&score, &self.tally, self.failed)
+            },
             full_combo: FullCombo::evaluate(&self.tally, &self.ruleset.combo),
             failed: self.failed,
+            quit: self.quit,
             fast: self.fast,
             slow: self.slow,
             hits: self.delta_count,

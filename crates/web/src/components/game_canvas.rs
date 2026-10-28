@@ -1271,48 +1271,7 @@ impl GameCanvas {
                 facts,
                 calibration,
                 device_changed,
-            }) => {
-                crate::history::set_playing(false);
-                // A song's play is kept (a failed one already was, when it
-                // failed); a calibration's is not, nor a replay.
-                if let SongSource::Song { id, chart } = &ctx.props().source
-                    && self.save == Save::NotAsked
-                    && self.replay.is_none()
-                {
-                    self.record_play(ctx, id, *chart, &results, *facts);
-                }
-                self.check_replay(&results);
-                let (video_stopped, video_trouble) = self
-                    .game
-                    .try_borrow()
-                    .ok()
-                    .and_then(|g| {
-                        let g = g.as_ref()?;
-                        Some((g.video_stopped(), g.video_trouble()))
-                    })
-                    .unwrap_or_default();
-                self.stage = Stage::Finished {
-                    results,
-                    calibration,
-                    device_changed,
-                    video_stopped,
-                    video_trouble,
-                };
-                if matches!(ctx.props().source, SongSource::Song { .. }) {
-                    if self.save == Save::Pending {
-                        // A moment for the play to be kept, so the results
-                        // can say when it could not.
-                        let link = ctx.link().clone();
-                        self._save_wait = Some(gloo::timers::callback::Timeout::new(
-                            SAVE_WAIT_MS,
-                            move || link.send_message(Msg::SaveWaited),
-                        ));
-                    } else {
-                        self.show_results(ctx);
-                    }
-                }
-                true
-            }
+            }) => self.ended(ctx, results, *facts, calibration, device_changed),
             Msg::Session(SessionEvent::Failed { results, facts }) => {
                 // Final now: kept even if a quit or an interruption cuts
                 // the fail's hold short (never a replay's).
@@ -1330,15 +1289,20 @@ impl GameCanvas {
                 self.show_waiting_results(ctx)
             }
             Msg::SaveWaited => self.show_waiting_results(ctx),
-            Msg::Session(SessionEvent::Aborted) => {
-                // A quit is not a play (not kept).
-                crate::history::set_playing(false);
-                self.stage = Stage::Aborted;
-                if let Some(game) = self.game.borrow_mut().as_mut() {
-                    game.clear_session();
+            Msg::Session(SessionEvent::Aborted { results, facts }) => {
+                if matches!(ctx.props().source, SongSource::Song { .. }) {
+                    // A quit is a play: kept as one, graded QUIT, its
+                    // results shown.
+                    self.ended(ctx, results, *facts, None, false)
+                } else {
+                    crate::history::set_playing(false);
+                    self.stage = Stage::Aborted;
+                    if let Some(game) = self.game.borrow_mut().as_mut() {
+                        game.clear_session();
+                    }
+                    back_route(ctx.props()).return_to();
+                    true
                 }
-                back_route(ctx.props()).return_to();
-                true
             }
             Msg::Session(SessionEvent::Interrupted) => {
                 crate::history::set_playing(false);
@@ -1395,6 +1359,21 @@ impl GameCanvas {
                 self.stage = Stage::Idle;
                 self.held_start = None;
                 self.start_on_predecode = false;
+                // Retry from the results, in its press: the context it
+                // kept for the play again, the music decoded on it ahead
+                // and the prompt counting down to Start, as from song
+                // select (`docs/plans/start-prompt.md`).
+                if let SongSource::Song { id, chart } = &ctx.props().source
+                    && !ctx.props().edit
+                    && let Some(audio) = crate::web::audio::take_for_play(id, *chart)
+                {
+                    *self.shell.early_ctx.borrow_mut() = Some(audio.context().clone());
+                    self.early_audio = Some(audio);
+                    self.prompt_state
+                        .borrow_mut()
+                        .set_countdown(Some(self.settings.start_countdown));
+                    self.predecode(ctx);
+                }
                 true
             }
             Msg::SaveCalibration => {
@@ -2403,6 +2382,59 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
 impl GameCanvas {
     /// Keeps the play just ended in the history (`crate::history`): what
     /// it was of, every parameter it ran with, its log and its timing.
+    /// The play ended, to its end or quit: kept (a song's, not a
+    /// replay's; a failed one already when it failed), its results shown
+    /// once it is.
+    fn ended(
+        &mut self,
+        ctx: &Context<Self>,
+        results: Box<Results>,
+        facts: crate::play::PlayFacts,
+        calibration: Option<Outcome>,
+        device_changed: bool,
+    ) -> bool {
+        crate::history::set_playing(false);
+        // A song's play is kept (a failed one already was, when it
+        // failed); a calibration's is not, nor a replay.
+        if let SongSource::Song { id, chart } = &ctx.props().source
+            && self.save == Save::NotAsked
+            && self.replay.is_none()
+        {
+            self.record_play(ctx, id, *chart, &results, facts);
+        }
+        self.check_replay(&results);
+        let (video_stopped, video_trouble) = self
+            .game
+            .try_borrow()
+            .ok()
+            .and_then(|g| {
+                let g = g.as_ref()?;
+                Some((g.video_stopped(), g.video_trouble()))
+            })
+            .unwrap_or_default();
+        self.stage = Stage::Finished {
+            results,
+            calibration,
+            device_changed,
+            video_stopped,
+            video_trouble,
+        };
+        if matches!(ctx.props().source, SongSource::Song { .. }) {
+            if self.save == Save::Pending {
+                // A moment for the play to be kept, so the results
+                // can say when it could not.
+                let link = ctx.link().clone();
+                self._save_wait = Some(gloo::timers::callback::Timeout::new(
+                    SAVE_WAIT_MS,
+                    move || link.send_message(Msg::SaveWaited),
+                ));
+            } else {
+                self.show_results(ctx);
+            }
+        }
+        true
+    }
+
     fn record_play(
         &mut self,
         ctx: &Context<Self>,
@@ -2479,7 +2511,7 @@ impl GameCanvas {
     fn show_results(&mut self, ctx: &Context<Self>) {
         use ddi_ui::screens::data::SongEntry;
         use ddi_ui::screens::play::{PlayInfo, results_data};
-        use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen, stored_panels};
+        use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
 
         let Stage::Finished {
             results,
@@ -2601,7 +2633,17 @@ impl GameCanvas {
         // change this page).
         let retry: ActionFn = {
             let link = ctx.link().clone();
-            Rc::new(move |_, _| {
+            let (song, chart) = (id.clone(), chart);
+            Rc::new(move |_, cx| {
+                // In the press: a context made and started here, kept for
+                // the play again, so its prompt counts down to Start as
+                // song select's does (`Msg::Retry` takes it).
+                if cx.in_gesture()
+                    && let Ok(audio) = WebAudio::new()
+                {
+                    audio.resume_now();
+                    crate::web::audio::keep_for_play(&song, chart, audio);
+                }
                 let link = link.clone();
                 spawn_local(async move { link.send_message(Msg::Retry) });
             })
@@ -2624,7 +2666,6 @@ impl GameCanvas {
                 retry: (!view_results).then_some(retry),
                 song_list: Some(song_list),
                 offset: Some(offset),
-                panels: Some(stored_panels()),
                 replay,
             },
         ));

@@ -323,8 +323,14 @@ pub enum SessionEvent {
         results: Box<Results>,
         facts: Box<PlayFacts>,
     },
-    /// The player quit.
-    Aborted,
+    /// The player quit: the play judged to the quit, the notes left
+    /// missed, its results graded QUIT (`Results::quit`; a quit in a
+    /// fail's hold keeps the fail's) and its facts, which the history
+    /// keeps as a quit (a calibration's or a replay's are not kept).
+    Aborted {
+        results: Box<Results>,
+        facts: Box<PlayFacts>,
+    },
     /// The page was hidden or the audio suspended mid-play.
     Interrupted,
 }
@@ -830,9 +836,23 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.inputs.release();
         }
 
+        // A quit play's replay quits where the play did.
+        if !self.aborted
+            && let Some((log, ..)) = &self.replay
+            && let Some(end) = log.end
+            && self.player.judge_time(host_now) >= end
+        {
+            self.player.quit_at(end);
+            self.aborted = true;
+        }
         let outcome = if self.aborted {
             self.audio.stop_all();
-            Some(SessionEvent::Aborted)
+            // The play ends here, judged to now (`Player::quit_at`).
+            self.player.quit_at(self.player.judge_time(host_now));
+            Some(SessionEvent::Aborted {
+                results: Box::new(self.player.results()),
+                facts: Box::new(self.facts()),
+            })
         } else if self.inputs.interrupted() || !self.audio.running() {
             self.audio.stop_all();
             Some(SessionEvent::Interrupted)

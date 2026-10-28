@@ -284,10 +284,10 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     ));
     mods.extend(p.ruleset.stepmania.summary());
     let panel_sets = panel_sets();
-    let panel_set = panel_sets
-        .iter()
-        .position(|s| s.name == p.panels)
-        .unwrap_or(0);
+    // The main set, whatever the setting says: the others wait for a
+    // picker (the tabs went; `Settings::results_panels` stays for it).
+    let _ = &p.panels;
+    let panel_set = 0;
     ResultsData {
         line: if p.autoplay {
             format!("{} · {} · AUTOPLAY", p.chart, p.ruleset.name)
@@ -299,6 +299,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         score: score_text(r),
         ex: ex_text(&r.score),
         failed: r.failed,
+        quit: r.quit,
         // The autoplayer's lamp would mean nothing: it says it played.
         lamp: if p.autoplay {
             Some(
@@ -567,6 +568,7 @@ mod tests {
             grade: "A".into(),
             full_combo: FullCombo::None,
             failed: false,
+            quit: false,
             fast: 4,
             slow: 5,
             hits: 30,
@@ -666,7 +668,7 @@ mod tests {
             "{:?}",
             d.windows[0]
         );
-        assert_eq!(d.panel_sets[d.panel_set].name, "Timing");
+        assert_eq!(d.panel_sets[d.panel_set].name, "Overview");
         assert_eq!(d.danger, itg.gauge.danger_line());
     }
 

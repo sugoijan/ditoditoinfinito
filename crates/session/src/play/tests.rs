@@ -438,7 +438,7 @@ fn escape_twice_quits_and_an_interruption_ends_the_play() {
     s.inputs.key(now + 0.2, "Escape", true);
     assert!(matches!(
         run(&mut s, &clock, 60.0, 2.0),
-        Some(SessionEvent::Aborted)
+        Some(SessionEvent::Aborted { .. })
     ));
     assert!(s.audio().stopped >= 1);
 
@@ -479,9 +479,40 @@ fn a_held_escape_quits() {
     )
     .unwrap();
     let event = run(&mut s, &clock, 60.0, 10.0);
-    assert!(matches!(event, Some(SessionEvent::Aborted)));
+    let Some(SessionEvent::Aborted { results, facts }) = event else {
+        panic!("no quit");
+    };
     // Held for CANCEL_HOLD: about 2.7 s.
     assert!((*clock.borrow() - (2.0 + CANCEL_HOLD)).abs() < 0.05);
+    // A quit's results: graded QUIT, not failed, the notes left all
+    // missed (every note of the chart judged), the log told where.
+    assert!(results.quit && !results.failed);
+    assert_eq!(results.grade, "QUIT");
+    assert!(
+        results.tally.count(ddi_engine::rules::Judgement::Miss) > 0,
+        "{:?}",
+        results.tally
+    );
+    let end = facts.log.end.expect("where it quit");
+    assert!(end > 0.0 && end < 4.0, "{end}");
+    // Kept: judged again from its log it quits there too, and so does
+    // its replay, with the same results.
+    let replay = kept("beatucada", &song, 1, &results, &facts, false);
+    let offline = replay.results(&song).unwrap();
+    assert!(offline.quit);
+    assert_eq!(without_late(&offline), without_late(&results));
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let (_, event) = watch(&replay, &song, 60.0, 0.0, 0.0, None, &clock);
+    let Some(SessionEvent::Aborted {
+        results: watched, ..
+    }) = event
+    else {
+        panic!("the replay did not quit");
+    };
+    assert!(watched.quit && !watched.failed);
+    assert_eq!(without_late(&watched), without_late(&results));
+    let check = replay.check(&watched, &offline);
+    assert!(check.matches, "{check:?}");
 }
 
 /// Every bundled song with its charts.
@@ -784,7 +815,7 @@ fn a_failed_play_replays_to_its_fail_and_a_replay_can_be_quit() {
     quit.key(6.0, "Escape", true);
     quit.key(6.1, "Escape", true);
     let (s, event) = watch(&replay, &song, 60.0, 0.01, 0.0, Some(quit), &clock);
-    assert!(matches!(event, Some(SessionEvent::Aborted)));
+    assert!(matches!(event, Some(SessionEvent::Aborted { .. })));
     assert!(s.replay_progress().is_some_and(|(fed, _)| fed == 0));
 }
 

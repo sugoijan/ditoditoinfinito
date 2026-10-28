@@ -332,10 +332,16 @@ the right holding the charts as buttons and a large Play button.
   The numbers are a sample ITG play. The panels need the per-hit record
   that step 6.1 adds to the engine.
 
-  **Since 2026-10-25** (the maintainer's request): the panel sets are
+  **Since 2026-10-25** (the maintainer's request): the panel sets were
   tabs over the panels (`Tab`: a muted label, bright over an accent
   underline when selected; a line under the strip), no "Panels" label;
-  on a phone in the bar as before. The life panel's note is the largest
+  on a phone in the bar as before. **Since 2026-10-28** the tabs are
+  gone: the main set (Overview) alone shows, the other sets waiting for
+  a picker (`Settings::results_panels` stays); the bar is Retry then
+  Song list, plain buttons both (Retry's accent look read as a focus
+  beside the outline on Song list), Left and Right moving the focus
+  along them; a quit play's grade is QUIT in the danger color, no lamp.
+  The life panel's note is the largest
   drop: the largest fall within 4 s (`results::DROP_WINDOW`; a lowest
   never says more than where an ITG gauge starts, 50%), at when it
   began, the fall shaded on the graph ("no drop" when it never fell). A

@@ -340,6 +340,65 @@ fn logs_and_timings_are_compact() {
 
 /// Not the same results when a log is changed: the replay reads it.
 #[test]
+fn a_quit_play_is_judged_to_its_quit_and_replays_there() {
+    let song = chart(23, "dance-single");
+    let ruleset = presets::itg();
+    let options = PlayOptions::default();
+    let probe = Player::new(&song, 0, ruleset.fresh(), options);
+    let script = autoplay_script(&probe);
+    let mut player = Player::new(&song, 0, ruleset.fresh(), options);
+    player.clock_sample(steady(0.0));
+    player.start(0.0, 0.0);
+    let total = player.judge().notes().len() as u32;
+    // Played a third of the way, then quit.
+    let at = player.song_end_time() / 3.0;
+    let mut next = 0;
+    let mut frame = 0u32;
+    loop {
+        let now = f64::from(frame) / 60.0;
+        if now >= at {
+            break;
+        }
+        while next < script.len() && script[next].0 <= now {
+            let (t, lane, pressed) = script[next];
+            player.input(InputEvent {
+                lane,
+                pressed,
+                host_time: HostTime(t),
+            });
+            next += 1;
+        }
+        player.update(HostTime(now));
+        frame += 1;
+    }
+    let before = player.results();
+    assert!(!player.finished() && !before.quit);
+    player.quit_at(at);
+    let r = player.results();
+    // Finished, graded QUIT, not failed; every note judged, the ones
+    // left as misses; the gauge as it was.
+    assert!(player.finished());
+    assert!(r.quit && !r.failed, "{r:?}");
+    assert_eq!(r.grade, "QUIT");
+    assert!(player.judge().all_resolved(), "{total} notes");
+    assert!(
+        r.tally.count(ddi_engine::rules::Judgement::Miss)
+            > before.tally.count(ddi_engine::rules::Judgement::Miss)
+    );
+    assert_eq!(
+        r.life.last().map(|l| l[1]),
+        before.life.last().map(|l| l[1])
+    );
+    assert!((player.log().end.expect("where it quit") - at).abs() < 1e-6);
+    // Judged again from its log (and its log's binary form): the same.
+    assert_replays("quit", &song, &player);
+    // A second quit, or more time, changes nothing.
+    player.quit_at(at + 5.0);
+    assert!(player.update(HostTime(at + 10.0)).is_empty());
+    assert_eq!(player.results(), r);
+}
+
+#[test]
 fn a_changed_log_changes_the_replay() {
     let song = chart(57, "dance-single");
     let probe = Player::new(&song, 0, presets::itg(), PlayOptions::default());

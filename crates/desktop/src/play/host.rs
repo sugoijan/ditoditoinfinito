@@ -24,7 +24,7 @@ use ddi_ui::screens::prompt::{
     SharedPrompt, chart_line, mods_line, new_device_step,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
-use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen, stored_panels};
+use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
 
@@ -684,6 +684,9 @@ impl Host {
                         let mut p = r.prompt.borrow_mut();
                         p.done = false;
                         p.set_step(PromptStep::Ready);
+                        // Counting down to Start again, as from song select.
+                        let seconds = r.settings().start_countdown;
+                        p.set_countdown((seconds > 0.0).then_some(seconds));
                     }
                     self.push_prompt(ui, env, &mut r);
                     if let Some(v) = r.view.as_mut() {
@@ -1232,12 +1235,16 @@ impl Host {
                     }
                 }
             }
-            Ended::Aborted => {
+            Ended::Aborted { results } => {
                 self.log.push(format!("quit {}", play.request.song));
                 if play.request.calibration.is_some() {
                     self.open_menu(ui, env);
+                    Stage::Idle
+                } else {
+                    // A quit's results, graded QUIT, as a play's.
+                    self.show_results(&r, &play, &results, false, ui, env);
+                    Stage::Results(r)
                 }
-                Stage::Idle
             }
             Ended::Interrupted => {
                 self.log.push(format!("interrupted {}", play.request.song));
@@ -1365,7 +1372,6 @@ impl Host {
                 retry: Some(retry),
                 song_list: Some(song_list),
                 offset: Some(offset),
-                panels: Some(stored_panels()),
                 replay: watch,
             },
         ));
@@ -1485,7 +1491,6 @@ impl Host {
                 retry: None,
                 song_list: Some(song_list),
                 offset: None,
-                panels: Some(stored_panels()),
                 replay: Some(watch),
             },
         ));
