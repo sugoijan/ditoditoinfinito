@@ -1402,17 +1402,23 @@ impl Screen for ResultsScreen {
         self.age < SETTLE || self.live.animating(&self.env)
     }
 
+    /// The controller's walk (Down and Up along one list): Song list,
+    /// focused first, then the bar's other buttons, More, a replay's
+    /// button on top, the offset editor, Back; so a walk from the first
+    /// focus reaches every control (Up from Song list enters the chrome).
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v: Vec<Focusable> = self
-            .bar_buttons()
-            .into_iter()
-            .map(|(name, _, _)| Focusable::new(name))
-            .chain(OFFSET_BUTTONS.into_iter().map(Focusable::new))
-            .collect();
+        let bar = self.bar_buttons();
+        let mut v: Vec<Focusable> = vec![Focusable::new("SongList")];
+        v.extend(
+            bar.iter()
+                .filter(|(name, _, _)| *name != "SongList")
+                .map(|(name, _, _)| Focusable::new(*name)),
+        );
+        v.push(Focusable::new("More"));
         if !self.replay_in_bar() && self.actions.replay.is_some() {
-            v.insert(1, Focusable::new("WatchReplay"));
+            v.push(Focusable::new("WatchReplay"));
         }
-        v.insert(1, Focusable::new("More"));
+        v.extend(OFFSET_BUTTONS.into_iter().map(Focusable::new));
         v.push(Focusable::new("Back"));
         v
     }
