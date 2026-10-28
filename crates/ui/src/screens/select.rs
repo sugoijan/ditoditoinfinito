@@ -3028,7 +3028,7 @@ impl Screen for SelectScreen {
             return;
         }
         self.fill_footer(root, cx);
-        self.live.tick(root, "Wordmark", &self.env, dt);
+        self.live.tick(root, "Wordmark", &self.env, cx);
         let events = self.navigation.advance(cx.time());
         self.apply_navigation(events, root, cx);
         // A new size (a window resized or turned, a new design), or

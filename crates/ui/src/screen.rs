@@ -263,6 +263,7 @@ pub struct Cx {
     gesture: bool,
     viewport: Viewport,
     time: f64,
+    clock: f64,
     pub(crate) input_time: Option<f64>,
     focused: Option<String>,
     /// The menu action being handled came from a keyboard key.
@@ -280,6 +281,7 @@ impl Cx {
         gesture: bool,
         viewport: Viewport,
         time: f64,
+        clock: f64,
         focused: Option<String>,
         textures: std::rc::Rc<std::cell::RefCell<crate::textures::TextureTable>>,
     ) -> Cx {
@@ -289,6 +291,7 @@ impl Cx {
             gesture,
             viewport,
             time,
+            clock,
             input_time: None,
             focused,
             menu_key: false,
@@ -349,6 +352,15 @@ impl Cx {
 
     pub fn time(&self) -> f64 {
         self.time
+    }
+
+    /// The shell's clock in seconds ([`crate::Ui::set_clock`]): one the
+    /// screens share, so the live art's paint (the title's, the header's
+    /// wordmark's) keeps its phase from screen to screen, and from the
+    /// web page's loader (its title runs on the same clock) to the first
+    /// screen. The UI's own time where the shell gave none.
+    pub fn clock(&self) -> f64 {
+        self.clock
     }
 
     /// The name of this screen's focused actor.

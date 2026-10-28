@@ -20,28 +20,16 @@
   transition: opacity 180ms ease;
 }
 
-.boot-bar {
-  width: min(320px, 72vw);
-  height: 10px;
-}
-
-.boot-bar-track {
-  width: 100%;
-  height: 2px;
-  background: var(--line);
-  position: relative;
-}
-
-.boot-bar-fill {
+/* The loader's art (boot-art.js): the title, the rain and the bar, laid
+   out by the boot script where the start menu's land. */
+.boot-canvas {
   position: absolute;
-  left: 0;
-  top: -2px;
-  height: 6px;
-  width: 4%;
-  background: var(--text);
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.boot-shell.is-blocked .boot-bar {
+.boot-shell.is-blocked .boot-canvas {
   display: none;
 }
 

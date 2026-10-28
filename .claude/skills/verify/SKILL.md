@@ -132,6 +132,24 @@ Click or Enter on Singleplayer opens `#/select`; Multiplayer receives keyboard/p
 but never acts. Desktop Quit follows Credits. Check portrait and narrow landscape, all
 choices visible and touch rows at least 44 CSS pixels.
 
+The page's loader (`#boot-shell`, drawn before the wasm arrives) shows the
+same title, rain and a bar painted alike on one canvas (`#boot-canvas`,
+`site/boot-art.js`), on `performance.now()` as the game's (AGENTS.md,
+"Deployment"). To see it, hold the app's wasm alone:
+`page.route(/\/ddi-[^/]*_bg\.wasm$/, r => setTimeout(() => r.continue(), 2500))`
+(a pattern that catches the SVG worker's wasm too stalls the worker, and the
+menu's rain never comes), screenshot after a second, then poll for
+`is-ready` on the shell (the fade starts about 0.25 s after
+`ui.theme.screen` is `start`: the menu's entrance first) and screenshot
+again. The lettering's bounding box must match the menu's, the bar is
+centered on `ui.rects.Singleplayer`, and the rain's outlines stand where the
+menu's do; seed `ddi.settings.v1` with an `audio_profiles` and
+`display_profiles` entry first, or the first-run notice lays the menu out
+lower. With `reducedMotion: 'reduce'` both stand at time zero: the first
+ring's mean color in the loader and in the menu must agree.
+`window.__DDI_ART.cost` has the frames drawn and their milliseconds (about
+2.5 ms on this Mac at 1280x800 and a ratio of 2).
+
 Check Start → Options → Back, Songs → Options → Back, and each with a
 Timing → Calibration detour and reload. Check browser Back/Forward,
 returning focus and Options tab/row/scroll. Direct `#/options`, `#/credits`

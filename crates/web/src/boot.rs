@@ -8,6 +8,9 @@ use wasm_bindgen::{JsCast, JsValue};
 
 thread_local! {
     static READY_SENT: Cell<bool> = const { Cell::new(false) };
+    /// [`ready_when_settled`] was asked: the UI host drawing fades the
+    /// shell once its screen is at rest.
+    static WAITING: Cell<bool> = const { Cell::new(false) };
 }
 
 fn with_boot<F: FnOnce(&js_sys::Object)>(action: F) {
@@ -60,5 +63,36 @@ pub(crate) fn ready() {
     if already_sent {
         return;
     }
+    WAITING.with(|w| w.set(false));
     call("ready", &[]);
+}
+
+/// Fades out the boot shell once the screen under it is at rest: the
+/// shell's title stands where the start menu's lands, on the same
+/// clock, so the fade shows the menu in place rather than its title
+/// sliding in under a title. Where no UI host draws (a plain page, a
+/// play), now; and never later than a moment after, should the screen
+/// keep moving.
+pub(crate) fn ready_when_settled() {
+    if READY_SENT.with(Cell::get) {
+        return;
+    }
+    if crate::components::ui_dev::hosts() == 0 {
+        ready();
+        return;
+    }
+    WAITING.with(|w| w.set(true));
+    gloo::timers::callback::Timeout::new(1500, ready).forget();
+}
+
+/// Whether [`ready_when_settled`] waits for a settled screen
+/// (`ui_dev`'s frame calls [`ready`] then).
+pub(crate) fn waiting() -> bool {
+    WAITING.with(Cell::get)
+}
+
+/// Whether the shell is still up, its title showing: a start menu built
+/// now comes up under it (`StartScreen::in_place`).
+pub(crate) fn shown() -> bool {
+    !READY_SENT.with(Cell::get)
 }

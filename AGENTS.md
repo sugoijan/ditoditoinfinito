@@ -853,12 +853,38 @@ dependency's licence before adding it.
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.
 - The page draws its loader from its own first bytes: its styles
-  (`site/styles.css` inlined) and boot script are in `index.html`, which
-  fits the first round trip compressed (about 12.5 KB gzipped), and
-  nothing the first paint waits for is fetched (no stylesheet links,
-  classic scripts with a source, `@import` or `url()`). `xtask
-  check-boot`, Trunk's last post-build hook, fails a build that breaks
-  it. The page follows the game's theme alone, never the system's color
+  (`site/styles.css` inlined), boot script and art (`site/boot-art.js`
+  with the data `tools/title-design/boot_title.py` writes to
+  `site/boot-art-data.js` from the title study's geometry and the rain
+  atlas, both inlined: on one canvas, the start menu's title with its
+  rings painted by Infinito's Vivid material ported to JavaScript, the
+  menu's outline rain particle for particle and the progress bar painted
+  the same way) are in `index.html`, which Trunk minifies in release
+  builds so that it fits the first round trip compressed (about 11 KB
+  gzipped of the 12.5 the rule allows), and nothing the first paint
+  waits for is fetched (no stylesheet links, classic scripts with a
+  source, `@import` or `url()`). `xtask check-boot`, Trunk's last
+  post-build hook, fails a build that breaks it (a dev build, unminified
+  with the dev server's reload script inside, is held to everything but
+  the budget: `TRUNK_PROFILE`). The boot script lays the art out where
+  the start menu's title, first choice and rain land (the theme's
+  virtual screen and the title menu's layout, mirrored), and the art
+  runs on the wall clock, seconds since the epoch, as the screens' live
+  art, the focus outline and the menu's rain do (`Ui::set_clock`,
+  `Cx::clock`, `screens::Live`, the start screen's background time: one
+  across the screens, the web's `performance.timeOrigin` plus the
+  frame's timestamp, desktop's wall origin run on by the host clock, so
+  a start never begins the art over from the same state; reduced motion
+  holds all of it at zero); the bar's done part is painted as the
+  focused button's outline (`Active.EvolutionSpeed`, the field a square
+  as wide as the viewport); the start
+  menu built under the loader stands its title in place from its first
+  frame (`StartScreen::in_place`, the entrance kept for its later
+  visits) and the web shell fades the loader once that screen is at
+  rest (`boot::ready_when_settled`, `Ui::settled`), so the menu appears
+  in place under the same title and rain. A frame of the art costs a
+  few milliseconds (`__DDI_ART.cost`).
+  The page follows the game's theme alone, never the system's color
   scheme: its colors are the theme's (`xtask regen-seo` writes them from
   `crates/theme/src/infinito.toml` to `target/seo/theme.css`, inlined;
   the theme-color meta is its ground).

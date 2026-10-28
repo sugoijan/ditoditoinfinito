@@ -39,6 +39,8 @@ pub struct StartScreen {
     live: super::Live,
     background_time: f64,
     background_animating: bool,
+    /// The title stands in place on the first entrance ([`Self::in_place`]).
+    in_place: bool,
 }
 
 impl StartScreen {
@@ -53,11 +55,22 @@ impl StartScreen {
             live: Default::default(),
             background_time: 0.0,
             background_animating: false,
+            in_place: false,
         }
     }
 
     pub fn with_focus(mut self, focus: Option<String>) -> Self {
         self.initial_focus = focus;
+        self
+    }
+
+    /// `yes`: the screen comes up under the web page's loader, which
+    /// shows the title where this screen's lands, so the title stands
+    /// in place from the first frame rather than sliding in from the
+    /// top; its entrance is kept for the next times (the screen coming
+    /// back from another). The choices still come in from below.
+    pub fn in_place(mut self, yes: bool) -> Self {
+        self.in_place = yes;
         self
     }
 
@@ -172,6 +185,12 @@ impl StartScreen {
                 ("MenuChoices", super::Edge::Bottom),
             ],
         );
+        if self.in_place
+            && let Some(title) = root.children_mut().iter_mut().find(|c| c.name == "Title")
+        {
+            // No entrance this once: `update` puts the real one back.
+            crate::look::command_of(title, "On", "");
+        }
         self.publish();
         root
     }
@@ -245,9 +264,15 @@ impl Screen for StartScreen {
         focus.insert(1, Focusable::new("Multiplayer"));
         focus
     }
-    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
             return;
+        }
+        if self.in_place {
+            // The first `On` was played at the push: the title's entrance
+            // is back for the next (the screen uncovered again).
+            self.in_place = false;
+            super::transitions(root, &self.env, &[("Title", super::Edge::Top)]);
         }
         let (size, zoom) = super::narrow_fit(&self.env, cx.viewport().screen);
         if self.size != size || self.zoom != zoom {
@@ -262,7 +287,7 @@ impl Screen for StartScreen {
             super::relaid(root, left);
         }
         if !self.env.reduced() {
-            self.background_time += f64::from(dt.max(0.0));
+            self.background_time = cx.clock();
         }
         if let Some(background) = crate::hit::find_mut(root, "MenuBackground") {
             self.background_animating = self.env.look.animate_component(
@@ -272,7 +297,7 @@ impl Screen for StartScreen {
                 self.background_time,
             );
         }
-        self.live.tick(root, "Title", &self.env, dt);
+        self.live.tick(root, "Title", &self.env, cx);
         self.publish();
     }
     fn animating(&self) -> bool {
@@ -504,6 +529,38 @@ mod tests {
         assert!(!h.requests.contains(&UiRequest::Quit));
         h.key_up("Backspace", "Backspace");
         assert_eq!(h.ui.focused(), Some("Singleplayer"));
+    }
+
+    #[test]
+    fn the_title_stands_in_place_under_the_loader_and_slides_in_later() {
+        let env = env();
+        let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+        h.push(super::super::sample::start_screen(&env, false).in_place(true));
+        h.frame(0.01);
+        let first = h.ui.bounds("Title").expect("the title");
+        h.run(0.5);
+        let rest = h.ui.bounds("Title").expect("the title");
+        assert_eq!(first, rest, "the title moved in");
+        // Options and back: the title comes in from the top as usual.
+        h.key("a", "a");
+        h.key("ArrowDown", "ArrowDown");
+        h.key("ArrowDown", "ArrowDown");
+        h.key("Enter", "Enter");
+        h.run(0.5);
+        assert_eq!(h.ui.layers().last().unwrap().name, "options");
+        h.key("Escape", "Escape");
+        let mut frames = 0;
+        while h.ui.layers().last().unwrap().name != "start" {
+            h.frame(0.01);
+            frames += 1;
+            assert!(frames < 100, "never back");
+        }
+        h.frame(0.01);
+        let back = h.ui.bounds("Title").expect("the title");
+        h.run(0.5);
+        let settled = h.ui.bounds("Title").expect("the title");
+        assert_eq!(settled, rest);
+        assert!(back[1] < settled[1] - 10.0, "{back:?} {settled:?}");
     }
 
     #[test]

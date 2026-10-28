@@ -402,8 +402,11 @@ pub fn header(env: &Env, cx: &mut crate::Cx, width: f32, title: &str) -> Actor {
 }
 
 /// The vivid paint's clock for a screen's live art (the start menu's
-/// title, the header's wordmark): ticked in `update` on the frame that
-/// holds it, reported in `animating`. Reduced motion holds it still.
+/// title, the header's wordmark): the shell's clock ([`crate::Cx::clock`]), so
+/// the paint keeps its phase from screen to screen and from the web
+/// loader's title; set in `update` on the frame that holds it, reported
+/// in `animating`. Reduced motion holds it still (at zero from the
+/// start, as the loader holds its title).
 #[derive(Default)]
 pub(crate) struct Live {
     time: f64,
@@ -412,13 +415,15 @@ pub(crate) struct Live {
 }
 
 impl Live {
-    /// Advances the clock by `dt` (unless motion is reduced) and sets it
-    /// on every vivid sprite under the actor named `name` (the first of
-    /// that name: the header's `Wordmark`, the start menu's `Title`, not
-    /// a notice's or a dialog's part).
-    pub fn tick(&mut self, root: &mut Actor, name: &str, env: &Env, dt: f32) {
+    /// Takes the clock (unless motion is reduced) and sets it on every
+    /// vivid sprite under the actor named `name` (the first of that
+    /// name: the header's `Wordmark`, the start menu's `Title`, not a
+    /// notice's or a dialog's part).
+    pub fn tick(&mut self, root: &mut Actor, name: &str, env: &Env, cx: &crate::Cx) {
         if !env.reduced() {
-            self.time += f64::from(dt.max(0.0));
+            // Wrapped at a multiple of the four-second palette loop: the
+            // paint's f32 keeps its precision after days of uptime.
+            self.time = cx.clock().rem_euclid(4096.0);
         }
         let time = self.time as f32;
         let mut lit = false;

@@ -163,7 +163,9 @@ impl PagePage {
                         cx.request(UiRequest::Navigate(route.to_hash()));
                     }),
                 )
-                .with_focus(crate::router::saved_focus()),
+                .with_focus(crate::router::saved_focus())
+                // Under the loader, which shows the title already.
+                .in_place(crate::boot::shown()),
             );
         } else {
             ui.push(screen);

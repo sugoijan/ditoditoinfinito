@@ -773,11 +773,11 @@ impl Screen for PageScreen {
         v
     }
 
-    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
             return;
         }
-        self.live.tick(root, "Wordmark", &self.env, dt);
+        self.live.tick(root, "Wordmark", &self.env, cx);
         if self.place(cx.viewport().screen) {
             self.lay_out();
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());

@@ -87,3 +87,11 @@ Run `node tools/title-design/rasterize.cjs` with Playwright available through
 atlas is rendered at twice the design resolution, with ample transparent
 padding between frames. The app loads it through the ordinary image cache.
 The bundled image is artwork made using Dosis, not a modified font binary.
+
+`boot_title.py` (run by `generate.py`, or alone from `geometry.js`)
+writes `site/boot-art-data.js`, the web page's loader's data: the same
+lettering as path data small enough for the page's first round trip,
+with the palette and the rain atlas's outlines; `site/boot-art.js`
+draws them, the rings painted by the Vivid material ported to
+JavaScript as `preview.js` ports it, on the game's clock
+(`docs/plans/start-menu.md`). Keep them in step when the title changes.

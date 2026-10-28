@@ -46,6 +46,11 @@ use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
 use std::cell::RefCell;
 
+thread_local! {
+    /// The wall clock less the host clock, at the first frame (`Shell::redraw`'s clock).
+    static WALL_ORIGIN: std::cell::OnceCell<f64> = const { std::cell::OnceCell::new() };
+}
+
 /// How long to wait before asking a surface whose window is not visible
 /// yet for a frame again.
 const OCCLUDED_RETRY: std::time::Duration = std::time::Duration::from_millis(50);
@@ -764,6 +769,19 @@ impl Shell {
             .map_or(1.0 / 60.0, |l| (now - l).as_secs_f32().min(0.25));
         self.last = Some(now);
         self.idle_since = None;
+        // The live art's clock, one across the screens: seconds since the
+        // epoch as the web's, so a start does not begin the art over from
+        // the same state, taken once and run on by the host clock.
+        let host = crate::clock::now().0;
+        let origin = WALL_ORIGIN.with(|o| {
+            *o.get_or_init(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0.0, |d| d.as_secs_f64())
+                    - host
+            })
+        });
+        self.ui.set_clock(origin + host);
         self.ui.update(dt);
         let r = self.ui.take_requests();
         self.run(r);

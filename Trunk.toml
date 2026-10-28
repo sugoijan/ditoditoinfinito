@@ -2,6 +2,11 @@
 # site/; its links reach the crates, assets and generated files from there.
 [build]
 target = "site/index.html"
+# The page (its boot script and styles inlined) minified in release
+# builds, which xtask check-boot holds to the first round trip; a dev
+# build (unminified, the dev server's reload script inside) skips the
+# budget.
+minify = "on_release"
 
 [watch]
 ignore = [

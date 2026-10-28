@@ -1509,7 +1509,7 @@ impl Screen for ResultsScreen {
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
-        self.live.tick(root, "Wordmark", &self.env, dt);
+        self.live.tick(root, "Wordmark", &self.env, cx);
         let settling = self.age < SETTLE;
         self.age += dt;
         // Settled: focus back on Song list, whatever a tap meanwhile moved

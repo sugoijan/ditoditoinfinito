@@ -1218,14 +1218,14 @@ impl Screen for OptionsScreen {
         v
     }
 
-    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
             // The child may have stopped or replaced the field texture.
             // Publish our preview again when this caller becomes current.
             self.told = None;
             return;
         }
-        self.live.tick(root, "Wordmark", &self.env, dt);
+        self.live.tick(root, "Wordmark", &self.env, cx);
         let vp = cx.viewport().screen;
         let before = self.places;
         self.place(vp);

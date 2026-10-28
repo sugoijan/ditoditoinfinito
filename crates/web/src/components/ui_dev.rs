@@ -769,6 +769,7 @@ fn new_host(
     files: HtmlInputElement,
     theme: Option<ThemeHost>,
 ) -> Rc<RefCell<Host>> {
+    HOSTS.with(|h| h.set(h.get() + 1));
     let settings = crate::settings::Settings::load();
     let embedded = frame_el.is_none();
     // The canvas is the app's one: a pointer a host before this one hid
@@ -1009,6 +1010,23 @@ pub(crate) fn device_lost(host: &Rc<RefCell<Host>>) {
             }
         }
     });
+}
+
+thread_local! {
+    /// The hosts alive: whether a UI screen draws on the canvas
+    /// (`crate::boot::ready_when_settled` waits for its screen).
+    static HOSTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many UI hosts are alive.
+pub(crate) fn hosts() -> usize {
+    HOSTS.with(std::cell::Cell::get)
+}
+
+impl Drop for Host {
+    fn drop(&mut self) {
+        HOSTS.with(|h| h.set(h.get().saturating_sub(1)));
+    }
 }
 
 impl Drop for Embedded {
@@ -1997,7 +2015,18 @@ impl Host {
             None => 1.0 / 60.0,
         };
         self.last_ms = Some(time_ms);
+        // The wall clock, seconds since the epoch: the page's time origin
+        // plus the frame's timestamp, what the page's loader runs its art
+        // on (site/boot-art.js), and a reload does not start the art
+        // over from the same state.
+        let origin = web_sys::window()
+            .and_then(|w| w.performance())
+            .map_or(0.0, |p| p.time_origin());
+        self.ui.set_clock((origin + time_ms) / 1000.0);
         self.ui.update(dt);
+        if crate::boot::waiting() && self.ui.settled() {
+            crate::boot::ready();
+        }
         if !self.embedded
             && let Some(theme) = &self.theme
         {

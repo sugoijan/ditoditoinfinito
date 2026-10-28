@@ -235,6 +235,8 @@ pub struct Ui {
     ime_rect: Option<CssRect>,
     last_mouse_down: Option<f64>,
     time: f64,
+    /// The shell's clock, seconds on its origin ([`Ui::set_clock`]).
+    clock: Option<f64>,
     input_time: Option<f64>,
     active_time: f64,
     active_animating: bool,
@@ -289,6 +291,7 @@ impl Ui {
             ime_rect: None,
             last_mouse_down: None,
             time: 0.0,
+            clock: None,
             input_time: None,
             active_time: 0.0,
             active_animating: false,
@@ -642,6 +645,21 @@ impl Ui {
         }
     }
 
+    /// The shell's clock, seconds on its own origin (the web's
+    /// `performance.now()`, desktop's host clock), set before each
+    /// `update`: what [`Cx::clock`] gives the screens' live art.
+    pub fn set_clock(&mut self, seconds: f64) {
+        if seconds.is_finite() {
+            self.clock = Some(seconds);
+        }
+    }
+
+    /// Whether every screen is at rest: none coming in, leaving or
+    /// covering (the web's loader fades once the first one is).
+    pub fn settled(&self) -> bool {
+        !self.layers.is_empty() && !self.layers.iter().any(|l| l.phase.in_transition())
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.refresh_hints();
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
@@ -652,7 +670,12 @@ impl Ui {
             .and_then(|l| l.screen.presentation())
             .is_some_and(|p| !p.reduced_motion)
         {
-            self.active_time += f64::from(dt);
+            // The shell's clock where it gives one (the live art's), so
+            // the focus outline's paint runs with the title's and the
+            // page's loader's; its own count otherwise.
+            self.active_time = self
+                .clock
+                .map_or(self.active_time + f64::from(dt), |c| c.rem_euclid(4096.0));
         }
         self.follow_inset();
         if self.text.as_ref().is_some_and(|t| t.field.is_composing()) {
@@ -1125,6 +1148,7 @@ impl Ui {
             gesture,
             self.viewport_of(id),
             self.time,
+            self.clock.unwrap_or(self.time),
             self.layer(id).and_then(|l| l.focused.clone()),
             self.textures.clone(),
         );
@@ -1164,7 +1188,14 @@ impl Ui {
             self.inner_viewport()
         };
         let built = [viewport.screen.width, viewport.screen.height];
-        let mut cx = Cx::new(gesture, viewport, self.time, None, self.textures.clone());
+        let mut cx = Cx::new(
+            gesture,
+            viewport,
+            self.time,
+            self.clock.unwrap_or(self.time),
+            None,
+            self.textures.clone(),
+        );
         let mut root = screen.build(&mut cx);
         let left = start_transition(&mut root, "On", &["In"], &mut self.problems);
         let owner = if overlay { owner } else { None };

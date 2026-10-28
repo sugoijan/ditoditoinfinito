@@ -17,12 +17,55 @@
         const dom = {
           ready: false,
           shell: null,
-          progressFill: null,
+          canvas: null,
           blocked: null,
           blockedMessage: null,
           blockedHint: null,
         };
         const clamp01 = (value) => Math.min(1, Math.max(0, value));
+        const art = () => window.__DDI_ART || null;
+        // The art (boot-art.js) laid out with the title and the bar where
+        // the start menu's title and first choice land, so that the
+        // shell's fade shows the menu in place: the theme's virtual
+        // screen (ddi_actor::screen::VirtualScreen: 1280x720 stretched to
+        // the window's aspect, fitted to it), the narrow fit of a portrait
+        // window (ddi_ui::screens::narrow_fit) and the title menu's layout
+        // (ddi_ui::screens::start); the menu's rain in the same layout.
+        const ASPECT = 4.990068;
+        const fit = () => {
+          if (!dom.canvas || !art()) {
+            return;
+          }
+          const W = window.innerWidth, H = window.innerHeight;
+          const native = 1280 / 720, aspect = W / H;
+          let vw = 1280, vh = 720;
+          if (aspect > native) {
+            vw = Math.ceil(1280 * aspect / native);
+            vw -= vw % 2;
+          } else if (aspect < native) {
+            vh = Math.ceil(720 * native / aspect);
+          }
+          const k = Math.min(W / vw, H / vh);
+          const ox = (W - vw * k) / 2, oy = (H - vh * k) / 2;
+          const narrow = vw < vh;
+          const z = narrow ? vw / 480 : 1, lw = narrow ? 480 : vw, lh = vh / z, s = k * z;
+          const row = Math.max(52, 44 / s), menu = 4 * (row + 12) - 12;
+          const th = Math.min(104, Math.max(24, lh - menu - 36));
+          const top = Math.max(8, (lh - menu - th - 20) / 2);
+          const w = Math.min(520, lw - 32, th * ASPECT) * s, h = w / ASPECT;
+          const mid = ox + lw * s / 2, bw = Math.min(380, lw - 32) * s;
+          art().layout({
+            canvas: dom.canvas,
+            W,
+            H,
+            dpr: Math.min(window.devicePixelRatio || 1, 2),
+            title: { x: mid - w / 2, y: oy + (top + th / 2) * s - h / 2, w, h },
+            bar: { x: mid - bw / 2, y: oy + (top + th + 20 + row / 2) * s, w: bw },
+            lw,
+            lh,
+            s,
+          });
+        };
         const resolveDom = () => {
           if (dom.ready) {
             return dom;
@@ -32,11 +75,22 @@
             return null;
           }
           dom.shell = shell;
-          dom.progressFill = document.getElementById("boot-progress-fill");
+          dom.canvas = document.getElementById("boot-canvas");
           dom.blocked = document.getElementById("boot-blocked");
           dom.blockedMessage = document.getElementById("boot-blocked-message");
           dom.blockedHint = document.getElementById("boot-blocked-hint");
           dom.ready = true;
+          // The art runs on the wall clock, as the game's title and rain
+          // do (ddi_ui::screens::Live, the start menu's background): they
+          // carry over the fade, and a reload does not start them over.
+          // Reduced motion holds it at zero, as the game does.
+          if (dom.canvas && art()) {
+            fit();
+            window.addEventListener("resize", fit);
+            if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+              art().still(true);
+            }
+          }
           return dom;
         };
         const applyState = () => {
@@ -44,9 +98,8 @@
           if (!root) {
             return;
           }
-          if (root.progressFill) {
-            const pct = Math.round(clamp01(state.progress) * 100);
-            root.progressFill.style.width = `${Math.max(4, pct)}%`;
+          if (art()) {
+            art().progress(clamp01(state.progress));
           }
           if (root.shell) {
             if (state.blocked) {
@@ -96,6 +149,9 @@
             hint: hint || "",
           };
           applyState();
+          if (art()) {
+            art().stop();
+          }
         };
         const CRASH_RELOADS_KEY = "ddi.crash.reloads";
         const CRASH_MAX_RELOADS = 2;
@@ -135,6 +191,8 @@
         const ready = () => {
           state.ready = true;
           applyState();
+          // The game draws on: the art stops once the shell has faded.
+          window.setTimeout(() => art() && art().stop(), 400);
           // A session that stays healthy for a while earns fresh crash-reload
           // budget; a boot-loop burns through it and lands on the overlay.
           window.setTimeout(clearCrashReloads, CRASH_COUNTER_RESET_MS);
@@ -354,6 +412,9 @@
         };
       })();
     </script>
+    <!-- The loader's art: the title, the menu's rain and the bar on the game's clock (tools/title-design/boot_title.py writes the data). -->
+    <link data-trunk rel="inline" href="boot-art-data.js" type="js" />
+    <link data-trunk rel="inline" href="boot-art.js" type="js" />
     <link data-trunk rel="rust" href="../crates/app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
     <!-- The Ogg Opus fallback decoder, a worker fetched only when the browser cannot decode Opus (PLAN.md decision 9); `xtask stage-opus` names its files by their hash. -->
     <link data-trunk rel="rust" href="../crates/opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
@@ -384,11 +445,8 @@
   <body>
     <link data-trunk rel="inline" href="../target/seo/seo-body.html" type="html" />
     <div id="boot-shell" class="boot-shell is-loading">
-      <div class="boot-bar" aria-hidden="true">
-        <div class="boot-bar-track">
-          <div id="boot-progress-fill" class="boot-bar-fill"></div>
-        </div>
-      </div>
+      <!-- The title where the start menu's lands, its rain and the bar, on the game's clock (boot-art.js). -->
+      <canvas id="boot-canvas" class="boot-canvas" aria-label="Dito Dito Infinito, loading"></canvas>
       <div id="boot-blocked" class="boot-blocked hidden" role="alert">
         <div class="boot-blocked-title">This browser cannot run Dito Dito Infinito.</div>
         <div class="boot-blocked-message" id="boot-blocked-message"></div>

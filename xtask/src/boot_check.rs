@@ -27,7 +27,13 @@ pub(crate) fn check_boot(dest: Option<PathBuf>) -> Result<()> {
     let index = dest.join("index.html");
     let html =
         std::fs::read_to_string(&index).with_context(|| format!("reading {}", index.display()))?;
-    let report = check(&html);
+    // Trunk minifies the page in release builds only (Trunk.toml): a dev
+    // build's, with the dev server's reload script inside, is held to
+    // everything but the budget.
+    let budgeted = std::env::var("TRUNK_PROFILE")
+        .ok()
+        .is_none_or(|p| p == "release");
+    let report = check_with(&html, budgeted);
     if !report.problems.is_empty() {
         bail!(
             "{} does not draw its loader from its first bytes:\n  {}",
@@ -36,9 +42,14 @@ pub(crate) fn check_boot(dest: Option<PathBuf>) -> Result<()> {
         );
     }
     eprintln!(
-        "check-boot: index.html is {} bytes, {} gzipped of {BUDGET}; nothing the first paint waits for is fetched",
+        "check-boot: index.html is {} bytes, {} gzipped of {BUDGET}{}; nothing the first paint waits for is fetched",
         html.len(),
-        report.gzipped
+        report.gzipped,
+        if budgeted {
+            ""
+        } else {
+            " (not held to it: a dev build)"
+        }
     );
     Ok(())
 }
@@ -48,11 +59,17 @@ pub(crate) struct Report {
     pub(crate) problems: Vec<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn check(html: &str) -> Report {
+    check_with(html, true)
+}
+
+/// `budgeted`: whether the page's compressed size is held to [`BUDGET`].
+pub(crate) fn check_with(html: &str, budgeted: bool) -> Report {
     // Raw deflate at the level servers use, plus gzip's header and trailer.
     let gzipped = miniz_oxide::deflate::compress_to_vec(html.as_bytes(), 6).len() + 18;
     let mut problems = Vec::new();
-    if gzipped > BUDGET {
+    if budgeted && gzipped > BUDGET {
         problems.push(format!(
             "{gzipped} bytes gzipped, over the {BUDGET} the first round trip carries"
         ));

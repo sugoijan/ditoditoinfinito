@@ -26,6 +26,43 @@ clearance around every letter. Both palette phase and the texture's folds
 evolve continuously; reduced motion freezes both. See
 [the wordmark implementation](theme.md#dosis-title-wordmark).
 
+The web page's loader shows the same title, rain and a bar painted
+alike from the page's first bytes (2026-10-28; `site/boot-art.js` on
+the data `tools/title-design/boot_title.py` writes to
+`site/boot-art-data.js`: the study's shaped geometry, seven distinct
+outlines placed per glyph, and the rain atlas's two outlines with its
+stroke weights). On one canvas: the rings cut by the same clearance as
+the atlas and painted by the Vivid material ported from its WGSL (the
+prelude's hash and noise, the drift, warp, folds and palette window;
+CPU doubles for the GPU's floats, each initial's field centered as
+`wordmark_geometry.rs` has it, at most half the device's pixels), the
+rain as `crates/theme/src/rain.rs` computes it particle for particle
+in the menu's layout (its stationary field sampled at each outline's
+middle, at 35% saturation), and the progress bar's done part painted
+as the focused button's outline is (`crates/theme/src/active.rs`: the
+field a square as wide as the viewport, its seconds eight times the
+clock's). The boot script lays them out where the menu's title,
+Singleplayer and rain land, mirroring the virtual screen, the narrow
+fit and this screen's layout, and the art runs on the wall clock
+(seconds since the epoch: the page's `performance.timeOrigin` plus the
+frame's time), which the screens' live art, the focus outline and this
+screen's rain now run on too (`ddi_ui::screens::Live`, `Ui`'s active
+time and the background time take the shell's clock, `Ui::set_clock`,
+rather than counting from each screen's start: the wordmark keeps its
+phase from screen to screen as well, and neither a reload nor a
+desktop start begins the art over from the same state), so the title's
+colors, its folds and the rain's particles are the game's at the
+handoff.
+The menu built under the shell stands its title in place from its first
+frame (`StartScreen::in_place`: its `On` emptied for that one entrance,
+the choices still coming in from below; the next entrances, coming back
+from another screen, slide it in as before), and the shell fades once
+that screen is at rest (`boot::ready_when_settled`), so the menu
+appears under the title rather than its title sliding in. Reduced motion
+holds both titles at time zero. The first run's device notice lays the
+menu out lower than the loader placed the title; the loader cannot know
+it, and that one visit shows the title move.
+
 
 | Entry | Behavior |
 |---|---|

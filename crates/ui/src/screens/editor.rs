@@ -2670,7 +2670,7 @@ impl Screen for EditorScreen {
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
-        self.live.tick(root, "Wordmark", &self.env, dt);
+        self.live.tick(root, "Wordmark", &self.env, cx);
         // The autosave, while there are changes not kept yet.
         let (dirty, revision) = {
             let e = self.editor.borrow();

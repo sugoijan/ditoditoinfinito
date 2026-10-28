@@ -88,7 +88,7 @@ pub(crate) fn start(root: Element) {
         done.set(done.get() + 1);
         crate::boot::progress(done.get() as f64 / steps as f64);
         if done.get() == steps {
-            crate::boot::ready();
+            crate::boot::ready_when_settled();
         }
     };
     for face in faces {
