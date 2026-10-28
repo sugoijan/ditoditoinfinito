@@ -1237,7 +1237,15 @@ impl Host {
             }
             Ended::Aborted { results } => {
                 self.log.push(format!("quit {}", play.request.song));
-                if play.request.calibration.is_some() {
+                // A replay the viewer quit goes back too: nothing to show
+                // (a kept quit's replay, which quits where the play did,
+                // ends on its results as the play's).
+                let viewer_quit = play
+                    .request
+                    .replay
+                    .as_ref()
+                    .is_some_and(|rp| rp.quit_by_viewer(&results));
+                if play.request.calibration.is_some() || viewer_quit {
                     self.open_menu(ui, env);
                     Stage::Idle
                 } else {
@@ -1301,24 +1309,28 @@ impl Host {
         #[cfg(not(feature = "video"))]
         let (video_off, video_trouble) = (None, None::<String>);
         // A replay: its results against the log judged at once and the
-        // play's kept ones (`Replay::check`).
+        // play's kept ones (`Replay::check`); not one the viewer quit,
+        // which has nothing to compare.
         let replay = play.request.replay.clone();
-        let check = replay.as_ref().map(|rp| {
-            let check = rp.check_on(&play.loaded.song, results);
-            self.log.push(format!(
-                "replay {}: {}",
-                rp.id,
-                if check.matches {
-                    "the play's results".to_string()
-                } else {
-                    format!("differs: {}", check.problems.join("; "))
+        let check = replay
+            .as_ref()
+            .filter(|rp| !rp.quit_by_viewer(results))
+            .map(|rp| {
+                let check = rp.check_on(&play.loaded.song, results);
+                self.log.push(format!(
+                    "replay {}: {}",
+                    rp.id,
+                    if check.matches {
+                        "the play's results".to_string()
+                    } else {
+                        format!("differs: {}", check.problems.join("; "))
+                    }
+                ));
+                if let Some(note) = check.note() {
+                    eprintln!("{note}");
                 }
-            ));
-            if let Some(note) = check.note() {
-                eprintln!("{note}");
-            }
-            check
-        });
+                check
+            });
         let save_error = match play.saved.borrow().as_ref() {
             Some(Err(e)) => Some(e.clone()),
             _ => None,

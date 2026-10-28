@@ -1302,7 +1302,11 @@ impl GameCanvas {
             }
             Msg::SaveWaited => self.show_waiting_results(ctx),
             Msg::Session(SessionEvent::Aborted { results, facts }) => {
-                if matches!(ctx.props().source, SongSource::Song { .. }) {
+                // A replay the viewer quit goes back: nothing to show
+                // (a kept quit's replay, which quits where the play did,
+                // ends on its results as the play's).
+                let viewer_quit = self.kept().is_some_and(|r| r.quit_by_viewer(&results));
+                if matches!(ctx.props().source, SongSource::Song { .. }) && !viewer_quit {
                     // A quit is a play: kept as one, graded QUIT, its
                     // results shown.
                     self.ended(ctx, results, *facts, None, false)
@@ -1850,6 +1854,11 @@ impl GameCanvas {
         let (Some(r), Status::Ready(song)) = (self.kept(), &self.song) else {
             return;
         };
+        // The viewer quit the replay: nothing to compare.
+        if r.quit_by_viewer(results) {
+            crate::replay::publish(&r.id, "quit", None, None);
+            return;
+        }
         let check = r.check_on(&song.song, results);
         if !check.matches {
             web_sys::console::error_1(&format!("replay {}: {:?}", r.id, check.problems).into());

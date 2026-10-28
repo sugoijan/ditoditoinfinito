@@ -346,6 +346,14 @@ impl Replay {
 
     /// [`Self::check`] of a watched replay against the log judged at once
     /// on `song` (as stored); a refusal of that is what differed.
+    /// Whether `watched`, a replay's results, are the viewer's quit of
+    /// it: judged to the quit while the play it replays ran on
+    /// (`Results::quit` with no end in the log). Nothing to compare
+    /// then ([`Replay::check_on`] is not asked).
+    pub fn quit_by_viewer(&self, watched: &Results) -> bool {
+        watched.quit && self.log.end.is_none()
+    }
+
     pub fn check_on(&self, song: &Song, watched: &Results) -> ReplayCheck {
         match self.results(song) {
             Ok(offline) => self.check(watched, &offline),
