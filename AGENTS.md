@@ -853,14 +853,19 @@ dependency's licence before adding it.
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.
 - The page draws its loader from its own first bytes: its styles
-  (`site/styles.css` inlined), boot script and art (`site/boot-art.js`
-  with the data `tools/title-design/boot_title.py` writes to
-  `site/boot-art-data.js` from the title study's geometry and the rain
-  atlas, both inlined: on one canvas, the start menu's title with its
-  rings painted by Infinito's Vivid material ported to JavaScript, the
-  menu's outline rain particle for particle and the progress bar painted
-  the same way) are in `index.html`, which Trunk minifies in release
-  builds so that it fits the first round trip compressed (about 11 KB
+  (`site/styles.css` inlined), boot script (`site/boot.js`) and art
+  (`site/boot-art.js` with the data `tools/title-design/boot_title.py`
+  writes to `site/boot-art-data.js` from the title study's geometry and
+  the rain atlas: on one canvas, the start menu's title with its rings
+  painted by Infinito's Vivid material ported to JavaScript, the menu's
+  outline rain particle for particle and the progress bar painted the
+  same way) are inlined into `index.html`, the two scripts from
+  `target/boot/`, where `xtask minify-boot` (a pre-build hook) writes
+  them minified with swc in release builds (Trunk's own minification
+  never reaches an inlined script: its swc pass serves `data-trunk`
+  script assets, which come out as files, and its HTML pass keeps
+  JavaScript's comments and names) and copied as they are otherwise, so
+  that the page fits the first round trip compressed (about 10.5 KB
   gzipped of the 12.5 the rule allows), and nothing the first paint
   waits for is fetched (no stylesheet links, classic scripts with a
   source, `@import` or `url()`). `xtask check-boot`, Trunk's last

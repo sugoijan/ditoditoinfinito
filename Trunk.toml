@@ -21,6 +21,15 @@ ignore = [
   "credits/THIRD_PARTY_RUST.md",
 ]
 
+# The page's inline scripts (site/boot.js, site/boot-art.js) minified with
+# swc into target/boot/ in release builds, copied as they are otherwise
+# (xtask/src/boot_minify.rs): Trunk inlines them verbatim and its HTML
+# pass leaves JavaScript's comments and names alone.
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "minify-boot"]
+
 # Regenerates target/seo/ from site/seo/metadata.toml so the fragments inlined
 # by site/index.html are always fresh and never need to be committed.
 [[hooks]]

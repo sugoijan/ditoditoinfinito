@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
 mod boot_check;
+mod boot_minify;
 mod credits;
 mod icons;
 mod noteskins;
@@ -96,6 +97,13 @@ enum Commands {
     /// bytes: within the first round trip compressed, with nothing the
     /// first paint waits for fetched (`xtask/src/boot_check.rs`). Trunk
     /// runs this after a build.
+    /// The page's inline scripts minified into target/boot/ (release
+    /// builds; copied as they are otherwise: Trunk's profile, or --release).
+    #[command(name = "minify-boot")]
+    MinifyBoot {
+        #[arg(long)]
+        release: bool,
+    },
     #[command(name = "check-boot")]
     CheckBoot {
         /// The site's folder (default: $TRUNK_STAGING_DIR).
@@ -557,6 +565,7 @@ fn main() -> Result<()> {
         Commands::StageVideo { dest } => stage_video(dest),
         Commands::StageOpus { dest } => stage_worker(dest, "opus-worker"),
         Commands::StageSvg { dest } => stage_worker(dest, "svg-worker"),
+        Commands::MinifyBoot { release } => boot_minify::minify_boot(release.then_some(true)),
         Commands::CheckBoot { dest } => boot_check::check_boot(dest),
     }
 }
