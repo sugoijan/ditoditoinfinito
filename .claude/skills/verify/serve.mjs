@@ -5,7 +5,7 @@
 // (`docs/plans/shared-songs.md`): GET /share/s/<id> answers
 // <sharedir>/<id>/share.json (404 without it, 410 with a file `expired`
 // beside it), GET /share/s/<id>/f/<n>/<path> a file at <sharedir>/<id>/<n>/<path>
-// with range requests; the page sets `window.__DDI_SHARE_URL` to it.
+// with range requests; the page sets `window.__DDI_API_URL` to it.
 // The uploader's side too, with the token `test-token`: POST /share/s
 // makes <sharedir>/<id>/ (the id random, `share.json` written from the
 // request with `expires_at` from `expires`, and a file `pending` until

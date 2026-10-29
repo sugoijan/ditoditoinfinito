@@ -74,3 +74,11 @@ command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]
 stage = "post_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "post-build"]
+
+# The dev server passes the app's `api/` (songs shared by link, more to
+# come; `crates/web/src/share.rs`) to the private Worker run locally
+# (`just dev` in `../ddi-server`), as the route on sugoijan.dev does in
+# production: the app and its server on one origin in both.
+[[proxy]]
+rewrite = "/api/"
+backend = "http://127.0.0.1:8787/ditoditoinfinito/api/"

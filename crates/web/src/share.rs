@@ -17,20 +17,28 @@ use ddi_ui::screens::data::{ShareState, ShareView};
 use crate::songs::ImportedSong;
 use crate::web::idb::{self, Db};
 
-/// The Worker's base URL: the build's (`DDI_SHARE_URL`), else the
-/// production one; `window.__DDI_SHARE_URL` overrides it for tests.
+/// The server's base URL (the private Worker, `ddi-server`): `api` beside
+/// the page (`https://sugoijan.dev/ditoditoinfinito/api`, the Worker's
+/// route on the app's own origin, so nothing crosses origins; `just
+/// dev` proxies it to a local Worker, `Trunk.toml`), else the build's
+/// `DDI_API_URL`; `window.__DDI_API_URL` overrides both for tests.
 pub(crate) fn base() -> String {
-    let from_page = web_sys::window().and_then(|w| {
-        js_sys::Reflect::get(&w, &"__DDI_SHARE_URL".into())
+    let window = web_sys::window();
+    let from_page = window.as_ref().and_then(|w| {
+        js_sys::Reflect::get(w, &"__DDI_API_URL".into())
             .ok()
             .and_then(|v| v.as_string())
     });
+    let beside_the_page = || {
+        let l = window.as_ref()?.location();
+        let (origin, path) = (l.origin().ok()?, l.pathname().ok()?);
+        let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+        Some(format!("{origin}{dir}/api"))
+    };
     from_page
-        .unwrap_or_else(|| {
-            option_env!("DDI_SHARE_URL")
-                .unwrap_or("https://sugoijan.dev/ddi-share")
-                .to_string()
-        })
+        .or_else(|| option_env!("DDI_API_URL").map(str::to_string))
+        .or_else(beside_the_page)
+        .unwrap_or_else(|| "https://sugoijan.dev/ditoditoinfinito/api".to_string())
         .trim_end_matches('/')
         .to_string()
 }
@@ -102,7 +110,8 @@ pub(crate) fn current() -> Option<Rc<Share>> {
 pub(crate) use ddi_library::share::{is_shared_id, parse_song_id, song_id, valid_id};
 
 /// The URL of file `path` of the shared song `song_id`, as the share
-/// lists it (a file it does not list is asked for at the Worker's path
+/// lists it (relative to the API's base, as the Worker lists them, or
+/// absolute; a file it does not list is asked for at the Worker's path
 /// for it, which also serves what the uploader sent and the list left
 /// out); `None` for a song of no share.
 pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
@@ -111,13 +120,23 @@ pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
         && let Some(song) = s.songs.get(n)
         && let Some(f) = song.files.iter().find(|f| f.path == path)
     {
-        return Some(f.url.clone());
+        return Some(resolve(&f.url));
     }
     let encoded: Vec<String> = path
         .split('/')
         .map(|p| String::from(js_sys::encode_uri_component(p)))
         .collect();
     Some(format!("{}/s/{share}/f/{n}/{}", base(), encoded.join("/")))
+}
+
+/// A listed URL as fetched: an absolute one as it is, a relative one
+/// under the API's base.
+fn resolve(url: &str) -> String {
+    if url.contains("://") {
+        url.to_string()
+    } else {
+        format!("{}/{}", base(), url.trim_start_matches('/'))
+    }
 }
 
 /// The size the share lists for file `path` of the shared song

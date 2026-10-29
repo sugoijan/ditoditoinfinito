@@ -32,10 +32,13 @@ maintainer:
 ## The contract (the only thing both repositories know)
 
 A share is a pack (one song or many) uploaded by an authenticated client
-and read by anyone with its id. The Worker's base URL is a build-time
-constant of the app (`SHARE_URL`, the production Worker; `just dev` may
-point at `wrangler dev`), never carried in the link, so no other origin
-can feed the app content.
+and read by anyone with its id. The Worker is the game's server
+(`ddi-server`, routed at `sugoijan.dev/ditoditoinfinito/api/*`: the
+app's own origin and path, so nothing crosses origins) and the app calls
+it as `api` beside its page (`just dev` proxies that to a local
+`wrangler dev`; `DDI_API_URL` at build or `window.__DDI_API_URL` point
+elsewhere for tests); the base is never carried in the link, so no other
+origin can feed the app content.
 
 Reading:
 
@@ -44,8 +47,9 @@ Reading:
      "created_at": <unix seconds>,
      "songs": [ { "record": <ImportedSong as the web stores it, with the
      entry's charts and their digests>, "files": [ { "path": "<path in
-     the song's folder>", "bytes": <size>, "url": "<absolute URL>" } ] } ],
-     "pack_art": <url or null> }`.
+     the song's folder>", "bytes": <size>, "url": "<relative to the API's
+     base, `s/<id>/f/<n>/<path>`, or absolute>" } ] } ],
+     "pack_art": <url the same way, or null> }`.
   `404` for an unknown id, `410` once it expired (the body says which;
   the app shows the same page for both). Cached for a minute at most.
 - `GET <base>/s/<id>/f/<song index>/<path>` → the file from R2, with
@@ -105,7 +109,7 @@ Cloudflare's, for the proof of concept.
   rows). With it set, Options gets a "Sharing" section: the token (a
   masked text field; kept in the settings, so it is only as private as
   the browser's profile, which is the proof of concept's bargain), the
-  server it uploads to (read-only, the build's `SHARE_URL`), and a note
+  server it uploads to (read-only, the API's base), and a note
   on what sharing publishes. In song select, an imported pack's More
   actions (and a song's) get "Share…": a dialog with the expiry choice
   (1 hour, 1 day, 1 week, 1 month, forever), then the upload with a
@@ -142,8 +146,8 @@ Cloudflare's, for the proof of concept.
 2. Song select's shared mode (the header, no import, Back drops it).
 3. The uploader: the setting and its switch, Options' section, the
    dialog, the upload and the link.
-4. The Worker in the private repository, from the contract; the
-   production `SHARE_URL`; a real link checked in Firefox and Safari.
+4. The Worker in the private repository, from the contract; its route
+   on the app's origin; a real link checked in Firefox and Safari.
 5. Range-read movies in the decoder's worker; desktop's flag and uploader.
 
 Open: whether a share should carry a title of its own beyond the pack's
@@ -186,9 +190,9 @@ side of it (`serve.mjs --share`, token `test-token`). Checked in
 Chrome: a pack imported, shared for a week, its link opened and played.
 Not shared: a song's shared background folders (`RandomMovies`), the
 library's; a share plays without them. Step 4 done: the Worker, in the
-private repository `ddi-share` beside this one (`worker` 0.8 on
+private repository `ddi-server` beside this one (the game's server, shares its first feature) (`worker` 0.8 on
 workers-rs; one SQLite Durable Object `ShareIndex` for the records, the
-files in the R2 bucket `ddi-share`, a cron purge of expired and
+files in the R2 bucket `ddi-server`, a cron purge of expired and
 unfinished shares, CORS for the app's origins, the tokens in the secret
 `SHARE_TOKENS`; its contract's logic tested natively, the routes and the
 app's whole flow checked against `wrangler dev`; Cloudflare's request

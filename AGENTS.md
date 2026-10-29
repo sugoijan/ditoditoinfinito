@@ -334,7 +334,8 @@ Rust and the browser are implementation details, not advertised features.
   `crates/web/src/editor.rs`; new songs from Add songs,
   `editor/new_song.rs`), songs shared by link at `#/s/<id>`
   (`crates/web/src/share.rs`: the share read from the private Worker,
-  `DDI_SHARE_URL` at build or `window.__DDI_SHARE_URL`, held in memory
+  `api` beside the page, the private Worker's route on the app's origin
+  (`DDI_API_URL` at build or `window.__DDI_API_URL` instead), held in memory
   for the session, its songs `shared:<id>:<n>` read by URL through
   `songs::Origin::Shared`; `components/shared_page.rs` then song
   select in its shared mode, `select_page::Props::shared`,
@@ -345,7 +346,8 @@ Rust and the browser are implementation details, not advertised features.
   packs, the upload in `share.rs`; a shared song's movies read by
   ranges, `web/movie_source.rs`, the decoder worker's synchronous
   ranged requests; the Worker itself in the private repository
-  `../ddi-share`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
+  `../ddi-server`, routed at `sugoijan.dev/ditoditoinfinito/api/*` and
+  proxied there by `just dev`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
