@@ -309,6 +309,8 @@ pub(crate) struct GameCanvas {
     )>,
     /// The video decoder's download, for the start prompt.
     video_line: Option<String>,
+    /// The prompt's line on a shared song's download (`crate::share`).
+    download_line: Option<String>,
     /// The start prompt's play options (none for a replay or a test), the
     /// ones the settings and the skin were readied with, the skin's load
     /// (its [`Msg::NoteskinLoaded`] answers the latest only), and whether
@@ -739,6 +741,7 @@ impl Component for GameCanvas {
             scripts_seen: false,
             song_at: 0.0,
             video_line: None,
+            download_line: None,
             prompt: None,
             prompt_state,
             shell,
@@ -1044,8 +1047,11 @@ impl GameCanvas {
                     ModuleStatus::Ready { .. } => None,
                     ModuleStatus::Failed(e) => Some(format!("background videos cannot play: {e}")),
                 });
-                let changed = line != self.video_line;
+                // A shared song's files coming down: the line moves too.
+                let download = crate::share::download_line();
+                let changed = line != self.video_line || download != self.download_line;
                 self.video_line = line;
+                self.download_line = download;
                 changed
             }
             Msg::SongLoaded(Err(LoadError::NeedsAccess { handle, name })) => {
@@ -1942,6 +1948,11 @@ impl GameCanvas {
         }
         if matches!(self.stage, Stage::Idle)
             && let Some(line) = &self.video_line
+        {
+            notes.push(line.clone());
+        }
+        if matches!(self.stage, Stage::Idle)
+            && let Some(line) = &self.download_line
         {
             notes.push(line.clone());
         }

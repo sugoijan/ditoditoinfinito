@@ -32,9 +32,16 @@ const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
 const PREOPEN = "/v"; // the module opens `/v/<name>`
 const PREOPEN_FD = 3;
 const READ_AHEAD = 64 * 1024;
-// A remote file (a shared song's movie, read by ranges) is read further
-// ahead: each read is a request.
-const REMOTE_READ_AHEAD = 1024 * 1024;
+// A remote file (a shared song's movie) is fetched whole from its open,
+// in order, kept up to this much; reads inside what has come are served
+// from it, the decoder waits for the download at its edge (`want` is
+// put off), and a read elsewhere (the header and the index at open, a
+// probe's samples, a seek past the download) is a synchronous ranged
+// request of a small window: the download brings the rest.
+const REMOTE_BUFFER_CAP = 256 * 1024 * 1024;
+const REMOTE_READ_AHEAD = 64 * 1024;
+// The download must be this far past the decoder before it goes on.
+const REMOTE_MARGIN = 256 * 1024;
 const MAX_LOG_LINES = 200;
 // Consecutive frames that fail to decode before the movie counts as broken.
 const MAX_BAD_FRAMES = 50;
@@ -81,20 +88,96 @@ function log(fd, text) {
 }
 
 // Bytes [pos, pos + n) of a file, through a read-ahead window. A file is
-// a Blob, or `{url, size}`: a remote one, read with synchronous ranged
-// requests (allowed in a worker).
+// a Blob, or a remote one (`remoteFile`): served from what its download
+// has brought, else read with a synchronous ranged request (allowed in
+// a worker).
 function readAt(file, pos, n) {
   const end = Math.min(file.size, pos + n);
   if (pos >= end) return new Uint8Array(0);
+  const remote = !(file.blob instanceof Blob);
+  if (remote && end <= file.blob.buffered) return bufferedAt(file.blob, pos, end - pos);
   if (!file.cache || pos < file.cacheAt || end > file.cacheAt + file.cache.length) {
-    const remote = !(file.blob instanceof Blob);
-    const to = Math.min(file.size, pos + Math.max(n, remote ? REMOTE_READ_AHEAD : READ_AHEAD));
+    const ahead = remote ? REMOTE_READ_AHEAD : READ_AHEAD;
+    const to = Math.min(file.size, pos + Math.max(n, ahead));
     file.cache = remote
       ? readRemote(file.blob.url, pos, to)
       : new Uint8Array(new FileReaderSync().readAsArrayBuffer(file.blob.slice(pos, to)));
     file.cacheAt = pos;
   }
   return file.cache.subarray(pos - file.cacheAt, end - file.cacheAt);
+}
+
+// A remote file: `{url, size}`; its download (`startBuffering`) starts
+// once a movie is open on it (`open`), after the header and the index
+// were read by range: a synchronous request issued while a streaming
+// fetch of the same file is in flight never answers on some servers
+// (wrangler's local one), and a probe, which samples the file at a few
+// places, reads by range alone.
+function remoteFile(url, size) {
+  return { url, size, chunks: [], buffered: 0, done: false, failed: null, started: false };
+}
+
+// The file fetched whole, in order, into `chunks` (`{at, data}`), up to
+// the cap; `buffered` is how far it has come.
+async function startBuffering(remote) {
+  if (remote.started) return;
+  remote.started = true;
+  try {
+    // Kept out of the HTTP cache: a ranged request for the same URL
+    // while this one streams would otherwise wait on (or fail against)
+    // the cache entry it is writing.
+    const response = await fetch(remote.url, { cache: "no-store" });
+    if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+    const reader = response.body.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      remote.chunks.push({ at: remote.buffered, data: value });
+      remote.buffered += value.length;
+      if (remote.buffered >= REMOTE_BUFFER_CAP) {
+        await reader.cancel();
+        break;
+      }
+    }
+  } catch (e) {
+    remote.failed = String(e);
+    console.warn("[video] remote download failed: " + e);
+  }
+  remote.done = true;
+}
+
+// Bytes [pos, pos + n) of what a remote file's download brought.
+function bufferedAt(remote, pos, n) {
+  const out = new Uint8Array(n);
+  // The chunk holding `pos`, by binary search.
+  let lo = 0;
+  let hi = remote.chunks.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (remote.chunks[mid].at <= pos) lo = mid; else hi = mid - 1;
+  }
+  let got = 0;
+  for (let i = lo; i < remote.chunks.length && got < n; i++) {
+    const c = remote.chunks[i];
+    const from = Math.max(pos, c.at) - c.at;
+    const take = Math.min(c.data.length - from, n - got);
+    out.set(c.data.subarray(from, from + take), got);
+    got += take;
+  }
+  return out;
+}
+
+// Whether a video's remote file is still downloading just ahead of
+// where the decoder reads (its open file's position): its decoding
+// waits for the download then, rather than fetching the same bytes
+// again by ranges.
+function starved(video) {
+  const remote = files.get(video.fileName);
+  if (!remote || remote instanceof Blob || remote.done) return false;
+  for (const fd of fds.values()) {
+    if (fd.blob === remote && fd.pos < remote.size && fd.pos + REMOTE_MARGIN > remote.buffered) return true;
+  }
+  return false;
 }
 
 // Bytes [pos, to) of the file at `url`, fetched now.
@@ -112,7 +195,7 @@ function readRemote(url, pos, to) {
 
 // What `open` and `probe` are sent: a Blob, or a remote file.
 function sourceOf({ blob, url, size }) {
-  return blob || { url, size };
+  return blob || remoteFile(url, size);
 }
 
 function writeFilestat(ptr, filetype, size) {
@@ -399,11 +482,14 @@ async function preload() {
 async function open({ id, blob, url, size, name }) {
   if (!(await ready(id))) return;
   const fileName = id + extensionOf(name);
-  const ptr = openFile(fileName, sourceOf({ blob, url, size }));
+  const source = sourceOf({ blob, url, size });
+  const ptr = openFile(fileName, source);
   if (!ptr) {
     post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
     return;
   }
+  // The header and the index are read: the rest comes down in order.
+  if (!(source instanceof Blob)) startBuffering(source);
   videos.set(id, { ptr, fileName, gen: 0, last: -1, bad: 0, ended: false });
   const duration = exports.ddi_duration(ptr);
   post({
@@ -420,6 +506,12 @@ function want({ id, n, gen }) {
   const video = videos.get(id);
   if (!video || gen !== video.gen || video.ended) return;
   for (let i = 0; i < n; ) {
+    // The download not far enough ahead: the rest of this want waits
+    // for it (the page shows its last frame meanwhile).
+    if (starved(video)) {
+      setTimeout(() => want({ id, n: n - i, gen }), 40);
+      return;
+    }
     const start = performance.now();
     const pts = exports.ddi_next(video.ptr);
     const ms = performance.now() - start;

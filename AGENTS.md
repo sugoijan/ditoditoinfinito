@@ -343,9 +343,11 @@ Rust and the browser are implementation details, not advertised features.
   or edited, or the page saying the link is gone; the uploader hidden
   behind `#/?share=1`, `Settings::sharing`: Options' Sharing section
   with the token, Share… in song select's More on imported songs and
-  packs, the upload in `share.rs`; a shared song's movies read by
-  ranges, `web/movie_source.rs`, the decoder worker's synchronous
-  ranged requests; the Worker itself in the private repository
+  packs, the upload in `share.rs`; a shared song's movies streamed,
+  `web/movie_source.rs` and the decoder worker's download of the whole
+  file served to the decoder as it comes, small ranged requests for
+  the header, the index and the probes; its download on the prompt's
+  quiet line; the Worker itself in the private repository
   `../ddi-server`, routed at `sugoijan.dev/ditoditoinfinito/api/*` and
   proxied there by `just dev`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).

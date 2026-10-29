@@ -787,7 +787,10 @@ impl Host {
         }
         let (Some(loaded), Some(dev)) = (r.loaded.clone(), dev) else {
             if r.loaded.is_none() {
-                r.prompt.borrow_mut().set_waiting(vec!["song".into()]);
+                let mut p = r.prompt.borrow_mut();
+                p.set_waiting(vec!["song".into()]);
+                // A shared song's files coming down: said quietly.
+                p.set_notes(crate::share::download_line().into_iter().collect());
             }
             return;
         };

@@ -82,6 +82,56 @@ pub(crate) async fn fetch_bytes(path: &str) -> Result<Vec<u8>, String> {
     resp.binary().await.map_err(|e| format!("GET {path}: {e}"))
 }
 
+/// [`fetch_bytes`] of a shared song's file, its progress told to
+/// [`crate::share::note_download`] as it comes.
+async fn fetch_bytes_counted(url: &str, name: &str) -> Result<Vec<u8>, String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let resp: web_sys::Response = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(url))
+        .await
+        .map_err(|e| format!("GET {url}: {e:?}"))?
+        .dyn_into()
+        .map_err(|_| format!("GET {url}: not a response"))?;
+    if !resp.ok() {
+        return Err(format!("GET {url}: HTTP {}", resp.status()));
+    }
+    let total = resp
+        .headers()
+        .get("content-length")
+        .ok()
+        .flatten()
+        .and_then(|l| l.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let Some(body) = resp.body() else {
+        return Ok(Vec::new());
+    };
+    let reader: web_sys::ReadableStreamDefaultReader = body
+        .get_reader()
+        .dyn_into()
+        .map_err(|_| format!("GET {url}: no reader"))?;
+    let mut out = Vec::new();
+    crate::share::note_download(name, 0.0, total);
+    loop {
+        let chunk = wasm_bindgen_futures::JsFuture::from(reader.read())
+            .await
+            .map_err(|e| format!("GET {url}: {e:?}"))?;
+        let done = js_sys::Reflect::get(&chunk, &"done".into())
+            .ok()
+            .and_then(|d| d.as_bool())
+            .unwrap_or(true);
+        if done {
+            break;
+        }
+        if let Ok(value) = js_sys::Reflect::get(&chunk, &"value".into())
+            && let Ok(bytes) = value.dyn_into::<js_sys::Uint8Array>()
+        {
+            out.extend(bytes.to_vec());
+            crate::share::note_download(name, out.len() as f64, total);
+        }
+    }
+    crate::share::download_done(name);
+    Ok(out)
+}
+
 /// A file at `path` as a `Blob` (the browser keeps it, not wasm's memory).
 pub(crate) async fn fetch_blob(path: &str) -> Result<Blob, String> {
     let resp = gloo::net::http::Request::get(&asset_url(path))
@@ -391,7 +441,9 @@ async fn song_file_bytes(
     file: &str,
 ) -> Result<Vec<u8>, LoadError> {
     if let Some(url) = crate::share::file_url(&entry.id, file) {
-        Ok(fetch_bytes(&url).await?)
+        // A shared song's file comes down the link: counted for the
+        // prompt's line (`crate::share::download_line`).
+        Ok(fetch_bytes_counted(&url, file).await?)
     } else if is_imported_id(&entry.id) {
         Ok(blob_bytes(&imported_file(entry, record, file).await?).await?)
     } else {
@@ -640,7 +692,7 @@ pub(crate) async fn load_movie(
     let stored = format!("bg/{name}");
     if let Some(url) = crate::share::file_url(&entry.id, &stored) {
         return Ok(Some(match crate::share::file_size(&entry.id, &stored) {
-            Some(size) => MovieSource::Remote { url, size },
+            Some(size) => MovieSource::remote(url, size),
             // Not listed by the share (the Worker may still have it).
             None => MovieSource::Blob(fetch_blob(&url).await?),
         }));

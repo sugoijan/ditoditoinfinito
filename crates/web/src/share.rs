@@ -494,6 +494,48 @@ pub(crate) async fn delete(token: &str, id: &str) -> Result<(), String> {
         .map(|_| ())
 }
 
+thread_local! {
+    /// The shared files coming down now: `(name, bytes so far, bytes in
+    /// all)`, for the prompt's quiet line.
+    static DOWNLOADS: RefCell<Vec<(String, f64, f64)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A shared file's download moved (`songs::fetch_bytes_counted`).
+pub(crate) fn note_download(name: &str, done: f64, total: f64) {
+    DOWNLOADS.with_borrow_mut(|d| match d.iter_mut().find(|(n, _, _)| n == name) {
+        Some(entry) => {
+            entry.1 = done;
+            entry.2 = total;
+        }
+        None => d.push((name.to_string(), done, total)),
+    });
+}
+
+pub(crate) fn download_done(name: &str) {
+    DOWNLOADS.with_borrow_mut(|d| d.retain(|(n, _, _)| n != name));
+}
+
+/// What the prompt says of the shared files coming down, if any:
+/// "downloading the song… 2.1 of 4.1 MB".
+pub(crate) fn download_line() -> Option<String> {
+    DOWNLOADS.with_borrow(|d| {
+        if d.is_empty() {
+            return None;
+        }
+        let done: f64 = d.iter().map(|(_, b, _)| b).sum();
+        let total: f64 = d.iter().map(|(_, _, t)| t).sum();
+        Some(if total > 0.0 {
+            format!(
+                "downloading the song… {:.1} of {:.1} MB",
+                done / 1e6,
+                total / 1e6
+            )
+        } else {
+            format!("downloading the song… {:.1} MB", done / 1e6)
+        })
+    })
+}
+
 /// The link to a share: this page's address at `#/s/<id>`.
 pub(crate) fn link(id: &str) -> String {
     let page = web_sys::window()

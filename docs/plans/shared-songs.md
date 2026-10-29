@@ -206,12 +206,26 @@ unfinished shares, CORS for the app's origins, the tokens in the secret
 `SHARE_TOKENS`; its contract's logic tested natively, the routes and the
 app's whole flow checked against `wrangler dev`; Cloudflare's request
 body limit caps each `PUT` at 100 MB on most plans, which multipart
-uploads would lift). Step 5, the movies: a shared song's movie is read by
-ranges (`web::movie_source::MovieSource::Remote`: the decoder worker
-reads it with synchronous ranged requests, the browser's decoder and the
-probes through `fetch` with `Range`), never fetched whole, so a play
-starts at once; the rest of a shared song's files come as `Blob`s the
-browser keeps (`songs::fetch_blob`). Afterwards: a shared song's
+uploads would lift). Step 5, the movies: a shared song's movie streams
+(`web::movie_source::MovieSource::Remote`): from its open the decoder
+worker fetches it whole, in order, out of the HTTP cache, kept up to
+256 MB, and serves the decoder's reads from what has come, putting the
+decoding off at the download's edge rather than fetching the same bytes
+again (`want` deferred until 256 KB past the read position); the header
+and the index at open, a probe's samples and a seek past the download
+are small synchronous ranged requests (64 KB windows). The browser's
+decoder path and the probes read through the page's own `RemoteBuffer`
+the same way (`fetch` with `Range` only past the download). So a play
+starts after the header reads and runs without the per-window stalls
+of before; a link slower than the movie's bitrate still waits, with the
+last frame shown. The rest of a shared song's files come as `Blob`s the
+browser keeps (`songs::fetch_blob`), and a shared song's download shows
+on the start prompt as a quiet line ("downloading the song… 2.1 of
+4.1 MB", `share::download_line`, counted by `songs::fetch_bytes_counted`;
+desktop's `share::download_line` the same on its prompt and, for the
+list's load, in song select's notices). What a slow first visit still
+waits for is the 6 MB decoder module itself (the prompt's "loading the
+video decoder…" line), as before. Afterwards: a shared song's
 results (Song list, Back) return to its share, not the library
 (`game_canvas::back_route`, the router's fallback for a direct play);
 and a share of chosen songs: "Add to share" in an imported song's More

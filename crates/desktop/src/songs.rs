@@ -81,6 +81,8 @@ pub struct Songs {
     share: RefCell<Option<ShareHost>>,
     /// An upload's progress, from its thread.
     share_upload: RefCell<Option<std::sync::mpsc::Receiver<ShareView>>>,
+    /// The share's download as last sent to the list.
+    download_seen: RefCell<Option<crate::share::Download>>,
 }
 
 /// A share being read, or read.
@@ -122,6 +124,7 @@ impl Songs {
             edit: RefCell::default(),
             share: RefCell::default(),
             share_upload: RefCell::default(),
+            download_seen: RefCell::default(),
         })
     }
 
@@ -134,10 +137,13 @@ impl Songs {
         let _ = std::thread::Builder::new()
             .name("ddi-share".into())
             .spawn(move || {
-                let _ = tx.send(crate::share::load(&job));
-                if let Some(w) = wake {
-                    w();
-                }
+                let progress = || {
+                    if let Some(w) = &wake {
+                        w();
+                    }
+                };
+                let _ = tx.send(crate::share::load(&job, &progress));
+                progress();
             });
         *self.share.borrow_mut() = Some(ShareHost {
             id,
@@ -389,6 +395,16 @@ impl Songs {
             });
             data.loading = s.loading;
             data.notices = self.notices.borrow().clone();
+            // Where the share's download is, quietly.
+            if s.loading
+                && let Some(line) = crate::share::download_line()
+            {
+                data.notices.push(ddi_ui::screens::data::Notice {
+                    text: line,
+                    link: None,
+                    error: false,
+                });
+            }
         }
         data.autoplay = self.autoplay.get();
         // The screens' wording: song folders read in place.
@@ -501,12 +517,16 @@ impl Songs {
             ui.broadcast(Message::new(FEED));
         }
         let shared = self.poll_share();
+        // The share's download moved: its line in the list.
+        let download = crate::share::download();
+        let moved = self.shared() && self.download_seen.replace(download.clone()) != download;
         let scanned = self
             .library
             .borrow_mut()
             .as_mut()
             .is_some_and(Library::take)
-            || shared;
+            || shared
+            || moved;
         let generation = self.plays.as_ref().map_or(0, |p| p.generation());
         // A change soon after the last one sent waits for its turn
         // (`history_due`), as the web publishes at most once a second.

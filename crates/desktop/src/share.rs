@@ -56,6 +56,53 @@ struct Current {
 /// The share loaded last: its files' places, for a play's loading.
 static CURRENT: Mutex<Option<Current>> = Mutex::new(None);
 
+/// What is coming down now: songs done of all (the list's load), and
+/// the file being fetched with its bytes so far of all.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Download {
+    pub songs_done: usize,
+    pub songs: usize,
+    pub file: String,
+    pub bytes_done: u64,
+    pub bytes: u64,
+}
+
+static DOWNLOAD: Mutex<Option<Download>> = Mutex::new(None);
+
+/// The download under way, if any.
+pub fn download() -> Option<Download> {
+    DOWNLOAD.lock().ok().and_then(|d| d.clone())
+}
+
+/// A quiet line on it: "downloading the song… 2.1 of 4.1 MB", or the
+/// songs read so far of a share's.
+pub fn download_line() -> Option<String> {
+    let d = download()?;
+    Some(if d.songs > 0 && d.bytes == 0 {
+        format!("reading the share… {} of {} songs", d.songs_done, d.songs)
+    } else if d.bytes > 0 {
+        format!(
+            "downloading the song… {:.1} of {:.1} MB",
+            d.bytes_done as f64 / 1e6,
+            d.bytes as f64 / 1e6
+        )
+    } else {
+        "downloading the song…".to_string()
+    })
+}
+
+fn note_download(f: impl FnOnce(&mut Download)) {
+    if let Ok(mut d) = DOWNLOAD.lock() {
+        f(d.get_or_insert_with(Default::default));
+    }
+}
+
+fn download_over() {
+    if let Ok(mut d) = DOWNLOAD.lock() {
+        *d = None;
+    }
+}
+
 fn agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::NativeTls)
@@ -108,11 +155,17 @@ pub fn fetch(id: &str) -> Result<ShareDoc, String> {
 }
 
 /// Reads share `id` and brings its songs' charts, music and pictures
-/// into the cache; the songs as the library lists them.
-pub fn load(id: &str) -> Result<LoadedShare, String> {
+/// into the cache; the songs as the library lists them. `progress` is
+/// called as it goes ([`download`] says where it is).
+pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, String> {
     let doc = fetch(id)?;
     let root = share_root(id)?;
     let mut songs = Vec::new();
+    let total = doc.songs.len();
+    note_download(|d| {
+        d.songs = total;
+        d.songs_done = 0;
+    });
     for (n, song) in doc.songs.iter().enumerate() {
         let Some((mut entry, pack)) = contract::record_entry(&song.record) else {
             continue;
@@ -121,9 +174,15 @@ pub fn load(id: &str) -> Result<LoadedShare, String> {
         let dir = root.join(n.to_string());
         for (stored, named) in contract::stored_files(&entry) {
             if contract::is_small(&stored) {
-                ensure_file(&doc, id, n, &stored, &named, &dir)?;
+                let got = ensure_file(&doc, id, n, &stored, &named, &dir);
+                if got.is_err() {
+                    download_over();
+                }
+                got?;
             }
         }
+        note_download(|d| d.songs_done = n + 1);
+        progress();
         songs.push(LibSong {
             root: dir,
             zip: false,
@@ -140,6 +199,7 @@ pub fn load(id: &str) -> Result<LoadedShare, String> {
             work: None,
         });
     }
+    download_over();
     let loaded = LoadedShare {
         id: id.to_string(),
         pack: doc.pack.clone(),
@@ -184,6 +244,7 @@ pub fn ensure_all(id: &str) -> Result<(), String> {
             }
         }
     }
+    download_over();
     Ok(())
 }
 
@@ -235,13 +296,39 @@ fn ensure_file(
             .unwrap_or("part"),
         std::process::id()
     ));
+    let total = resp
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    note_download(|d| {
+        d.file = named.to_string();
+        d.bytes_done = 0;
+        d.bytes = total;
+    });
     let written = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::create(&tmp)?;
         let mut reader = resp.body_mut().with_config().limit(u64::MAX).reader();
-        std::io::copy(&mut reader, &mut file)?;
+        let mut buf = vec![0u8; 256 * 1024];
+        let mut got = 0u64;
+        loop {
+            let n = std::io::Read::read(&mut reader, &mut buf)?;
+            if n == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut file, &buf[..n])?;
+            got += n as u64;
+            note_download(|d| d.bytes_done = got);
+        }
         file.sync_all()?;
         std::fs::rename(&tmp, &target)
     })();
+    note_download(|d| {
+        d.file.clear();
+        d.bytes_done = 0;
+        d.bytes = 0;
+    });
     if let Err(e) = written {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!("writing {named}: {e}"));
