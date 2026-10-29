@@ -38,6 +38,7 @@ pub mod pack;
 pub mod path;
 pub mod scan;
 pub mod search;
+pub mod share;
 pub mod suggest;
 pub mod swf;
 pub mod tags;

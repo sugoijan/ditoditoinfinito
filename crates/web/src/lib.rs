@@ -32,6 +32,7 @@ mod scripts;
 mod select_data;
 mod select_preview;
 mod settings;
+mod share;
 mod songs;
 mod stage;
 mod stills;

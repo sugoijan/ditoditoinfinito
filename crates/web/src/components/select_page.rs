@@ -151,13 +151,32 @@ pub(crate) struct SelectPage {
     _said_timer: Option<Timeout>,
 }
 
+/// `shared`: song select on the share loaded last (`crate::share`),
+/// its songs alone, nothing of the library.
+#[derive(Clone, PartialEq, Default)]
+pub(crate) struct Props {
+    pub(crate) shared: bool,
+}
+
+/// The library song select lists: the player's own, or the current
+/// share's songs (`Props::shared`).
+async fn load_library(shared: bool) -> Result<Library, String> {
+    if shared {
+        return crate::share::current()
+            .map(|s| Library::of_share(&s))
+            .ok_or_else(|| "the shared songs are not loaded".to_string());
+    }
+    Library::load().await
+}
+
 impl Component for SelectPage {
     type Message = Msg;
-    type Properties = ();
+    type Properties = Props;
 
     fn create(ctx: &Context<Self>) -> Self {
+        let shared = ctx.props().shared;
         ctx.link()
-            .send_future(async { Msg::Library(Library::load().await) });
+            .send_future(async move { Msg::Library(load_library(shared).await) });
         import::watch(Some(ctx.link().callback(|_| Msg::ImportChanged)));
         {
             let link = ctx.link().clone();
@@ -263,8 +282,9 @@ impl Component for SelectPage {
                 let finished = import::status().2;
                 if finished != self.seen_imports {
                     self.seen_imports = finished;
+                    let shared = ctx.props().shared;
                     ctx.link()
-                        .send_future(async { Msg::Library(Library::load().await) });
+                        .send_future(async move { Msg::Library(load_library(shared).await) });
                 }
                 self.send_import();
                 return true;
@@ -340,8 +360,9 @@ impl Component for SelectPage {
                 if let Err(e) = r {
                     import::report_error(e);
                 }
+                let shared = ctx.props().shared;
                 ctx.link()
-                    .send_future(async { Msg::Library(Library::load().await) });
+                    .send_future(async move { Msg::Library(load_library(shared).await) });
             }
             Msg::Dragging(on) => {
                 if self.dragging != on {

@@ -24,11 +24,14 @@ use crate::components::ui_dev::{self, Host, Started};
 use crate::router::Route;
 
 /// Which page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Which {
     Start,
     Calibration,
     Credits,
+    /// A shared link that does not exist or expired (`crate::share`):
+    /// its message, and the way to the start menu.
+    SharedGone(String),
 }
 
 #[derive(Clone, PartialEq)]
@@ -118,15 +121,17 @@ impl PagePage {
         };
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
-        let which = ctx.props().which;
-        let (name, doc) = match which {
+        let which = ctx.props().which.clone();
+        let (name, doc) = match &which {
             Which::Start => ("start", PageDoc::default()),
             Which::Calibration => ("calibration", calibration::stored_doc()),
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
+            Which::SharedGone(message) => ("shared", shared_gone_doc(message)),
         };
         let shell: PageShell = {
             let env = env.clone();
             let feed = self.feed.clone();
+            let which = which.clone();
             Rc::new(move |call, cx| match call {
                 PageCall::Leave => {
                     cx.request(UiRequest::Back);
@@ -134,6 +139,10 @@ impl PagePage {
                 }
                 PageCall::Button(id) if which == Which::Calibration => {
                     calibration_button(&env, &feed, &id, cx)
+                }
+                PageCall::Button(id) if id == "home" => {
+                    cx.request(UiRequest::Navigate(Route::Home.to_hash()));
+                    None
                 }
                 PageCall::Button(_) => None,
             })
@@ -198,6 +207,28 @@ fn send(feed: &PageFeed, host: &Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>
         return;
     };
     ui_dev::broadcast_soon(weak, PAGE_CHANGED);
+}
+
+/// The page for a shared link that is gone: its one line and a button
+/// to the start menu.
+fn shared_gone_doc(message: &str) -> PageDoc {
+    use ddi_ui::screens::page::Block;
+    PageDoc {
+        title: "Shared songs".into(),
+        blocks: vec![
+            Block::Text(message.to_string()),
+            Block::Muted(
+                "A shared link plays its songs from where they were shared, for as long as \
+                 whoever shared them chose. Ask them for a new one."
+                    .into(),
+            ),
+            Block::Button {
+                id: "home".into(),
+                label: "Start menu".into(),
+                primary: true,
+            },
+        ],
+    }
 }
 
 /// A calibration button: a run (with the session's testing parameters),

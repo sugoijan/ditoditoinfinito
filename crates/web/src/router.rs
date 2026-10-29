@@ -38,6 +38,11 @@ pub(crate) enum Route {
         song: String,
         chart: usize,
     },
+    /// Songs shared by link (`crate::share`): song select on the share
+    /// `id`, or the page saying the link is gone.
+    Shared {
+        id: String,
+    },
     Options,
     Calibrate,
     /// A calibration run using the real gameplay path; `mode` is
@@ -93,6 +98,11 @@ impl Route {
                 None => (kv, String::new()),
             })
             .collect();
+        if let Some(id) = path.strip_prefix("s/")
+            && ddi_library::share::valid_id(id)
+        {
+            return Route::Shared { id: id.to_string() };
+        }
         match path {
             "" => Route::Home,
             "select" => Route::Songs,
@@ -206,6 +216,7 @@ impl Route {
             Route::Edit { song, chart } => {
                 format!("#/edit?song={}&chart={chart}", percent_encode(song))
             }
+            Route::Shared { id } => format!("#/s/{id}"),
             Route::Options => "#/options".into(),
             Route::Calibrate => "#/calibrate".into(),
             Route::CalibrateRun {
@@ -506,7 +517,7 @@ pub(crate) fn back() {
     use ddi_ui::navigation::Destination;
     let destination = match Route::current() {
         Route::Home => Destination::Start,
-        Route::Songs => Destination::Songs,
+        Route::Songs | Route::Shared { .. } => Destination::Songs,
         Route::Play { .. } | Route::Edit { .. } => Destination::Play,
         Route::Options => Destination::Options,
         Route::Credits => Destination::Credits,

@@ -36,7 +36,12 @@ fn base_url() -> String {
     }
 }
 
+/// A site path under the page's base, or an absolute URL as it is (a
+/// shared song's files, `crate::share`).
 pub(crate) fn asset_url(path: &str) -> String {
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return path.to_string();
+    }
     format!("{}{}", base_url(), path)
 }
 
@@ -197,6 +202,9 @@ pub(crate) enum Origin {
     Bundled,
     /// From the library, imported with the pack of this name.
     Imported(String),
+    /// A share's, by link (`crate::share`): its files by URL, nothing
+    /// in the library or in storage.
+    Shared,
 }
 
 /// Every song the game can list.
@@ -216,6 +224,15 @@ pub(crate) struct Library {
 }
 
 impl Library {
+    /// A share's songs alone, as a library (`crate::share`): song select
+    /// in its shared mode lists them.
+    pub(crate) fn of_share(share: &crate::share::Share) -> Library {
+        Library {
+            imported: share.songs.iter().map(|s| s.record.clone()).collect(),
+            ..Library::default()
+        }
+    }
+
     pub(crate) async fn load() -> Result<Library, String> {
         let bundled = load_manifest().await?.songs;
         let (imported, unreadable, imported_error) = match load_imported().await {
@@ -354,7 +371,9 @@ async fn song_file_bytes(
     record: Option<&ImportedSong>,
     file: &str,
 ) -> Result<Vec<u8>, LoadError> {
-    if is_imported_id(&entry.id) {
+    if let Some(url) = crate::share::file_url(&entry.id, file) {
+        Ok(fetch_bytes(&url).await?)
+    } else if is_imported_id(&entry.id) {
         Ok(blob_bytes(&imported_file(entry, record, file).await?).await?)
     } else {
         Ok(fetch_bytes(&format!("songs/{}/{file}", entry.id)).await?)
@@ -369,7 +388,10 @@ async fn song_blob(
     stored: &str,
     bundled: &str,
 ) -> Result<Blob, String> {
-    if is_imported_id(&entry.id) {
+    if let Some(url) = crate::share::file_url(&entry.id, stored) {
+        let bytes = fetch_bytes(&url).await?;
+        crate::web::files::bytes_blob(&bytes, "")
+    } else if is_imported_id(&entry.id) {
         imported_file(entry, record, stored)
             .await
             .map_err(|e| e.message())
@@ -386,6 +408,10 @@ async fn imported_file(
     record: Option<&ImportedSong>,
     file: &str,
 ) -> Result<Blob, LoadError> {
+    if let Some(url) = crate::share::file_url(&entry.id, file) {
+        let bytes = fetch_bytes(&url).await?;
+        return Ok(crate::web::files::bytes_blob(&bytes, "")?);
+    }
     let db = Db::open().await?;
     let song = record_or_read(&db, entry, record).await?;
     song_file(&db, &song, file).await
@@ -648,6 +674,20 @@ struct Found {
 
 /// Finds a song by id among bundled and imported songs.
 async fn find_song(id: &str) -> Result<Found, LoadError> {
+    // A share's song: the share as loaded, or read again by the id in
+    // the song's (a play opened at its own address).
+    if let Some((share, n)) = crate::share::parse_song_id(id) {
+        let share = crate::share::load(share).await.map_err(|e| e.message())?;
+        let song = share
+            .songs
+            .get(n)
+            .ok_or_else(|| format!("the shared songs have no song {n}"))?;
+        return Ok(Found {
+            entry: song.record.entry.clone(),
+            origin: Origin::Shared,
+            record: Some(song.record.clone()),
+        });
+    }
     // Bundled songs never wait on IndexedDB (which can be unavailable or
     // blocked by another tab).
     if is_imported_id(id) {
@@ -679,13 +719,18 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
     let entry = &found.entry;
     let chart_text = match &found.origin {
         Origin::Bundled => fetch_text(&format!("songs/{}/{}", entry.id, entry.chart)).await?,
-        Origin::Imported(_) => {
+        Origin::Imported(_) | Origin::Shared => {
             let song = found
                 .record
                 .as_ref()
                 .ok_or("the stored song went missing")?;
-            let db = Db::open().await?;
-            let chart = blob_bytes(&song_file(&db, song, &entry.chart).await?).await?;
+            let chart = match crate::share::file_url(&entry.id, entry.chart.as_str()) {
+                Some(url) => fetch_bytes(&url).await?,
+                None => {
+                    let db = Db::open().await?;
+                    blob_bytes(&song_file(&db, song, &entry.chart).await?).await?
+                }
+            };
             // An FFR level: its `beatBox` and its music's start as stored.
             if ddi_library::ffr::is_level_chart(&entry.chart) {
                 let song = ddi_library::ffr::stored_chart_song(&chart, &entry.title)
@@ -720,6 +765,10 @@ async fn fill_digests(found: &Found, song: &Song) {
     let Some(record) = &found.record else {
         return;
     };
+    // A share's record is the uploader's, never written here.
+    if found.origin == Origin::Shared {
+        return;
+    }
     let danoni = record.entry.is_danoni_work();
     if record
         .entry
@@ -804,7 +853,7 @@ pub(crate) async fn load_song(id: &str, chart: usize) -> Result<LoadedSong, Load
     // before or after it; looked up now so the order does not matter.
     let (shared_bg, shared_videos) = match &origin {
         Origin::Imported(pack) => shared_found(&entry, pack).await?,
-        Origin::Bundled => (Vec::new(), Vec::new()),
+        Origin::Bundled | Origin::Shared => (Vec::new(), Vec::new()),
     };
     Ok(LoadedSong {
         entry,

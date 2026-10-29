@@ -149,3 +149,19 @@ Cloudflare's, for the proof of concept.
 Open: whether a share should carry a title of its own beyond the pack's
 name; link previews (Open Graph from the Worker) for links pasted in
 chats; what a token's owner sees of their shares (nothing, for now).
+
+## Status (2026-10-29)
+
+Step 1 done: the contract's types (`crates/web/src/share.rs`; the ids
+and the time left in `ddi_library::share`, tested natively), the Worker's
+base URL as a build constant with a page override for tests, the shared
+origin through every song reader (`songs::Origin::Shared`: a song's
+files by URL, the chart, the music, the pictures and the movies through
+the same readers as an imported song's), `Route::Shared` (`#/s/<id>`),
+the loader page (`components/shared_page.rs`) mounting song select in
+its shared mode (`Props::shared`: the share's songs alone) or the page
+for a gone link, the song list's pictures by URL, the verify skill's
+server standing in for the Worker and a hand-made share. Checked in
+Chrome: the list, a play from it to a quit kept under `shared:<id>:<n>`,
+the gone pages, the player's own library after. Step 2 (the shared
+mode's header, no import or edit links, Back dropping the share) next.

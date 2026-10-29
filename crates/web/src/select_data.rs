@@ -34,6 +34,20 @@ pub(crate) fn library_styles(library: &Library) -> Vec<Layout> {
 /// are [`Listed::bundled`].
 fn imported(s: &ImportedSong) -> Listed {
     let entry = &s.entry;
+    // A share's song (`crate::share`): its pictures by URL, not removable.
+    if crate::share::is_shared_id(&entry.id) {
+        let url = |p: &ddi_library::path::RelPathBuf| crate::share::file_url(&entry.id, p.as_str());
+        return Listed {
+            entry: entry.clone(),
+            pack: Some(s.pack.clone()),
+            pack_banner: None,
+            banner: entry.banner.as_ref().and_then(url),
+            background: entry.background.as_ref().and_then(url),
+            jacket: entry.jacket.as_ref().and_then(url),
+            cd_title: entry.cd_title.as_ref().and_then(url),
+            removable: false,
+        };
+    }
     Listed {
         entry: entry.clone(),
         pack: Some(s.pack.clone()),

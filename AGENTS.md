@@ -90,7 +90,10 @@ Rust and the browser are implementation details, not advertised features.
   (`ffr.rs`: a song a level file, its folder its pack; the chart and
   music of a SWF, `swf.rs`), a stored song's entry after the chart
   editor saved it or made it new (`edited.rs`), a music file's title
-  and artist from its tags (`tags.rs`). Pure, natively tested.
+  and artist from its tags (`tags.rs`), and what the shells and the
+  private shared-songs Worker agree on without the web's record types
+  (`share.rs`: share ids, `shared:<id>:<n>` song ids, the time left;
+  `docs/plans/shared-songs.md`). Pure, natively tested.
 - `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -326,7 +329,13 @@ Rust and the browser are implementation details, not advertised features.
   editor at `#/edit?song=<id>&chart=<n>` (`components/edit_page.rs`;
   its session, saving and playtests `#/play?…&edit=1`,
   `crates/web/src/editor.rs`; new songs from Add songs,
-  `editor/new_song.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
+  `editor/new_song.rs`), songs shared by link at `#/s/<id>`
+  (`crates/web/src/share.rs`: the share read from the private Worker,
+  `DDI_SHARE_URL` at build or `window.__DDI_SHARE_URL`, held in memory
+  for the session, its songs `shared:<id>:<n>` read by URL through
+  `songs::Origin::Shared`; `components/shared_page.rs` then song
+  select in its shared mode, `select_page::Props::shared`, or the page
+  saying the link is gone; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with

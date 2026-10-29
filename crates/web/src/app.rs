@@ -176,7 +176,16 @@ impl App {
                     which: Which::Start,
                 },
             )),
-            Route::Songs => Box::new(mount::<SelectPage>(root, "main", ())),
+            Route::Songs => Box::new(mount::<SelectPage>(
+                root,
+                "main",
+                crate::components::select_page::Props { shared: false },
+            )),
+            Route::Shared { id } => Box::new(mount::<crate::components::shared_page::SharedPage>(
+                root,
+                "main",
+                crate::components::shared_page::Props { id: id.clone() },
+            )),
             // A kept play watched again (or its results): read first.
             Route::Play {
                 replay: Some(id),
