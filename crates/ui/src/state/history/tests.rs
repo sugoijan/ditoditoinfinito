@@ -400,7 +400,175 @@ fn summary(rules: &RulesetKey, time: f64, score: f64, lamp: Lamp) -> PlaySummary
         },
         worked: Some(worked),
         options: None,
+        clock: None,
     }
+}
+
+/// `summary` on devices `audio` and `display`, under audio offset
+/// `offset`, with `hits` hits whose deltas average `mean` with spread
+/// `sd` (seconds), finished.
+fn timed(
+    mut s: PlaySummary,
+    audio: &str,
+    display: &str,
+    offset: f64,
+    hits: u32,
+    mean: f64,
+    sd: f64,
+) -> PlaySummary {
+    s.ended = Ending::Finished;
+    s.clock = Some(SummaryClock {
+        audio: audio.into(),
+        display: display.into(),
+        audio_offset: offset,
+    });
+    let w = s.worked.as_mut().unwrap();
+    w.failed = false;
+    w.assist = false;
+    w.hits = hits;
+    w.mean = mean;
+    w.stddev = sd;
+    s
+}
+
+#[test]
+fn the_timing_verdict_reads_the_plays_on_the_devices() {
+    use timing::{Verdict, timing_verdict};
+    let play = |i: f64, mean: f64| {
+        timed(
+            summary(&itg(), i, 0.9, Lamp::Clear),
+            "audio:a",
+            "display:d",
+            0.0,
+            120,
+            mean,
+            0.012,
+        )
+    };
+    // Nothing yet: inconclusive.
+    let mut h = History::default();
+    assert!(matches!(
+        timing_verdict(&h, "audio:a", "display:d", 0.0),
+        Verdict::Inconclusive { plays: 0, .. }
+    ));
+    // Three plays all 25 ms late, tight: a shift, that late.
+    for i in 0..3 {
+        h.add(format!("l{i}"), play(i as f64, 0.025));
+    }
+    match timing_verdict(&h, "audio:a", "display:d", 0.0) {
+        Verdict::Shift {
+            ms,
+            plays: 3,
+            hits: 360,
+        } => assert!((ms - 25.0).abs() < 0.5, "{ms}"),
+        v => panic!("{v:?}"),
+    }
+    // Other devices: not these plays.
+    assert!(matches!(
+        timing_verdict(&h, "audio:b", "display:d", 0.0),
+        Verdict::Inconclusive { plays: 0, .. }
+    ));
+    // The same audio output a latency bucket away counts as the same.
+    let mut h2 = History::default();
+    for i in 0..3 {
+        let mut p = play(i as f64, 0.025);
+        p.clock.as_mut().unwrap().audio = "audio:CoreAudio:Out:48000:10".into();
+        h2.add(format!("l{i}"), p);
+    }
+    assert!(matches!(
+        timing_verdict(&h2, "audio:CoreAudio:Out:48000:15", "display:d", 0.0),
+        Verdict::Shift { plays: 3, .. }
+    ));
+    // Played under another offset: shifted by the difference, so an
+    // offset raised by those 25 ms since makes them read as on time.
+    let v = timing_verdict(&h, "audio:a", "display:d", 0.025);
+    assert!(
+        matches!(
+            v,
+            Verdict::Fine {
+                plays: 3,
+                hits: 360
+            }
+        ),
+        "{v:?}"
+    );
+    // Noise around zero over enough hits: fine; too few hits: not yet.
+    let mut h = History::default();
+    for (i, m) in [0.004, -0.006, 0.002].iter().enumerate() {
+        h.add(format!("n{i}"), play(i as f64, *m));
+    }
+    assert!(matches!(
+        timing_verdict(&h, "audio:a", "display:d", 0.0),
+        Verdict::Fine {
+            plays: 3,
+            hits: 360
+        }
+    ));
+    let mut h = History::default();
+    h.add("one".into(), play(0.0, 0.002));
+    let v = timing_verdict(&h, "audio:a", "display:d", 0.0);
+    assert!(
+        matches!(
+            v,
+            Verdict::Inconclusive {
+                plays: 1,
+                hits: 120
+            }
+        ),
+        "{v:?}"
+    );
+    // Mixed signs: inconclusive, however far the mean.
+    let mut h = History::default();
+    for (i, m) in [0.030, -0.030, 0.040].iter().enumerate() {
+        h.add(format!("m{i}"), play(i as f64, *m));
+    }
+    assert!(matches!(
+        timing_verdict(&h, "audio:a", "display:d", 0.0),
+        Verdict::Inconclusive { plays: 3, .. }
+    ));
+    // A wide spread: inconclusive even with the same sign.
+    let mut h = History::default();
+    for i in 0..3 {
+        let mut p = play(i as f64, 0.016);
+        p.worked.as_mut().unwrap().stddev = 0.2;
+        h.add(format!("w{i}"), p);
+    }
+    assert!(matches!(
+        timing_verdict(&h, "audio:a", "display:d", 0.0),
+        Verdict::Inconclusive { plays: 3, .. }
+    ));
+    // Autoplays, quits, fails, assisted and short plays are left out;
+    // only the last WINDOW plays count.
+    let mut h = History::default();
+    let mut auto = play(0.0, 0.025);
+    auto.autoplay = true;
+    h.add("auto".into(), auto);
+    let mut quit = play(1.0, 0.025);
+    quit.ended = Ending::Quit;
+    h.add("quit".into(), quit);
+    let mut failed = play(2.0, 0.025);
+    failed.ended = Ending::Failed;
+    h.add("failed".into(), failed);
+    let mut assisted = play(3.0, 0.025);
+    assisted.worked.as_mut().unwrap().assist = true;
+    h.add("assisted".into(), assisted);
+    let mut short = play(4.0, 0.025);
+    short.worked.as_mut().unwrap().hits = 20;
+    h.add("short".into(), short);
+    assert!(matches!(
+        timing_verdict(&h, "audio:a", "display:d", 0.0),
+        Verdict::Inconclusive { plays: 0, .. }
+    ));
+    for i in 0..timing::WINDOW {
+        h.add(format!("old{i}"), play(10.0 + i as f64, 0.030));
+    }
+    for i in 0..timing::WINDOW {
+        h.add(format!("new{i}"), play(100.0 + i as f64, 0.003));
+    }
+    assert!(matches!(
+        timing_verdict(&h, "audio:a", "display:d", 0.0),
+        Verdict::Fine { plays: 10, .. }
+    ));
 }
 
 /// A play under the player's fail type and levels is judged again under

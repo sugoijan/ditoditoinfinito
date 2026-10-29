@@ -18,6 +18,7 @@ mod replay;
 mod reworker;
 #[cfg(test)]
 mod tests;
+pub mod timing;
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -420,6 +421,30 @@ pub struct PlaySummary {
     /// summaries kept before they were, or that do not read).
     #[serde(default, deserialize_with = "lenient_some")]
     pub options: Option<PlayOptions>,
+    /// The devices it ran on and the audio offset in effect
+    /// ([`timing::timing_verdict`]); none in summaries kept before they
+    /// were, which the verdict leaves out.
+    #[serde(default, deserialize_with = "lenient_some")]
+    pub clock: Option<SummaryClock>,
+}
+
+/// A play's devices and audio offset, as its summary keeps them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SummaryClock {
+    pub audio: String,
+    pub display: String,
+    /// Seconds.
+    pub audio_offset: f64,
+}
+
+impl SummaryClock {
+    fn of(clock: &ClockSetup) -> Option<SummaryClock> {
+        Some(SummaryClock {
+            audio: clock.audio.as_ref()?.id.clone(),
+            display: clock.display.as_ref()?.id.clone(),
+            audio_offset: clock.audio_offset,
+        })
+    }
 }
 
 impl PlaySummary {
@@ -446,6 +471,7 @@ impl PlaySummary {
             ended: record.ended,
             worked: None,
             options: Some(record.options),
+            clock: SummaryClock::of(&record.setup.clock),
         }
     }
 
@@ -462,8 +488,14 @@ impl PlaySummary {
             autoplay: Option<serde_json::Value>,
             #[serde(default)]
             options: Option<serde_json::Value>,
+            #[serde(default)]
+            setup: Option<serde_json::Value>,
         }
         let k: Keys = serde_json::from_str(record).map_err(|e| e.to_string())?;
+        let clock = k
+            .setup
+            .and_then(|s| serde_json::from_value::<PlaySetup>(s).ok())
+            .and_then(|s| SummaryClock::of(&s.clock));
         Ok(PlaySummary {
             version: RECORD_VERSION,
             chart: k.chart,
@@ -473,6 +505,7 @@ impl PlaySummary {
             ended: k.ended,
             worked: None,
             options: k.options.and_then(|o| serde_json::from_value(o).ok()),
+            clock,
         })
     }
 }
