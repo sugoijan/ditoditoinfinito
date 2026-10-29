@@ -308,7 +308,10 @@ Rust and the browser are implementation details, not advertised features.
   a device first seen plays on the default offsets, kept as its profile
   from the play on, `Settings::register_devices`, and a calibration run
   settles by itself, `ddi_session::calibration::settle`, its line on the
-  calibration menu; Dancing☆Onigiri's lyrics drawn over the play
+  calibration menu, and the start prompt's one quiet line beside its
+  buttons suggests calibrating or not by what the kept plays on the
+  devices say, `ddi_ui::state::history::timing`,
+  `screens::prompt::timing_hint`; Dancing☆Onigiri's lyrics drawn over the play
   by the 2D pass, `ddi_render::lyrics`), pages as components of our own
   (`crates/web/src/component.rs`: messages handled in a microtask, each page's
   few DOM elements its own; no Yew; `#/video-check`, the crash page and

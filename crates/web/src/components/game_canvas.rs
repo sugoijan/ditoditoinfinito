@@ -185,6 +185,8 @@ pub(crate) enum Msg {
     Decoded(Result<(WebAudio, AudioBuffer), String>),
     /// A card's action (a song's score, should the results not start).
     CardAction(String),
+    /// The prompt's quiet line: calibration's menu (Back comes back).
+    Calibrate,
     Session(SessionEvent),
     Retry,
     /// A background image decoded: the song's background or a background
@@ -487,6 +489,7 @@ impl PromptShell {
                 }
             }
             PromptChoice::Retry => send(Msg::Retry),
+            PromptChoice::Calibrate => send(Msg::Calibrate),
             PromptChoice::Action(id) => send(Msg::CardAction(id)),
             // This play's options, at once; the page readies what they
             // change.
@@ -1263,6 +1266,10 @@ impl GameCanvas {
                 }
                 true
             }
+            Msg::Calibrate => {
+                Route::Calibrate.navigate();
+                false
+            }
             Msg::CardAction(id) => match id.as_str() {
                 "again" => self.handle(ctx, Msg::Retry),
                 "songs" => {
@@ -2035,6 +2042,43 @@ impl GameCanvas {
         }
     }
 
+    /// The prompt's quiet suggestion to calibrate (`PromptInfo::timing`,
+    /// `docs/plans/quiet-calibration.md`): none on a replay or an
+    /// autoplay; else what the kept plays on the devices say
+    /// (`timing_verdict`) and whether both are calibrated, in a line.
+    fn timing_hint(&self, ctx: &Context<Self>) -> Option<String> {
+        if self.replay.is_some() || ctx.props().auto {
+            return None;
+        }
+        let s = &self.settings;
+        // The devices probed (after Start's context on a direct route),
+        // else those seen last; none known: not calibrated, surely.
+        let ids = match &self.devices {
+            Some(d) => Some((d.audio.id.clone(), d.display.id.clone())),
+            None => s.last_devices(),
+        };
+        let Some((audio_id, display_id)) = ids else {
+            return Some(ddi_ui::screens::prompt::timing_hint(
+                &ddi_ui::state::history::timing::Verdict::Inconclusive { plays: 0, hits: 0 },
+                false,
+            ));
+        };
+        let audio = s.audio_profile(&audio_id);
+        let display = s.display_profile(&display_id);
+        let calibrated =
+            audio.is_some_and(|p| p.calibrated) && display.is_some_and(|p| p.calibrated);
+        let offset = audio.map_or(s.audio_offset, |p| p.offset);
+        let plays = crate::history::plays();
+        let history = plays.history();
+        let verdict = ddi_ui::state::history::timing::timing_verdict(
+            &history,
+            &audio_id,
+            &display_id,
+            offset,
+        );
+        Some(ddi_ui::screens::prompt::timing_hint(&verdict, calibrated))
+    }
+
     /// The song the prompt names (once it is read), its chart and the
     /// mods it will play with.
     fn prompt_info(&self, ctx: &Context<Self>) -> PromptInfo {
@@ -2063,6 +2107,7 @@ impl GameCanvas {
                     } else {
                         String::new()
                     },
+                    timing: self.timing_hint(ctx),
                 }
             }
             (Status::Ready(song), SongSource::Calibration(_)) => PromptInfo {
@@ -2099,6 +2144,7 @@ impl GameCanvas {
                     } else {
                         String::new()
                     },
+                    timing: self.timing_hint(ctx),
                 }
             }
             // Its name comes once it is read (`SongLoaded`).
@@ -2224,6 +2270,16 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
         waiting.push(&w.as_str().into());
     }
     set(&p, "waiting", waiting.into());
+    // The quiet suggestion to calibrate: `null` (no row), "" (the row,
+    // empty) or its line.
+    set(
+        &p,
+        "timing",
+        st.info
+            .timing
+            .as_deref()
+            .map_or(JsValue::NULL, |t| t.into()),
+    );
     if let PromptStep::Error(e) = &st.step {
         set(&p, "error", e.as_str().into());
     }

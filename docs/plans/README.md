@@ -181,8 +181,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   by default for desktop since 2026-10-21 (never for the web or Windows);
   the build, package and integrity contract of the native helper. Left (decision 51): Windows confinement, managed-store
   durability, browser URL acquisition.
-- [Quiet calibration](quiet-calibration.md) (2026-10-29): step 1 done
-  (decision 76), the suggestion from the play history next. The
+- [Quiet calibration](quiet-calibration.md) (2026-10-29): done
+  (decision 76), the thresholds to tune by playing. The
   device banners, the devices line, the prompt's new-device step and the
   calibration outcome card go; new devices get the defaults silently; one
   muted line on the prompt suggests calibrating, kept or dropped by what

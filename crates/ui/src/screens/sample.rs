@@ -561,6 +561,8 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
         difficulty: "Hard".into(),
         mods: "×3 · reverse · mirror".into(),
         badge: "AUTOPLAY".into(),
+        // The sample's setup is not calibrated: the quiet line shows.
+        timing: Some("Timing not calibrated".into()),
     };
     let state = Rc::new(std::cell::RefCell::new(PromptState {
         info,

@@ -59,6 +59,32 @@ pub struct PromptInfo {
     pub mods: String,
     /// "AUTOPLAY" when autoplayed, else empty.
     pub badge: String,
+    /// The quiet suggestion to calibrate ([`timing_hint`]): `None`, no
+    /// row (a replay, a test); `Some`, a row below the modifiers kept
+    /// at one height, empty or with the line and its Calibrate link.
+    pub timing: Option<String>,
+}
+
+/// The suggestion's line for `verdict`, what the kept plays say of the
+/// timing on the devices in use, and `calibrated`, whether both have a
+/// calibrated profile (`docs/plans/quiet-calibration.md`): a consistent
+/// shift names its direction, calibrated or not; an uncalibrated setup
+/// with nothing to go on gets the neutral line; empty otherwise (noise
+/// around zero, or calibrated with nothing to go on), the row left
+/// blank. The shells read the devices from the play's probe, else from
+/// the profiles seen last ([`crate::state::settings::Settings::last_devices`]);
+/// with none known at all, the setup is not calibrated.
+pub fn timing_hint(verdict: &crate::state::history::timing::Verdict, calibrated: bool) -> String {
+    use crate::state::history::timing::Verdict;
+    match verdict {
+        Verdict::Shift { ms, .. } => format!(
+            "Hits run {:.0} ms {}",
+            ms.abs(),
+            if *ms > 0.0 { "late" } else { "early" }
+        ),
+        Verdict::Inconclusive { .. } if !calibrated => "Timing not calibrated".to_string(),
+        _ => String::new(),
+    }
 }
 
 /// The song's picture behind the prompt, as the play shows it before the
@@ -121,6 +147,8 @@ pub enum PromptChoice {
     Allow,
     /// After an interruption.
     Retry,
+    /// The timing line's link: calibration's menu.
+    Calibrate,
     /// A card's action, by its id.
     Action(String),
     /// A play option to value `index`, for this play
@@ -942,7 +970,60 @@ impl PromptScreen {
             })
             .collect();
         let one_row = widths.iter().sum::<f32>() + 10.0 * (buttons.len() as f32 - 1.0) <= inner;
+        // The quiet suggestion to calibrate (`PromptInfo::timing`): its
+        // line and link in the buttons' row where they fit beside the
+        // buttons, else a row of their own above them, kept with or
+        // without a line, so the card never moves for it.
+        let timing = (state.step == PromptStep::Ready)
+            .then_some(i.timing.as_deref())
+            .flatten();
+        let link_w = look::mono_width("Calibrate", 13.0) + 16.0;
+        let timing_w = timing.map_or(0.0, |t| {
+            if t.is_empty() {
+                0.0
+            } else {
+                look::mono_width(t, SMALL) + 8.0 + link_w
+            }
+        });
+        let free = inner - widths.iter().sum::<f32>() - 10.0 * (buttons.len() as f32 - 1.0);
+        let inline = one_row && timing_w <= free - 16.0;
+        // A short screen (a phone sideways) has no room for a row of its
+        // own: the link alone beside the buttons says it.
+        let link_only = !inline && sh < 480.0 && one_row && link_w <= free - 16.0;
+        let place_timing = |c: &mut Vec<Actor>, controls: &mut Vec<String>, mid: f32| {
+            let Some(hint) = timing.filter(|t| !t.is_empty()) else {
+                return;
+            };
+            let tw = if link_only {
+                0.0
+            } else {
+                look::mono_width(hint, SMALL).min(inner - link_w - 8.0)
+            };
+            if !link_only {
+                let mut text = env.text("TimingHint", hint, SMALL, 400, "Muted");
+                call(&mut text, "maxwidth", &[tw]);
+                c.push(left(text, 24.0, mid));
+            }
+            let mut link = look::component_or(
+                &*env.look,
+                "Link",
+                "Button",
+                &Spec::new([link_w, 26.0], "Calibrate"),
+            );
+            link.name = "Calibrate".into();
+            let gap = if link_only { 0.0 } else { 8.0 };
+            call(&mut link, "xy", &[24.0 + tw + gap + link_w / 2.0, mid]);
+            c.push(link);
+            controls.push("Calibrate".into());
+        };
+        if timing.is_some() && !inline && !link_only {
+            place_timing(&mut c, &mut controls, y + TIMING_ROW / 2.0);
+            y += TIMING_ROW + 10.0;
+        }
         if one_row {
+            if inline || link_only {
+                place_timing(&mut c, &mut controls, y + bh / 2.0);
+            }
             // The first (focused) rightmost, as results put Retry.
             let mut x = w - 24.0;
             for ((name, label, kind), bw) in buttons.iter().zip(&widths) {
@@ -1381,6 +1462,8 @@ fn loading_label(env: &Env, [w, h]: [f32; 2]) -> Actor {
 /// How long the diagram's picture fades in, s, once its texture is
 /// there.
 const RECEPTORS_FADE: f64 = 0.15;
+/// The timing line's row, virtual pixels.
+const TIMING_ROW: f32 = 26.0;
 
 /// How long the loading screen waits before it says "Loading" (the
 /// backdrop's unblur), seconds: a short wait looks like the entrance alone.
@@ -1419,7 +1502,8 @@ impl Screen for PromptScreen {
             .filter(|n| n.starts_with("Opt."))
             .collect();
         let save = self.controls.iter().find(|n| *n == "SaveOptions");
-        let above_buttons = save.or(rows.last().copied()).cloned();
+        let link = self.controls.iter().find(|n| *n == "Calibrate");
+        let above_buttons = link.or(save).or(rows.last().copied()).cloned();
         let mut out: Vec<Focusable> = self
             .buttons
             .iter()
@@ -1436,12 +1520,19 @@ impl Screen for PromptScreen {
                 .get(i + 1)
                 .map(|r| (*r).clone())
                 .or_else(|| save.cloned())
+                .or_else(|| link.cloned())
                 .or_else(|| self.buttons.first().cloned());
             out.push(f);
         }
         if let Some(s) = save {
             let mut f = Focusable::new(s);
             f.up = rows.last().map(|r| (*r).clone());
+            f.down = link.cloned().or_else(|| self.buttons.first().cloned());
+            out.push(f);
+        }
+        if let Some(l) = link {
+            let mut f = Focusable::new(l);
+            f.up = save.cloned().or_else(|| rows.last().map(|r| (*r).clone()));
             f.down = self.buttons.first().cloned();
             out.push(f);
         }
@@ -1708,7 +1799,7 @@ impl Screen for PromptScreen {
                 action: MenuAction::Start,
                 ..
             } if step == PromptStep::Ready
-                && !matches!(cx.focused(), Some("Back" | "SaveOptions")) =>
+                && !matches!(cx.focused(), Some("Back" | "SaveOptions" | "Calibrate")) =>
             {
                 self.choose(PromptChoice::Start, cx);
                 Handled::Yes
@@ -1720,6 +1811,7 @@ impl Screen for PromptScreen {
                     "Allow" => Some(PromptChoice::Allow),
                     "Retry" => Some(PromptChoice::Retry),
                     "SaveOptions" => Some(PromptChoice::SaveOptions),
+                    "Calibrate" => Some(PromptChoice::Calibrate),
                     n => n
                         .strip_prefix("Action.")
                         .map(|id| PromptChoice::Action(id.to_string())),
@@ -1782,6 +1874,7 @@ mod tests {
             difficulty: "Hard".into(),
             mods: "×3 · reverse".into(),
             badge: String::new(),
+            timing: None,
         };
         let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
         state.borrow_mut().set_info(info);
@@ -2086,6 +2179,66 @@ mod tests {
         // The label after its delay, its dots a second each.
         h.run(0.4);
         assert!(view().label);
+    }
+
+    #[test]
+    fn the_timing_line_keeps_its_row_and_links_to_calibration() {
+        use crate::state::history::timing::Verdict;
+        // The wording, by verdict and whether the devices are calibrated.
+        let late = Verdict::Shift {
+            ms: 21.4,
+            plays: 3,
+            hits: 360,
+        };
+        assert_eq!(timing_hint(&late, true), "Hits run 21 ms late");
+        let early = Verdict::Shift {
+            ms: -16.0,
+            plays: 3,
+            hits: 360,
+        };
+        assert!(timing_hint(&early, false).contains("16 ms early"));
+        let none = Verdict::Inconclusive { plays: 0, hits: 0 };
+        assert_eq!(timing_hint(&none, false), "Timing not calibrated");
+        assert_eq!(timing_hint(&none, true), "");
+        let fine = Verdict::Fine {
+            plays: 5,
+            hits: 500,
+        };
+        assert_eq!(timing_hint(&fine, false), "");
+        // On the card: a row with the line and its link, or without, the
+        // card the same height either way; no row for a replay.
+        let state = controls_state();
+        let (mut h, seen) = prompt(&state);
+        let height =
+            |h: &Harness| h.ui.bounds("Card").unwrap()[3] - h.ui.bounds("Card").unwrap()[1];
+        let without = height(&h);
+        let mut info = state.borrow().info.clone();
+        info.timing = Some(String::new());
+        state.borrow_mut().set_info(info.clone());
+        h.run(0.1);
+        assert!(h.ui.actor("Calibrate").is_none());
+        // Beside the buttons on a wide card: no height of its own.
+        assert_eq!(height(&h), without);
+        info.timing = Some("Timing not calibrated".into());
+        state.borrow_mut().set_info(info);
+        h.run(0.1);
+        assert_eq!(height(&h), without);
+        assert!(h.texts().iter().any(|t| t.contains("not calibrated")));
+        let link = h.ui.bounds("Calibrate").unwrap();
+        let start = h.ui.bounds("Start").unwrap();
+        assert!(
+            link[2] < start[0] && (link[1] - start[1]).abs() < 12.0,
+            "{link:?} {start:?}"
+        );
+        // Reached from Start with Up, pressed, it asks for calibration.
+        h.run(0.3);
+        assert_eq!(h.ui.focused(), Some("Start"));
+        h.key("ArrowUp", "ArrowUp");
+        assert_eq!(h.ui.focused(), Some("Calibrate"));
+        h.key("Enter", "Enter");
+        assert_eq!(seen.borrow().last(), Some(&(PromptChoice::Calibrate, true)));
+        h.key("ArrowDown", "ArrowDown");
+        assert_eq!(h.ui.focused(), Some("Start"));
     }
 
     #[test]

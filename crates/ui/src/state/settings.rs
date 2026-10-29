@@ -772,6 +772,18 @@ impl Settings {
         Self::touch_profile(&mut self.display_profiles, &profile.display, visual);
     }
 
+    /// The audio path and the display seen last (each profile's
+    /// `last_seen`), as a play probably runs on before its own probe
+    /// says: the start prompt's quiet line reads the history by them.
+    pub fn last_devices(&self) -> Option<(String, String)> {
+        let last = |list: &[OffsetProfile]| {
+            list.iter()
+                .max_by(|a, b| a.last_seen.total_cmp(&b.last_seen))
+                .map(|p| p.id.clone())
+        };
+        Some((last(&self.audio_profiles)?, last(&self.display_profiles)?))
+    }
+
     pub fn touch_profile<'a>(
         profiles: &'a mut Vec<OffsetProfile>,
         fp: &ddi_platform::DeviceFingerprint,

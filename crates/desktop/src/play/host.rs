@@ -414,6 +414,8 @@ impl Host {
                 // again (Start then plays).
                 PromptChoice::Retry => {}
                 PromptChoice::Back => cx.close(true),
+                // The quiet line's link: calibration's menu (the poll).
+                PromptChoice::Calibrate => cx.close(true),
                 // A card's action (none on desktop: the theme's results).
                 PromptChoice::Action(_) => cx.close(true),
                 PromptChoice::Allow => return,
@@ -452,8 +454,10 @@ impl Host {
                 .countdown
                 .then(|| r.settings().start_countdown)
                 .filter(|s| *s > 0.0);
+            let mut info = first_info(&r);
+            info.timing = self.timing_hint(&r);
             let prompt: SharedPrompt = Rc::new(RefCell::new(PromptState {
-                info: first_info(&r),
+                info,
                 base: r.backdrop.clone(),
                 countdown,
                 // Start at once: what the play needs loads behind it.
@@ -555,6 +559,10 @@ impl Host {
                         }
                         Stage::Idle
                     }
+                    Some(PromptChoice::Calibrate) => {
+                        self.open_menu(ui, env);
+                        Stage::Idle
+                    }
                     Some(PromptChoice::Start) => {
                         r.started = true;
                         self.start_if_ready(r, ui, env)
@@ -638,6 +646,40 @@ impl Host {
         if matches!(self.stage, Stage::Idle) && self.requested.borrow().is_some() {
             self.poll(ui, env, None, rate);
         }
+    }
+
+    /// The prompt's quiet suggestion to calibrate (`PromptInfo::timing`,
+    /// `docs/plans/quiet-calibration.md`; the web's `timing_hint`): none
+    /// on a test, a replay or an autoplay; else what the kept plays on
+    /// the devices say and whether both are calibrated, in a line.
+    fn timing_hint(&self, request: &Request) -> Option<String> {
+        if request.calibration.is_some() || request.replay.is_some() || request.auto {
+            return None;
+        }
+        use ddi_ui::state::history::timing::{Verdict, timing_verdict};
+        let s = Settings::load();
+        // The devices watched, else those seen last; none known: not
+        // calibrated, surely.
+        let ids = match &self.watcher.last {
+            Some(d) => Some((d.audio.id.clone(), d.display.id.clone())),
+            None => s.last_devices(),
+        };
+        let Some((audio_id, display_id)) = ids else {
+            return Some(ddi_ui::screens::prompt::timing_hint(
+                &Verdict::Inconclusive { plays: 0, hits: 0 },
+                false,
+            ));
+        };
+        let audio = s.audio_profile(&audio_id);
+        let display = s.display_profile(&display_id);
+        let calibrated =
+            audio.is_some_and(|p| p.calibrated) && display.is_some_and(|p| p.calibrated);
+        let offset = audio.map_or(s.audio_offset, |p| p.offset);
+        let verdict = match &self.plays {
+            Some(plays) => timing_verdict(&plays.history(), &audio_id, &display_id, offset),
+            None => Verdict::Inconclusive { plays: 0, hits: 0 },
+        };
+        Some(ddi_ui::screens::prompt::timing_hint(&verdict, calibrated))
     }
 
     fn open_menu(&self, ui: &mut Ui, env: &Env) {
@@ -783,9 +825,9 @@ impl Host {
                     r.stage = Some(super::stage::read(contents, self.wake.clone()));
                 }
             }
-            r.prompt
-                .borrow_mut()
-                .set_info(full_info(&r.request, &loaded, &settings));
+            let mut info = full_info(&r.request, &loaded, &settings);
+            info.timing = self.timing_hint(&r.request);
+            r.prompt.borrow_mut().set_info(info);
             // The options' skin row is the chart's layout's.
             if let Some(o) = &r.options {
                 if let Some(layout) = loaded
@@ -813,9 +855,9 @@ impl Host {
                 if skin {
                     r.skin = read_skin(&loaded, &r.request, &settings, self.wake.clone());
                 }
-                r.prompt
-                    .borrow_mut()
-                    .set_info(full_info(&r.request, &loaded, &settings));
+                let mut info = full_info(&r.request, &loaded, &settings);
+                info.timing = self.timing_hint(&r.request);
+                r.prompt.borrow_mut().set_info(info);
             }
         }
         let Some(view) = r.view.as_mut() else {

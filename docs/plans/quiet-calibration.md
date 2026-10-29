@@ -148,4 +148,24 @@ a "Last test" heading at the menu's top, cleared by its next Start), then
 the guided flow's next test's prompt, or the menu after the last. Left
 out of the plan's first wording: copying a known device's offset to a
 new one (the banner's "use +N ms from …"), which no screen offers now;
-the calibration page could, later. Steps 2 and 3 next.
+the calibration page could, later.
+
+Steps 2 and 3 done (2026-10-29). The verdict is
+`ddi_ui::state::history::timing::timing_verdict`, on the summaries the
+history loads at start, which now keep each play's devices and audio
+offset (`PlaySummary::clock`; summaries kept before have none and are
+left out), with its thresholds as constants beside it and tests on
+made-up play sets. The prompt's line is `PromptInfo::timing` (`None`:
+no row, a replay or an autoplay; `Some`, the line, empty when nothing
+is to be said), worded by `screens::prompt::timing_hint` ("Timing not
+calibrated", "Hits run 21 ms late"), drawn beside the buttons where it
+fits with its Calibrate link (`PromptChoice::Calibrate`: the web
+navigates to the calibration page, Back returning to the prompt;
+desktop opens the menu), in a row of its own above them on a narrow
+card, and as the link alone on a short screen; Up from Start reaches
+it, Enter follows it. Each shell reads the devices from the play's
+probe, else from the profiles seen last (`Settings::last_devices`), and
+with none known at all says the setup is not calibrated, so a fresh
+profile's first prompt says so on the web's direct play route too, where
+no audio context exists before Start. Left for playing with it: the
+thresholds, and whether the line should name the direction's remedy.

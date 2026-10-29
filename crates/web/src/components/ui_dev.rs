@@ -2478,6 +2478,8 @@ fn publish(h: &Host) {
             names.push("SaveOptions".into());
             names.push("Receptors0".into());
             names.push("OptionsHeading".into());
+            names.push("TimingHint0".into());
+            names.push("Calibrate".into());
             if let Some(p) = &st.prompt {
                 names.extend((0..p.bindings.len()).map(|i| format!("BindingKey{i}")));
                 for o in &p.options {
