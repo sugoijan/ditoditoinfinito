@@ -484,12 +484,14 @@ fn a_held_escape_quits() {
     };
     // Held for CANCEL_HOLD: about 2.7 s.
     assert!((*clock.borrow() - (2.0 + CANCEL_HOLD)).abs() < 0.05);
-    // A quit's results: graded QUIT, not failed, the notes left all
-    // missed (every note of the chart judged), the log told where.
+    // A quit's results: graded QUIT, not failed, judged to the quit with
+    // the notes left unjudged (as after a fail: a chart quit at 2 s on
+    // autoplay has no miss), the log told where.
     assert!(results.quit && !results.failed);
     assert_eq!(results.grade, "QUIT");
-    assert!(
-        results.tally.count(ddi_engine::rules::Judgement::Miss) > 0,
+    assert_eq!(
+        results.tally.count(ddi_engine::rules::Judgement::Miss),
+        0,
         "{:?}",
         results.tally
     );

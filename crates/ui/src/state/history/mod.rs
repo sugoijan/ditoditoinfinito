@@ -59,7 +59,7 @@ pub struct ChartKey {
 }
 
 /// How a play ended. A quit is kept too (its results graded QUIT, the
-/// notes left counted missed) but never counts toward the bests
+/// notes left unjudged, as after a fail) but never counts toward the bests
 /// ([`PlaySummary::counts`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

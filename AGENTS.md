@@ -695,7 +695,9 @@ the prompt asks for a tap or key, as for a pad's Start
 (`docs/plans/start-prompt.md`). The results' Retry counts down too: its
 press hands a context over the same way (desktop sets the prompt's
 countdown again). A quit (Escape held or twice, the quit button) ends
-the play on the results: judged to the quit with the notes left missed,
+the play on the results: judged to the quit with the notes left
+unjudged (not misses, as after a fail: the counts and the timing are
+of what was played),
 graded QUIT in place of a letter (`Results::quit`, `Player::quit_at`),
 kept in the history as a quit (`Ending::Quit`, the lamp QUIT) that never
 counts for the bests or the ghost; its replay quits where it did

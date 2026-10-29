@@ -324,7 +324,7 @@ pub enum SessionEvent {
         facts: Box<PlayFacts>,
     },
     /// The player quit: the play judged to the quit, the notes left
-    /// missed, its results graded QUIT (`Results::quit`; a quit in a
+    /// unjudged, its results graded QUIT (`Results::quit`; a quit in a
     /// fail's hold keeps the fail's) and its facts, which the history
     /// keeps as a quit (a calibration's or a replay's are not kept).
     Aborted {

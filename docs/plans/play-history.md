@@ -58,7 +58,9 @@ metadata out again when something changes.
   play shows the new judgement beside it when they differ. About 8 bytes
   a judgement.
 - **How it ended:** finished, failed, or quit (since 2026-10-28: a quit
-  is kept too, judged to the quit with the notes left missed and graded
+  is kept too, judged to the quit with the notes left unjudged, as
+  after a fail (2026-10-29: they counted as misses at first, which
+  filled the timing panels with red), and graded
   QUIT, `Results::quit`; it never counts toward the bests or the ghost,
   and its log says where it quit, `PlayLog::end`, so its replay and a
   judging again quit there).

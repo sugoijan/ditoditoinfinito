@@ -105,8 +105,8 @@ pub struct Results {
     pub grade: String,
     pub full_combo: FullCombo,
     pub failed: bool,
-    /// The player quit: the notes left were judged missed and the play
-    /// finished there, graded QUIT ([`Player::quit_at`]).
+    /// The player quit: the play was judged to the quit, the notes left
+    /// unjudged, and finished there, graded QUIT ([`Player::quit_at`]).
     #[serde(default)]
     pub quit: bool,
     /// Hits early by more than the ruleset's dead zone
@@ -736,10 +736,10 @@ impl Player {
     }
 
     /// The player quit at judged song time `song_time`: the notes left are
-    /// judged missed (the tiers, the score and the combo count them; the
-    /// gauge stays as it was, so a quit never reads as a fail), the play
-    /// is finished, and its results say so ([`Results::quit`], graded
-    /// QUIT). The log keeps the time ([`PlayLog::end`]), so a replay quits
+    /// left unjudged, as an immediate fail leaves them (the counts and
+    /// the timing are of what was played; the gauge stays as it was, so
+    /// a quit never reads as a fail), the play is finished, and its
+    /// results say so ([`Results::quit`], graded QUIT). The log keeps the time ([`PlayLog::end`]), so a replay quits
     /// there. Nothing changes once the play finished: a quit in a fail's
     /// hold keeps the fail.
     pub fn quit_at(&mut self, song_time: f64) {
@@ -748,9 +748,11 @@ impl Player {
         }
         self.quit = true;
         self.log.end = Some(to_microsecond(song_time));
-        // Every note left, missed: judged as if its time ran out.
-        let far = self.end_time().max(song_time) + 1.0;
-        let mut events = self.judge.update(to_microsecond(far));
+        // Judged to the quit: a note whose window ran out by then is a
+        // miss, the notes left are not judged at all (as an immediate
+        // fail leaves them), so the counts and the timing are of what
+        // was played.
+        let mut events = self.judge.update(to_microsecond(song_time));
         self.apply(&mut events);
         self.finished = true;
         self.ruleset.score.finish();

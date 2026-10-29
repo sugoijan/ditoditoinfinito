@@ -375,15 +375,19 @@ fn a_quit_play_is_judged_to_its_quit_and_replays_there() {
     assert!(!player.finished() && !before.quit);
     player.quit_at(at);
     let r = player.results();
-    // Finished, graded QUIT, not failed; every note judged, the ones
-    // left as misses; the gauge as it was.
+    // Finished, graded QUIT, not failed; judged to the quit, the notes
+    // left unjudged (not misses, as after a fail); the gauge as it was.
     assert!(player.finished());
     assert!(r.quit && !r.failed, "{r:?}");
     assert_eq!(r.grade, "QUIT");
-    assert!(player.judge().all_resolved(), "{total} notes");
+    assert!(!player.judge().all_resolved(), "{total} notes");
+    let misses =
+        |r: &ddi_engine::player::Results| r.tally.count(ddi_engine::rules::Judgement::Miss);
     assert!(
-        r.tally.count(ddi_engine::rules::Judgement::Miss)
-            > before.tally.count(ddi_engine::rules::Judgement::Miss)
+        misses(&r) <= misses(&before) + 1,
+        "{} {}",
+        misses(&r),
+        misses(&before)
     );
     assert_eq!(
         r.life.last().map(|l| l[1]),
