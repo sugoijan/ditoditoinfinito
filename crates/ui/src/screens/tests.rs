@@ -1943,64 +1943,6 @@ fn the_shells_folders_offer_opens_over_song_select() {
 }
 
 #[test]
-fn the_import_dialog_moves_below_the_notices_arriving_after_it() {
-    use super::notices::{AppNotice, AppNotices, NoticeBar, NoticesFeed};
-    let (mut h, _s, _calls, _feed) = shelled(library(), None);
-    h.tap(PointerKind::Mouse, "Link.Add");
-    h.run(0.5);
-    assert_eq!(top(&h), "import");
-    let before = h.ui.bounds("Panel").unwrap();
-    let feed: NoticesFeed = Rc::new(RefCell::new(AppNotices {
-        banner: Some(AppNotice {
-            text: "New audio path: 48 kHz. No calibration for it yet.".into(),
-            actions: vec![("later".into(), "later".into(), false)],
-        }),
-        toast: None,
-    }));
-    h.ui.push_chrome(NoticeBar::new(env(), feed, Rc::new(|_, _| {})));
-    h.run(0.3);
-    let plate = h.ui.bounds("AppNotice.Plate").unwrap();
-    let after = h.ui.bounds("Panel").unwrap();
-    assert!(after[1] >= plate[3] - 0.5, "{after:?} under {plate:?}");
-    assert_ne!(before, after);
-    assert_eq!(top(&h), "import");
-}
-
-#[test]
-fn the_devices_line_lets_taps_through_to_the_footer() {
-    use super::notices::{AppNotices, NoticeBar, NoticesFeed};
-    let (mut h, _s, calls, _feed) = shelled(library(), None);
-    let feed: NoticesFeed = Rc::new(RefCell::new(AppNotices {
-        banner: None,
-        toast: Some(format!(
-            "devices: {} (+0 ms)",
-            "a very long device name ".repeat(8)
-        )),
-    }));
-    h.ui.push_chrome(NoticeBar::new(env(), feed, Rc::new(|_, _| {})));
-    h.run(0.3);
-    let toast = h.ui.bounds("AppToast.Frame").unwrap();
-    let l = h.ui.bounds("Link.Calibrate").unwrap();
-    // A point on both: the line's plate over the link's top.
-    let link = [
-        (l[0] + l[2]) / 2.0,
-        (l[1].max(toast[1]) + l[3].min(toast[3])) / 2.0,
-    ];
-    assert!(
-        l[1] < toast[3] && link[0] > toast[0] && link[0] < toast[2],
-        "{l:?} under {toast:?}"
-    );
-    h.tap_at(PointerKind::Mouse, link);
-    assert!(
-        calls
-            .borrow()
-            .contains(&SelectCall::Open("calibrate".into())),
-        "{:?}",
-        calls.borrow()
-    );
-}
-
-#[test]
 fn song_selects_plays_list_watches_opens_and_removes() {
     use super::data::PlayRow;
     use super::select::PlaysFn;

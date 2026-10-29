@@ -65,10 +65,6 @@ const SOURCES: &[(&str, &str)] = &[
         include_str!("../../ui/src/screens/calibration.rs"),
     ),
     (
-        "crates/ui/src/screens/notices.rs",
-        include_str!("../../ui/src/screens/notices.rs"),
-    ),
-    (
         "crates/ui/src/screens/folders_offer.rs",
         include_str!("../../ui/src/screens/folders_offer.rs"),
     ),
@@ -148,16 +144,8 @@ const SOURCES: &[(&str, &str)] = &[
         include_str!("../../web/src/components/page_routes.rs"),
     ),
     (
-        "crates/web/src/components/device_watcher.rs",
-        include_str!("../../web/src/components/device_watcher.rs"),
-    ),
-    (
         "crates/web/src/components/game_canvas.rs",
         include_str!("../../web/src/components/game_canvas.rs"),
-    ),
-    (
-        "crates/web/src/notices.rs",
-        include_str!("../../web/src/notices.rs"),
     ),
     (
         "crates/web/src/select_data.rs",

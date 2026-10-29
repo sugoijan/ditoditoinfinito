@@ -56,7 +56,7 @@ use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
 use ddi_ui::screens::prompt::{
     PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep, SharedPrompt,
-    chart_line, mods_line, new_device_step,
+    chart_line, mods_line,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 
@@ -183,18 +183,10 @@ pub(crate) enum Msg {
     /// A finger or pen touched the screen.
     TouchSeen,
     Decoded(Result<(WebAudio, AudioBuffer), String>),
-    /// On the new-device prompt: start with the (possibly copied) offsets.
-    DeviceContinue {
-        copy_audio_from: Option<String>,
-        copy_display_from: Option<String>,
-    },
-    /// On the new-device prompt: register the devices and go calibrate.
-    DeviceCalibrate,
-    /// A card's action (a calibration's outcome; a song's score).
+    /// A card's action (a song's score, should the results not start).
     CardAction(String),
     Session(SessionEvent),
     Retry,
-    SaveCalibration,
     /// A background image decoded: the song's background or a background
     /// change's (`None`: no such image, or it failed to load).
     BackgroundLoaded(BgImage, Option<web_sys::ImageBitmap>),
@@ -511,13 +503,6 @@ impl PromptShell {
                     o.borrow().show(&mut self.state.borrow_mut());
                 }
             }
-            PromptChoice::Device(id) => send(match id.as_str() {
-                "calibrate" => Msg::DeviceCalibrate,
-                other => Msg::DeviceContinue {
-                    copy_audio_from: other.strip_prefix("copy-audio:").map(str::to_string),
-                    copy_display_from: other.strip_prefix("copy-display:").map(str::to_string),
-                },
-            }),
         }
     }
 }
@@ -538,25 +523,15 @@ enum Stage {
         audio: WebAudio,
         buffer: AudioBuffer,
     },
-    /// Audio decoded, but at least one device has no calibration profile.
-    NewDevice {
-        audio: WebAudio,
-        buffer: AudioBuffer,
-        new_audio: bool,
-        new_display: bool,
-    },
     Playing,
     Finished {
         results: Box<Results>,
-        calibration: Option<Outcome>,
         device_changed: bool,
         /// Why the automatic setting turned the background videos off.
         video_stopped: Option<ddi_platform::video::StopReason>,
         /// What kept background videos from playing.
         video_trouble: Option<String>,
     },
-    /// Calibration result saved to the settings.
-    Saved(Outcome),
     Aborted,
     /// Tab hidden or audio context suspended mid-play.
     Interrupted,
@@ -870,7 +845,7 @@ impl GameCanvas {
             Msg::DeviceLost => {
                 // The results stay (a phone loses contexts under memory
                 // pressure); anything else starts over on the new device.
-                if matches!(self.stage, Stage::Finished { .. } | Stage::Saved(_)) {
+                if matches!(self.stage, Stage::Finished { .. }) {
                     self.device_lost = true;
                     self.raf.borrow_mut().take();
                     self.game.borrow_mut().take();
@@ -1222,55 +1197,15 @@ impl GameCanvas {
                     display: crate::web::display::fingerprint(refresh),
                 };
                 self.settings = self.play_settings();
-                let new_audio = self.settings.audio_profile(&profile.audio.id).is_none();
-                let new_display = self.settings.display_profile(&profile.display.id).is_none();
                 self.devices = Some(profile);
-                let is_calibration = matches!(ctx.props().source, SongSource::Calibration(_));
-                if (new_audio || new_display)
-                    && !is_calibration
-                    && !ctx.props().auto
-                    && self.replay.is_none()
-                {
-                    self.stage = Stage::NewDevice {
-                        audio,
-                        buffer,
-                        new_audio,
-                        new_display,
-                    };
-                    return true;
-                }
-                // A replay changes no setting (no profile made or touched).
+                // New devices play on the defaults, kept as their profile
+                // from now (no banner, no step: `quiet-calibration.md`); a
+                // replay changes no setting.
                 if self.replay.is_none() {
-                    self.register_devices(None, None);
+                    self.register_devices();
                 }
                 self.stage = Stage::Waiting { audio, buffer };
                 self.try_begin(ctx);
-                true
-            }
-            Msg::DeviceContinue {
-                copy_audio_from,
-                copy_display_from,
-            } => {
-                let Stage::NewDevice { .. } = &self.stage else {
-                    return false;
-                };
-                let Stage::NewDevice { audio, buffer, .. } =
-                    std::mem::replace(&mut self.stage, Stage::Decoding)
-                else {
-                    return false;
-                };
-                self.register_devices(copy_audio_from.as_deref(), copy_display_from.as_deref());
-                self.stage = Stage::Waiting { audio, buffer };
-                self.try_begin(ctx);
-                true
-            }
-            Msg::DeviceCalibrate => {
-                if !matches!(self.stage, Stage::NewDevice { .. }) {
-                    return false;
-                }
-                self.register_devices(None, None);
-                self.stage = Stage::Idle;
-                Route::Calibrate.navigate();
                 true
             }
             Msg::Decoded(Err(e)) => {
@@ -1329,30 +1264,11 @@ impl GameCanvas {
                 true
             }
             Msg::CardAction(id) => match id.as_str() {
-                "save" => self.handle(ctx, Msg::SaveCalibration),
                 "again" => self.handle(ctx, Msg::Retry),
                 "songs" => {
                     match &ctx.props().source {
                         SongSource::Song { .. } => back_route(ctx.props()).return_to(),
                         SongSource::Calibration(_) => Route::Songs.return_to(),
-                    }
-                    false
-                }
-                "next" | "done" => {
-                    if let SongSource::Calibration(mode) = &ctx.props().source {
-                        match (id.as_str(), mode.next()) {
-                            ("next", Some(m)) => Route::CalibrateRun {
-                                mode: m.id().into(),
-                                auto: false,
-                                bias_ms: 0,
-                            }
-                            .navigate(),
-                            // The last step of the guided flow ends it: back
-                            // to the songs; earlier ones leave the flow, to
-                            // the calibration page.
-                            (_, None) => Route::Songs.return_to(),
-                            _ => Route::Calibrate.return_to(),
-                        }
                     }
                     false
                 }
@@ -1390,25 +1306,6 @@ impl GameCanvas {
                         .set_countdown(Some(self.settings.start_countdown));
                     self.predecode(ctx);
                 }
-                true
-            }
-            Msg::SaveCalibration => {
-                let Stage::Finished {
-                    calibration: Some(outcome),
-                    ..
-                } = &self.stage
-                else {
-                    return false;
-                };
-                let SongSource::Calibration(mode) = &ctx.props().source else {
-                    return false;
-                };
-                let mut settings = Settings::load();
-                mode.apply(&mut settings, self.devices.as_ref(), outcome.total());
-                settings.save();
-                self.settings = settings;
-                let outcome = outcome.clone();
-                self.stage = Stage::Saved(outcome);
                 true
             }
         }
@@ -1719,37 +1616,14 @@ impl GameCanvas {
 
     /// Create/refresh the profiles for the probed devices, optionally copying
     /// another profile's offset for a new one.
-    fn register_devices(&mut self, copy_audio_from: Option<&str>, copy_display_from: Option<&str>) {
+    /// The devices probed, kept with the default offsets where they have
+    /// no profile yet (`Settings::register_devices`).
+    fn register_devices(&mut self) {
         let Some(devices) = self.devices.clone() else {
             return;
         };
         let mut settings = Settings::load();
-        let audio_initial = copy_audio_from
-            .and_then(|id| settings.audio_profile(id).map(|p| p.offset))
-            .unwrap_or(settings.audio_offset);
-        let display_initial = copy_display_from
-            .and_then(|id| settings.display_profile(id).map(|p| p.offset))
-            .unwrap_or(settings.visual_offset);
-        {
-            let p = Settings::touch_profile(
-                &mut settings.audio_profiles,
-                &devices.audio,
-                audio_initial,
-            );
-            if copy_audio_from.is_some() && !p.calibrated {
-                p.offset = audio_initial;
-            }
-        }
-        {
-            let p = Settings::touch_profile(
-                &mut settings.display_profiles,
-                &devices.display,
-                display_initial,
-            );
-            if copy_display_from.is_some() && !p.calibrated {
-                p.offset = display_initial;
-            }
-        }
+        settings.register_devices(&devices);
         settings.save();
         self.settings = self.play_settings();
     }
@@ -2027,7 +1901,7 @@ impl GameCanvas {
         // A calibration's outcome, or a song's should its results not
         // start, show on the prompt's screen as a card.
         let card = match (&self.stage, &ctx.props().source) {
-            (Stage::Finished { .. } | Stage::Saved(_), SongSource::Calibration(_)) => true,
+            (Stage::Finished { .. }, SongSource::Calibration(_)) => true,
             (Stage::Finished { .. }, SongSource::Song { .. }) => self.results_failed,
             _ => false,
         };
@@ -2037,7 +1911,6 @@ impl GameCanvas {
                 Stage::Idle
                     | Stage::Decoding
                     | Stage::Waiting { .. }
-                    | Stage::NewDevice { .. }
                     | Stage::Interrupted
                     | Stage::Error(_)
             ))
@@ -2120,7 +1993,7 @@ impl GameCanvas {
             // A chart the address names that this game does not play (a
             // style it leaves out, a chart past the song's): said at once.
             (Status::Ready(song), _)
-                if !matches!(self.stage, Stage::Finished { .. } | Stage::Saved(_))
+                if !matches!(self.stage, Stage::Finished { .. })
                     && let SongSource::Song { chart, .. } = &ctx.props().source
                     && song
                         .song
@@ -2142,56 +2015,21 @@ impl GameCanvas {
                 PromptStep::Loading("loading…".into())
             }
             (_, Stage::Decoding | Stage::Waiting { .. }) => PromptStep::Loading("loading…".into()),
-            (
-                _,
-                Stage::NewDevice {
-                    new_audio,
-                    new_display,
-                    ..
-                },
-            ) => match &self.devices {
-                Some(d) => new_device_step(&self.settings, d, *new_audio, *new_display),
-                None => PromptStep::Loading("preparing audio…".into()),
-            },
             (_, Stage::Interrupted) => PromptStep::Interrupted,
             (_, Stage::Error(e)) => PromptStep::Error(e.clone()),
             (
                 _,
                 Stage::Finished {
                     results,
-                    calibration,
                     device_changed,
                     ..
                 },
-            ) => match (&ctx.props().source, calibration) {
-                (SongSource::Calibration(mode), Some(o)) => ddi_session::calibration::card(
-                    o,
-                    *mode,
-                    &self.settings,
-                    self.devices.as_ref(),
-                    self.refresh_hz(),
-                    false,
-                    *device_changed,
-                ),
-                _ => results_card(
-                    results,
-                    self.names.as_ref(),
-                    self.layout.as_ref(),
-                    *device_changed,
-                ),
-            },
-            (_, Stage::Saved(o)) => match &ctx.props().source {
-                SongSource::Calibration(mode) => ddi_session::calibration::card(
-                    o,
-                    *mode,
-                    &self.settings,
-                    self.devices.as_ref(),
-                    self.refresh_hz(),
-                    true,
-                    false,
-                ),
-                SongSource::Song { .. } => PromptStep::Ready,
-            },
+            ) => results_card(
+                results,
+                self.names.as_ref(),
+                self.layout.as_ref(),
+                *device_changed,
+            ),
             // Start, whatever still loads.
             _ => PromptStep::Ready,
         }
@@ -2374,7 +2212,6 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
         PromptStep::Loading(s) => s.as_str(),
         PromptStep::Ready => "ready",
         PromptStep::Access { .. } => "access",
-        PromptStep::NewDevice { .. } => "new device",
         PromptStep::Interrupted => "interrupted",
         PromptStep::Error(_) => "error",
         PromptStep::Card { .. } => "card",
@@ -2458,6 +2295,35 @@ impl GameCanvas {
             self.record_play(ctx, id, *chart, &results, facts);
         }
         self.check_replay(&results);
+        // A calibration run: its correction applied where it means
+        // something, a line for the menu, then the guided flow's next
+        // test or the menu (no card: `quiet-calibration.md`).
+        if let (SongSource::Calibration(mode), Some(o)) = (&ctx.props().source, &calibration) {
+            let mut settings = Settings::load();
+            let settled = ddi_session::calibration::settle(
+                o,
+                *mode,
+                &mut settings,
+                self.devices.as_ref(),
+                device_changed,
+            );
+            if settled.applied {
+                settings.save();
+                self.settings = settings;
+            }
+            ddi_ui::screens::calibration::note_last_run(settled.line);
+            self.stage = Stage::Idle;
+            match mode.next() {
+                Some(m) => Route::CalibrateRun {
+                    mode: m.id().into(),
+                    auto: false,
+                    bias_ms: 0,
+                }
+                .navigate(),
+                None => Route::Calibrate.return_to(),
+            }
+            return true;
+        }
         let (video_stopped, video_trouble) = self
             .game
             .try_borrow()
@@ -2469,7 +2335,6 @@ impl GameCanvas {
             .unwrap_or_default();
         self.stage = Stage::Finished {
             results,
-            calibration,
             device_changed,
             video_stopped,
             video_trouble,
@@ -2774,7 +2639,6 @@ impl GameCanvas {
         crate::replay::publish(&r.id, "results", None, None);
         self.stage = Stage::Finished {
             results: Box::new(results),
-            calibration: None,
             device_changed: false,
             video_stopped: None,
             video_trouble: None,

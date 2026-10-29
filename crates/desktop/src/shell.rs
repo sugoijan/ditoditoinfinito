@@ -192,8 +192,6 @@ pub struct Shell {
     /// The mouse pointer is hidden (a key or a pad was pressed since it
     /// last moved).
     pointer_hidden: bool,
-    /// The device notices' buttons pressed, for the watcher.
-    notice_actions: Rc<RefCell<Vec<String>>>,
     /// Play mode is on ([`Shell::sync_play_mode`]).
     play_on: bool,
     /// The device was lost (its callback's flag).
@@ -264,12 +262,11 @@ impl Shell {
             let songs = songs.clone();
             play.chart_loaded = Some(Rc::new(move |id, song| songs.chart_loaded(id, song)));
         }
-        let notice_actions: Rc<RefCell<Vec<String>>> = Rc::default();
         let ui = if let Some(songs) = songs
             .as_ref()
             .filter(|_| matches!(name, "start" | "select" | "options"))
         {
-            let (mut ui, env, look) = library_ui(name, fold, sound.clone(), songs);
+            let (ui, env, look) = library_ui(name, fold, sound.clone(), songs);
             // Calibration's menu, opened again when a test leaves.
             {
                 let (songs, sound) = (songs.clone(), sound.clone());
@@ -277,15 +274,6 @@ impl Shell {
                     ui.push(crate::calibrate::menu(env, &songs, Some(sound.clone())));
                 }));
             }
-            // The devices' notices over every screen (`crate::devices`).
-            let actions = notice_actions.clone();
-            ui.push_chrome(theme_screens::notices::NoticeBar::new(
-                env.clone(),
-                play.watcher.feed.clone(),
-                Rc::new(move |id: &str, _cx: &mut ddi_ui::Cx| {
-                    actions.borrow_mut().push(id.to_string())
-                }),
-            ));
             theme = Some((env, look));
             ui
         } else if matches!(
@@ -347,7 +335,6 @@ impl Shell {
             theme,
             loaded: false,
             play,
-            notice_actions,
             play_on: false,
             lost: Arc::default(),
             devices_lost: 0,
@@ -927,21 +914,10 @@ impl Shell {
     }
 
     /// The devices looked at again (every second: the default output
-    /// can change under the stream, the window move to another display),
-    /// the notices' buttons done, the notices shown as they are now (none
-    /// over a play, its prompt and results, or calibration's pages); a
-    /// change during a play flags it. When to look again.
+    /// can change under the stream, the window move to another display);
+    /// a change during a play flags it. When to look again.
     fn watch_devices(&mut self) -> Option<Instant> {
         self.songs.as_ref()?;
-        let actions: Vec<String> = self.notice_actions.borrow_mut().drain(..).collect();
-        for id in actions {
-            self.play.watcher.act(&id);
-            if id == "calibrate"
-                && let (Some((env, _)), Some(menu)) = (self.theme.clone(), self.play.menu.clone())
-            {
-                menu(&env, &mut self.ui);
-            }
-        }
         let due = self
             .play
             .watcher
@@ -966,15 +942,6 @@ impl Shell {
             if self.play.watcher.probe(audio, display) && self.play.playing() {
                 self.play.feed.borrow_mut().device_changed = true;
             }
-        }
-        let calibrating = self
-            .ui
-            .layers()
-            .iter()
-            .any(|l| l.name.starts_with("calibration"));
-        if self.play.watcher.publish(!self.play.idle() || calibrating) {
-            self.ui
-                .broadcast(Message::new(theme_screens::notices::NOTICES_CHANGED));
         }
         self.play.watcher.checked.map(|c| c + crate::devices::EVERY)
     }

@@ -1,7 +1,7 @@
 //! The app's root: hash routing between the pages (song select, options,
 //! the pages, the play route, the developer routes), each a component
 //! (`crate::component`) made when its route is shown and taken down when
-//! another is, and the device watcher over all of them.
+//! another is.
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -10,8 +10,7 @@ use std::rc::{Rc, Weak};
 use gloo::events::EventListener;
 use web_sys::Element;
 
-use crate::component::{Callback, Mounted, element, mount};
-use crate::components::device_watcher::{self, DeviceWatcher};
+use crate::component::{Callback, element, mount};
 use crate::components::game_canvas::{self, GameCanvas, SongSource};
 use crate::components::options_page::OptionsPage;
 use crate::components::page_routes::{self, PagePage, Which};
@@ -30,7 +29,6 @@ pub(crate) struct App {
     /// again).
     page: Option<Box<dyn Any>>,
     key: String,
-    watcher: Mounted<DeviceWatcher>,
     /// Bumped when the play screen asks to start over: part of its key.
     play_mounts: u32,
     _hash: Option<EventListener>,
@@ -48,13 +46,6 @@ impl Drop for Plain {
 
 /// Starts the app in `root`; it lives as long as the page.
 pub(crate) fn start(root: Element) {
-    let watcher = mount::<DeviceWatcher>(
-        &root,
-        "div",
-        device_watcher::Props {
-            suppressed: suppressed(&Route::current()),
-        },
-    );
     let app = Rc::new_cyclic(|weak: &Weak<RefCell<App>>| {
         let hash = web_sys::window().map(|w| {
             let weak = weak.clone();
@@ -71,7 +62,6 @@ pub(crate) fn start(root: Element) {
             route: Route::current(),
             page: None,
             key: String::new(),
-            watcher,
             play_mounts: 0,
             _hash: hash,
             _lost: lost,
@@ -130,19 +120,6 @@ fn later(weak: &Weak<RefCell<App>>, f: impl FnOnce(&mut App) + 'static) {
     });
 }
 
-/// Banners wait while a song or calibration plays, and are redundant on
-/// calibration's pages and the developer routes.
-fn suppressed(route: &Route) -> bool {
-    matches!(
-        route,
-        Route::Play { .. }
-            | Route::CalibrateRun { .. }
-            | Route::Calibrate
-            | Route::UiTest { .. }
-            | Route::UiDev { .. }
-    )
-}
-
 impl App {
     /// The page for the address now: made again when its key changed (a
     /// new route, a lost device for the pages keyed by it, the play
@@ -165,11 +142,6 @@ impl App {
             Route::SkinPreview { .. } => "skin-preview".into(),
             _ => self.route.to_hash(),
         };
-        self.watcher
-            .scope()
-            .send_message(device_watcher::Msg::Route {
-                suppressed: suppressed(&self.route),
-            });
         if key == self.key {
             if let (Route::SkinPreview { params }, Some(page)) = (&self.route, &self.page)
                 && let Some(p) = page.downcast_ref::<crate::components::skin_preview::SkinPreview>()

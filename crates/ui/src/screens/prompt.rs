@@ -98,15 +98,6 @@ pub enum PromptStep {
         folder: String,
         refused: Option<String>,
     },
-    /// The audio path or the display has no offsets yet
-    /// ([`new_device_step`]): its lines, and its actions (`calibrate`,
-    /// `defaults`, `copy-audio:<id>`, `copy-display:<id>`, as
-    /// [`super::notices::register_devices`] reads them) with their
-    /// labels.
-    NewDevice {
-        lines: Vec<String>,
-        actions: Vec<(String, String)>,
-    },
     /// The play was cut off (the tab hidden, the audio suspended).
     Interrupted,
     /// What came of it (a calibration's outcome): a heading, lines with
@@ -130,8 +121,6 @@ pub enum PromptChoice {
     Allow,
     /// After an interruption.
     Retry,
-    /// A new device's action, by its id.
-    Device(String),
     /// A card's action, by its id.
     Action(String),
     /// A play option to value `index`, for this play
@@ -328,78 +317,6 @@ pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) ->
 /// Reverse, then every option off its default ([`super::play::options_line`]).
 pub fn mods_line(settings: &crate::state::settings::Settings) -> String {
     super::play::options_line(&settings.play_options(None))
-}
-
-/// The new-device step for devices `profile`, as the web's card had it:
-/// a line for each, new or known, an offer of each calibrated device's
-/// offset for a new one, then calibrating now or playing with the
-/// defaults.
-pub fn new_device_step(
-    settings: &crate::state::settings::Settings,
-    profile: &ddi_platform::DeviceProfile,
-    new_audio: bool,
-    new_display: bool,
-) -> PromptStep {
-    let mut lines = vec![
-        "Offsets are kept per audio path and per display. These have not been calibrated yet:"
-            .to_string(),
-    ];
-    // One offer a kind (the calibrated device seen last); both new and
-    // both offered: one action for the two, so neither is lost.
-    let mut offers: Vec<(String, String)> = Vec::new();
-    for (what, kind, fp, new, list) in [
-        (
-            "audio path",
-            "audio",
-            &profile.audio,
-            new_audio,
-            &settings.audio_profiles,
-        ),
-        (
-            "display",
-            "display",
-            &profile.display,
-            new_display,
-            &settings.display_profiles,
-        ),
-    ] {
-        if !new {
-            lines.push(format!(
-                "{}: {} (known)",
-                super::capitalized(what),
-                fp.label
-            ));
-            continue;
-        }
-        lines.push(format!("New {what}: {}", fp.label));
-        let best = list
-            .iter()
-            .filter(|p| p.calibrated)
-            .max_by(|a, b| a.last_seen.total_cmp(&b.last_seen));
-        if let Some(p) = best {
-            offers.push((
-                format!("copy-{kind}:{}", p.id),
-                format!("{:+.0} ms from {}", p.offset * 1000.0, p.label),
-            ));
-        }
-    }
-    let mut actions = Vec::new();
-    if !offers.is_empty() {
-        let id = offers
-            .iter()
-            .map(|(id, _)| id.as_str())
-            .collect::<Vec<_>>()
-            .join("+");
-        let label = offers
-            .iter()
-            .map(|(_, l)| l.as_str())
-            .collect::<Vec<_>>()
-            .join(" and ");
-        actions.push((id, format!("Use {label}")));
-    }
-    actions.push(("calibrate".into(), "Calibrate now".into()));
-    actions.push(("defaults".into(), "Play with defaults".into()));
-    PromptStep::NewDevice { lines, actions }
 }
 
 /// The prompt's screen.
@@ -955,36 +872,6 @@ impl PromptScreen {
                 ));
                 buttons.push(("Back".into(), "Back".into(), "Button"));
             }
-            PromptStep::NewDevice { lines, actions } => {
-                line(
-                    &mut c,
-                    "Status",
-                    "New device",
-                    BODY + 3.0,
-                    700,
-                    "Text",
-                    &mut y,
-                );
-                for (k, l) in lines.iter().enumerate() {
-                    let color = if k == 0 { "Muted" } else { "Secondary" };
-                    line(&mut c, &format!("Device{k}."), l, BODY, 400, color, &mut y);
-                }
-                // Playing on is focused first (a pad's Start plays on),
-                // then the rest as listed (the audio's offer above the
-                // display's).
-                let order = actions
-                    .iter()
-                    .filter(|(id, _)| id == "defaults")
-                    .chain(actions.iter().filter(|(id, _)| id != "defaults"));
-                for (id, label) in order {
-                    let kind = if id == "defaults" {
-                        "PlayButton"
-                    } else {
-                        "Button"
-                    };
-                    buttons.push((format!("Device.{id}"), label.clone(), kind));
-                }
-            }
             PromptStep::Interrupted => {
                 line(
                     &mut c,
@@ -1349,7 +1236,6 @@ impl PromptScreen {
             PromptStep::Loading(s) => s.clone(),
             PromptStep::Ready => "ready".into(),
             PromptStep::Access { .. } => "access".into(),
-            PromptStep::NewDevice { .. } => "new device".into(),
             PromptStep::Interrupted => "interrupted".into(),
             PromptStep::Error(e) => format!("error: {e}"),
             PromptStep::Card { heading, .. } => format!("card: {heading}"),
@@ -1835,12 +1721,8 @@ impl Screen for PromptScreen {
                     "Retry" => Some(PromptChoice::Retry),
                     "SaveOptions" => Some(PromptChoice::SaveOptions),
                     n => n
-                        .strip_prefix("Device.")
-                        .map(|id| PromptChoice::Device(id.to_string()))
-                        .or_else(|| {
-                            n.strip_prefix("Action.")
-                                .map(|id| PromptChoice::Action(id.to_string()))
-                        }),
+                        .strip_prefix("Action.")
+                        .map(|id| PromptChoice::Action(id.to_string())),
                 };
                 match choice {
                     Some(c) => {
@@ -1873,7 +1755,6 @@ mod tests {
     use crate::event::{MenuEvent, UiEvent};
     use crate::testing::Harness;
     use crate::{PointerKind, TextMode};
-    use ddi_platform::{DeviceFingerprint, DeviceProfile};
 
     type Seen = Rc<RefCell<Vec<(PromptChoice, bool)>>>;
 
@@ -2205,86 +2086,6 @@ mod tests {
         // The label after its delay, its dots a second each.
         h.run(0.4);
         assert!(view().label);
-    }
-
-    #[test]
-    fn both_new_devices_are_offered_together() {
-        use crate::state::settings::Settings;
-        let mut s = Settings::default();
-        Settings::set_profile_offset(
-            &mut s.audio_profiles,
-            &DeviceFingerprint::new("audio:44100:5:40", "Headphones"),
-            0.03,
-        );
-        Settings::set_profile_offset(
-            &mut s.display_profiles,
-            &DeviceFingerprint::new("display:2560x1440@2", "2560×1440 (2×)"),
-            0.008,
-        );
-        let p = DeviceProfile {
-            audio: DeviceFingerprint::new("audio:48000:5:20", "48 kHz · ~20 ms"),
-            display: DeviceFingerprint::new("display:1280x720@1", "1280×720 (1×)"),
-        };
-        let PromptStep::NewDevice { actions, .. } = new_device_step(&s, &p, true, true) else {
-            panic!()
-        };
-        assert_eq!(
-            actions[0].0,
-            "copy-audio:audio:44100:5:40+copy-display:display:2560x1440@2"
-        );
-        assert_eq!(
-            actions[0].1,
-            "Use +30 ms from Headphones and +8 ms from 2560×1440 (2×)"
-        );
-        // Taken: both kept with the offsets copied.
-        super::super::notices::register_devices(&mut s, &p, &actions[0].0);
-        assert_eq!(s.audio_profile("audio:48000:5:20").unwrap().offset, 0.03);
-        assert_eq!(
-            s.display_profile("display:1280x720@1").unwrap().offset,
-            0.008
-        );
-    }
-
-    #[test]
-    fn a_new_device_offers_the_calibrated_ones_and_plays_on_first() {
-        use crate::state::settings::Settings;
-        let mut s = Settings::default();
-        Settings::set_profile_offset(
-            &mut s.audio_profiles,
-            &DeviceFingerprint::new("audio:44100:5:40", "Headphones"),
-            0.03,
-        );
-        let p = DeviceProfile {
-            audio: DeviceFingerprint::new("audio:48000:5:20", "48 kHz · ~20 ms"),
-            display: DeviceFingerprint::new("display:1280x720@1", "1280×720 (1×)"),
-        };
-        let step = new_device_step(&s, &p, true, false);
-        let PromptStep::NewDevice { lines, actions } = &step else {
-            panic!("{step:?}")
-        };
-        assert_eq!(lines[1], "New audio path: 48 kHz · ~20 ms");
-        assert_eq!(lines[2], "Display: 1280×720 (1×) (known)");
-        let ids: Vec<&str> = actions.iter().map(|(id, _)| id.as_str()).collect();
-        assert_eq!(
-            ids,
-            ["copy-audio:audio:44100:5:40", "calibrate", "defaults"]
-        );
-        assert_eq!(actions[0].1, "Use +30 ms from Headphones");
-        let state = SharedPrompt::default();
-        state.borrow_mut().set_step(step);
-        let (mut h, seen) = prompt(&state);
-        h.key("Enter", "Enter");
-        h.tap(PointerKind::Mouse, "Device.copy-audio:audio:44100:5:40");
-        assert_eq!(
-            *seen.borrow(),
-            [
-                (PromptChoice::Device("defaults".into()), true),
-                (
-                    PromptChoice::Device("copy-audio:audio:44100:5:40".into()),
-                    true
-                ),
-            ]
-        );
     }
 
     #[test]

@@ -280,8 +280,6 @@ pub(crate) struct Host {
     /// listeners on the canvas (made again with it).
     slot: Option<HtmlElement>,
     listeners: Vec<EventListener>,
-    /// Keeps the app's notices current ([`crate::notices`]).
-    notices: Option<crate::notices::Subscription>,
     /// Where the options screen shows the field's preview, physical
     /// pixels of the canvas ([`UiRequest::FieldPreview`]).
     pub(crate) field_preview: Option<[f32; 4]>,
@@ -632,26 +630,6 @@ pub(crate) fn start_ui(
     theme: Option<ThemeHost>,
     extra: Option<DebugFn>,
 ) -> Result<Started, String> {
-    let mut ui = ui;
-    // The app's notices over every theme page (the device watcher's).
-    let notices = theme.as_ref().map(|t| {
-        let feed: theme_screens::notices::NoticesFeed =
-            Rc::new(RefCell::new(crate::notices::now()));
-        let action: theme_screens::notices::NoticeActionFn = Rc::new(|id, cx| {
-            if id == "calibrate" {
-                cx.request(UiRequest::Navigate(
-                    crate::router::Route::Calibrate.to_hash(),
-                ));
-            }
-            crate::notices::act(id);
-        });
-        ui.push_chrome(theme_screens::notices::NoticeBar::new(
-            t.env.clone(),
-            feed.clone(),
-            action,
-        ));
-        feed
-    });
     let doc = document();
     let make = |tag: &str| doc.create_element(tag).map_err(|e| format!("{e:?}"));
     let frame_el: HtmlElement = make("div")?.unchecked_into();
@@ -678,18 +656,6 @@ pub(crate) fn start_ui(
             }
         });
         host.borrow_mut().lost = Some(lost);
-    }
-    if let Some(feed) = notices {
-        let weak = Rc::downgrade(&host);
-        let sub = crate::notices::subscribe(
-            feed,
-            Rc::new(move || {
-                // As soon as the host is free (a press on the banner may
-                // be what changed them).
-                broadcast_soon(weak.clone(), theme_screens::notices::NOTICES_CHANGED);
-            }),
-        );
-        host.borrow_mut().notices = Some(sub);
     }
     resize(&host);
     // Back into an entry pushed for a dialog of an earlier visit (a reload,
@@ -826,7 +792,6 @@ fn new_host(
         extra: None,
         slot: None,
         listeners: Vec::new(),
-        notices: None,
         field_preview: None,
         receptor_preview: None,
         warm: Rc::default(),
@@ -2497,7 +2462,6 @@ fn publish(h: &Host) {
             .into_iter()
             .map(str::to_string),
         );
-        names.extend(st.app_actions.iter().map(|a| format!("AppNotice.{a}")));
         names.push("AppNotice".into());
         // The plays list's rows (by their place in the list).
         names.extend((0..st.plays.len()).map(|i| format!("Row{i}")));
@@ -2699,17 +2663,6 @@ fn publish(h: &Host) {
         set(&o, "rows", strings(&st.option_rows));
         set(&o, "scroll", st.scroll.into());
         set(&o, "notice", st.notice.as_str().into());
-        set(
-            &o,
-            "appNotice",
-            st.app_notice.as_deref().map_or(JsValue::NULL, |s| s.into()),
-        );
-        set(&o, "appActions", strings(&st.app_actions));
-        set(
-            &o,
-            "appToast",
-            st.app_toast.as_deref().map_or(JsValue::NULL, |s| s.into()),
-        );
         set(&o, "pageItems", strings(&st.page_items));
         // The start prompt (`docs/plans/start-prompt.md`).
         set(

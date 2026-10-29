@@ -303,9 +303,12 @@ Rust and the browser are implementation details, not advertised features.
   `crates/web/src/components/game_canvas.rs`; options at `#/options`,
   `crates/web/src/components/options_page.rs`; calibration's menu at
   `#/calibrate` and the credits at `#/credits`,
-  `crates/web/src/components/page_routes.rs`; the device notices over all of
-  them, `crates/web/src/notices.rs`; a calibration's outcome a card on the
-  start prompt's screen; Dancing☆Onigiri's lyrics drawn over the play
+  `crates/web/src/components/page_routes.rs`; no device notices and no
+  calibration card since 2026-10-29, `docs/plans/quiet-calibration.md`:
+  a device first seen plays on the default offsets, kept as its profile
+  from the play on, `Settings::register_devices`, and a calibration run
+  settles by itself, `ddi_session::calibration::settle`, its line on the
+  calibration menu; Dancing☆Onigiri's lyrics drawn over the play
   by the 2D pass, `ddi_render::lyrics`), pages as components of our own
   (`crates/web/src/component.rs`: messages handled in a microtask, each page's
   few DOM elements its own; no Yew; `#/video-check`, the crash page and
@@ -654,10 +657,7 @@ gesture rule below, so it does not replace the maintainer's Safari check.
 The UI (song select, options, the pages, the start prompt and the results)
 is our theme's screens on the canvas, not DOM: drive them by keys, a fake
 pad (`window.__DDI_FAKE_PAD`) or taps at `window.__DDI_DEBUG.ui.rects`, and
-read their state from `__DDI_DEBUG.ui.theme`. A fresh profile shows the
-first-run device notice over every page: seed `audio_profiles` and
-`display_profiles` in `ddi.settings.v1` (or tap `later`) when a test wants
-the screen without it. The testing parameters `gfx`, `auto`, `bias` and
+read their state from `__DDI_DEBUG.ui.theme`. The testing parameters `gfx`, `auto`, `bias` and
 `slow` stay for the session once given on `#/?…` or `#/play?…`. The skill
 lists the routes and their parameters (`#/play`, replays, calibration,
 `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`), what

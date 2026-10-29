@@ -542,7 +542,7 @@ pub fn calibration_screen(env: &Env) -> super::page::PageScreen {
     super::page::PageScreen::new(
         env.clone(),
         "calibration",
-        super::calibration::doc(&settings, 250.0),
+        super::calibration::doc(&settings, 250.0, &[]),
     )
 }
 

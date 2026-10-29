@@ -22,7 +22,6 @@ mod import;
 mod mods;
 mod movies;
 mod noteskins;
-mod notices;
 mod play;
 mod preload;
 mod preview;

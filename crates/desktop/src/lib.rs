@@ -575,13 +575,9 @@ pub fn run() {
             "results".to_string()
         }
     );
-    // The devices as last seen, and what the notices said.
+    // The devices as last seen.
     if let Some(d) = &shell.play.watcher.last {
         println!("devices: {} · {}", d.audio.id, d.display.id);
-    }
-    let notices = shell.play.watcher.feed.borrow().clone();
-    if let Some(b) = &notices.banner {
-        println!("notice: {}", b.text);
     }
     if let Some((stop, thread)) = probe {
         stop.store(true, std::sync::atomic::Ordering::Relaxed);

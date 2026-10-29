@@ -14,14 +14,13 @@ use std::time::{Duration, Instant};
 use ddi_library::backgrounds::BgImage;
 use ddi_platform::{DeviceFingerprint, DeviceProfile, HostTime};
 use ddi_render::RenderOptions;
-use ddi_session::calibration::{CalMode, Outcome};
 use ddi_ui::Ui;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
 use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::prompt::{
     PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptScreen, PromptState, PromptStep,
-    SharedPrompt, chart_line, mods_line, new_device_step,
+    SharedPrompt, chart_line, mods_line,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
@@ -71,8 +70,6 @@ struct Readied {
     /// The song's background as a texture source, and its shape, for
     /// the prompt's picture.
     picture: Option<(String, f32)>,
-    /// A test's outcome, shown on the prompt.
-    card: Option<Card>,
     /// The skin being read on its thread, for its layout.
     skin: Option<(super::skins::Reading, ddi_chart::Layout)>,
     /// When its drawing was made (the pictures are waited for a while).
@@ -146,30 +143,6 @@ enum After {
     Leave,
     /// Watch kept play `id`'s replay.
     Watch(String),
-}
-
-/// A calibration test's outcome on the prompt's card, until it is left.
-struct Card {
-    mode: CalMode,
-    outcome: Outcome,
-    devices: Option<DeviceProfile>,
-    refresh_hz: f64,
-    device_changed: bool,
-    saved: bool,
-}
-
-impl Card {
-    fn step(&self) -> PromptStep {
-        ddi_session::calibration::card(
-            &self.outcome,
-            self.mode,
-            &Settings::load(),
-            self.devices.as_ref(),
-            self.refresh_hz,
-            self.saved,
-            self.device_changed,
-        )
-    }
 }
 
 /// Opens calibration's menu (the shell's: its buttons reach the
@@ -369,7 +342,7 @@ impl Host {
     /// the pictures' wait): the loop looks again shortly.
     pub fn wants_poll(&self) -> bool {
         matches!(&self.stage, Stage::Prompt(r)
-            if (!r.ready && r.error.is_none() && r.request.refused.is_none() && r.card.is_none())
+            if (!r.ready && r.error.is_none() && r.request.refused.is_none())
                 || matches!(&r.scripts, SongScripts::Loading(l) if l.running()))
     }
 
@@ -421,13 +394,8 @@ impl Host {
         *self.choice.borrow_mut() = None;
         r.started = false;
         r.prompt.borrow_mut().done = false;
-        let (choice, state, devices) =
-            (self.choice.clone(), r.prompt.clone(), self.devices.clone());
+        let (choice, state) = (self.choice.clone(), r.prompt.clone());
         let options = r.options.clone();
-        // A test, an autoplay or a replay starts without asking about
-        // devices.
-        let ask_devices =
-            r.request.calibration.is_none() && !r.request.auto && r.request.replay.is_none();
         let act: PromptFn = Rc::new(move |c, cx| {
             let step = state.borrow().step.clone();
             match &c {
@@ -438,36 +406,16 @@ impl Host {
                     if step != PromptStep::Ready {
                         return;
                     }
-                    // New devices: their offsets are offered first.
-                    if ask_devices && let Some(p) = devices.borrow().as_ref() {
-                        let s = Settings::load();
-                        let new_audio = s.audio_profile(&p.audio.id).is_none();
-                        let new_display = s.display_profile(&p.display.id).is_none();
-                        if new_audio || new_display {
-                            let next = new_device_step(&s, p, new_audio, new_display);
-                            state.borrow_mut().set_step(next);
-                            return;
-                        }
-                    }
                     state
                         .borrow_mut()
                         .set_step(PromptStep::Loading("loading…".into()));
                 }
                 // After an interruption: the prompt readies the play
-                // again (Start then plays, new devices asked about).
+                // again (Start then plays).
                 PromptChoice::Retry => {}
                 PromptChoice::Back => cx.close(true),
-                PromptChoice::Device(id) if id == "calibrate" => cx.close(true),
-                // The offsets chosen: then as Start.
-                PromptChoice::Device(_) => state
-                    .borrow_mut()
-                    .set_step(PromptStep::Loading("loading…".into())),
-                // A test's card: saving and again stay on it.
-                PromptChoice::Action(id) => match id.as_str() {
-                    "save" | "again" => {}
-                    "next" => cx.close(false),
-                    _ => cx.close(true),
-                },
+                // A card's action (none on desktop: the theme's results).
+                PromptChoice::Action(_) => cx.close(true),
                 PromptChoice::Allow => return,
                 // This play's options, at once; the poll readies what
                 // they change (`Host::ready`).
@@ -531,7 +479,6 @@ impl Host {
                 error: None,
                 audio: None,
                 picture: None,
-                card: None,
                 skin: None,
                 stage: None,
                 view_made: None,
@@ -602,10 +549,8 @@ impl Host {
                 let choice = self.choice.borrow_mut().take();
                 match choice {
                     Some(PromptChoice::Back) => {
-                        // Leaving a test: the menu, but not after the
-                        // guided flow's last one's outcome.
-                        let last = r.card.as_ref().is_some_and(|c| c.mode.next().is_none());
-                        if r.request.calibration.is_some() && !last {
+                        // Leaving a test: the menu.
+                        if r.request.calibration.is_some() {
                             self.open_menu(ui, env);
                         }
                         Stage::Idle
@@ -622,24 +567,7 @@ impl Host {
                         }
                         Stage::Prompt(r)
                     }
-                    Some(PromptChoice::Device(id)) => {
-                        // Kept with the offsets chosen (calibrating: the
-                        // defaults until the tests say otherwise).
-                        if let Some(p) = self.watcher.last.clone() {
-                            let mut s = Settings::load();
-                            let how = if id == "calibrate" { "defaults" } else { &id };
-                            ddi_ui::screens::notices::register_devices(&mut s, &p, how);
-                            s.save();
-                        }
-                        if id == "calibrate" {
-                            self.open_menu(ui, env);
-                            Stage::Idle
-                        } else {
-                            r.started = true;
-                            self.start_if_ready(r, ui, env)
-                        }
-                    }
-                    Some(PromptChoice::Action(id)) => self.card_action(r, &id, ui, env),
+                    Some(PromptChoice::Action(_)) => Stage::Idle,
                     // (The options are applied in the prompt's call.)
                     Some(
                         PromptChoice::Allow
@@ -709,53 +637,6 @@ impl Host {
         // The next test asked for: its prompt at once.
         if matches!(self.stage, Stage::Idle) && self.requested.borrow().is_some() {
             self.poll(ui, env, None, rate);
-        }
-    }
-
-    /// A test's card's button: save (the card says it was), again (the
-    /// prompt readies the test again), the guided flow's next test, done
-    /// (calibration's menu again; the guided flow's last ends it).
-    fn card_action(&mut self, mut r: Box<Readied>, id: &str, ui: &mut Ui, env: &Env) -> Stage {
-        let Some(card) = r.card.as_mut() else {
-            return Stage::Prompt(r);
-        };
-        match id {
-            "save" => {
-                if !card.saved {
-                    let mut s = Settings::load();
-                    card.mode
-                        .apply(&mut s, card.devices.as_ref(), card.outcome.total());
-                    s.save();
-                    card.saved = true;
-                }
-                let step = card.step();
-                r.prompt.borrow_mut().set_step(step);
-                Stage::Prompt(r)
-            }
-            "again" => {
-                r.card = None;
-                r.started = false;
-                r.ready = false;
-                r.prompt.borrow_mut().set_step(PromptStep::Ready);
-                if let Some(v) = r.view.as_mut() {
-                    v.start();
-                }
-                Stage::Prompt(r)
-            }
-            "next" => {
-                if let Some(m) = card.mode.next() {
-                    let mut next = Request::calibration(m, r.request.auto);
-                    next.bias = r.request.bias;
-                    *self.requested.borrow_mut() = Some(next);
-                }
-                Stage::Idle
-            }
-            _ => {
-                if card.mode.next().is_some() {
-                    self.open_menu(ui, env);
-                }
-                Stage::Idle
-            }
         }
     }
 
@@ -1215,19 +1096,32 @@ impl Host {
                             o.misses,
                             if o.converged { ", converged" } else { "" }
                         ));
-                        let card = Card {
+                        // Settled: a meaningful correction applied, a
+                        // line for the menu; then the guided flow's next
+                        // test, or the menu (`quiet-calibration.md`).
+                        let mut s = Settings::load();
+                        let settled = ddi_session::calibration::settle(
+                            &o,
                             mode,
-                            outcome: o,
-                            devices: play.session.devices.clone(),
-                            refresh_hz: play.refresh_hz,
+                            &mut s,
+                            play.session.devices.as_ref(),
                             device_changed,
-                            saved: false,
-                        };
-                        let mut r = r;
-                        r.prompt.borrow_mut().set_step(card.step());
-                        r.card = Some(card);
-                        self.push_prompt(ui, env, &mut r);
-                        Stage::Prompt(r)
+                        );
+                        if settled.applied {
+                            s.save();
+                        }
+                        self.log
+                            .push(format!("calibration settled: {}", settled.line));
+                        ddi_ui::screens::calibration::note_last_run(settled.line);
+                        match mode.next() {
+                            Some(m) => {
+                                let mut next = Request::calibration(m, r.request.auto);
+                                next.bias = r.request.bias;
+                                *self.requested.borrow_mut() = Some(next);
+                            }
+                            None => self.open_menu(ui, env),
+                        }
+                        Stage::Idle
                     }
                     _ => {
                         self.show_results(&r, &play, &results, device_changed, ui, env);

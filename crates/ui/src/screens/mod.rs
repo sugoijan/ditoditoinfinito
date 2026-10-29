@@ -64,7 +64,6 @@ pub mod editor;
 pub mod editor_dialogs;
 pub mod editor_field;
 pub mod folders_offer;
-pub mod notices;
 pub mod numbers;
 pub mod options;
 pub mod options_dialogs;
@@ -212,11 +211,6 @@ pub struct ThemeState {
     pub notices: Vec<String>,
     /// The import dialog is open (it says so while it is).
     pub import_open: bool,
-    /// The app's notices: the banner's text and actions' ids, the line
-    /// at the bottom.
-    pub app_notice: Option<String>,
-    pub app_actions: Vec<String>,
-    pub app_toast: Option<String>,
     /// A page (credits, calibration): its links', buttons' and folds' ids
     /// (`link:<url>`, `button:<id>`, `fold:<id>`), the focused one's
     /// index (-1: none), its height. The start prompt: its buttons'

@@ -2,10 +2,10 @@
 //! this machine's GPU offscreen and on a fake clock with no sound device:
 //! calibration's menu starts the arrows-only test (autoplayed 30 ms late,
 //! as `--auto --bias 30` asks), its prompt, the play to its end, its
-//! outcome on the prompt's card (the web's); saving moves the visual
-//! offset by what was measured,
-//! "next" brings the sound-only test's prompt, and Escape there goes
-//! back to the menu. Skipped where there is no GPU adapter (CI).
+//! outcome settled with no card (the visual offset moved by what was
+//! measured, a line for the menu), the sound-only test's prompt next,
+//! and Escape there goes back to the menu. Skipped where there is no GPU
+//! adapter (CI).
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -17,7 +17,6 @@ use ddi_desktop::play::view::Formats;
 use ddi_platform::HostTime;
 use ddi_ui::event::{KeyEvent, UiEvent};
 use ddi_ui::screens::Env;
-use ddi_ui::screens::prompt::PromptStep;
 use ddi_ui::state::settings::Settings;
 
 const SIZE: [u32; 2] = [960, 540];
@@ -156,13 +155,9 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     }
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     ui.update(0.5);
-    // Its outcome on the prompt's card, as the web shows it.
-    assert_eq!(top(&ui), "play-prompt", "{:?}", ui.layers());
-    assert!(
-        matches!(&host.prompt_step(), Some(PromptStep::Card { heading, .. }) if heading.starts_with("+30")),
-        "{:?}",
-        host.prompt_step()
-    );
+    // Its outcome settled with no card: the visual offset (no devices:
+    // the default's) moved by what the late autoplayer measured, the
+    // menu told in a line, and the guided flow's next test's prompt up.
     assert!(
         host.log
             .iter()
@@ -170,25 +165,19 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
         "{:?}",
         host.log
     );
-    // Saving moves the visual offset (no devices: the default's) by
-    // what the late autoplayer measured.
-    press(&mut ui, &env, "Action.save");
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
-    ui.update(0.5);
     let visual = Settings::load().visual_offset;
     assert!((visual - 0.030).abs() < 0.004, "{visual}");
+    let lines = ddi_ui::screens::calibration::last_runs();
     assert!(
-        env.state
-            .borrow()
-            .page_items
-            .contains(&"Action.next".to_string())
+        lines
+            .iter()
+            .any(|l| l.starts_with("The arrows-only test set the visual offset to +3")),
+        "{lines:?}"
     );
-    // Next: the sound-only test's prompt.
-    press(&mut ui, &env, "Action.next");
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     ui.update(0.5);
     host.poll(&mut ui, &env, Some(dev()), 48_000);
-    assert!(host.prompting());
+    assert!(host.prompting(), "{:?}", ui.layers());
     assert!(env.state.borrow().song.starts_with("Calibration 2/3"));
     assert_eq!(top(&ui), "play-prompt", "{:?}", ui.layers());
     // Escape: back to the menu.

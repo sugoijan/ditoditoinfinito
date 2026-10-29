@@ -420,7 +420,7 @@ and place; Clear resets search explicitly. Web Start is `#/`, Songs is
 `TitleMenu` actor boundary prepares future theme work.
 
 Done beyond the original plan: calibration that converges on the real
-gameplay path, per-device audio/display offset profiles with app-wide banners,
+gameplay path, per-device audio/display offset profiles (their banners and the prompt's new-device step went 2026-10-29, decision 76),
 receptor snap, fail fade, cancel gesture, debug overlay, calibration drawn
 with the chosen noteskin (2026-10-14; in the audio test, which hides the
 notes, with the beat held still so that a skin pulsing on it gives no
@@ -805,6 +805,8 @@ remain separate work.
     The receptor diagram follows the play's device assignment with pressed
     states. Native GPU and shared tests cover synthetic inputs; real hardware
     and transport combinations still need verification.
+
+76. **No device alerts; calibration settles by itself** (2026-10-29; `docs/plans/quiet-calibration.md`). The maintainer found the first-run and new-device banners, the devices line, the prompt's new-device step and the calibration outcome card too technical and too intrusive, and asked for them to go: a device first seen plays on the default offsets, kept as its profile from the play on with nothing asked (`Settings::register_devices`; the notice bar, `ddi_ui::screens::notices`, the web's device watcher and desktop's banner went with it, the UI's chrome layer staying for later use); a calibration run adds a meaningful correction to the offset in effect by itself, says what it came to in one plain line on calibration's menu (`ddi_session::calibration::settle`, `screens::calibration::last_runs`) and goes on to the guided flow's next test or back to the menu. A quiet suggestion to calibrate on the start prompt, kept or dropped by what the play history shows of the timing on the current devices, is the plan's next step.
 
 ## 7. Risks
 

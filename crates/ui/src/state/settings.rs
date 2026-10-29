@@ -762,6 +762,16 @@ impl Settings {
 
     /// Creates or refreshes the profile for a fingerprint. New profiles start
     /// from `initial` and are marked uncalibrated.
+    /// The devices a play starts on, kept with the default offsets where
+    /// they have no profile yet (a profile already there is only seen
+    /// again): a device meets no banner and no step, it plays on the
+    /// defaults until calibrated (`docs/plans/quiet-calibration.md`).
+    pub fn register_devices(&mut self, profile: &ddi_platform::DeviceProfile) {
+        let (audio, visual) = (self.audio_offset, self.visual_offset);
+        Self::touch_profile(&mut self.audio_profiles, &profile.audio, audio);
+        Self::touch_profile(&mut self.display_profiles, &profile.display, visual);
+    }
+
     pub fn touch_profile<'a>(
         profiles: &'a mut Vec<OffsetProfile>,
         fp: &ddi_platform::DeviceFingerprint,

@@ -269,85 +269,78 @@ pub fn report(o: &Outcome, mode: CalMode, refresh_hz: f64) -> Report {
     }
 }
 
-/// A test's outcome as the start prompt's card shows it (the web's
-/// `calibration_card`): the offset measured, how it was measured, what
-/// saving does, the offsets in effect on `devices`, and Save, the guided
-/// flow's next, Again and Done (`save`, `next`, `again`, `done`).
-pub fn card(
+/// What a run came to, settled (`docs/plans/quiet-calibration.md`): a
+/// meaningful correction added to the offset in effect
+/// ([`CalMode::apply`]), nothing otherwise, and a line for calibration's
+/// menu saying so plainly (`ddi_ui::screens::calibration::note_last_run`).
+pub struct Settled {
+    /// The correction was added (the settings changed: save them).
+    pub applied: bool,
+    pub line: String,
+}
+
+/// Settles run `o` of `mode` on `settings` for `devices` (`None`: the
+/// defaults); `device_changed`: a device changed during the run, so its
+/// measure is of nothing.
+pub fn settle(
     o: &Outcome,
     mode: CalMode,
-    settings: &Settings,
+    settings: &mut Settings,
     devices: Option<&ddi_platform::DeviceProfile>,
-    refresh_hz: f64,
-    saved: bool,
     device_changed: bool,
-) -> ddi_ui::screens::prompt::PromptStep {
-    let r = report(o, mode, refresh_hz);
-    let (audio_now, visual_now) = match devices {
-        Some(d) => (
-            settings
-                .audio_profile(&d.audio.id)
-                .map_or(settings.audio_offset, |p| p.offset),
-            settings
-                .display_profile(&d.display.id)
-                .map_or(settings.visual_offset, |p| p.offset),
-        ),
-        None => (settings.audio_offset, settings.visual_offset),
+) -> Settled {
+    let test = match mode {
+        CalMode::Visual => "The arrows-only test",
+        CalMode::Audio => "The sound-only test",
+        CalMode::Combined => "The check with both",
     };
-    let line = |s: String, color: &str| (s, color.to_string());
-    let mut lines = vec![
-        line(r.detail, "Muted"),
-        line(format!("{} {}", r.status, r.verdict), "Text"),
-        line(
-            format!(
-                "offsets in effect: audio {:+.0} ms · visual {:+.0} ms",
-                audio_now * 1000.0,
-                visual_now * 1000.0
-            ),
-            "Muted",
-        ),
-    ];
-    if let Some(d) = devices {
-        lines.push(line(
-            format!("audio: {} · display: {}", d.audio.label, d.display.label),
-            "Muted",
-        ));
-    }
+    let r = report(o, mode, 60.0);
+    let target = mode.target();
     if device_changed {
-        lines.push(line(
-            "a device changed during the test; discard this result".into(),
-            "Danger",
-        ));
-    }
-    if saved {
-        lines.push(line(format!("Saved to the {}.", mode.target()), "Accent"));
-    }
-    let next = mode.next().map(|m| {
-        let label = match m {
-            CalMode::Audio => "Next: sound only",
-            CalMode::Combined => "Next: check with both",
-            CalMode::Visual => "Next",
+        return Settled {
+            applied: false,
+            line: format!(
+                "{test}: a device changed during it, so nothing was saved. Run it again."
+            ),
         };
-        ("next".to_string(), label.to_string())
-    });
-    let mut actions = Vec::new();
-    if r.meaningful && !saved {
-        actions.push(("save".to_string(), format!("Save to {}", mode.target())));
     }
-    if saved || !r.meaningful {
-        actions.extend(next);
+    let unusable = o.out_of_range || o.unreliable() || o.hits < MIN_RESIDUAL as u32;
+    if unusable {
+        let mut line = format!(
+            "{test} could not measure reliably, so nothing changed. Run it again, hitting every \
+             note with a steady rhythm."
+        );
+        if o.out_of_range {
+            line.push_str(
+                " If the clicks really sound that late, set the audio offset by hand in the \
+                 options first.",
+            );
+        }
+        return Settled {
+            applied: false,
+            line,
+        };
     }
-    actions.push(("again".to_string(), "Again".to_string()));
-    actions.push(("done".to_string(), "Done".to_string()));
-    let unusable = o.out_of_range || o.unreliable();
-    ddi_ui::screens::prompt::PromptStep::Card {
-        heading: if unusable {
-            "Unreliable".to_string()
-        } else {
-            r.headline
-        },
-        lines,
-        actions,
+    if !r.meaningful {
+        return Settled {
+            applied: false,
+            line: format!("{test} found the {target} right as it is."),
+        };
+    }
+    mode.apply(settings, devices, o.total());
+    let now = match (mode, devices) {
+        (CalMode::Visual, Some(d)) => settings
+            .display_profile(&d.display.id)
+            .map_or(settings.visual_offset, |p| p.offset),
+        (CalMode::Visual, None) => settings.visual_offset,
+        (_, Some(d)) => settings
+            .audio_profile(&d.audio.id)
+            .map_or(settings.audio_offset, |p| p.offset),
+        (_, None) => settings.audio_offset,
+    };
+    Settled {
+        applied: true,
+        line: format!("{test} set the {target} to {:+.0} ms.", now * 1000.0),
     }
 }
 

@@ -3,6 +3,7 @@
 //! run itself is the play route's, `#/calibrate/run?mode=…`), the default
 //! offsets and every device's, and resetting them.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::Env;
@@ -30,10 +31,35 @@ fn ms(s: f64) -> String {
     format!("{:+.0} ms", s * 1000.0)
 }
 
-/// The menu for `settings`; `max_ms`: the largest offset a run measures.
-pub fn doc(settings: &Settings, max_ms: f64) -> PageDoc {
+thread_local! {
+    /// What the runs since the menu's last Start came to, a line each
+    /// (`ddi_session::calibration::settle`): the menu shows them at its
+    /// top, where the outcome card used to hold the prompt.
+    static LAST_RUNS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A run ended: `line` says what it came to, on the menu.
+pub fn note_last_run(line: String) {
+    LAST_RUNS.with_borrow_mut(|l| l.push(line));
+}
+
+/// The lines of the runs since the menu's last Start.
+pub fn last_runs() -> Vec<String> {
+    LAST_RUNS.with_borrow(Clone::clone)
+}
+
+/// The menu for `settings`; `max_ms`: the largest offset a run measures;
+/// `last`: what the last runs came to ([`last_runs`]).
+pub fn doc(settings: &Settings, max_ms: f64, last: &[String]) -> PageDoc {
     let s = settings;
-    let mut b = vec![
+    let mut b = Vec::new();
+    if !last.is_empty() {
+        b.push(Block::Heading("Last test".into()));
+        for line in last {
+            b.push(Block::Text(line.clone()));
+        }
+    }
+    b.extend([
         Block::Text(
             "Each test plays a generated chart (100 BPM, three clicks and a rest, a click on \
              every note) exactly like a song. While you play, the test measures how early or \
@@ -92,7 +118,7 @@ pub fn doc(settings: &Settings, max_ms: f64) -> PageDoc {
             ms(s.audio_offset),
             ms(s.visual_offset)
         )),
-    ];
+    ]);
     if s.audio_profiles.is_empty() && s.display_profiles.is_empty() {
         b.push(Block::Muted("No device calibrated yet.".into()));
     } else {
@@ -141,6 +167,7 @@ pub fn stored_doc() -> PageDoc {
     doc(
         &Settings::load(),
         ddi_engine::calibration::MAX_OFFSET * 1000.0,
+        &last_runs(),
     )
 }
 
@@ -172,7 +199,11 @@ pub fn button(id: &str) -> CalAct {
         "reset" => CalAct::ConfirmReset,
         "options" => CalAct::Options,
         other => match other.strip_prefix("run:") {
-            Some(m) if MODES.contains(&m) => CalAct::Run(m.into()),
+            Some(m) if MODES.contains(&m) => {
+                // A fresh flow: the last runs' lines go.
+                LAST_RUNS.with_borrow_mut(Vec::clear);
+                CalAct::Run(m.into())
+            }
             _ => CalAct::Nothing,
         },
     }
@@ -221,7 +252,7 @@ mod tests {
             &DeviceFingerprint::new("audio:1", "Headphones"),
             -0.02,
         );
-        let d = doc(&s, 250.0);
+        let d = doc(&s, 250.0, &[]);
         let texts: Vec<String> = d
             .blocks
             .iter()

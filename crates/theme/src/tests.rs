@@ -1202,12 +1202,10 @@ fn options_fit_every_size() {
     }
 }
 
-/// The credits, calibration's menu and the app's notices at every size:
-/// every link and button inside the column and the screen, the banner's
-/// buttons on the screen.
+/// The credits and calibration's menu at every size: every link and
+/// button inside the column and the screen.
 #[test]
-fn pages_and_notices_fit_every_size() {
-    use ddi_ui::screens::notices::{AppNotice, AppNotices, NOTICES_CHANGED, NoticeBar};
+fn pages_fit_every_size() {
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     let state = env.state.clone();
@@ -1245,46 +1243,6 @@ fn pages_and_notices_fit_every_size() {
             }
             assert!(state.borrow().page_height > 200.0);
         }
-        // The banner, with the longest wording and every action.
-        let mut h = harness(size, design);
-        h.push(sample::select_screen(&env, None));
-        let feed: ddi_ui::screens::notices::NoticesFeed = Rc::default();
-        h.ui.push_chrome(NoticeBar::new(
-            env.clone(),
-            feed.clone(),
-            Rc::new(|_, _| {}),
-        ));
-        *feed.borrow_mut() = AppNotices {
-            banner: Some(AppNotice {
-                text: "New audio path: 44 kHz · ~21 ms output latency (wired/built-in?). New \
-                       display: 1280×720 (1×), ~60 Hz. No calibration for it yet."
-                    .into(),
-                actions: vec![
-                    ("calibrate".into(), "calibrate".into(), true),
-                    ("defaults".into(), "use defaults".into(), false),
-                    (
-                        "copy-audio:a".into(),
-                        "use +12 ms from Headphones".into(),
-                        false,
-                    ),
-                    ("later".into(), "later".into(), false),
-                ],
-            }),
-            toast: Some("devices: Headphones (+12 ms) · 1280×720 (+0 ms)".into()),
-        };
-        h.ui.broadcast(ddi_ui::Message::new(NOTICES_CHANGED));
-        h.run(0.4);
-        let vp = h.ui.viewport().screen;
-        for a in ["calibrate", "defaults", "copy-audio:a", "later"] {
-            let b =
-                h.ui.bounds(&format!("AppNotice.{a}"))
-                    .unwrap_or_else(|| panic!("{size:?} {a}"));
-            assert!(
-                b[0] >= -1.0 && b[2] <= vp.width + 1.0 && b[3] <= vp.height * 0.5,
-                "{size:?} {a}: {b:?}"
-            );
-        }
-        assert!(h.ui.bounds("AppToast").is_some());
     }
 }
 
@@ -1319,88 +1277,6 @@ fn options_sections_take_taps() {
         "{:?}",
         h.ui.bounds("Section3")
     );
-}
-
-/// With the device banner up, every screen and dialog lies below it, at
-/// every size; "+" takes its tap at 844×390.
-#[test]
-fn screens_lie_below_the_notices() {
-    use ddi_ui::screens::notices::{AppNotice, AppNotices, NOTICES_CHANGED, NoticeBar};
-    let theme = Rc::new(Infinito::new());
-    let env = env(&theme);
-    let state = env.state.clone();
-    let banner = || AppNotices {
-        banner: Some(AppNotice {
-            text: "New audio path: 44 kHz · ~21 ms output latency (wired/built-in?). New \
-                   display: 1280×720 (1×), ~60 Hz. No calibration for it yet."
-                .into(),
-            actions: vec![
-                ("calibrate".into(), "calibrate".into(), true),
-                ("defaults".into(), "use defaults".into(), false),
-                ("later".into(), "later".into(), false),
-            ],
-        }),
-        toast: None,
-    };
-    for (size, design) in [
-        ([1280.0, 720.0], DESIGN),
-        ([844.0, 390.0], COMPACT),
-        ([390.0, 844.0], COMPACT),
-    ] {
-        for screen in ["select", "options", "credits", "results", "import"] {
-            let mut h = harness(size, design);
-            match screen {
-                "options" => h.push(sample::options_screen(&env, None)),
-                "credits" => h.push(sample::credits_screen(&env, &screens::credits::sample())),
-                "results" => {
-                    h.push(sample::select_screen(&env, None));
-                    h.push(sample::results_screen(&env));
-                }
-                _ => h.push(sample::select_screen(&env, None)),
-            }
-            let feed: ddi_ui::screens::notices::NoticesFeed =
-                Rc::new(std::cell::RefCell::new(banner()));
-            h.ui.push_chrome(NoticeBar::new(
-                env.clone(),
-                feed.clone(),
-                Rc::new(|_, _| {}),
-            ));
-            h.ui.broadcast(ddi_ui::Message::new(NOTICES_CHANGED));
-            h.run(0.6);
-            if screen == "import" {
-                let add = if state.borrow().compact {
-                    "AddIcon"
-                } else {
-                    "Link.Add"
-                };
-                h.tap(PointerKind::Touch, add);
-                h.run(0.4);
-                assert_eq!(
-                    h.ui.layers().last().map(|l| l.name.clone()).as_deref(),
-                    Some("import"),
-                    "{size:?}: {add} opens the import dialog"
-                );
-            }
-            let plate = h.ui.bounds("AppNotice.Plate").unwrap();
-            let names: &[&str] = match screen {
-                "select" if state.borrow().compact => &["Back", "AddIcon", "SearchIcon", "Wheel"],
-                "select" => &["Search", "Wheel", "Info"],
-                "options" => &["Sections", "RowsClip", "Preview"],
-                "credits" => &["Column"],
-                "results" => &["SongList"],
-                _ => &["PickFolder", "Close"],
-            };
-            for n in names {
-                let b =
-                    h.ui.bounds(n)
-                        .unwrap_or_else(|| panic!("{size:?} {screen}: {n}"));
-                assert!(
-                    b[1] >= plate[3] - 0.5,
-                    "{size:?} {screen}: {n} at {b:?} under the banner {plate:?}"
-                );
-            }
-        }
-    }
 }
 
 /// The results at every size: on a phone one column (two sideways)
@@ -1474,28 +1350,6 @@ fn the_prompt_fits_every_size_at_every_step() {
                 refused: Some("Reading the folder was not allowed.".into()),
             },
             vec!["Allow", "Back"],
-        ),
-        (
-            PromptStep::NewDevice {
-                lines: vec![
-                    "Offsets are kept per audio path and per display. These have not been calibrated yet:".into(),
-                    "New audio path: 48 kHz · ~21 ms output latency (wired/built-in?)".into(),
-                    "New display: 1280×720 (1×), ~60 Hz".into(),
-                ],
-                actions: vec![
-                    (
-                        "copy-audio:a+copy-display:c".into(),
-                        "Use +30 ms from Headphones and +8 ms from 2560×1440 (2×)".into(),
-                    ),
-                    ("calibrate".into(), "Calibrate now".into()),
-                    ("defaults".into(), "Play with defaults".into()),
-                ],
-            },
-            vec![
-                "Device.defaults",
-                "Device.copy-audio:a+copy-display:c",
-                "Device.calibrate",
-            ],
         ),
         (PromptStep::Interrupted, vec!["Retry", "Back"]),
         (

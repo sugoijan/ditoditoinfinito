@@ -134,3 +134,18 @@ per prompt (it is already open for the ghost and the bests).
 Open: the thresholds after playing with them; whether the results screen
 should show the same line (no, for now: the prompt is where a play is
 about to start, and the results already have the offset editor).
+
+## Status (2026-10-29)
+
+Step 1 done (decision 76): the banners, the devices line, the prompt's
+new-device step and the outcome card are gone on both shells, with the
+notice bar, the web's device watcher and desktop's banner code; a device
+first seen is kept at the default offsets as the play starts
+(`Settings::register_devices`). A calibration run settles by itself
+(`ddi_session::calibration::settle`): a meaningful correction applied
+and saved, a plain line for the menu (`screens::calibration::last_runs`,
+a "Last test" heading at the menu's top, cleared by its next Start), then
+the guided flow's next test's prompt, or the menu after the last. Left
+out of the plan's first wording: copying a known device's offset to a
+new one (the banner's "use +N ms from …"), which no screen offers now;
+the calibration page could, later. Steps 2 and 3 next.

@@ -19,7 +19,6 @@ use ddi_desktop::play::host::{Device, Host};
 use ddi_desktop::play::view::Formats;
 use ddi_platform::DeviceFingerprint;
 use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::prompt::PromptStep;
 use ddi_ui::state::settings::Settings;
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -124,8 +123,8 @@ fn the_prompt_names_the_song_over_its_picture() {
         .count();
     assert!(lit > 1000, "the picture: {lit} lit");
 
-    // New devices: Start offers their offsets first; "Play with
-    // defaults" keeps them and plays.
+    // New devices: nothing is asked; Start plays, and the devices are
+    // kept at the default offsets from the play on.
     let fp = |id: &str| Some(DeviceFingerprint::new(id, id));
     host.watcher.probe(fp("audio:test"), fp("display:test"));
     *host.requested.borrow_mut() = None;
@@ -151,16 +150,6 @@ fn the_prompt_names_the_song_over_its_picture() {
         assert!(waited < 1000, "never ready");
     }
     ui.update(0.5);
-    key(&mut ui, "Enter", "Enter");
-    assert!(
-        matches!(host.prompt_step(), Some(PromptStep::NewDevice { .. })),
-        "{:?}",
-        host.prompt_step()
-    );
-    ui.update(0.5);
-    // "Play with defaults" first (focused), "Calibrate now" after it.
-    let items = env.state.borrow().page_items.clone();
-    assert_eq!(items, ["Device.defaults", "Device.calibrate"]);
     key(&mut ui, "Enter", "Enter");
     let dev = Device {
         device: &gpu.device,

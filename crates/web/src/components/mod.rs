@@ -1,4 +1,3 @@
-pub(crate) mod device_watcher;
 pub(crate) mod edit_page;
 pub(crate) mod game_canvas;
 pub(crate) mod options_page;
