@@ -110,6 +110,16 @@ enum Commands {
         #[arg(long)]
         dest: Option<PathBuf>,
     },
+    /// Everything Trunk runs after a build, in order: the web favicon,
+    /// `stage-video`, `stage-opus`, `stage-svg`, then `check-boot` (Trunk
+    /// runs a stage's hooks at once, and three of these rewrite
+    /// index.html: one hook keeps them apart).
+    #[command(name = "post-build")]
+    PostBuild {
+        /// The site's folder (default: $TRUNK_STAGING_DIR).
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
 }
 
 struct SeoPaths {
@@ -567,7 +577,18 @@ fn main() -> Result<()> {
         Commands::StageSvg { dest } => stage_worker(dest, "svg-worker"),
         Commands::MinifyBoot { release } => boot_minify::minify_boot(release.then_some(true)),
         Commands::CheckBoot { dest } => boot_check::check_boot(dest),
+        Commands::PostBuild { dest } => post_build(dest),
     }
+}
+
+/// `post-build`: the post-build steps one after the other.
+fn post_build(dest: Option<PathBuf>) -> Result<()> {
+    let dest = staging_dir(dest, "post-build")?;
+    icons::generate(ddi_icon::Target::Web, None, Some(dest.clone()), false)?;
+    stage_video(Some(dest.clone()))?;
+    stage_worker(Some(dest.clone()), "opus-worker")?;
+    stage_worker(Some(dest.clone()), "svg-worker")?;
+    boot_check::check_boot(Some(dest))
 }
 
 /// The site's folder a post-build step `cmd` works on: `dest`, else

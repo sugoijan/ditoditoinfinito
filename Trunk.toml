@@ -57,36 +57,20 @@ command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]
 
 # Only the web favicon, copied from its source-keyed target/icons cache.
+# After the build, in this order (Trunk runs a stage's hooks at once,
+# and three of these rewrite index.html, so they are one hook):
+# - the web favicon (`icons --target web`);
+# - the video decoder (target/video/, `just video`) into the site's
+#   video/, built first when it is missing (after `cargo clean`) or older
+#   than its sources; DDI_NO_VIDEO=1 builds the site without it
+#   (`stage-video`);
+# - the Opus worker's files named by their hash, and index.html told
+#   (crates/web/src/web/opus.rs reads it; `stage-opus`), and the SVG
+#   worker's the same way (crates/web/src/web/svg.rs; `stage-svg`);
+# - last, on the page as it ships: the page draws its loader from its own
+#   first bytes, within the first round trip compressed, nothing the first
+#   paint waits for fetched (xtask/src/boot_check.rs; `check-boot`).
 [[hooks]]
 stage = "post_build"
 command = "cargo"
-command_arguments = ["run", "-p", "xtask", "--", "icons", "--target", "web"]
-
-# The video decoder (target/video/, `just video`) into the site's video/,
-# built first when it is missing (after `cargo clean`) or older than its
-# sources; DDI_NO_VIDEO=1 builds the site without it.
-[[hooks]]
-stage = "post_build"
-command = "cargo"
-command_arguments = ["run", "-p", "xtask", "--", "stage-video"]
-
-# The Opus worker's files named by their hash, and index.html told
-# (crates/web/src/web/opus.rs reads it).
-[[hooks]]
-stage = "post_build"
-command = "cargo"
-command_arguments = ["run", "-p", "xtask", "--", "stage-opus"]
-
-# The SVG worker's the same way (crates/web/src/web/svg.rs reads it).
-[[hooks]]
-stage = "post_build"
-command = "cargo"
-command_arguments = ["run", "-p", "xtask", "--", "stage-svg"]
-
-# The page draws its loader from its own first bytes: within the first
-# round trip compressed, nothing the first paint waits for fetched
-# (xtask/src/boot_check.rs). Last, on the page as it ships.
-[[hooks]]
-stage = "post_build"
-command = "cargo"
-command_arguments = ["run", "-p", "xtask", "--", "check-boot"]
+command_arguments = ["run", "-p", "xtask", "--", "post-build"]
