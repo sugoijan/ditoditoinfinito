@@ -60,7 +60,19 @@ pub trait OptionsPlatform {
     fn add_folder(&self, _cx: &mut Cx) {}
     fn remove_folder(&self, _index: usize) {}
     fn rescan(&self) {}
+    /// Reads the shares the token may see into `into` (state `Loading`
+    /// meanwhile) and broadcasts [`SHARES_CHANGED`] when they are there;
+    /// `delete_share` deletes one and reads them again the same way.
+    fn list_shares(&self, _into: SharesFeed) {}
+    fn delete_share(&self, _id: &str, _into: SharesFeed) {}
 }
+
+/// The shares dialog's listing, filled by the shell
+/// ([`OptionsPlatform::list_shares`]).
+pub type SharesFeed = Rc<RefCell<super::data::SharesView>>;
+
+/// The listing in a [`SharesFeed`] changed: its dialog redraws.
+pub const SHARES_CHANGED: &str = "SharesChanged";
 
 /// The shell for an options screen on `model`; dialogs' changes come
 /// back through `feed`.
@@ -249,6 +261,19 @@ fn call_with(
                         m.borrow_mut().set_share_token(token);
                         send(&m, &f, cx);
                     }),
+                ),
+                true,
+            );
+        }
+        Act::ListShares => {
+            let into: SharesFeed = Rc::default();
+            platform.list_shares(into.clone());
+            let p = platform.clone();
+            cx.overlay(
+                super::options_dialogs::SharesDialog::new(
+                    env.clone(),
+                    into.clone(),
+                    Rc::new(move |id| p.delete_share(id, into.clone())),
                 ),
                 true,
             );

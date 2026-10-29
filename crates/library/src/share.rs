@@ -95,6 +95,50 @@ pub struct ShareFileDoc {
     pub url: String,
 }
 
+/// A share as the server lists it (`GET <base>/s`, with a token).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ShareSummary {
+    pub id: String,
+    #[serde(default)]
+    pub pack: String,
+    #[serde(default)]
+    pub songs: usize,
+    #[serde(default)]
+    pub bytes: f64,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+    #[serde(default)]
+    pub finished: bool,
+    /// Made with the token that asked.
+    #[serde(default)]
+    pub mine: bool,
+}
+
+/// The listing: the asking token's role (`admin` sees and deletes every
+/// share, `upload` its own) and the shares it may see.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShareListing {
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub shares: Vec<ShareSummary>,
+}
+
+/// A size in a few words ("12 MB").
+pub fn size_text(bytes: f64) -> String {
+    if bytes >= 1e9 {
+        format!("{:.1} GB", bytes / 1e9)
+    } else if bytes >= 1e6 {
+        format!("{:.0} MB", bytes / 1e6)
+    } else if bytes >= 1e3 {
+        format!("{:.0} kB", bytes / 1e3)
+    } else {
+        format!("{bytes:.0} B")
+    }
+}
+
 /// The entry and the pack of a song's record.
 pub fn record_entry(record: &Value) -> Option<(ManifestEntry, String)> {
     let entry = serde_json::from_value(record.get("entry")?.clone()).ok()?;

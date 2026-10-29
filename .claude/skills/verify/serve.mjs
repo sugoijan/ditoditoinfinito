@@ -11,9 +11,9 @@
 // request with `expires_at` from `expires`, and a file `pending` until
 // POST /share/s/<id>/finish removes it; GET answers 404 meanwhile), PUT
 // /share/s/<id>/f/<n>/<path> and /share/s/<id>/art write the files,
-// DELETE /share/s/<id> removes the folder.
+// DELETE /share/s/<id> removes the folder; GET /share/s (with a token) lists the shares the token may see.
 import { createServer } from 'node:http';
-import { createReadStream, statSync, existsSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from 'node:fs';
+import { createReadStream, statSync, existsSync, mkdirSync, writeFileSync, rmSync, unlinkSync, readdirSync, readFileSync } from 'node:fs';
 import { join, extname, normalize, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 const args = process.argv.slice(2);
@@ -39,7 +39,7 @@ const serveFile = (req, res, file) => {
 createServer((req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (shareDir && path.startsWith('/share/') && req.method !== 'GET') { upload(req, res, path); return; }
+    if (shareDir && path.startsWith('/share/') && (req.method !== 'GET' || path === '/share/s')) { upload(req, res, path); return; }
     const share = shareDir && /^\/share\/s\/([0-9A-Za-z]+)(?:\/f\/(\d+)\/(.+))?$/.exec(path);
     if (share) {
       const [, id, n, rest] = share;
@@ -57,9 +57,22 @@ createServer((req, res) => {
 
 const body = (req) => new Promise((resolve) => { const chunks = []; req.on('data', (c) => chunks.push(c)); req.on('end', () => resolve(Buffer.concat(chunks))); });
 const LIFE = { '1h': 3600, '1d': 86400, '1w': 7 * 86400, '1m': 30 * 86400 };
+// The tokens: `test-token` an admin's, `upload-token` an uploader's (lists and deletes its own shares only).
+const ROLES = { 'Bearer test-token': ['admin', 'tok-admin'], 'Bearer upload-token': ['upload', 'tok-upload'] };
 async function upload(req, res, path) {
-  if (req.headers.authorization !== 'Bearer test-token') { res.writeHead(401); res.end(); return; }
+  const who = ROLES[req.headers.authorization];
+  if (!who) { res.writeHead(401); res.end(); return; }
+  const [role, owner] = who;
   const data = await body(req);
+  if (req.method === 'GET' && path === '/share/s') {
+    const shares = readdirSync(shareDir).filter((d) => existsSync(join(shareDir, d, 'share.json'))).map((d) => {
+      const share = JSON.parse(readFileSync(join(shareDir, d, 'share.json'), 'utf8'));
+      const mine = existsSync(join(shareDir, d, 'owner')) && readFileSync(join(shareDir, d, 'owner'), 'utf8') === owner;
+      const bytes = share.songs.reduce((n, s) => n + s.files.reduce((m, f) => m + (f.bytes || 0), 0), 0);
+      return { id: d, pack: share.pack, songs: share.songs.length, bytes, created_at: share.created_at || 0, expires_at: share.expires_at ?? null, finished: !existsSync(join(shareDir, d, 'pending')), mine };
+    }).filter((s) => role === 'admin' || s.mine).sort((a, b) => b.created_at - a.created_at);
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ role, shares })); return;
+  }
   const m = /^\/share\/s(?:\/([0-9A-Za-z]+)(?:\/(finish|art)|\/f\/(\d+)\/(.+))?)?$/.exec(path);
   if (!m) { res.writeHead(404); res.end(); return; }
   const [, id, verb, n, rest] = m;
@@ -77,9 +90,12 @@ async function upload(req, res, path) {
     mkdirSync(join(shareDir, newId), { recursive: true });
     writeFileSync(join(shareDir, newId, 'share.json'), JSON.stringify(share));
     writeFileSync(join(shareDir, newId, 'pending'), '');
+    writeFileSync(join(shareDir, newId, 'owner'), owner);
     res.writeHead(201, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: newId })); return;
   }
   if (!id || !existsSync(join(shareDir, id, 'share.json'))) { res.writeHead(404); res.end(); return; }
+  const theirs = existsSync(join(shareDir, id, 'owner')) && readFileSync(join(shareDir, id, 'owner'), 'utf8') === owner;
+  if (role !== 'admin' && !theirs) { res.writeHead(403); res.end(); return; }
   if (req.method === 'DELETE') { rmSync(join(shareDir, id), { recursive: true, force: true }); res.writeHead(200); res.end(); return; }
   if (req.method === 'POST' && verb === 'finish') { unlinkSync(join(shareDir, id, 'pending')); res.writeHead(200); res.end(); return; }
   if (req.method === 'PUT' && (verb === 'art' || n !== undefined)) {

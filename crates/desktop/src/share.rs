@@ -428,6 +428,58 @@ fn refusal(status: u16, body: Option<String>) -> String {
     }
 }
 
+/// The shares the token may see (`GET <base>/s`), each with its link.
+pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
+    use ddi_ui::screens::data::{ShareRow, SharesState, SharesView};
+    if token.trim().is_empty() {
+        return Err("Set the upload token under Options → Sharing first.".into());
+    }
+    let mut resp = agent()
+        .get(format!("{}/s", base()))
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| http_err("reading the shares", e))?;
+    let status = resp.status().as_u16();
+    if status != 200 {
+        return Err(refusal(status, resp.body_mut().read_to_string().ok()));
+    }
+    let text = resp
+        .body_mut()
+        .with_config()
+        .limit(64 * 1024 * 1024)
+        .read_to_string()
+        .map_err(|e| format!("reading the shares: {e}"))?;
+    let listing: contract::ShareListing =
+        serde_json::from_str(&text).map_err(|e| format!("the shares: {e}"))?;
+    Ok(SharesView {
+        state: SharesState::Ready,
+        admin: listing.role == "admin",
+        shares: listing
+            .shares
+            .into_iter()
+            .map(|summary| ShareRow {
+                link: link_of(&summary.id),
+                summary,
+            })
+            .collect(),
+        error: String::new(),
+    })
+}
+
+/// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).
+pub fn delete(token: &str, id: &str) -> Result<(), String> {
+    let mut resp = agent()
+        .delete(format!("{}/s/{id}", base()))
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| http_err("deleting the share", e))?;
+    let status = resp.status().as_u16();
+    if status != 200 {
+        return Err(refusal(status, resp.body_mut().read_to_string().ok()));
+    }
+    Ok(())
+}
+
 /// The entry of a shared song, for the headless report.
 pub fn describe(s: &LoadedShare, now: f64) -> String {
     format!(

@@ -361,6 +361,18 @@ pub fn run() {
     {
         std::process::exit(share_from_command_line(&args, ids));
     }
+    // `--shares`: the shares the token may see, listed; `--delete-share
+    // ID`: one deleted (an admin's token any, an uploader's its own).
+    if args.iter().any(|a| a == "--shares") {
+        std::process::exit(shares_from_command_line(None));
+    }
+    if let Some(id) = args
+        .iter()
+        .position(|a| a == "--delete-share")
+        .and_then(|i| args.get(i + 1))
+    {
+        std::process::exit(shares_from_command_line(Some(id)));
+    }
     let volume = args
         .iter()
         .position(|a| a == "--volume")
@@ -668,6 +680,56 @@ pub fn run() {
 
 #[cfg(danoni_importer)]
 pub mod danoni;
+
+/// `--shares` and `--delete-share ID`: the listing printed, one a line
+/// (`id pack songs size time-left mine`), after a deletion; the exit code.
+fn shares_from_command_line(delete: Option<&str>) -> i32 {
+    let token = std::env::var("DDI_SHARE_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| ddi_ui::state::settings::Settings::load().share_token);
+    if let Some(id) = delete
+        && let Err(e) = share::delete(&token, id)
+    {
+        eprintln!("share: {e}");
+        return 1;
+    }
+    match share::list(&token) {
+        Ok(view) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64());
+            println!(
+                "shares ({}): {}",
+                if view.admin { "every one" } else { "yours" },
+                view.shares.len()
+            );
+            for r in &view.shares {
+                let s = &r.summary;
+                println!(
+                    "{}\t{}\t{} {}\t{}\t{}\t{}",
+                    s.id,
+                    s.pack,
+                    s.songs,
+                    if s.songs == 1 { "song" } else { "songs" },
+                    ddi_library::share::size_text(s.bytes),
+                    if s.finished {
+                        ddi_library::share::expires_in(s.expires_at.map(|t| t as f64), now)
+                            .unwrap_or_else(|| "never expires".into())
+                    } else {
+                        "never finished".into()
+                    },
+                    if s.mine { "mine" } else { "another's" }
+                );
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("share: {e}");
+            1
+        }
+    }
+}
 
 /// `--share ID[,ID…]|pack:NAME [--expires W] [--pack NAME]`: the library
 /// read (the song folders and `--songs`), the songs uploaded, the link

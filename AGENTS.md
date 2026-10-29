@@ -548,7 +548,7 @@ Rust and the browser are implementation details, not advertised features.
   results),
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
   `--shared LINK|ID`, `--sharing on|off`, `--share IDS|pack:NAME
-  [--expires W]` (songs shared by link),
+  [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),

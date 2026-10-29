@@ -1445,6 +1445,10 @@ impl ApplicationHandler for Shell {
                     self.ui
                         .broadcast(Message::new(theme_screens::options::OPTIONS_CHANGED));
                 }
+                if o.take_shares() {
+                    self.ui
+                        .broadcast(Message::new(theme_screens::options_shell::SHARES_CHANGED));
+                }
                 self.input.options = Some(o);
             }
             // The chart song select shows: its prompt's diagram's skin

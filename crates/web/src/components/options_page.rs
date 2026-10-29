@@ -29,7 +29,7 @@ use ddi_engine::ConnectedPad;
 use ddi_ui::screens::Env as ThemeEnv;
 use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
 use ddi_ui::screens::options_model::{OptionsModel, Reset, Sample, World};
-use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform};
+use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform, SHARES_CHANGED, SharesFeed};
 use ddi_ui::{Cx, TextMode, Ui, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::Interval;
@@ -583,6 +583,49 @@ impl OptionsPlatform for Web {
         if let Some(input) = self.0.plays_input.cast::<HtmlInputElement>() {
             input.click();
         }
+    }
+
+    /// The shares read on a task; the dialog told through its feed.
+    fn list_shares(&self, into: SharesFeed) {
+        let host = self.0.host.borrow().clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let token = Settings::load().share_token;
+            let view = match crate::share::list(&token).await {
+                Ok(v) => v,
+                Err(e) => ddi_ui::screens::data::SharesView {
+                    state: ddi_ui::screens::data::SharesState::Failed,
+                    error: e,
+                    ..Default::default()
+                },
+            };
+            *into.borrow_mut() = view;
+            if let Some(h) = host {
+                ui_dev::broadcast_soon(h, SHARES_CHANGED);
+            }
+        });
+    }
+
+    fn delete_share(&self, id: &str, into: SharesFeed) {
+        let host = self.0.host.borrow().clone();
+        let id = id.to_string();
+        wasm_bindgen_futures::spawn_local(async move {
+            let token = Settings::load().share_token;
+            let view = match crate::share::delete(&token, &id).await {
+                Ok(()) => crate::share::list(&token).await,
+                Err(e) => Err(e),
+            };
+            *into.borrow_mut() = match view {
+                Ok(v) => v,
+                Err(e) => ddi_ui::screens::data::SharesView {
+                    state: ddi_ui::screens::data::SharesState::Failed,
+                    error: e,
+                    ..Default::default()
+                },
+            };
+            if let Some(h) = host {
+                ui_dev::broadcast_soon(h, SHARES_CHANGED);
+            }
+        });
     }
 
     fn remove(&self, reset: &Reset) {

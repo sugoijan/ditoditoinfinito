@@ -10,10 +10,14 @@ use std::rc::Rc;
 use ddi_actor::{Actor, Kind};
 use ddi_platform::DeviceId;
 
+use super::data::SharesState;
+use super::options_shell::{SHARES_CHANGED, SharesFeed};
 use super::select_dialogs::{button, dialog_root, fitted_dialog, shell, wrap, wrap_lines};
 use super::{Env, left};
+use crate::look::{self, Spec, call, quad};
+use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
-use crate::request::{EnterKey, InputHints, InputMode};
+use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::bind::{BindFlow, Bound, Edge, Holds, Phase, pad_back};
 use crate::widgets::field::{FieldEvent, SearchField};
@@ -272,6 +276,353 @@ impl Screen for TokenDialog {
             }
             Input::Outside => {
                 cx.end_text();
+                cx.close(true);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+}
+
+/// Told the share (by id) to delete.
+pub type DeleteFn = Rc<dyn Fn(&str)>;
+
+/// Options' Shares dialog (`docs/plans/shared-songs.md`): the shares the
+/// token may see, as the shell reads them into the feed
+/// ([`SharesFeed`], [`SHARES_CHANGED`]): each with its pack, songs,
+/// size and time left; the chosen one's link copied or opened, or the
+/// share deleted (Delete pressed twice, as the plays list's Remove).
+pub struct SharesDialog {
+    env: Env,
+    feed: SharesFeed,
+    delete: DeleteFn,
+    chosen: usize,
+    first: usize,
+    arming: bool,
+    screen: [f32; 2],
+    focused: bool,
+    /// The wall clock at the last build (the times left).
+    now: f64,
+}
+
+/// A row's height in the shares list.
+const SHARE_ROW: f32 = 46.0;
+
+impl SharesDialog {
+    pub fn new(env: Env, feed: SharesFeed, delete: DeleteFn) -> SharesDialog {
+        SharesDialog {
+            env,
+            feed,
+            delete,
+            chosen: 0,
+            first: 0,
+            arming: false,
+            screen: super::DESIGN,
+            focused: false,
+            now: 0.0,
+        }
+    }
+
+    fn per_page(&self) -> usize {
+        let room = self.screen[1] - 16.0 - 70.0 - 2.0 * 50.0 - 40.0;
+        ((room / (SHARE_ROW + 6.0)).floor() as usize).clamp(3, 8)
+    }
+
+    fn rows(&self) -> Vec<super::data::ShareRow> {
+        self.feed.borrow().shares.clone()
+    }
+
+    /// The buttons now, `(name, label, kind)`.
+    fn buttons(&self) -> Vec<(&'static str, String, &'static str)> {
+        let view = self.feed.borrow();
+        let n = view.shares.len();
+        let mut v = Vec::new();
+        if view.state == SharesState::Ready && n > 0 {
+            v.push(("Copy", "Copy link".to_string(), "Button"));
+            v.push(("Open", "Open".to_string(), "Button"));
+            v.push((
+                "Delete",
+                if self.arming {
+                    "Sure? Delete"
+                } else {
+                    "Delete"
+                }
+                .to_string(),
+                "DangerButton",
+            ));
+            if self.first > 0 {
+                v.push(("Newer", "Newer".to_string(), "Button"));
+            }
+            if self.first + self.per_page() < n {
+                v.push(("Older", "Older".to_string(), "Button"));
+            }
+        }
+        v.push(("Close", "Close".to_string(), "Button"));
+        v
+    }
+
+    /// One row: the pack, then what it holds and when it goes.
+    fn row(&self, i: usize, r: &super::data::ShareRow, at: [f32; 3]) -> Vec<Actor> {
+        let env = &self.env;
+        let [x, y, w] = at;
+        let s = &r.summary;
+        let now = self.now;
+        let when = if !s.finished {
+            "never finished".to_string()
+        } else {
+            ddi_library::share::expires_in(s.expires_at.map(|t| t as f64), now)
+                .unwrap_or_else(|| "never expires".into())
+        };
+        let detail = format!(
+            "{} {} · {} · {}{}",
+            s.songs,
+            if s.songs == 1 { "song" } else { "songs" },
+            ddi_library::share::size_text(s.bytes),
+            when,
+            if s.mine { "" } else { " · another's" }
+        );
+        let chosen = i == self.chosen;
+        let mut plate = look::component_or(
+            &*env.look,
+            "Button",
+            "Button",
+            &Spec::new([w, SHARE_ROW], ""),
+        );
+        plate.name = format!("Row{i}");
+        call(&mut plate, "xy", &[x + w / 2.0, y + SHARE_ROW / 2.0]);
+        // The chosen one ringed in the accent.
+        let mut out = vec![plate];
+        if chosen {
+            let c = env.color("Accent");
+            for (size, at) in [
+                ([w + 6.0, 2.0], [x + w / 2.0, y - 2.0]),
+                ([w + 6.0, 2.0], [x + w / 2.0, y + SHARE_ROW + 2.0]),
+                ([2.0, SHARE_ROW + 6.0], [x - 2.0, y + SHARE_ROW / 2.0]),
+                ([2.0, SHARE_ROW + 6.0], [x + w + 2.0, y + SHARE_ROW / 2.0]),
+            ] {
+                let mut q = quad("", size, c);
+                call(&mut q, "xy", &at);
+                out.push(q);
+            }
+        }
+        let pack = if s.pack.is_empty() {
+            s.id.clone()
+        } else {
+            s.pack.clone()
+        };
+        let mut title = env.text(&format!("Row{i}.Pack"), &pack, 15.0, 600, "Text");
+        title.decoration = true;
+        let mut line = env.text(&format!("Row{i}.Detail"), &detail, 12.0, 400, "Muted");
+        line.decoration = true;
+        out.push(left(title, x + 12.0, y + 14.0));
+        out.push(left(line, x + 12.0, y + 32.0));
+        out
+    }
+
+    fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx, focus: &str) {
+        *root = self.build(cx);
+        root.finish_tweening();
+        cx.focus(focus);
+    }
+}
+
+impl Screen for SharesDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        "shares"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        self.screen = [vp.width, vp.height];
+        self.now = cx.clock();
+        let env = self.env.clone();
+        let w = 720.0_f32.min(self.screen[0] - 32.0);
+        let rows = self.rows();
+        self.chosen = self.chosen.min(rows.len().saturating_sub(1));
+        if self.chosen < self.first || self.chosen >= self.first + self.per_page() {
+            self.first = self.chosen - self.chosen % self.per_page();
+        }
+        let page: Vec<(usize, &super::data::ShareRow)> = rows
+            .iter()
+            .enumerate()
+            .skip(self.first)
+            .take(self.per_page())
+            .collect();
+        let buttons = self.buttons();
+        let room = w - 48.0;
+        let widths: Vec<f32> = buttons
+            .iter()
+            .map(|(_, l, _)| look::mono_width(l, 15.0) + 32.0)
+            .collect();
+        let (state, error, admin) = {
+            let v = self.feed.borrow();
+            (v.state, v.error.clone(), v.admin)
+        };
+        let title = if admin {
+            "SHARES · ALL"
+        } else {
+            "SHARES · YOURS"
+        };
+        let empty = match state {
+            SharesState::Loading => Some("Reading the shares…".to_string()),
+            SharesState::Failed => Some(format!("The shares could not be read: {error}")),
+            SharesState::Ready if rows.is_empty() => Some("No share yet.".to_string()),
+            SharesState::Ready => None,
+        };
+        let body = if empty.is_some() {
+            30.0
+        } else {
+            page.len() as f32 * (SHARE_ROW + 6.0)
+        };
+        let h = (70.0 + body + 20.0 + 50.0 + 6.0).min(self.screen[1] - 16.0);
+        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], title);
+        if let Some(text) = empty {
+            for (i, line) in wrap_lines(&text, room, 14.0).iter().enumerate() {
+                children.push(left(
+                    env.text(&format!("Empty{i}"), line, 14.0, 400, "Muted"),
+                    x + 24.0,
+                    y + 76.0 + i as f32 * 18.0,
+                ));
+            }
+        } else {
+            for (k, (i, r)) in page.iter().enumerate() {
+                children.extend(self.row(
+                    *i,
+                    r,
+                    [x + 24.0, y + 60.0 + k as f32 * (SHARE_ROW + 6.0), room],
+                ));
+            }
+            if rows.len() > page.len() {
+                let t = env.text(
+                    "Page",
+                    &format!(
+                        "{}–{} of {}",
+                        self.first + 1,
+                        self.first + page.len(),
+                        rows.len()
+                    ),
+                    12.0,
+                    400,
+                    "Faint",
+                );
+                children.push(super::right(t, x + w - 24.0, y + 30.0));
+            }
+        }
+        let by = y + h - 30.0;
+        let mut bx = x + 24.0;
+        for (i, (name, label, kind)) in buttons.iter().enumerate() {
+            children.push(button(
+                &env,
+                name,
+                label,
+                [bx + widths[i] / 2.0, by],
+                widths[i],
+                kind,
+            ));
+            bx += widths[i] + 10.0;
+        }
+        // The rows and the buttons by name, for the debug state's rects.
+        self.env.state.borrow_mut().page_items = page
+            .iter()
+            .map(|(i, _)| format!("Row{i}"))
+            .chain(buttons.iter().map(|(n, _, _)| n.to_string()))
+            .collect();
+        if !std::mem::replace(&mut self.focused, true) {
+            cx.focus("Close");
+        }
+        dialog_root(children)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        let n = self.rows().len();
+        (self.first..(self.first + self.per_page()).min(n))
+            .map(|i| Focusable::new(format!("Row{i}")))
+            .chain(
+                self.buttons()
+                    .into_iter()
+                    .map(|(n, _, _)| Focusable::new(n)),
+            )
+            .collect()
+    }
+
+    fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == SHARES_CHANGED {
+            self.arming = false;
+            let focus = if self.rows().is_empty() {
+                "Close"
+            } else {
+                "Copy"
+            };
+            self.rebuild(root, cx, focus);
+        }
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if self.arming
+            && let Input::Menu { action, .. } = input
+            && matches!(
+                action,
+                MenuAction::Up | MenuAction::Down | MenuAction::Left | MenuAction::Right
+            )
+        {
+            self.arming = false;
+            *root = self.build(cx);
+            root.finish_tweening();
+            return Handled::No;
+        }
+        match input {
+            Input::Activate { name } => {
+                if let Some(i) = name
+                    .strip_prefix("Row")
+                    .and_then(|n| n.parse::<usize>().ok())
+                {
+                    if i < self.rows().len() {
+                        self.chosen = i;
+                        self.arming = false;
+                        self.rebuild(root, cx, "Copy");
+                    }
+                    return Handled::Yes;
+                }
+                let chosen = self.rows().get(self.chosen).cloned();
+                match (name.as_str(), chosen) {
+                    ("Copy", Some(r)) => cx.request(UiRequest::CopyText(r.link)),
+                    ("Open", Some(r)) => cx.request(UiRequest::OpenUrl(r.link)),
+                    ("Delete", Some(r)) => {
+                        if self.arming {
+                            self.arming = false;
+                            self.feed.borrow_mut().state = SharesState::Loading;
+                            (self.delete)(&r.summary.id);
+                            self.rebuild(root, cx, "Close");
+                        } else {
+                            self.arming = true;
+                            self.rebuild(root, cx, "Delete");
+                        }
+                    }
+                    ("Newer", _) => {
+                        let n = self.per_page();
+                        self.first = self.first.saturating_sub(n);
+                        self.chosen = self.first;
+                        self.arming = false;
+                        self.rebuild(root, cx, if self.first > 0 { "Newer" } else { "Older" });
+                    }
+                    ("Older", _) => {
+                        let n = self.per_page();
+                        self.first += n;
+                        self.chosen = self.first;
+                        self.arming = false;
+                        let more = self.first + n < self.rows().len();
+                        self.rebuild(root, cx, if more { "Older" } else { "Newer" });
+                    }
+                    ("Close", _) => cx.close(true),
+                    _ => return Handled::No,
+                }
+                Handled::Yes
+            }
+            Input::Outside => {
                 cx.close(true);
                 Handled::Yes
             }

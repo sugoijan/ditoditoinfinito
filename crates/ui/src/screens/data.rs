@@ -399,6 +399,33 @@ pub enum ShareState {
     Failed,
 }
 
+/// The shares a token may see, as Options' Shares dialog shows them
+/// (`docs/plans/shared-songs.md`): read by the shell when the dialog
+/// opens, again after a deletion.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SharesView {
+    pub state: SharesState,
+    /// The token sees every share (an admin's).
+    pub admin: bool,
+    /// Each share with the link to it.
+    pub shares: Vec<ShareRow>,
+    pub error: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SharesState {
+    #[default]
+    Loading,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ShareRow {
+    pub summary: ddi_library::share::ShareSummary,
+    pub link: String,
+}
+
 /// What song select says of a share it shows.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SharedView {

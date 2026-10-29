@@ -70,6 +70,15 @@ for the app's origins only: the Pages site and `localhost`):
 - `POST <base>/s/<id>/finish` → `200`: the share is readable from now (a
   share never finished is deleted after a day).
 - `DELETE <base>/s/<id>` (the same token) removes it.
+- `GET <base>/s` (a token) lists the shares it may see: `{ "role":
+  "admin" | "upload", "shares": [ { "id", "pack", "songs", "bytes",
+  "created_at", "expires_at", "finished", "mine" } ] }`, newest first.
+
+Tokens have roles, a line each in the secret: a bare token is an admin's
+(the first tokens), who sees, writes and deletes every share; `upload
+<token>` is an uploader's, who makes shares and sees, finishes and
+deletes only its own (`403` otherwise). A share keeps the mark of the
+token that made it (16 hex digits of its SHA-256), never the token.
 
 The Worker keeps each share's metadata in a SQLite Durable Object
 (`ShareIndex`: id, created, expires, pack, the songs' records and files
@@ -226,4 +235,10 @@ IDS|pack:NAME [--expires W]`, streaming each file at its length.
 Checked against `wrangler dev`: a pack shared from the command line,
 listed and autoplayed on desktop, and opened in the web app. Desktop
 plays a share's movies from the cache, downloaded whole before the
-play, not by ranges.
+play, not by ranges. Managing shares: Options → Sharing → Shares →
+List… opens the shares dialog (`SharesDialog`, `SharesFeed`,
+`OptionsPlatform::list_shares` and `delete_share` on both shells): the
+shares the token may see with their pack, songs, size and time left,
+the chosen one's link copied or opened, or the share deleted (Delete
+twice); desktop's `--shares` and `--delete-share ID` do the same from
+the command line.

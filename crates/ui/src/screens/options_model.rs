@@ -240,6 +240,8 @@ pub enum Act {
     Rescan,
     /// Ask for the upload token (a dialog with a text field).
     ShareToken,
+    /// Open the shares dialog (the shell reads the listing into it).
+    ListShares,
 }
 
 pub struct OptionsModel {
@@ -1372,6 +1374,18 @@ impl OptionsModel {
                  settings, so only as private as this browser's profile.",
             ),
             actions(
+                "share.shares",
+                "Shares",
+                if set { &["List…"] } else { &[] },
+                if set {
+                    "yours, or every one"
+                } else {
+                    "a token first"
+                },
+                "The shares made with your token, with their size and time left, each to copy, \
+                 open or delete; an admin's token lists everyone's.",
+            ),
+            actions(
                 "share.server",
                 "Server",
                 &[],
@@ -1690,6 +1704,7 @@ impl OptionsModel {
                 Act::Done
             }
             ("share.token", _) => Act::ShareToken,
+            ("share.shares", _) if !self.settings.share_token.is_empty() => Act::ListShares,
             ("folders.add", 0) => Act::AddFolder,
             ("folders.add", _) => Act::Rescan,
             ("reset.settings", _) => Act::Confirm(Reset::Settings),

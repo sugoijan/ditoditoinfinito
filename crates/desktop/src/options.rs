@@ -16,7 +16,7 @@ use ddi_engine::ConnectedPad;
 use ddi_ui::message::Message;
 use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
 use ddi_ui::screens::options_model::{OptionsModel, Reset, World};
-use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform};
+use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform, SharesFeed};
 use ddi_ui::screens::{Env, sample};
 use ddi_ui::state::settings::Settings;
 use ddi_ui::{Cx, Ui};
@@ -39,6 +39,14 @@ pub struct Shared {
     /// The noteskins of the song folders, listed on a thread of their own
     /// (`crate::library::noteskins`): put in the rows when they come.
     skins: RefCell<Option<std::sync::mpsc::Receiver<Skins>>>,
+    /// The shares read (or one deleted and the rest read) on a thread
+    /// (`crate::share`): into the dialog's feed when they come.
+    shares: RefCell<
+        Option<(
+            SharesFeed,
+            std::sync::mpsc::Receiver<ddi_ui::screens::data::SharesView>,
+        )>,
+    >,
 }
 
 impl Shared {
@@ -104,6 +112,22 @@ impl Shared {
     fn refresh(&self) {
         *self.feed.borrow_mut() = Some(self.model.borrow().data());
         self.pending.set(true);
+    }
+
+    /// The shares dialog's listing, when its thread is done: the feed
+    /// filled, [`options_shell::SHARES_CHANGED`] to broadcast.
+    pub fn take_shares(&self) -> bool {
+        let got = self
+            .shares
+            .borrow()
+            .as_ref()
+            .and_then(|(feed, rx)| rx.try_recv().ok().map(|v| (feed.clone(), v)));
+        let Some((feed, view)) = got else {
+            return false;
+        };
+        *self.shares.borrow_mut() = None;
+        *feed.borrow_mut() = view;
+        true
     }
 
     /// Whether the rows changed since the screen was last told.
@@ -180,6 +204,7 @@ pub fn screen(
         edited: RefCell::default(),
         pending: std::cell::Cell::new(false),
         env: env.clone(),
+        shares: RefCell::default(),
         skins: RefCell::new(songs.as_ref().map(|s| {
             let (tx, rx) = std::sync::mpsc::channel();
             let folders = s.folders();
@@ -225,6 +250,39 @@ fn today() -> String {
     time
 }
 
+impl Desktop {
+    /// The shares read on a thread (after deleting `delete`, if any),
+    /// polled by the shell ([`Shared::take_shares`]).
+    fn shares_on_thread(&self, into: SharesFeed, delete: Option<String>) {
+        let token = Settings::load().share_token;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let wake = self.0.songs.as_ref().and_then(|s| s.wake.borrow().clone());
+        *self.0.shares.borrow_mut() = Some((into, rx));
+        let _ = std::thread::Builder::new()
+            .name("ddi-shares".into())
+            .spawn(move || {
+                let result = match delete {
+                    Some(id) => {
+                        crate::share::delete(&token, &id).and_then(|()| crate::share::list(&token))
+                    }
+                    None => crate::share::list(&token),
+                };
+                let view = match result {
+                    Ok(v) => v,
+                    Err(e) => ddi_ui::screens::data::SharesView {
+                        state: ddi_ui::screens::data::SharesState::Failed,
+                        error: e,
+                        ..Default::default()
+                    },
+                };
+                let _ = tx.send(view);
+                if let Some(w) = wake {
+                    w();
+                }
+            });
+    }
+}
+
 /// The song the volume sample plays: the first bundled one with music.
 fn sample_song() -> Option<String> {
     sample::bundled().into_iter().map(|s| s.id).next()
@@ -242,6 +300,14 @@ impl OptionsPlatform for Desktop {
         if let Some(sound) = &self.0.sound {
             sound.borrow_mut().set_volume(volume);
         }
+    }
+
+    fn list_shares(&self, into: SharesFeed) {
+        self.shares_on_thread(into, None);
+    }
+
+    fn delete_share(&self, id: &str, into: SharesFeed) {
+        self.shares_on_thread(into, Some(id.to_string()));
     }
 
     /// The history as JSON lines, one a play (the web's export), to a

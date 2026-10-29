@@ -24,6 +24,29 @@ use crate::{MenuAction, PointerKind, TextMode, UiEvent, UiRequest};
 #[derive(Default)]
 struct Fake {
     log: RefCell<Vec<String>>,
+    /// The shares the fake server lists.
+    shares: RefCell<Vec<ddi_library::share::ShareSummary>>,
+}
+
+impl Fake {
+    fn fill(&self, into: &options_shell::SharesFeed) {
+        use super::data::{ShareRow, SharesState, SharesView};
+        *into.borrow_mut() = SharesView {
+            state: SharesState::Ready,
+            admin: true,
+            shares: self
+                .shares
+                .borrow()
+                .iter()
+                .cloned()
+                .map(|summary| ShareRow {
+                    link: format!("https://w/#/s/{}", summary.id),
+                    summary,
+                })
+                .collect(),
+            error: String::new(),
+        };
+    }
 }
 
 impl OptionsPlatform for Fake {
@@ -53,6 +76,15 @@ impl OptionsPlatform for Fake {
     fn leave(&self, to: Leave, _cx: &mut Cx) {
         self.log.borrow_mut().push(format!("leave {to:?}"));
     }
+    fn list_shares(&self, into: options_shell::SharesFeed) {
+        self.log.borrow_mut().push("list shares".into());
+        self.fill(&into);
+    }
+    fn delete_share(&self, id: &str, into: options_shell::SharesFeed) {
+        self.log.borrow_mut().push(format!("delete share {id}"));
+        self.shares.borrow_mut().retain(|s| s.id != id);
+        self.fill(&into);
+    }
 }
 
 struct Rig {
@@ -60,6 +92,8 @@ struct Rig {
     state: SharedTheme,
     model: Rc<RefCell<OptionsModel>>,
     fake: Rc<Fake>,
+    /// The screen's feed (rows from outside a call).
+    feed: OptionsFeed,
 }
 
 fn rig(size: [f32; 2], design: [f32; 2]) -> Rig {
@@ -88,13 +122,14 @@ fn rig(size: [f32; 2], design: [f32; 2]) -> Rig {
     let data = model.borrow().data();
     let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Mirror);
     h.ui.set_design(design);
-    h.push(OptionsScreen::new(env, data, None).with_shell(shell, feed));
+    h.push(OptionsScreen::new(env, data, None).with_shell(shell, feed.clone()));
     h.run(0.3);
     Rig {
         h,
         state,
         model,
         fake,
+        feed,
     }
 }
 
@@ -889,7 +924,8 @@ fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
     assert_eq!(token.id, "share.token");
     assert_eq!(token.note, "not set");
     assert_eq!(token.values(), ["Set…"]);
-    assert_eq!(sharing.options[1].note, "https://w/share");
+    assert_eq!(sharing.options[1].note, "a token first");
+    assert_eq!(sharing.options[2].note, "https://w/share");
     assert!(matches!(m.action("share.token", 0), Act::ShareToken));
     m.set_share_token("  secret  ");
     assert_eq!(m.settings.share_token, "secret");
@@ -905,4 +941,106 @@ fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
     assert_eq!(token.values(), ["Change…", "Clear"]);
     assert!(matches!(m.action("share.token", 1), Act::Done));
     assert!(m.settings.share_token.is_empty());
+}
+
+#[test]
+fn the_shares_dialog_lists_copies_and_deletes() {
+    use ddi_library::share::ShareSummary;
+    let mut rig = rig([1280.0, 720.0], DESIGN);
+    rig.fake.shares.borrow_mut().extend([
+        ShareSummary {
+            id: "abc12345".into(),
+            pack: "A pack".into(),
+            songs: 2,
+            bytes: 8.2e6,
+            created_at: 0,
+            // The harness's clock starts at zero.
+            expires_at: Some(7 * 86_400),
+            finished: true,
+            mine: true,
+        },
+        ShareSummary {
+            id: "xyz12345".into(),
+            pack: "Theirs".into(),
+            songs: 1,
+            bytes: 500.0,
+            created_at: 50,
+            expires_at: None,
+            finished: true,
+            mine: false,
+        },
+    ]);
+    {
+        let mut m = rig.model.borrow_mut();
+        m.world.sharing = true;
+        m.settings.share_token = "secret".into();
+    }
+    let data = rig.model.borrow().data();
+    let sharing = data
+        .sections
+        .iter()
+        .position(|s| s.name == "Sharing")
+        .expect("the section");
+    *rig.feed.borrow_mut() = Some(data);
+    rig.h
+        .ui
+        .broadcast(crate::Message::new(super::options::OPTIONS_CHANGED));
+    rig.h.run(0.2);
+    for _ in 0..sharing {
+        rig.h.key("Tab", "Tab");
+        rig.h.run(0.1);
+    }
+    assert_eq!(rig.state.borrow().section, "Sharing");
+    assert_eq!(rig.state.borrow().option_rows[1], "share.shares");
+    // The row's List… opens the dialog, filled by the platform.
+    rig.h.key("ArrowDown", "ArrowDown");
+    rig.h.run(0.1);
+    rig.h.key("Enter", "Enter");
+    rig.h.run(0.3);
+    assert!(rig.fake.log.borrow().iter().any(|l| l == "list shares"));
+    rig.h
+        .ui
+        .broadcast(crate::Message::new(options_shell::SHARES_CHANGED));
+    rig.h.run(0.2);
+    let texts = rig.h.texts();
+    assert!(texts.iter().any(|t| t == "SHARES · ALL"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "A pack"), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "2 songs · 8 MB · expires in 7 days"),
+        "{texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "1 song · 500 B · never expires · another's"),
+        "{texts:?}"
+    );
+    rig.h.tap(PointerKind::Mouse, "Copy");
+    assert!(
+        rig.h
+            .requested(|r| matches!(r, UiRequest::CopyText(t) if t == "https://w/#/s/abc12345"))
+            > 0
+    );
+    // Delete asks twice; the platform deletes and lists again.
+    rig.h.tap(PointerKind::Mouse, "Delete");
+    rig.h.run(0.1);
+    assert!(rig.h.texts().iter().any(|t| t == "Sure? Delete"));
+    rig.h.tap(PointerKind::Mouse, "Delete");
+    rig.h.run(0.1);
+    assert!(
+        rig.fake
+            .log
+            .borrow()
+            .iter()
+            .any(|l| l == "delete share abc12345")
+    );
+    rig.h
+        .ui
+        .broadcast(crate::Message::new(options_shell::SHARES_CHANGED));
+    rig.h.run(0.2);
+    let texts = rig.h.texts();
+    assert!(!texts.iter().any(|t| t == "A pack"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "Theirs"), "{texts:?}");
 }

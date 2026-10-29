@@ -454,6 +454,46 @@ fn checked(r: gloo::net::http::Response) -> Result<gloo::net::http::Response, St
     }
 }
 
+/// The shares the token may see (`GET <base>/s`), each with its link.
+pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
+    use ddi_ui::screens::data::{ShareRow, SharesState, SharesView};
+    if token.is_empty() {
+        return Err("Set the upload token under Options → Sharing first.".into());
+    }
+    let resp = gloo::net::http::Request::get(&format!("{}/s", base()))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("reading the shares: {e}"))
+        .and_then(checked)?;
+    let listing: ddi_library::share::ShareListing =
+        resp.json().await.map_err(|e| format!("the shares: {e}"))?;
+    Ok(SharesView {
+        state: SharesState::Ready,
+        admin: listing.role == "admin",
+        shares: listing
+            .shares
+            .into_iter()
+            .map(|summary| ShareRow {
+                link: link(&summary.id),
+                summary,
+            })
+            .collect(),
+        error: String::new(),
+    })
+}
+
+/// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).
+pub(crate) async fn delete(token: &str, id: &str) -> Result<(), String> {
+    gloo::net::http::Request::delete(&format!("{}/s/{id}", base()))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("deleting the share: {e}"))
+        .and_then(checked)
+        .map(|_| ())
+}
+
 /// The link to a share: this page's address at `#/s/<id>`.
 pub(crate) fn link(id: &str) -> String {
     let page = web_sys::window()
