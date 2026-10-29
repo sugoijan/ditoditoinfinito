@@ -2629,6 +2629,7 @@ fn publish(h: &Host) {
                 .as_deref()
                 .map_or(JsValue::NULL, |s| s.into()),
         );
+        set(&o, "toShare", strings(&st.to_share));
         set(
             &o,
             "header",

@@ -1521,6 +1521,7 @@ fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
     use super::data::{ShareState, ShareView};
     let sharing = |start: &str| {
         let env = env();
+        let state = env.state.clone();
         let calls: Calls = Rc::default();
         let c = calls.clone();
         let play: PlayFn = Rc::new(|_, _, _, _| {});
@@ -1534,19 +1535,27 @@ fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
                 .with_sharing(),
         );
         h.run(0.5);
-        (h, calls, feed)
+        (h, calls, feed, state)
     };
     // Not on a bundled song: it is on the site already.
-    let (mut h, _, _) = sharing("some-things-must");
+    let (mut h, _, _, _) = sharing("some-things-must");
     h.tap(PointerKind::Mouse, "More");
     h.run(0.3);
-    assert!(!h.texts().iter().any(|t| t == "Share…"), "{:?}", h.texts());
+    assert!(
+        !h.texts().iter().any(|t| t == "Share this song…"),
+        "{:?}",
+        h.texts()
+    );
     // The imported song: an expiry chosen asks the shell and shows the
     // upload.
-    let (mut h, calls, feed) = sharing("u-one");
+    let (mut h, calls, feed, _) = sharing("u-one");
     h.tap(PointerKind::Mouse, "More");
     h.run(0.3);
-    assert!(h.texts().iter().any(|t| t == "Share…"), "{:?}", h.texts());
+    assert!(
+        h.texts().iter().any(|t| t == "Share this song…"),
+        "{:?}",
+        h.texts()
+    );
     h.tap(PointerKind::Mouse, "Item.Share");
     h.run(0.3);
     assert_eq!(top(&h), "share");
@@ -1605,8 +1614,71 @@ fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
     assert!(
         h.requested(|r| matches!(r, crate::UiRequest::CopyText(t) if t.ends_with("abc12345"))) > 0
     );
+    // Songs added to the list are shared together, in order, under their
+    // pack's name; the list clears once the share is up.
+    let (mut h, calls, feed, state) = sharing("u-one");
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    assert!(
+        h.texts().iter().any(|t| t == "Share this song…"),
+        "{:?}",
+        h.texts()
+    );
+    h.tap(PointerKind::Mouse, "Item.ShareAdd");
+    h.run(0.3);
+    assert_eq!(state.borrow().to_share, vec!["u-one".to_string()]);
+    assert!(
+        h.texts().iter().any(|t| t == "1 song to share"),
+        "{:?}",
+        h.texts()
+    );
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.4);
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "Add to share"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "Share 1 song…"), "{texts:?}");
+    assert!(!texts.iter().any(|t| t == "Share this song…"), "{texts:?}");
+    h.tap(PointerKind::Mouse, "Item.ShareAdd");
+    h.run(0.3);
+    assert_eq!(
+        state.borrow().to_share,
+        vec!["u-one".to_string(), "u-two".to_string()]
+    );
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    assert!(
+        h.texts().iter().any(|t| t == "Remove from share"),
+        "{:?}",
+        h.texts()
+    );
+    h.tap(PointerKind::Mouse, "Item.ShareSelected");
+    h.run(0.3);
+    assert_eq!(top(&h), "share");
+    h.tap(PointerKind::Mouse, "Expiry.1d");
+    h.run(0.3);
+    assert!(
+        calls.borrow().iter().any(|c| matches!(
+            c,
+            SelectCall::Share { pack, songs, expires }
+                if expires == "1d" && songs == &["u-one".to_string(), "u-two".to_string()] && pack == "My Pack"
+        )),
+        "{:?}",
+        calls.borrow()
+    );
+    feed.borrow_mut().share = Some(ShareView {
+        state: ShareState::Done,
+        done_songs: 2,
+        songs: 2,
+        link: "https://example.test/#/s/abc12345".into(),
+        ..ShareView::default()
+    });
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.2);
+    assert!(state.borrow().to_share.is_empty());
     // A pack's header shares the pack's imported songs.
-    let (mut h, calls, _) = sharing("u-one");
+    let (mut h, calls, _, _) = sharing("u-one");
     h.key("ArrowUp", "ArrowUp");
     h.run(0.4);
     h.tap(PointerKind::Mouse, "More");

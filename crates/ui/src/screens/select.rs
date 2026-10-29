@@ -616,6 +616,9 @@ pub struct SelectScreen {
     editing: bool,
     /// Share… is offered on imported songs and packs.
     sharing: bool,
+    /// The imported songs (ids) added to the next share, in order
+    /// ("Add to share" in More; "Share N songs…" takes them).
+    to_share: Vec<String>,
     /// The import's state, shared with its dialog.
     import: Rc<RefCell<ImportView>>,
     /// The share upload's state, shared with its dialog.
@@ -724,6 +727,7 @@ impl SelectScreen {
             plays: None,
             editing: false,
             sharing: false,
+            to_share: Vec::new(),
             import,
             share: Rc::default(),
             notices,
@@ -868,11 +872,47 @@ impl SelectScreen {
         }
     }
 
+    /// The imported song shown, when it is one.
+    fn shown_imported(&self) -> Option<&SongEntry> {
+        if !self.sharing || self.data.shared.is_some() {
+            return None;
+        }
+        match self.selected_item()? {
+            Item::Song(i) => self.data.songs.get(i).filter(|s| s.removable),
+            Item::Header(_) => None,
+        }
+    }
+
+    /// What "Share N songs…" shares: the songs added, in order, under
+    /// their pack's name when they share one, else "Shared songs".
+    fn share_list(&self) -> Option<(String, Vec<String>, String)> {
+        if self.to_share.is_empty() {
+            return None;
+        }
+        let packs: Vec<&str> = self
+            .to_share
+            .iter()
+            .filter_map(|id| self.data.songs.iter().find(|s| &s.id == id))
+            .map(|s| s.pack.as_str())
+            .collect();
+        let pack = match packs.first() {
+            Some(p) if packs.iter().all(|q| q == p) => p.to_string(),
+            _ => "Shared songs".to_string(),
+        };
+        let n = self.to_share.len();
+        let title = format!("{n} {}", if n == 1 { "song" } else { "songs" });
+        Some((pack, self.to_share.clone(), title))
+    }
+
     /// The Share dialog on what is shown.
     fn open_share(&mut self, cx: &mut Cx) {
         let Some((pack, songs, title)) = self.shareable() else {
             return;
         };
+        self.open_share_of(pack, songs, title, cx);
+    }
+
+    fn open_share_of(&mut self, pack: String, songs: Vec<String>, title: String, cx: &mut Cx) {
         cx.focus("Wheel");
         cx.overlay(
             ShareDialog::new(
@@ -2014,10 +2054,14 @@ impl SelectScreen {
             Some(e) => format!("Shared: {} · {e}", v.pack),
             None => format!("Shared: {}", v.pack),
         });
-        let note = match (note, found.as_str(), &shared_note) {
-            ("", "", Some(n)) => n.as_str(),
-            ("", f, _) => f,
-            (n, _, _) => n,
+        // The songs added to the next share, where nothing else is said.
+        let list_note = self
+            .share_list()
+            .map(|(_, _, title)| format!("{title} to share"));
+        let note = match (note, found.as_str(), &shared_note, &list_note) {
+            ("", "", Some(n), _) | ("", "", None, Some(n)) => n.as_str(),
+            ("", f, _, _) => f,
+            (n, _, _, _) => n,
         };
         let mut hints: Vec<_> = hints
             .iter()
@@ -2313,6 +2357,12 @@ impl SelectScreen {
             )
         };
         if let Some(s) = share {
+            // The list went up: it is done with.
+            if s.state == super::data::ShareState::Done {
+                self.to_share.clear();
+                self.hints = None;
+                self.publish_dirty = true;
+            }
             *self.share.borrow_mut() = s;
             cx.broadcast(Message::new(SHARE_CHANGED));
         }
@@ -2842,6 +2892,7 @@ impl SelectScreen {
         st.song = song.map(|s| s.title.clone()).unwrap_or_default();
         st.song_id = song.map(|s| s.id.clone()).unwrap_or_default();
         st.shared_pack = self.data.shared.as_ref().map(|v| v.pack.clone());
+        st.to_share = self.to_share.clone();
         st.items = self.items.len();
         st.closed = self
             .closed
@@ -3762,8 +3813,25 @@ impl SelectScreen {
         if self.manageable().is_some() && !shared {
             items.push(("Link.Manage".into(), "Manage song / pack".into()));
         }
-        if self.shareable().is_some() {
-            items.push(("Share".into(), "Share…".into()));
+        // Sharing: the song shown added to (or taken off) the list, the
+        // list shared, or the song or pack shown alone.
+        if let Some(song) = self.shown_imported() {
+            if self.to_share.contains(&song.id) {
+                items.push(("ShareRemove".into(), "Remove from share".into()));
+            } else {
+                items.push(("ShareAdd".into(), "Add to share".into()));
+            }
+        }
+        if let Some((_, _, title)) = self.share_list() {
+            items.push(("ShareSelected".into(), format!("Share {title}…")));
+            items.push(("ShareClear".into(), "Clear the share list".into()));
+        } else if self.shareable().is_some() {
+            let label = if self.shown_imported().is_some() {
+                "Share this song…"
+            } else {
+                "Share the pack…"
+            };
+            items.push(("Share".into(), label.into()));
         }
         if charts.len() > 1 {
             items.extend([
@@ -3867,6 +3935,32 @@ impl SelectScreen {
             }
             "Share" => {
                 self.open_share(cx);
+                return Handled::Yes;
+            }
+            "ShareAdd" | "ShareRemove" => {
+                cx.focus("Wheel");
+                if let Some(id) = self.shown_imported().map(|s| s.id.clone()) {
+                    self.to_share.retain(|s| s != &id);
+                    if name == "ShareAdd" {
+                        self.to_share.push(id);
+                    }
+                    self.status(format!("{} to share", self.to_share.len()));
+                    self.hints = None;
+                    self.publish_dirty = true;
+                }
+                return Handled::Yes;
+            }
+            "ShareSelected" => {
+                if let Some((pack, songs, title)) = self.share_list() {
+                    self.open_share_of(pack, songs, title, cx);
+                }
+                return Handled::Yes;
+            }
+            "ShareClear" => {
+                cx.focus("Wheel");
+                self.to_share.clear();
+                self.hints = None;
+                self.publish_dirty = true;
                 return Handled::Yes;
             }
             "ClearSearch" => self.clear_search(root, cx),

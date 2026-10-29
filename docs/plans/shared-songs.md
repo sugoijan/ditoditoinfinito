@@ -202,5 +202,14 @@ ranges (`web::movie_source::MovieSource::Remote`: the decoder worker
 reads it with synchronous ranged requests, the browser's decoder and the
 probes through `fetch` with `Range`), never fetched whole, so a play
 starts at once; the rest of a shared song's files come as `Blob`s the
-browser keeps (`songs::fetch_blob`). Desktop's share flag and uploader
-remain to do.
+browser keeps (`songs::fetch_blob`). Afterwards: a shared song's
+results (Song list, Back) return to its share, not the library
+(`game_canvas::back_route`, the router's fallback for a direct play);
+and a share of chosen songs: "Add to share" in an imported song's More
+actions builds a list for the session (`SelectScreen::to_share`, the
+footer's "N songs to share", `ThemeState::to_share`), More then offers
+"Share N songs…" (their pack's name when they share one, else "Shared
+songs") and "Clear the share list", and the list clears once the share
+is up; "Share this song…" and "Share the pack…" stay for one song or a
+whole pack with no list. Desktop's share flag and uploader remain to
+do.

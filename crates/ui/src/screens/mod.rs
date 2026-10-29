@@ -155,6 +155,8 @@ pub struct ThemeState {
     pub header: Option<String>,
     /// Song select on songs shared by link: the share's pack.
     pub shared_pack: Option<String>,
+    /// The songs (ids) added to the next share, in order.
+    pub to_share: Vec<String>,
     /// The selected song has no chart in the style.
     pub greyed: bool,
     pub style: String,

@@ -2808,7 +2808,13 @@ fn back_route(props: &Props) -> Route {
             song: id.clone(),
             chart: *chart,
         },
-        SongSource::Song { .. } => Route::Songs,
+        // A shared song's list is its share (`crate::share`).
+        SongSource::Song { id, .. } => match crate::share::parse_song_id(id) {
+            Some((share, _)) => Route::Shared {
+                id: share.to_string(),
+            },
+            None => Route::Songs,
+        },
         SongSource::Calibration(_) => Route::Calibrate,
     }
 }

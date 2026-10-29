@@ -540,7 +540,17 @@ pub(crate) fn back() {
         return;
     }
     use ddi_ui::navigation::Destination;
-    let destination = match Route::current() {
+    let current = Route::current();
+    // A shared song's play opened directly: its share is its list.
+    let shared = match &current {
+        Route::Play { song, .. } => {
+            ddi_library::share::parse_song_id(song).map(|(share, _)| Route::Shared {
+                id: share.to_string(),
+            })
+        }
+        _ => None,
+    };
+    let destination = match current {
         Route::Home => Destination::Start,
         Route::Songs | Route::Shared { .. } => Destination::Songs,
         Route::Play { .. } | Route::Edit { .. } => Destination::Play,
@@ -548,8 +558,9 @@ pub(crate) fn back() {
         Route::Credits => Destination::Credits,
         _ => Destination::Calibration,
     };
-    let parent = match destination.fallback() {
-        Destination::Songs => Route::Songs,
+    let parent = match (destination.fallback(), shared) {
+        (Destination::Songs, Some(share)) => share,
+        (Destination::Songs, None) => Route::Songs,
         _ => Route::Home,
     }
     .to_hash();
