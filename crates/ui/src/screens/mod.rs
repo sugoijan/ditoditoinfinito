@@ -153,6 +153,8 @@ pub struct ThemeState {
     pub song: String,
     pub song_id: String,
     pub header: Option<String>,
+    /// Song select on songs shared by link: the share's pack.
+    pub shared_pack: Option<String>,
     /// The selected song has no chart in the style.
     pub greyed: bool,
     pub style: String,

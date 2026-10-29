@@ -89,6 +89,9 @@ struct Shared {
     music_input: NodeRef,
     /// The place saved last (to skip writing the same).
     place: RefCell<MenuPlace>,
+    /// Songs shared by link (`crate::share`): the share's songs alone,
+    /// nothing stored, imported or managed.
+    of_share: bool,
     /// The imported packs' names, once a library load (the debug state).
     packs: RefCell<Vec<String>>,
     /// The import as the debug state says it, as of its last change.
@@ -197,6 +200,7 @@ impl Component for SelectPage {
             file_input: NodeRef::default(),
             music_input: NodeRef::default(),
             place: RefCell::new(MenuPlace::load()),
+            of_share: shared,
             packs: RefCell::new(Vec::new()),
             import_debug: RefCell::new(ImportDebug::now()),
             movie: RefCell::default(),
@@ -605,7 +609,12 @@ impl SelectPage {
             None => Default::default(),
         };
         data.notices = self.notices();
-        data.import = select_data::import_view(&settings);
+        if self.shared.of_share {
+            // A share: nothing to import or manage.
+            data.shared = crate::share::current().map(|s| select_data::shared_view(&s));
+        } else {
+            data.import = select_data::import_view(&settings);
+        }
         data.autoplay = crate::router::autoplay();
         data
     }
@@ -649,7 +658,8 @@ impl SelectPage {
                 error: true,
             });
         }
-        if let Some(l) = self.shared.library.borrow().as_ref() {
+        // A share's list is not the stored library: nothing of its state.
+        if let (false, Some(l)) = (self.shared.of_share, self.shared.library.borrow().as_ref()) {
             if let Some(e) = &l.imported_error {
                 out.push(Notice {
                     text: format!("Imported songs are unavailable: {e}"),
@@ -679,7 +689,7 @@ impl SelectPage {
                 error: false,
             });
         }
-        if let Some(u) = self.usage {
+        if let (false, Some(u)) = (self.shared.of_share, self.usage) {
             let (more, link) = match self.persisted {
                 Some(true) => (" The browser keeps your songs until you remove them.", None),
                 Some(false) => (

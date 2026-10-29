@@ -334,8 +334,10 @@ Rust and the browser are implementation details, not advertised features.
   `DDI_SHARE_URL` at build or `window.__DDI_SHARE_URL`, held in memory
   for the session, its songs `shared:<id>:<n>` read by URL through
   `songs::Origin::Shared`; `components/shared_page.rs` then song
-  select in its shared mode, `select_page::Props::shared`, or the page
-  saying the link is gone; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
+  select in its shared mode, `select_page::Props::shared`,
+  `SelectData::shared`: headed "SHARED SONGS", nothing added, managed
+  or edited, or the page saying the link is gone;
+  `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with

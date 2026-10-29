@@ -1463,6 +1463,60 @@ fn search_says_what_it_found() {
 }
 
 #[test]
+fn a_share_lists_its_songs_alone_with_nothing_to_add_or_edit() {
+    use super::data::SharedView;
+    let mut d = library();
+    d.shared = Some(SharedView {
+        pack: "A friend's pack".into(),
+        expires: Some("expires in 3 days".into()),
+    });
+    let env = env();
+    let state = env.state.clone();
+    let calls: Calls = Rc::default();
+    let c = calls.clone();
+    let play: PlayFn = Rc::new(|_, _, _, _| {});
+    let open: OpenFn = Rc::new(|_, _| {});
+    let shell: ShellFn = Rc::new(move |call, _| c.borrow_mut().push(call));
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(
+        SelectScreen::new(env, d, Some("some-things-must"), play, open)
+            .with_shell(shell, SharedFeed::default())
+            .with_editing(),
+    );
+    h.run(0.5);
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "SHARED SONGS"), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "Shared: A friend's pack · expires in 3 days"),
+        "{texts:?}"
+    );
+    assert!(h.ui.actor("Link.Add").is_none(), "nothing to add");
+    assert!(h.ui.actor("Link.Manage").is_none(), "nothing to manage");
+    assert!(h.ui.actor("Link.Options").is_some());
+    assert_eq!(
+        state.borrow().shared_pack.as_deref(),
+        Some("A friend's pack")
+    );
+    assert!(!state.borrow().hints.iter().any(|t| t == "E Edit"));
+    // E edits nothing; the More menu offers no adding.
+    h.key("KeyE", "e");
+    h.run(0.2);
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Edit { .. }))
+    );
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "Options"), "{texts:?}");
+    assert!(!texts.iter().any(|t| t == "Add songs"), "{texts:?}");
+}
+
+#[test]
 fn links_and_notices_ask_the_shell() {
     let mut d = library();
     d.notices = vec![

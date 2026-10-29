@@ -369,6 +369,18 @@ pub struct SelectData {
     pub import: ImportView,
     /// Plays started here are autoplayed (for the session; not counted).
     pub autoplay: bool,
+    /// Songs shared by link (`docs/plans/shared-songs.md`): the list is
+    /// the share's songs alone, nothing is added, edited or managed.
+    pub shared: Option<SharedView>,
+}
+
+/// What song select says of a share it shows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SharedView {
+    /// The pack's name, as the one who shared it named it.
+    pub pack: String,
+    /// "expires in 3 days"; `None`: it never does.
+    pub expires: Option<String>,
 }
 
 /// A judgement row of results.

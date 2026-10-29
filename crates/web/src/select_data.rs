@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ddi_chart::Layout;
-use ddi_ui::screens::data::{ImportReportView, ImportView, SelectData};
+use ddi_ui::screens::data::{ImportReportView, ImportView, SelectData, SharedView};
 use ddi_ui::state::history::History;
 use ddi_ui::state::select_view::{self, Listed};
 use wasm_bindgen::JsValue;
@@ -109,6 +109,15 @@ pub(crate) fn select_data(
         }
     }
     data
+}
+
+/// What song select says of the share it shows: its pack's name and
+/// the time it has left.
+pub(crate) fn shared_view(share: &crate::share::Share) -> SharedView {
+    SharedView {
+        pack: share.pack.clone(),
+        expires: share.expires_in(js_sys::Date::now() / 1000.0),
+    }
 }
 
 /// The import dialog's state now.

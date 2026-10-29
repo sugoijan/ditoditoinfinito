@@ -1223,6 +1223,10 @@ impl SelectScreen {
                 ("SearchIcon", "/", screen[0] - margin - 74.0),
                 ("More", "•••", screen[0] - margin - 22.0),
             ] {
+                // A share: nothing to add.
+                if name == "AddIcon" && self.data.shared.is_some() {
+                    continue;
+                }
                 children.push(env.component(
                     "IconButton",
                     "Button",
@@ -1240,7 +1244,12 @@ impl SelectScreen {
             }
             children.push(left(title, margin + 56.0, 28.0));
         } else {
-            children.push(header(&env, cx, screen[0], "SELECT MUSIC"));
+            let name = if self.data.shared.is_some() {
+                "SHARED SONGS"
+            } else {
+                "SELECT MUSIC"
+            };
+            children.push(header(&env, cx, screen[0], name));
             children.push(self.mods(l.field[0] - 16.0));
             children.push(super::more_button(
                 &env,
@@ -1850,15 +1859,15 @@ impl SelectScreen {
         let esc = "Start menu";
         // The plays are P's (its hint); the credits and the source are
         // the start menu's and the credits'.
+        let shared = self.data.shared.is_some();
         let mut links: Vec<(&str, &str)> = Vec::new();
-        if manage {
+        if manage && !shared {
             links.push(("Link.Manage", "Manage…"));
         }
-        links.extend([
-            ("Link.Add", "+ Add songs"),
-            ("Link.Options", "Options"),
-            ("Link.Calibrate", "Calibrate"),
-        ]);
+        if !shared {
+            links.push(("Link.Add", "+ Add songs"));
+        }
+        links.extend([("Link.Options", "Options"), ("Link.Calibrate", "Calibrate")]);
         let (hints, note): (&[(&[&str], &str)], &str) = match now {
             Hints::Song => (
                 &[
@@ -1914,13 +1923,18 @@ impl SelectScreen {
         if self.plays.is_some() && now == Hints::Song {
             hints.push((&["P"], "Plays"));
         }
-        if self.editing && now == Hints::Song && !self.layout.compact {
+        if self.editing && !shared && now == Hints::Song && !self.layout.compact {
             hints.push((&["E"], "Edit"));
         }
-        let note = if note.is_empty() {
-            found.as_str()
-        } else {
-            note
+        // A share's name and its time left, where nothing else is said.
+        let shared_note = self.data.shared.as_ref().map(|v| match &v.expires {
+            Some(e) => format!("Shared: {} · {e}", v.pack),
+            None => format!("Shared: {}", v.pack),
+        });
+        let note = match (note, found.as_str(), &shared_note) {
+            ("", "", Some(n)) => n.as_str(),
+            ("", f, _) => f,
+            (n, _, _) => n,
         };
         let mut hints: Vec<_> = hints
             .iter()
@@ -2739,6 +2753,7 @@ impl SelectScreen {
         let song = self.song();
         st.song = song.map(|s| s.title.clone()).unwrap_or_default();
         st.song_id = song.map(|s| s.id.clone()).unwrap_or_default();
+        st.shared_pack = self.data.shared.as_ref().map(|v| v.pack.clone());
         st.items = self.items.len();
         st.closed = self
             .closed
@@ -2969,6 +2984,7 @@ impl Screen for SelectScreen {
             self.search.name.clone()
         });
         let mut v = vec![wheel, along(&self.search.name), along("ClearSearch")];
+        let shared = self.data.shared.is_some();
         if self.layout.compact {
             for n in [
                 "Back",
@@ -2978,6 +2994,9 @@ impl Screen for SelectScreen {
                 "StyleButton",
                 "Play",
             ] {
+                if shared && n == "AddIcon" {
+                    continue;
+                }
                 v.push(Focusable::new(n));
             }
             v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
@@ -2989,6 +3008,9 @@ impl Screen for SelectScreen {
                 "Link.Options",
                 "Link.Calibrate",
             ] {
+                if shared && matches!(n, "Link.Manage" | "Link.Add") {
+                    continue;
+                }
                 v.push(Focusable::new(n));
             }
             v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
@@ -3437,7 +3459,10 @@ impl SelectScreen {
             }
             // The chart editor (E).
             Input::Key(k)
-                if self.letter_shortcut(k) && self.editing && k.key.eq_ignore_ascii_case("e") =>
+                if self.letter_shortcut(k)
+                    && self.editing
+                    && self.data.shared.is_none()
+                    && k.key.eq_ignore_ascii_case("e") =>
             {
                 self.edit(cx);
                 return Handled::Yes;
@@ -3642,10 +3667,11 @@ impl SelectScreen {
         {
             items.push(("WatchBest".into(), "Watch best".into()));
         }
-        if self.editing && self.song().is_some() {
+        let shared = self.data.shared.is_some();
+        if self.editing && !shared && self.song().is_some() {
             items.push(("EditChart".into(), "Edit chart".into()));
         }
-        if self.manageable().is_some() {
+        if self.manageable().is_some() && !shared {
             items.push(("Link.Manage".into(), "Manage song / pack".into()));
         }
         if charts.len() > 1 {
@@ -3661,8 +3687,10 @@ impl SelectScreen {
                 .enumerate()
                 .map(|(i, style)| (format!("Tab{i}"), format!("Style: {}", style.name))),
         );
+        if !shared {
+            items.push(("Link.Add".into(), "Add songs".into()));
+        }
         items.extend([
-            ("Link.Add".into(), "Add songs".into()),
             ("Link.Options".into(), "Options".into()),
             ("Link.Calibrate".into(), "Calibrate".into()),
         ]);
@@ -3727,6 +3755,7 @@ impl SelectScreen {
                 let env = self.env.clone();
                 (self.options)(&env, cx);
             }
+            "Link.Add" | "AddIcon" if self.data.shared.is_some() => {}
             "Link.Add" | "AddIcon" => {
                 // Back on the wheel once the dialog closes.
                 cx.focus("Wheel");

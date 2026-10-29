@@ -163,5 +163,12 @@ its shared mode (`Props::shared`: the share's songs alone) or the page
 for a gone link, the song list's pictures by URL, the verify skill's
 server standing in for the Worker and a hand-made share. Checked in
 Chrome: the list, a play from it to a quit kept under `shared:<id>:<n>`,
-the gone pages, the player's own library after. Step 2 (the shared
-mode's header, no import or edit links, Back dropping the share) next.
+the gone pages, the player's own library after. Step 2 done: song
+select's shared mode (`SelectData::shared`, a `SharedView` of the
+pack's name and its time left) heads the screen "SHARED SONGS", says
+"Shared: <pack> · expires in …" in the footer's note, offers no adding,
+managing or editing (no `Link.Add`, `AddIcon`, `Link.Manage`, no E or
+"Edit chart", no "Add songs" in More) and no storage or library
+notices; Back is the start menu, the share held for the session
+(`ThemeState::shared_pack`, `__DDI_DEBUG.ui.theme.sharedPack`). Step 3
+(the hidden uploader) next.

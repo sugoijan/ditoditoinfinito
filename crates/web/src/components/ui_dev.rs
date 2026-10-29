@@ -2624,6 +2624,13 @@ fn publish(h: &Host) {
         set(&o, "songId", st.song_id.as_str().into());
         set(
             &o,
+            "sharedPack",
+            st.shared_pack
+                .as_deref()
+                .map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(
+            &o,
             "header",
             st.header.as_deref().map_or(JsValue::NULL, |s| s.into()),
         );

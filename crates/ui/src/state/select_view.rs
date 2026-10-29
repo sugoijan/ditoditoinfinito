@@ -354,6 +354,7 @@ pub fn select_data(
         notices: Vec::new(),
         import: ImportView::default(),
         autoplay: false,
+        shared: None,
     }
 }
 
