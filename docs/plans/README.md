@@ -181,6 +181,11 @@ architecture, the decisions and the roadmap they belong to. Status as of
   by default for desktop since 2026-10-21 (never for the web or Windows);
   the build, package and integrity contract of the native helper. Left (decision 51): Windows confinement, managed-store
   durability, browser URL acquisition.
+- [Shared songs by link](shared-songs.md) (2026-10-29): planned. A
+  short link loads a song or a pack from a private Cloudflare Worker to
+  play without entering the library, with an expiry; a hidden,
+  token-authenticated uploader in the app; the contract both repositories
+  keep.
 - [Quiet calibration](quiet-calibration.md) (2026-10-29): done
   (decision 76), the thresholds to tune by playing. The
   device banners, the devices line, the prompt's new-device step and the
