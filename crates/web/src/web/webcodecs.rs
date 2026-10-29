@@ -41,6 +41,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::rc::Rc;
 
+use super::movie_source::MovieSource;
 use ddi_library::avi::{self, Avi, Chunk};
 use ddi_library::h264::{self, ExactSeek, Offer, OutputOrder, PictureOrder, Stream};
 use ddi_platform::video::{
@@ -50,7 +51,6 @@ use ddi_platform::video::{
 use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
-use web_sys::Blob;
 
 use super::clock::PerformanceClock;
 use super::js_err;
@@ -253,15 +253,8 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
     Reflect::get(obj, &key.into()).unwrap_or(JsValue::UNDEFINED)
 }
 
-async fn read(blob: &Blob, start: u64, end: u64) -> Result<Vec<u8>, String> {
-    let end = end.min(blob.size() as u64);
-    if start >= end {
-        return Ok(Vec::new());
-    }
-    let part = blob
-        .slice_with_f64_and_f64(start as f64, end as f64)
-        .map_err(|e| js_err("reading the movie", e))?;
-    super::files::blob_bytes(&part).await
+async fn read(source: &MovieSource, start: u64, end: u64) -> Result<Vec<u8>, String> {
+    source.read(start, end).await
 }
 
 /// A movie's stream, as far as decoding it here needs.
@@ -298,7 +291,7 @@ impl Media {
 
 /// The video chunks from the file's index: the OpenDML one when there is
 /// one (FFmpeg prefers it), else the legacy one, looking past `JUNK`.
-async fn index(blob: &Blob, avi: &Avi) -> Result<Vec<Chunk>, String> {
+async fn index(blob: &MovieSource, avi: &Avi) -> Result<Vec<Chunk>, String> {
     if !avi.odml.is_empty() {
         let mut all = Vec::new();
         let mut frame = avi.start;
@@ -328,14 +321,14 @@ async fn index(blob: &Blob, avi: &Avi) -> Result<Vec<Chunk>, String> {
 
 /// Reads the AVI's header, index and parameter sets and asks the browser
 /// whether it decodes the stream.
-async fn load(blob: &Blob) -> Result<Media, String> {
+async fn load(blob: &MovieSource) -> Result<Media, String> {
     let head = read(blob, 0, avi::HEADER_LEN as u64).await?;
     let avi = avi::parse_header(&head)
         .map_err(|e| format!("not an AVI the browser path reads: {e:?}"))?;
     let mut chunks = index(blob, &avi).await?;
     // An index pointing past the end of the file (a truncated movie):
     // the chunks up to there.
-    let size = blob.size() as u64;
+    let size = blob.size();
     if let Some(cut) = chunks
         .iter()
         .position(|c| c.offset.saturating_add(u64::from(c.size)) > size)
@@ -609,7 +602,7 @@ enum Ready {
 }
 
 struct Inner {
-    blob: Blob,
+    blob: MovieSource,
     media: Option<Media>,
     decoder: Option<JsVideoDecoder>,
     run: Option<Run>,
@@ -630,7 +623,7 @@ pub(crate) struct WebCodecsVideo(Rc<RefCell<Inner>>);
 
 impl WebCodecsVideo {
     /// Opens `blob` (an H.264 AVI); `Opened`, or an `Error`, follows.
-    pub(crate) fn open(blob: Blob) -> WebCodecsVideo {
+    pub(crate) fn open(blob: MovieSource) -> WebCodecsVideo {
         let inner = Rc::new(RefCell::new(Inner {
             blob: blob.clone(),
             media: None,
@@ -1210,7 +1203,7 @@ impl Drop for WebCodecsVideo {
 /// The black-bar probe through the browser: the frame of the IDR keyframe
 /// at or before each of a few times spread through the movie (the module
 /// samples the same way).
-pub(crate) async fn probe(blob: &Blob) -> Result<Picture, String> {
+pub(crate) async fn probe(blob: &MovieSource) -> Result<Picture, String> {
     let media = load(blob).await?;
     let frames: Rc<RefCell<Vec<JsFrame>>> = Rc::default();
     let on_frame = Closure::<dyn FnMut(JsFrame)>::new({

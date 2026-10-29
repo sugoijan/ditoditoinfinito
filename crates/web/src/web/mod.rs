@@ -16,6 +16,7 @@ pub(crate) mod idb;
 pub(crate) mod image;
 pub(crate) mod keyboard;
 pub(crate) mod kv;
+pub(crate) mod movie_source;
 pub(crate) mod opus;
 pub(crate) mod screen;
 pub(crate) mod storage;

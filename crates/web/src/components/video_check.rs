@@ -227,7 +227,9 @@ impl Component for VideoCheck {
                                 ..FileCheck::default()
                             };
                             let frames = if decoder == "webcodecs" {
-                                let video = WebCodecsVideo::open(blob.clone());
+                                let video = WebCodecsVideo::open(
+                                    crate::web::movie_source::MovieSource::Blob(blob.clone()),
+                                );
                                 check_file(video, &mut check, &report, &cancelled).await
                             } else {
                                 // The worker probes the file itself; what
@@ -236,7 +238,11 @@ impl Component for VideoCheck {
                                     container: VideoContainer::Unknown,
                                     codec: VideoCodec::Unknown,
                                 };
-                                let video = worker.clone().open(blob.clone(), &name, &unknown);
+                                let video = worker.clone().open(
+                                    crate::web::movie_source::MovieSource::Blob(blob.clone()),
+                                    &name,
+                                    &unknown,
+                                );
                                 check_file(video, &mut check, &report, &cancelled).await
                             };
                             if cancelled.get() {

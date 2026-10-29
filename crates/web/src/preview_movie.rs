@@ -17,19 +17,19 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::web::movie_source::MovieSource;
 use ddi_library::backgrounds::BgImage;
 use ddi_platform::video::VideoFormat;
 use ddi_render::movie_picture::{MoviePicture, SOURCE};
 use ddi_session::movies::preview::{self, PreviewMovie, Step};
 use ddi_ui::Ui;
-use web_sys::Blob;
 
 use crate::movies::MovieDeck;
 use crate::songs::ManifestEntry;
 use crate::web::gfx::Gfx;
 
 /// A movie's file as it was read: for selection `generation`.
-type Read = (u64, Result<(Blob, VideoFormat), String>);
+type Read = (u64, Result<(MovieSource, VideoFormat), String>);
 
 /// The movie and its picture on one device.
 #[derive(Default)]
@@ -171,8 +171,7 @@ impl PreviewMovieHost {
                 codec: ddi_platform::video::VideoCodec::Unknown,
             });
         wasm_bindgen_futures::spawn_local(async move {
-            let what = BgImage::Movie(name.clone());
-            let got = match crate::songs::load_background(&entry, &what, &[], None).await {
+            let got = match crate::songs::load_movie(&entry, &name, &[], None).await {
                 Ok(Some(blob)) => Ok((blob, format)),
                 Ok(None) => Err("no file".to_string()),
                 Err(e) => Err(e),

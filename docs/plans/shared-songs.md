@@ -185,5 +185,18 @@ stored or linked file of the songs, the pack's art, `POST`, the `PUT`s,
 side of it (`serve.mjs --share`, token `test-token`). Checked in
 Chrome: a pack imported, shared for a week, its link opened and played.
 Not shared: a song's shared background folders (`RandomMovies`), the
-library's; a share plays without them. Step 4 (the Worker, in the
-private repository) next; desktop's share flag and uploader with step 5.
+library's; a share plays without them. Step 4 done: the Worker, in the
+private repository `ddi-share` beside this one (`worker` 0.8 on
+workers-rs; one SQLite Durable Object `ShareIndex` for the records, the
+files in the R2 bucket `ddi-share`, a cron purge of expired and
+unfinished shares, CORS for the app's origins, the tokens in the secret
+`SHARE_TOKENS`; its contract's logic tested natively, the routes and the
+app's whole flow checked against `wrangler dev`; Cloudflare's request
+body limit caps each `PUT` at 100 MB on most plans, which multipart
+uploads would lift). Step 5, the movies: a shared song's movie is read by
+ranges (`web::movie_source::MovieSource::Remote`: the decoder worker
+reads it with synchronous ranged requests, the browser's decoder and the
+probes through `fetch` with `Range`), never fetched whole, so a play
+starts at once; the rest of a shared song's files come as `Blob`s the
+browser keeps (`songs::fetch_blob`). Desktop's share flag and uploader
+remain to do.

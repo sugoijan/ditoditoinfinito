@@ -21,7 +21,9 @@ use ddi_platform::video::{
 };
 use js_sys::{ArrayBuffer, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
-use web_sys::{Blob, Event, MessageEvent, Worker};
+use web_sys::{Event, MessageEvent, Worker};
+
+use super::movie_source::MovieSource;
 
 use super::js_err;
 
@@ -198,17 +200,11 @@ impl VideoWorker {
 
     /// Samples a movie's picture for its black bars; the answer comes with
     /// [`VideoWorker::probe_result`].
-    pub(crate) fn probe(&self, source: &Blob, name: &str) -> u32 {
+    pub(crate) fn probe(&self, source: &MovieSource, name: &str) -> u32 {
         let id = self.next_id();
         self.0.shared.borrow_mut().probes.insert(id, None);
-        let msg = message(
-            "probe",
-            &[
-                ("id", id.into()),
-                ("blob", source.into()),
-                ("name", name.into()),
-            ],
-        );
+        let msg = message("probe", &[("id", id.into()), ("name", name.into())]);
+        source.put_into(&msg);
         post(&self.0.worker, &msg);
         id
     }
@@ -220,10 +216,10 @@ impl VideoWorker {
 }
 
 impl VideoBackend for VideoWorker {
-    type Source = Blob;
+    type Source = MovieSource;
     type Decoder = WorkerVideo;
 
-    fn open(&mut self, source: Blob, name: &str, _format: &VideoFormat) -> WorkerVideo {
+    fn open(&mut self, source: MovieSource, name: &str, _format: &VideoFormat) -> WorkerVideo {
         let id = self.next_id();
         self.0.shared.borrow_mut().movies.insert(
             id,
@@ -232,14 +228,8 @@ impl VideoBackend for VideoWorker {
                 events: Vec::new(),
             },
         );
-        let msg = message(
-            "open",
-            &[
-                ("id", id.into()),
-                ("blob", source.into()),
-                ("name", name.into()),
-            ],
-        );
+        let msg = message("open", &[("id", id.into()), ("name", name.into())]);
+        source.put_into(&msg);
         post(&self.0.worker, &msg);
         WorkerVideo {
             id,

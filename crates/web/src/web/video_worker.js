@@ -32,6 +32,9 @@ const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
 const PREOPEN = "/v"; // the module opens `/v/<name>`
 const PREOPEN_FD = 3;
 const READ_AHEAD = 64 * 1024;
+// A remote file (a shared song's movie, read by ranges) is read further
+// ahead: each read is a request.
+const REMOTE_READ_AHEAD = 1024 * 1024;
 const MAX_LOG_LINES = 200;
 // Consecutive frames that fail to decode before the movie counts as broken.
 const MAX_BAD_FRAMES = 50;
@@ -44,8 +47,8 @@ let base = null;
 let compiled = null; // the compiled module, kept to restart after a crash
 let loading = null; // promise of the compiled module
 let exports = null; // the instance's exports, its functions wrapped by `guarded`
-const files = new Map(); // file name in /v → Blob
-const fds = new Map(); // fd → {kind, blob, size, pos, cache, cacheAt}
+const files = new Map(); // file name in /v → Blob, or {url, size} (remote)
+const fds = new Map(); // fd → {blob (a Blob or {url, size}), size, pos, cache, cacheAt}
 let nextFd = PREOPEN_FD + 1;
 const videos = new Map(); // id → {ptr, name, gen, last, bad}
 let logLines = 0;
@@ -77,16 +80,39 @@ function log(fd, text) {
   }
 }
 
-// Bytes [pos, pos + n) of a file, through a read-ahead window.
+// Bytes [pos, pos + n) of a file, through a read-ahead window. A file is
+// a Blob, or `{url, size}`: a remote one, read with synchronous ranged
+// requests (allowed in a worker).
 function readAt(file, pos, n) {
   const end = Math.min(file.size, pos + n);
   if (pos >= end) return new Uint8Array(0);
   if (!file.cache || pos < file.cacheAt || end > file.cacheAt + file.cache.length) {
-    const to = Math.min(file.size, pos + Math.max(n, READ_AHEAD));
-    file.cache = new Uint8Array(new FileReaderSync().readAsArrayBuffer(file.blob.slice(pos, to)));
+    const remote = !(file.blob instanceof Blob);
+    const to = Math.min(file.size, pos + Math.max(n, remote ? REMOTE_READ_AHEAD : READ_AHEAD));
+    file.cache = remote
+      ? readRemote(file.blob.url, pos, to)
+      : new Uint8Array(new FileReaderSync().readAsArrayBuffer(file.blob.slice(pos, to)));
     file.cacheAt = pos;
   }
   return file.cache.subarray(pos - file.cacheAt, end - file.cacheAt);
+}
+
+// Bytes [pos, to) of the file at `url`, fetched now.
+function readRemote(url, pos, to) {
+  const xhr = new XMLHttpRequest();
+  xhr.open("GET", url, false);
+  xhr.responseType = "arraybuffer";
+  xhr.setRequestHeader("Range", "bytes=" + pos + "-" + (to - 1));
+  xhr.send(null);
+  if (xhr.status === 206) return new Uint8Array(xhr.response);
+  // The whole file (no ranges served): the part asked for.
+  if (xhr.status === 200) return new Uint8Array(xhr.response, pos, Math.max(0, Math.min(to, xhr.response.byteLength) - pos));
+  throw new Error("HTTP " + xhr.status + " reading " + url);
+}
+
+// What `open` and `probe` are sent: a Blob, or a remote file.
+function sourceOf({ blob, url, size }) {
+  return blob || { url, size };
 }
 
 function writeFilestat(ptr, filetype, size) {
@@ -370,10 +396,10 @@ async function preload() {
   await ready();
 }
 
-async function open({ id, blob, name }) {
+async function open({ id, blob, url, size, name }) {
   if (!(await ready(id))) return;
   const fileName = id + extensionOf(name);
-  const ptr = openFile(fileName, blob);
+  const ptr = openFile(fileName, sourceOf({ blob, url, size }));
   if (!ptr) {
     post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
     return;
@@ -472,10 +498,10 @@ function close({ id }) {
 // Samples the movie's picture for the black-bar probe: the Y planes of a
 // few frames spread through it, each the first from a keyframe
 // (`ddi_seek_key`; a module without it seeks exactly, which is slower).
-async function probe({ id, blob, name }) {
+async function probe({ id, blob, url, size, name }) {
   if (!(await ready(id))) return;
   const fileName = "probe-" + id + extensionOf(name);
-  const ptr = openFile(fileName, blob);
+  const ptr = openFile(fileName, sourceOf({ blob, url, size }));
   if (!ptr) {
     post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
     return;

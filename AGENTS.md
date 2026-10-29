@@ -65,8 +65,11 @@ Rust and the browser are implementation details, not advertised features.
   5.1 decodes it (`crates/platform/src/decode_all.rs`), resampling with rubato.
 - `crates/opus-worker/` the web's Ogg Opus fallback (`ddi-opus-worker`, PLAN.md
   decision 9): a worker Trunk builds beside the app (`site/index.html`,
-  `data-type="worker"`; `xtask stage-opus`, a post-build hook, names its
-  files by their hash and tells the page in index.html's
+  `data-type="worker"`; `xtask stage-opus`, a step of `xtask
+  post-build` (Trunk's one post-build hook: the favicon, `stage-video`,
+  `stage-opus`, `stage-svg`, `check-boot`, in that order, since three
+  of them rewrite index.html and Trunk runs a stage's hooks at once),
+  names its files by their hash and tells the page in index.html's
   `ddi-opus-worker` meta), started by `crates/web/src/web/opus.rs` only when the
   browser cannot decode an Ogg Opus file (the module compiled once a
   session and handed to a worker a decode; one that has not started in
@@ -339,7 +342,10 @@ Rust and the browser are implementation details, not advertised features.
   or edited, or the page saying the link is gone; the uploader hidden
   behind `#/?share=1`, `Settings::sharing`: Options' Sharing section
   with the token, Share… in song select's More on imported songs and
-  packs, the upload in `share.rs`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
+  packs, the upload in `share.rs`; a shared song's movies read by
+  ranges, `web/movie_source.rs`, the decoder worker's synchronous
+  ranged requests; the Worker itself in the private repository
+  `../ddi-share`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
@@ -896,8 +902,8 @@ dependency's licence before adding it.
   that the page fits the first round trip compressed (about 10.5 KB
   gzipped of the 12.5 the rule allows), and nothing the first paint
   waits for is fetched (no stylesheet links, classic scripts with a
-  source, `@import` or `url()`). `xtask check-boot`, Trunk's last
-  post-build hook, fails a build that breaks it (a dev build, unminified
+  source, `@import` or `url()`). `xtask check-boot`, the last step of
+  `xtask post-build`, fails a build that breaks it (a dev build, unminified
   with the dev server's reload script inside, is held to everything but
   the budget: `TRUNK_PROFILE`). The boot script lays the art out where
   the start menu's title, first choice and rain land (the theme's

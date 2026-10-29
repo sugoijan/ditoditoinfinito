@@ -18,6 +18,7 @@ use web_sys::Blob;
 
 use crate::web::files::blob_bytes;
 use crate::web::idb::{self, Db, Write};
+use crate::web::movie_source::MovieSource;
 
 pub(crate) use ddi_library::manifest::{Manifest, ManifestEntry};
 
@@ -79,6 +80,24 @@ pub(crate) async fn fetch_bytes(path: &str) -> Result<Vec<u8>, String> {
         return Err(format!("GET {path}: HTTP {}", resp.status()));
     }
     resp.binary().await.map_err(|e| format!("GET {path}: {e}"))
+}
+
+/// A file at `path` as a `Blob` (the browser keeps it, not wasm's memory).
+pub(crate) async fn fetch_blob(path: &str) -> Result<Blob, String> {
+    let resp = gloo::net::http::Request::get(&asset_url(path))
+        .send()
+        .await
+        .map_err(|e| format!("GET {path}: {e}"))?;
+    if !resp.ok() {
+        return Err(format!("GET {path}: HTTP {}", resp.status()));
+    }
+    let raw: web_sys::Response = resp.into();
+    let promise = raw.blob().map_err(|e| format!("GET {path}: {e:?}"))?;
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("GET {path}: {e:?}"))?
+        .dyn_into::<Blob>()
+        .map_err(|_| format!("GET {path}: not a blob"))
 }
 
 pub(crate) async fn load_manifest() -> Result<Manifest, String> {
@@ -389,8 +408,7 @@ async fn song_blob(
     bundled: &str,
 ) -> Result<Blob, String> {
     if let Some(url) = crate::share::file_url(&entry.id, stored) {
-        let bytes = fetch_bytes(&url).await?;
-        crate::web::files::bytes_blob(&bytes, "")
+        fetch_blob(&url).await
     } else if is_imported_id(&entry.id) {
         imported_file(entry, record, stored)
             .await
@@ -409,8 +427,7 @@ async fn imported_file(
     file: &str,
 ) -> Result<Blob, LoadError> {
     if let Some(url) = crate::share::file_url(&entry.id, file) {
-        let bytes = fetch_bytes(&url).await?;
-        return Ok(crate::web::files::bytes_blob(&bytes, "")?);
+        return Ok(fetch_blob(&url).await?);
     }
     let db = Db::open().await?;
     let song = record_or_read(&db, entry, record).await?;
@@ -608,6 +625,30 @@ pub(crate) async fn load_background(
         | BgImage::Black => return Ok(None),
     };
     song_blob(entry, record, &stored, &bundled).await.map(Some)
+}
+
+/// A background movie of the song, `bg/<name>` (as [`load_background`]
+/// with `BgImage::Movie`), as the decoders read it: a shared song's
+/// (`crate::share`) by URL and ranges, never fetched whole; the rest as a
+/// `Blob`.
+pub(crate) async fn load_movie(
+    entry: &ManifestEntry,
+    name: &str,
+    shared: &[(String, String)],
+    record: Option<&ImportedSong>,
+) -> Result<Option<MovieSource>, String> {
+    let stored = format!("bg/{name}");
+    if let Some(url) = crate::share::file_url(&entry.id, &stored) {
+        return Ok(Some(match crate::share::file_size(&entry.id, &stored) {
+            Some(size) => MovieSource::Remote { url, size },
+            // Not listed by the share (the Worker may still have it).
+            None => MovieSource::Blob(fetch_blob(&url).await?),
+        }));
+    }
+    let what = BgImage::Movie(name.to_string());
+    Ok(load_background(entry, &what, shared, record)
+        .await?
+        .map(MovieSource::Blob))
 }
 
 /// A file of the song's scripted backgrounds (stored or linked as

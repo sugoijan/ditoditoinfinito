@@ -16,6 +16,7 @@
 //! fetched only for a movie that needs it, and a movie the browser fails
 //! on moves to the module where it stands ([`MovieDecoder`]).
 
+use crate::web::movie_source::MovieSource;
 use ddi_library::backgrounds::BgSegment;
 use ddi_platform::video::{
     ExternalFrame, MovieTrack, VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame,
@@ -24,14 +25,13 @@ use ddi_render::Renderer;
 use ddi_session::movies::{AHEAD, MovieShell, MovieSlots};
 use std::cell::RefCell;
 use std::rc::Rc;
-use web_sys::Blob;
 
 use crate::web::video::{ModuleStatus, Picture, VideoWorker, WorkerVideo};
 use crate::web::webcodecs::{self, DirectFrame, WebCodecsVideo};
 
 struct Source {
     name: String,
-    blob: Blob,
+    blob: MovieSource,
     format: VideoFormat,
     /// Played through the browser's decoder (until it fails on it).
     browser: bool,
@@ -143,7 +143,7 @@ const END_WAIT_MS: f64 = 2000.0;
 /// shows it. `worker` is kept for the next call (an import takes several;
 /// it is the play's own worker when one runs, `VideoWorker::shared`).
 pub(crate) async fn frame_at(
-    blob: &Blob,
+    blob: &MovieSource,
     name: &str,
     format: &VideoFormat,
     position: f64,
@@ -288,7 +288,7 @@ impl Decoders {
     /// then).
     fn open_module(
         &mut self,
-        blob: Blob,
+        blob: MovieSource,
         name: &str,
         format: &VideoFormat,
     ) -> Result<WorkerVideo, String> {
@@ -399,7 +399,7 @@ impl MovieDeck {
     pub(crate) fn add_source(
         &mut self,
         name: String,
-        blob: Blob,
+        blob: MovieSource,
         format: VideoFormat,
         probe: bool,
     ) {

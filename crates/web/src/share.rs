@@ -120,6 +120,15 @@ pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
     Some(format!("{}/s/{share}/f/{n}/{}", base(), encoded.join("/")))
 }
 
+/// The size the share lists for file `path` of the shared song
+/// `song_id`, if it lists it.
+pub(crate) fn file_size(song_id: &str, path: &str) -> Option<u64> {
+    let (share, n) = parse_song_id(song_id)?;
+    let s = current().filter(|s| s.id == share)?;
+    let f = s.songs.get(n)?.files.iter().find(|f| f.path == path)?;
+    (f.bytes >= 0.0).then_some(f.bytes as u64)
+}
+
 /// The share `id`, as loaded now or read from the Worker and kept as
 /// the current one: each song's record renamed to its shared id, with
 /// nothing of the library it came from (no kept folder, no links, no

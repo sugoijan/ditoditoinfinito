@@ -100,7 +100,7 @@ async fn take(id: &str, taker: &mut Taker) -> Result<Filled, String> {
         return Ok(Filled::NoMovie);
     };
     let grabbed = frame_at(
-        &opening.blob,
+        &crate::web::movie_source::MovieSource::Blob(opening.blob.clone()),
         &opening.movie,
         &opening.format,
         opening.position,

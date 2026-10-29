@@ -321,7 +321,7 @@ impl GameLoop {
     pub(crate) fn add_movie(
         &mut self,
         name: String,
-        blob: web_sys::Blob,
+        blob: crate::web::movie_source::MovieSource,
         format: ddi_platform::video::VideoFormat,
         probe: bool,
     ) {

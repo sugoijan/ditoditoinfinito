@@ -202,7 +202,7 @@ pub(crate) enum Msg {
     /// is the song's first movie (probed for the background frame).
     MovieLoaded(
         String,
-        web_sys::Blob,
+        crate::web::movie_source::MovieSource,
         ddi_platform::video::VideoFormat,
         bool,
     ),
@@ -303,7 +303,7 @@ pub(crate) struct GameCanvas {
     /// Movie files loaded before the game loop was there.
     movies: Vec<(
         String,
-        web_sys::Blob,
+        crate::web::movie_source::MovieSource,
         ddi_platform::video::VideoFormat,
         bool,
     )>,
@@ -3235,8 +3235,9 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     let record = loaded.record.clone();
                     let shared = shared_videos.clone();
                     link.send_future_batch(async move {
-                        let what = BgImage::Movie(name.clone());
-                        match load_background(&entry, &what, &shared, record.as_deref()).await {
+                        match crate::songs::load_movie(&entry, &name, &shared, record.as_deref())
+                            .await
+                        {
                             Ok(Some(blob)) => vec![Msg::MovieLoaded(name, blob, format, probe)],
                             Ok(None) => Vec::new(),
                             Err(e) => {
