@@ -1677,3 +1677,17 @@ them and motion is not reduced. Infinito uses this for its screen-aligned
 flowing outline; song selection remains the primary target independently of
 chart selection. Visual-only actors (`Actor::decoration`) are drawn normally
 but do not take input or enlarge their containing control's bounds.
+
+
+### Theme pointer overlays
+
+`Presentation` carries the environment's cursor style and logical-pixel size.
+`Ui` observes its existing hit test and cursor semantics to drive a separate
+`cursor::Spec`. `Look::pointer` supplies visual-only actors, whose named sprite
+sources resolve through `Look::image`. The overlay is drawn after all layers,
+without entering hit testing, focus, screen bounds or input capture. It uses
+CSS-to-virtual scaling; the shell hides the native pointer only for custom
+default/pointer shapes. Text and grab variants remain native. A primary
+mouse-down snapshots the last painted charge for feedback, while activation
+continues through the ordinary release/gesture path. Reduced motion and idle
+redraw follow the shared UI policy used by the active outline.

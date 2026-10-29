@@ -558,3 +558,35 @@ which reveals Singleplayer without activation. Start-menu hover follows the
 pointed button, while explicit return focus and direct clicks/taps still
 work. The web shell clears saved start-route focus at boot so reloads also
 start unfocused. This opt-in policy leaves other screens' navigation unchanged.
+
+
+### Infinito cursor
+
+Options → Display offers **Infinito arrow** (default), **Pointer tip** and
+**System**, plus a 16–64 logical-pixel size (28 by default). Approved vector
+masks in `assets/ui/cursors.svg` use the existing Vivid painter. The pointer tip
+uses the study's 58° angle, full-width tail and 11.5-unit extension; the arrow
+retains the note's original proportions. Both use a 5-unit band, no hard outer
+edge, and an alpha-mask shadow (2 px blur, 30% black, 0.75 px down at 28 px
+artwork size). Its mask includes the visible charge, so the soft shadow also
+reaches the transparent interior edges. The burst is original Infinito art
+copied into `assets/ui/cursor-burst.svg`; neither asset needs the authoring
+tools or the player's chosen noteskin.
+
+The cursor is empty away from enabled targets. Hover charges at 120 BPM;
+mouse-down uses the last painted charge: full arrow → W1, full tail → W2,
+lower tail → W3, empty → W4. Every outcome shines, progressively smaller.
+Feedback stays at the hotspot while the pointer moves. This is visual feedback
+only: click/tap activation, disabled controls and drag cancellation keep their
+normal semantics. System text/grab cursors remain native. Focus loss, touch,
+keyboard/controller use, or no mouse position hides the overlay. Reduced
+motion freezes color and charge (full while hovering), removes burst growth,
+and permits only the brief press fade. System bypasses all custom art/effects.
+
+`Ui` owns the clock, hit testing and overlay lifetime. `Look::pointer` builds
+presentation from `cursor::Spec`; `Env::follow_cursor` follows stored and live
+options in screens sharing it. The overlay is appended after all UI layers,
+outside their hit trees and clips; its size is corrected for UI scale and
+pixel ratio. Shells honor `Cursor::Hidden`; desktop balances AppKit hide/unhide
+on macOS to avoid winit's invisible-GIF issue. Gameplay retains its existing
+pointer hiding and quit-button behavior.

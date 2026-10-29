@@ -186,6 +186,12 @@ Rust and the browser are implementation details, not advertised features.
   `Ui` owns its clock and idle/reduced-motion handling. `Actor::decoration`
   excludes visual adornments from bounds and hit-testing. The field stays
   viewport-anchored, and `Vivid::clock` keeps palette/evolution independent. The
+  menu pointer is a shared UI overlay (`ui::cursor`, `theme::cursor`,
+  `assets/ui/cursors.svg`): Options → Display chooses Infinito arrow (default),
+  Pointer tip or System and a logical-pixel size. Enabled targets charge at
+  120 BPM; mouse-down shines at the hotspot without changing activation.
+  Text/drag cursors stay native; touch, keyboard/controller input and focus loss
+  hide the overlay. Reduced motion freezes paint/charge and burst growth. The
   shortcut indicators use original OEM-inspired SVG keycaps
   (`tools/keycap-design/`, `assets/ui/keycaps-a1.svg`, `keycaps-a2.svg`,
   `keycaps-light.svg`, `keycaps-gray.svg`, `keycaps-deep-gray.svg`), preserving charcoal satin/semi-gloss

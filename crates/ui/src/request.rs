@@ -49,6 +49,8 @@ pub type CssRect = [f32; 4];
 /// `CursorIcon`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Cursor {
+    /// The UI draws its own pointer; the shell hides the system cursor.
+    Hidden,
     #[default]
     Default,
     Pointer,

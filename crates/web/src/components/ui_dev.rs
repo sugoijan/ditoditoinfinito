@@ -717,6 +717,7 @@ pub(crate) fn theme_host(fold: FoldFn) -> ThemeHost {
     let env = ThemeEnv::new(look.clone(), fold);
     let system = system_reduced();
     env.follow_motion(settings.reduced_motion, system);
+    env.follow_cursor(&settings);
     ThemeHost {
         env,
         look,
@@ -1830,6 +1831,7 @@ impl Host {
                 UiRequest::Redraw => {}
                 UiRequest::SetCursor(c) => {
                     let css = match c {
+                        Cursor::Hidden => "none",
                         Cursor::Default => "default",
                         Cursor::Pointer => "pointer",
                         Cursor::Text => "text",

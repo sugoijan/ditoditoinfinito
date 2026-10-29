@@ -674,6 +674,9 @@ impl OptionsPlatform for Web {
     }
 
     fn changed(&self, id: &str, model: &OptionsModel) {
+        if let Some(env) = self.0.env.borrow().as_ref() {
+            env.follow_cursor(&model.settings);
+        }
         // The preview shows the settings as edited, from the next frame.
         if let Some(f) = self.0.field.borrow().as_ref() {
             *f.borrow_mut() = Some(model.preview_settings());

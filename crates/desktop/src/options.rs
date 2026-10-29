@@ -399,6 +399,7 @@ impl OptionsPlatform for Desktop {
     }
 
     fn changed(&self, id: &str, model: &OptionsModel) {
+        self.0.env.follow_cursor(&model.settings);
         // As the preview shows them: on the layout picked for it.
         *self.0.edited.borrow_mut() = Some(model.preview_settings());
         if id == "reduced_motion" {

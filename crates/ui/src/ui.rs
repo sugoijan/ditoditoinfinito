@@ -215,10 +215,11 @@ pub struct Ui {
     hover: Option<(u64, Option<Target>)>,
     /// Where the mouse is (virtual pixels), while it is over the surface.
     mouse: Option<[f32; 2]>,
-    /// The pointer's look told to the shell, and the hover it was worked
-    /// out for ([`Ui::refresh_cursor`]).
+    /// Semantic pointer role and the last native shape told to the shell.
+    /// Custom art keeps the role while sending `Hidden`.
     cursor: Cursor,
-    cursor_for: Option<(u64, Option<Target>)>,
+    sent_cursor: Cursor,
+    pointer_art: crate::cursor::State,
     repeater: Repeater,
     ring_shown: bool,
     draw_ring: bool,
@@ -283,7 +284,8 @@ impl Ui {
             hover: None,
             mouse: None,
             cursor: Cursor::Default,
-            cursor_for: None,
+            sent_cursor: Cursor::Default,
+            pointer_art: crate::cursor::State::default(),
             repeater: Repeater::default(),
             ring_shown: false,
             draw_ring: true,
@@ -610,6 +612,13 @@ impl Ui {
 
     /// Handles one event.
     pub fn handle(&mut self, event: UiEvent) -> Outcome {
+        if (matches!(&event, UiEvent::Key(k) if k.down)
+            || matches!(&event, UiEvent::Menu(m) if m.down))
+            && !self.pointers.iter().any(|p| p.kind == PointerKind::Mouse)
+        {
+            self.pointer_art.visible = false;
+            self.pointer_art.hit = None;
+        }
         match &event {
             UiEvent::Key(k) if k.down && !k.repeat => crate::controller_hints::keyboard(),
             UiEvent::Menu(m) if m.down => crate::controller_hints::pad_press(m.source),
@@ -645,6 +654,7 @@ impl Ui {
             }
         }
         self.follow_inset();
+        self.refresh_cursor();
         Outcome {
             consumed: self.consumed,
             requests: std::mem::take(&mut self.out),
@@ -703,6 +713,7 @@ impl Ui {
         self.refresh_hints();
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.time += f64::from(dt);
+        self.pointer_art.update(dt);
         if self
             .decoration_layer()
             .and_then(|id| self.layer(id))
@@ -818,20 +829,99 @@ impl Ui {
     /// over a focusable actor or a list's item (not a list's empty space,
     /// which a tap does not act on), else the default.
     fn refresh_cursor(&mut self) {
-        if self.cursor_for == self.hover {
-            return;
-        }
-        self.cursor_for = self.hover.clone();
         let cursor = match &self.hover {
             Some((l, Some(t))) => self
                 .layer(*l)
                 .map_or(Cursor::Default, |layer| cursor_over(&*layer.screen, t)),
             _ => Cursor::Default,
         };
-        if cursor != self.cursor {
-            self.cursor = cursor;
-            self.out.push(UiRequest::SetCursor(cursor));
+        self.cursor = cursor;
+        let sent = if self.custom_pointer() {
+            Cursor::Hidden
+        } else {
+            cursor
+        };
+        if sent != self.sent_cursor {
+            self.sent_cursor = sent;
+            self.out.push(UiRequest::SetCursor(sent));
         }
+    }
+
+    fn custom_pointer(&self) -> bool {
+        self.pointer_art.visible
+            && self.mouse.is_some()
+            && matches!(self.cursor, Cursor::Default | Cursor::Pointer)
+            && self
+                .decoration_layer()
+                .and_then(|id| self.layer(id))
+                .and_then(|l| l.screen.presentation())
+                .is_some_and(|p| {
+                    p.cursor.0 != crate::state::settings::CursorStyle::System
+                        && p.look.image("PointerMask").is_some()
+                })
+    }
+
+    fn draw_pointer(
+        &mut self,
+        view: &View,
+        transform: Affine,
+        measure: &mut dyn TextMeasure,
+        out: &mut Vec<Drawn>,
+    ) -> bool {
+        if !self.custom_pointer() {
+            return false;
+        }
+        let Some(pos) = self.mouse else { return false };
+        let Some(p) = self
+            .decoration_layer()
+            .and_then(|id| self.layer(id))
+            .and_then(|l| l.screen.presentation())
+        else {
+            return false;
+        };
+        let seconds = if p.reduced_motion {
+            0.0
+        } else {
+            self.active_time
+        };
+        let stage = if self.cursor != Cursor::Pointer {
+            0
+        } else if p.reduced_motion {
+            3
+        } else {
+            crate::cursor::charge(seconds)
+        };
+        let spec = crate::cursor::Spec {
+            style: p.cursor.0,
+            size: p.cursor.1 * self.virtual_per_css(),
+            pos,
+            seconds,
+            stage,
+            reduced_motion: p.reduced_motion,
+            hit: self.pointer_art.hit,
+        };
+        let Some(mut art) = p.look.pointer(&spec) else {
+            return false;
+        };
+        fn bind(a: &mut Actor, look: &dyn crate::look::Look, textures: &mut TextureTable) {
+            if let Kind::Sprite(s) = &mut a.kind
+                && let Some(source) = look.image(&a.name)
+            {
+                let uv = s.custom.unwrap_or(s.states[s.state()].rect);
+                let side = (s.size[0] / (uv[2] - uv[0]).abs().max(0.001))
+                    .max(s.size[1] / (uv[3] - uv[1]).abs().max(0.001));
+                s.texture = textures.id(source, side);
+            }
+            for child in a.children_mut() {
+                bind(child, look, textures);
+            }
+        }
+        bind(&mut art, p.look, &mut self.textures.borrow_mut());
+        art.measure(measure);
+        art.draw_in(view, transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], out);
+        let animating = !p.reduced_motion || self.pointer_art.hit.is_some();
+        self.pointer_art.displayed = stage;
+        animating
     }
 
     /// Draws every layer, bottom first, in virtual pixels.
@@ -923,7 +1013,8 @@ impl Ui {
                 self.out.push(UiRequest::SetImeCursorArea(css));
             }
         }
-        self.active_animating = active_animating;
+        let pointer_animating = self.draw_pointer(&view, base, measure, &mut out);
+        self.active_animating = active_animating || pointer_animating;
         self.dirty = false;
         out
     }
@@ -947,6 +1038,7 @@ impl Ui {
             return true;
         }
         self.dirty
+            || self.pointer_art.hit.is_some()
             || (self.active_animating
                 && self
                     .decoration_layer()
@@ -2152,6 +2244,7 @@ impl Ui {
 
     fn pointer(&mut self, e: PointerEvent) {
         let pos = self.viewport.to_virtual(e.pos);
+        self.pointer_art.visible = e.kind == PointerKind::Mouse && e.phase != PointerPhase::Leave;
         match e.phase {
             PointerPhase::Down => {
                 if e.kind == PointerKind::Mouse && e.buttons & buttons::PRIMARY == 0 {
@@ -2168,6 +2261,15 @@ impl Ui {
                 let Some((layer, target, outside)) = self.pick(pos) else {
                     return;
                 };
+                if e.kind == PointerKind::Mouse {
+                    self.mouse = Some(pos);
+                    self.pointer_art.visible = true;
+                    self.set_hover(Some((layer, target.clone())));
+                    self.refresh_cursor();
+                    if self.custom_pointer() && self.cursor == Cursor::Pointer {
+                        self.pointer_art.press(pos);
+                    }
+                }
                 self.consumed = true;
                 if self.chrome_focus.is_some_and(|c| c != layer) {
                     self.leave_chrome(gesture);
@@ -2335,6 +2437,9 @@ impl Ui {
 
     /// Focus lost: held input released, captures cancelled.
     fn blur(&mut self) {
+        self.mouse = None;
+        self.pointer_art.visible = false;
+        self.pointer_art.hit = None;
         self.cancel_directions();
         self.repeater.clear();
         let ids: Vec<u64> = self.pointers.iter().map(|p| p.id).collect();

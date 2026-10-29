@@ -192,6 +192,7 @@ pub struct Shell {
     /// The mouse pointer is hidden (a key or a pad was pressed since it
     /// last moved).
     pointer_hidden: bool,
+    custom_cursor_hidden: bool,
     /// Play mode is on ([`Shell::sync_play_mode`]).
     play_on: bool,
     /// The device was lost (its callback's flag).
@@ -347,6 +348,7 @@ impl Shell {
             input,
             songs,
             pointer_hidden: false,
+            custom_cursor_hidden: false,
         }
     }
 
@@ -582,6 +584,7 @@ impl Shell {
     }
 
     fn request_quit(&mut self) {
+        self.set_native_cursor(Cursor::Default);
         if !self.quitting {
             self.quitting = true;
             self.sound.borrow_mut().close();
@@ -640,17 +643,7 @@ impl Shell {
                         later.push(UiEvent::Paste(text));
                     }
                 }
-                UiRequest::SetCursor(c) => {
-                    if let Some(w) = &window {
-                        w.set_cursor(match c {
-                            Cursor::Default => CursorIcon::Default,
-                            Cursor::Pointer => CursorIcon::Pointer,
-                            Cursor::Text => CursorIcon::Text,
-                            Cursor::Grab => CursorIcon::Grab,
-                            Cursor::Grabbing => CursorIcon::Grabbing,
-                        });
-                    }
-                }
+                UiRequest::SetCursor(c) => self.set_native_cursor(c),
                 UiRequest::Persist { key, value } => {
                     let _ = storage::set(Area::Local, &key, &value);
                 }
@@ -1010,6 +1003,39 @@ impl Shell {
         true
     }
 
+    fn set_native_cursor(&mut self, cursor: Cursor) {
+        if self.surface.is_none() {
+            return;
+        }
+        let custom = cursor == Cursor::Hidden;
+        if custom != self.custom_cursor_hidden {
+            // Avoid winit's invisible GIF on macOS (ImageIO can crash on it).
+            // Balance AppKit's hide count on leave, blur and style changes.
+            #[cfg(target_os = "macos")]
+            if custom {
+                objc2_app_kit::NSCursor::hide();
+            } else {
+                objc2_app_kit::NSCursor::unhide();
+            }
+            self.custom_cursor_hidden = custom;
+        }
+        if let Some(s) = &self.surface {
+            #[cfg(not(target_os = "macos"))]
+            s.window.set_cursor_visible(!custom && !self.pointer_hidden);
+            s.window.set_cursor(match cursor {
+                Cursor::Hidden | Cursor::Default => CursorIcon::Default,
+                Cursor::Pointer => CursorIcon::Pointer,
+                Cursor::Text => CursorIcon::Text,
+                Cursor::Grab => CursorIcon::Grab,
+                Cursor::Grabbing => CursorIcon::Grabbing,
+            });
+        }
+        #[cfg(target_os = "macos")]
+        if !custom && self.pointer_hidden {
+            objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(true);
+        }
+    }
+
     fn hide_pointer(&mut self, hide: bool) {
         if hide && self.play.playing() {
             // A key or a pad: the quit button goes with the pointer.
@@ -1028,7 +1054,8 @@ impl Shell {
         }
         #[cfg(not(target_os = "macos"))]
         if let Some(s) = &self.surface {
-            s.window.set_cursor_visible(!hide);
+            s.window
+                .set_cursor_visible(!hide && !self.custom_cursor_hidden);
         }
     }
 
@@ -1669,6 +1696,7 @@ fn theme_base(
     }
     let settings = ddi_ui::state::settings::Settings::load();
     env.follow_motion(settings.reduced_motion, false);
+    env.follow_cursor(&settings);
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
     ui.set_focus_ring(false);
     (ui, env, look)

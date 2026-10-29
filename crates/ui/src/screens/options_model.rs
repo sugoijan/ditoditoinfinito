@@ -22,8 +22,8 @@ use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUILT_IN, BUNDLED, BackgroundFrame, CenterVersions, FIELD_FILTERS, Graphics, INFINITO,
-    PadBindings, ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode,
+    BUILT_IN, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, Graphics,
+    INFINITO, PadBindings, ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode,
     slider_to_volume, volume_to_slider,
 };
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
@@ -912,6 +912,20 @@ impl OptionsModel {
                 ),
                 menus,
                 choice(
+                    "cursor_style",
+                    "Cursor",
+                    &["Infinito arrow", "Pointer tip", "System"],
+                    pos(&CURSORS, s.cursor_style),
+                    "Animated Infinito artwork, or your system cursor. Text and drag cursors keep their system shapes.",
+                ),
+                row(
+                    "cursor_size",
+                    "Cursor size",
+                    OptionKind::Slider((16..=64).map(|v| format!("{v} px")).collect()),
+                    (s.cursor_size.clamp(16.0, 64.0).round() as usize).saturating_sub(16),
+                    "Artwork size in logical pixels; the system cursor uses your system's size.",
+                ),
+                choice(
                     "start_countdown",
                     "Start countdown",
                     &["Off", "3 s", "5 s", "10 s"],
@@ -1594,6 +1608,8 @@ impl OptionsModel {
             "video" => s.video = at(&VIDEOS, i),
             "background_frame" => s.background_frame = at(&FRAMES, i),
             "field_filter" => s.field_filter = FIELD_FILTERS.get(i).copied().unwrap_or(0.0),
+            "cursor_size" => s.cursor_size = (i.min(48) + 16) as f32,
+            "cursor_style" => s.cursor_style = at(&CURSORS, i),
             "reduced_motion" => s.reduced_motion = at(&REDUCED_MOTION, i),
             "start_countdown" => {
                 s.start_countdown = START_COUNTDOWNS.get(i).copied().unwrap_or(0.0)
@@ -2267,6 +2283,11 @@ const FRAMES: [BackgroundFrame; 4] = [
 ];
 const REDUCED_MOTION: [ReducedMotion; 3] =
     [ReducedMotion::Auto, ReducedMotion::On, ReducedMotion::Off];
+const CURSORS: [CursorStyle; 3] = [
+    CursorStyle::InfinitoArrow,
+    CursorStyle::PointerTip,
+    CursorStyle::System,
+];
 const GRAPHICS: [Graphics; 2] = [Graphics::Auto, Graphics::WebGl2];
 
 #[cfg(test)]
@@ -2296,6 +2317,36 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+
+    #[test]
+    fn cursor_choices_and_size_round_trip_and_old_settings_get_the_arrow() {
+        let mut m = model();
+        assert_eq!(find(&m.data(), "cursor_style").value(), "Infinito arrow");
+        for (i, style) in CURSORS.into_iter().enumerate() {
+            m.change("cursor_style", i);
+            assert_eq!(m.settings.cursor_style, style);
+            let text = serde_json::to_string(&m.settings).unwrap();
+            assert_eq!(
+                serde_json::from_str::<Settings>(&text)
+                    .unwrap()
+                    .cursor_style,
+                style
+            );
+        }
+        m.change("cursor_size", 20);
+        assert_eq!(m.settings.cursor_size, 36.0);
+        let mut s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.cursor_style, CursorStyle::InfinitoArrow);
+        assert_eq!(s.cursor_size, 28.0);
+        s.cursor_size = f32::NAN;
+        s.sanitize();
+        assert_eq!(s.cursor_size, 28.0);
+        s.cursor_size = 1000.0;
+        s.sanitize();
+        assert_eq!(s.cursor_size, 64.0);
+        let s: Settings = serde_json::from_str(r#"{"cursor_style":"unknown"}"#).unwrap();
+        assert_eq!(s.cursor_style, CursorStyle::InfinitoArrow);
     }
 
     /// Pump skins get a row of their own, which draws the pump layouts

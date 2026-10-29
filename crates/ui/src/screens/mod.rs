@@ -246,6 +246,7 @@ pub struct Env {
     /// Motion is reduced (the settings' choice with the system's
     /// preference; the shell keeps it current).
     pub reduced_motion: Rc<Cell<bool>>,
+    pub cursor: Rc<Cell<(crate::state::settings::CursorStyle, f32)>>,
     pub beat: BeatFn,
     pub state: SharedTheme,
 }
@@ -256,6 +257,10 @@ impl Env {
             look,
             fold,
             reduced_motion: Rc::new(Cell::new(false)),
+            cursor: Rc::new(Cell::new((
+                crate::state::settings::CursorStyle::default(),
+                28.0,
+            ))),
             beat: bpm_beat(),
             state: SharedTheme::default(),
         }
@@ -265,7 +270,14 @@ impl Env {
         crate::look::Presentation {
             look: &*self.look,
             reduced_motion: self.reduced(),
+            cursor: self.cursor.get(),
         }
+    }
+
+    /// Follows live options in every screen sharing this environment.
+    pub fn follow_cursor(&self, settings: &crate::state::settings::Settings) {
+        self.cursor
+            .set((settings.cursor_style, settings.cursor_size));
     }
 
     pub fn reduced(&self) -> bool {

@@ -103,6 +103,7 @@ pub struct WheelPlace {
 pub struct Presentation<'a> {
     pub look: &'a dyn Look,
     pub reduced_motion: bool,
+    pub cursor: (crate::state::settings::CursorStyle, f32),
 }
 
 /// A look: components by name.
@@ -134,6 +135,13 @@ pub trait Look {
     /// covered layer. Return true when the current decoration wants frames.
     fn active_element(&self, _root: &mut Actor, _target: Option<&str>, _seconds: f64) -> bool {
         false
+    }
+
+    /// Cursor-only overlay, drawn last by the UI, outside all hit trees.
+    /// Sprite names resolve through `image`; a look without pointer art keeps
+    /// the system cursor. The UI owns its input, charge and feedback clock.
+    fn pointer(&self, _spec: &crate::cursor::Spec) -> Option<Actor> {
+        None
     }
 
     /// A named color (`Graph.Line`, `Graph.Bar`, `Text`, `Accent`, …).

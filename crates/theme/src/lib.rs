@@ -37,6 +37,7 @@ mod tunables;
 mod keycaps;
 pub use keycaps::KeycapMaterial;
 mod active;
+mod cursor;
 mod rain;
 mod wordmark;
 
@@ -1230,9 +1231,15 @@ impl Look for Infinito {
         active::update(root, target, seconds, self)
     }
 
+    fn pointer(&self, spec: &ddi_ui::cursor::Spec) -> Option<Actor> {
+        cursor::actor(spec)
+    }
+
     fn image(&self, name: &str) -> Option<&str> {
         match name {
             "TitleMenu.Title" | "Screen.Header" => Some("title/dosis.png"),
+            "PointerMask" => Some("ui/cursors.svg"),
+            "PointerBurst" => Some("ui/cursor-burst.svg"),
             "TitleMenu.Background" => Some("ui/menu-rain.svg"),
             "KeyHint" => Some(self.keycap_material.get().image()),
             _ => None,

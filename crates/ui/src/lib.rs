@@ -21,6 +21,7 @@
 //! - [`dev`]: the developer screen both shells run.
 
 pub mod back_stack;
+pub mod cursor;
 pub mod dev;
 pub mod dev_widgets;
 pub mod event;

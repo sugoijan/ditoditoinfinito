@@ -144,6 +144,11 @@ pub struct Settings {
     /// system says, or always, or never.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub reduced_motion: ReducedMotion,
+    /// Menu pointer artwork; text and drag cursors keep their system shapes.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub cursor_style: CursorStyle,
+    /// Longest artwork side in CSS/logical pixels, independent of UI zoom.
+    pub cursor_size: f32,
     /// Seconds a song chosen in song select waits on its start prompt
     /// before it starts by itself; 0: it waits for Start
     /// ([`START_COUNTDOWNS`], `docs/plans/start-prompt.md`).
@@ -197,6 +202,15 @@ pub fn volume_to_slider(gain: f32) -> f32 {
 /// Gain for a volume slider position; inverse of [`volume_to_slider`].
 pub fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
+}
+
+/// The pointer offered under Options → Display.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CursorStyle {
+    #[default]
+    InfinitoArrow,
+    PointerTip,
+    System,
 }
 
 /// Which graphics backend draws (`web::screen`).
@@ -368,6 +382,8 @@ impl Default for Settings {
             assist_clap: false,
             mine_sound: true,
             reduced_motion: ReducedMotion::Auto,
+            cursor_style: CursorStyle::default(),
+            cursor_size: 28.0,
             start_countdown: 3.0,
             results_panels: "Overview".into(),
             debug: false,
@@ -604,6 +620,11 @@ impl Settings {
             self.speed = defaults.speed;
         }
         // One of the choices Options offers (a hand edit: the nearest).
+        self.cursor_size = if self.cursor_size.is_finite() {
+            self.cursor_size.clamp(16.0, 64.0).round()
+        } else {
+            defaults.cursor_size
+        };
         if !self.start_countdown.is_finite() {
             self.start_countdown = defaults.start_countdown;
         }
