@@ -211,5 +211,19 @@ footer's "N songs to share", `ThemeState::to_share`), More then offers
 "Share N songs…" (their pack's name when they share one, else "Shared
 songs") and "Clear the share list", and the list clears once the share
 is up; "Share this song…" and "Share the pack…" stay for one song or a
-whole pack with no list. Desktop's share flag and uploader remain to
-do.
+whole pack with no list. Desktop (`crates/desktop/src/share.rs`, ureq
+on the calling thread with rustls on the system's trust store): a share
+read into the cache folder (`shares/<id>/<n>/`, each file at the path
+its entry names it by: the web's `bg/`, `bga/` and `layer/` prefixes
+map to and from a song folder's paths, `ddi_library::share::stored_files`,
+so a share made on either shell plays on the other), its charts, music
+and pictures with the list (`--shared <link or id>`, song select's
+shared mode, the share's songs beside the library's in its registry)
+and what the background changes play when the play loads
+(`share::ensure_all`); uploads from song select's Share… with the
+switch `--sharing on`, or from the command line with `--share
+IDS|pack:NAME [--expires W]`, streaming each file at its length.
+Checked against `wrangler dev`: a pack shared from the command line,
+listed and autoplayed on desktop, and opened in the web app. Desktop
+plays a share's movies from the cache, downloaded whole before the
+play, not by ranges.

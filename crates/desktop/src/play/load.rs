@@ -350,6 +350,10 @@ pub fn load_with(
     edited: Option<&Song>,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Loaded, String> {
+    // A shared song: what its background changes play fetched first.
+    if ddi_library::share::is_shared_id(id) {
+        crate::share::ensure_all(id)?;
+    }
     let (files, entry) = Files::of(id).ok_or_else(|| format!("no song {id}"))?;
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
         return load_work(files, entry, &w, rate);

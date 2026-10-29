@@ -60,7 +60,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: ./.github/actions/apt
         with:
-          packages: libasound2-dev libudev-dev
+          packages: libasound2-dev libudev-dev libssl-dev pkg-config
       # A pinned static build from GitHub (.github/scripts/ffmpeg-command.sh).
       - name: Independent audio decoder
         if: runner.os == 'Linux'
@@ -134,7 +134,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: ./.github/actions/apt
         with:
-          packages: libasound2-dev libudev-dev cmake pkg-config libvulkan1 mesa-vulkan-drivers
+          packages: libasound2-dev libudev-dev libssl-dev cmake pkg-config libvulkan1 mesa-vulkan-drivers
       - name: macOS build prerequisites
         if: runner.os == 'macOS'
         run: |

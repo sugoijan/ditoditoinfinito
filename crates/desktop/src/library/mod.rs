@@ -1158,6 +1158,9 @@ pub struct Library {
     pub report: Report,
     folder_songs: Vec<LibSong>,
     managed_songs: Vec<LibSong>,
+    /// A share's songs (`crate::share`), listed alone in song select's
+    /// shared mode; no scan touches them.
+    pub shared_songs: Vec<LibSong>,
     /// A scan is running.
     pub scanning: bool,
     /// The list came from the cache (no scan finished yet).
@@ -1185,6 +1188,7 @@ impl Library {
             songs: Vec::new(),
             folder_songs: Vec::new(),
             managed_songs: Vec::new(),
+            shared_songs: Vec::new(),
             report: Report::default(),
             scanning: false,
             from_cache: false,
@@ -1215,6 +1219,12 @@ impl Library {
         self.merge_songs()
     }
 
+    /// The share's songs beside the rest (`crate::share`).
+    pub fn set_shared(&mut self, songs: Vec<LibSong>) -> bool {
+        self.shared_songs = songs;
+        self.merge_songs()
+    }
+
     /// Songs read outside a scan (a new song's folder) in the list at
     /// once, in place of those with their ids; `remove`: ids taken out.
     /// A scan started after their folders changed lists them the same.
@@ -1232,6 +1242,7 @@ impl Library {
             .folder_songs
             .iter()
             .chain(&self.managed_songs)
+            .chain(&self.shared_songs)
             .filter(|s| seen.insert(s.entry.id.as_str()))
             .cloned()
             .collect();
@@ -1814,6 +1825,7 @@ mod managed_merge_tests {
             songs: Vec::new(),
             folder_songs: Vec::new(),
             managed_songs: Vec::new(),
+            shared_songs: Vec::new(),
             report: Report::default(),
             scanning: true,
             from_cache: false,

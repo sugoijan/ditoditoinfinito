@@ -56,7 +56,7 @@ jobs:
       - name: ALSA and udev headers, nasm
         uses: ./.github/actions/apt
         with:
-          packages: libasound2-dev libudev-dev nasm
+          packages: libasound2-dev libudev-dev libssl-dev pkg-config nasm
       - name: The ffmpeg command
         run: .github/scripts/ffmpeg-command.sh
       # The video helper's static FFmpeg (video/build-native.sh), as the
@@ -110,7 +110,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: ./.github/actions/apt
         with:
-          packages: libasound2-dev libudev-dev nasm
+          packages: libasound2-dev libudev-dev libssl-dev pkg-config nasm
       # The command generates reference clips; the decoder helper's static
       # FFmpeg libraries contain no encoders or command-line executable.
       - name: Video test fixture encoders on macOS

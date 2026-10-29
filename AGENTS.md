@@ -384,6 +384,16 @@ Rust and the browser are implementation details, not advertised features.
   itself turns on; the refreshes from a display link on macOS,
   `display_link.rs`: the view's `CADisplayLink` from macOS 14, else a
   `CVDisplayLink`);
+  songs shared by link (`share.rs`, `docs/plans/shared-songs.md`: a
+  share read from the server (`DDI_API_URL`, else the production
+  route) into the cache's `shares/<id>/<n>/`, each file at the path its
+  entry names it by, the chart, music and pictures with the list and
+  what the background changes play when the play loads, listed by song
+  select's shared mode through `--shared <link or id>`; uploads through
+  song select's Share… with the switch `--sharing on`, or `--share
+  ID[,ID…]|pack:NAME [--expires W]` printing the link, the token from
+  the settings or `DDI_SHARE_TOKEN`; HTTP through ureq on the calling
+  thread, rustls on the system's trust store);
   calibration's menu and tests (`calibrate.rs`); the chart editor
   (`editor.rs`: song select's E, saving into the song's folder, its
   playtests; new songs from a music file, `editor/new_song.rs`); the
@@ -414,8 +424,9 @@ Rust and the browser are implementation details, not advertised features.
   `target/debug/video/ddi-video-helper --sandbox-check` runs the sandbox
   self-test alone. On Linux it builds
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
-  from the system); winit, rfd and arboard load their libraries at run
-  time.
+  from the system) and OpenSSL (`libssl-dev`; Apache-2.0, linked from
+  the system: the share client's TLS, `src/share.rs`); winit, rfd and
+  arboard load their libraries at run time.
 - SkinCraft is maintained in [sugoijan/skincraft](https://github.com/sugoijan/skincraft),
   a separate native application consuming our loader and field renderer as Git
   dependencies (`docs/plans/noteskin-authoring.md`). Its own repository contains
@@ -536,6 +547,8 @@ Rust and the browser are implementation details, not advertised features.
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its
   results),
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
+  `--shared LINK|ID`, `--sharing on|off`, `--share IDS|pack:NAME
+  [--expires W]` (songs shared by link),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),

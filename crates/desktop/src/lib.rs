@@ -45,6 +45,7 @@ pub mod play;
 pub mod plays;
 pub mod preview;
 pub mod preview_movie;
+pub mod share;
 pub mod shell;
 pub mod songs;
 pub mod store;
@@ -224,7 +225,13 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// flight (by default late with two where a display link runs, macOS,
 /// else block with one); `--pacing-report` alternates
 /// block and late with one and two in flight, four seconds each, and
-/// prints what each did when the play ends.
+/// prints what each did when the play ends. `--shared LINK|ID` opens
+/// song select on a share's songs alone (`share`), `--sharing on|off`
+/// flips the hidden sharing switch (`Settings::sharing`), and `--share
+/// ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never] [--pack NAME]`
+/// uploads the library's songs as a share without a window and prints
+/// its link (the token from the settings, or `DDI_SHARE_TOKEN`; the
+/// server from `DDI_API_URL`, else the production one).
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(windows)]
@@ -312,14 +319,48 @@ pub fn run() {
         Some(i) => args.get(i + 1).cloned().unwrap_or_default(),
         None if args.iter().any(|a| a == "--widgets") => "widgets".into(),
         None if args.iter().any(|a| a == "--dev") => "dev".into(),
-        None if args
-            .iter()
-            .any(|a| matches!(a.as_str(), "--play" | "--replay" | "--calibrate" | "--edit")) =>
+        None if args.iter().any(|a| {
+            matches!(
+                a.as_str(),
+                "--play" | "--replay" | "--calibrate" | "--edit" | "--shared"
+            )
+        }) =>
         {
             "select".into()
         }
         None => "start".into(),
     };
+    // `--sharing on|off`: the hidden switch of sharing by link, as the
+    // web's `#/?share=1` (`docs/plans/shared-songs.md`).
+    if let Some(on) = args
+        .iter()
+        .position(|a| a == "--sharing")
+        .and_then(|i| args.get(i + 1))
+    {
+        let on = match on.as_str() {
+            "on" | "1" => true,
+            "off" | "0" => false,
+            _ => {
+                eprintln!("--sharing takes on or off");
+                std::process::exit(2);
+            }
+        };
+        let mut settings = ddi_ui::state::settings::Settings::load();
+        if settings.sharing != on {
+            settings.sharing = on;
+            settings.save();
+        }
+    }
+    // `--share ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never]`: the
+    // library's songs uploaded as a share, the link printed (the token
+    // from the settings, or `DDI_SHARE_TOKEN`; no window).
+    if let Some(ids) = args
+        .iter()
+        .position(|a| a == "--share")
+        .and_then(|i| args.get(i + 1))
+    {
+        std::process::exit(share_from_command_line(&args, ids));
+    }
     let volume = args
         .iter()
         .position(|a| a == "--volume")
@@ -341,11 +382,32 @@ pub fn run() {
     });
     // A play or a test opened from here: no first start's offer over it.
     if let Some(s) = &songs
-        && args
-            .iter()
-            .any(|a| matches!(a.as_str(), "--play" | "--calibrate" | "--replay" | "--edit"))
+        && args.iter().any(|a| {
+            matches!(
+                a.as_str(),
+                "--play" | "--calibrate" | "--replay" | "--edit" | "--shared"
+            )
+        })
     {
         s.skip_offer();
+    }
+    // `--shared <link or id>`: song select on that share's songs alone.
+    if let Some(arg) = args
+        .iter()
+        .position(|a| a == "--shared")
+        .and_then(|i| args.get(i + 1))
+    {
+        match ddi_library::share::parse_link(arg) {
+            Some(id) => {
+                if let Some(s) = &songs {
+                    s.open_share(id);
+                }
+            }
+            None => {
+                eprintln!("--shared takes a share's link or id");
+                std::process::exit(2);
+            }
+        }
     }
     // What an earlier run left half extracted.
     play::load::clean_stale_parts();
@@ -547,6 +609,11 @@ pub fn run() {
             r.missing.len(),
         );
     }
+    if let Some(songs) = &shell.songs
+        && let Some(line) = songs.share_line()
+    {
+        println!("{line}");
+    }
     println!("{}", player.audio.status_line());
     if let Some(info) = player.audio.info() {
         println!("audio: {info:?}");
@@ -601,3 +668,103 @@ pub fn run() {
 
 #[cfg(danoni_importer)]
 pub mod danoni;
+
+/// `--share ID[,ID…]|pack:NAME [--expires W] [--pack NAME]`: the library
+/// read (the song folders and `--songs`), the songs uploaded, the link
+/// printed; the exit code.
+fn share_from_command_line(args: &[String], ids: &str) -> i32 {
+    let expires = args
+        .iter()
+        .position(|a| a == "--expires")
+        .and_then(|i| args.get(i + 1))
+        .map_or("1w", String::as_str);
+    if !ddi_library::share::EXPIRIES
+        .iter()
+        .any(|(w, _)| *w == expires)
+    {
+        eprintln!("--expires takes 1h, 1d, 1w, 1m or never");
+        return 2;
+    }
+    let pack = args
+        .iter()
+        .position(|a| a == "--pack")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    let extra: Vec<std::path::PathBuf> = args
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| *a == "--songs")
+        .filter_map(|(i, _)| args.get(i + 1).map(std::path::PathBuf::from))
+        .collect();
+    let songs = songs::Songs::new(extra);
+    songs.start(std::sync::Arc::new(|| {}));
+    if let Some(l) = songs.library.borrow_mut().as_mut() {
+        l.wait();
+    }
+    let ids: Vec<String> = match ids.strip_prefix("pack:") {
+        // A whole pack's songs, by title.
+        Some(name) => {
+            let mut songs: Vec<library::LibSong> = songs
+                .library
+                .borrow()
+                .as_ref()
+                .map(|l| {
+                    l.songs
+                        .iter()
+                        .filter(|s| library::same_pack(&s.pack, name))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            songs.sort_by_cached_key(|s| s.entry.title.to_lowercase());
+            songs.into_iter().map(|s| s.entry.id).collect()
+        }
+        None => ids
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+    };
+    if ids.is_empty() {
+        eprintln!("share: no songs to share");
+        return 1;
+    }
+    let pack = pack.unwrap_or_else(|| {
+        let packs: Vec<String> = ids
+            .iter()
+            .filter_map(|id| library::song(id).map(|s| s.pack))
+            .collect();
+        match packs.first() {
+            Some(p) if packs.iter().all(|q| q == p) => p.clone(),
+            _ => "Shared songs".into(),
+        }
+    });
+    let token = std::env::var("DDI_SHARE_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| ddi_ui::state::settings::Settings::load().share_token);
+    let mut last = 0.0;
+    let mut progress = |v: &ddi_ui::screens::data::ShareView| {
+        if v.done_bytes != last {
+            last = v.done_bytes;
+            eprintln!(
+                "share: {} of {} songs, {:.1} of {:.1} MB",
+                v.done_songs,
+                v.songs,
+                v.done_bytes / 1e6,
+                v.bytes / 1e6
+            );
+        }
+    };
+    match share::upload(&pack, &ids, expires, &token, &mut progress) {
+        Ok(link) => {
+            println!("{link}");
+            0
+        }
+        Err(e) => {
+            eprintln!("share: {e}");
+            1
+        }
+    }
+}

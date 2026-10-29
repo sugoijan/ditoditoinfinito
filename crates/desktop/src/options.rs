@@ -167,6 +167,8 @@ pub fn screen(
                 .collect()
         }),
         library_note: songs.as_ref().map(|s| s.folders_note()).unwrap_or_default(),
+        sharing: Settings::load().sharing,
+        share_url: crate::share::base(),
         ..World::default()
     };
     let model = Rc::new(RefCell::new(OptionsModel::new(Settings::load(), world)));
