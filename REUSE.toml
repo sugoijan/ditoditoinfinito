@@ -19,6 +19,13 @@ path = ["crates/chart/src/layout/mod.rs"]
 SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Chris Danford, the StepMania development team, et al."]
 SPDX-License-Identifier = "MIT AND LicenseRef-StepMania"
 
+# HUD digit distance masks from bundled Iosevka Term SemiBold, with the
+# project's existing title artwork. Reproduction: tools/play-hud-design/generate.py.
+[[annotations]]
+path = ["assets/ui/play-hud.r8"]
+SPDX-FileCopyrightText = ["Renzhi Li (aka. Belleve Invis)", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "MIT AND OFL-1.1"
+
 # Generated gameplay still and GIF: the game's own display over Beatucada's
 # background (Jose Varela) and Hard chart (Chriszo). Reproduction and
 # modifications: docs/screenshots/README.md, `just screenshot` / `just animation`.

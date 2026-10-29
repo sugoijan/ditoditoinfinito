@@ -6,6 +6,17 @@ are on a private design canvas shared with the maintainer. Banners and
 backgrounds in them are the bundled songs' own (CC BY), and every other
 song in them is a sample row.
 
+## Play HUD study (2026-10-29)
+
+Accepted and ported to the shared play renderer; see [Play HUD](play-hud.md).
+`tools/play-hud-design/approved.json` records the maintainer's final controls.
+Keep Iosevka for now: ExtraBold judgments, SemiBold score and combo. The
+quiet jade/mint gauge shares turbulence with coral damage and blue recovery,
+becomes Vivid at full life, and respects reduced motion. Combo hundreds
+have a real transparent outline gap; at 1000 the white and color invert
+and the text grows. The still wordmark keeps flat gray D/D/I outlines at
+10% opacity. The browser study remains available for later font exploration.
+
 ## Decided (2026-10-15)
 
 The maintainer chose:
@@ -14,7 +25,7 @@ The maintainer chose:
   for reference only.
 - **Iosevka Term for text wherever it has the glyphs.** Japanese and other
   scripts fall back to the system's fonts, the browser drawing the text
-  (P4). Numbers keep the HUD's Iosevka ExtraBold. The maintainer is not
+  (P4). Play numbers use Iosevka Term SemiBold since 2026-10-29; judgments keep the HUD's Iosevka ExtraBold. The maintainer is not
   yet sure about the face, so it stays one tunable.
 - **Today's pink accent**, `#ff6ea0`.
 - **The selected song's background, blurred, behind the menus.** Which

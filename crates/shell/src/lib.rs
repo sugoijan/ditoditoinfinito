@@ -48,6 +48,8 @@ pub fn note_scheme(colors: NoteColors) -> ColorScheme {
 pub fn render_options(settings: &Settings) -> RenderOptions {
     RenderOptions {
         reverse: settings.reverse,
+        reduced_motion: settings.reduced_motion.reduced(false),
+        hud_time: None,
         hide_notes: false,
         show_deltas: settings.show_deltas,
         cancel_progress: 0.0,

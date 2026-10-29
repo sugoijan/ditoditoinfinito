@@ -364,6 +364,7 @@ impl View {
 
     /// Restart skin commands and the movies' guard for a new play.
     pub fn start(&mut self) {
+        self.renderer.reset_hud();
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
         }
@@ -471,6 +472,7 @@ impl View {
         #[cfg(not(feature = "video"))]
         let _ = (second, &self.guard, self.video);
         let mut render = render;
+        render.hud_time = Some(now.0);
         render.hide_notes = v.hide_notes;
         render.cancel_progress = v.cancel_progress;
         render.cancel_hint = v.cancel_hint;

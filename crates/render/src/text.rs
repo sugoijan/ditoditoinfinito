@@ -1,7 +1,7 @@
 //! Text rendering through glyphon (cosmic-text atlas on wgpu).
 //!
 //! Shaped [`Buffer`]s are cached per `(text, size, weight)`: the HUD shows a
-//! handful of strings that change rarely (score, combo, judgement), and
+//! handful of strings that change rarely (score and judgement), and
 //! shaping them again every frame is the expensive part of text rendering.
 
 use std::collections::HashMap;
@@ -28,7 +28,8 @@ pub struct TextItem {
     pub size: f32,
     pub color: [f32; 4],
     pub align: Align,
-    pub bold: bool,
+    /// Iosevka SemiBold (600) for numbers; the supplied HUD face otherwise.
+    pub weight: u16,
 }
 
 /// Frames a cached buffer may go unused before it is dropped.
@@ -39,7 +40,7 @@ struct TextKey {
     text: String,
     /// `f32::to_bits` of the font size.
     size_bits: u32,
-    bold: bool,
+    weight: u16,
 }
 
 impl TextKey {
@@ -48,7 +49,7 @@ impl TextKey {
         self.text.clear();
         self.text.push_str(&item.text);
         self.size_bits = item.size.to_bits();
-        self.bold = item.bold;
+        self.weight = item.weight;
     }
 }
 
@@ -78,7 +79,7 @@ pub struct TextPipeline {
 
 impl TextPipeline {
     /// `fonts` are TTF/OTF byte blobs embedded by the shell; the first family
-    /// found is used for everything.
+    /// found is the HUD face; numeric runs use bundled Iosevka Term SemiBold.
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -93,13 +94,16 @@ impl TextPipeline {
         for f in fonts {
             db.load_font_source(glyphon::fontdb::Source::Binary(std::sync::Arc::new(*f)));
         }
-        // The first family for everything.
+        // Preserve the supplied HUD face for judgments and secondary text.
         let family = db
             .faces()
             .next()
             .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
             .unwrap_or_else(|| "sans-serif".to_string());
         db.set_sans_serif_family(family);
+        db.load_font_data(
+            include_bytes!("../../../assets/fonts/IosevkaTerm-SemiBold-latin.ttf").to_vec(),
+        );
         let font_system = FontSystem::new_with_locale_and_db("en-US".into(), db);
         let cache = Cache::new(device);
         let mut atlas =
@@ -257,12 +261,12 @@ fn shape(font_system: &mut FontSystem, item: &TextItem) -> CachedBuffer {
     // (and a pop's cached sizes, `scene::popped`, a whole pixel off the
     // exact ones). The HUD's sizes are fractions of an arrow, and large.
     let attrs = Attrs::new()
-        .family(Family::SansSerif)
-        .weight(if item.bold {
-            glyphon::Weight::BOLD
+        .family(if item.weight == 600 {
+            Family::Name("Iosevka Term Semibold")
         } else {
-            glyphon::Weight::NORMAL
+            Family::SansSerif
         })
+        .weight(glyphon::Weight(item.weight))
         .cache_key_flags(glyphon::cosmic_text::CacheKeyFlags::DISABLE_HINTING);
     buffer.set_text(&item.text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);

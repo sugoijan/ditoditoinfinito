@@ -41,6 +41,7 @@ pub struct Renderer {
     sprites: SpritePipeline,
     textured: TexturedPipeline,
     text: TextPipeline,
+    hud: crate::hud::Hud,
     /// [`SkinBlending::Offscreen`]: every frame is drawn offscreen, while
     /// skins are drawn ([`Renderer::set_skins_drawn`]).
     offscreen: Option<Offscreen>,
@@ -101,6 +102,7 @@ impl Renderer {
             sprites: SpritePipeline::new(device, scene_format, srgb),
             textured,
             text: TextPipeline::new(device, queue, scene_format, fonts),
+            hud: crate::hud::Hud::new(device, queue, scene_format, srgb),
             offscreen_format: offscreen.as_ref().map(|_| scene_format),
             offscreen,
             format,
@@ -129,6 +131,7 @@ impl Renderer {
         self.sprites.retarget(device, scene_format);
         self.background.retarget(device, scene_format);
         self.text.retarget(device, queue, scene_format);
+        self.hud.retarget(device, scene_format);
         self.offscreen = drawn.then(|| Offscreen::new(device, self.format, float));
     }
 
@@ -421,6 +424,11 @@ impl Renderer {
         self.quit_button = button;
     }
 
+    /// Start a new play without life trails or a combo pulse from its predecessor.
+    pub fn reset_hud(&mut self) {
+        self.hud.reset();
+    }
+
     /// Encode a full frame into `view` (`width × height` pixels); skins'
     /// quads into `plain_view`, the same texture's plain view, when the
     /// renderer was made for it, or, without one, the frame offscreen and
@@ -537,6 +545,8 @@ impl Renderer {
         });
         self.textured
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
+        self.hud
+            .prepare(queue, frame, layout, &geo, opts, self.quit_button);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
         // Skins' quads go to the plain view, in passes of their own between
         // the scene's (`skins_blend_encoded`); offscreen, to a plain texture
@@ -655,6 +665,7 @@ impl Renderer {
                 }
             }
             if pass_plan.last {
+                self.hud.draw(&mut pass);
                 self.text.draw(&mut pass);
             }
         }

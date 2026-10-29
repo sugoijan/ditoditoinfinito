@@ -20,7 +20,7 @@ fn item(size: f32) -> TextItem {
         size,
         color: [0.4, 0.85, 1.0, 1.0],
         align: Align::Center,
-        bold: true,
+        weight: 800,
     }
 }
 

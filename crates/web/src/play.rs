@@ -44,7 +44,12 @@ impl SessionConfig {
     ) -> SessionConfig {
         SessionConfig {
             session: ddi_session::play::SessionConfig::from_settings(settings, auto, devices),
-            render: ddi_shell::render_options(settings),
+            render: RenderOptions {
+                reduced_motion: settings
+                    .reduced_motion
+                    .reduced(crate::components::ui_dev::system_reduced()),
+                ..ddi_shell::render_options(settings)
+            },
             gamepads: None,
             touch_canvas: None,
         }

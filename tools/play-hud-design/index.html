@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Play HUD study · Dito Dito Infinito</title>
+  <link rel="stylesheet" href="study.css">
+  <script defer src="../title-design/geometry.js"></script>
+  <script defer src="study.js"></script>
+</head>
+<body>
+<header>
+  <div><span class="eyebrow">DITO DITO INFINITO / DESIGN STUDY</span><h1>Play HUD</h1></div>
+  <div class="actions"><button id="export">Export settings</button><label class="file-button">Import settings<input id="import" type="file" accept="application/json,.json"></label><button id="reset">Reset</button></div>
+</header>
+<main>
+  <section class="preview" aria-label="HUD preview">
+    <div class="preview-heading"><span>In context <span class="muted">/ illustrative field</span></span><label><input id="still" type="checkbox"> Still texture</label></div>
+    <div id="stage" class="stage">
+      <canvas id="field" aria-hidden="true"></canvas>
+      <div class="stage-life life" role="meter" aria-label="Life in play" aria-valuemin="0" aria-valuemax="100"><canvas></canvas></div>
+      <div class="score"><span id="score">98.76%</span><small>+0.42%</small></div>
+      <div class="feedback"><div id="judgment">Fantastic!</div><div class="timing">−8 ms early</div><canvas id="combo" role="img" aria-label="Combo 300"></canvas></div>
+      <svg id="watermark" aria-label="Dito Dito Infinito"></svg>
+    </div>
+    <div class="transport">
+      <button id="damage">Damage −18</button><button id="recover">Recover +8</button><button id="full">Full life</button><button id="danger">Low life</button><button id="demo" aria-pressed="false">Run demo</button>
+    </div>
+    <section class="detail" aria-label="Life bar detail">
+      <div class="detail-heading"><h2>Life bar</h2><output id="life-status" aria-live="polite">78% · Normal</output></div>
+      <div class="detail-space"><div class="detail-life life" role="meter" aria-label="Life detail" aria-valuemin="0" aria-valuemax="100"><canvas></canvas></div></div>
+      <label class="slider-label" for="life">Life <output id="life-value">78%</output></label><input id="life" type="range" min="0" max="100" value="78">
+      <p class="note">Coral shows recent loss. Blue shows recovery while green catches up. Full life introduces Vivid.</p>
+    </section>
+    <div class="bottom-controls"><label><input id="reduced" type="checkbox"> Reduced motion</label><label for="background">Backdrop <select id="background"><option value="quiet">Quiet</option><option value="bright">Bright abstract</option></select></label></div>
+    <p id="status" class="note" role="status">Changes save in this browser. Export a set of values to keep or share it.</p>
+  </section>
+  <aside aria-label="Design controls">
+    <details open><summary>Life · shape & color</summary><div class="control-group" id="shape-controls"></div></details>
+    <details open><summary>Life · texture & response</summary><div class="control-group" id="motion-controls"></div></details>
+    <details><summary>Type & combo</summary><div class="control-group" id="type-controls">
+      <label>HUD face<select id="font"><option value="dosis">Dosis</option><option value="iosevka">Iosevka</option></select></label>
+      <label>Judgment<select id="word"><option>Fantastic!</option><option>Excellent!</option><option>Great</option><option>Decent</option><option>Way Off</option><option>Miss</option><option>Marvelous!!!</option><option>Perfect!!</option></select></label>
+      <label>Score format<select id="score-format"><option value="percent">98.76%</option><option value="money">987650</option></select></label>
+      <label>Combo<input id="combo-value" type="number" min="0" max="99999" step="1" value="300"></label>
+      <label>1000 treatment<select id="thousand-style"><option value="inverted">Color text · white outline</option><option value="classic">White text · color outline</option></select></label>
+      <div class="actions"><button id="next-tier">Next hundred</button><button id="thousand">1000 combo</button></div>
+      <output id="tier-status">Tier 300</output>
+    </div></details>
+    <details><summary>Watermark</summary><div class="control-group" id="watermark-controls"><label><input id="show-mark" type="checkbox" checked> Show still wordmark</label></div></details>
+  </aside>
+</main>
+</body>
+</html>

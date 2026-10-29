@@ -252,6 +252,7 @@ impl GameLoop {
             n.restart();
         }
         self.scripts.restart();
+        self.renderer.reset_hud();
         self.session = Some(session);
         self.done = false;
     }
@@ -739,6 +740,7 @@ impl GameLoop {
                 crate::web::touch::set_quit_at(quit.map(|b| b.map(|v| v / ratio)));
                 self.renderer.set_quit_button(quit);
                 let mut render = session.render;
+                render.hud_time = Some(host_now.0);
                 render.frame_aspect = frame_aspect;
                 if let Some(entrance) = &mut self.entrance {
                     let reveal = entrance.sample(host_now.0);

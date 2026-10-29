@@ -63,6 +63,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## Charts, layouts and play
 
+- [Play HUD](play-hud.md) (2026-10-29): done; accepted study ported
+  to the shared renderer and checked offscreen. Life trails, Iosevka type,
+  combo tiers and still title watermark.
+
 - [Pump layouts](pump.md) (2026-10-13): done (ticked holds 2026-10-14,
   pump skins 2026-10-16, every bundled skin's own center 2026-10-22).
 - [The play history](play-history.md) (2026-10-16): done, replays and the
@@ -161,6 +165,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   their edges, screens following each other on both shells (2026-10-26).
   Original OEM-inspired shortcut caps were added the same day, with retained
   A1/A2 charcoal SVG alternatives and pressed 3D references.
+  The play HUD study was accepted 2026-10-29, retaining Iosevka; its
+  shared renderer port is tracked in [Play HUD](play-hud.md).
 - [Desktop parity](desktop.md) (2026-10-16): in progress. Steps 7.0–7.9
   done; scripted backgrounds readied off the event loop (2026-10-22).
   Late pacing falls back to blocking where it keeps missing (fullscreen,

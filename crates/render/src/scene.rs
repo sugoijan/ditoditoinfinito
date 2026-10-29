@@ -208,6 +208,11 @@ fn head_part(kind: &SpriteKind) -> LayerPart {
 pub struct RenderOptions {
     /// Receptors at the bottom, notes travel down.
     pub reverse: bool,
+    /// Freeze HUD texture and palette; suppress pop and spatial life tweens.
+    pub reduced_motion: bool,
+    /// Host seconds for HUD transitions, independent of music rate.
+    /// Offline callers may omit this to use the frame clock.
+    pub hud_time: Option<f64>,
     /// Draw receptors and HUD but no notes (audio-only calibration; the
     /// app also holds the frame's beat at 0 then).
     pub hide_notes: bool,
@@ -414,7 +419,7 @@ fn hold_judgements(
             size,
             color,
             align: Align::Center,
-            bold: true,
+            weight: 800,
         });
     }
 }
@@ -468,30 +473,22 @@ pub fn quit_button(geo: &FieldGeometry, layout: &Layout, ratio: f32, inset: [f32
     [x, y, r]
 }
 
-/// Where the HUD draws over the top of the screen, `[left, top, right,
-/// bottom]` in the target's px: the life gauge and the score (as wide as
-/// its longest, "1000000"): what the lyrics keep clear of.
+/// The life gauge, score and watermark bounds, `[left, top, right, bottom]`
+/// in target pixels: what lyrics keep clear of.
 pub fn hud_areas(geo: &FieldGeometry) -> Vec<[f32; 4]> {
-    let a = geo.arrow;
-    let bar_w = (geo.width * 0.3).min(a * 6.0);
-    let bar_h = (a * 0.22).max(8.0);
-    let bar_y = bar_h * 1.5;
-    let cx = geo.width / 2.0;
-    let size = (a * 0.5).max(14.0);
-    let right = geo.width - a * 0.5;
+    let [x, y, w, h] = crate::hud::life_rect(geo);
+    let [mx, my, mw, mh] = crate::hud::mark_rect(geo);
+    let size = (32.0 * crate::hud::scale(geo)).max(14.0);
+    let right = geo.width - 24.0 * crate::hud::scale(geo);
     vec![
+        [x, y, x + w, y + h],
         [
-            cx - bar_w / 2.0,
-            bar_y - bar_h / 2.0,
-            cx + bar_w / 2.0,
-            bar_y + bar_h / 2.0,
-        ],
-        [
-            right - 7.0 * 0.6 * size,
-            a * 0.35,
+            right - 10.0 * 0.5 * size,
+            55.0 * crate::hud::scale(geo),
             right,
-            a * 0.35 + size * 1.25,
+            55.0 * crate::hud::scale(geo) + size * 1.8,
         ],
+        [mx, my, mx + mw, my + mh],
     ]
 }
 
@@ -659,7 +656,7 @@ fn push_covers(
                     size,
                     color: [COVER_TEXT[0], COVER_TEXT[1], COVER_TEXT[2], alpha],
                     align: Align::Center,
-                    bold: true,
+                    weight: 800,
                 });
             }
         };
@@ -976,38 +973,6 @@ pub fn build_into(
         return;
     }
 
-    // HUD: life bar.
-    let bar_w = (geo.width * 0.3).min(a * 6.0);
-    let bar_h = (a * 0.22).max(8.0);
-    let bar_x = geo.width / 2.0;
-    let bar_y = bar_h * 1.5;
-    instances.push(
-        Instance::new(
-            [bar_x, bar_y],
-            [bar_w, bar_h],
-            Shape::Rect,
-            [0.1, 0.1, 0.14, 0.85],
-        )
-        .params([0.5, 0.0, 0.0, 0.0]),
-    );
-    let fill_w = bar_w * frame.life.clamp(0.0, 1.0);
-    if fill_w > 0.5 {
-        let fill_color = if frame.danger {
-            [0.95, 0.25, 0.3, 1.0]
-        } else {
-            [0.5, 0.9, 0.55, 1.0]
-        };
-        instances.push(
-            Instance::new(
-                [bar_x - bar_w / 2.0 + fill_w / 2.0, bar_y],
-                [fill_w, bar_h * 0.7],
-                Shape::Rect,
-                fill_color,
-            )
-            .params([0.5, 0.0, 0.0, 0.0]),
-        );
-    }
-
     // HUD: score, combo, judgement.
     let field_center_x = geo.left + a * span / 2.0;
     let score_text = match (frame.score.money, frame.score.percent) {
@@ -1018,20 +983,20 @@ pub fn build_into(
     if !score_text.is_empty() {
         text.push(TextItem {
             text: score_text,
-            x: geo.width - a * 0.5,
-            y: a * 0.35,
-            size: (a * 0.5).max(14.0),
-            color: [1.0, 1.0, 1.0, 0.9],
+            x: geo.width - 24.0 * crate::hud::scale(geo),
+            y: 55.0 * crate::hud::scale(geo),
+            size: (32.0 * crate::hud::scale(geo)).max(14.0),
+            color: [242.0 / 255.0, 238.0 / 255.0, 233.0 / 255.0, 1.0],
             align: Align::Right,
-            bold: true,
+            weight: 600,
         });
     }
     // The ghost: the lead over the best play, under the score.
     if let Some(d) = opts.ghost {
         text.push(TextItem {
             text: d.text(),
-            x: geo.width - a * 0.5,
-            y: a * 0.35 + (a * 0.5).max(14.0) * 0.95,
+            x: geo.width - 24.0 * crate::hud::scale(geo),
+            y: 55.0 * crate::hud::scale(geo) + (32.0 * crate::hud::scale(geo)).max(14.0) * 0.95,
             size: (a * 0.3).max(11.0),
             color: if d.behind() {
                 [1.0, 0.45, 0.45, 0.9]
@@ -1039,23 +1004,12 @@ pub fn build_into(
                 [0.55, 0.95, 0.6, 0.9]
             },
             align: Align::Right,
-            bold: true,
+            weight: 600,
         });
     }
     let mid_y = geo.height / 2.0;
-    if frame.combo >= 4 {
-        text.push(TextItem {
-            text: format!("{}", frame.combo),
-            x: field_center_x,
-            y: mid_y - a * 0.1,
-            size: (a * 0.9).max(20.0),
-            color: [1.0, 1.0, 1.0, 0.95],
-            align: Align::Center,
-            bold: true,
-        });
-    }
     // The tap judgement's middle and resting size.
-    let judgement_size = (a * 0.55).max(16.0);
+    let judgement_size = (38.0 * crate::hud::scale(geo)).max(16.0);
     let judgement_at = (
         field_center_x,
         mid_y - a * 1.1 + judgement_size * 0.6,
@@ -1071,17 +1025,21 @@ pub fn build_into(
                 judgement_color(flash.judgement)
             };
             color[3] *= fade;
-            let pop = 1.0 + 0.15 * (1.0 - (flash.age / 0.12).min(1.0));
+            let pop = if opts.reduced_motion {
+                1.0
+            } else {
+                1.0 + 0.15 * (1.0 - (flash.age / 0.12).min(1.0))
+            };
             let label = names.name(flash.judgement);
             if !label.is_empty() {
                 text.push(TextItem {
                     text: label.to_string(),
                     x: field_center_x,
                     y: mid_y - a * 1.1,
-                    size: popped(judgement_size, (a * 0.55 * pop).max(16.0)),
+                    size: popped(judgement_size, judgement_size * pop),
                     color,
                     align: Align::Center,
-                    bold: true,
+                    weight: 800,
                 });
             }
             if opts.show_deltas && flash.judgement != Judgement::Miss {
@@ -1101,7 +1059,7 @@ pub fn build_into(
                     size: (a * 0.32).max(12.0),
                     color: c,
                     align: Align::Center,
-                    bold: false,
+                    weight: 400,
                 });
             }
         }
@@ -1137,7 +1095,7 @@ pub fn build_into(
             size: (a * 0.3).max(12.0),
             color: [1.0, 1.0, 1.0, 0.8],
             align: Align::Center,
-            bold: false,
+            weight: 400,
         });
         instances.push(
             Instance::new([x, y], [w, h], Shape::Rect, [0.1, 0.1, 0.14, 0.8])
@@ -1164,7 +1122,7 @@ pub fn build_into(
             size: (a * 0.8).max(24.0),
             color: [1.0, 0.3, 0.35, 1.0],
             align: Align::Center,
-            bold: true,
+            weight: 800,
         });
     }
 
@@ -1427,7 +1385,7 @@ mod tests {
         let a = geo.arrow;
         let text = hold_text(HoldPlace::Centre, &names);
         assert_eq!(text.len(), 4);
-        let size = (a * 0.55).max(16.0);
+        let size = (38.0 * crate::hud::scale(&geo)).max(16.0);
         let tap_middle = geo.height / 2.0 - a * 1.1 + size * 0.6;
         for t in &text {
             assert_eq!(t.size, size);
@@ -1519,9 +1477,9 @@ mod tests {
             geometry: geo,
             receptors: false,
         }));
-        // The play adds the HUD (here the life bar).
+        // The procedural HUD has its own pass; previews keep only field sprites.
         assert!(with.text.is_empty() && without.text.is_empty());
-        assert_eq!(play.instances.len(), with.instances.len() + 2);
+        assert_eq!(play.instances.len(), with.instances.len());
         // Four receptors, then the note alone.
         assert_eq!(with.instances.len(), 5);
         assert_eq!(without.instances.len(), 1);

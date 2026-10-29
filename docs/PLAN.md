@@ -307,7 +307,15 @@ Most of a ruleset is data (serde, shippable as presets: `ddr-a`, `ddr-extreme`, 
 
 ### 3.4 `render` and skins
 
-`render` consumes `Frame` and draws with wgpu: one instanced quad pipeline over a texture atlas, glyphon for score/combo text, pre-baked sprites for judgement words. It never touches web-sys or winit; the shell gives it `Device`, `Queue`, a `TextureView` and the DPI-scaled size, and the game lives in a fixed virtual coordinate space, letterboxed.
+`render` consumes `Frame` and draws with wgpu: one instanced quad pipeline over a texture atlas, glyphon for score and judgment text, a procedural HUD pass for the gauge, outlined combo and watermark. It never touches web-sys or winit; the shell gives it `Device`, `Queue`, a `TextureView` and the DPI-scaled size, and the game lives in a fixed virtual coordinate space, letterboxed.
+
+The accepted play HUD (2026-10-29) is in `render::hud`: a quiet jade/mint
+textured gauge, coral damage and blue recovery sharing its turbulence,
+Vivid at full life, lighter Iosevka numbers, outlined combo hundreds and
+inverted color at 1000, and a still title watermark. Both shells provide
+host time and reduced motion; session starts reset the visual state.
+`tools/play-hud-design/approved.json` records the selected study values;
+`docs/plans/play-hud.md` records the port and validation.
 
 ```rust
 pub trait NoteSkin {

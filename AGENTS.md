@@ -167,7 +167,16 @@ Rust and the browser are implementation details, not advertised features.
   a look for the UI core whose components are the maintainer's mockups,
   its colors, faces, sizes, timings and places in
   `crates/theme/src/infinito.toml` (turned into tables at build time). The
-  start title is shaped Dosis artwork (`tools/title-design/`, `assets/title/`),
+  play HUD is shared by both shells (`crates/render/src/hud.rs`, `hud.wgsl`;
+  `docs/plans/play-hud.md`), using the accepted `tools/play-hud-design/approved.json`:
+  quiet jade/mint life turbulence, coral damage and blue recovery trails,
+  Vivid at full life, Iosevka judgments and lighter SemiBold numbers,
+  transparent combo outline gaps at each hundred and inverted color at 1000,
+  and a still gray-outlined title watermark. Its host-time motion resets per
+  play and follows reduced motion. The browser study remains independently
+  editable; `generate.py` makes the digit-distance/title-mask R8 atlas from
+  the bundled fonts and title art, without runtime image decoding.
+  The start title is shaped Dosis artwork (`tools/title-design/`, `assets/title/`),
   with Infinito Vivid paint on D/D/I through the shared 2D painter; reduced
   motion freezes both its palette and evolving texture. The start menu's
   slow outline rain (`crates/theme/src/rain.rs`, `assets/ui/menu-rain.svg`)
@@ -521,7 +530,7 @@ Rust and the browser are implementation details, not advertised features.
   (`docs/plans/bundled-skins.md`; Infinito is the default SVG skin;
   the original Dito variants are retired
   and procedural arrows are an internal fallback without a picker entry);
-  `assets/fonts/` the embedded HUD font and the theme's text face
+  `assets/fonts/` the embedded HUD faces and the theme's text face
   (Iosevka Term, served as `fonts/`).
 
 ## Commands
@@ -870,7 +879,8 @@ the one #05020d ground with no band, as the prompt shows it
   from unlicensed skins) is replaced by our own and listed as a
   modification.
 - Bundled fonts: OFL-1.1 (as the HUD's and the theme's Iosevka subsets,
-  `assets/fonts/`; the theme's are served as files, not embedded) or
+  `assets/fonts/`; menus load files, while play embeds ExtraBold judgments
+  and SemiBold numbers) or
   the licences above, declared upstream; subsetting is a modification.
 - Each song or skin directory keeps the upstream files byte-identical plus
   `PROVENANCE.toml` (source URL, pinned commit, retrieval date, licences per
