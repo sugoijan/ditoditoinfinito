@@ -263,7 +263,7 @@ fn accepted_hud_draws_through_all_color_paths() {
             },
         );
         assert!(
-            preview.chunks_exact(4).all(|p| p == &preview[..4]),
+            preview.as_chunks::<4>().0.iter().all(|p| p[..] == preview[..4]),
             "previews omit the HUD"
         );
         renderer.skin.background = wgpu::Color {

@@ -302,6 +302,24 @@ impl OptionsPlatform for Desktop {
         }
     }
 
+    /// The share's song select over the options: Back closes it there.
+    fn open_share(&self, id: &str, cx: &mut Cx) -> bool {
+        let Some(songs) = &self.0.songs else {
+            return false;
+        };
+        if let Some(sound) = &self.0.sound {
+            sound.borrow_mut().pause();
+        }
+        cx.request(ddi_ui::UiRequest::FieldPreview(None));
+        songs.open_share(id.to_string());
+        cx.push(crate::songs::shared_screen(
+            &self.0.env,
+            songs,
+            self.0.sound.clone(),
+        ));
+        true
+    }
+
     fn list_shares(&self, into: SharesFeed) {
         self.shares_on_thread(into, None);
     }

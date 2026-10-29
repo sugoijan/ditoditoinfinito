@@ -253,6 +253,12 @@ play, not by ranges. Managing shares: Options → Sharing → Shares →
 List… opens the shares dialog (`SharesDialog`, `SharesFeed`,
 `OptionsPlatform::list_shares` and `delete_share` on both shells): the
 shares the token may see with their pack, songs, size and time left,
-the chosen one's link copied or opened, or the share deleted (Delete
-twice); desktop's `--shares` and `--delete-share ID` do the same from
-the command line.
+the chosen one's link copied, the share opened in the game, or the
+share deleted (Delete twice); desktop's `--shares` and `--delete-share
+ID` do the same from the command line. Open stays in the game
+(`OptionsPlatform::open_share`): the web navigates this tab to
+`#/s/<id>` (Back returns to Options; Copy link is for a new tab),
+desktop pushes the share's own song select over Options
+(`songs::shared_screen`, with its own feed and place, the library's list
+untouched; Back closes the share and returns), the same screen
+`--shared` opens over the library's song select.

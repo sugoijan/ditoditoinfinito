@@ -605,6 +605,14 @@ impl OptionsPlatform for Web {
         });
     }
 
+    /// The share's page in this tab (`#/s/<id>`): Back returns here.
+    fn open_share(&self, id: &str, cx: &mut Cx) -> bool {
+        cx.request(ddi_ui::UiRequest::Navigate(
+            crate::router::Route::Shared { id: id.to_string() }.to_hash(),
+        ));
+        true
+    }
+
     fn delete_share(&self, id: &str, into: SharesFeed) {
         let host = self.0.host.borrow().clone();
         let id = id.to_string();

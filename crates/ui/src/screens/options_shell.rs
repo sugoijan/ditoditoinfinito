@@ -65,6 +65,11 @@ pub trait OptionsPlatform {
     /// `delete_share` deletes one and reads them again the same way.
     fn list_shares(&self, _into: SharesFeed) {}
     fn delete_share(&self, _id: &str, _into: SharesFeed) {}
+    /// Opens share `id` in the game (its song select, over the options);
+    /// `false` where the platform cannot, and the link opens instead.
+    fn open_share(&self, _id: &str, _cx: &mut Cx) -> bool {
+        false
+    }
 }
 
 /// The shares dialog's listing, filled by the shell
@@ -268,12 +273,13 @@ fn call_with(
         Act::ListShares => {
             let into: SharesFeed = Rc::default();
             platform.list_shares(into.clone());
-            let p = platform.clone();
+            let (p, o) = (platform.clone(), platform.clone());
             cx.overlay(
                 super::options_dialogs::SharesDialog::new(
                     env.clone(),
                     into.clone(),
                     Rc::new(move |id| p.delete_share(id, into.clone())),
+                    Rc::new(move |id, cx| o.open_share(id, cx)),
                 ),
                 true,
             );

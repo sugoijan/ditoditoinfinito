@@ -1674,6 +1674,14 @@ pub fn library_ui(
     ui.push(title_screen(&env, sound.clone(), Some(songs.clone())));
     if first != "start" && first != "options" {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
+        // `--shared`: the share's song select over the library's.
+        if songs.shared() {
+            ui.push(crate::songs::shared_screen(
+                &env,
+                songs,
+                Some(sound.clone()),
+            ));
+        }
     }
     if first == "options" {
         let (screen, shared) = crate::options::screen(&env, Some(sound), Some(songs.clone()));

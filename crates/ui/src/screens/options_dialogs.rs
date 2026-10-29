@@ -287,6 +287,9 @@ impl Screen for TokenDialog {
 /// Told the share (by id) to delete.
 pub type DeleteFn = Rc<dyn Fn(&str)>;
 
+/// Opens the share (by id) in the game; `false`: the link opens instead.
+pub type OpenShareFn = Rc<dyn Fn(&str, &mut Cx) -> bool>;
+
 /// Options' Shares dialog (`docs/plans/shared-songs.md`): the shares the
 /// token may see, as the shell reads them into the feed
 /// ([`SharesFeed`], [`SHARES_CHANGED`]): each with its pack, songs,
@@ -296,6 +299,7 @@ pub struct SharesDialog {
     env: Env,
     feed: SharesFeed,
     delete: DeleteFn,
+    open: OpenShareFn,
     chosen: usize,
     first: usize,
     arming: bool,
@@ -309,11 +313,12 @@ pub struct SharesDialog {
 const SHARE_ROW: f32 = 46.0;
 
 impl SharesDialog {
-    pub fn new(env: Env, feed: SharesFeed, delete: DeleteFn) -> SharesDialog {
+    pub fn new(env: Env, feed: SharesFeed, delete: DeleteFn, open: OpenShareFn) -> SharesDialog {
         SharesDialog {
             env,
             feed,
             delete,
+            open,
             chosen: 0,
             first: 0,
             arming: false,
@@ -590,7 +595,16 @@ impl Screen for SharesDialog {
                 let chosen = self.rows().get(self.chosen).cloned();
                 match (name.as_str(), chosen) {
                     ("Copy", Some(r)) => cx.request(UiRequest::CopyText(r.link)),
-                    ("Open", Some(r)) => cx.request(UiRequest::OpenUrl(r.link)),
+                    // In the game where the platform can (the dialog goes,
+                    // the share's song select comes over the options),
+                    // else the link; Copy link is for a new tab.
+                    ("Open", Some(r)) => {
+                        if (self.open)(&r.summary.id, cx) {
+                            cx.close(false);
+                        } else {
+                            cx.request(UiRequest::OpenUrl(r.link));
+                        }
+                    }
                     ("Delete", Some(r)) => {
                         if self.arming {
                             self.arming = false;

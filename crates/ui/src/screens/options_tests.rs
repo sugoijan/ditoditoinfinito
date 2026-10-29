@@ -85,6 +85,10 @@ impl OptionsPlatform for Fake {
         self.shares.borrow_mut().retain(|s| s.id != id);
         self.fill(&into);
     }
+    fn open_share(&self, id: &str, _cx: &mut Cx) -> bool {
+        self.log.borrow_mut().push(format!("open share {id}"));
+        true
+    }
 }
 
 struct Rig {
@@ -1043,4 +1047,10 @@ fn the_shares_dialog_lists_copies_and_deletes() {
     let texts = rig.h.texts();
     assert!(!texts.iter().any(|t| t == "A pack"), "{texts:?}");
     assert!(texts.iter().any(|t| t == "Theirs"), "{texts:?}");
+    // Open: in the game (the platform's), the dialog gone; no link opened.
+    rig.h.tap(PointerKind::Mouse, "Open");
+    rig.h.run(0.3);
+    assert!(rig.fake.log.borrow().iter().any(|l| l == "open share xyz12345"));
+    assert!(rig.h.requested(|r| matches!(r, UiRequest::OpenUrl(_))) == 0);
+    assert!(rig.h.ui.layers().iter().all(|l| l.name != "shares"));
 }
