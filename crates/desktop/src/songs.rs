@@ -701,7 +701,8 @@ impl Songs {
             | SelectCall::ImportOption(..)
             | SelectCall::Notice(_)
             | SelectCall::Edit { .. }
-            | SelectCall::NewSong => {}
+            | SelectCall::NewSong
+            | SelectCall::Share { .. } => {}
         }
     }
 }

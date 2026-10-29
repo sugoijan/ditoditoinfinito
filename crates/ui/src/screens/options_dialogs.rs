@@ -13,8 +13,10 @@ use ddi_platform::DeviceId;
 use super::select_dialogs::{button, dialog_root, fitted_dialog, shell, wrap, wrap_lines};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
+use crate::request::{EnterKey, InputHints, InputMode};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::bind::{BindFlow, Bound, Edge, Holds, Phase, pad_back};
+use crate::widgets::field::{FieldEvent, SearchField};
 
 /// Told when the dialog's question is answered yes.
 pub type ConfirmFn = Rc<dyn Fn(&mut Cx)>;
@@ -122,6 +124,154 @@ impl Screen for ConfirmDialog {
                 Handled::Yes
             }
             Input::Outside => {
+                cx.close(true);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+}
+
+/// Told the token typed.
+pub type TokenFn = Rc<dyn Fn(&str, &mut Cx)>;
+
+/// The upload token (`docs/plans/shared-songs.md`): one field to paste
+/// it into, Save and Cancel. It shows while typed; the row never shows
+/// it after.
+pub struct TokenDialog {
+    env: Env,
+    field: SearchField,
+    on_save: TokenFn,
+}
+
+impl TokenDialog {
+    pub fn new(env: Env, token: &str, on_save: TokenFn) -> TokenDialog {
+        let mut field = SearchField::new("TokenField", "paste the token", [0.0; 2], [1.0; 2]);
+        field.hints = InputHints {
+            mode: InputMode::Text,
+            enter: EnterKey::Done,
+            max_chars: Some(512),
+        };
+        field.text = token.to_string();
+        TokenDialog {
+            env,
+            field,
+            on_save,
+        }
+    }
+
+    fn save(&mut self, cx: &mut Cx) {
+        cx.end_text();
+        (self.on_save)(&self.field.text, cx);
+        cx.close(false);
+    }
+}
+
+impl Screen for TokenDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        "token"
+    }
+
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.field.cursor(target)
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let screen = [vp.width, vp.height];
+        let env = self.env.clone();
+        let w = 520.0_f32.min(screen[0] - 32.0);
+        let body = wrap_lines(
+            "The token whoever runs the sharing server gave you. Uploads carry it; the game \
+             never shows it again.",
+            w - 48.0,
+            14.0,
+        );
+        let h = 230.0 + body.len() as f32 * 18.0;
+        let (mut c, [x, y]) = shell(&env, screen, [w, h], "Upload token");
+        for (i, line) in body.iter().enumerate() {
+            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, "Muted");
+            wrap(&mut b, w - 48.0);
+            c.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
+        }
+        let fy = y + 66.0 + body.len() as f32 * 18.0 + 34.0;
+        self.field.centre = [x + w / 2.0, fy];
+        self.field.size = [w - 48.0, 40.0];
+        c.push(self.field.build(&*self.env.look));
+        let bw = ((w - 48.0 - 10.0) / 2.0).min(180.0);
+        let by = y + h - 44.0;
+        c.push(button(
+            &env,
+            "Cancel",
+            "Cancel",
+            [x + w - 24.0 - bw / 2.0 - (bw + 10.0), by],
+            bw,
+            "Button",
+        ));
+        c.push(button(
+            &env,
+            "Save",
+            "Save",
+            [x + w - 24.0 - bw / 2.0, by],
+            bw,
+            "Button",
+        ));
+        env.state.borrow_mut().page_items =
+            vec!["TokenField".into(), "Cancel".into(), "Save".into()];
+        dialog_root(c)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![
+            Focusable::new("TokenField"),
+            Focusable::new("Cancel"),
+            Focusable::new("Save"),
+        ]
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Input::Menu { action, .. } = input
+            && cx.menu_from_pad()
+            && cx.focused() == Some("TokenField")
+        {
+            match action {
+                MenuAction::Start => {
+                    self.save(cx);
+                    return Handled::Yes;
+                }
+                MenuAction::Back => {
+                    cx.end_text();
+                    cx.focus("Cancel");
+                    return Handled::Yes;
+                }
+                action if action.is_direction() => cx.end_text(),
+                _ => {}
+            }
+        }
+        let (handled, event) = self.field.input(input, root, cx, &|_| Vec::new());
+        if let Some(FieldEvent::Submitted(_)) = event {
+            self.save(cx);
+            return Handled::Yes;
+        }
+        if handled == Handled::Yes {
+            return Handled::Yes;
+        }
+        match input {
+            Input::Activate { name } if name == "Save" => {
+                self.save(cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == "Cancel" => {
+                cx.end_text();
+                cx.close(true);
+                Handled::Yes
+            }
+            Input::Outside => {
+                cx.end_text();
                 cx.close(true);
                 Handled::Yes
             }

@@ -132,15 +132,18 @@ impl Component for OptionsPage {
                 link.send_message(Msg::HistoryChanged)
             })));
         }
+        let settings = Settings::load();
         let world = World {
             platform: ddi_ui::screens::data::Platform::Web,
             plays: crate::history::plays().history().len(),
             importing: import::status().0.is_some(),
+            sharing: settings.sharing,
+            share_url: crate::share::base(),
             ..World::default()
         };
         let shared = Rc::new(Shared {
             link: ctx.link().clone(),
-            model: Rc::new(RefCell::new(OptionsModel::new(Settings::load(), world))),
+            model: Rc::new(RefCell::new(OptionsModel::new(settings, world))),
             feed: Rc::new(RefCell::new(None)),
             host: RefCell::new(None),
             env: RefCell::new(None),

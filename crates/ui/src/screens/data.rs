@@ -374,6 +374,31 @@ pub struct SelectData {
     pub shared: Option<SharedView>,
 }
 
+/// How sharing a pack goes (`docs/plans/shared-songs.md`): the shell's
+/// upload as the Share dialog shows it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ShareView {
+    pub state: ShareState,
+    /// Songs and bytes uploaded, of all.
+    pub done_songs: usize,
+    pub songs: usize,
+    pub done_bytes: f64,
+    pub bytes: f64,
+    /// The link, once the share is readable.
+    pub link: String,
+    /// Why it failed.
+    pub error: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShareState {
+    #[default]
+    Idle,
+    Uploading,
+    Done,
+    Failed,
+}
+
 /// What song select says of a share it shows.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SharedView {

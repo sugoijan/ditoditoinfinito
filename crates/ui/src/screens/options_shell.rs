@@ -238,6 +238,21 @@ fn call_with(
                 true,
             );
         }
+        Act::ShareToken => {
+            let token = model.borrow().settings.share_token.clone();
+            let (m, f) = (model.clone(), feed.clone());
+            cx.overlay(
+                super::options_dialogs::TokenDialog::new(
+                    env.clone(),
+                    &token,
+                    Rc::new(move |token, cx| {
+                        m.borrow_mut().set_share_token(token);
+                        send(&m, &f, cx);
+                    }),
+                ),
+                true,
+            );
+        }
         Act::Confirm(reset) => {
             let (title, body, yes) = reset.texts(&model.borrow());
             let (m, f, p) = (model.clone(), feed.clone(), platform.clone());

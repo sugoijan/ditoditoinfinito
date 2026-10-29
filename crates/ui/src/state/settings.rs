@@ -172,6 +172,13 @@ pub struct Settings {
     /// sync with the chart (MP3 decoder delay, badly synced packs), which no
     /// device calibration can fix. Zero entries are not stored.
     pub song_offsets: BTreeMap<String, f64>,
+    /// Sharing songs by link is on (`docs/plans/shared-songs.md`): a
+    /// hidden switch (`#/?share=1`), never a row of Options; with it
+    /// Options gets its Sharing section and song select its Share….
+    pub sharing: bool,
+    /// The token the uploads carry (kept as the rest of the settings
+    /// are: as private as the browser's profile).
+    pub share_token: String,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -371,6 +378,8 @@ impl Default for Settings {
             audio_profiles: Vec::new(),
             display_profiles: Vec::new(),
             song_offsets: BTreeMap::new(),
+            sharing: false,
+            share_token: String::new(),
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),

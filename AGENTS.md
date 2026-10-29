@@ -336,8 +336,10 @@ Rust and the browser are implementation details, not advertised features.
   `songs::Origin::Shared`; `components/shared_page.rs` then song
   select in its shared mode, `select_page::Props::shared`,
   `SelectData::shared`: headed "SHARED SONGS", nothing added, managed
-  or edited, or the page saying the link is gone;
-  `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
+  or edited, or the page saying the link is gone; the uploader hidden
+  behind `#/?share=1`, `Settings::sharing`: Options' Sharing section
+  with the token, Share… in song select's More on imported songs and
+  packs, the upload in `share.rs`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with

@@ -561,6 +561,8 @@ impl SelectPage {
         let screen = SelectScreen::new(env2, data, None, play, options)
             .with_shell(shell, self.shared.feed.clone())
             .with_editing()
+            // Share… while the hidden switch is on (`crate::share`).
+            .with_sharing_if(Settings::load().sharing)
             // A chart's kept plays (`docs/plans/play-history.md`, Replays).
             .with_plays(ddi_ui::state::history::plays_list(
                 crate::history::plays(),
@@ -966,6 +968,26 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             if let Some(i) = shared.file_input.cast::<HtmlInputElement>() {
                 i.click();
             }
+        }
+        // Songs shared by link (`crate::share`): the upload runs on
+        // after the dialog closes; the feed tells how it goes.
+        SelectCall::Share {
+            pack,
+            songs,
+            expires,
+        } => {
+            let token = Settings::load().share_token;
+            let shared = shared.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let s = shared.clone();
+                let progress: crate::share::Progress = Rc::new(move |v| {
+                    s.feed.borrow_mut().share = Some(v.clone());
+                    broadcast(&s);
+                });
+                if let Err(e) = crate::share::upload(pack, songs, expires, token, progress).await {
+                    web_sys::console::warn_1(&format!("sharing: {e}").into());
+                }
+            });
         }
         // In the gesture: the picker opens only then.
         SelectCall::NewSong => {

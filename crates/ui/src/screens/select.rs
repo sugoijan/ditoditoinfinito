@@ -40,7 +40,7 @@ use ddi_chart::Difficulty;
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
 use super::data::{
-    ChartEntry, ImportView, Notice, SelectData, SongEntry, closest, difficulty_name,
+    ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, closest, difficulty_name,
 };
 use super::{
     Backdrop, Env, FooterHint, Pulse, extent, footer_hints, frame, ground, header, left, light,
@@ -81,7 +81,7 @@ const SELECT_PARTS: [(&str, super::Edge); 16] = {
         ("Backdrop", None),
     ]
 };
-use super::select_dialogs::{ImportDialog, Manage, ManageDialog, NoticesDialog};
+use super::select_dialogs::{ImportDialog, Manage, ManageDialog, NoticesDialog, ShareDialog};
 use super::select_navigation::{Event as NavEvent, Motion, Navigation};
 
 /// What Start does on a song with a chart (step 6: start play; the
@@ -147,6 +147,15 @@ pub enum SelectCall {
     /// picker; cancelled, nothing changes) and open the editor on it:
     /// Add songs' "New song", where the shell offers editing.
     NewSong,
+    /// Share a pack's songs (by id, imported ones) by link, expiring
+    /// after `expires` (`1h`, `1d`, `1w`, `1m`, `never`): the shell
+    /// uploads them and reports through [`Feed::share`]
+    /// (`docs/plans/shared-songs.md`).
+    Share {
+        pack: String,
+        songs: Vec<String>,
+        expires: String,
+    },
 }
 
 /// The plays kept of a song's chart, as the plays list shows them (the
@@ -176,6 +185,8 @@ pub struct SelectPlace {
 pub struct Feed {
     pub data: Option<SelectData>,
     pub import: Option<ImportView>,
+    /// How the upload of a share goes ([`SelectCall::Share`]).
+    pub share: Option<ShareView>,
     pub notices: Option<Vec<Notice>>,
     /// Open the import dialog (files were dropped on the page).
     pub open_import: bool,
@@ -203,6 +214,8 @@ pub type SharedFeed = Rc<RefCell<Feed>>;
 pub const FEED: &str = "SelectFeed";
 /// The message song select sends its dialogs when the import changed.
 pub const IMPORT_CHANGED: &str = "ImportChanged";
+/// The share's upload moved ([`Feed::share`]): its dialog redraws.
+pub const SHARE_CHANGED: &str = "ShareChanged";
 /// The message the notices dialog sends for a notice's link (`Index`).
 pub const NOTICE_LINK: &str = "NoticeLink";
 
@@ -601,8 +614,12 @@ pub struct SelectScreen {
     plays: Option<PlaysFn>,
     /// E opens the chart editor on the song shown.
     editing: bool,
+    /// Share… is offered on imported songs and packs.
+    sharing: bool,
     /// The import's state, shared with its dialog.
     import: Rc<RefCell<ImportView>>,
+    /// The share upload's state, shared with its dialog.
+    share: Rc<RefCell<ShareView>>,
     notices: Vec<Notice>,
     notices_dirty: bool,
     /// What the shell was last told.
@@ -706,7 +723,9 @@ impl SelectScreen {
             feed: None,
             plays: None,
             editing: false,
+            sharing: false,
             import,
+            share: Rc::default(),
             notices,
             notices_dirty: true,
             told_place: None,
@@ -802,6 +821,70 @@ impl SelectScreen {
     pub fn with_editing(mut self) -> SelectScreen {
         self.editing = true;
         self
+    }
+
+    /// Share… in the actions of imported songs and packs
+    /// ([`SelectCall::Share`]).
+    pub fn with_sharing(mut self) -> SelectScreen {
+        self.sharing = true;
+        self
+    }
+
+    /// [`Self::with_sharing`] when `on`.
+    pub fn with_sharing_if(self, on: bool) -> SelectScreen {
+        if on { self.with_sharing() } else { self }
+    }
+
+    /// What Share… would share: the imported song shown, or the imported
+    /// pack whose header is shown, `(pack, its songs' ids, the title)`.
+    fn shareable(&self) -> Option<(String, Vec<String>, String)> {
+        if !self.sharing || self.data.shared.is_some() {
+            return None;
+        }
+        let pack_songs = |name: &str| -> Vec<String> {
+            self.packs
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| {
+                    v.iter()
+                        .filter_map(|&i| self.data.songs.get(i))
+                        .filter(|s| s.removable)
+                        .map(|s| s.id.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        match self.selected_item()? {
+            Item::Header(p) => {
+                let name = self.packs.get(p)?.0.clone();
+                let songs = pack_songs(&name);
+                (!songs.is_empty()).then(|| (name.clone(), songs, name))
+            }
+            Item::Song(i) => {
+                let song = self.data.songs.get(i)?;
+                song.removable
+                    .then(|| (song.pack.clone(), vec![song.id.clone()], song.title.clone()))
+            }
+        }
+    }
+
+    /// The Share dialog on what is shown.
+    fn open_share(&mut self, cx: &mut Cx) {
+        let Some((pack, songs, title)) = self.shareable() else {
+            return;
+        };
+        cx.focus("Wheel");
+        cx.overlay(
+            ShareDialog::new(
+                self.env.clone(),
+                pack,
+                songs,
+                title,
+                self.share.clone(),
+                self.shell.clone(),
+            ),
+            true,
+        );
     }
 
     /// The chart editor on the song and chart shown.
@@ -2217,17 +2300,22 @@ impl SelectScreen {
         let Some(feed) = self.feed.clone() else {
             return;
         };
-        let (data, import, notices, open, overlay, movie) = {
+        let (data, import, share, notices, open, overlay, movie) = {
             let mut f = feed.borrow_mut();
             (
                 f.data.take(),
                 f.import.take(),
+                f.share.take(),
                 f.notices.take(),
                 std::mem::take(&mut f.open_import),
                 f.overlay.take(),
                 f.preview_movie.take(),
             )
         };
+        if let Some(s) = share {
+            *self.share.borrow_mut() = s;
+            cx.broadcast(Message::new(SHARE_CHANGED));
+        }
         if let Some(movie) = movie
             && movie != self.movie
         {
@@ -3674,6 +3762,9 @@ impl SelectScreen {
         if self.manageable().is_some() && !shared {
             items.push(("Link.Manage".into(), "Manage song / pack".into()));
         }
+        if self.shareable().is_some() {
+            items.push(("Share".into(), "Share…".into()));
+        }
         if charts.len() > 1 {
             items.extend([
                 ("PreviousChart".into(), "Previous chart".into()),
@@ -3772,6 +3863,10 @@ impl SelectScreen {
                 if let Some(m) = self.manageable() {
                     self.open_manage(m, cx);
                 }
+                return Handled::Yes;
+            }
+            "Share" => {
+                self.open_share(cx);
                 return Handled::Yes;
             }
             "ClearSearch" => self.clear_search(root, cx),

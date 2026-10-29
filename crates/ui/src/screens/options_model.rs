@@ -74,6 +74,10 @@ pub struct World {
     /// web).
     pub folders: Option<Vec<String>>,
     pub library_note: String,
+    /// Sharing by link is switched on (`Settings::sharing`): the
+    /// Sharing section shows, with the server the uploads go to.
+    pub sharing: bool,
+    pub share_url: String,
 }
 
 /// What a confirmation is for.
@@ -234,6 +238,8 @@ pub enum Act {
     AddFolder,
     RemoveFolder(usize),
     Rescan,
+    /// Ask for the upload token (a dialog with a text field).
+    ShareToken,
 }
 
 pub struct OptionsModel {
@@ -360,6 +366,7 @@ impl OptionsModel {
             ]
             .into_iter()
             .chain(self.folders())
+            .chain(self.sharing())
             .collect(),
             preview_layout: Some(self.preview_layout_option()),
             preview: preview.join(" · "),
@@ -1343,6 +1350,46 @@ impl OptionsModel {
     }
 
     /// The play history and the resets ("Data").
+    /// Sharing songs by link (`docs/plans/shared-songs.md`), while the
+    /// hidden switch is on: the token the uploads carry (never shown),
+    /// the server they go to, and what sharing publishes.
+    fn sharing(&self) -> Option<OptionSection> {
+        if !self.world.sharing {
+            return None;
+        }
+        let set = !self.settings.share_token.is_empty();
+        let rows = vec![
+            actions(
+                "share.token",
+                "Upload token",
+                if set {
+                    &["Change…", "Clear"]
+                } else {
+                    &["Set…"]
+                },
+                if set { "set" } else { "not set" },
+                "The token the uploads carry, as whoever runs the server gave it; kept with the \
+                 settings, so only as private as this browser's profile.",
+            ),
+            actions(
+                "share.server",
+                "Server",
+                &[],
+                &self.world.share_url,
+                "Where shared songs are uploaded to and read from, built into the game.",
+            ),
+            actions(
+                "share.about",
+                "What a share is",
+                &[],
+                "a link to a copy",
+                "Share… in a song's or a pack's actions uploads a copy of its files; anyone with \
+                 the link plays them from there until it expires. Share only what you may.",
+            ),
+        ];
+        Some(section("Sharing", rows))
+    }
+
     fn data_section(&self) -> OptionSection {
         let w = &self.world;
         let nothing = w.imported == 0 && w.shared == 0 && !self.has_imported_skins();
@@ -1637,6 +1684,12 @@ impl OptionsModel {
                     _ => Act::Nothing,
                 }
             }
+            ("share.token", 1) => {
+                self.settings.share_token.clear();
+                self.notice = "The upload token is cleared.".into();
+                Act::Done
+            }
+            ("share.token", _) => Act::ShareToken,
             ("folders.add", 0) => Act::AddFolder,
             ("folders.add", _) => Act::Rescan,
             ("reset.settings", _) => Act::Confirm(Reset::Settings),
@@ -1847,6 +1900,17 @@ impl OptionsModel {
 
     /// A key added to a lane of the keyboard (taken from any other lane:
     /// a key plays one lane only).
+    /// The upload token typed into its dialog, kept.
+    pub fn set_share_token(&mut self, token: &str) {
+        self.settings.share_token = token.trim().to_string();
+        self.notice = if self.settings.share_token.is_empty() {
+            "The upload token is cleared.".into()
+        } else {
+            "The upload token is set.".into()
+        };
+        self.settings.save();
+    }
+
     pub fn add_key(&mut self, lane: usize, code: &str) {
         let layout = self.bind_layout.clone();
         let mut table = self.settings.controls.keyboard(&layout);

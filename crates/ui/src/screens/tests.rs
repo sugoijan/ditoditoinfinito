@@ -1517,6 +1517,116 @@ fn a_share_lists_its_songs_alone_with_nothing_to_add_or_edit() {
 }
 
 #[test]
+fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
+    use super::data::{ShareState, ShareView};
+    let sharing = |start: &str| {
+        let env = env();
+        let calls: Calls = Rc::default();
+        let c = calls.clone();
+        let play: PlayFn = Rc::new(|_, _, _, _| {});
+        let open: OpenFn = Rc::new(|_, _| {});
+        let shell: ShellFn = Rc::new(move |call, _| c.borrow_mut().push(call));
+        let feed: SharedFeed = Rc::new(RefCell::new(Feed::default()));
+        let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+        h.push(
+            SelectScreen::new(env, library(), Some(start), play, open)
+                .with_shell(shell, feed.clone())
+                .with_sharing(),
+        );
+        h.run(0.5);
+        (h, calls, feed)
+    };
+    // Not on a bundled song: it is on the site already.
+    let (mut h, _, _) = sharing("some-things-must");
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    assert!(!h.texts().iter().any(|t| t == "Share…"), "{:?}", h.texts());
+    // The imported song: an expiry chosen asks the shell and shows the
+    // upload.
+    let (mut h, calls, feed) = sharing("u-one");
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    assert!(h.texts().iter().any(|t| t == "Share…"), "{:?}", h.texts());
+    h.tap(PointerKind::Mouse, "Item.Share");
+    h.run(0.3);
+    assert_eq!(top(&h), "share");
+    assert!(h.texts().iter().any(|t| t == "1 week"), "{:?}", h.texts());
+    h.tap(PointerKind::Mouse, "Expiry.1w");
+    h.run(0.3);
+    assert!(
+        calls.borrow().iter().any(|c| matches!(
+            c,
+            SelectCall::Share { pack, songs, expires }
+                if expires == "1w" && songs == &["u-one".to_string()] && pack == "My Pack"
+        )),
+        "{:?}",
+        calls.borrow()
+    );
+    assert!(
+        h.texts().iter().any(|t| t == "Uploading…"),
+        "{:?}",
+        h.texts()
+    );
+    // The shell's progress, then the link.
+    feed.borrow_mut().share = Some(ShareView {
+        state: ShareState::Uploading,
+        done_songs: 0,
+        songs: 1,
+        done_bytes: 1.5e6,
+        bytes: 3e6,
+        ..ShareView::default()
+    });
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.2);
+    assert!(
+        h.texts().iter().any(|t| t == "0 of 1 songs, 2 of 3 MB."),
+        "{:?}",
+        h.texts()
+    );
+    feed.borrow_mut().share = Some(ShareView {
+        state: ShareState::Done,
+        done_songs: 1,
+        songs: 1,
+        done_bytes: 3e6,
+        bytes: 3e6,
+        link: "https://example.test/#/s/abc12345".into(),
+        ..ShareView::default()
+    });
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.2);
+    assert!(
+        h.texts()
+            .iter()
+            .any(|t| t == "https://example.test/#/s/abc12345"),
+        "{:?}",
+        h.texts()
+    );
+    h.tap(PointerKind::Mouse, "Copy");
+    assert!(
+        h.requested(|r| matches!(r, crate::UiRequest::CopyText(t) if t.ends_with("abc12345"))) > 0
+    );
+    // A pack's header shares the pack's imported songs.
+    let (mut h, calls, _) = sharing("u-one");
+    h.key("ArrowUp", "ArrowUp");
+    h.run(0.4);
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Item.Share");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Expiry.never");
+    h.run(0.3);
+    assert!(
+        calls.borrow().iter().any(|c| matches!(
+            c,
+            SelectCall::Share { pack, songs, expires }
+                if expires == "never" && songs.len() == 2 && pack == "My Pack"
+        )),
+        "{:?}",
+        calls.borrow()
+    );
+}
+
+#[test]
 fn links_and_notices_ask_the_shell() {
     let mut d = library();
     d.notices = vec![

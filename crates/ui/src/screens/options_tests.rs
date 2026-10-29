@@ -871,3 +871,38 @@ fn controller_capture_can_bind_face_buttons_skip_and_redo() {
         );
     }
 }
+
+#[test]
+fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
+    use super::options_model::Act;
+    let mut m = OptionsModel::new(Settings::default(), World::default());
+    assert!(m.data().sections.iter().all(|s| s.name != "Sharing"));
+    m.world.sharing = true;
+    m.world.share_url = "https://w/share".into();
+    let data = m.data();
+    let sharing = data
+        .sections
+        .iter()
+        .find(|s| s.name == "Sharing")
+        .expect("the section");
+    let token = &sharing.options[0];
+    assert_eq!(token.id, "share.token");
+    assert_eq!(token.note, "not set");
+    assert_eq!(token.values(), ["Set…"]);
+    assert_eq!(sharing.options[1].note, "https://w/share");
+    assert!(matches!(m.action("share.token", 0), Act::ShareToken));
+    m.set_share_token("  secret  ");
+    assert_eq!(m.settings.share_token, "secret");
+    let token = m
+        .data()
+        .sections
+        .iter()
+        .find(|s| s.name == "Sharing")
+        .unwrap()
+        .options[0]
+        .clone();
+    assert_eq!(token.note, "set");
+    assert_eq!(token.values(), ["Change…", "Clear"]);
+    assert!(matches!(m.action("share.token", 1), Act::Done));
+    assert!(m.settings.share_token.is_empty());
+}

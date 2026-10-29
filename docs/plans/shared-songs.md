@@ -171,4 +171,19 @@ managing or editing (no `Link.Add`, `AddIcon`, `Link.Manage`, no E or
 "Edit chart", no "Add songs" in More) and no storage or library
 notices; Back is the start menu, the share held for the session
 (`ThemeState::shared_pack`, `__DDI_DEBUG.ui.theme.sharedPack`). Step 3
-(the hidden uploader) next.
+done: the hidden switch (`#/?share=1` and `share=0` on the start route,
+`router::share_switch`, `Settings::sharing`), Options' Sharing section
+while it is on (`OptionsModel::sharing`: the upload token set, changed
+or cleared through a dialog with one field, `TokenDialog`, kept as
+`Settings::share_token` and never shown again; the server; what a share
+is), Share… in the More actions of an imported song or pack
+(`SelectScreen::with_sharing`, `ShareDialog`: the expiry, then the
+upload as the shell reports it through `Feed::share`, then the link to
+copy or open), the web's upload (`share::upload`: the records and every
+stored or linked file of the songs, the pack's art, `POST`, the `PUT`s,
+`finish`; `window.__DDI_SHARE_UPLOAD` for tests) and the test server's
+side of it (`serve.mjs --share`, token `test-token`). Checked in
+Chrome: a pack imported, shared for a week, its link opened and played.
+Not shared: a song's shared background folders (`RandomMovies`), the
+library's; a share plays without them. Step 4 (the Worker, in the
+private repository) next; desktop's share flag and uploader with step 5.

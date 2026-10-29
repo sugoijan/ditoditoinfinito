@@ -9,14 +9,15 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
 
-use super::data::{ImportView, Notice, PackEntry, Platform, PlayRow};
+use super::data::{ImportView, Notice, PackEntry, Platform, PlayRow, ShareState, ShareView};
 use super::select::NOTICE_LINK;
-use super::select::{IMPORT_CHANGED, SelectCall, ShellFn};
+use super::select::{IMPORT_CHANGED, SHARE_CHANGED, SelectCall, ShellFn};
 use super::{Env, left};
 use crate::hit;
 use crate::look::{self, Spec, call, quad};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
+use crate::request::UiRequest;
 use crate::request::{EnterKey, InputHints, InputMode};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::widgets::field::{FieldEvent, SearchField};
@@ -477,6 +478,251 @@ impl Screen for ManageDialog {
             } if self.step != Step::Choose && self.step != Step::ConfirmUnreadable => {
                 self.step = Step::Choose;
                 self.rebuild(root, cx);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+}
+
+/// The expiries Share… offers: the Worker's word and the label (the
+/// buttons are `Expiry.<word>`).
+pub const EXPIRIES: [(&str, &str); 5] = [
+    ("1h", "1 hour"),
+    ("1d", "1 day"),
+    ("1w", "1 week"),
+    ("1m", "1 month"),
+    ("never", "Forever"),
+];
+
+/// A button's name for an expiry's word.
+fn expiry_button(word: &str) -> &'static str {
+    match word {
+        "1h" => "Expiry.1h",
+        "1d" => "Expiry.1d",
+        "1w" => "Expiry.1w",
+        "1m" => "Expiry.1m",
+        _ => "Expiry.never",
+    }
+}
+
+/// Share… (`docs/plans/shared-songs.md`): how long the link lives,
+/// then the upload as the shell reports it ([`SHARE_CHANGED`]), then
+/// the link to copy or open.
+pub struct ShareDialog {
+    env: Env,
+    pack: String,
+    songs: Vec<String>,
+    title: String,
+    view: Rc<RefCell<ShareView>>,
+    shell: Option<ShellFn>,
+    /// The expiry was chosen: the upload's state shows from now on.
+    started: bool,
+}
+
+impl ShareDialog {
+    pub fn new(
+        env: Env,
+        pack: String,
+        songs: Vec<String>,
+        title: String,
+        view: Rc<RefCell<ShareView>>,
+        shell: Option<ShellFn>,
+    ) -> ShareDialog {
+        ShareDialog {
+            env,
+            pack,
+            songs,
+            title,
+            view,
+            shell,
+            started: false,
+        }
+    }
+
+    fn state(&self) -> ShareState {
+        if self.started {
+            self.view.borrow().state
+        } else {
+            ShareState::Idle
+        }
+    }
+
+    /// The buttons now, `(name, label, kind)`.
+    fn buttons(&self) -> Vec<(&'static str, String, &'static str)> {
+        match self.state() {
+            ShareState::Idle => {
+                let mut v: Vec<_> = EXPIRIES
+                    .iter()
+                    .map(|(w, label)| (expiry_button(w), label.to_string(), "Button"))
+                    .collect();
+                v.push(("Cancel", "Cancel".to_string(), "Button"));
+                v
+            }
+            ShareState::Uploading => vec![("Cancel", "Close".to_string(), "Button")],
+            ShareState::Done => vec![
+                ("Copy", "Copy link".to_string(), "Button"),
+                ("Open", "Open".to_string(), "Button"),
+                ("Cancel", "Close".to_string(), "Button"),
+            ],
+            ShareState::Failed => vec![("Cancel", "Close".to_string(), "Button")],
+        }
+    }
+
+    /// The title and the lines under it.
+    fn texts(&self) -> (String, Vec<String>) {
+        let n = self.songs.len();
+        let songs = format!("{n} {}", if n == 1 { "song" } else { "songs" });
+        let v = self.view.borrow();
+        match self.state() {
+            ShareState::Idle => (
+                format!("Share “{}”", self.title),
+                vec![format!(
+                    "Uploads a copy of {songs} of “{}” for anyone with the link to play, \
+                     until the link expires.",
+                    self.pack
+                )],
+            ),
+            ShareState::Uploading => (
+                "Uploading…".into(),
+                vec![format!(
+                    "{} of {} songs, {} of {} MB.",
+                    v.done_songs,
+                    v.songs,
+                    (v.done_bytes / 1e6).round() as i64,
+                    (v.bytes / 1e6).round() as i64
+                )],
+            ),
+            ShareState::Done => (
+                "Shared".into(),
+                vec![
+                    "Anyone with this link can play the songs:".into(),
+                    v.link.clone(),
+                ],
+            ),
+            ShareState::Failed => ("The share failed".into(), vec![v.error.clone()]),
+        }
+    }
+
+    fn call(&self, c: SelectCall, cx: &mut Cx) {
+        if let Some(s) = &self.shell {
+            s(c, cx);
+        }
+    }
+
+    fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
+        *root = self.build(cx);
+        root.finish_tweening();
+        if let Some((n, _, _)) = self.buttons().first() {
+            cx.focus(*n);
+        }
+    }
+}
+
+impl Screen for ShareDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        "share"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let screen = [vp.width, vp.height];
+        let env = self.env.clone();
+        let w = 560.0_f32.min(screen[0] - 32.0);
+        let (title, lines) = self.texts();
+        let link = matches!(self.state(), ShareState::Done);
+        let body: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .flat_map(|(i, l)| {
+                // The link in one line as given (selectable by copy).
+                if link && i == 1 {
+                    vec![l.clone()]
+                } else {
+                    wrap_lines(l, w - 48.0, 14.0)
+                }
+            })
+            .collect();
+        let buttons = self.buttons();
+        let n = buttons.len();
+        let room = w - 48.0;
+        let per_row = if n > 3 { 3 } else { n.max(1) };
+        let rows = n.div_ceil(per_row);
+        let h = 110.0 + body.len() as f32 * 18.0 + rows as f32 * 50.0;
+        let (mut children, [x, y]) = shell(&env, screen, [w, h], &title);
+        for (i, line) in body.iter().enumerate() {
+            let color = if link && i == 1 { "Text" } else { "Muted" };
+            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, color);
+            wrap(&mut b, w - 48.0);
+            children.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
+        }
+        for (r, chunk) in buttons.chunks(per_row).enumerate() {
+            let k = chunk.len() as f32;
+            let bw = ((room - (k - 1.0) * 10.0) / k).min(if rows > 1 { room } else { 200.0 });
+            let mut bx = x + w - 24.0 - k * bw - (k - 1.0) * 10.0;
+            let by = y + h - 44.0 - (rows - 1 - r) as f32 * 50.0;
+            for (name, label, kind) in chunk {
+                children.push(button(&env, name, label, [bx + bw / 2.0, by], bw, kind));
+                bx += bw + 10.0;
+            }
+        }
+        // The buttons by name, for the debug state's rects.
+        env.state.borrow_mut().page_items = buttons.iter().map(|(n, _, _)| n.to_string()).collect();
+        dialog_root(children)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        self.buttons()
+            .into_iter()
+            .map(|(n, _, _)| Focusable::new(n))
+            .collect()
+    }
+
+    fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == SHARE_CHANGED && self.started {
+            self.rebuild(root, cx);
+        }
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        match input {
+            Input::Activate { name } => {
+                match name.as_str() {
+                    "Cancel" => cx.close(true),
+                    "Copy" => cx.request(UiRequest::CopyText(self.view.borrow().link.clone())),
+                    "Open" => cx.request(UiRequest::OpenUrl(self.view.borrow().link.clone())),
+                    name if name.starts_with("Expiry.") && !self.started => {
+                        let word = name.trim_start_matches("Expiry.");
+                        if !EXPIRIES.iter().any(|(w, _)| *w == word) {
+                            return Handled::No;
+                        }
+                        // The dialog shows the upload from its start.
+                        *self.view.borrow_mut() = ShareView {
+                            state: ShareState::Uploading,
+                            songs: self.songs.len(),
+                            ..ShareView::default()
+                        };
+                        self.started = true;
+                        self.call(
+                            SelectCall::Share {
+                                pack: self.pack.clone(),
+                                songs: self.songs.clone(),
+                                expires: word.to_string(),
+                            },
+                            cx,
+                        );
+                        self.rebuild(root, cx);
+                    }
+                    _ => return Handled::No,
+                }
+                Handled::Yes
+            }
+            Input::Outside => {
+                cx.close(true);
                 Handled::Yes
             }
             _ => Handled::No,

@@ -10,8 +10,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsCast;
+
+use ddi_ui::screens::data::{ShareState, ShareView};
 
 use crate::songs::ImportedSong;
+use crate::web::idb::{self, Db};
 
 /// The Worker's base URL: the build's (`DDI_SHARE_URL`), else the
 /// production one; `window.__DDI_SHARE_URL` overrides it for tests.
@@ -217,6 +221,249 @@ fn publish(id: &str, state: &str, share: Option<&Share>) {
         );
     }
     let _ = js_sys::Reflect::set(&w, &"__DDI_SHARE".into(), &o);
+}
+
+/// What `POST <base>/s` is sent: the share to make, its files by path
+/// and size (their bytes follow, one `PUT` each).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct NewShare {
+    pub(crate) pack: String,
+    /// `1h`, `1d`, `1w`, `1m` or `never`.
+    pub(crate) expires: String,
+    pub(crate) songs: Vec<NewSong>,
+    pub(crate) pack_art: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct NewSong {
+    pub(crate) record: ImportedSong,
+    pub(crate) files: Vec<NewFile>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct NewFile {
+    pub(crate) path: String,
+    pub(crate) bytes: f64,
+}
+
+/// The Worker's answer to `POST <base>/s`.
+#[derive(Deserialize)]
+struct Created {
+    id: String,
+}
+
+/// Told how the upload goes (each file sent, the end).
+pub(crate) type Progress = Rc<dyn Fn(&ShareView)>;
+
+/// Shares the imported songs `ids` as the pack `pack`, expiring after
+/// `expires` (`1h`, `1d`, `1w`, `1m`, `never`), with `token`
+/// (`docs/plans/shared-songs.md`): their records and files read from
+/// the library (a linked song's from its folder), the share made, each
+/// file put, the share finished; the link to it. `progress` is told at
+/// each step; `window.__DDI_SHARE_UPLOAD` says the same for tests.
+pub(crate) async fn upload(
+    pack: String,
+    ids: Vec<String>,
+    expires: String,
+    token: String,
+    progress: Progress,
+) -> Result<String, String> {
+    let mut view = ShareView {
+        state: ShareState::Uploading,
+        songs: ids.len(),
+        ..ShareView::default()
+    };
+    let tell = |v: &ShareView| {
+        publish_upload(v);
+        progress(v);
+    };
+    tell(&view);
+    let result = upload_inner(&pack, &ids, &expires, &token, &mut view, &tell).await;
+    match &result {
+        Ok(link) => {
+            view.state = ShareState::Done;
+            view.link = link.clone();
+        }
+        Err(e) => {
+            view.state = ShareState::Failed;
+            view.error = e.clone();
+        }
+    }
+    tell(&view);
+    result
+}
+
+async fn upload_inner(
+    pack: &str,
+    ids: &[String],
+    expires: &str,
+    token: &str,
+    view: &mut ShareView,
+    tell: &dyn Fn(&ShareView),
+) -> Result<String, String> {
+    if token.is_empty() {
+        return Err("Set the upload token under Options → Sharing first.".into());
+    }
+    if ids.is_empty() {
+        return Err("Nothing to share.".into());
+    }
+    let db = Db::open().await?;
+    // Every song's record and files first: the sizes go in the request
+    // that makes the share.
+    let mut songs = Vec::new();
+    let mut blobs: Vec<Vec<(String, web_sys::Blob)>> = Vec::new();
+    for id in ids {
+        let record = crate::songs::imported_record(&db, id).await?;
+        let prefix = crate::songs::file_key(id, "");
+        let mut paths: Vec<String> = db
+            .keys_with_prefix(idb::FILES, &prefix)
+            .await?
+            .into_iter()
+            .filter_map(|k| k.strip_prefix(&prefix).map(String::from))
+            // The opening still is this library's, not the song's.
+            .filter(|p| p != crate::stills::STILL_FILE)
+            .collect();
+        for linked in record.links.keys() {
+            if !paths.contains(linked) {
+                paths.push(linked.clone());
+            }
+        }
+        let mut files = Vec::new();
+        let mut these = Vec::new();
+        for path in paths {
+            let blob = crate::songs::song_file(&db, &record, &path)
+                .await
+                .map_err(|e| format!("{}: {}", record.entry.title, e.message()))?;
+            let bytes = blob.size();
+            view.bytes += bytes;
+            files.push(NewFile {
+                path: path.clone(),
+                bytes,
+            });
+            these.push((path, blob));
+        }
+        songs.push(NewSong { record, files });
+        blobs.push(these);
+    }
+    let art_key = crate::songs::pack_art_key(pack);
+    let art = db
+        .get(idb::FILES, &art_key)
+        .await?
+        .and_then(|v| v.dyn_into::<web_sys::Blob>().ok());
+    if let Some(a) = &art {
+        view.bytes += a.size();
+    }
+    tell(view);
+    let new = NewShare {
+        pack: pack.to_string(),
+        expires: expires.to_string(),
+        songs,
+        pack_art: art.is_some(),
+    };
+    let base = base();
+    let created: Created = gloo::net::http::Request::post(&format!("{base}/s"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(&new)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| format!("making the share: {e}"))
+        .and_then(checked)?
+        .json()
+        .await
+        .map_err(|e| format!("the share's id: {e}"))?;
+    let id = created.id;
+    for (n, files) in blobs.into_iter().enumerate() {
+        for (path, blob) in files {
+            let encoded: Vec<String> = path
+                .split('/')
+                .map(|p| String::from(js_sys::encode_uri_component(p)))
+                .collect();
+            let url = format!("{base}/s/{id}/f/{n}/{}", encoded.join("/"));
+            put(&url, token, &blob)
+                .await
+                .map_err(|e| format!("{path}: {e}"))?;
+            view.done_bytes += blob.size();
+            tell(view);
+        }
+        view.done_songs += 1;
+        tell(view);
+    }
+    if let Some(a) = art {
+        put(&format!("{base}/s/{id}/art"), token, &a).await?;
+        view.done_bytes += a.size();
+        tell(view);
+    }
+    gloo::net::http::Request::post(&format!("{base}/s/{id}/finish"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("finishing the share: {e}"))
+        .and_then(checked)?;
+    Ok(link(&id))
+}
+
+/// One file's bytes to the Worker.
+async fn put(url: &str, token: &str, blob: &web_sys::Blob) -> Result<(), String> {
+    gloo::net::http::Request::put(url)
+        .header("Authorization", &format!("Bearer {token}"))
+        .body(blob)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(checked)
+        .map(|_| ())
+}
+
+/// A response that is not a success, as an error.
+fn checked(r: gloo::net::http::Response) -> Result<gloo::net::http::Response, String> {
+    match r.status() {
+        401 | 403 => Err("the upload token was refused".into()),
+        413 => Err("too large to share (2 GB a share, 512 MB a file, 200 songs)".into()),
+        s if !r.ok() => Err(format!("HTTP {s}")),
+        _ => Ok(r),
+    }
+}
+
+/// The link to a share: this page's address at `#/s/<id>`.
+pub(crate) fn link(id: &str) -> String {
+    let page = web_sys::window()
+        .and_then(|w| {
+            let l = w.location();
+            Some(format!("{}{}", l.origin().ok()?, l.pathname().ok()?))
+        })
+        .unwrap_or_default();
+    format!("{page}#/s/{id}")
+}
+
+/// `window.__DDI_SHARE_UPLOAD`, for tests: `{state, doneSongs, songs,
+/// doneBytes, bytes, link, error}`.
+fn publish_upload(v: &ShareView) {
+    let Some(w) = web_sys::window() else {
+        return;
+    };
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: wasm_bindgen::JsValue| {
+        let _ = js_sys::Reflect::set(&o, &k.into(), &v);
+    };
+    set(
+        "state",
+        match v.state {
+            ShareState::Idle => "idle",
+            ShareState::Uploading => "uploading",
+            ShareState::Done => "done",
+            ShareState::Failed => "failed",
+        }
+        .into(),
+    );
+    set("doneSongs", (v.done_songs as f64).into());
+    set("songs", (v.songs as f64).into());
+    set("doneBytes", v.done_bytes.into());
+    set("bytes", v.bytes.into());
+    set("link", v.link.as_str().into());
+    set("error", v.error.as_str().into());
+    let _ = js_sys::Reflect::set(&w, &"__DDI_SHARE_UPLOAD".into(), &o);
 }
 
 #[cfg(test)]

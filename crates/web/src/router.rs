@@ -272,6 +272,7 @@ impl Route {
             .and_then(|w| w.location().hash().ok())
             .unwrap_or_default();
         keep_testing(&hash);
+        share_switch(&hash);
         Route::parse(&hash)
     }
 
@@ -337,6 +338,30 @@ pub(crate) fn keep_testing(hash: &str) {
     }
     if !kept.is_empty() {
         TESTING.with(|t| *t.borrow_mut() = kept.join("&"));
+    }
+}
+
+/// The hidden switch of sharing by link (`docs/plans/shared-songs.md`):
+/// `#/?share=1` on the start route sets `Settings::sharing`, `share=0`
+/// clears it; never a row of Options.
+fn share_switch(hash: &str) {
+    let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
+        return;
+    };
+    if !path.trim_start_matches('/').is_empty() {
+        return;
+    }
+    let Some(on) = query.split('&').find_map(|kv| match kv.split_once('=') {
+        Some(("share", "1")) => Some(true),
+        Some(("share", "0")) => Some(false),
+        _ => None,
+    }) else {
+        return;
+    };
+    let mut settings = crate::settings::Settings::load();
+    if settings.sharing != on {
+        settings.sharing = on;
+        settings.save();
     }
 }
 
