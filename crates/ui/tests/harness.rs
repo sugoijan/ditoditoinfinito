@@ -454,11 +454,14 @@ fn held_directions_repeat_by_us_and_stop_on_blur() {
 
 #[test]
 fn gesture_bound_requests_come_back_inside_the_gesture() {
-    // A mouse click: the release is within the press's activation.
+    // A mouse click: the release is within the press's activation. The
+    // mouse comes over the button first, as a real one does (a press
+    // where it has not been sets its hover, and its cursor, first).
     let (mut h, log) = harness(TextMode::Mirror);
     let at = h.centre("Quit");
+    h.hover(at);
     let down = h.pointer(1, PointerKind::Mouse, PointerPhase::Down, at);
-    assert!(down.is_empty());
+    assert!(down.is_empty(), "{down:?}");
     h.now += 100.0;
     let up = h.pointer(1, PointerKind::Mouse, PointerPhase::Up, at);
     assert_eq!(up, vec![UiRequest::OpenUrl("https://example.org".into())]);
@@ -760,8 +763,10 @@ fn dialogs_trap_focus_and_input() {
     assert_eq!(h.ui.layers()[0].focused.as_deref(), Some("Options"));
     assert!(logged(&log, "menu: menu Right").is_empty());
     // A press outside (over the menu's title) is the dialog's; it closes.
-    clear(&log);
+    // The mouse comes there first, as a real one does.
     let title = h.centre("Title");
+    h.hover(title);
+    clear(&log);
     h.tap_at(PointerKind::Mouse, title);
     assert_eq!(logged(&log, ""), vec!["dialog: outside"]);
     assert_eq!(layers(&h), vec![("menu".into(), "active")]);

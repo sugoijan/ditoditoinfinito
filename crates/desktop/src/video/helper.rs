@@ -240,13 +240,26 @@ impl Helper {
     pub fn request(&mut self, request: &Request) -> Result<Reply, Crash> {
         self.seq = self.seq.wrapping_add(1);
         let payload = request.encode().map_err(|e| Crash(e.to_string()))?;
-        write_frame(&mut self.stdin, self.seq, &payload)
-            .map_err(|e| Crash(format!("the video decoder stopped taking requests: {e}")))?;
-        let until = Instant::now() + self.deadline;
+        // A helper that answered and exited before reading the request (a
+        // stand-in's hello, or one dying right after it) breaks the pipe:
+        // the reply it sent is still read; with none, the write's error is
+        // why.
+        let unsent = write_frame(&mut self.stdin, self.seq, &payload).err();
+        let until = Instant::now()
+            + if unsent.is_some() {
+                self.deadline.min(std::time::Duration::from_millis(100))
+            } else {
+                self.deadline
+            };
+        let stopped =
+            |e: &std::io::Error| Crash(format!("the video decoder stopped taking requests: {e}"));
         loop {
             let left = until.saturating_duration_since(Instant::now());
             let (seq, payload) = match self.replies.recv_timeout(left) {
                 Ok(Ok(Some(frame))) => frame,
+                _ if unsent.is_some() => {
+                    return Err(stopped(unsent.as_ref().expect("checked")));
+                }
                 Ok(Ok(None)) => return Err(Crash("the video decoder exited".into())),
                 Ok(Err(e)) => return Err(Crash(format!("the video decoder's reply: {e}"))),
                 Err(RecvTimeoutError::Timeout) => {

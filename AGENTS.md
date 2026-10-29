@@ -432,8 +432,10 @@ Rust and the browser are implementation details, not advertised features.
   `target/debug/video/ddi-video-helper --sandbox-check` runs the sandbox
   self-test alone. On Linux it builds
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
-  from the system) and OpenSSL (`libssl-dev`; Apache-2.0, linked from
-  the system: the share client's TLS, `src/share.rs`); winit, rfd and
+  from the system) and OpenSSL 3 (`libssl-dev`; Apache-2.0, linked from
+  the system so the distribution patches it: the share client's TLS,
+  `src/share.rs`; the package then needs `libssl.so.3`, which the
+  package check allows, `tools/danoni-importer/build.py`); winit, rfd and
   arboard load their libraries at run time.
 - SkinCraft is maintained in [sugoijan/skincraft](https://github.com/sugoijan/skincraft),
   a separate native application consuming our loader and field renderer as Git

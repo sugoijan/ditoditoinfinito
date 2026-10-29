@@ -58,10 +58,11 @@ serde.workspace = true
 dirs = "7.0.0"
 # Songs shared by link (`src/share.rs`): the server read and written
 # synchronously on worker threads, no runtime. TLS through the system's
-# own stack (Secure Transport, SChannel; OpenSSL linked from the system
-# on Linux, `libssl-dev` at build time): no root certificates bundled,
-# no C compiled (rustls's providers build C and assembly, which the
-# Windows check from a Mac cannot).
+# own stack (Secure Transport, SChannel; OpenSSL 3 linked from the
+# system on Linux, `libssl-dev` at build time, so the distribution
+# patches it): no root certificates bundled, no C compiled (rustls's
+# providers build C and assembly, which the Windows check from a Mac
+# cannot).
 ureq = { version = "3.5.0", default-features = false, features = ["native-tls-no-default"] }
 # Background movies (`src/video.rs`, feature `video`): the contract with
 # `ddi-video-helper`, the sandboxed FFmpeg process `build.rs` builds and

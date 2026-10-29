@@ -178,8 +178,11 @@ def native_dependencies(binary, target):
     out = subprocess.check_output(['ldd', str(binary)], text=True)
     if 'not found' in out:
         raise ValueError('Missing native dependency: ' + out)
+    # OpenSSL 3 is the system's on purpose (`ureq`'s TLS for songs shared by
+    # link, `crates/desktop/src/share.rs`): the distribution patches it.
     allowed = ('libc.so', 'libm.so', 'libdl.so', 'libpthread.so', 'librt.so', 'libgcc_s.so',
-               'ld-linux', 'libstdc++.so', 'libasound.so', 'libudev.so')
+               'ld-linux', 'libstdc++.so', 'libasound.so', 'libudev.so',
+               'libssl.so.3', 'libcrypto.so.3')
     # Only the binary's own NEEDED entries must be allowed system libraries:
     # what those load in turn (Ubuntu 24.04's libudev.so.1 loads libcap.so.2)
     # comes with them, so ldd's transitive list is checked for locations only.
