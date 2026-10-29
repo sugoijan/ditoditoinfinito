@@ -2644,3 +2644,166 @@ fn a_held_up_stops_on_the_first_row_and_a_fresh_one_goes_on_to_the_field() {
     pad_press(&mut h, Up);
     assert_eq!(h.ui.focused(), Some("Search"));
 }
+
+/// The gains the shell heard from the quick volume, in order.
+fn volume_calls(calls: &Calls) -> Vec<f32> {
+    calls
+        .borrow()
+        .iter()
+        .filter_map(|c| match c {
+            SelectCall::Volume(g) => Some(*g),
+            _ => None,
+        })
+        .collect()
+}
+
+fn volume_shown(h: &Harness) -> bool {
+    h.ui.bounds("Volume.Popup").is_some()
+}
+
+/// The quick volume right of the search: the mouse over it shows its
+/// slider and a click mutes (another brings the level back); a tap
+/// (touch, no hover) shows it first and mutes from the next, a press
+/// elsewhere hides it. The shell hears every change, the settings keep
+/// it.
+#[test]
+fn the_quick_volume_shows_on_hover_or_a_tap_and_then_mutes() {
+    use crate::state::settings::{DEFAULT_VOLUME, Settings};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let (mut h, _, calls, _) = shelled(sample::select(), None);
+    assert!(!volume_shown(&h));
+    // Between the search and More.
+    let (search, volume, more) = (
+        h.ui.bounds("Search").unwrap(),
+        h.ui.bounds("Volume").unwrap(),
+        h.ui.bounds("More").unwrap(),
+    );
+    assert!(search[2] < volume[0] && volume[2] < more[0]);
+    let same = |a: f32, b: f32| (a - b).abs() < 1e-4;
+    // The mouse: over it, the slider; a click mutes, the next unmutes.
+    h.hover(h.centre("Volume.Button"));
+    h.run(0.1);
+    assert!(volume_shown(&h));
+    h.tap(PointerKind::Mouse, "Volume.Button");
+    h.run(0.1);
+    assert_eq!(Settings::load().volume, 0.0);
+    assert_eq!(volume_calls(&calls), [0.0]);
+    h.tap(PointerKind::Mouse, "Volume.Button");
+    h.run(0.1);
+    assert!(same(Settings::load().volume, DEFAULT_VOLUME));
+    assert!(volume_shown(&h), "still over it");
+    // Off it: gone after a moment, not at once.
+    h.hover([300.0, 600.0]);
+    h.run(0.1);
+    assert!(volume_shown(&h));
+    h.run(0.4);
+    assert!(!volume_shown(&h));
+    // A tap: shown, nothing muted; the next tap mutes.
+    h.tap(PointerKind::Touch, "Volume.Button");
+    h.run(0.1);
+    assert!(volume_shown(&h));
+    assert!(same(Settings::load().volume, DEFAULT_VOLUME));
+    h.tap(PointerKind::Touch, "Volume.Button");
+    h.run(0.1);
+    assert_eq!(Settings::load().volume, 0.0);
+    // It stays up until a press elsewhere.
+    h.run(1.0);
+    assert!(volume_shown(&h));
+    h.tap_at(PointerKind::Touch, h.centre("Info"));
+    h.run(0.1);
+    assert!(!volume_shown(&h));
+    assert_eq!(volume_calls(&calls).len(), 3);
+}
+
+/// Along the slider: a drag moves the preview's level as it goes and
+/// keeps it in the settings when released; a wheel over it steps it.
+#[test]
+fn the_quick_volumes_slider_follows_a_drag_and_the_wheel() {
+    use crate::state::settings::{Settings, slider_to_volume};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let (mut h, _, calls, _) = shelled(sample::select(), None);
+    let stored = Settings::load().volume;
+    h.hover(h.centre("Volume.Button"));
+    h.run(0.1);
+    let popup = h.ui.bounds("Volume.Popup").unwrap();
+    let x = (popup[0] + popup[2]) / 2.0;
+    // The track's bottom is 14 above the slider's, its top 42 below the
+    // slider's top (the plain look's).
+    let (top, bottom) = (popup[1] + 42.0, popup[3] - 14.0);
+    h.pointer(
+        1,
+        PointerKind::Mouse,
+        crate::PointerPhase::Down,
+        [x, bottom],
+    );
+    h.run(0.05);
+    assert_eq!(volume_calls(&calls), [0.0]);
+    assert_eq!(Settings::load().volume, stored, "not kept while held");
+    let half = [x, (top + bottom) / 2.0];
+    h.pointer(1, PointerKind::Mouse, crate::PointerPhase::Move, half);
+    h.run(0.05);
+    h.pointer(
+        1,
+        PointerKind::Mouse,
+        crate::PointerPhase::Move,
+        [x, top - 30.0],
+    );
+    h.run(0.05);
+    h.pointer(
+        1,
+        PointerKind::Mouse,
+        crate::PointerPhase::Up,
+        [x, top - 30.0],
+    );
+    h.run(0.05);
+    let heard = volume_calls(&calls);
+    assert!(heard.contains(&slider_to_volume(0.5)), "{heard:?}");
+    assert_eq!(heard.last(), Some(&1.0));
+    assert_eq!(Settings::load().volume, 1.0);
+    // A notch down over the button: a step down.
+    h.wheel_lines(h.centre("Volume.Button"), [0.0, 1.0]);
+    h.run(0.05);
+    assert_eq!(Settings::load().volume, slider_to_volume(0.95));
+}
+
+/// Keys and pads: the volume sits in the header's row before More; its
+/// focus shows the slider, Up and Down step it, Start mutes, Back goes
+/// back to the list.
+#[test]
+fn a_pad_reaches_the_quick_volume_in_the_header() {
+    use crate::MenuAction::{Back, Down, Left, Start, Up};
+    use crate::state::settings::{Settings, slider_to_volume};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let mut s = Settings::load();
+    s.volume = slider_to_volume(0.5);
+    s.save();
+    let (mut h, _, calls, _) = shelled(library(), Some("some-things-must"));
+    // Up to the search, then along the header: More is its last.
+    while h.ui.focused() == Some("Wheel") {
+        pad_press(&mut h, Up);
+    }
+    for _ in 0..12 {
+        if h.ui.focused() == Some("More") {
+            break;
+        }
+        pad_press(&mut h, crate::MenuAction::Right);
+    }
+    assert_eq!(h.ui.focused(), Some("More"));
+    pad_press(&mut h, Left);
+    assert_eq!(h.ui.focused(), Some("Volume"));
+    assert!(volume_shown(&h));
+    pad_press(&mut h, Up);
+    assert_eq!(Settings::load().volume, slider_to_volume(0.55));
+    pad_press(&mut h, Down);
+    pad_press(&mut h, Down);
+    assert_eq!(Settings::load().volume, slider_to_volume(0.45));
+    pad_press(&mut h, Start);
+    assert_eq!(Settings::load().volume, 0.0);
+    pad_press(&mut h, Start);
+    assert_eq!(Settings::load().volume, slider_to_volume(0.45));
+    assert_eq!(volume_calls(&calls).len(), 5);
+    pad_press(&mut h, Back);
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    h.run(0.5);
+    assert!(!volume_shown(&h));
+}

@@ -10,10 +10,12 @@
 //!   style.
 //! - [`controls`]: buttons, toggles, option rows, sliders.
 //! - [`field`]: a text field with an autocomplete popup.
+//! - [`volume`]: the quick volume control, its slider under its icon.
 
 pub mod controls;
 pub mod field;
 pub mod list;
+pub mod volume;
 
 use ddi_actor::{Actor, Kind};
 

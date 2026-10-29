@@ -1789,6 +1789,7 @@ fn sample_select(env: &ThemeEnv, sound: SharedPlayer) -> theme_screens::select::
     let options_sound = sound.clone();
     let calls: ShellFn = Rc::new(move |call, cx| match call {
         SelectCall::Selected { song, .. } => sound.borrow_mut().select(song.as_deref()),
+        SelectCall::Volume(volume) => sound.borrow_mut().set_volume(volume),
         SelectCall::Leave => {
             sound.borrow_mut().pause();
             cx.close(true);

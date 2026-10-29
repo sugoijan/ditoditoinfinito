@@ -2468,6 +2468,8 @@ fn publish(h: &Host) {
         // The plays list's rows (by their place in the list).
         names.extend((0..st.plays.len()).map(|i| format!("Row{i}")));
         names.push("ClearSearch".into());
+        // Song select's quick volume and its slider.
+        names.extend(["Volume", "Volume.Popup"].map(str::to_string));
         if st.screen == "start" {
             names.extend(st.page_items.iter().cloned());
             names.push("Multiplayer".into());

@@ -770,7 +770,10 @@ The menus move with the arrow keys or the number pad's 8 2 4 6 on every
 screen (`ddi_ui::nav::key_action`, by physical code), Enter or Numpad Enter
 confirms; a text field being typed into takes the pad's digits as digits.
 Song browsing returns to Start in one press, keeping its filter and place;
-Clear beside Search clears the filter explicitly. Options returns to its caller;
+Clear (the × inside Search) clears the filter explicitly; the quick volume
+between Search and More is Music volume (`ddi_ui::widgets::volume`, hover or
+tap for its slider, then press to mute; `docs/plans/song-navigation.md`).
+Options returns to its caller;
 its P cycles the field preview's layout from anywhere on the screen (Shift+P
 backwards), the preview following the edited settings on that layout on both
 shells.

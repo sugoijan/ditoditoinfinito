@@ -9,7 +9,8 @@
 //!   that open and close; a song with no chart in the style is greyed
 //!   (`Unavailable`) and can still be selected.
 //! - **Header**: the screen's name, the search field (suggestions drop
-//!   under it; the wheel shows the matches), what is in effect.
+//!   under it; the wheel shows the matches; its Clear an × inside it),
+//!   what is in effect, the quick volume ([`Volume`]) and More.
 //!   **Footer**: what the keys do now, and links.
 //! - **Keys**: all four arrows move through songs; double-tap the same
 //!   arrow to change chart (Up/Left easier, Down/Right harder). Tab
@@ -54,19 +55,21 @@ use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
+use crate::widgets::volume::{Volume, VolumeChange};
 use crate::widgets::{part, set_image, set_text};
 
 use super::data::PackEntry;
 
 /// The parts that move as the screen comes and goes ([`super::transitions`]),
 /// both layouts' (a part the layout lacks is skipped).
-const SELECT_PARTS: [(&str, super::Edge); 16] = {
+const SELECT_PARTS: [(&str, super::Edge); 17] = {
     use super::Edge::{Bottom, Left, None, Right, Top};
     [
         ("Header", Top),
         ("Mods", Top),
         ("Search", Top),
         ("ClearSearch", Top),
+        ("Volume", Top),
         ("Back", Top),
         ("AddIcon", Top),
         ("SearchIcon", Top),
@@ -96,6 +99,9 @@ pub type OpenFn = Rc<dyn Fn(&Env, &mut Cx)>;
 pub enum SelectCall {
     /// Leave song browsing for the start menu.
     Leave,
+    /// The quick volume moved: the preview plays at this gain from now
+    /// (the screen keeps it in the settings once it settles).
+    Volume(f32),
     /// The song shown changed (its preview starts): `None`, no song.
     /// `from_pad`: the move came from a controller.
     Selected {
@@ -574,6 +580,8 @@ pub struct SelectScreen {
     items: Vec<Item>,
     list: List,
     search: SearchField,
+    /// The quick volume, right of the search (the wide layout's).
+    volume: Volume,
     suggester: RefCell<Option<Suggester>>,
     backdrop: Backdrop,
     pulse: Pulse,
@@ -702,6 +710,7 @@ impl SelectScreen {
             match_count: 0,
             items: Vec::new(),
             search,
+            volume: Volume::new("Volume", crate::state::settings::Settings::load().volume),
             suggester: RefCell::new(None),
             backdrop: Backdrop::new(),
             pulse: Pulse::default(),
@@ -1379,22 +1388,29 @@ impl SelectScreen {
                 [screen[0] - l.margin - 32.0, 32.0],
             ));
         }
+        // The search, its Clear an × inside its right end; the wide
+        // layout's quick volume right of it.
         let [fx, fy, fw, fh] = l.field;
-        self.search.centre = [fx + fw / 2.0, fy + fh / 2.0];
-        self.search.size = [(fw - 76.0).max(40.0), fh];
-        self.search.centre[0] -= 38.0;
+        let room = if l.compact { 0.0 } else { 76.0 };
+        let bw = (fw - room).max(40.0);
+        self.search.centre = [fx + bw / 2.0, fy + fh / 2.0];
+        self.search.size = [bw, fh];
         let mut field = self.search.build(&*env.look);
         if l.compact {
             field.visible = self.typing || !self.search.text.is_empty();
         }
         children.push(field);
         children.push(env.component(
+            "Search.Clear",
             "Button",
-            "Button",
-            &Spec::new([68.0, fh.max(44.0)], "Clear"),
+            &Spec::new([28.0, 28.0], "×"),
             "ClearSearch",
-            [fx + fw - 34.0, fy + fh / 2.0],
+            [fx + bw - 21.0, fy + fh / 2.0],
         ));
+        if !l.compact {
+            self.volume.centre = [fx + fw - 34.0, fy + fh / 2.0];
+            children.push(self.volume.build(&*env.look, cx));
+        }
         children.push(frame("Notices", Vec::new()));
         let mut root = Actor::new(Kind::Frame(children));
         // The header's row from above, the footer from below, the wheel
@@ -1923,7 +1939,13 @@ impl SelectScreen {
                 || f.starts_with("Mod")
                 || matches!(
                     f,
-                    "ClearSearch" | "Back" | "AddIcon" | "SearchIcon" | "OptionsIcon" | "More"
+                    "ClearSearch"
+                        | "Volume"
+                        | "Back"
+                        | "AddIcon"
+                        | "SearchIcon"
+                        | "OptionsIcon"
+                        | "More"
                 )
         })
     }
@@ -2253,6 +2275,20 @@ impl SelectScreen {
                 .on(self.import.borrow().platform),
             true,
         );
+    }
+
+    /// The quick volume moved: the preview follows at once, the settings
+    /// once it settles.
+    fn volume_changed(&mut self, c: VolumeChange, cx: &mut Cx) {
+        if c.commit {
+            let mut s = crate::state::settings::Settings::load();
+            if s.volume != c.gain {
+                s.volume = c.gain;
+                s.save();
+            }
+        }
+        self.status(format!("volume {:.0}%", self.volume.position() * 100.0));
+        self.call(SelectCall::Volume(c.gain), cx);
     }
 
     fn call(&self, c: SelectCall, cx: &mut Cx) {
@@ -3100,7 +3136,7 @@ impl Screen for SelectScreen {
             std::iter::once(self.search.name.clone())
                 .chain(clear.then(|| "ClearSearch".to_string()))
                 .chain((0..n).map(|i| format!("Mod{i}")))
-                .chain(std::iter::once("More".to_string()))
+                .chain(["Volume".to_string(), "More".to_string()])
                 .collect()
         };
         let along = |name: &str| -> Focusable {
@@ -3161,6 +3197,7 @@ impl Screen for SelectScreen {
         v.extend((0..self.notices.len()).map(|i| Focusable::new(format!("Notice.Link{i}"))));
         v.extend((0..n).map(|i| along(&format!("Mod{i}"))));
         if !self.layout.compact {
+            v.push(along("Volume"));
             v.push(along("More"));
         }
         v
@@ -3180,6 +3217,7 @@ impl Screen for SelectScreen {
             || self.wheel_motion.is_some()
             || self.list.animating()
             || self.pulse.on
+            || self.volume.animating()
             || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
     }
 
@@ -3190,6 +3228,7 @@ impl Screen for SelectScreen {
         }
         self.fill_footer(root, cx);
         self.live.tick(root, "Wordmark", &self.env, cx);
+        self.volume.update(cx.time(), root, self.reduced);
         let events = self.navigation.advance(cx.time());
         self.apply_navigation(events, root, cx);
         // A new size (a window resized or turned, a new design), or
@@ -3308,6 +3347,11 @@ impl Screen for SelectScreen {
         drop(st);
         if back_on_top {
             self.publish_dirty = true;
+            // Options may have moved the volume meanwhile.
+            if !self.layout.compact {
+                let gain = crate::state::settings::Settings::load().volume;
+                self.volume.set_gain(gain, root);
+            }
         }
         if std::mem::take(&mut self.publish_dirty) || event.is_some() || self.list.animating() {
             self.publish();
@@ -3516,6 +3560,15 @@ impl SelectScreen {
             self.leave_typing(root, cx);
             self.open_more(cx);
             return Handled::Yes;
+        }
+        if !self.layout.compact {
+            let (h, change) = self.volume.input(input, root, cx, self.reduced);
+            if let Some(c) = change {
+                self.volume_changed(c, cx);
+            }
+            if h == Handled::Yes {
+                return h;
+            }
         }
         // The field first: while typing, keys are its.
         let popup_before = self.search.popup_open();
@@ -3758,8 +3811,9 @@ impl SelectScreen {
                         Handled::No
                     }
                 }
-                // The search's Clear is the field's: back to the list.
-                MenuAction::Back if cx.focused() == Some("ClearSearch") => {
+                // The search's Clear is the field's, and the volume
+                // the header's: back to the list.
+                MenuAction::Back if matches!(cx.focused(), Some("ClearSearch" | "Volume")) => {
                     cx.focus("Wheel");
                     Handled::Yes
                 }

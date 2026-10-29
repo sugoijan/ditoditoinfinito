@@ -822,6 +822,11 @@ impl Songs {
                     p.borrow_mut().select(song.as_deref());
                 }
             }
+            SelectCall::Volume(volume) => {
+                if let Some(p) = sound {
+                    p.borrow_mut().set_volume(volume);
+                }
+            }
             SelectCall::PickFolder => self.add_folders(crate::os::pick(true)),
             SelectCall::PickFiles => {
                 let (zips, other): (Vec<PathBuf>, Vec<PathBuf>) =
@@ -1114,6 +1119,7 @@ pub fn shared_screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) 
             // The share's place is its own: the library's is kept.
             SelectCall::Place(_) => {}
             call @ (SelectCall::Selected { .. }
+            | SelectCall::Volume(_)
             | SelectCall::WatchPlay(_)
             | SelectCall::ShowPlay(_)
             | SelectCall::RemovePlay(_)) => songs.call(call, sound.as_ref(), cx),

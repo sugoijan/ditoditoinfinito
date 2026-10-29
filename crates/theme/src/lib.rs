@@ -1112,6 +1112,90 @@ impl Infinito {
         b
     }
 
+    /// The quick volume's button: the level's speaker
+    /// (`ui/volume.svg`'s cells, picked by the widget) on a plate.
+    fn volume_button(&self, size: [f32; 2]) -> Actor {
+        let mut b = self.button(&Spec::new(size, ""), "Plate2", "Text", 20.0, 700);
+        if let Kind::Frame(c) = &mut b.kind {
+            c.retain(|a| a.name != "Label");
+            let side = size[1] * 0.6;
+            let mut s = Sprite::new(0, vec![], [side, side]);
+            s.shape.hide_unloaded = true;
+            let mut icon = named(Kind::Sprite(s), "Icon");
+            call(&mut icon, "diffuse", &self.c("Text"));
+            let n = c.len().saturating_sub(1);
+            c.insert(n, icon);
+        }
+        b
+    }
+
+    /// The quick volume's slider: the level over an upright track.
+    fn volume_popup(&self, [w, h]: [f32; 2]) -> Actor {
+        let plate = round(quad("Plate", [w, h], self.c("Raised")), 8.0);
+        let edge = outline_r(
+            "Edge",
+            [-w / 2.0, -h / 2.0, w, h],
+            1.0,
+            self.c("Line2"),
+            8.0,
+        );
+        let value = at(
+            self.num("Value", "", 13.0, "Secondary"),
+            0.0,
+            -h / 2.0 + 18.0,
+        );
+        let track_h = h - 56.0;
+        let bottom = h / 2.0 - 14.0;
+        let track = at(
+            round(quad("Track", [4.0, track_h], self.c("Line2")), 2.0),
+            0.0,
+            bottom - track_h / 2.0,
+        );
+        let mut fill = at(
+            round(quad("Fill", [4.0, track_h], self.c("Accent")), 2.0),
+            0.0,
+            bottom,
+        );
+        call(&mut fill, "valign", &[1.0]);
+        let knob = at(
+            round(quad("Knob", [20.0, 8.0], self.c("Text")), 4.0),
+            0.0,
+            bottom,
+        );
+        frame("", vec![plate, edge, value, track, fill, knob])
+    }
+
+    /// The search field's Clear: a quiet × inside the field's right end.
+    fn clear_button(&self, size: [f32; 2]) -> Actor {
+        let mut b = self.button(&Spec::new(size, ""), "Plate2", "Muted", 20.0, 700);
+        if let Kind::Frame(c) = &mut b.kind {
+            c.retain(|a| a.name != "Label");
+            // No plate of its own on the field (lit or not), but focused.
+            if let Some(p) = c.iter_mut().find(|a| a.name == "Plate") {
+                call(p, "diffuse", &[0.0; 4]);
+                self.tinted(p, "GainFocus", "Line2");
+                command_of(
+                    p,
+                    "LoseFocus",
+                    &format!(
+                        "stoptweening;decelerate,{};diffuse,0,0,0,0",
+                        self.m("Motion.Select")
+                    ),
+                );
+            }
+            let n = c.len().saturating_sub(1);
+            for (i, angle) in [45.0, -45.0].into_iter().enumerate() {
+                let mut bar = round(
+                    quad(&format!("Bar{i}"), [size[1] * 0.5, 2.0], self.c("Muted")),
+                    1.0,
+                );
+                call(&mut bar, "rotationz", &[angle]);
+                c.insert(n + i, bar);
+            }
+        }
+        b
+    }
+
     fn panel(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let p = round(plate("Plate", [0.0, 0.0], [w, h], self.c("Panel")), 8.0);
@@ -1240,6 +1324,7 @@ impl Look for Infinito {
             "TitleMenu.Title" | "Screen.Header" => Some("title/dosis.png"),
             "PointerMask" => Some("ui/cursors.svg"),
             "PointerBurst" => Some("ui/cursor-burst.svg"),
+            "Volume.Icon" => Some("ui/volume.svg"),
             "TitleMenu.Background" => Some("ui/menu-rain.svg"),
             "KeyHint" => Some(self.keycap_material.get().image()),
             _ => None,
@@ -1287,6 +1372,9 @@ impl Look for Infinito {
             "PlayButton" => self.button(spec, "Accent", "OnAccent", 18.0, 700),
             "IconButton" => self.button(spec, "Plate2", "Text", 20.0, 700),
             "BackButton" => self.back_button(spec.size),
+            "Volume" => self.volume_button(spec.size),
+            "Volume.Popup" => self.volume_popup(spec.size),
+            "Search.Clear" => self.clear_button(spec.size),
             "StyleButton" => {
                 let mut b = self.button(spec, "Plate2", "Text", 13.0, 600);
                 if let Kind::Frame(c) = &mut b.kind {

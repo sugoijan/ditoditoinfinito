@@ -98,10 +98,24 @@ did already; a held Up stops on the first row. From the field:
 | Start (Enter, A, a pad's Start) | starts typing | goes to the songs found, as Enter |
 | Down | back to the list where it was | the same, the text and filter kept |
 | Back (B, a pad's Back; Escape) | back to the list where it was | closes the suggestions, then stops typing, as Escape |
-| Left / Right | along the header: Clear (while there is text), the mods, Autoplay | the same, typing stopped |
+| Left / Right | along the header: Clear (while there is text), the mods, the volume, More | the same, typing stopped |
 | Up | the app's notices, as from the rest of the header | nothing |
 
-Clear empties the search and returns to the list; Back on it does too.
+Clear (the × inside the field's right end) empties the search and
+returns to the list; Back on it does too.
+
+The quick volume sits between the search and More
+(`ddi_ui::widgets::volume`): its icon shows the music's level (muted,
+then one to three waves) and a vertical slider drops under it while the
+mouse is over either, while it has the focus, or after a tap (touch has
+no hover: the slider stays until a press elsewhere). A press on the icon
+while the slider shows mutes, or brings back the level from before the
+mute (the default level when muted since the start), so a mouse's click
+always mutes and a touch's first tap only shows. With the focus, Up and
+Down step it by 5%, Start mutes and Back returns to the list; a wheel
+over it steps it too. It is the setting Options calls Music volume: the
+preview follows at once (`SelectCall::Volume`), the settings keep it
+when a drag is released. The compact layout has none.
 While typing, a keyboard's keys stay the field's (its arrows still move
 through the suggestions or browse the songs found), so these rows only
 change what a controller does. A browser starts typing only inside a key
@@ -117,7 +131,7 @@ Select (the next style), and Start/Back are A/B's twins.
 Unmodified Escape and Backspace map to the same menu Back action. Text
 editing, dialogs and binding capture get the key first. Ordinary browsing
 leaves for the silent Start menu in one press, retaining the selected
-song/chart, expanded pack and filter. The Clear button beside Search
+song/chart, expanded pack and filter. The Clear × inside Search
 clears a filter explicitly; pack headers still toggle by activation.
 Leaving cancels provisional arrows, held repeats and wheel motion before
 the shell stops/cancels preview playback. The desktop header and compact

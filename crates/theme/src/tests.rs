@@ -213,6 +213,17 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         ),
         ("PlayButton", s(300.0, 48.0, "PLAY"), &["Plate", "Label"]),
         ("IconButton", s(44.0, 44.0, "‹"), &["Plate", "Label"]),
+        ("Volume", s(40.0, 40.0, ""), &["Plate", "Icon", "Ring"]),
+        (
+            "Volume.Popup",
+            s(40.0, 176.0, ""),
+            &["Plate", "Track", "Fill", "Knob", "Value"],
+        ),
+        (
+            "Search.Clear",
+            s(28.0, 28.0, ""),
+            &["Plate", "Bar0", "Bar1"],
+        ),
         ("StyleButton", s(300.0, 36.0, "Single"), &["Plate", "Label"]),
     ] {
         let a = t

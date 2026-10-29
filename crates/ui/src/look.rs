@@ -459,6 +459,28 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 }
                 frame(parts)
             }
+            // The quick volume's slider ([`crate::widgets::volume`]): the
+            // track upright, filled from the bottom, the level over it.
+            "Volume.Popup" => {
+                let track_h = h - 56.0;
+                let bottom = h / 2.0 - 14.0;
+                let mut value = text("Value", "", 12.0, TEXT);
+                call(&mut value, "y", &[-h / 2.0 + 18.0]);
+                let mut track = quad("Track", [4.0, track_h], [0.3, 0.31, 0.36, 1.0]);
+                call(&mut track, "y", &[bottom - track_h / 2.0]);
+                let mut fill = quad("Fill", [4.0, track_h], LIT);
+                call(&mut fill, "y", &[bottom]);
+                call(&mut fill, "valign", &[1.0]);
+                let mut knob = quad("Knob", [w * 0.4, 6.0], TEXT);
+                call(&mut knob, "y", &[bottom]);
+                frame(vec![
+                    quad("Plate", spec.size, PLATE),
+                    value,
+                    track,
+                    fill,
+                    knob,
+                ])
+            }
             "OptionRow.Choice" => text("", &spec.text, size, TEXT),
             "OptionRow.Cursor" => quad("", [w, 2.0], LIT),
             "List.Row" => {
