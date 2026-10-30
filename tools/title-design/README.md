@@ -95,3 +95,19 @@ with the palette and the rain atlas's outlines; `site/boot-art.js`
 draws them, the rings painted by the Vivid material ported to
 JavaScript as `preview.js` ports it, on the game's clock
 (`docs/plans/start-menu.md`). Keep them in step when the title changes.
+
+## README title
+
+`readme_logo.py` (run by `generate.py`, or alone from
+`site/boot-art-data.js`) writes `docs/logo.svg` and `docs/logo-light.svg`,
+the README's title for dark and light pages: the same lettering, rings
+and clearance, the rings painted by the Vivid material rebuilt from SVG
+filter primitives and animated with SMIL, so it moves as an `<img>` with
+no script (about 10 KB, 3 KB gzipped). Its docstring maps each step of
+the shader to its primitives. It is an approximation: feTurbulence's
+Perlin noise stands in for the value noise (scaled to match its spread
+and correlation length), and the drift swings back and forth instead of
+running on. Each initial's filter covers only its ring's box, and the
+filtered input only as far as the warp reaches. Check it in Chrome,
+Firefox and WebKit when changing it: WebKit clips a primitive's input to
+the primitive's own subregion, and Chrome's stitched tiles show seams.

@@ -1,4 +1,7 @@
-# Dito Dito Infinito
+<h1><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo.svg">
+  <img alt="Dito Dito Infinito" src="docs/logo-light.svg" width="640">
+</picture></h1>
 
 A dance rhythm game (four arrows, hit them in time with the music) that plays
 StepMania and DWI simfiles: a few bundled songs, plus any packs you import
