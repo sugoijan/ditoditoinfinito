@@ -593,8 +593,8 @@ pub fn run() {
     if let Some((env, _)) = &shell.theme {
         let s = env.state.borrow();
         println!(
-            "theme: screen {} · song {:?} · style {} · chart {:?} · compact {} · pulse {}",
-            s.screen, s.song, s.style, s.chart, s.compact, s.pulsing
+            "theme: screen {} · song {:?} · style {} · chart {:?} · compact {}",
+            s.screen, s.song, s.style, s.chart, s.compact
         );
     }
     let layers: Vec<String> = shell.ui.layers().into_iter().map(|l| l.name).collect();

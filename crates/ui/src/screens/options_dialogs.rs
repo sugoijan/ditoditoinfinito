@@ -12,9 +12,11 @@ use ddi_platform::DeviceId;
 
 use super::data::SharesState;
 use super::options_shell::{SHARES_CHANGED, SharesFeed};
-use super::select_dialogs::{button, dialog_root, fitted_dialog, shell, wrap, wrap_lines};
+use super::select_dialogs::{
+    PAGED_ROW, Paged, PagedRows, button, button_lines, dialog_root, fitted_dialog,
+    place_button_lines, shell, wrap, wrap_lines,
+};
 use super::{Env, left};
-use crate::look::{self, Spec, call, quad};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
@@ -300,17 +302,13 @@ pub struct SharesDialog {
     feed: SharesFeed,
     delete: DeleteFn,
     open: OpenShareFn,
-    chosen: usize,
-    first: usize,
-    arming: bool,
+    /// The chosen share, the page, Delete armed.
+    paged: PagedRows,
     screen: [f32; 2],
     focused: bool,
     /// The wall clock at the last build (the times left).
     now: f64,
 }
-
-/// A row's height in the shares list.
-const SHARE_ROW: f32 = 46.0;
 
 impl SharesDialog {
     pub fn new(env: Env, feed: SharesFeed, delete: DeleteFn, open: OpenShareFn) -> SharesDialog {
@@ -319,9 +317,7 @@ impl SharesDialog {
             feed,
             delete,
             open,
-            chosen: 0,
-            first: 0,
-            arming: false,
+            paged: PagedRows::default(),
             screen: super::DESIGN,
             focused: false,
             now: 0.0,
@@ -329,12 +325,11 @@ impl SharesDialog {
     }
 
     fn per_page(&self) -> usize {
-        let room = self.screen[1] - 16.0 - 70.0 - 2.0 * 50.0 - 40.0;
-        ((room / (SHARE_ROW + 6.0)).floor() as usize).clamp(3, 8)
+        PagedRows::per_page(self.screen[1])
     }
 
-    fn rows(&self) -> Vec<super::data::ShareRow> {
-        self.feed.borrow().shares.clone()
+    fn len(&self) -> usize {
+        self.feed.borrow().shares.len()
     }
 
     /// The buttons now, `(name, label, kind)`.
@@ -347,7 +342,7 @@ impl SharesDialog {
             v.push(("Open", "Open".to_string(), "Button"));
             v.push((
                 "Delete",
-                if self.arming {
+                if self.paged.arming {
                     "Sure? Delete"
                 } else {
                     "Delete"
@@ -355,12 +350,7 @@ impl SharesDialog {
                 .to_string(),
                 "DangerButton",
             ));
-            if self.first > 0 {
-                v.push(("Newer", "Newer".to_string(), "Button"));
-            }
-            if self.first + self.per_page() < n {
-                v.push(("Older", "Older".to_string(), "Button"));
-            }
+            self.paged.page_buttons(n, self.per_page(), &mut v);
         }
         v.push(("Close", "Close".to_string(), "Button"));
         v
@@ -386,30 +376,7 @@ impl SharesDialog {
             when,
             if s.mine { "" } else { " · another's" }
         );
-        let chosen = i == self.chosen;
-        let mut plate = look::component_or(
-            &*env.look,
-            "Button",
-            "Button",
-            &Spec::new([w, SHARE_ROW], ""),
-        );
-        plate.name = format!("Row{i}");
-        call(&mut plate, "xy", &[x + w / 2.0, y + SHARE_ROW / 2.0]);
-        // The chosen one ringed in the accent.
-        let mut out = vec![plate];
-        if chosen {
-            let c = env.color("Accent");
-            for (size, at) in [
-                ([w + 6.0, 2.0], [x + w / 2.0, y - 2.0]),
-                ([w + 6.0, 2.0], [x + w / 2.0, y + SHARE_ROW + 2.0]),
-                ([2.0, SHARE_ROW + 6.0], [x - 2.0, y + SHARE_ROW / 2.0]),
-                ([2.0, SHARE_ROW + 6.0], [x + w + 2.0, y + SHARE_ROW / 2.0]),
-            ] {
-                let mut q = quad("", size, c);
-                call(&mut q, "xy", &at);
-                out.push(q);
-            }
-        }
+        let mut out = self.paged.plate(env, i, [x, y, w]);
         let pack = if s.pack.is_empty() {
             s.id.clone()
         } else {
@@ -446,23 +413,18 @@ impl Screen for SharesDialog {
         self.now = cx.clock();
         let env = self.env.clone();
         let w = 720.0_f32.min(self.screen[0] - 32.0);
-        let rows = self.rows();
-        self.chosen = self.chosen.min(rows.len().saturating_sub(1));
-        if self.chosen < self.first || self.chosen >= self.first + self.per_page() {
-            self.first = self.chosen - self.chosen % self.per_page();
-        }
+        let rows = self.feed.borrow().shares.clone();
+        let n = self.per_page();
+        self.paged.settle(rows.len(), n);
         let page: Vec<(usize, &super::data::ShareRow)> = rows
             .iter()
             .enumerate()
-            .skip(self.first)
-            .take(self.per_page())
+            .skip(self.paged.first)
+            .take(n)
             .collect();
         let buttons = self.buttons();
         let room = w - 48.0;
-        let widths: Vec<f32> = buttons
-            .iter()
-            .map(|(_, l, _)| look::mono_width(l, 15.0) + 32.0)
-            .collect();
+        let lines = button_lines(&buttons, room);
         let (state, error, admin) = {
             let v = self.feed.borrow();
             (v.state, v.error.clone(), v.admin)
@@ -481,9 +443,9 @@ impl Screen for SharesDialog {
         let body = if empty.is_some() {
             30.0
         } else {
-            page.len() as f32 * (SHARE_ROW + 6.0)
+            page.len() as f32 * (PAGED_ROW + 6.0)
         };
-        let h = (70.0 + body + 20.0 + 50.0 + 6.0).min(self.screen[1] - 16.0);
+        let h = (70.0 + body + 20.0 + lines.0.len() as f32 * 50.0 + 6.0).min(self.screen[1] - 16.0);
         let (mut children, [x, y]) = shell(&env, self.screen, [w, h], title);
         if let Some(text) = empty {
             for (i, line) in wrap_lines(&text, room, 14.0).iter().enumerate() {
@@ -498,38 +460,22 @@ impl Screen for SharesDialog {
                 children.extend(self.row(
                     *i,
                     r,
-                    [x + 24.0, y + 60.0 + k as f32 * (SHARE_ROW + 6.0), room],
+                    [x + 24.0, y + 60.0 + k as f32 * (PAGED_ROW + 6.0), room],
                 ));
             }
-            if rows.len() > page.len() {
-                let t = env.text(
-                    "Page",
-                    &format!(
-                        "{}–{} of {}",
-                        self.first + 1,
-                        self.first + page.len(),
-                        rows.len()
-                    ),
-                    12.0,
-                    400,
-                    "Faint",
-                );
-                children.push(super::right(t, x + w - 24.0, y + 30.0));
-            }
-        }
-        let by = y + h - 30.0;
-        let mut bx = x + 24.0;
-        for (i, (name, label, kind)) in buttons.iter().enumerate() {
-            children.push(button(
+            children.extend(self.paged.page_label(
                 &env,
-                name,
-                label,
-                [bx + widths[i] / 2.0, by],
-                widths[i],
-                kind,
+                page.len(),
+                rows.len(),
+                [x + w - 24.0, y + 30.0],
             ));
-            bx += widths[i] + 10.0;
         }
+        children.extend(place_button_lines(
+            &env,
+            &buttons,
+            &lines,
+            [x + 24.0, y + h - 30.0],
+        ));
         // The rows and the buttons by name, for the debug state's rects.
         self.env.state.borrow_mut().page_items = page
             .iter()
@@ -543,56 +489,35 @@ impl Screen for SharesDialog {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let n = self.rows().len();
-        (self.first..(self.first + self.per_page()).min(n))
-            .map(|i| Focusable::new(format!("Row{i}")))
-            .chain(
-                self.buttons()
-                    .into_iter()
-                    .map(|(n, _, _)| Focusable::new(n)),
-            )
-            .collect()
+        self.paged
+            .focusables(self.len(), self.per_page(), self.buttons())
     }
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == SHARES_CHANGED {
-            self.arming = false;
-            let focus = if self.rows().is_empty() {
-                "Close"
-            } else {
-                "Copy"
-            };
+            self.paged.arming = false;
+            let focus = if self.len() == 0 { "Close" } else { "Copy" };
             self.rebuild(root, cx, focus);
         }
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
-        if self.arming
-            && let Input::Menu { action, .. } = input
-            && matches!(
-                action,
-                MenuAction::Up | MenuAction::Down | MenuAction::Left | MenuAction::Right
-            )
-        {
-            self.arming = false;
+        if self.paged.disarm(input) {
             *root = self.build(cx);
             root.finish_tweening();
             return Handled::No;
         }
         match input {
             Input::Activate { name } => {
-                if let Some(i) = name
-                    .strip_prefix("Row")
-                    .and_then(|n| n.parse::<usize>().ok())
-                {
-                    if i < self.rows().len() {
-                        self.chosen = i;
-                        self.arming = false;
-                        self.rebuild(root, cx, "Copy");
+                if let Some(done) = self.paged.act(name, self.len(), self.per_page(), cx) {
+                    match done {
+                        Paged::Chosen => self.rebuild(root, cx, "Copy"),
+                        Paged::Page(focus) => self.rebuild(root, cx, focus),
+                        Paged::Closed | Paged::Taken => {}
                     }
                     return Handled::Yes;
                 }
-                let chosen = self.rows().get(self.chosen).cloned();
+                let chosen = self.feed.borrow().shares.get(self.paged.chosen).cloned();
                 match (name.as_str(), chosen) {
                     ("Copy", Some(r)) => cx.request(UiRequest::CopyText(r.link)),
                     // In the game where the platform can (the dialog goes,
@@ -606,32 +531,16 @@ impl Screen for SharesDialog {
                         }
                     }
                     ("Delete", Some(r)) => {
-                        if self.arming {
-                            self.arming = false;
+                        if self.paged.arming {
+                            self.paged.arming = false;
                             self.feed.borrow_mut().state = SharesState::Loading;
                             (self.delete)(&r.summary.id);
                             self.rebuild(root, cx, "Close");
                         } else {
-                            self.arming = true;
+                            self.paged.arming = true;
                             self.rebuild(root, cx, "Delete");
                         }
                     }
-                    ("Newer", _) => {
-                        let n = self.per_page();
-                        self.first = self.first.saturating_sub(n);
-                        self.chosen = self.first;
-                        self.arming = false;
-                        self.rebuild(root, cx, if self.first > 0 { "Newer" } else { "Older" });
-                    }
-                    ("Older", _) => {
-                        let n = self.per_page();
-                        self.first += n;
-                        self.chosen = self.first;
-                        self.arming = false;
-                        let more = self.first + n < self.rows().len();
-                        self.rebuild(root, cx, if more { "Older" } else { "Newer" });
-                    }
-                    ("Close", _) => cx.close(true),
                     _ => return Handled::No,
                 }
                 Handled::Yes

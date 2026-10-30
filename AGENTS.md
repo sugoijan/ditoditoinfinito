@@ -143,9 +143,17 @@ Rust and the browser are implementation details, not advertised features.
   `screens/numbers.rs` supplies controller-editable numeric/compound forms;
   free-text entry alone may require keyboard/IME. Editor South places notes,
   Start listens, holds/rolls use head/tail confirmation; More exposes the same
-  operations for minimal custom controllers. `controller_hints.rs` retains the
-  deliberate input source across screens, classifies controller metadata and
-  resolves hints through the effective dispatcher/play assignment. Overrides
+  operations for minimal custom controllers. The UI core owns controller
+  input (`docs/plans/controller-input-core.md`): the shells hand `Ui` the
+  pads (`set_pads`), the bindings (`set_controls`; Options sets what it
+  edits through `Cx::set_controls`) and each edge as read (`UiEvent::Pad`),
+  which it resolves to a menu action or hands on raw to a binding screen,
+  remembering what each held control pressed so a release or a pad's going
+  releases exactly that. `controller_hints.rs`'s `Hints` (the `Ui`'s, read
+  through `Cx::hints`) keeps the deliberate input source across screens (the
+  web carries it between hosts, a play's own input sets it), classifies
+  controller metadata and resolves hints through the effective
+  dispatcher/play assignment. Overrides
   live separately in `Settings::controller_styles`; raw controls stay numbered
   even under a family override. New Dance Single defaults are LB/LT/RT/RB,
   then D-pad/face alternatives; existing saved/cleared tables are preserved
@@ -266,18 +274,19 @@ Rust and the browser are implementation details, not advertised features.
   `HoldUseDroppedState` loads separate per-note dropped actors; hit messages
   carry `Autoplay` and local `HitX`/`HitY` from the hit note's last drawn
   position (`tools/noteskin-danoni/README.md`). These are presentation data,
-  never changes to judging or replay inputs. `LiftStencilMaterial` opts into
-  leading, time-sized lift trails with a continuous hold material, white head
-  overlay and independently colored charge stencil. `Frame.note_motion` supplies
-  local scroll speed and beat duration for the preparation distance.
+  never changes to judging or replay inputs. `Def.Lift` draws a lift's
+  leading, time-sized trail in the skin's material (`Frame.note_motion`
+  supplies local scroll speed and beat duration for the lead).
   `TapJudgmentsPerNote` opts into
   immediate per-note flashes rather than StepMania's completed-row effects.
   Per-part `TapNoteAnimationOnChildren` (and `TapLift`, `TapFake`,
   `HoldHead`, etc.) opts layered notes into one beat/Vivid animation phase;
   descendants otherwise keep their own clocks, including mine electricity.
-  `HoldStencilMaterial`/`RollStencilMaterial` opts holds into shared material over alpha/envelope/shadow
-  masks, with protected head holes and continuous head/body/cap color; see
-  `docs/plans/noteskin-authoring.md`. Legacy holds and rolls keep their own path.
+  `Def.LongNote` draws holds and rolls in the skin's material over band,
+  envelope and shadow roles, with protected head holes and one fill from head
+  to cap (Infinito's holds, rolls and lifts are drawn so, by its own wave
+  material); see `docs/plans/noteskin-authoring.md`. Legacy holds and rolls
+  keep their own path.
 
 - `crates/lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
   `lunita` (crates.io), our hardened fork of piccolo, with per-VM memory
@@ -994,15 +1003,18 @@ dependency's licence before adding it.
   fade begins, `boot::revealed`; each part's `On` kept as its
   `RevealMessage`, `screens::hold_entrances`, through a relayout,
   `relaid`; the start title stands in place meanwhile and the prompt's
-  card waits to fade in, `Cx::holding`), so the menu's choices and a
+  card's entrance is held as any part's), so the menu's choices and a
   direct play route's prompt come in as the shell goes rather than
   under it; the play route tells the shell a prompt is coming
   (`boot::expect_host`) so it waits for it as for a page's screen (its
   skin for 10 s rather than 4, the cap 12 s rather than 8, the diagram
-  showing it from the first frame; the play's own skin load waits for
-  the fade, the preview's load, `skin_loading`, and the entrance, so
-  one skin is not drawn twice at once and nothing is parsed under the
-  entrance), and fades on a song that fails to load. Nothing heavy lands on
+  showing it from the first frame; the play's own skin load begins
+  once the entrance is over, `boot::entrance_over`, and after the
+  preview's load of the same skin, one load of a skin at a time,
+  taking its drawings and component parts, `noteskin_cache`
+  (desktop's reads the same way, `play::skins`), so one skin is not
+  drawn twice and nothing is parsed under the entrance), and fades on
+  a song that fails to load. Nothing heavy lands on
   the entrance: `noteskins::warm` no longer loads the skin again (it
   parsed the components a second time, 150 ms on the main thread, as
   the menu came in) but fetches the rest of the skin chain's files 1.5 s

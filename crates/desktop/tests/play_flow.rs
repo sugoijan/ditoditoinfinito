@@ -110,7 +110,9 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
         // it; gone once that is longer ago.
         let moved = match frames {
             0 => Some(std::time::Instant::now()),
-            1 => std::time::Instant::now().checked_sub(ddi_desktop::play::QUIT_LINGER * 2),
+            1 => std::time::Instant::now().checked_sub(std::time::Duration::from_secs_f64(
+                ddi_session::play::QUIT_LINGER * 2.0,
+            )),
             _ => None,
         };
         if frames < 2 {

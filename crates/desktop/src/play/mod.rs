@@ -137,9 +137,6 @@ impl Request {
 /// The test pad's name (`--auto=pad`).
 pub const TEST_PAD: &str = "Test Pad";
 
-/// How long the quit button stays after the pointer moved.
-pub const QUIT_LINGER: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// What the shell hands a play between frames.
 #[derive(Default)]
 pub struct Feed {
@@ -147,7 +144,7 @@ pub struct Feed {
     /// any order.
     pub edges: Vec<RawInput>,
     /// When the pointer last moved over the play (the quit button shows
-    /// for [`QUIT_LINGER`]); a key or a pad's press ends it.
+    /// a moment: `ddi_session::play::quit_shown`).
     pub pointer_at: Option<std::time::Instant>,
     /// Where the quit button was drawn last (logical pixels: middle and
     /// radius), for the presses on it, and whether one is down on it.

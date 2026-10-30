@@ -149,8 +149,21 @@ pub trait Screen {
     /// A frame of `dt` seconds, after the actors' own update.
     fn update(&mut self, _dt: f32, _root: &mut Actor, _cx: &mut Cx) {}
 
+    /// Whether the screen moves its contents under a still pointer by
+    /// its own hand this frame (a list gliding, a field following the
+    /// music), without tweens: the hover is picked again while it does.
+    fn moving(&self) -> bool {
+        false
+    }
+
     /// A message broadcast, after the actors played its command.
     fn message(&mut self, _message: &Message, _root: &mut Actor, _cx: &mut Cx) {}
+
+    /// Another screen covered this one (`false`), or it starts leaving;
+    /// then (`true`) it is the current screen again. Once a change, never
+    /// at its push (its `build` is its first showing), and never for
+    /// dialogs and popups: they cover nothing.
+    fn shown(&mut self, _shown: bool, _root: &mut Actor, _cx: &mut Cx) {}
 
     /// Whether the screen moves things itself (a list's inertia, not
     /// tweens): frames keep coming while it does (P13).
@@ -254,6 +267,10 @@ pub(crate) enum Op {
     SetText(String),
     EndText,
     EnterChrome,
+    SetControls {
+        controls: ddi_engine::ControlBindings,
+        styles: std::collections::BTreeMap<String, crate::controller_hints::Style>,
+    },
 }
 
 /// A screen's way to the [`crate::Ui`] during a call.
@@ -276,6 +293,7 @@ pub struct Cx {
     /// The last input was a key or a pad's (not a pointer).
     pub(crate) by_keys: bool,
     pub(crate) current_screen: bool,
+    pub(crate) hints: std::rc::Rc<crate::controller_hints::Hints>,
 }
 
 impl Cx {
@@ -302,7 +320,30 @@ impl Cx {
             menu_pad: false,
             by_keys: false,
             current_screen: true,
+            hints: std::rc::Rc::default(),
         }
+    }
+
+    /// What controller hints are drawn from: the bindings, the pads and
+    /// the input the player last used ([`crate::Ui::hints`]).
+    pub fn hints(&self) -> &crate::controller_hints::Hints {
+        &self.hints
+    }
+
+    /// The hints, to keep (a screen whose state is published outside a
+    /// call, refreshed on [`crate::controller_hints::CHANGED`]).
+    pub fn hints_rc(&self) -> std::rc::Rc<crate::controller_hints::Hints> {
+        self.hints.clone()
+    }
+
+    /// The controller bindings changed (Options, a bind): the UI's menus
+    /// follow them after this call.
+    pub fn set_controls(
+        &mut self,
+        controls: ddi_engine::ControlBindings,
+        styles: std::collections::BTreeMap<String, crate::controller_hints::Style>,
+    ) {
+        self.ops.push(Op::SetControls { controls, styles });
     }
 
     /// This is the foremost screen, not covered by another screen or leaving.

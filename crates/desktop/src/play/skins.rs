@@ -10,12 +10,16 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, LazyLock, Mutex};
+use std::time::Duration;
 
 use ddi_chart::Layout;
 use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes};
 use ddi_noteskin::bundled::Index;
 use ddi_noteskin::import::{MAX_TEXT, MAX_TEXTS};
 use ddi_noteskin::lua::Env;
+use ddi_noteskin::recent::{ImageKey, RECENT_SECONDS, RecentImages};
 use ddi_noteskin::report::{ImageCost, ImageReport, Outcome};
 use ddi_noteskin::{Folder, Skin};
 use ddi_render::noteskin::{NoteskinPlay, SameDocuments};
@@ -172,10 +176,19 @@ fn svg_scale() -> f64 {
     f64::from_bits(SVG_SCALE_BITS.load(std::sync::atomic::Ordering::Relaxed))
 }
 
+/// SVGs rasterised so far ([`decode_svg`]; tests).
+static RASTERISED: AtomicUsize = AtomicUsize::new(0);
+
+#[doc(hidden)]
+pub fn rasterised() -> usize {
+    RASTERISED.load(Ordering::Relaxed)
+}
+
 /// An SVG checked (`ddi_noteskin::svg`) and rasterised at the scale the
 /// screen needs ([`set_screen_height`]), as the web's SVG worker draws it
 /// (`ddi_noteskin::raster`).
 pub fn decode_svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
+    RASTERISED.fetch_add(1, Ordering::Relaxed);
     let d = ddi_noteskin::raster::decode(bytes, svg_scale())?;
     Ok((
         Rgba {
@@ -184,6 +197,143 @@ pub fn decode_svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
         },
         d.own,
     ))
+}
+
+/// An SVG drawn, with the size the skin sees it at.
+type Drawn = Arc<(Rgba, (u32, u32))>;
+
+/// SVGs a skin's load drew, kept a while for the next load of the same
+/// skin (the prompt's diagram's, then the play's).
+static RECENT: LazyLock<Mutex<RecentImages<Drawn>>> = LazyLock::new(Mutex::default);
+
+/// Lets every drawing kept go (tests).
+#[doc(hidden)]
+pub fn forget_drawings() {
+    if let Ok(mut r) = RECENT.lock() {
+        r.clear();
+    }
+}
+
+/// A trim of [`RECENT`] is waiting.
+static TRIMMING: AtomicBool = AtomicBool::new(false);
+
+/// [`decode_bytes`] of an image of skin `owner` whose bytes hash to
+/// `hash`, an SVG drawn by a load of the same skin a moment ago taken
+/// from [`RECENT`] (a decoder that panics fails that file only).
+fn decode_kept(
+    owner: &str,
+    hash: &str,
+    bytes: &[u8],
+    svg: bool,
+) -> Result<(Rgba, (u32, u32)), String> {
+    let decode = || {
+        std::panic::catch_unwind(|| decode_bytes(bytes, svg))
+            .unwrap_or_else(|_| Err("its decoder failed".into()))
+    };
+    let at = svg
+        .then(|| std::str::from_utf8(bytes).ok())
+        .flatten()
+        .and_then(|text| ddi_noteskin::svg::check_svg(text).ok())
+        .map(|c| c.raster_size(svg_scale()));
+    let Some(at) = at else {
+        return decode();
+    };
+    let key = ImageKey {
+        hash: hash.to_string(),
+        at,
+    };
+    let now = crate::clock::now().0;
+    let kept = RECENT
+        .lock()
+        .ok()
+        .and_then(|mut r| r.get(owner, &key, now).cloned());
+    if let Some(kept) = kept {
+        return Ok(kept.as_ref().clone());
+    }
+    let (rgba, own) = decode()?;
+    let pixels = u64::from(rgba.size[0]) * u64::from(rgba.size[1]);
+    if let Ok(mut r) = RECENT.lock() {
+        r.insert(owner, key, Arc::new((rgba.clone(), own)), pixels, now);
+    }
+    Ok((rgba, own))
+}
+
+/// Lets [`RECENT`]'s images go once unused long enough: on a thread
+/// that checks as each would expire, until none is left.
+fn trim_later() {
+    if TRIMMING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let started = std::thread::Builder::new()
+        .name("ddi-noteskin-trim".into())
+        .spawn(|| {
+            loop {
+                std::thread::sleep(Duration::from_secs_f64(RECENT_SECONDS + 1.0));
+                let left = RECENT.lock().map_or(0, |mut r| {
+                    r.trim(crate::clock::now().0);
+                    r.len()
+                });
+                if left > 0 {
+                    continue;
+                }
+                TRIMMING.store(false, Ordering::Release);
+                // A load that ended meanwhile found it set: on for it.
+                let more = RECENT.lock().is_ok_and(|r| !r.is_empty());
+                if !more || TRIMMING.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+            }
+        });
+    if started.is_err() {
+        TRIMMING.store(false, Ordering::Release);
+    }
+}
+
+/// The skins being read: a second read of one waits for the first, then
+/// finds its drawings in [`RECENT`].
+static READING: LazyLock<(Mutex<HashMap<String, u32>>, Condvar)> = LazyLock::new(Default::default);
+
+/// How long a read waits for another of the same skin at most.
+const READ_WAIT: Duration = Duration::from_secs(15);
+
+/// A read of a skin under way ([`hold`]); dropped, the next may go.
+struct Holding(String);
+
+/// Waits for the reads of skin `key` under way to end (at most
+/// [`READ_WAIT`]: then it reads anyway), and holds it.
+fn hold(key: &str) -> Holding {
+    let (lock, done) = &*READING;
+    let deadline = std::time::Instant::now() + READ_WAIT;
+    if let Ok(mut reading) = lock.lock() {
+        while reading.get(key).is_some_and(|n| *n > 0) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match done.wait_timeout(reading, left) {
+                Ok((r, _)) => reading = r,
+                Err(_) => return Holding(key.to_string()),
+            }
+        }
+        *reading.entry(key.to_string()).or_default() += 1;
+    }
+    Holding(key.to_string())
+}
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        let (lock, done) = &*READING;
+        if let Ok(mut reading) = lock.lock()
+            && let Some(n) = reading.get_mut(&self.0)
+        {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                reading.remove(&self.0);
+            }
+        }
+        done.notify_all();
+        trim_later();
+    }
 }
 
 /// The pixels decoding the image at `path` keeps ([`decode_image`]'s
@@ -295,6 +445,7 @@ fn read_inner(
     skins: &[DiskSkin],
     record_failures: bool,
 ) -> Option<Read> {
+    let _holding = hold(key);
     let mut stored: Vec<DiskSkin> = skins.to_vec();
     // The chosen skin first; a bundled one's fallbacks only among the
     // bundled ones, a player's among the player's, then the bundled
@@ -480,6 +631,7 @@ impl Read {
             admitted.push((i, path, source, self.report.images.len() - 1));
         }
         let next = std::sync::atomic::AtomicUsize::new(0);
+        let owner = self.key.as_str();
         let threads = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
             .clamp(1, 8)
@@ -502,12 +654,9 @@ impl Read {
                                 .as_ref()
                                 .map(|b| ddi_noteskin::report::hash(b))
                                 .unwrap_or_default();
-                            // A decoder that panics on a broken file
-                            // fails that file only.
-                            let result = bytes.map_err(|e| e.to_string()).and_then(|b| {
-                                std::panic::catch_unwind(|| decode_bytes(&b, svg))
-                                    .unwrap_or_else(|_| Err("its decoder failed".into()))
-                            });
+                            let result = bytes
+                                .map_err(|e| e.to_string())
+                                .and_then(|b| decode_kept(owner, &hash, &b, svg));
                             out.push((n, hash, result));
                         }
                     })
@@ -704,7 +853,10 @@ impl Reading {
     ) -> Reading {
         Reading::spawn(crate::library::all_folders(), layout, wake, |skins| {
             test_delay();
-            ddi_shell::first_there(wants, &crate::library::noteskins::choices(skins))
+            Some(ddi_shell::first_there(
+                wants,
+                &crate::library::noteskins::choices(skins),
+            ))
         })
     }
 

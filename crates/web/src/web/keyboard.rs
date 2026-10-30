@@ -46,9 +46,6 @@ impl WebKeyboard {
                 let Some(event) = event.dyn_ref::<KeyboardEvent>() else {
                     return;
                 };
-                if !event.repeat() {
-                    ddi_ui::controller_hints::keyboard();
-                }
                 let code = event.code();
                 let mut s = shared.borrow_mut();
                 if s.capture.contains(&code) {

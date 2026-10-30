@@ -23,27 +23,17 @@ pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// smaller than this on any screen.
 pub const MAX_SIDE: u32 = 1280;
 
-struct Target {
-    size: [u32; 2],
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
 /// A renderer for one movie at a time and the texture it is drawn into.
 pub struct MoviePicture {
     renderer: Renderer,
-    target: Option<Target>,
-    /// Changes each time the texture is made again (the painter's image
-    /// is set again then).
-    generation: u64,
+    target: crate::gpu::PictureTarget,
 }
 
 impl MoviePicture {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> MoviePicture {
         MoviePicture {
             renderer: Renderer::new(device, queue, FORMAT, SkinBlending::Scene, &[]),
-            target: None,
-            generation: 0,
+            target: crate::gpu::PictureTarget::default(),
         }
     }
 
@@ -61,16 +51,16 @@ impl MoviePicture {
 
     /// The texture drawn into, once a frame was.
     pub fn texture(&self) -> Option<&wgpu::Texture> {
-        self.target.as_ref().map(|t| &t.texture)
+        self.target.texture()
     }
 
     pub fn generation(&self) -> u64 {
-        self.generation
+        self.target.generation()
     }
 
     /// Lets the texture go (nothing shows it any more).
     pub fn release(&mut self) {
-        self.target = None;
+        self.target.release();
     }
 
     /// Records movie `id` (from the renderer) as its latest frame shows it
@@ -86,35 +76,16 @@ impl MoviePicture {
             return;
         };
         let size = picture_size(width, height);
-        if self.target.as_ref().is_none_or(|t| t.size != size) {
-            let texture = crate::gpu::texture_2d(
-                device,
-                "ddi-movie-picture",
-                size,
-                FORMAT,
-                1,
-                // Read back by tests.
-                wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC,
-                &[],
-            );
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.target = Some(Target {
-                size,
-                texture,
-                view,
-            });
-            self.generation += 1;
-        }
-        let Some(target) = &self.target else {
+        self.target
+            .ensure(device, "ddi-movie-picture", size, FORMAT);
+        let Some(view) = self.target.view() else {
             return;
         };
         self.renderer.render_backdrop(
             device,
             queue,
             encoder,
-            &target.view,
+            view,
             size[0],
             size[1],
             Backdrop::image(id),

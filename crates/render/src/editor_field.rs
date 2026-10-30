@@ -65,23 +65,15 @@ pub struct FieldDraw<'a> {
     pub background: [f32; 4],
 }
 
-/// The texture drawn into.
-struct Target {
-    size: [u32; 2],
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
 /// The editor's field on one device.
 pub struct EditorField {
     renderer: Renderer,
     names: JudgeNames,
     noteskin: Option<NoteskinPlay>,
-    target: Option<Target>,
+    target: crate::gpu::PictureTarget,
     /// The skin was played to rest since it last ran.
     settled: bool,
     frames: u64,
-    generation: u64,
 }
 
 impl EditorField {
@@ -102,10 +94,9 @@ impl EditorField {
             renderer: Renderer::new(device, queue, FORMAT, blending, fonts),
             names: presets::itg().names,
             noteskin: None,
-            target: None,
+            target: crate::gpu::PictureTarget::default(),
             settled: false,
             frames: 0,
-            generation: 0,
         }
     }
 
@@ -120,13 +111,7 @@ impl EditorField {
         play: Option<NoteskinPlay>,
         upload: impl FnOnce(&mut Renderer, &mut NoteskinPlay),
     ) {
-        self.renderer.clear_noteskin_textures();
-        self.renderer.set_skins_drawn(device, queue, play.is_some());
-        self.noteskin = play.map(|mut p| {
-            p.set_srgb(self.renderer.skin_colors_linear());
-            upload(&mut self.renderer, &mut p);
-            p
-        });
+        self.noteskin = self.renderer.install_noteskin(device, queue, play, upload);
         self.settled = false;
     }
 
@@ -136,12 +121,12 @@ impl EditorField {
 
     /// The texture drawn into, once a frame was.
     pub fn texture(&self) -> Option<&wgpu::Texture> {
-        self.target.as_ref().map(|t| &t.texture)
+        self.target.texture()
     }
 
     /// Changes each time the texture is made again (a new size).
     pub fn generation(&self) -> u64 {
-        self.generation
+        self.target.generation()
     }
 
     pub fn frames(&self) -> u64 {
@@ -152,7 +137,7 @@ impl EditorField {
     /// it (the 2D pass's image taken away first); the next frame makes
     /// them again under a new [`EditorField::generation`].
     pub fn release_targets(&mut self) {
-        self.target = None;
+        self.target.release();
         self.renderer.release_targets();
     }
 
@@ -186,27 +171,7 @@ impl EditorField {
         d: &FieldDraw<'_>,
     ) {
         let size = [size[0].max(1), size[1].max(1)];
-        if self.target.as_ref().is_none_or(|t| t.size != size) {
-            let texture = crate::gpu::texture_2d(
-                device,
-                "ddi-editor-field",
-                size,
-                FORMAT,
-                1,
-                // Read back by tests.
-                wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC,
-                &[],
-            );
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.target = Some(Target {
-                size,
-                texture,
-                view,
-            });
-            self.generation += 1;
-        }
+        self.target.ensure(device, "ddi-editor-field", size, FORMAT);
         let reverse = d.geometry.direction < 0.0;
         let mut still;
         let frame = if d.running {
@@ -246,14 +211,14 @@ impl EditorField {
             }),
             ..RenderOptions::default()
         };
-        let Some(target) = &self.target else {
+        let Some(view) = self.target.view() else {
             return;
         };
         self.renderer.render(
             device,
             queue,
             encoder,
-            &target.view,
+            view,
             None,
             size[0],
             size[1],

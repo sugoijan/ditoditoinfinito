@@ -50,13 +50,13 @@ use crate::router::Route;
 use crate::settings::{Settings, VideoMode};
 use crate::songs::{LoadError, load_background, load_layer_image, load_song};
 use crate::web::audio::WebAudio;
-use crate::web::gamepad::Gamepads;
+use crate::web::gamepad::{Gamepads, PadNews};
 use crate::web::gfx::{BackendPreference, SurfaceMode};
 use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
 use ddi_ui::screens::prompt::{
-    PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep, SharedPrompt,
-    chart_line, mods_line,
+    Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep,
+    SharedPrompt,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 
@@ -603,6 +603,13 @@ impl Component for GameCanvas {
                     let Some(e) = event.dyn_ref::<KeyboardEvent>() else {
                         return;
                     };
+                    // The hints after the play follow what it was played
+                    // with.
+                    if !e.repeat() {
+                        crate::components::ui_dev::keep_source(
+                            ddi_ui::controller_hints::Source::Keyboard,
+                        );
+                    }
                     // The results take their own keys.
                     if e.repeat() || results.borrow().is_some() {
                         return;
@@ -620,13 +627,22 @@ impl Component for GameCanvas {
         if let Some(g) = &gamepads {
             let link = ctx.link().clone();
             let results = results_host.clone();
-            g.set_listener(Some(Box::new(move |edge| {
-                // The results take the pads while they show.
+            g.set_listener(Some(Box::new(move |news| {
+                // The prompt and the results take the pads while they show.
                 if let Some(host) = results.borrow().as_ref() {
-                    crate::components::ui_dev::pad_edge(host, edge);
+                    crate::components::ui_dev::pad_news(host, news);
                     return;
                 }
-                if let (ddi_platform::DeviceId::Gamepad(id), true) = (&edge.device, edge.pressed) {
+                if let PadNews::Edge(edge) = news
+                    && let (ddi_platform::DeviceId::Gamepad(id), true) =
+                        (&edge.device, edge.pressed)
+                {
+                    // The hints after the play follow what it was played
+                    // with.
+                    crate::components::ui_dev::keep_source(ddi_ui::controller_hints::Source::Pad {
+                        slot: edge.slot,
+                        id: id.clone(),
+                    });
                     link.send_message(Msg::PadPress(id.clone(), edge.control.clone()));
                 }
             })));
@@ -795,9 +811,6 @@ impl Component for GameCanvas {
         if ctx.props().backend == BackendPreference::WebGl2 {
             crate::web::screen::require_gl();
         }
-        // The built-in arrows draw no skin: on WebGL2 frames then go
-        // straight to the canvas (`Gfx::skin_blending`).
-        let skins = !self.settings.builtin_arrows();
         let video = self.settings.video;
         let frame = self.settings.background_frame;
         let slow = ctx.props().slow;
@@ -808,7 +821,7 @@ impl Component for GameCanvas {
                 // again since).
                 let canvas = crate::web::screen::canvas().unwrap_or(canvas);
                 gfx.resize(canvas.width(), canvas.height());
-                let mut game = Box::new(GameLoop::new(gfx, canvas, on_event, skins));
+                let mut game = Box::new(GameLoop::new(gfx, canvas, on_event));
                 game.set_video(video, frame, slow);
                 game
             });
@@ -2061,33 +2074,18 @@ impl GameCanvas {
         if self.replay.is_some() || ctx.props().auto {
             return None;
         }
-        let s = &self.settings;
-        // The devices probed (after Start's context on a direct route),
-        // else those seen last; none known: not calibrated, surely.
-        let ids = match &self.devices {
-            Some(d) => Some((d.audio.id.clone(), d.display.id.clone())),
-            None => s.last_devices(),
-        };
-        let Some((audio_id, display_id)) = ids else {
-            return Some(ddi_ui::screens::prompt::timing_hint(
-                &ddi_ui::state::history::timing::Verdict::Inconclusive { plays: 0, hits: 0 },
-                false,
-            ));
-        };
-        let audio = s.audio_profile(&audio_id);
-        let display = s.display_profile(&display_id);
-        let calibrated =
-            audio.is_some_and(|p| p.calibrated) && display.is_some_and(|p| p.calibrated);
-        let offset = audio.map_or(s.audio_offset, |p| p.offset);
+        // The devices probed (after Start's context on a direct route).
+        let ids = self
+            .devices
+            .as_ref()
+            .map(|d| (d.audio.id.clone(), d.display.id.clone()));
         let plays = crate::history::plays();
         let history = plays.history();
-        let verdict = ddi_ui::state::history::timing::timing_verdict(
-            &history,
-            &audio_id,
-            &display_id,
-            offset,
-        );
-        Some(ddi_ui::screens::prompt::timing_hint(&verdict, calibrated))
+        Some(ddi_ui::screens::prompt::timing_hint_for(
+            &self.settings,
+            ids,
+            Some(&history),
+        ))
     }
 
     /// The song the prompt names (once it is read), its chart and the
@@ -2095,67 +2093,47 @@ impl GameCanvas {
     fn prompt_info(&self, ctx: &Context<Self>) -> PromptInfo {
         let props = ctx.props();
         match (&self.song, &props.source) {
-            (Status::Ready(song), SongSource::Song { chart, .. }) => {
-                let c = song.song.charts.get(*chart);
-                let style = c
-                    .and_then(|c| song.song.layout_of(c))
-                    .map(|l| l.name.clone())
-                    .unwrap_or_default();
-                PromptInfo {
-                    title: song.title.clone(),
-                    artist: song.subtitle.clone(),
-                    chart: c
-                        .map(|c| chart_line(c.difficulty, c.meter, &style))
-                        .unwrap_or_default(),
-                    difficulty: c
-                        .map(|c| ddi_ui::screens::data::difficulty_name(c.difficulty).to_string())
-                        .unwrap_or_default(),
-                    mods: mods_line(&self.settings),
-                    badge: if self.replay.is_some() {
-                        "REPLAY".into()
-                    } else if props.auto {
-                        "AUTOPLAY".into()
-                    } else {
-                        String::new()
-                    },
-                    timing: self.timing_hint(ctx),
-                }
-            }
-            (Status::Ready(song), SongSource::Calibration(_)) => PromptInfo {
-                title: song.title.clone(),
-                artist: song.subtitle.clone(),
-                badge: if props.auto {
-                    "AUTOPLAY".into()
-                } else {
-                    String::new()
-                },
-                ..PromptInfo::default()
+            (Status::Ready(song), SongSource::Song { chart, .. }) => PromptInfo {
+                timing: self.timing_hint(ctx),
+                ..PromptInfo::for_chart(
+                    song.title.clone(),
+                    song.subtitle.clone(),
+                    PromptChart::of(&song.song, *chart),
+                    &self.settings,
+                    Badge::new(self.replay.is_some(), props.auto),
+                )
             },
+            (Status::Ready(song), SongSource::Calibration(_)) => PromptInfo::for_test(
+                song.title.clone(),
+                song.subtitle.clone(),
+                Badge::new(false, props.auto),
+            ),
             // Before the song is read, what song select showed of it (the
             // card laid out as it will be; `SongLoaded` takes over).
             (_, SongSource::Song { id, chart })
                 if self.replay.is_none()
                     && let Some((entry, layout)) = crate::songs::shown_chart(id, *chart) =>
             {
-                let c = entry.charts.iter().find(|c| c.index == *chart);
-                let difficulty = c.and_then(|c| ddi_chart::Difficulty::from_name(&c.difficulty));
+                let chart = entry
+                    .charts
+                    .iter()
+                    .find(|c| c.index == *chart)
+                    .and_then(|c| {
+                        Some(PromptChart {
+                            difficulty: ddi_chart::Difficulty::from_name(&c.difficulty)?,
+                            meter: c.meter,
+                            style: layout.name.clone(),
+                        })
+                    });
                 PromptInfo {
-                    title: entry.title.clone(),
-                    artist: entry.artist.clone(),
-                    chart: c
-                        .zip(difficulty)
-                        .map(|(c, d)| chart_line(d, c.meter, &layout.name))
-                        .unwrap_or_default(),
-                    difficulty: difficulty
-                        .map(|d| ddi_ui::screens::data::difficulty_name(d).to_string())
-                        .unwrap_or_default(),
-                    mods: mods_line(&self.settings),
-                    badge: if props.auto {
-                        "AUTOPLAY".into()
-                    } else {
-                        String::new()
-                    },
                     timing: self.timing_hint(ctx),
+                    ..PromptInfo::for_chart(
+                        entry.title.clone(),
+                        entry.artist.clone(),
+                        chart,
+                        &self.settings,
+                        Badge::new(false, props.auto),
+                    )
                 }
             }
             // Its name comes once it is read (`SongLoaded`).
@@ -2180,23 +2158,8 @@ impl GameCanvas {
             .filter(|(w, h)| *w > 0.0 && *h > 0.0)
             .unwrap_or((1280.0, 720.0));
         let filter = match (&self.song, &ctx.props().source) {
-            (Status::Ready(song), SongSource::Song { chart, .. })
-                if self.settings.field_filter > 0.0 =>
-            {
-                song.song
-                    .charts
-                    .get(*chart)
-                    .and_then(|c| song.song.layout_of(c))
-                    .filter(|l| !l.lanes.is_empty())
-                    .map(|layout| {
-                        let band = ddi_render::scene::filter_fraction(
-                            &layout,
-                            cw,
-                            ch,
-                            self.settings.reverse,
-                        );
-                        (band, self.settings.field_filter)
-                    })
+            (Status::Ready(song), SongSource::Song { chart, .. }) => {
+                ddi_shell::prompt_filter(&song.song, *chart, &self.settings, [cw, ch])
             }
             _ => None,
         };
@@ -2227,10 +2190,7 @@ impl GameCanvas {
         let act: PromptFn = Rc::new(move |choice, cx| shell.choose(choice, cx));
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
-        let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(PromptScreen::new(env, self.prompt_state.clone(), act));
         // What tests read: `__DDI_DEBUG.prompt` and `prompt_backdrop`.
         let state = self.prompt_state.clone();
@@ -2240,6 +2200,8 @@ impl GameCanvas {
         match crate::components::ui_dev::embed(&container, ui, theme, extra) {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
+                let pads = self.gamepads.as_ref().map(Gamepads::connected);
+                crate::components::ui_dev::hand_over(&e.host, pads.unwrap_or_default());
                 self.prompt = Some(e);
                 schedule(self.raf.clone(), self.game.clone(), GameLoop::idle);
             }
@@ -2644,10 +2606,7 @@ impl GameCanvas {
         let offset = ddi_ui::screens::play::song_offset_saver(id.clone());
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
-        let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(ResultsScreen::new(
             env.clone(),
             data.clone(),
@@ -2668,6 +2627,8 @@ impl GameCanvas {
         match crate::components::ui_dev::embed(&container, ui, theme, extra) {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
+                let pads = self.gamepads.as_ref().map(Gamepads::connected);
+                crate::components::ui_dev::hand_over(&e.host, pads.unwrap_or_default());
                 self.results = Some(e);
             }
             Err(e) => {
@@ -3315,35 +3276,14 @@ fn noteskin_ready(
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
-    let wants = ddi_shell::play_skins(settings, song, c, &layout, shift)?;
+    let wants = ddi_shell::play_skins(settings, song, c, &layout, shift);
     Some(async move {
         if let Some(ms) = test_skin_delay() {
             gloo::timers::future::TimeoutFuture::new(ms).await;
         }
-        // After the boot shell has faded and the preview's load of the
-        // prompt's diagram is done, where one runs (a direct play route:
-        // the shell waits for the diagram's skin; from song select the
-        // shell is long gone and the preview has it): the play's skin is
-        // needed at Start only, and two loads of one skin at once draw
-        // it twice, which the diagram pays for where the SVG workers
-        // are slow (Firefox).
-        let mut waited = false;
-        for _ in 0..150 {
-            let preview_loading = crate::field_preview::slot()
-                .borrow()
-                .as_ref()
-                .is_some_and(|f| f.skin_loading());
-            if crate::boot::revealed() && !preview_loading {
-                break;
-            }
-            waited = true;
-            gloo::timers::future::TimeoutFuture::new(100).await;
-        }
-        if waited {
-            // And the prompt's entrance: a load parses the skin's
-            // components on the main thread.
-            gloo::timers::future::TimeoutFuture::new(800).await;
-        }
+        // After the prompt's entrance, and after the preview's load of
+        // the same skin for the prompt's diagram where one runs (one load
+        // of a skin at a time), whose drawings it then takes.
         crate::noteskins::prepare_first(wants, &layout)
             .await
             .map(Box::new)

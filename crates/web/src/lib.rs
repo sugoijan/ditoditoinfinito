@@ -21,6 +21,7 @@ mod history;
 mod import;
 mod mods;
 mod movies;
+mod noteskin_cache;
 mod noteskins;
 mod play;
 mod preload;

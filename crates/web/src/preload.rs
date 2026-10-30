@@ -241,9 +241,7 @@ fn warm_preview(gfx: &Rc<Gfx>, controls: &Controls) {
 }
 
 fn now_ms() -> f64 {
-    web_sys::window()
-        .and_then(|w| w.performance())
-        .map_or(0.0, |p| p.now())
+    crate::web::clock::PerformanceClock::now_ms()
 }
 
 /// Each frame while the shell waits: the skin's unit, once the skin is

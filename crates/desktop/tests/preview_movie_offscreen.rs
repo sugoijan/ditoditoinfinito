@@ -178,7 +178,8 @@ fn the_preview_movie_plays_in_the_banners_place() {
     let frame = |ui: &mut ddi_ui::Ui, gpu: &mut Gpu| {
         songs.poll(ui);
         ui.update(1.0 / 60.0);
-        gpu.movie.follow(ui, &env, Some(&songs.feed));
+        gpu.movie
+            .follow(songs.select_shown.get(), &env, Some(&songs.feed));
         let pixels = gpu.draw_offscreen(ui, [1280, 720], format);
         std::thread::sleep(std::time::Duration::from_millis(16));
         pixels

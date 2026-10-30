@@ -38,7 +38,7 @@
 //! screen or stretch it over it; a folder loaded by another (`File=` a
 //! folder) is generic, at its parent's origin.
 
-use ddi_actor::commands::{parse, parse_legacy};
+use ddi_actor::commands::{parse, parse_legacy, run};
 use ddi_actor::{Actor, Blend, Clocks, Kind, Problems};
 
 use crate::build::{Builder, Images, Textures};
@@ -335,15 +335,6 @@ impl Layer {
 }
 
 /// Runs `commands` (StepMania 5's syntax, numbers only) on `a`.
-fn run(a: &mut Actor, commands: &str) {
-    let mut p = Problems::default();
-    if let Ok(calls) = parse(commands) {
-        for c in &calls {
-            let _ = a.call(c, &mut p, 0);
-        }
-    }
-}
-
 /// An ini value read as 3.9 reads a `bool` (`atoi` not 0).
 fn truth(v: &str) -> bool {
     string_to_int(v) != 0

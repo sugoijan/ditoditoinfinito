@@ -66,22 +66,25 @@ fn controller_art_and_pressed_states_reach_the_real_prompt() {
     ui.push(ddi_ui::screens::sample::select_screen(&env, None));
     ui.update(0.5);
     let controls = ddi_engine::ControlBindings::default();
-    hints::devices(vec![ddi_engine::ConnectedPad {
+    ui.set_pads(vec![ddi_engine::ConnectedPad {
         id: "Xbox Controller".into(),
         index: 0,
         standard: true,
         vendor_product: None,
     }]);
-    hints::pad_press(0);
+    ui.set_source(hints::Source::Pad {
+        slot: 0,
+        id: "Xbox Controller".into(),
+    });
     for (style, name) in [
         (Style::Xbox, "xbox"),
         (Style::PlayStation, "playstation"),
         (Style::Nintendo, "nintendo"),
         (Style::Generic, "generic"),
     ] {
-        hints::configure(
-            &controls,
-            &std::collections::BTreeMap::from([("Xbox Controller".into(), style)]),
+        ui.set_controls(
+            controls.clone(),
+            std::collections::BTreeMap::from([("Xbox Controller".into(), style)]),
         );
         ui.update(0.3);
         let bounds = ui
@@ -118,22 +121,25 @@ fn controller_art_and_pressed_states_reach_the_real_prompt() {
     }
 
     let controls = ddi_engine::ControlBindings::default();
-    hints::devices(vec![ddi_engine::ConnectedPad {
+    ui.set_pads(vec![ddi_engine::ConnectedPad {
         id: "Xbox Controller".into(),
         index: 0,
         standard: true,
         vendor_product: None,
     }]);
-    hints::pad_press(0);
+    ui.set_source(hints::Source::Pad {
+        slot: 0,
+        id: "Xbox Controller".into(),
+    });
     for (style, name, expected) in [
         (Style::Xbox, "xbox", ["LB", "LT", "RT", "RB"]),
         (Style::PlayStation, "playstation", ["L1", "L2", "R2", "R1"]),
         (Style::Nintendo, "nintendo", ["L", "ZL", "ZR", "R"]),
         (Style::Generic, "generic", ["LB", "LT", "RT", "RB"]),
     ] {
-        hints::configure(
-            &controls,
-            &std::collections::BTreeMap::from([("Xbox Controller".into(), style)]),
+        ui.set_controls(
+            controls.clone(),
+            std::collections::BTreeMap::from([("Xbox Controller".into(), style)]),
         );
         ui.update(0.0);
         assert_eq!(

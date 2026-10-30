@@ -1,7 +1,7 @@
 //! Bridge to the boot shell defined inline in `index.html`. All calls are
 //! best-effort: if the shell is missing (tests) they silently no-op.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use js_sys::{Function, Reflect};
 use wasm_bindgen::{JsCast, JsValue};
@@ -29,7 +29,14 @@ thread_local! {
     /// Part of a unit's weight in already (its files so far), for the
     /// bar: cleared when the unit is done ([`unit_partial`]).
     static PARTIAL: Cell<f64> = const { Cell::new(0.0) };
+    /// The first screens' entrance is over ([`entrance_over`]), and the
+    /// `resolve` functions of those waiting for it.
+    static ENTRANCE_OVER: Cell<bool> = const { Cell::new(false) };
+    static ENTRANCE_WAITING: RefCell<Vec<Function>> = const { RefCell::new(Vec::new()) };
 }
+
+/// The longest [`entrance_over`] waits, ms: the boot's own cap.
+const ENTRANCE_CAP_MS: u32 = 12_000;
 
 /// What a texture of the first screen is expected to take, ms (a fetch
 /// and a decode, several at once), and the screen's rest after.
@@ -150,6 +157,36 @@ pub(crate) fn ready() {
 /// come in now (`Ui::reveal`).
 pub(crate) fn revealed() -> bool {
     REVEALED.with(Cell::get)
+}
+
+/// Once the shell has faded and the screen under it has come in (a
+/// direct play route's prompt, its card's fade included): what would
+/// load on the main thread meanwhile (a play's skin, whose components
+/// are parsed there) waits for it. At once from song select, the shell
+/// long gone; at most [`ENTRANCE_CAP_MS`].
+pub(crate) async fn entrance_over() {
+    if ENTRANCE_OVER.with(Cell::get) {
+        return;
+    }
+    let first = ENTRANCE_WAITING.with_borrow(Vec::is_empty);
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        ENTRANCE_WAITING.with_borrow_mut(|w| w.push(resolve));
+    });
+    if first {
+        gloo::timers::callback::Timeout::new(ENTRANCE_CAP_MS, entrance_done).forget();
+    }
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+/// The first screens' entrance is over (`ui_dev`'s frame, once
+/// [`revealed`] and its screen is at rest): [`entrance_over`] resolves.
+pub(crate) fn entrance_done() {
+    if ENTRANCE_OVER.with(|o| o.replace(true)) {
+        return;
+    }
+    for resolve in ENTRANCE_WAITING.with_borrow_mut(std::mem::take) {
+        let _ = resolve.call0(&JsValue::NULL);
+    }
 }
 
 /// A UI host is coming (the play route's prompt, after its song loads):

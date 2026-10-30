@@ -110,7 +110,9 @@ shell waits for the prompt's skin and textures as for a page's (10 s
 for the skin rather than 4, as the diagram shows it from the first
 frame; the play's own skin load waits for the fade, the preview's load
 and the entrance, where it drew the same skin twice at once, 810
-drawings for 405, which Firefox's slower SVG workers paid for), and fades at once on a song that fails to
+drawings for 405, which Firefox's slower SVG workers paid for; since
+2026-10-30 it takes the preview's drawings instead,
+`docs/plans/shell-sharing.md`), and fades at once on a song that fails to
 load. The maintainer then saw the menu's entrance stutter at the fade,
 smooth between the screens: a 150 ms task landed on it, the skin warm
 `lib.rs` starts 1.5 s after boot loading the skin a second time and

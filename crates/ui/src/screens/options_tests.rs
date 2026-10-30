@@ -126,6 +126,7 @@ fn rig(size: [f32; 2], design: [f32; 2]) -> Rig {
     let data = model.borrow().data();
     let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Mirror);
     h.ui.set_design(design);
+    h.ui.set_pads(model.borrow().world.connected.clone());
     h.push(OptionsScreen::new(env, data, None).with_shell(shell, feed.clone()));
     h.run(0.3);
     Rig {
@@ -272,6 +273,14 @@ fn the_preview_is_told_once_and_again_when_it_moves() {
     assert_eq!(told(&r.h), 2);
     let big = r.state.borrow().preview.unwrap();
     assert!(big[2] > rect[2] * 2.0, "{big:?} {rect:?}");
+    // Covered by another screen (which may take the texture), then shown
+    // again: told once more.
+    r.h.push(super::tests::Cover);
+    r.h.run(0.3);
+    assert_eq!(told(&r.h), 2);
+    r.h.key("Enter", "Enter");
+    r.h.run(0.6);
+    assert_eq!(told(&r.h), 3);
 }
 
 #[test]
@@ -404,7 +413,7 @@ fn a_controller_is_bound_with_its_own_presses() {
     r.h.run(0.2);
     assert_eq!(r.top(), "bind");
     let edge = |control: &str, pressed: bool| {
-        UiEvent::Raw(RawInput {
+        UiEvent::Pad(RawInput {
             device: DeviceId::Gamepad("Pad".into()),
             control: control.into(),
             pressed,
@@ -438,6 +447,60 @@ fn a_controller_is_bound_with_its_own_presses() {
         pad.table("dance-single").unwrap()[0],
         vec!["button:14".to_string()]
     );
+}
+
+#[test]
+fn a_back_bound_works_in_the_menus_at_once() {
+    let mut r = rig([1280.0, 720.0], DESIGN);
+    r.h.pads(vec![ConnectedPad {
+        vendor_product: None,
+        id: "Pad".into(),
+        index: 0,
+        standard: true,
+    }]);
+    r.section("Controls");
+    r.row("pad.0");
+    r.h.key("Enter", "Enter");
+    r.h.run(0.2);
+    assert_eq!(r.top(), "bind");
+    let edge = |control: &str, pressed: bool| RawInput {
+        device: DeviceId::Gamepad("Pad".into()),
+        control: control.into(),
+        pressed,
+        host_time: HostTime(0.0),
+        slot: 0,
+    };
+    // The lanes, Start, then X (More by default) as Back.
+    for b in [
+        "button:14",
+        "button:13",
+        "button:12",
+        "button:15",
+        "button:9",
+        "button:2",
+    ] {
+        r.h.edge(edge("button:0", true));
+        r.h.edge(edge("button:0", false));
+        r.h.edge(edge(b, true));
+        r.h.edge(edge(b, false));
+    }
+    r.h.run(0.1);
+    assert!(r.state.borrow().status.starts_with("bind review"));
+    r.h.edge(edge("button:9", true));
+    r.h.edge(edge("button:9", false));
+    r.h.run(0.3);
+    assert_ne!(r.top(), "bind");
+    assert_eq!(
+        stored().controls.pad("Pad", true).unwrap().back.as_deref(),
+        Some("button:2")
+    );
+    assert_eq!(r.h.ui.hints().controls(), &stored().controls);
+    // X in Options now: Back, which leaves.
+    assert!(!r.logged("leave"));
+    r.h.edge(edge("button:2", true));
+    r.h.edge(edge("button:2", false));
+    r.h.run(0.3);
+    assert!(r.logged("leave Back"), "{:?}", r.fake.log.borrow());
 }
 
 #[test]
@@ -509,7 +572,7 @@ fn a_tap_on_a_section_opens_it() {
 fn a_controller_alone_gets_out_of_every_dialog() {
     let mut r = rig([1280.0, 720.0], DESIGN);
     let edge = |control: &str, pressed: bool| {
-        UiEvent::Raw(RawInput {
+        UiEvent::Pad(RawInput {
             device: DeviceId::Gamepad("Pad".into()),
             control: control.into(),
             pressed,
@@ -773,7 +836,7 @@ fn the_footer_calibrates_from_any_section() {
 fn a_controller_lane_takes_one_more_control_as_the_keyboard_does() {
     let mut r = rig([1280.0, 720.0], DESIGN);
     let edge = |control: &str, pressed: bool| {
-        UiEvent::Raw(RawInput {
+        UiEvent::Pad(RawInput {
             device: DeviceId::Gamepad("Pad".into()),
             control: control.into(),
             pressed,
@@ -1050,7 +1113,13 @@ fn the_shares_dialog_lists_copies_and_deletes() {
     // Open: in the game (the platform's), the dialog gone; no link opened.
     rig.h.tap(PointerKind::Mouse, "Open");
     rig.h.run(0.3);
-    assert!(rig.fake.log.borrow().iter().any(|l| l == "open share xyz12345"));
+    assert!(
+        rig.fake
+            .log
+            .borrow()
+            .iter()
+            .any(|l| l == "open share xyz12345")
+    );
     assert!(rig.h.requested(|r| matches!(r, UiRequest::OpenUrl(_))) == 0);
     assert!(rig.h.ui.layers().iter().all(|l| l.name != "shares"));
 }

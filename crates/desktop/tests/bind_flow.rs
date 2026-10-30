@@ -24,10 +24,11 @@ fn pump(input: &mut Input, h: &mut Harness, n: usize) -> usize {
     let mut got = 0;
     for _ in 0..400 {
         for edge in input.poll(&mut h.ui) {
-            if let Some(e) = input.route(&h.ui, edge) {
-                h.send(e);
-                got += 1;
-            }
+            // The UI knows the pad before its edges.
+            assert!(!h.ui.hints().pads().is_empty());
+            let e = input.route(&h.ui, edge);
+            h.send(e);
+            got += 1;
         }
         if got >= n {
             break;

@@ -41,6 +41,17 @@ pub const CANCEL_HINT: f64 = 1.5;
 pub const TOUCH_CANCEL_HINT: &str = "hold or double-tap the quit button";
 /// The control the touch lanes' quit button sends.
 pub const TOUCH_CANCEL_CONTROL: &str = "cancel";
+/// How long a play's quit button stays after the pointer moved over the
+/// play, seconds ([`quit_shown`]).
+pub const QUIT_LINGER: f64 = 2.0;
+
+/// Whether a play's quit button shows, on both shells: throughout on a
+/// touch screen (`touch`), else for [`QUIT_LINGER`] after the pointer
+/// moved over the play (`since_pointer` seconds ago; `None`: it has
+/// not). Keys and pads leave it as it is.
+pub fn quit_shown(touch: bool, since_pointer: Option<f64>) -> bool {
+    touch || since_pointer.is_some_and(|s| s < QUIT_LINGER)
+}
 
 /// Seconds over which the music stops at a work's `endFrame` (a ramp, not
 /// a click).
@@ -212,10 +223,12 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// ends ([`Settings::keep_cover_heights`]): none for a replay or a
     /// calibration.
     keep_cover: bool,
-    /// Pads `(Gamepad.id, Gamepad.index)` the bindings were resolved with.
-    /// A pad first seen during play (browsers reveal a pad only once a
-    /// button is pressed) makes the session resolve them again.
-    known_pads: Vec<(String, u32)>,
+    /// The pads the bindings were resolved with. A pad first seen during
+    /// play (browsers reveal a pad only once a button is pressed) makes
+    /// the session resolve them again.
+    known_pads: Vec<ConnectedPad>,
+    /// The controller styles the player chose, for the quit hint.
+    styles: std::collections::BTreeMap<String, ddi_ui::controller_hints::Style>,
     /// The saved bindings the play started with.
     controls: ControlBindings,
     held: Vec<bool>,
@@ -407,8 +420,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let connected = inputs.connected_pads();
         let controls = settings.controls.clone();
         let bindings = play_bindings(&controls, &layout, &connected);
-        let known_pads: Vec<(String, u32)> =
-            connected.iter().map(|c| (c.id.clone(), c.index)).collect();
+        let known_pads = connected.clone();
         let (pad_cancel, pad_start) = pad_controls(&controls, &connected);
         let via_pad = (auto_play && config.auto_pad).then(|| {
             (0..layout.lanes.len() as u8)
@@ -559,6 +571,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             cover: CoverControl::new(config.reverse),
             keep_cover: config.replay.is_none() && config.calibration.is_none(),
             known_pads,
+            styles: settings.controller_styles.clone(),
             controls,
             held: vec![false; lanes],
             raw: Vec::new(),
@@ -657,7 +670,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 && !self
                     .known_pads
                     .iter()
-                    .any(|(k, slot)| k == id && *slot == raw.slot)
+                    .any(|p| p.id == *id && p.index == raw.slot)
             {
                 self.adopt_pads();
             }
@@ -674,7 +687,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     self.cancel_held = true;
                     self.view.cancel_hint = match raw.device {
                         DeviceId::Touch => TOUCH_CANCEL_HINT,
-                        DeviceId::Gamepad(_) => ddi_ui::controller_hints::quit_hint(&raw),
+                        DeviceId::Gamepad(_) => ddi_ui::controller_hints::quit_hint(
+                            &raw,
+                            &self.known_pads,
+                            &self.styles,
+                        ),
                         _ => "",
                     };
                 } else {
@@ -1006,7 +1023,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 }
             }
         }
-        self.known_pads = connected.into_iter().map(|c| (c.id, c.index)).collect();
+        self.known_pads = connected;
     }
 
     /// Escape/Backspace, a pad's Back control, or the touch quit button.

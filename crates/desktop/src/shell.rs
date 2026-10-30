@@ -296,6 +296,8 @@ impl Shell {
         } else {
             let shared = SharedWidgets::default();
             let mut ui = Ui::new(dev::DESIGN, TextMode::Own, false);
+            let settings = ddi_ui::state::settings::Settings::load();
+            ui.set_controls(settings.controls, settings.controller_styles);
             ui.push(DevScreen::with_widgets(
                 dev.clone(),
                 shared.clone(),
@@ -855,7 +857,8 @@ impl Shell {
         } else {
             if let Some(env) = &env {
                 let feed = self.songs.as_ref().map(|songs| &songs.feed);
-                s.gpu.movie.follow(&self.ui, env, feed);
+                let shown = self.songs.as_ref().is_some_and(|s| s.select_shown.get());
+                s.gpu.movie.follow(shown, env, feed);
             }
             s.gpu.draw(&mut self.ui, &view, size);
         }
@@ -958,8 +961,6 @@ impl Shell {
         }
     }
 
-    /// The mouse pointer hidden on a key's or a pad's press, shown again
-    /// when the mouse moves.
     /// The pointer moved over a play: its quit button shows a moment.
     fn pointer_over_play(&mut self) {
         if self.play.playing() {
@@ -1036,11 +1037,9 @@ impl Shell {
         }
     }
 
+    /// The mouse pointer hidden on a key's or a pad's press, shown again
+    /// when the mouse moves (the quit button keeps its moment).
     fn hide_pointer(&mut self, hide: bool) {
-        if hide && self.play.playing() {
-            // A key or a pad: the quit button goes with the pointer.
-            self.play.feed.borrow_mut().pointer_at = None;
-        }
         if self.pointer_hidden == hide {
             return;
         }
@@ -1368,8 +1367,12 @@ impl ApplicationHandler for Shell {
                     self.hide_pointer(true);
                 }
                 // A play's keys are its own (`crate::play`): not the
-                // menus' under it.
+                // menus' under it, which still show what was played with.
                 if self.play.playing() {
+                    if down && !event.repeat {
+                        self.ui
+                            .set_source(ddi_ui::controller_hints::Source::Keyboard);
+                    }
                     return;
                 }
                 // Whether a field was typed into before this key: a key
@@ -1494,8 +1497,18 @@ impl ApplicationHandler for Shell {
                 self.hide_pointer(true);
             }
             if playing {
+                // The results show what was played with.
+                if edge.pressed
+                    && let ddi_platform::DeviceId::Gamepad(id) = &edge.device
+                {
+                    self.ui.set_source(ddi_ui::controller_hints::Source::Pad {
+                        slot: edge.slot,
+                        id: id.clone(),
+                    });
+                }
                 self.play.feed.borrow_mut().edges.push(edge);
-            } else if let Some(e) = self.input.route(&self.ui, edge) {
+            } else {
+                let e = self.input.route(&self.ui, edge);
                 self.send(e);
             }
         }
@@ -1506,34 +1519,8 @@ impl ApplicationHandler for Shell {
         {
             s.gpu.field.set_settings(&settings);
         }
-        // Back on song select after a play (its results and prompt gone):
-        // the selected song's preview plays again.
-        if !self.quitting
-            && self.sound.borrow().paused()
-            && !self.play.playing()
-            && self
-                .ui
-                .layers()
-                .last()
-                .is_some_and(|l| l.name == "select" && l.phase != "out")
-        {
-            if let Some((env, _)) = &self.theme {
-                let id = env.state.borrow().song_id.clone();
-                if !id.is_empty() {
-                    self.sound.borrow_mut().select(Some(&id));
-                }
-            }
-            self.sound.borrow_mut().resume();
-        }
-        // Sound moves on (a preview settled, decoded, looped); a preview
-        // that started draws a frame, so the pulse starts.
-        let (wake, started) = {
-            let mut p = self.sound.borrow_mut();
-            (p.tick(), p.take_started())
-        };
-        if started {
-            self.ui.broadcast(Message::new("PreviewStarted"));
-        }
+        // Sound moves on (a preview settled, decoded, looped).
+        let wake = self.sound.borrow_mut().tick();
         if let Some(limit) = self.quit_after {
             if self.start.elapsed().as_secs_f64() >= limit {
                 self.request_quit();
@@ -1624,15 +1611,13 @@ pub fn theme_ui(first: &str, fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infin
     theme_ui_with(first, fold, None)
 }
 
-/// [`theme_ui`]; with `sound`, song select's previews play and its pulse
-/// follows them (the made-up songs, which have no music, pulse by their
-/// BPM).
+/// [`theme_ui`]; with `sound`, song select's previews play.
 pub fn theme_ui_with(
     first: &str,
     fold: FoldFn,
     sound: Option<SharedPlayer>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
-    let (mut ui, env, look) = theme_base(fold, sound.as_ref().map(|p| preview_beat(p.clone())));
+    let (mut ui, env, look) = theme_base(fold);
     let changed = sample::motion_change(&env, || false);
     let select = match &sound {
         Some(sound) => sample_select(&env, sound.clone()),
@@ -1657,20 +1642,14 @@ pub fn theme_ui_with(
 }
 
 /// The theme's song select on the library on disk (`first`: `select`,
-/// or `options` over it), its previews and pulse from `sound`.
+/// or `options` over it), its previews from `sound`.
 pub fn library_ui(
     first: &str,
     fold: FoldFn,
     sound: SharedPlayer,
     songs: &Rc<crate::songs::Songs>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
-    // The pulse follows a preview as heard, else the song's BPM.
-    let beat: theme_screens::BeatFn = {
-        let player = sound.clone();
-        let by_bpm = theme_screens::bpm_beat();
-        Rc::new(move |id, t, bpm| player.borrow().beat(id).or_else(|| by_bpm(id, t, bpm)))
-    };
-    let (mut ui, env, look) = theme_base(fold, Some(beat));
+    let (mut ui, env, look) = theme_base(fold);
     ui.push(title_screen(&env, sound.clone(), Some(songs.clone())));
     if first != "start" && first != "options" {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
@@ -1691,37 +1670,19 @@ pub fn library_ui(
     (ui, env, look)
 }
 
-/// The theme's look, its environment (`beat` its pulse, when given;
-/// motion reduced as the settings say) and a UI for its screens.
-fn theme_base(
-    fold: FoldFn,
-    beat: Option<theme_screens::BeatFn>,
-) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
+/// The theme's look, its environment (motion reduced as the settings
+/// say) and a UI for its screens.
+fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let look = Rc::new(ddi_theme::Infinito::new());
-    let mut env = ThemeEnv::new(look.clone(), fold);
-    if let Some(beat) = beat {
-        env.beat = beat;
-    }
+    let env = ThemeEnv::new(look.clone(), fold);
     let settings = ddi_ui::state::settings::Settings::load();
     env.follow_motion(settings.reduced_motion, false);
     env.follow_cursor(&settings);
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
     ui.set_focus_ring(false);
+    // The menus' controller bindings (Options gives the UI its edits).
+    ui.set_controls(settings.controls, settings.controller_styles);
     (ui, env, look)
-}
-
-/// The beat as the preview is heard; by the BPM for songs without music.
-fn preview_beat(player: SharedPlayer) -> theme_screens::BeatFn {
-    let with_music: std::collections::HashSet<String> =
-        sample::bundled().into_iter().map(|s| s.id).collect();
-    let by_bpm = theme_screens::bpm_beat();
-    Rc::new(move |id, t, bpm| {
-        if with_music.contains(id) {
-            player.borrow().beat(id)
-        } else {
-            by_bpm(id, t, bpm)
-        }
-    })
 }
 
 /// Skins' SVGs drawn for the window's display (moved to another, the next
@@ -1790,6 +1751,8 @@ fn sample_select(env: &ThemeEnv, sound: SharedPlayer) -> theme_screens::select::
     let calls: ShellFn = Rc::new(move |call, cx| match call {
         SelectCall::Selected { song, .. } => sound.borrow_mut().select(song.as_deref()),
         SelectCall::Volume(volume) => sound.borrow_mut().set_volume(volume),
+        SelectCall::Shown(true) => sound.borrow_mut().resume(),
+        SelectCall::Shown(false) => sound.borrow_mut().pause(),
         SelectCall::Leave => {
             sound.borrow_mut().pause();
             cx.close(true);

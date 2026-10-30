@@ -11,8 +11,8 @@
 //! play history's export and import (a hidden file input the screen's
 //! Import clicks inside the press, or an export dropped on the page),
 //! removing imported songs and noteskins. The
-//! bind dialog takes controllers' presses as they are (`ui_dev::pad_edge`
-//! sends them raw while it is open).
+//! bind dialog takes controllers' presses as they are (the UI core hands
+//! a pad's edges on raw while it is open).
 //!
 //! `window.__DDI_DEBUG.options` says what the page knows (the sample,
 //! the noteskins, the controllers); `__DDI_DEBUG.ui.theme` what the
@@ -30,7 +30,7 @@ use ddi_ui::screens::Env as ThemeEnv;
 use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
 use ddi_ui::screens::options_model::{OptionsModel, Reset, Sample, World};
 use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform, SHARES_CHANGED, SharesFeed};
-use ddi_ui::{Cx, TextMode, Ui, UiRequest};
+use ddi_ui::{Cx, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::Interval;
 use wasm_bindgen::JsCast;
@@ -400,10 +400,7 @@ impl OptionsPage {
         let screen = OptionsScreen::new(env, data, None)
             .with_position(crate::router::saved_options())
             .with_shell(shell, self.shared.feed.clone());
-        let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(screen);
         let extra: ui_dev::DebugFn = {
             let shared = self.shared.clone();

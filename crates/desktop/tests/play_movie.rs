@@ -197,7 +197,6 @@ fn play_movies(
     });
     let (device, queue) = gpu::device(adapter).unwrap();
     let settings = Settings {
-        noteskin: Some("builtin".into()),
         ..Settings::default()
     };
     let mut view = View::new(

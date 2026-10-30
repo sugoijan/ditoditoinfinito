@@ -541,7 +541,16 @@ window follow):
   the screen over it leaves; a `Navigate` or `Back` request leaves the
   current screen first and goes out once it has (`out`, the layer kept
   as it ended for the shell to act); the shell's own `Ui::push` is
-  immediate.
+  immediate. A screen takes input as soon as it starts coming in; one
+  leaving, covering or covered takes none (2026-10-30,
+  `ui-core-mechanics.md`). A screen is told when another covers it or it
+  starts leaving, and when it shows again (`Screen::shown`; dialogs and
+  popups cover nothing): song select tells its shell (`SelectCall::Shown`),
+  which plays or stops its preview, and a desktop play covers it with a
+  stand-in screen while it runs. The hover under a still mouse is picked
+  again only when something changed or moves (`Screen::moving` for
+  contents a screen moves by hand), the cursor worked out only for a new
+  hover; a debug build reports a hover that moved with nothing said.
 - **Messages (P7)** play `<Name>MessageCommand` through the actors'
   commands, as noteskins' Lua does, and reach screens with parameters.
 - **Text field (P5).** Mirror mode re-reads the textarea (UTF-16 offsets,
@@ -1293,8 +1302,9 @@ Done, 6.3 options (2026-10-16):
   the controller's Start) saves, Escape cancels. It takes keys and
   controls as they are: a screen that says so (`Screen::raw_input`)
   gets `Input::Raw` for every key (none with Ctrl, Alt or Meta, no
-  function keys), and the shell sends controllers' edges as
-  `UiEvent::Raw` while `Ui::wants_raw` (`ui_dev::pad_edge`).
+  function keys), and controllers' edges (`UiEvent::Pad`) as `Input::Raw`
+  while `Ui::wants_raw` (the UI decides per edge since 2026-10-30,
+  `controller-input-core.md`).
 - **Resets** (settings; imported songs, noteskins and shared images;
   everything) and removing an imported noteskin ask first in a dialog
   whose first button keeps everything. **The volume sample** starts

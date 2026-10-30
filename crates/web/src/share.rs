@@ -90,9 +90,7 @@ impl ShareError {
     /// What the page says: one line for a link that is gone either way.
     pub(crate) fn message(&self) -> String {
         match self {
-            ShareError::Missing | ShareError::Expired => {
-                "This link doesn't exist or has expired.".into()
-            }
+            ShareError::Missing | ShareError::Expired => ddi_library::share::GONE.into(),
             ShareError::Other(e) => format!("The shared songs could not be loaded: {e}"),
         }
     }
@@ -120,23 +118,9 @@ pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
         && let Some(song) = s.songs.get(n)
         && let Some(f) = song.files.iter().find(|f| f.path == path)
     {
-        return Some(resolve(&f.url));
+        return Some(ddi_library::share::resolve_url(&base(), &f.url));
     }
-    let encoded: Vec<String> = path
-        .split('/')
-        .map(|p| String::from(js_sys::encode_uri_component(p)))
-        .collect();
-    Some(format!("{}/s/{share}/f/{n}/{}", base(), encoded.join("/")))
-}
-
-/// A listed URL as fetched: an absolute one as it is, a relative one
-/// under the API's base.
-fn resolve(url: &str) -> String {
-    if url.contains("://") {
-        url.to_string()
-    } else {
-        format!("{}/{}", base(), url.trim_start_matches('/'))
-    }
+    Some(ddi_library::share::file_url(&base(), share, n, path))
 }
 
 /// The size the share lists for file `path` of the shared song
@@ -330,7 +314,7 @@ async fn upload_inner(
     tell: &dyn Fn(&ShareView),
 ) -> Result<String, String> {
     if token.is_empty() {
-        return Err("Set the upload token under Options → Sharing first.".into());
+        return Err(ddi_library::share::NO_TOKEN.into());
     }
     if ids.is_empty() {
         return Err("Nothing to share.".into());
@@ -403,11 +387,7 @@ async fn upload_inner(
     let id = created.id;
     for (n, files) in blobs.into_iter().enumerate() {
         for (path, blob) in files {
-            let encoded: Vec<String> = path
-                .split('/')
-                .map(|p| String::from(js_sys::encode_uri_component(p)))
-                .collect();
-            let url = format!("{base}/s/{id}/f/{n}/{}", encoded.join("/"));
+            let url = ddi_library::share::file_url(&base, &id, n, &path);
             put(&url, token, &blob)
                 .await
                 .map_err(|e| format!("{path}: {e}"))?;
@@ -446,19 +426,17 @@ async fn put(url: &str, token: &str, blob: &web_sys::Blob) -> Result<(), String>
 
 /// A response that is not a success, as an error.
 fn checked(r: gloo::net::http::Response) -> Result<gloo::net::http::Response, String> {
-    match r.status() {
-        401 | 403 => Err("the upload token was refused".into()),
-        413 => Err("too large to share (2 GB a share, 512 MB a file, 200 songs)".into()),
-        s if !r.ok() => Err(format!("HTTP {s}")),
-        _ => Ok(r),
+    if r.ok() {
+        Ok(r)
+    } else {
+        Err(ddi_library::share::refusal(r.status(), None))
     }
 }
 
 /// The shares the token may see (`GET <base>/s`), each with its link.
 pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
-    use ddi_ui::screens::data::{ShareRow, SharesState, SharesView};
     if token.is_empty() {
-        return Err("Set the upload token under Options → Sharing first.".into());
+        return Err(ddi_library::share::NO_TOKEN.into());
     }
     let resp = gloo::net::http::Request::get(&format!("{}/s", base()))
         .header("Authorization", &format!("Bearer {token}"))
@@ -468,19 +446,9 @@ pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesVie
         .and_then(checked)?;
     let listing: ddi_library::share::ShareListing =
         resp.json().await.map_err(|e| format!("the shares: {e}"))?;
-    Ok(SharesView {
-        state: SharesState::Ready,
-        admin: listing.role == "admin",
-        shares: listing
-            .shares
-            .into_iter()
-            .map(|summary| ShareRow {
-                link: link(&summary.id),
-                summary,
-            })
-            .collect(),
-        error: String::new(),
-    })
+    Ok(ddi_ui::screens::data::SharesView::from_listing(
+        listing, link,
+    ))
 }
 
 /// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).
@@ -524,15 +492,7 @@ pub(crate) fn download_line() -> Option<String> {
         }
         let done: f64 = d.iter().map(|(_, b, _)| b).sum();
         let total: f64 = d.iter().map(|(_, _, t)| t).sum();
-        Some(if total > 0.0 {
-            format!(
-                "downloading the song… {:.1} of {:.1} MB",
-                done / 1e6,
-                total / 1e6
-            )
-        } else {
-            format!("downloading the song… {:.1} MB", done / 1e6)
-        })
+        Some(ddi_library::share::download_line(done, total))
     })
 }
 

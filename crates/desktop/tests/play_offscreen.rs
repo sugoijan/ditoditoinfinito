@@ -206,13 +206,6 @@ fn a_play_draws_its_field_skin_and_background() {
             },
             "Delta",
         ),
-        (
-            Settings {
-                noteskin: Some("builtin".into()),
-                ..Settings::default()
-            },
-            "built-in",
-        ),
         (quiet, "Infinito"),
         (
             infinito("ReceptorFill", ParamValue::Bool(false)),
@@ -248,10 +241,7 @@ fn a_plain_surface_draws_the_same_play() {
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let g = Gpu { device, queue };
-    let settings = Settings {
-        noteskin: Some("builtin".into()),
-        ..Settings::default()
-    };
+    let settings = Settings::default();
     let (viewed, _) = frames(&g, &settings, "beatucada", 0, 12.0, true);
     let (plain, _) = frames(&g, &settings, "beatucada", 0, 12.0, false);
     keep(&plain, "plain-surface");
@@ -267,10 +257,9 @@ fn a_plain_surface_draws_the_same_play() {
     assert!(field > 2000, "receptors {field}");
 }
 
-/// Lane covers (Hidden+ and Sudden+, 30% each) over a skin's notes and
-/// the built-in ones: the panels hide every note under them in one flat
-/// color, the receptors above them and the window between them still
-/// show.
+/// Lane covers (Hidden+ and Sudden+, 30% each) over two skins' notes:
+/// the panels hide every note under them in one flat color, the
+/// receptors above them and the window between them still show.
 #[test]
 fn lane_covers_hide_the_notes_under_them() {
     use ddi_engine::cover::{CoverMode, LaneCover};
@@ -282,7 +271,7 @@ fn lane_covers_hide_the_notes_under_them() {
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let g = Gpu { device, queue };
-    for skin in [None, Some("builtin")] {
+    for skin in [None, Some("bundled:dance/delta")] {
         let mut plain = Settings {
             noteskin: skin.map(str::to_string),
             ..Settings::default()

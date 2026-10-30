@@ -99,135 +99,9 @@ pub struct PartMetrics {
     pub vivid_rounded: bool,
 }
 
-/// Opt-in continuous material over alpha masks for a hold's parts.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HoldMaterial {
-    pub pitch: f32,
-    pub period: f32,
-    pub angle: f32,
-    pub phase: f32,
-    pub speed: f32,
-    pub wave: [f32; 3],
-    pub colors: [[f32; 3]; 3],
-}
-
-/// Metric `text` as a number from `lo` to `hi`, `default` when it is none.
-fn bounded(text: &str, default: f32, lo: f32, hi: f32) -> f32 {
-    text.parse::<f32>()
-        .ok()
-        .filter(|v| v.is_finite())
-        .unwrap_or(default)
-        .clamp(lo, hi)
-}
-
-impl HoldMaterial {
-    fn read(value: impl Fn(&str) -> String) -> Option<Self> {
-        (string_to_int(&value("HoldStencilMaterial")) != 0).then(|| Self::params("Hold", value))
-    }
-
-    /// The material's parameters, `<prefix>MaterialPitch` and the rest.
-    fn params(prefix: &str, value: impl Fn(&str) -> String) -> Self {
-        let number = |key: &str, default: f32, lo: f32, hi: f32| {
-            bounded(&value(&format!("{prefix}Material{key}")), default, lo, hi)
-        };
-        let color = |key: &str, default: [f32; 3]| {
-            let text = value(&format!("{prefix}Material{key}"));
-            let text = text.trim().strip_prefix('#').unwrap_or("");
-            if text.len() != 6 || !text.is_ascii() {
-                return default;
-            }
-            let mut rgb = [0.0; 3];
-            for (i, v) in rgb.iter_mut().enumerate() {
-                let Ok(n) = u8::from_str_radix(&text[i * 2..i * 2 + 2], 16) else {
-                    return default;
-                };
-                *v = n as f32 / 255.0;
-            }
-            rgb
-        };
-        Self {
-            pitch: number("Pitch", 16.0, 4.0, 64.0),
-            period: number("Period", 128.0, 16.0, 2048.0),
-            angle: number("Angle", 0.0, -180.0, 180.0).to_radians(),
-            phase: number("Phase", 0.0, -100.0, 100.0),
-            speed: number("Speed", 0.0, -4.0, 4.0),
-            wave: [
-                number("Wave", 0.0, 0.0, 128.0),
-                number("WaveWidth", 128.0, 16.0, 2048.0),
-                number("WaveLength", 128.0, 16.0, 2048.0),
-            ],
-            colors: [
-                color("Green", [0.2, 0.7, 0.2]),
-                color("Lime", [0.4, 0.9, 0.2]),
-                color("Highlight", [0.9, 1.0, 0.4]),
-            ],
-        }
-    }
-}
-
-/// Optional continuous roll material plus the repeated-charge pulse envelope.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RollMaterial {
-    pub material: HoldMaterial,
-    pub duty: f32,
-    pub rest: f32,
-    pub brightness: f32,
-}
-impl RollMaterial {
-    fn read(value: impl Fn(&str) -> String) -> Option<Self> {
-        if string_to_int(&value("RollStencilMaterial")) == 0 {
-            return None;
-        }
-        let material = HoldMaterial::params("Roll", &value);
-        let number = |key: &str, default, lo, hi| bounded(&value(key), default, lo, hi);
-        Some(Self {
-            material,
-            duty: number("RollPulseDuty", 0.25, 0.01, 1.0),
-            rest: number("RollPulseRest", 0.08, 0.0, 1.0),
-            brightness: number("RollPulseBrightness", 0.85, 0.0, 1.0),
-        })
-    }
-    pub fn opacity(self, phase: f32) -> f32 {
-        let pulse = (1.0 - phase.rem_euclid(1.0) / self.duty)
-            .max(0.0)
-            .powf(0.65);
-        self.rest + (self.brightness - self.rest) * pulse
-    }
-}
-
-/// Opt-in lift trails leading their lifts, in the hold material.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LiftMaterial {
-    pub material: HoldMaterial,
-    pub seconds: f32,
-    pub fade: f32,
-    pub opacity: f32,
-    pub white: f32,
-}
-
-impl LiftMaterial {
-    fn read(value: impl Fn(&str) -> String) -> Option<Self> {
-        if string_to_int(&value("LiftStencilMaterial")) == 0 {
-            return None;
-        }
-        let material = HoldMaterial::params("Hold", &value);
-        let number = |key: &str, default, lo, hi| bounded(&value(key), default, lo, hi);
-        Some(Self {
-            material,
-            seconds: number("LiftPreparationSeconds", 0.28, 0.05, 2.0),
-            fade: number("LiftTrailFade", 2.0, 0.1, 8.0),
-            opacity: number("LiftTrailOpacity", 1.0, 0.0, 1.0),
-            white: number("LiftBandWhite", 0.7, 0.0, 1.0),
-        })
-    }
-}
-
 /// The `[NoteDisplay]` metrics of one button.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NoteDisplay {
-    pub lift_material: Option<LiftMaterial>,
-    pub hold_material: Option<HoldMaterial>,
-    pub roll_material: Option<RollMaterial>,
     pub parts: [PartMetrics; 9],
     pub animation_is_beat_based: bool,
     /// Opt-in roll body/cap cycle as a fraction of the active roll timing window.
@@ -290,9 +164,6 @@ impl NoteDisplay {
             }
         };
         NoteDisplay {
-            lift_material: LiftMaterial::read(|key| s(key).to_owned()),
-            hold_material: HoldMaterial::read(|key| s(key).to_owned()),
-            roll_material: RollMaterial::read(|key| s(key).to_owned()),
             parts: Part::ALL.map(part),
             animation_is_beat_based: b("AnimationIsBeatBased"),
             roll_animation_timing_window_ratio: {
@@ -357,9 +228,6 @@ impl NoteDisplay {
         };
         let hold_head = b("DrawHoldHeadForTapsOnSameRow");
         NoteDisplay {
-            lift_material: None,
-            hold_material: None,
-            roll_material: None,
             parts: Part::ALL.map(part),
             animation_is_beat_based: true,
             roll_animation_timing_window_ratio: 0.0,
@@ -437,66 +305,6 @@ mod tests {
         let m = NoteDisplay::read(&peters, "Center");
         assert_eq!(m.part(Part::TapNote).color_spacing, [0.0625, 0.0]);
         assert!(!m.part(Part::TapNote).animation_on_children);
-    }
-
-    #[test]
-    fn roll_material_is_opt_in_and_pulse_is_bounded() {
-        assert!(RollMaterial::read(|_| String::new()).is_none());
-        let r = RollMaterial::read(|key| {
-            match key {
-                "RollStencilMaterial" => "1",
-                "RollMaterialPitch" => "25",
-                "RollMaterialGreen" => "#3b18ee",
-                "RollPulseDuty" => "NaN",
-                "RollPulseRest" => "-1",
-                "RollPulseBrightness" => "10",
-                _ => "",
-            }
-            .to_string()
-        })
-        .unwrap();
-        assert_eq!(r.material.pitch, 25.0);
-        assert_eq!(r.duty, 0.25);
-        assert_eq!(r.opacity(0.0), 1.0);
-        assert_eq!(r.opacity(0.25), 0.0);
-        assert!((r.opacity(0.1) - r.opacity(1.1)).abs() < 1e-5);
-    }
-
-    #[test]
-    fn lift_material_is_opt_in_and_rejects_nonfinite_values() {
-        assert!(LiftMaterial::read(|_| String::new()).is_none());
-        let lift = LiftMaterial::read(|key| {
-            match key {
-                "LiftStencilMaterial" => "1",
-                "LiftPreparationSeconds" => "NaN",
-                "LiftTrailFade" => "-3",
-                "LiftBandWhite" => "2",
-                _ => "",
-            }
-            .to_owned()
-        })
-        .unwrap();
-        assert_eq!(lift.seconds, 0.28);
-        assert_eq!(lift.fade, 0.1);
-        assert_eq!(lift.white, 1.0);
-    }
-
-    #[test]
-    fn continuous_hold_material_is_opt_in_and_bounded() {
-        let none = HoldMaterial::read(|_| String::new());
-        assert!(none.is_none());
-        let values = std::collections::HashMap::from([
-            ("HoldStencilMaterial", "1"),
-            ("HoldMaterialPitch", "12.5"),
-            ("HoldMaterialGreen", "#2bab4b"),
-            ("HoldMaterialWaveWidth", "NaN"),
-            ("HoldMaterialSpeed", "100000"),
-        ]);
-        let m = HoldMaterial::read(|key| values.get(key).unwrap_or(&"").to_string()).unwrap();
-        assert_eq!(m.pitch, 12.5);
-        assert_eq!(m.colors[0], [43.0 / 255.0, 171.0 / 255.0, 75.0 / 255.0]);
-        assert_eq!(m.wave[1], 128.0);
-        assert_eq!(m.speed, 4.0);
     }
 
     #[test]

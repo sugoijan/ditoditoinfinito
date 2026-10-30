@@ -45,8 +45,11 @@ impl Controls {
             .or_else(|| Layout::builtin(&c.layout))?;
         Some(Self::new(&layout, settings))
     }
-    pub fn caps(&self) -> Vec<Option<Keycap>> {
-        crate::controller_hints::lanes(&self.layout, &self.settings.controls)
+    /// Each lane's cap: the active controller's control for it (the play's
+    /// assignment, `hints`), else the key.
+    pub fn caps(&self, hints: &crate::controller_hints::Hints) -> Vec<Option<Keycap>> {
+        hints
+            .lanes(&self.layout, &self.settings.controls)
             .unwrap_or_else(|| self.keys.iter().map(|k| k.as_deref().map(keycap)).collect())
     }
     pub fn duration(&self) -> f32 {
@@ -74,13 +77,25 @@ impl Controls {
 }
 
 /// One receptor-only frame, drawn by the shells' existing skin preview.
-#[derive(Clone, Debug, PartialEq)]
+/// Compared every frame: its controls by identity (the prompt's state
+/// keeps one `Rc` while they are the same).
+#[derive(Clone, Debug)]
 pub struct Picture {
     pub controls: Rc<Controls>,
     pub size: [f32; 2],
     pub ready: Rc<std::cell::Cell<bool>>,
     pub time: f32,
     pub active: Option<usize>,
+}
+
+impl PartialEq for Picture {
+    fn eq(&self, o: &Picture) -> bool {
+        Rc::ptr_eq(&self.controls, &o.controls)
+            && Rc::ptr_eq(&self.ready, &o.ready)
+            && self.size == o.size
+            && self.time == o.time
+            && self.active == o.active
+    }
 }
 
 /// Physical KeyboardEvent.code names, shared by both shells.
@@ -135,7 +150,7 @@ pub(super) fn draw(
 ) -> (Vec<ddi_actor::Actor>, f32, [f32; 2]) {
     use crate::look::{call, named};
     use ddi_actor::{Actor, Kind, Sprite, State};
-    let caps = controls.caps();
+    let caps = controls.caps(cx.hints());
     let n = caps.len();
     let side_labels = caps
         .iter()

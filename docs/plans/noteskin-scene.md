@@ -408,6 +408,10 @@ resvg drawing that gradient as SVG.
 
 ## Step 4: long notes and lifts (2026-10-25)
 
+(2026-10-30: the metrics path these replaced, `HoldStencilMaterial` and
+the rest with the engine's `HOLD_WAVE`, was removed;
+`infinito-wave-material.md`.)
+
 A hold's or roll's body element may return `Def.LongNote`, drawing the
 whole long note from three components (head, a body tile, cap) whose
 parts' roles replace the sprite-state indices and placements of the

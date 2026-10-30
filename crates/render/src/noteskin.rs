@@ -2105,14 +2105,7 @@ fn compile_materials(
 /// `a` after `b`, as 2D affine maps `[m0, m1, m2, m3, m4, m5]` (`x' = m0 x
 /// + m2 y + m4`, `y' = m1 x + m3 y + m5`).
 fn affine_mul(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
-    [
-        a[0] * b[0] + a[2] * b[1],
-        a[1] * b[0] + a[3] * b[1],
-        a[0] * b[2] + a[2] * b[3],
-        a[1] * b[2] + a[3] * b[3],
-        a[0] * b[4] + a[2] * b[5] + a[4],
-        a[1] * b[4] + a[3] * b[5] + a[5],
-    ]
+    ddi_actor::mul(&a, &b)
 }
 
 /// A turn of `degrees`, clockwise on the screen (its y down), as actors
@@ -2415,66 +2408,6 @@ impl NoteLayer for NoteskinPlay {
                 lane.swap_hold_colors(note_type, roll);
                 continue;
             }
-            let material = if roll {
-                m.roll_material.map(|r| r.material)
-            } else {
-                m.hold_material
-            };
-            let pulse = if roll {
-                m.roll_material.map(|r| {
-                    r.opacity(long_note_animation_percent(
-                        m,
-                        m.part(Part::HoldBody),
-                        note,
-                        frame,
-                    ))
-                })
-            } else {
-                None
-            };
-            let parts = if roll { &mut lane.roll } else { &mut lane.hold };
-            if let Some(material) = material
-                && let Some(slot) = self.material_slot(hold_material::wave_params(material))
-                && let Some(layers) =
-                    hold_material::HoldLayers::of_sprites(parts, state, material, slot, pulse)
-            {
-                let mut head = std::mem::replace(&mut parts.head[state], Element::Blank);
-                let mut head_draws = Vec::new();
-                hold_material::head_phase(
-                    &mut head,
-                    animation_percent(
-                        m.part(Part::HoldHead),
-                        m.animation_is_beat_based,
-                        frame.beat as f32,
-                        frame.song_time as f32,
-                        note.beat,
-                    ),
-                );
-                self.note_actor(
-                    &mut head,
-                    m,
-                    Part::HoldHead,
-                    note.beat,
-                    (note.alpha, note.glow),
-                    frame,
-                    [x, head_y],
-                    k,
-                    color_scale,
-                    &mut head_draws,
-                );
-                parts.head[state] = head;
-                self.material_hold(
-                    &layers,
-                    note,
-                    frame,
-                    geo,
-                    [x, head_y, tail_px, k, color_scale],
-                    &head_draws,
-                    out,
-                );
-                lane.swap_hold_colors(note_type, roll);
-                continue;
-            }
             let parts = if roll { &mut lane.roll } else { &mut lane.hold };
             if parts.drawn() {
                 let layers: &[(usize, QuadBlend)] = if dropped_state {
@@ -2637,37 +2570,18 @@ impl NoteLayer for NoteskinPlay {
             } else {
                 None
             };
-            let wave = match (slot, lane.metrics.lift_material) {
-                (Slot::Lift, Some(m)) => self.material_slot(hold_material::wave_params(m.material)),
-                _ => None,
-            };
-            if !(matches!(slot, Slot::Lift)
-                && self.material_lift(
-                    &mut e,
-                    &lane.metrics,
-                    note,
-                    frame,
-                    geo,
-                    at,
-                    k,
-                    geo.lane_direction(l.scroll_sign),
-                    wave,
-                    out,
-                ))
-            {
-                self.note_actor(
-                    &mut e,
-                    &lane.metrics,
-                    part,
-                    note.beat,
-                    (note.alpha, note.glow),
-                    frame,
-                    at,
-                    k,
-                    1.0,
-                    out,
-                );
-            }
+            self.note_actor(
+                &mut e,
+                &lane.metrics,
+                part,
+                note.beat,
+                (note.alpha, note.glow),
+                frame,
+                at,
+                k,
+                1.0,
+                out,
+            );
             restore_mine_layers(&mut e, visibility);
             if split {
                 let visibility = mine_layers(
@@ -4545,7 +4459,6 @@ mod tests {
     #[test]
     fn material_roll_shadows_and_charge_follow_the_moving_body() {
         use ddi_actor::{Sprite, State};
-        use ddi_noteskin::metrics::HoldMaterial;
         let layout = Layout::builtin("dance-single").unwrap();
         let play = danoni_play(&layout);
         let sprite = |texture, count| {
@@ -4572,14 +4485,20 @@ mod tests {
             bottomcap: vec![sprite(1, 5)],
             topcap: vec![sprite(2, 4)],
         };
-        let material = HoldMaterial {
-            pitch: 25.0,
-            period: 171.0,
-            angle: 0.0,
-            phase: 0.7,
-            speed: 1.0,
-            wave: [31.5, 209.0, 206.0],
-            colors: [[0.2, 0.1, 1.0]; 3],
+        // A material's fill, its quad a stand-in.
+        let fill = hold_material::Fill::Skin {
+            quad: crate::material::MaterialQuad {
+                material: 0,
+                slot: 0,
+                axes: [0.0; 4],
+                origin: [0.0; 2],
+                phase: 0.0,
+                seed: 0.0,
+                value: [0.0; 4],
+                images: [UNTEXTURED; 2],
+            },
+            anchor: ddi_noteskin::component::Anchor::Head,
+            origin: [0.0; 2],
         };
         let geo = FieldGeometry::new(800.0, 800.0, 4.0, false);
         for crop in [-12.75_f32, 0.0, 15.75] {
@@ -4610,7 +4529,7 @@ mod tests {
                     );
                     let mut out = Vec::new();
                     let layers =
-                        hold_material::HoldLayers::of_sprites(&parts, 0, material, 0, Some(0.85))
+                        hold_material::HoldLayers::of_sprites(&parts, 0, 25.0, fill, Some(0.85))
                             .expect("every layer");
                     play.material_hold(
                         &layers,
@@ -4669,7 +4588,7 @@ mod tests {
                             panic!("quad")
                         };
                         assert!(
-                            (coords[1] - (crop + 48.0 - length) / material.pitch).abs() < 1e-5,
+                            (coords[1] - (crop + 48.0 - length) / 25.0).abs() < 1e-5,
                             "phase follows the shrinking tail distance"
                         );
                         for q in body {

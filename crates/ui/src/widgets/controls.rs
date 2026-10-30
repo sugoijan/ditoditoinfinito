@@ -24,7 +24,7 @@ fn place(mut a: Actor, name: &str, centre: [f32; 2]) -> Actor {
 }
 
 /// Press and release looks for a pointer on `name`.
-fn press_look(input: &Input, name: &str, root: &mut Actor) {
+pub(crate) fn press_look(input: &Input, name: &str, root: &mut Actor) {
     if let Some(g) = on(input, name)
         && let Some(a) = crate::hit::find_mut(root, name)
     {

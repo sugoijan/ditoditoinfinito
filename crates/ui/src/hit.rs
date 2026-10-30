@@ -311,13 +311,19 @@ pub fn bounds(root: &Actor, transform: &Affine, path: &[usize]) -> Option<[f32; 
         (None, [w, h]) if w > 0.0 && h > 0.0 => [-w / 2.0, -h / 2.0, w / 2.0, h / 2.0],
         _ => return None,
     };
+    Some(rect_bounds(&m, rect))
+}
+
+/// The rectangle `rect` (`[left, top, right, bottom]`) covers once mapped
+/// by `m`: around its four corners.
+pub fn rect_bounds(m: &Affine, rect: [f32; 4]) -> [f32; 4] {
     let corners = [
         [rect[0], rect[1]],
         [rect[2], rect[1]],
         [rect[0], rect[3]],
         [rect[2], rect[3]],
     ]
-    .map(|p| apply(&m, p));
+    .map(|p| apply(m, p));
     let mut b = [
         f32::INFINITY,
         f32::INFINITY,
@@ -332,7 +338,7 @@ pub fn bounds(root: &Actor, transform: &Affine, path: &[usize]) -> Option<[f32; 
             b[3].max(c[1]),
         ];
     }
-    Some(b)
+    b
 }
 
 /// The rectangle a named actor covers, or the union of what its

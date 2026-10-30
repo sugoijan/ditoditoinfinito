@@ -202,3 +202,67 @@ pub(crate) fn uniform_texture_group(
         ],
     })
 }
+
+/// A picture drawn offscreen for the 2D pass to show (the field
+/// preview, the editor's field, a preview movie): its texture, made again
+/// at a new size under a new generation (the painter's image set again
+/// then).
+#[derive(Default)]
+pub(crate) struct PictureTarget {
+    target: Option<(wgpu::Texture, wgpu::TextureView)>,
+    generation: u64,
+}
+
+impl PictureTarget {
+    /// The texture at `size` (`format`), made now when it is not.
+    pub(crate) fn ensure(
+        &mut self,
+        device: &wgpu::Device,
+        label: &str,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+    ) {
+        if self
+            .target
+            .as_ref()
+            .is_some_and(|(t, _)| [t.width(), t.height()] == size)
+        {
+            return;
+        }
+        let texture = texture_2d(
+            device,
+            label,
+            size,
+            format,
+            1,
+            // Read back by tests.
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            &[],
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.target = Some((texture, view));
+        self.generation += 1;
+    }
+
+    pub(crate) fn texture(&self) -> Option<&wgpu::Texture> {
+        self.target.as_ref().map(|(t, _)| t)
+    }
+
+    pub(crate) fn view(&self) -> Option<&wgpu::TextureView> {
+        self.target.as_ref().map(|(_, v)| v)
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn release(&mut self) {
+        self.target = None;
+    }
+
+    pub(crate) fn is_some(&self) -> bool {
+        self.target.is_some()
+    }
+}

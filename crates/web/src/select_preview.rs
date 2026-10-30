@@ -12,16 +12,14 @@
 //! check). Coming back with none (the session began on a play's
 //! address), one is made at once where the page has had input. A selection starts its preview a
 //! moment later, once the wheel has settled; the song's music and its
-//! chart (for the beat) are read then. Before the first gesture the music
-//! is decoded on an `OfflineAudioContext` (any page may make one; no audio
-//! starts), so the gesture only starts the sound. The beat pulse follows
-//! the music as heard ([`beat`]). A play opened from song select takes
+//! chart (whose decode an MP3 lines up with) are read then. Before the
+//! first gesture the music is decoded on an `OfflineAudioContext` (any
+//! page may make one; no audio starts), so the gesture only starts the
+//! sound. A play opened from song select takes
 //! the context ([`hand_over`]), running, to ready its music before Start.
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
-use ddi_chart::TimingMap;
 use gloo::timers::callback::Timeout;
 use web_sys::AudioBuffer;
 
@@ -37,23 +35,19 @@ const OFFLINE_RATE: f32 = 48_000.0;
 
 struct Playing {
     id: String,
-    /// The context's time at the preview's first sample, and the song's
-    /// second there.
-    started: f64,
+    /// The song's second it starts at.
     from: f64,
-    timing: Option<Rc<TimingMap>>,
     /// How long it plays, and its file's length (for tests).
     length: f64,
     duration: f64,
 }
 
-/// A song's music and timing, read, not decoded yet.
+/// A song's music, read, not decoded yet.
 struct Fetched {
     load: u64,
     id: String,
     bytes: Vec<u8>,
     target: ddi_platform::mp3::Target,
-    timing: Option<Rc<TimingMap>>,
 }
 
 #[derive(Default)]
@@ -65,7 +59,7 @@ struct State {
     timer: Option<Timeout>,
     playing: Option<Playing>,
     /// The decoded preview, kept for its loops.
-    buffer: Option<(String, AudioBuffer, Option<Rc<TimingMap>>)>,
+    buffer: Option<(String, AudioBuffer)>,
     /// Read before there was a context (no gesture yet) where the browser
     /// has no `OfflineAudioContext`: decoded at the first one, at once.
     fetched: Option<Fetched>,
@@ -264,13 +258,11 @@ async fn fetch(entry: ManifestEntry, load: u64) {
         |_| ddi_session::music_target_of(&entry),
         ddi_session::music_target,
     );
-    let timing = chart.ok().map(|song| Rc::new(song.timing));
     let fetched = Fetched {
         load,
         id: entry.id.clone(),
         bytes,
         target,
-        timing,
     };
     // No context yet (no gesture): decoded offline now, so the first
     // gesture only starts it; without an offline context, kept for the
@@ -306,7 +298,7 @@ async fn decode(decoder: crate::web::audio::AudioDecoder, f: Fetched) {
     if !current() {
         return;
     }
-    STATE.with(|s| s.borrow_mut().buffer = Some((f.id.clone(), buffer, f.timing)));
+    STATE.with(|s| s.borrow_mut().buffer = Some((f.id.clone(), buffer)));
     // Decoded offline while a gesture made the context: it plays once that
     // runs.
     if crate::web::autoplay::may_start()
@@ -343,7 +335,7 @@ fn play(in_gesture: bool) {
     let played = STATE.with(|s| {
         let mut s = s.borrow_mut();
         let entry = s.wanted.clone()?;
-        let (id, buffer, timing) = s.buffer.clone()?;
+        let (id, buffer) = s.buffer.clone()?;
         if id != entry.id {
             return None;
         }
@@ -364,14 +356,11 @@ fn play(in_gesture: bool) {
                 .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
             (from, ddi_session::preview::length(entry.preview_length))
         };
-        let started = audio.context().current_time() + ddi_session::preview::LEAD;
         audio.play_preview(&buffer, from, length, volume).ok()?;
         let load = s.load;
         s.playing = Some(Playing {
             id,
-            started,
             from,
-            timing,
             length,
             duration: buffer.duration(),
         });
@@ -393,24 +382,6 @@ fn play(in_gesture: bool) {
         }
     });
     STATE.with(|s| s.borrow_mut().timer = Some(timer));
-}
-
-/// The beat of song `id` as its preview is heard now, when it plays (the
-/// song's tempo changes and offset in it); `None` otherwise.
-pub(crate) fn beat(id: &str) -> Option<f64> {
-    STATE.with(|s| {
-        let s = s.borrow();
-        let p = s.playing.as_ref().filter(|p| p.id == id)?;
-        let audio = s.audio.as_ref()?;
-        let now = audio.context().current_time();
-        if now < p.started {
-            return None;
-        }
-        let latency = ddi_platform::AudioBackend::now(audio).output_latency;
-        let song = p.from + (now - p.started) - latency;
-        let timing = p.timing.as_ref()?;
-        Some(timing.beat_at(song))
-    })
 }
 
 /// A preview playing: its song, and from, length and its file's length.

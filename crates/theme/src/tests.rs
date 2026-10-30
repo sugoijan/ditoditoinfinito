@@ -111,7 +111,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
             s(596.0, 64.0, ""),
             &[
                 "Plate", "Banner", "Title", "Subtitle", "Right", "Cell0", "Cell4", "Meter0",
-                "Meter4", "NoCharts", "Pulse",
+                "Meter4", "NoCharts",
             ],
         ),
         (
@@ -156,7 +156,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         (
             "ChartLadder.Row",
             s(560.0, 44.0, "Hard"),
-            &["Plate", "Bar", "Label", "Notes", "Meter", "Pulse"],
+            &["Plate", "Bar", "Label", "Notes", "Meter"],
         ),
         (
             "ChartLadder.Empty",
@@ -166,7 +166,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         (
             "ChartButton",
             s(56.0, 44.0, "13"),
-            &["Plate", "Meter", "Pulse", "Assist"],
+            &["Plate", "Meter", "Assist"],
         ),
         (
             "KeyHint",
@@ -196,11 +196,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
             s(208.0, 44.0, "Rules"),
             &["Plate", "Title", "Mark"],
         ),
-        (
-            "Options.Row",
-            s(600.0, 42.0, "Speed"),
-            &["Plate", "Label", "Pulse"],
-        ),
+        ("Options.Row", s(600.0, 42.0, "Speed"), &["Plate", "Label"]),
         (
             "Options.Description",
             s(976.0, 60.0, ""),
@@ -213,7 +209,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         ),
         ("PlayButton", s(300.0, 48.0, "PLAY"), &["Plate", "Label"]),
         ("IconButton", s(44.0, 44.0, "‹"), &["Plate", "Label"]),
-        ("Volume", s(40.0, 40.0, ""), &["Plate", "Icon", "Ring"]),
+        ("Volume", s(40.0, 40.0, ""), &["Plate", "Icon"]),
         (
             "Volume.Popup",
             s(40.0, 176.0, ""),
@@ -467,7 +463,6 @@ fn the_screens_in_the_theme() {
     }
     h.run(0.3);
     assert!(h.texts().iter().any(|t| t == "no Pump double charts"));
-    // The pulse lights the selected row's ring.
     let row = state.borrow().song.clone();
     assert!(!row.is_empty());
     h.key("Enter", "Enter");
@@ -476,59 +471,6 @@ fn the_screens_in_the_theme() {
     assert!(texts.iter().any(|t| t == "96.77%"), "{texts:?}");
     assert!(texts.iter().any(|t| t.starts_with("mean −")), "{texts:?}");
     assert!(texts.iter().any(|t| t == "EX 1680 / 1785"), "{texts:?}");
-}
-
-#[test]
-fn the_pulse_lights_the_selected_row() {
-    let theme = Rc::new(Infinito::new());
-    let env = env(&theme);
-    let mut h = harness([1280.0, 720.0], DESIGN);
-    h.push(sample::select_screen(&env, None));
-    let mut lit = 0.0f32;
-    for _ in 0..40 {
-        h.frame(1.0 / 60.0);
-        // The selected row's pulse outline.
-        if let Some(Kind::Frame(rows)) = h.ui.actor("Wheel.Items").map(|a| a.kind.clone()) {
-            for r in rows {
-                let mut r = r;
-                if let Some(p) = ddi_ui::widgets::part(&mut r, "Pulse") {
-                    lit = lit.max(p.current().diffuse[0][3]);
-                }
-            }
-        }
-    }
-    assert!(lit > 0.2, "{lit}");
-}
-
-#[test]
-fn only_the_selected_row_pulses() {
-    let theme = Rc::new(Infinito::new());
-    let env = env(&theme);
-    let mut h = harness([1280.0, 720.0], DESIGN);
-    h.push(sample::select_screen(&env, None));
-    h.run(0.5);
-    // Moves and a style change (which fills the ladder again).
-    h.key("ArrowUp", "ArrowUp");
-    h.run(0.3);
-    h.key("Tab", "Tab");
-    h.run(0.3);
-    h.key("ArrowDown", "ArrowDown");
-    for _ in 0..40 {
-        h.frame(1.0 / 60.0);
-        let Some(Kind::Frame(rows)) = h.ui.actor("Wheel.Items").map(|a| a.kind.clone()) else {
-            panic!("no wheel");
-        };
-        let lit = rows
-            .into_iter()
-            .filter(|r| r.visible)
-            .filter(|r| {
-                let mut r = r.clone();
-                ddi_ui::widgets::part(&mut r, "Pulse")
-                    .is_some_and(|p| p.current().diffuse[0][3] > 0.0)
-            })
-            .count();
-        assert!(lit <= 1, "{lit} rows lit");
-    }
 }
 
 #[test]
@@ -578,11 +520,11 @@ fn every_rulesets_grade_fits_before_the_score() {
     }
 }
 
-/// The selected row's ring (and its pulse) lie within the wheel, which
-/// clips at its edges, as the row glides onto the line and at rest, in
-/// both layouts (the maintainer saw it cut on its left, 2026-10-15).
+/// The selected row's active outline lies within the wheel, which clips
+/// at its edges, as the row glides onto the line and at rest, in both
+/// layouts (the maintainer saw its ring cut on its left, 2026-10-15).
 #[test]
-fn the_selected_rows_ring_lies_within_the_wheel() {
+fn the_selected_rows_outline_lies_within_the_wheel() {
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     let state = env.state.clone();
@@ -599,7 +541,7 @@ fn the_selected_rows_ring_lies_within_the_wheel() {
                 let st = state.borrow().clone();
                 let [x, y, w, hh] = st.wheel;
                 let Some(row) = st.selected_row else { continue };
-                for part in ["Ring", "Pulse"] {
+                for part in ["ActiveOutline"] {
                     let Some([l, t, r, b]) = h.ui.bounds_of(&row, part) else {
                         continue;
                     };

@@ -251,6 +251,7 @@ pub(crate) async fn delete(key: &str) -> Result<(), String> {
     if key.starts_with(BUNDLED) {
         return Err(format!("{key} comes with the game"));
     }
+    crate::noteskin_cache::forget();
     let db = Db::open().await?;
     db.write(vec![
         Write::Delete {
@@ -514,12 +515,12 @@ fn native_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
 }
 
 /// The page's turn between slices of a skin's Lua.
-fn pause() -> Pin<Box<dyn Future<Output = ()>>> {
+pub(crate) fn pause() -> Pin<Box<dyn Future<Output = ()>>> {
     Box::pin(gloo::timers::future::TimeoutFuture::new(0))
 }
 
 /// The host's clock for the Lua's deadlines, in seconds.
-fn clock() -> Box<dyn FnMut() -> f64> {
+pub(crate) fn clock() -> Box<dyn FnMut() -> f64> {
     let performance = web_sys::window().and_then(|w| w.performance());
     Box::new(move || performance.as_ref().map_or(0.0, |p| p.now() / 1000.0))
 }
@@ -674,6 +675,10 @@ async fn decode(
     scale: f64,
 ) {
     let began = js_sys::Date::now();
+    // The skin loading (first among `stored`), whose drawings an earlier
+    // load of it may have kept (`noteskin_cache`).
+    let owner = stored.first().map(StoredSkin::key).unwrap_or_default();
+    crate::noteskin_cache::take_reused();
     // Component files: their components read, every part drawn as an SVG
     // of its own with the others below (`ddi_noteskin::component`).
     let mut generated: Vec<(usize, String, String)> = Vec::new();
@@ -686,7 +691,7 @@ async fn decode(
             None => Err("not stored".to_string()),
         };
         let found = text.and_then(|text| {
-            let read = ddi_noteskin::component::part_documents(&path, &text)?;
+            let read = crate::noteskin_cache::part_documents(&path, &text)?;
             generated.extend(read.documents.into_iter().map(|(p, doc)| (i, p, doc)));
             Ok(read.components)
         });
@@ -775,8 +780,7 @@ async fn decode(
                     cost.own = size;
                     let at = checked.raster_size(scale);
                     *pixels += u64::from(at.0) * u64::from(at.1);
-                    let drawing =
-                        (!browser_svg()).then(|| crate::web::svg::rasterise(text.clone(), at));
+                    let drawing = drawing(&owner, &text, at);
                     svgs.push((i, path, text, size, at, drawing, at_report));
                 }
                 Err(e) => {
@@ -837,8 +841,7 @@ async fn decode(
                 report.images[at_report].own = checked.size;
                 let at = checked.raster_size(scale);
                 *pixels += u64::from(at.0) * u64::from(at.1);
-                let drawing =
-                    (!browser_svg()).then(|| crate::web::svg::rasterise(text.clone(), at));
+                let drawing = drawing(&owner, &text, at);
                 svgs.push((i, path, text, checked.size, at, drawing, at_report));
             }
             Err(e) => report.images[at_report].outcome = Outcome::Failed(e),
@@ -853,7 +856,7 @@ async fn decode(
             // come, their bitmaps closed.
             for drawing in std::iter::once(drawing).chain(svgs.map(|s| s.5)).flatten() {
                 wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(v) = wasm_bindgen_futures::JsFuture::from(drawing).await
+                    if let Ok(v) = wasm_bindgen_futures::JsFuture::from(drawing.promise).await
                         && let Some((bitmap, _)) = crate::web::svg::drawn(&v)
                     {
                         bitmap.close();
@@ -863,8 +866,9 @@ async fn decode(
             break;
         }
         // `Err((why, refused))`: refused by the worker (the image's fault).
+        let keep = drawing.as_ref().and_then(|d| d.keep.clone());
         let drawn: Result<_, (String, bool)> = match drawing {
-            Some(p) => wasm_bindgen_futures::JsFuture::from(p)
+            Some(d) => wasm_bindgen_futures::JsFuture::from(d.promise)
                 .await
                 .map_err(|e| match crate::web::svg::refusal(&e) {
                     Some(why) => (why, true),
@@ -875,14 +879,20 @@ async fn decode(
                     if let Some(hash) = hash {
                         hashes.insert((i, path.clone()), hash);
                     }
-                    (b, Outcome::Kept)
+                    (b, hash, Outcome::Kept)
                 }),
             None => Err(("drawn by the browser (__DDI_SVG_BROWSER)".into(), false)),
         };
         // Where no SVG worker draws (its files missing), the browser does;
         // an image a worker refused is refused, as desktop refuses it.
         let drawn = match drawn {
-            Ok(b) => Ok(b),
+            Ok((bitmap, hash, outcome)) => {
+                // Drawn by a worker: a copy kept for the skin's next load.
+                if let Some(key) = keep {
+                    crate::noteskin_cache::keep(&owner, key, &bitmap, hash);
+                }
+                Ok((bitmap, outcome))
+            }
             Err((why, true)) => Err(why),
             Err((e, false)) => {
                 if by_browser == 0 && !browser_svg() {
@@ -922,7 +932,8 @@ async fn decode(
         }
     }
     if count > 0 {
-        svg_load(count, by_browser, js_sys::Date::now() - began);
+        let reused = crate::noteskin_cache::take_reused();
+        svg_load(count, by_browser, reused, js_sys::Date::now() - began);
     }
     sizes.probe = false;
 }
@@ -956,9 +967,40 @@ fn browser_svg() -> bool {
         .is_some_and(|v| v.is_truthy())
 }
 
+/// An SVG's drawing asked for: by the SVG workers, or a copy of the one
+/// an earlier load of the skin kept (`noteskin_cache`); `None` where the
+/// browser draws them (`__DDI_SVG_BROWSER`).
+struct Drawing {
+    promise: js_sys::Promise,
+    /// Drawn by a worker: kept by this key for the skin's next load.
+    keep: Option<ddi_noteskin::recent::ImageKey>,
+}
+
+/// The drawing of document `text` of skin `owner` at `at` pixels.
+fn drawing(owner: &str, text: &str, at: (u32, u32)) -> Option<Drawing> {
+    if browser_svg() {
+        return None;
+    }
+    let key = ddi_noteskin::recent::ImageKey {
+        hash: ddi_noteskin::report::hash(text.as_bytes()),
+        at,
+    };
+    if let Some(promise) = crate::noteskin_cache::reuse(owner, &key) {
+        return Some(Drawing {
+            promise,
+            keep: None,
+        });
+    }
+    Some(Drawing {
+        promise: crate::web::svg::rasterise(text.to_string(), at),
+        keep: Some(key),
+    })
+}
+
 /// `window.__DDI_SVG_LOADS`: each skin load's SVG images, how many the
-/// browser drew, and the time its images took to read and decode, ms.
-fn svg_load(images: usize, by_browser: usize, ms: f64) {
+/// browser drew, how many an earlier load's drawings were (`reused`), and
+/// the time its images took to read and decode, ms.
+fn svg_load(images: usize, by_browser: usize, reused: u32, ms: f64) {
     let Some(w) = web_sys::window() else {
         return;
     };
@@ -974,6 +1016,7 @@ fn svg_load(images: usize, by_browser: usize, ms: f64) {
     let o = js_sys::Object::new();
     let _ = js_sys::Reflect::set(&o, &"images".into(), &JsValue::from(images as u32));
     let _ = js_sys::Reflect::set(&o, &"byBrowser".into(), &JsValue::from(by_browser as u32));
+    let _ = js_sys::Reflect::set(&o, &"reused".into(), &JsValue::from(reused));
     let _ = js_sys::Reflect::set(&o, &"ms".into(), &JsValue::from(ms));
     loads.push(&o);
 }
@@ -1284,16 +1327,20 @@ pub(crate) fn forget_stops(key: &str) {
 
 /// Readies the first of `wants` one can pick ([`ddi_shell::first_there`]:
 /// a chosen skin no longer there is drawn as Options shows it) for
-/// `layout`, with its `Env` for its Lua: `None` for the built-in arrows,
-/// or when it does not load or the layout's lanes are not its buttons.
+/// `layout`, with its `Env` for its Lua: `None` when it does not load or
+/// the layout's lanes are not its buttons. A play's skin, needed at Start
+/// only: begun once the first screens have come in
+/// (`boot::entrance_over`), after a load of the same skin running (the
+/// start prompt's diagram's), whose drawings it then takes ([`load`]).
 pub(crate) async fn prepare_first(
     wants: ddi_shell::SkinWants,
     layout: &Layout,
 ) -> Option<Prepared> {
+    crate::boot::entrance_over().await;
     let db = Db::open().await.ok();
     let stored = catalogue(db.as_ref()).await;
     let there = pickable(&stored);
-    let (key, env) = ddi_shell::first_there(wants, &there)?;
+    let (key, env) = ddi_shell::first_there(wants, &there);
     let with = LoadWith {
         among: Some((db, stored)),
         ..LoadWith::default()
@@ -1345,6 +1392,8 @@ async fn load(
     wanted: Wanted,
     with: LoadWith,
 ) -> Option<Prepared> {
+    // One load of a skin at a time: a second finds the first's drawings.
+    let _holding = crate::noteskin_cache::hold(key).await;
     let done = Rc::new(Cell::new(false));
     let prepared = prepare_until(key, layout, env, &wanted, &done, with).await;
     // The skin's Lua keeps the clock for the play: the host's from now on.

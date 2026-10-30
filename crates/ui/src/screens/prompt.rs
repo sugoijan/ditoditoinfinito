@@ -57,12 +57,35 @@ pub struct PromptInfo {
     pub difficulty: String,
     /// The mods it will be played with ([`mods_line`]); empty for none.
     pub mods: String,
-    /// "AUTOPLAY" when autoplayed, else empty.
-    pub badge: String,
+    /// REPLAY for a replay, AUTOPLAY when autoplayed.
+    pub badge: Badge,
     /// The quiet suggestion to calibrate ([`timing_hint`]): `None`, no
     /// row (a replay, a test); `Some`, a row below the modifiers kept
     /// at one height, empty or with the line and its Calibrate link.
     pub timing: Option<String>,
+}
+
+/// [`timing_hint`] for the devices `ids` (the play's probe; else those
+/// seen last, with none known not calibrated), under the settings `s`,
+/// from the kept plays `history` (none: nothing to go on).
+pub fn timing_hint_for(
+    s: &crate::state::settings::Settings,
+    ids: Option<(String, String)>,
+    history: Option<&crate::state::history::History>,
+) -> String {
+    use crate::state::history::timing::{Verdict, timing_verdict};
+    let nothing = Verdict::Inconclusive { plays: 0, hits: 0 };
+    let Some((audio_id, display_id)) = ids.or_else(|| s.last_devices()) else {
+        return timing_hint(&nothing, false);
+    };
+    let audio = s.audio_profile(&audio_id);
+    let display = s.display_profile(&display_id);
+    let calibrated = audio.is_some_and(|p| p.calibrated) && display.is_some_and(|p| p.calibrated);
+    let offset = audio.map_or(s.audio_offset, |p| p.offset);
+    let verdict = history.map_or(nothing, |h| {
+        timing_verdict(h, &audio_id, &display_id, offset)
+    });
+    timing_hint(&verdict, calibrated)
 }
 
 /// The suggestion's line for `verdict`, what the kept plays say of the
@@ -71,9 +94,7 @@ pub struct PromptInfo {
 /// shift names its direction, calibrated or not; an uncalibrated setup
 /// with nothing to go on gets the neutral line; empty otherwise (noise
 /// around zero, or calibrated with nothing to go on), the row left
-/// blank. The shells read the devices from the play's probe, else from
-/// the profiles seen last ([`crate::state::settings::Settings::last_devices`]);
-/// with none known at all, the setup is not calibrated.
+/// blank. The shells go through [`timing_hint_for`].
 pub fn timing_hint(verdict: &crate::state::history::timing::Verdict, calibrated: bool) -> String {
     use crate::state::history::timing::Verdict;
     match verdict {
@@ -333,6 +354,99 @@ pub type SharedPrompt = Rc<RefCell<PromptState>>;
 /// ([`Cx::close`]) or leave it to show what comes next.
 pub type PromptFn = Rc<dyn Fn(PromptChoice, &mut Cx)>;
 
+/// The card's mark of a play no one plays.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Badge {
+    #[default]
+    None,
+    Auto,
+    Replay,
+}
+
+impl Badge {
+    /// A replay's (watched, so never autoplayed), else autoplay's.
+    pub fn new(replay: bool, auto: bool) -> Badge {
+        if replay {
+            Badge::Replay
+        } else if auto {
+            Badge::Auto
+        } else {
+            Badge::None
+        }
+    }
+
+    pub fn text(self) -> &'static str {
+        match self {
+            Badge::None => "",
+            Badge::Auto => "AUTOPLAY",
+            Badge::Replay => "REPLAY",
+        }
+    }
+}
+
+/// A chart as the card names it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PromptChart {
+    pub difficulty: ddi_chart::Difficulty,
+    pub meter: u32,
+    /// Its layout's name.
+    pub style: String,
+}
+
+impl PromptChart {
+    /// `song`'s chart `chart`, its style its layout's name.
+    pub fn of(song: &ddi_chart::Song, chart: usize) -> Option<PromptChart> {
+        let c = song.charts.get(chart)?;
+        Some(PromptChart {
+            difficulty: c.difficulty,
+            meter: c.meter,
+            style: song
+                .layout_of(c)
+                .map(|l| l.name.clone())
+                .unwrap_or_default(),
+        })
+    }
+}
+
+impl PromptInfo {
+    /// A song's card: its chart's line and difficulty, the mods, the badge
+    /// (the timing line stays the caller's).
+    pub fn for_chart(
+        title: String,
+        artist: String,
+        chart: Option<PromptChart>,
+        settings: &crate::state::settings::Settings,
+        badge: Badge,
+    ) -> PromptInfo {
+        let (chart, difficulty) = chart.map_or_else(Default::default, |c| {
+            (
+                chart_line(c.difficulty, c.meter, &c.style),
+                super::data::difficulty_name(c.difficulty).to_string(),
+            )
+        });
+        PromptInfo {
+            title,
+            artist,
+            chart,
+            difficulty,
+            mods: mods_line(settings),
+            badge,
+            timing: None,
+        }
+    }
+
+    /// A test's card (or a song's before it is read): its title and hint,
+    /// the badge.
+    pub fn for_test(title: String, hint: String, badge: Badge) -> PromptInfo {
+        PromptInfo {
+            title,
+            artist: hint,
+            badge,
+            ..PromptInfo::default()
+        }
+    }
+}
+
 /// "Hard 13 · Single": a chart's difficulty, meter and style.
 pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) -> String {
     format!(
@@ -366,7 +480,6 @@ pub struct PromptScreen {
     /// Over song select (desktop): counted in [`super::ThemeState::over`].
     over: bool,
     /// The fade in started (at the first frame).
-    faded: bool,
     reveal_time: f32,
     picture_source: Option<String>,
     /// The loading screen: how long it has shown, and its backdrop's
@@ -516,7 +629,6 @@ impl PromptScreen {
             zoom: 1.0,
             buttons: Vec::new(),
             over: false,
-            faded: false,
             reveal_time: 0.0,
             picture_source: None,
             loading: None,
@@ -711,6 +823,17 @@ impl PromptScreen {
             env.state.borrow_mut().hints = Vec::new();
         }
         let mut root = Actor::new(Kind::Frame(children));
+        if !matches!(state.step, PromptStep::Loading(_)) {
+            // The card fades in as the screen comes in (taking keys at
+            // once, as every screen does; held under the web's loader as
+            // any screen's entrance), and goes at once: on Back, and
+            // before the play's first frame.
+            super::transitions(&mut root, &env, &[("Prompt", super::Edge::None)]);
+            if let Some(card) = crate::hit::find_mut(&mut root, "Prompt") {
+                look::command_of(card, "Off", "");
+                look::command_of(card, "Cancel", "");
+            }
+        }
         if self.zoom != 1.0 {
             call(&mut root, "zoom", &[self.zoom]);
         }
@@ -772,8 +895,16 @@ impl PromptScreen {
             };
             line(&mut c, "Chart", &i.chart, BODY, 700, &color, &mut y);
         }
-        if !i.badge.is_empty() {
-            line(&mut c, "Badge", &i.badge, SMALL, 700, "Accent", &mut y);
+        if i.badge != Badge::None {
+            line(
+                &mut c,
+                "Badge",
+                i.badge.text(),
+                SMALL,
+                700,
+                "Accent",
+                &mut y,
+            );
         }
         if !i.mods.is_empty() && (state.step != PromptStep::Ready || state.options.is_empty()) {
             line(&mut c, "Mods", &i.mods, SMALL, 400, "Muted", &mut y);
@@ -1101,8 +1232,14 @@ impl PromptScreen {
         let focused = cx.focused().map(str::to_string);
         let before = std::mem::discriminant(&self.state.borrow().step);
         let step = self.built_step;
+        // The card's entrance going on goes on (a rebuild never cuts it
+        // short); the rest shows as it is.
+        let left = crate::hit::find_mut(root, "Prompt").map_or(0.0, |c| super::time_left(c));
         *root = self.tree(cx);
         root.finish_tweening();
+        if let Some(card) = crate::hit::find_mut(root, "Prompt") {
+            super::relaid(card, left, cx);
+        }
         // The loading screen's card fades out from where it is.
         if let Some(l) = self.loading
             && l.shown < LOADING_FADE
@@ -1214,7 +1351,7 @@ impl PromptScreen {
                 active,
             });
         if let Some(p) = &picture {
-            for (i, cap) in p.controls.caps().iter().enumerate() {
+            for (i, cap) in p.controls.caps(cx.hints()).iter().enumerate() {
                 if let Some(key) = crate::hit::find_mut(root, &format!("KeyMotion{i}")) {
                     let pressed = active == Some(i) && cap.is_some();
                     let controller = matches!(cap, Some(crate::keycaps::Keycap::Controller(_)));
@@ -1260,7 +1397,7 @@ impl PromptScreen {
         }
     }
 
-    fn publish_view(&self) {
+    fn publish_view(&self, hints: &crate::controller_hints::Hints) {
         let view = PromptView {
             loading: self.loading.is_some(),
             label: self.loading.is_some_and(|l| l.shown >= LOADING_DELAY),
@@ -1282,8 +1419,8 @@ impl PromptScreen {
                 .bindings
                 .as_ref()
                 .map(|b| {
-                    if crate::controller_hints::active() {
-                        b.caps()
+                    if hints.active() {
+                        b.caps(hints)
                             .iter()
                             .map(|k| {
                                 k.as_ref()
@@ -1539,6 +1676,12 @@ impl Screen for PromptScreen {
         out
     }
 
+    /// A rebuild pending (the shell changed the state): what is under the
+    /// mouse changes with it.
+    fn moving(&self) -> bool {
+        self.state.borrow().version != self.built
+    }
+
     /// Frames while something loads (the shell's lines change), so they
     /// are read.
     fn animating(&self) -> bool {
@@ -1560,24 +1703,6 @@ impl Screen for PromptScreen {
             cx.request(crate::UiRequest::ReceptorPreview(None));
             cx.close(false);
             return;
-        }
-        // Fades in from the first frame, taking keys at once: built into
-        // the tree, the fade would be the screen's entrance, which holds
-        // input back (a quick Enter or Escape was lost). None under
-        // reduced motion. Under the web's loader, unseen until the
-        // loader fades (`Cx::holding`), then the fade.
-        if !self.faded
-            && let Some(card) = crate::hit::find_mut(root, "Prompt")
-        {
-            if cx.holding() {
-                call(card, "diffusealpha", &[0.0]);
-            } else {
-                self.faded = true;
-                if !self.env.reduced() {
-                    let t = self.env.metric("Motion.Screen", 0.2);
-                    look::run(card, &format!("diffusealpha,0;linear,{t};diffusealpha,1"));
-                }
-            }
         }
         let reduced = self.env.reduced();
         let source = self
@@ -1646,7 +1771,11 @@ impl Screen for PromptScreen {
             }
         };
         let config = self.state.borrow().bindings.clone();
-        if self.demo_config != config {
+        let same = match (&self.demo_config, &config) {
+            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        if !same {
             self.demo_time = 0.0;
             self.preview_ready.set(false);
             self.receptors_fade_at = None;
@@ -1682,7 +1811,7 @@ impl Screen for PromptScreen {
         let focused = cx.focused().map(str::to_string);
         self.light(root, focused.as_deref());
         self.draw_controls(root, cx);
-        self.publish_view();
+        self.publish_view(cx.hints());
     }
 
     fn message(&mut self, m: &crate::Message, root: &mut Actor, cx: &mut Cx) {
@@ -1721,12 +1850,12 @@ impl Screen for PromptScreen {
             match countdown_input(input) {
                 CountdownInput::Skip => {
                     self.countdown = Countdown::Done;
-                    self.publish_view();
+                    self.publish_view(cx.hints());
                 }
                 CountdownInput::Cancel => {
                     self.countdown = Countdown::Cancelled;
                     self.rebuild(root, cx);
-                    self.publish_view();
+                    self.publish_view(cx.hints());
                     // On the background: its tap does not start.
                     if let Input::Pointer {
                         target,
@@ -1850,6 +1979,58 @@ mod tests {
 
     type Seen = Rc<RefCell<Vec<(PromptChoice, bool)>>>;
 
+    #[test]
+    fn badges_say_a_replay_before_autoplay() {
+        assert_eq!(Badge::new(false, false), Badge::None);
+        assert_eq!(Badge::new(false, true), Badge::Auto);
+        assert_eq!(Badge::new(true, false), Badge::Replay);
+        assert_eq!(Badge::new(true, true), Badge::Replay);
+        let texts: Vec<_> = [Badge::None, Badge::Auto, Badge::Replay]
+            .iter()
+            .map(|b| b.text())
+            .collect();
+        assert_eq!(texts, ["", "AUTOPLAY", "REPLAY"]);
+    }
+
+    #[test]
+    fn a_songs_card_names_its_chart_and_a_tests_its_hint() {
+        let song = ddi_chart::formats::sm::parse_simfile(
+            "#TITLE:T;#OFFSET:0;#BPMS:0=120;\n\
+             #NOTES:\n dance-single:\n:\n Hard:\n 9:\n 0,0,0,0,0:\n1000\n0100\n0010\n0001\n;\n",
+            "sm",
+        )
+        .unwrap();
+        let style = song.layout_of(&song.charts[0]).unwrap().name.clone();
+        assert!(!style.is_empty());
+        let settings = crate::state::settings::Settings::default();
+        let chart = PromptChart::of(&song, 0);
+        assert_eq!(
+            chart,
+            Some(PromptChart {
+                difficulty: ddi_chart::Difficulty::Hard,
+                meter: 9,
+                style: style.clone(),
+            })
+        );
+        let info = PromptInfo::for_chart("T".into(), "A".into(), chart, &settings, Badge::Auto);
+        assert_eq!(info.chart, format!("Hard 9 · {style}"));
+        assert_eq!(info.difficulty, "Hard");
+        assert_eq!(info.mods, mods_line(&settings));
+        assert_eq!((info.badge, info.timing), (Badge::Auto, None));
+        // A chart the song does not have: the card without its line.
+        assert_eq!(PromptChart::of(&song, 3), None);
+        let info = PromptInfo::for_chart("T".into(), "A".into(), None, &settings, Badge::None);
+        assert_eq!((info.chart.as_str(), info.difficulty.as_str()), ("", ""));
+        assert_eq!(info.mods, mods_line(&settings));
+        let test = PromptInfo::for_test("Audio".into(), "Hint".into(), Badge::Replay);
+        assert_eq!(
+            (test.title.as_str(), test.artist.as_str()),
+            ("Audio", "Hint")
+        );
+        assert_eq!((test.chart.as_str(), test.mods.as_str()), ("", ""));
+        assert_eq!(test.badge, Badge::Replay);
+    }
+
     thread_local! {
         static LAST_ENV: RefCell<Option<Env>> = const { RefCell::new(None) };
     }
@@ -1873,7 +2054,7 @@ mod tests {
             chart: chart_line(ddi_chart::Difficulty::Hard, 13, "Single"),
             difficulty: "Hard".into(),
             mods: "×3 · reverse".into(),
-            badge: String::new(),
+            badge: Badge::None,
             timing: None,
         };
         let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
@@ -2047,8 +2228,49 @@ mod tests {
         };
         let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
         h.push(PromptScreen::new(env, state, act));
-        // No time for an entrance: Escape at once goes back.
-        assert_eq!(h.ui.layers()[0].phase, "active");
+        // Coming in, it takes keys: Escape at once goes back.
+        assert_eq!(h.ui.layers()[0].phase, "in");
+        h.key("Escape", "Escape");
+        assert_eq!(
+            seen.borrow().last().map(|s| &s.0),
+            Some(&PromptChoice::Back)
+        );
+    }
+
+    /// Under the web's loader the card's entrance waits unseen, taking
+    /// keys; revealed, it fades in, and a rebuild meanwhile keeps the fade.
+    #[test]
+    fn the_cards_entrance_waits_for_the_loader_and_survives_a_rebuild() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_step(PromptStep::Ready);
+        let env = Env::new(Rc::new(look::Plain), Rc::new(|s: &str| s.to_string()));
+        let seen: Seen = Rc::default();
+        let act: PromptFn = {
+            let seen = seen.clone();
+            Rc::new(move |c, cx: &mut Cx| seen.borrow_mut().push((c, cx.in_gesture())))
+        };
+        let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+        h.ui.hold_entrances(true);
+        h.push(PromptScreen::new(env, state.clone(), act));
+        let alpha = |h: &Harness| h.ui.actor("Prompt").expect("card").current().diffuse[0][3];
+        h.run(0.5);
+        assert_eq!(alpha(&h), 0.0, "unseen under the loader");
+        h.ui.reveal();
+        h.run(0.1);
+        let mid = alpha(&h);
+        assert!(mid > 0.0 && mid < 1.0, "fading in: {mid}");
+        // A rebuild (a new line) mid-fade: still fading, from where it was.
+        state.borrow_mut().set_step(PromptStep::Ready);
+        state.borrow_mut().version += 1;
+        h.run(0.02);
+        let after = alpha(&h);
+        assert!(
+            after >= mid && after < 1.0,
+            "kept fading: {mid} then {after}"
+        );
+        h.run(0.3);
+        assert_eq!(alpha(&h), 1.0);
+        // It took keys all along.
         h.key("Escape", "Escape");
         assert_eq!(
             seen.borrow().last().map(|s| &s.0),

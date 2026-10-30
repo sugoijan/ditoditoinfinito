@@ -21,7 +21,6 @@
 
 use ddi_library::backgrounds::{BgImage, BgSegment};
 use ddi_library::manifest::ManifestEntry;
-use ddi_ui::LayerInfo;
 use ddi_ui::state::settings::VideoMode;
 
 /// Wait after a selection before its movie opens, seconds (the sample's,
@@ -45,16 +44,6 @@ pub fn movie_of(entry: &ManifestEntry, mode: VideoMode) -> Option<String> {
         .as_ref()
         .filter(|v| v.plays())
         .map(|v| v.name.to_string())
-}
-
-/// Whether song select is what shows among `layers` (bottom first): the
-/// topmost screen, under whatever dialogs, is song select's, not leaving.
-pub fn select_shows(layers: &[LayerInfo]) -> bool {
-    layers
-        .iter()
-        .rev()
-        .find(|l| !l.overlay)
-        .is_some_and(|l| l.name == "select" && l.phase != "out")
 }
 
 /// What the shell does this frame ([`PreviewMovie::step`]).
@@ -97,8 +86,8 @@ pub struct PreviewMovie {
 
 impl PreviewMovie {
     /// Follows song select at `now` (seconds): `song` the song it shows
-    /// (`None`: none, or song select is not what shows,
-    /// [`select_shows`]); `still` under reduced motion; `movie` names the
+    /// (`None`: none, or song select does not show,
+    /// `SelectCall::Shown`); `still` under reduced motion; `movie` names the
     /// song's preview movie that may play ([`movie_of`]), asked only when
     /// the song changes.
     pub fn follow(
@@ -367,29 +356,6 @@ mod tests {
             None
         );
         assert_eq!(movie_of(&entry(None), VideoMode::On), None);
-    }
-
-    fn layer(name: &str, overlay: bool, phase: &'static str) -> LayerInfo {
-        LayerInfo {
-            name: name.into(),
-            overlay,
-            modal: overlay,
-            phase,
-            focused: None,
-        }
-    }
-
-    #[test]
-    fn song_select_shows_under_its_dialogs_only() {
-        let select = layer("select", false, "active");
-        assert!(select_shows(std::slice::from_ref(&select)));
-        assert!(select_shows(&[select.clone(), layer("import", true, "in")]));
-        assert!(!select_shows(&[
-            select.clone(),
-            layer("options", false, "in")
-        ]));
-        assert!(!select_shows(&[layer("select", false, "out")]));
-        assert!(!select_shows(&[]));
     }
 
     /// A 2 s movie at 10 frames a second, decoded at once.

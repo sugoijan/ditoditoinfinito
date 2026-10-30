@@ -2650,6 +2650,11 @@ impl Screen for EditorScreen {
         self.recording()
     }
 
+    fn moving(&self) -> bool {
+        // The field gliding to its cursor or following the music.
+        self.listening || (self.shown - self.editor.borrow().cursor().0 as f64).abs() > 0.01
+    }
+
     fn animating(&self) -> bool {
         // Frames come while the field glides or follows the music.
         self.live.animating(&self.env)

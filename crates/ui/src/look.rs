@@ -260,14 +260,7 @@ const MUTED: Rgba = [0.6, 0.62, 0.68, 1.0];
 
 /// Runs a command string on an actor (the plain look's own; ignores what
 /// fails).
-pub fn run(a: &mut Actor, commands: &str) {
-    let mut p = Problems::default();
-    if let Ok(calls) = parse(commands) {
-        for c in calls {
-            let _ = a.call(&c, &mut p, 0);
-        }
-    }
-}
+pub use ddi_actor::commands::run;
 
 /// One method call with numbers, no parsing (per frame).
 pub fn call(a: &mut Actor, method: &str, args: &[f32]) {

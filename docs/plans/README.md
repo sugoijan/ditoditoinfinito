@@ -60,6 +60,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   from the engine's clocks, materials as the skin's own bounded WGSL
   shaders; takes over the SVG plan's material and material-part
   metadata steps.
+- [Infinito's wave as its own material](infinito-wave-material.md)
+  (2026-10-30): done 2026-10-30. Infinito already draws its holds, rolls and
+  lifts with its own WGSL; the unused `*Material*` metric family, the
+  built-in wave shader and the stencil hold paths only they reach go.
 
 ## Charts, layouts and play
 
@@ -145,6 +149,11 @@ architecture, the decisions and the roadmap they belong to. Status as of
   controls. Free-text typing is exempt; numeric editing is controller-operable.
   No virtual keyboard; dance-pad hint profiles deferred; browser/OS boundaries
   tracked separately. [Audit](../research/controller-reachability.md).
+- [Controller input in the UI core](controller-input-core.md) (2026-10-30):
+  done. The `Ui` owns the bindings, the connected pads and the hint
+  source, takes pads' edges as they are and releases what each held
+  control pressed; no thread-local, no revision polling, no settings side
+  effect.
 - [The start prompt, loading in the background](start-prompt.md)
   (2026-10-24): done (decision 61). Start never waits for the noteskin
   or the rest (a loading screen after an early Start), the countdown to
@@ -180,6 +189,17 @@ architecture, the decisions and the roadmap they belong to. Status as of
   from tags; window icons, the Windows executable's icon and version, the
   console for flagged runs. Left: notarization, Intel Macs, Windows'
   video helper, the Windows parts checked on Windows.
+- [UI core mechanics](ui-core-mechanics.md) (2026-10-30): done 2026-10-30.
+  Screens told when another screen covers or uncovers them (dialogs do
+  not), replacing desktop's layer-name checks; every screen taking input
+  while it enters, the prompt's fade an ordinary entrance; hover picked
+  again only when something changed; the web's history state written
+  only when it changes.
+- [Shell sharing](shell-sharing.md) (2026-10-30): done. One field
+  preview skin state in `ddi_shell` for both shells; skin loads sharing
+  their drawings and parsed components, one load of a skin at a time, so
+  the web's play stops polling and sleeping before its skin; the prompt's
+  info and filter band built once; one owner of the web canvas's pointer.
 
 ## Library and import
 

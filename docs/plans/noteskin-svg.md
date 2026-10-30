@@ -8,7 +8,9 @@ the Spiral Base skin and its stencil materials (`HoldStencilMaterial`,
 `AnimationOnChildren`, …) are rebased on top of it later, so steps that need
 them come last. (Spiral Base, the SVG skin these measurements use, is
 developed apart and not bundled yet; the stencil materials are.) SkinCraft's side follows in its own repository, on top of
-these changes.
+these changes. (2026-10-30: the stencil-material metrics were removed;
+long notes and lifts are `Def.LongNote` and `Def.Lift` components,
+`infinito-wave-material.md`.)
 
 ## Where things stand
 

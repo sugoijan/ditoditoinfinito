@@ -847,13 +847,12 @@ impl List {
                     call(a, "diffusealpha", &[place.alpha]);
                     // Moved right, the row keeps its right edge: its
                     // `Right` part moves back, its plate and what is drawn
-                    // around it (`Plate`, `Line`, `Ring`, `Pulse`,
-                    // `Shadow`) narrow.
+                    // around it (`Plate`, `Line`, `Shadow`) narrow.
                     if let Some(r) = hit::find_mut(a, "Right") {
                         call(r, "x", &[-place.x]);
                     }
                     let narrow = ((w - place.x) / w.max(1.0)).clamp(0.0, 1.0);
-                    for part in ["Plate", "Line", "Ring", "Pulse", "Shadow"] {
+                    for part in ["Plate", "Line", "Shadow"] {
                         if let Some(p) = hit::find_mut(a, part) {
                             call(p, "zoomx", &[narrow]);
                         }

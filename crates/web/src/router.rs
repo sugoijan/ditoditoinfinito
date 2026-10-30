@@ -3,6 +3,7 @@
 //! `#/calibrate`, `#/credits`, `#/results`, `#/edit?song=<id>&chart=<n>`,
 //! `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`.
 
+use ddi_library::share::percent_encode;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -390,19 +391,6 @@ fn bias_param(bias_ms: i64) -> String {
     }
 }
 
-fn percent_encode(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
 /// Decodes `%XX` escapes; malformed escapes are kept verbatim. Works on bytes
 /// so a `%` followed by a multi-byte character cannot hit a non-char-boundary
 /// `str` slice.
@@ -473,6 +461,7 @@ fn put_trail(state: &js_sys::Object, trail: &ddi_ui::navigation::RouteTrail) {
 }
 
 fn changed() {
+    history_changed();
     if let Some(w) = web_sys::window()
         && let Ok(event) = web_sys::Event::new("hashchange")
     {
@@ -587,6 +576,7 @@ pub(crate) fn reset_start_focus() {
     if js_sys::Reflect::has(&state, &"ddiFocus".into()).unwrap_or(false) {
         let _ = js_sys::Reflect::delete_property(&state, &"ddiFocus".into());
         let _ = history.replace_state_with_url(&state, "", None);
+        history_changed();
     }
 }
 
@@ -603,19 +593,46 @@ pub(crate) fn saved_options() -> Option<(String, String, f32)> {
     serde_json::from_str(&text).ok()
 }
 
+/// What [`save_view`] last wrote, and into which history entry (the
+/// [`history_changed`] count then).
+type Saved = (u64, Option<String>, Option<(String, String, f32)>);
+
+thread_local! {
+    /// Bumped each time the history's entry may have changed: a visit, a
+    /// return, a pop, a hash change, a dialog's marker.
+    static GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static SAVED: std::cell::RefCell<Option<Saved>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The history's entry may be another now: the next [`save_view`] writes.
+pub(crate) fn history_changed() {
+    GENERATION.with(|g| g.set(g.get() + 1));
+}
+
+/// Keeps the focus and Options' place in the history's entry, written
+/// only when they changed or the entry did (called every frame).
 pub(crate) fn save_view(focus: Option<&str>, theme: Option<&ddi_ui::screens::ThemeState>) {
+    let options = theme
+        .filter(|t| t.screen == "options")
+        .map(|t| (t.section.clone(), t.option_id.clone(), t.scroll));
+    let now: Saved = (
+        GENERATION.with(|g| g.get()),
+        focus.map(str::to_string),
+        options,
+    );
+    if SAVED.with_borrow(|s| s.as_ref() == Some(&now)) {
+        return;
+    }
     let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
         return;
     };
     let state = history_state();
     let mut changed = false;
     for (key, value) in [
-        ("ddiFocus", focus.map(str::to_string)),
+        ("ddiFocus", now.1.clone()),
         (
             "ddiOptions",
-            theme.filter(|t| t.screen == "options").and_then(|t| {
-                serde_json::to_string(&(t.section.clone(), t.option_id.clone(), t.scroll)).ok()
-            }),
+            now.2.as_ref().and_then(|o| serde_json::to_string(o).ok()),
         ),
     ] {
         if let Some(value) = value
@@ -632,6 +649,7 @@ pub(crate) fn save_view(focus: Option<&str>, theme: Option<&ddi_ui::screens::The
     if changed {
         let _ = history.replace_state_with_url(&state, "", None);
     }
+    SAVED.with_borrow_mut(|s| *s = Some(now));
 }
 
 // The app crate only builds for wasm32; run with

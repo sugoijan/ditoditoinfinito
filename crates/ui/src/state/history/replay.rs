@@ -16,7 +16,7 @@ use super::{
     RECORD_VERSION, RulesetKey, Worked, find_chart, replay, score_text,
 };
 use crate::screens::data::PlayRow;
-use crate::state::settings::{BUILT_IN, BUNDLED, INFINITO, Settings};
+use crate::state::settings::{BUNDLED, INFINITO, Settings};
 
 /// A kept play, read back to be watched again or its results shown.
 #[derive(Clone, Debug, PartialEq)]
@@ -273,13 +273,13 @@ impl Replay {
     }
 
     /// The noteskin the replay draws the play's chart (of layout
-    /// `layout`) with, when it is one that must be installed: not the
-    /// built-in arrows, not a bundled one (they ship with the game; Dito,
-    /// chosen by no choice, among them).
+    /// `layout`) with, when it is one that must be installed: not a
+    /// bundled one (they ship with the game; Infinito, chosen by no
+    /// choice, among them).
     pub fn skin(&self, settings: &Settings, layout: &str) -> Option<String> {
         settings
             .noteskin_for(layout)
-            .filter(|k| *k != BUILT_IN && !k.starts_with(BUNDLED))
+            .filter(|k| !k.starts_with(BUNDLED))
             .map(str::to_string)
     }
 

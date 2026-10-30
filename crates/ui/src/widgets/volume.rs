@@ -22,7 +22,7 @@ use crate::look::{self, Look, Spec, call};
 use crate::nav::MenuAction;
 use crate::screen::{Cx, Handled, Input};
 use crate::state::settings::{DEFAULT_VOLUME, slider_to_volume, volume_to_slider};
-use crate::widgets::{part, play, set_text};
+use crate::widgets::{part, set_text};
 
 /// How long the slider stays once the mouse has left it, seconds: room to
 /// cross the gap between the button and the slider on a diagonal.
@@ -95,10 +95,6 @@ impl Volume {
 
     pub fn gain(&self) -> f32 {
         slider_to_volume(self.position)
-    }
-
-    pub fn is_open(&self) -> bool {
-        self.open
     }
 
     /// The icon's level: 0 muted, then 1 to 3.
@@ -330,16 +326,7 @@ impl Volume {
                 if t.within(&self.popup_name()) {
                     return (Handled::Yes, self.track_input(*gesture, *pos, root));
                 }
-                let button = self.button_name();
-                if let Some(b) = crate::hit::find_mut(root, &button) {
-                    match gesture {
-                        Gesture::Press => play(b, "Press"),
-                        Gesture::Tap | Gesture::Cancel | Gesture::Release | Gesture::DragStart => {
-                            play(b, "Release")
-                        }
-                        _ => {}
-                    }
-                }
+                crate::widgets::controls::press_look(input, &self.button_name(), root);
                 if *gesture != Gesture::Tap {
                     return (Handled::Yes, None);
                 }

@@ -352,6 +352,25 @@ impl Renderer {
         })
     }
 
+    /// Puts `play` on (`None`: the built-in arrows): the last skin's
+    /// textures gone, its colors as this renderer blends them and its
+    /// textures put on by `upload`, which tells `play` their ids.
+    pub fn install_noteskin(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        play: Option<crate::noteskin::NoteskinPlay>,
+        upload: impl FnOnce(&mut Renderer, &mut crate::noteskin::NoteskinPlay),
+    ) -> Option<crate::noteskin::NoteskinPlay> {
+        self.clear_noteskin_textures();
+        self.set_skins_drawn(device, queue, play.is_some());
+        play.map(|mut p| {
+            p.set_srgb(self.skin_colors_linear());
+            upload(self, &mut p);
+            p
+        })
+    }
+
     /// Forgets the noteskin textures (another skin, or none), and the
     /// stage layers' textures registered with them.
     pub fn clear_noteskin_textures(&mut self) {

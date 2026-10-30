@@ -140,7 +140,7 @@ pub struct Settings {
     /// Presentation only, keyed like controller bindings; absent means Auto.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub controller_styles: std::collections::BTreeMap<String, crate::controller_hints::Style>,
-    /// Reduced motion in the menus (no beat pulse, no slides): as the
+    /// Reduced motion in the menus (no slides, the art held still): as the
     /// system says, or always, or never.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub reduced_motion: ReducedMotion,
@@ -422,43 +422,27 @@ pub fn is_pump_skin(key: &str) -> bool {
         .is_some_and(|g| g.eq_ignore_ascii_case("pump"))
 }
 
-/// Whether a [`Settings::pump_noteskin`] key draws the pump layouts: a
-/// pump skin's, or the built-in arrows (`builtin`).
-fn draws_pump(key: &str) -> bool {
-    is_pump_skin(key) || key == BUILT_IN
-}
-
 impl Settings {
     /// The noteskin key chosen for layout `layout` (an id): the pump skin
     /// on a pump layout when one is chosen (and draws them), else
     /// [`Settings::noteskin`].
     pub fn noteskin_for(&self, layout: &str) -> Option<&str> {
         match &self.pump_noteskin {
-            Some(k) if layout.starts_with("pump") && draws_pump(k) => Some(k),
+            Some(k) if layout.starts_with("pump") && is_pump_skin(k) => Some(k),
             _ => self.noteskin.as_deref(),
         }
     }
 
-    /// The chosen skin for `layout`, or the default SVG Infinito. The explicit
-    /// built-in key remains available internally for fallback/replay drawing.
-    pub fn play_skin(&self, layout: &str) -> Option<String> {
-        match self.noteskin_for(layout) {
-            Some(BUILT_IN) => None,
-            Some(key) => Some(key.to_string()),
-            None => Some(INFINITO.to_string()),
-        }
-    }
-
-    /// Whether an internal explicit procedural selection is active.
-    pub fn builtin_arrows(&self) -> bool {
-        self.noteskin.as_deref() == Some(BUILT_IN)
+    /// The chosen skin for `layout`, or the default SVG Infinito.
+    pub fn play_skin(&self, layout: &str) -> String {
+        self.noteskin_for(layout).unwrap_or(INFINITO).to_string()
     }
 
     /// Lets the chosen skins go that are not `there` (by key; gone, or
     /// chosen on another machine): what is drawn then is what no choice
     /// draws. Whether one was.
     pub fn let_go_missing_skins(&mut self, there: impl Fn(&str) -> bool) -> bool {
-        let missing = |k: &Option<String>| k.as_deref().is_some_and(|k| k != BUILT_IN && !there(k));
+        let missing = |k: &Option<String>| k.as_deref().is_some_and(|k| !there(k));
         let (dance, pump) = (missing(&self.noteskin), missing(&self.pump_noteskin));
         if dance {
             self.noteskin = None;
@@ -585,7 +569,6 @@ impl Settings {
         let stored: Settings = storage::load(Area::Local, KEY).unwrap_or_default();
         let mut s = stored.clone();
         s.sanitize();
-        crate::controller_hints::configure(&s.controls, &s.controller_styles);
         if s != stored {
             // Persist migrations and clamping so storage matches what runs.
             s.save();
@@ -612,7 +595,7 @@ impl Settings {
         if self
             .pump_noteskin
             .as_deref()
-            .is_some_and(|k| !draws_pump(k))
+            .is_some_and(|k| !is_pump_skin(k))
         {
             self.pump_noteskin = None;
         }
@@ -723,7 +706,6 @@ impl Settings {
     }
 
     pub fn save(&self) {
-        crate::controller_hints::configure(&self.controls, &self.controller_styles);
         let _ = storage::save(Area::Local, KEY, self);
     }
 
@@ -1152,8 +1134,7 @@ mod tests {
             )
             .unwrap();
             let s = Settings::load();
-            assert_eq!(s.play_skin("dance-single").as_deref(), Some(INFINITO));
-            assert!(!s.builtin_arrows());
+            assert_eq!(s.play_skin("dance-single"), INFINITO);
             assert_eq!(s.note_colors(), NoteColors::Flat);
             assert_eq!(
                 s.skin_params(INFINITO),

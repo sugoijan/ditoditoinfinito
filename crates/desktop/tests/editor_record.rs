@@ -100,8 +100,8 @@ impl Run {
             host_time: HostTime(at),
             slot: self.pad.1,
         };
-        let event = self.input.route(&self.h.ui, raw).expect("routed");
-        assert!(matches!(event, UiEvent::Raw(_)), "raw while recording");
+        assert!(self.h.ui.wants_raw(), "raw while recording");
+        let event = self.input.route(&self.h.ui, raw);
         self.h.send(event);
     }
 }

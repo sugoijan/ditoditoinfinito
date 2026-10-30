@@ -25,6 +25,7 @@ pub(crate) mod text;
 pub(crate) mod textures;
 pub(crate) mod touch;
 pub(crate) mod video;
+pub(crate) mod wasm_worker;
 pub(crate) mod webcodecs;
 
 use wasm_bindgen::JsValue;

@@ -111,7 +111,6 @@ fn play(
     let scripts = &loaded.entry.bg_scripts;
     assert_eq!(scripts.len(), files, "{scripts:?}");
     let settings = Settings {
-        noteskin: Some("builtin".into()),
         bg_brightness: 1.0,
         field_filter: 0.0,
         background_frame: BackgroundFrame::SixteenNine,

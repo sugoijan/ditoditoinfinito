@@ -17,17 +17,17 @@
 //! import does and what plays; `__DDI_DEBUG.ui.select` (as `ui.theme`)
 //! what the screen shows.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use crate::component::{Callback, Component, Context, NodeRef};
 use ddi_engine::{ConnectedPad, PadUse};
+use ddi_ui::UiRequest;
 use ddi_ui::screens::data::Notice;
 use ddi_ui::screens::select::{
     FEED, Feed, OpenFn, PlayFn, SelectCall, SelectScreen, SharedFeed, ShellFn,
 };
-use ddi_ui::{TextMode, Ui, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::{Interval, Timeout};
 use wasm_bindgen::{JsCast, JsValue};
@@ -98,6 +98,8 @@ struct Shared {
     import_debug: RefCell<ImportDebug>,
     /// The selected song's preview movie (`#PREVIEWVID`).
     movie: RefCell<crate::preview_movie::PreviewMovieHost>,
+    /// Song select shows: not leaving (`SelectCall::Shown`).
+    shown: Cell<bool>,
 }
 
 /// The import, for `__DDI_DEBUG.songs`.
@@ -204,6 +206,7 @@ impl Component for SelectPage {
             packs: RefCell::new(Vec::new()),
             import_debug: RefCell::new(ImportDebug::now()),
             movie: RefCell::default(),
+            shown: Cell::new(false),
         });
         let pad_check = {
             let link = ctx.link().clone();
@@ -523,11 +526,6 @@ impl SelectPage {
         };
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
-        // The beat: the preview's music as heard, else the BPM.
-        let bpm = ddi_ui::screens::bpm_beat();
-        let mut env2 = env.clone();
-        env2.beat =
-            Rc::new(move |id, t, b| crate::select_preview::beat(id).or_else(|| bpm(id, t, b)));
         let place = self.shared.place.borrow().clone();
         let data = self.data(&place);
         let play: PlayFn = {
@@ -558,7 +556,7 @@ impl SelectPage {
             let shared = self.shared.clone();
             Rc::new(move |call, cx| shell_call(&shared, call, cx))
         };
-        let screen = SelectScreen::new(env2, data, None, play, options)
+        let screen = SelectScreen::new(env.clone(), data, None, play, options)
             .with_shell(shell, self.shared.feed.clone())
             .with_editing()
             // Share… while the hidden switch is on (`crate::share`).
@@ -568,10 +566,7 @@ impl SelectPage {
                 crate::history::plays(),
                 Rc::new(crate::history::tz_minutes),
             ));
-        let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(screen);
         let extra: ui_dev::DebugFn = {
             let shared = self.shared.clone();
@@ -818,8 +813,9 @@ fn replay_hash(id: &str, results: bool) -> String {
 /// told whose movie shows.
 fn movie_hook(shared: &Rc<Shared>, env: ddi_ui::screens::Env) -> ui_dev::FrameHook {
     let shared = shared.clone();
-    Box::new(move |gfx, encoder, ui, now_ms| {
+    Box::new(move |gfx, encoder, _ui, now_ms| {
         let song = env.state.borrow().song_id.clone();
+        let song = shared.shown.get().then_some(song.as_str());
         let entry = |id: &str| {
             let library = shared.library.borrow();
             let l = library.as_ref()?;
@@ -829,14 +825,11 @@ fn movie_hook(shared: &Rc<Shared>, env: ddi_ui::screens::Env) -> ui_dev::FrameHo
                 .find(|e| e.id == id)
                 .cloned()
         };
-        let (busy, news) = shared.movie.borrow_mut().frame(
-            gfx,
-            encoder,
-            ui,
-            (Some(&song), env.reduced()),
-            now_ms,
-            &entry,
-        );
+        let (busy, news) =
+            shared
+                .movie
+                .borrow_mut()
+                .frame(gfx, encoder, (song, env.reduced()), now_ms, &entry);
         if let Some(news) = news {
             shared.feed.borrow_mut().preview_movie = Some(news);
             broadcast(&shared);
@@ -932,6 +925,14 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
         SelectCall::Leave => {
             crate::select_preview::close();
             cx.request(UiRequest::Back);
+        }
+        // Leaving (the only way song select stops showing on the web):
+        // the preview stops at the press, not once the page goes.
+        SelectCall::Shown(shown) => {
+            shared.shown.set(shown);
+            if !shown {
+                crate::select_preview::stop();
+            }
         }
         SelectCall::Volume(volume) => crate::select_preview::set_volume(volume),
         SelectCall::WatchPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, false))),

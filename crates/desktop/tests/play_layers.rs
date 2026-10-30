@@ -101,7 +101,6 @@ fn song(dir: &Path, movie: bool) -> Option<()> {
 /// or after each of `times` (song seconds): `(time drawn, [r, g, b])`.
 fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3])> {
     let settings = Settings {
-        noteskin: Some("builtin".into()),
         bg_brightness: 1.0,
         field_filter: 0.0,
         background_frame: BackgroundFrame::Screen,

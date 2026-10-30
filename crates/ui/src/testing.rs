@@ -53,7 +53,6 @@ impl Harness {
         mode: TextMode,
         gestures: bool,
     ) -> Harness {
-        crate::controller_hints::reset();
         let mut h = Harness {
             ui: Ui::new(design, mode, gestures),
             measure: FixedMeasure,
@@ -291,8 +290,9 @@ impl Harness {
         }
     }
 
-    /// A physical controller edge through the shared bindings, or raw capture
-    /// when the foremost screen owns it, as both shells route it.
+    /// A physical controller edge in slot 0 under `controls`, as both
+    /// shells send it ([`UiEvent::Pad`]): the UI resolves it to a menu
+    /// action, or hands it on raw to a screen binding controls.
     pub fn controller(
         &mut self,
         controls: &ddi_engine::ControlBindings,
@@ -301,37 +301,37 @@ impl Harness {
         control: &str,
         pressed: bool,
     ) {
-        crate::controller_hints::devices(vec![ddi_engine::ConnectedPad {
+        let pad = ddi_engine::ConnectedPad {
             id: id.into(),
             index: 0,
             standard,
             vendor_product: None,
-        }]);
-        crate::controller_hints::configure(controls, &Default::default());
-        crate::controller_hints::edge(&ddi_platform::RawInput {
+        };
+        if self.ui.hints().controls() != controls {
+            let styles = self.ui.hints().styles().clone();
+            self.ui.set_controls(controls.clone(), styles);
+        }
+        if self.ui.hints().pads() != std::slice::from_ref(&pad) {
+            self.pads(vec![pad]);
+        }
+        self.edge(ddi_platform::RawInput {
             device: ddi_platform::DeviceId::Gamepad(id.into()),
             control: control.into(),
             pressed,
             host_time: ddi_platform::HostTime(self.now / 1000.0),
             slot: 0,
         });
-        if self.ui.wants_raw() {
-            self.send(UiEvent::Raw(ddi_platform::RawInput {
-                device: ddi_platform::DeviceId::Gamepad(id.into()),
-                control: control.into(),
-                pressed,
-                host_time: ddi_platform::HostTime(self.now / 1000.0),
-                slot: 0,
-            }));
-        } else if let Some(action) = controls.menu_control(id, standard, control) {
-            self.send(UiEvent::Menu(MenuEvent {
-                action: action.into(),
-                down: pressed,
-                source: 0,
-                gesture: true,
-                time: self.now,
-            }));
-        }
+    }
+
+    /// The controllers connected now ([`Ui::set_pads`]).
+    pub fn pads(&mut self, pads: Vec<ddi_engine::ConnectedPad>) {
+        self.ui.set_pads(pads);
+        self.frame(0.0);
+    }
+
+    /// A controller's edge as read ([`UiEvent::Pad`]).
+    pub fn edge(&mut self, edge: ddi_platform::RawInput) {
+        self.send(UiEvent::Pad(edge));
     }
 
     // Text.

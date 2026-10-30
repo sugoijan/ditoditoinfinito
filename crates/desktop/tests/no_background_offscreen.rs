@@ -89,7 +89,6 @@ fn play(
     times: &[f64],
 ) -> Vec<Sample> {
     let settings = Settings {
-        noteskin: Some("builtin".into()),
         bg_brightness: brightness,
         field_filter: filter,
         background_frame: BackgroundFrame::Screen,

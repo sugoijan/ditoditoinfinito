@@ -598,3 +598,141 @@ fn a_pushed_screen_waits_for_the_one_under_it_which_comes_back() {
     h.run(0.25);
     assert_eq!(phases(&h), vec![("under".to_string(), "in")]);
 }
+
+/// A screen takes input as soon as it comes in; a press while the screen
+/// under it leaves (covering) or while it leaves itself is dropped.
+#[test]
+fn a_screen_takes_input_while_it_comes_in_but_not_while_one_leaves() {
+    let mut h = Harness::new([640.0, 360.0], [640.0, 360.0], 1.0, TextMode::Mirror);
+    h.push(Under);
+    h.run(0.3);
+    let phases = |h: &Harness| -> Vec<(String, &'static str)> {
+        h.ui.layers()
+            .into_iter()
+            .map(|l| (l.name, l.phase))
+            .collect()
+    };
+    // Covering: a second press goes nowhere (no second `Over`).
+    h.key("Enter", "Enter");
+    h.run(0.05);
+    h.key("Enter", "Enter");
+    assert_eq!(phases(&h), vec![("under".to_string(), "covering")]);
+    h.run(0.2);
+    assert_eq!(
+        phases(&h),
+        vec![("under".to_string(), "covered"), ("over".to_string(), "in")]
+    );
+    // Coming in: Start acts at once (it closes `Over`).
+    h.key("Enter", "Enter");
+    assert_eq!(
+        phases(&h),
+        vec![
+            ("under".to_string(), "covered"),
+            ("over".to_string(), "out")
+        ]
+    );
+    // Leaving: dropped; then the screen under comes back and takes input
+    // while it comes in.
+    h.key("Enter", "Enter");
+    for _ in 0..30 {
+        if h.ui.layers().len() == 1 {
+            break;
+        }
+        h.run(0.05);
+    }
+    assert_eq!(phases(&h), vec![("under".to_string(), "in")]);
+    h.key("Enter", "Enter");
+    assert_eq!(phases(&h), vec![("under".to_string(), "covering")]);
+    // Back during an entrance leaves.
+    for _ in 0..30 {
+        if h.ui.layers().len() == 2 {
+            break;
+        }
+        h.run(0.05);
+    }
+    assert_eq!(h.ui.layers()[1].phase, "in");
+    h.key("Escape", "Escape");
+    assert_eq!(h.ui.layers()[1].phase, "out");
+}
+
+/// A screen recording what it is told of being shown; Enter pushes
+/// `Over`, D opens a dialog, P a popup, B leaves with Back.
+struct Shown {
+    log: Log,
+}
+
+impl Screen for Shown {
+    fn name(&self) -> &str {
+        "shown"
+    }
+
+    fn build(&mut self, _cx: &mut Cx) -> Actor {
+        let mut root = Actor::new(Kind::Frame(vec![quad("Btn", [100.0, 40.0], "xy,320,180")]));
+        root.set_command(
+            "On",
+            parse("diffusealpha,0;linear,0.1;diffusealpha,1").unwrap(),
+        );
+        root.set_command("Off", parse("linear,0.1;diffusealpha,0").unwrap());
+        root
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![Focusable::new("Btn")]
+    }
+
+    fn shown(&mut self, shown: bool, _r: &mut Actor, _cx: &mut Cx) {
+        self.log.borrow_mut().push(format!("shown {shown}"));
+    }
+
+    fn input(&mut self, input: &Input, _r: &mut Actor, cx: &mut Cx) -> Handled {
+        match input {
+            Input::Activate { .. } => cx.push(Over),
+            Input::Key(k) if k.down && k.key == "d" => cx.overlay(Dialog, true),
+            Input::Key(k) if k.down && k.key == "p" => cx.overlay(Popup, false),
+            Input::Key(k) if k.down && k.key == "b" => cx.request(UiRequest::Back),
+            _ => return Handled::No,
+        }
+        Handled::Yes
+    }
+}
+
+#[test]
+fn screens_are_told_when_covered_and_uncovered_but_not_for_dialogs() {
+    let log: Log = Rc::default();
+    let mut h = Harness::new([640.0, 360.0], [640.0, 360.0], 1.0, TextMode::Mirror);
+    h.push(Shown { log: log.clone() });
+    h.run(0.3);
+    assert!(log.borrow().is_empty(), "nothing at its push");
+    // A dialog and a popup cover nothing.
+    h.key("KeyD", "d");
+    h.run(0.1);
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    h.key("KeyP", "p");
+    h.run(0.1);
+    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    // Covered by a screen's push: once; uncovered as it comes in: once.
+    h.key("Enter", "Enter");
+    h.run(0.5);
+    assert_eq!(*log.borrow(), ["shown false"]);
+    h.key("Enter", "Enter");
+    h.run(0.35);
+    assert_eq!(*log.borrow(), ["shown false", "shown true"]);
+    h.run(0.3);
+    // The shell's own push: once.
+    h.push(Over);
+    assert_eq!(log.borrow().len(), 3);
+    assert_eq!(log.borrow()[2], "shown false");
+    h.run(0.3);
+    h.key("Enter", "Enter");
+    h.run(0.5);
+    assert_eq!(log.borrow()[3], "shown true");
+    // Leaving with Back: once, as it starts leaving.
+    h.key("KeyB", "b");
+    assert_eq!(log.borrow().len(), 5);
+    assert_eq!(log.borrow()[4], "shown false");
+    h.run(0.5);
+    assert_eq!(log.borrow().len(), 5);
+}

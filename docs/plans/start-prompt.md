@@ -61,8 +61,17 @@ set each frame since the card is built again as the state changes;
 none under reduced motion). Opened as the page's first screen (a direct `#/play?…`), the prompt
 comes up under the web's loader, which waits for it as for a page's
 screen (its textures and its diagram's skin, `boot::expect_host`,
-`docs/plans/start-menu.md`), the card unseen until the loader fades
-(`Cx::holding`) and fading in then.
+`docs/plans/start-menu.md`), the card's entrance held unseen until the
+loader fades (`Ui::hold_entrances`, as any screen's) and played then.
+The card's fade is the screen's entrance (`screens::transitions`, its
+`Off` empty: it goes at once), taking keys as it plays, as every screen
+does since 2026-10-30 (`ui-core-mechanics.md`). The play's own skin
+load begins once that entrance is over (`boot::entrance_over`, at once
+from song select) and after the preview's load of the same skin for the
+diagram (one load of a skin at a time), whose drawings and component
+parts it takes rather than drawing them again (`noteskin_cache`,
+`docs/plans/shell-sharing.md`; it used to poll the preview every 100 ms
+and then sleep 800 ms).
 
 ## The loading screen
 

@@ -29,6 +29,7 @@ pub mod notes;
 pub mod params;
 #[cfg(feature = "raster")]
 pub mod raster;
+pub mod recent;
 pub mod report;
 pub mod skin;
 pub mod svg;

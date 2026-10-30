@@ -433,15 +433,11 @@ impl Gfx {
     /// How skins' quads blend as StepMania's: through the plain view
     /// (WebGPU), or, on a surface that is sRGB itself and has no other view
     /// (WebGL2), every frame drawn offscreen in half floats, when the
-    /// device renders and blends them and `skins` are drawn (the built-in
-    /// arrows are the lighter choice); else as the rest of the scene.
-    pub(crate) fn skin_blending(&self, skins: bool) -> ddi_render::SkinBlending {
+    /// device renders and blends them; else as the rest of the scene.
+    pub(crate) fn skin_blending(&self) -> ddi_render::SkinBlending {
         use ddi_render::SkinBlending;
         if let Some(plain) = self.plain_format() {
             return SkinBlending::PlainView(plain);
-        }
-        if !skins {
-            return SkinBlending::Scene;
         }
         let half = wgpu::TextureFormat::Rgba16Float;
         let features = self.adapter.get_texture_format_features(half);

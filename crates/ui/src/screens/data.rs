@@ -250,7 +250,7 @@ pub struct SongEntry {
     pub subtitle: String,
     pub artist: String,
     pub pack: String,
-    /// The display BPM (the beat pulse's tempo).
+    /// The display BPM.
     pub bpm: f32,
     /// As shown ("160", "90–180").
     pub bpm_text: String,
@@ -410,6 +410,28 @@ pub struct SharesView {
     /// Each share with the link to it.
     pub shares: Vec<ShareRow>,
     pub error: String,
+}
+
+impl SharesView {
+    /// The server's `listing` read, each share with its link (`link`).
+    pub fn from_listing(
+        listing: ddi_library::share::ShareListing,
+        link: impl Fn(&str) -> String,
+    ) -> SharesView {
+        SharesView {
+            state: SharesState::Ready,
+            admin: listing.role == "admin",
+            shares: listing
+                .shares
+                .into_iter()
+                .map(|summary| ShareRow {
+                    link: link(&summary.id),
+                    summary,
+                })
+                .collect(),
+            error: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -51,7 +51,7 @@ fn a_skin_picked_shows_once_read() {
         s.set_skin_param(key, "Explosions", Some(ParamValue::Bool(false)), None);
         s
     };
-    let picks: [(Settings, Option<&str>); 13] = [
+    let picks: [(Settings, Option<&str>); 11] = [
         // SVG Infinito by default.
         (Settings::default(), Some("Infinito")),
         (
@@ -97,24 +97,6 @@ fn a_skin_picked_shows_once_read() {
                 ..Settings::default()
             },
             Some("Delta"),
-        ),
-        (
-            Settings {
-                noteskin: Some("builtin".into()),
-                ..Settings::default()
-            },
-            None,
-        ),
-        // A pump layout: the pump skin's (here the built-in arrows),
-        // not the dance one's.
-        (
-            Settings {
-                style: "pump-single".into(),
-                noteskin: Some("bundled:dance/delta".into()),
-                pump_noteskin: Some("builtin".into()),
-                ..Settings::default()
-            },
-            None,
         ),
     ];
     for (i, (settings, want)) in picks.into_iter().enumerate() {

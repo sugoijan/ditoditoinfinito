@@ -3,8 +3,8 @@
 //! (layout A), its colors, faces, sizes and timings read from
 //! `infinito.toml`, embedded.
 //!
-//! - **Ground** near black, plates a step up, the selection raised with
-//!   a 2 px accent ring; color comes from the songs' art and the
+//! - **Ground** near black, plates a step up, the selection raised and
+//!   outlined in the Vivid paint (`active`); color comes from the songs' art and the
 //!   difficulty and judgement colors, never from the chrome.
 //! - **Text** in Iosevka Term (the system's fonts behind it for
 //!   Japanese and the like), **numbers** in the HUD's Iosevka ExtraBold.
@@ -158,26 +158,6 @@ impl Infinito {
         command_of(a, command, &self.tint(color));
     }
 
-    /// The selection's pulse and ring around `[x, y, w, h]`, hidden (their
-    /// commands are the caller's).
-    fn halo(&self, [x, y, w, h]: [f32; 4]) -> (Actor, Actor) {
-        let mut pulse = outline(
-            "Pulse",
-            [x - 5.0, y - 5.0, w + 10.0, h + 10.0],
-            3.0,
-            self.c("Accent"),
-        );
-        hide(&mut pulse);
-        let mut ring = outline(
-            "Ring",
-            [x - 2.0, y - 2.0, w + 4.0, h + 4.0],
-            2.0,
-            self.c("Accent"),
-        );
-        hide(&mut ring);
-        (pulse, ring)
-    }
-
     /// `command` setting a color at once.
     fn colored(&self, a: &mut Actor, command: &str, color: &str) {
         command_of(a, command, &format!("diffuse,{}", rgba(self.c(color))));
@@ -247,8 +227,6 @@ fn round(mut a: Actor, r: f32) -> Actor {
 /// a toggle's box (3).
 fn outline(name: &str, rect: [f32; 4], width: f32, color: Rgba) -> Actor {
     let r = match name {
-        "Pulse" => 11.0,
-        "Ring" => 8.0,
         "Line" | "Edge" | "Border" => 6.0,
         "Box" => 3.0,
         n if n.starts_with("Cap") => 4.0,
@@ -332,32 +310,6 @@ impl Infinito {
         let [w, h] = spec.size;
         // Large buttons (44 and up) rounder.
         let r = if h >= 44.0 { 8.0 } else { 6.0 };
-        // The ring in the accent around a plain plate; on an accent one
-        // (the primary buttons, the notices' "calibrate") inside it, in
-        // the label's color, or it would vanish into the plate.
-        let (color, width, out) = if fill == "Accent" {
-            (label, 2.0, -3.0)
-        } else {
-            ("Accent", 2.0, 2.0)
-        };
-        let mut ring = outline_r(
-            "Ring",
-            [-w / 2.0 - out, -h / 2.0 - out, w + 2.0 * out, h + 2.0 * out],
-            width,
-            self.c(color),
-            (r + out).max(2.0),
-        );
-        hide(&mut ring);
-        command_of(
-            &mut ring,
-            "GainFocus",
-            "stoptweening;linear,0.08;diffusealpha,1",
-        );
-        command_of(
-            &mut ring,
-            "LoseFocus",
-            "stoptweening;linear,0.08;diffusealpha,0",
-        );
         let mut plate = round(quad("Plate", spec.size, self.c(fill)), r);
         if fill == "Plate2" {
             self.tinted(&mut plate, "GainFocus", "Highlight");
@@ -368,12 +320,7 @@ impl Infinito {
             text = tracked(text, 80);
         }
         max_width(&mut text, w - 12.0);
-        let parts = if fill == "Accent" {
-            vec![plate, ring, text, extent(spec.size)]
-        } else {
-            vec![ring, plate, text, extent(spec.size)]
-        };
-        let mut f = frame("", parts);
+        let mut f = frame("", vec![plate, text, extent(spec.size)]);
         command_of(&mut f, "Press", "stoptweening;linear,0.05;zoom,0.97");
         command_of(&mut f, "Release", "stoptweening;linear,0.08;zoom,1");
         f
@@ -398,20 +345,13 @@ impl Infinito {
     }
 
     /// The song wheel's row (`h` ≥ 56) or the compact list's, drawn
-    /// [`ROW_INSET`] in from the left so the selected row's ring and
-    /// pulse lie within the list (which clips at its edges).
+    /// [`ROW_INSET`] in from the left so the selected row's active
+    /// outline lies within the list (which clips at its edges).
     fn song_row(&self, spec: &Spec) -> Actor {
         let [w, h] = [spec.size[0] - 2.0 * ROW_INSET, spec.size[1]];
         let (compact, row, big) = self.wheel_row(h);
         let t = self.m("Motion.Select");
         let grow = big / row;
-        let (pulse, mut ring) = self.halo([0.0, 0.0, w, big]);
-        command_of(
-            &mut ring,
-            "Select",
-            &format!("stoptweening;decelerate,{t};diffusealpha,1"),
-        );
-        command_of(&mut ring, "Deselect", "stoptweening;diffusealpha,0");
         // The selected row's shadow (0 8 30 black at a half).
         let mut shadow = round(
             plate(
@@ -544,8 +484,6 @@ impl Infinito {
         self.colored(&mut title, "Available", "Text");
         self.colored(&mut sub, "Unavailable", "Off");
         self.colored(&mut sub, "Available", "Muted");
-        self.colored(&mut ring, "Unavailable", "Greyed");
-        self.colored(&mut ring, "Available", "Accent");
         // The meters, kept at the right edge.
         let mut right = Vec::new();
         let cy = row / 2.0;
@@ -601,23 +539,13 @@ impl Infinito {
                 &format!("stoptweening;decelerate,{t};y,0"),
             );
         }
-        inset(frame(
-            "",
-            vec![shadow, pulse, ring, p, back, banner, title, sub, right],
-        ))
+        inset(frame("", vec![shadow, p, back, banner, title, sub, right]))
     }
 
     fn song_header(&self, spec: &Spec) -> Actor {
         let [w, h] = [spec.size[0] - 2.0 * ROW_INSET, spec.size[1]];
         let (compact, row, big) = self.wheel_row(h);
         let t = self.m("Motion.Select");
-        let (_, mut ring) = self.halo([0.0, 0.0, w, big]);
-        command_of(
-            &mut ring,
-            "Select",
-            &format!("stoptweening;decelerate,{t};diffusealpha,1"),
-        );
-        command_of(&mut ring, "Deselect", "stoptweening;diffusealpha,0");
         let mut line = outline("Line", [0.0, 0.0, w, row], 1.0, self.c("HeaderLine"));
         command_of(&mut line, "Select", "diffusealpha,0");
         command_of(&mut line, "Deselect", "diffusealpha,1");
@@ -685,7 +613,7 @@ impl Infinito {
                 command_of(a, "Deselect", &format!("stoptweening;decelerate,{t};y,0"));
             }
         }
-        inset(frame("", vec![ring, p, line, middle, right]))
+        inset(frame("", vec![p, line, middle, right]))
     }
 
     /// The selected song: banner, titles, BPM, length and pack (narrow:
@@ -875,9 +803,6 @@ impl Infinito {
             "Edit"
         };
         let color = format!("Difficulty.{d}");
-        let (pulse, mut ring) = self.halo([0.0, 0.0, w, h]);
-        command_of(&mut ring, "Select", "stoptweening;diffusealpha,1");
-        command_of(&mut ring, "Deselect", "stoptweening;diffusealpha,0");
         let mut p = round(plate("Plate", [0.0, 0.0], [w, h], self.c("Row")), 6.0);
         self.colored(&mut p, "Select", "Selected");
         self.colored(&mut p, "Deselect", "Row");
@@ -936,9 +861,7 @@ impl Infinito {
         self.lamp_commands(&mut lamp);
         frame(
             "",
-            vec![
-                pulse, ring, p, bar, label, notes, lamp_text, grade, score, lamp, meter,
-            ],
+            vec![p, bar, label, notes, lamp_text, grade, score, lamp, meter],
         )
     }
 
@@ -980,7 +903,7 @@ impl Infinito {
     }
 
     /// A tab (the results' panel sets): its label, muted until selected,
-    /// then bright over an accent underline; a ring while focused.
+    /// then bright over an accent underline.
     fn tab(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let plate_ = quad("Plate", [w, h], [0.0; 4]);
@@ -999,24 +922,11 @@ impl Infinito {
         hide(&mut line);
         command_of(&mut line, "Selected", "diffusealpha,1");
         command_of(&mut line, "Available", "diffusealpha,0");
-        let mut ring = outline_r(
-            "Ring",
-            [-w / 2.0 - 2.0, -h / 2.0 - 2.0, w + 4.0, h + 4.0],
-            2.0,
-            self.c("Accent"),
-            6.0,
-        );
-        hide(&mut ring);
-        command_of(&mut ring, "GainFocus", "diffusealpha,1");
-        command_of(&mut ring, "LoseFocus", "diffusealpha,0");
-        frame("", vec![ring, plate_, label, line, extent([w, h])])
+        frame("", vec![plate_, label, line, extent([w, h])])
     }
 
     fn chart_button(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
-        let (pulse, mut ring) = self.halo([-w / 2.0, -h / 2.0, w, h]);
-        command_of(&mut ring, "Select", "diffusealpha,1");
-        command_of(&mut ring, "Deselect", "diffusealpha,0");
         let mut p = round(quad("Plate", spec.size, self.c("Plate2")), 6.0);
         self.colored(&mut p, "Select", "Highlight");
         self.colored(&mut p, "Deselect", "Plate2");
@@ -1060,10 +970,7 @@ impl Infinito {
         command_of(&mut assist, "Assisted", "diffusealpha,1");
         command_of(&mut assist, "Converted", "diffusealpha,1");
         command_of(&mut assist, "Original", "diffusealpha,0");
-        frame(
-            "",
-            vec![pulse, ring, p, top, meter, lamp, assist, extent(spec.size)],
-        )
+        frame("", vec![p, top, meter, lamp, assist, extent(spec.size)])
     }
 
     /// The screens' header, one row: the Back button, the wordmark
@@ -1283,9 +1190,6 @@ impl Infinito {
         } else {
             ("Select", "Deselect")
         };
-        let (pulse, mut ring) = self.halo([x0, y0, w, h]);
-        command_of(&mut ring, on, "stoptweening;linear,0.08;diffusealpha,1");
-        command_of(&mut ring, off, "stoptweening;linear,0.08;diffusealpha,0");
         let mut p = round(plate("Plate", [x0, y0], [w, h], [0.0; 4]), 6.0);
         self.tinted(&mut p, on, "Selected");
         command_of(&mut p, off, "stoptweening;linear,0.08;diffuse,0,0,0,0");
@@ -1297,7 +1201,7 @@ impl Infinito {
         max_width(&mut label, if centered { 186.0 } else { 216.0 });
         self.colored(&mut label, on, "Text");
         self.colored(&mut label, off, "Secondary");
-        let mut parts = vec![pulse, ring, p, label];
+        let mut parts = vec![p, label];
         if centered {
             // Where the choices go (the option row widget's `Choices`).
             let span = w - 16.0 - 190.0 - 16.0;
@@ -1420,17 +1324,7 @@ impl Look for Infinito {
                 };
                 self.colored(&mut label, "Selected", "OnAccent");
                 self.colored(&mut label, "Available", "Text");
-                let mut ring = outline_r(
-                    "Ring",
-                    [-lw / 2.0 - 2.0, -h / 2.0 - 2.0, lw + 4.0, h + 4.0],
-                    2.0,
-                    self.c("Accent"),
-                    r + 2.0,
-                );
-                hide(&mut ring);
-                command_of(&mut ring, "GainFocus", "diffusealpha,1");
-                command_of(&mut ring, "LoseFocus", "diffusealpha,0");
-                frame("", vec![ring, p, label, extent([lw, h])])
+                frame("", vec![p, label, extent([lw, h])])
             }
             "Tab" => self.tab(spec),
             "KeyHint" => self.key_hint(spec),
@@ -1522,30 +1416,12 @@ impl Look for Infinito {
                 let mut bx = round(quad("Box", spec.size, self.c("Plate2")), 8.0);
                 self.tinted(&mut bx, "GainFocus", "Highlight");
                 self.tinted(&mut bx, "LoseFocus", "Plate2");
-                let mut ring = outline_r(
-                    "Ring",
-                    [-w / 2.0, -h / 2.0, w, h],
-                    2.0,
-                    self.c("Accent"),
-                    8.0,
-                );
-                hide(&mut ring);
-                command_of(
-                    &mut ring,
-                    "GainFocus",
-                    "stoptweening;linear,0.08;diffusealpha,1",
-                );
-                command_of(
-                    &mut ring,
-                    "LoseFocus",
-                    "stoptweening;linear,0.08;diffusealpha,0",
-                );
                 let hint = at_left(
                     self.text("Hint", &spec.text, 15.0, 400, "Faint"),
                     -w / 2.0 + 12.0,
                     0.0,
                 );
-                frame("", vec![bx, ring, hint])
+                frame("", vec![bx, hint])
             }
             "Popup.Item" => {
                 let mut p = round(quad("Plate", spec.size, self.c("Plate2")), 6.0);
@@ -1702,19 +1578,6 @@ impl Look for Infinito {
             actor,
             "Plate",
             &[("zoomy", &[height / row]), ("diffuse", &color)],
-        );
-        set(
-            actor,
-            "Ring",
-            &[
-                ("zoomy", &[(height + 4.0) / (big + 4.0)]),
-                ("diffusealpha", &[weight]),
-            ],
-        );
-        set(
-            actor,
-            "Pulse",
-            &[("zoomy", &[(height + 10.0) / (big + 10.0)])],
         );
         set(
             actor,

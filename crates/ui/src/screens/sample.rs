@@ -560,7 +560,7 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
         chart: chart_line(ddi_chart::Difficulty::Hard, 13, "Single"),
         difficulty: "Hard".into(),
         mods: "×3 · reverse · mirror".into(),
-        badge: "AUTOPLAY".into(),
+        badge: super::prompt::Badge::Auto,
         // The sample's setup is not calibrated: the quiet line shows.
         timing: Some("Timing not calibrated".into()),
     };

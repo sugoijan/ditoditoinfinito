@@ -50,6 +50,8 @@ pub struct Songs {
     show_from: RefCell<Vec<PathBuf>>,
     /// The first start's offer was looked at (once a run).
     offered: Cell<bool>,
+    /// Song select shows: no screen over it ([`SelectCall::Shown`]).
+    pub select_shown: Cell<bool>,
     /// Wakes the event loop (news from a thread).
     pub wake: RefCell<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Song select's notices (zips refused by the picker).
@@ -115,6 +117,7 @@ impl Songs {
             show_from: RefCell::default(),
             wake: RefCell::default(),
             offered: Cell::new(false),
+            select_shown: Cell::new(false),
             notices: RefCell::default(),
             bundled: crate::library::bundled(),
             place: RefCell::new(MenuPlace::load()),
@@ -463,6 +466,12 @@ impl Songs {
         ui.broadcast(Message::new(FEED));
     }
 
+    /// [`Songs::send`] from a screen's input.
+    pub fn refresh(&self, cx: &mut Cx) {
+        self.feed.borrow_mut().data = Some(self.data());
+        cx.broadcast(Message::new(FEED));
+    }
+
     /// No first start's offer in this run (one opened from the command
     /// line, `--play`, `--calibrate`: its prompt would be under it).
     pub fn skip_offer(&self) {
@@ -508,7 +517,7 @@ impl Songs {
 
     /// The scan's and the history's news; whether the list was sent.
     pub fn poll(self: &Rc<Self>, ui: &mut Ui) -> bool {
-        if ui.layers().last().is_some_and(|l| l.name == "select") {
+        if self.select_shown.get() {
             self.offer(ui);
         }
         #[cfg(danoni_importer)]
@@ -811,12 +820,8 @@ impl Songs {
                 #[cfg(danoni_importer)]
                 self.imports.borrow().cancel();
             }
-            SelectCall::Leave => {
-                if let Some(p) = sound {
-                    p.borrow_mut().pause();
-                }
-                cx.close(true);
-            }
+            // Its preview stops as it leaves (`SelectCall::Shown`).
+            SelectCall::Leave => cx.close(true),
             SelectCall::Selected { song, .. } => {
                 if let Some(p) = sound {
                     p.borrow_mut().select(song.as_deref());
@@ -825,6 +830,16 @@ impl Songs {
             SelectCall::Volume(volume) => {
                 if let Some(p) = sound {
                     p.borrow_mut().set_volume(volume);
+                }
+            }
+            SelectCall::Shown(shown) => {
+                self.select_shown.set(shown);
+                if let Some(p) = sound {
+                    if shown {
+                        p.borrow_mut().resume();
+                    } else {
+                        p.borrow_mut().pause();
+                    }
                 }
             }
             SelectCall::PickFolder => self.add_folders(crate::os::pick(true)),
@@ -890,7 +905,7 @@ impl Songs {
                         ddi_ui::screens::prompt_controls::Controls::for_chart(
                             e,
                             chart,
-                            &Settings::load(),
+                            &crate::store::settings_cached(),
                         )
                     }) {
                         *self.warm.borrow_mut() = Some(Rc::new(c));
@@ -968,52 +983,47 @@ impl Songs {
     }
 }
 
+/// A chart chosen on song select: played (`crate::play::host`),
+/// autoplayed when the switch says so, its prompt counting down
+/// (`Settings::start_countdown`).
+fn play_fn(songs: &Rc<Songs>) -> PlayFn {
+    let songs = songs.clone();
+    Rc::new(move |song, chart, _env, _cx| {
+        let mut request = crate::play::Request::song(&song.id, chart.index, songs.autoplay.get());
+        request.backdrop = song.background.clone();
+        request.countdown = true;
+        *songs.play.borrow_mut() = Some(request);
+    })
+}
+
+/// Song select's Options: the options on the settings, over it.
+fn open_fn(songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> OpenFn {
+    let songs = songs.clone();
+    Rc::new(move |env: &Env, cx: &mut Cx| {
+        let (screen, shared) = crate::options::screen(env, sound.clone(), Some(songs.clone()));
+        *songs.options.borrow_mut() = Some(shared);
+        songs.tell_options();
+        cx.push(screen);
+    })
+}
+
 /// Song select on the library: Options opens the options on the
 /// settings; a chart chosen is played (`crate::play::host`), autoplayed
 /// when the switch says so.
 pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> SelectScreen {
-    let play: PlayFn = {
-        let songs = songs.clone();
-        Rc::new(move |song, chart, _env, _cx| {
-            let mut request =
-                crate::play::Request::song(&song.id, chart.index, songs.autoplay.get());
-            request.backdrop = song.background.clone();
-            // Chosen here: the prompt counts down (`Settings::start_countdown`).
-            request.countdown = true;
-            *songs.play.borrow_mut() = Some(request);
-        })
-    };
-    let open: OpenFn = {
-        let (songs, sound) = (songs.clone(), sound.clone());
-        Rc::new(move |env: &Env, cx: &mut Cx| {
-            if let Some(p) = &sound {
-                p.borrow_mut().pause();
-            }
-            let (screen, shared) = crate::options::screen(env, sound.clone(), Some(songs.clone()));
-            *songs.options.borrow_mut() = Some(shared);
-            songs.tell_options();
-            cx.push(screen);
-        })
-    };
+    let play = play_fn(songs);
+    let open = open_fn(songs, sound.clone());
     let calls: ShellFn = {
         let (songs, env) = (songs.clone(), env.clone());
         Rc::new(move |call, cx| {
             if matches!(&call, SelectCall::Open(what) if what == "calibrate") {
-                if let Some(p) = &sound {
-                    p.borrow_mut().pause();
-                }
                 cx.push(crate::calibrate::menu(&env, &songs, sound.clone()));
                 return;
             }
             // The chart editor (`docs/plans/editor.md`).
             if let SelectCall::Edit { song, chart } = &call {
                 match crate::editor::screen(&env, &songs, song, *chart) {
-                    Ok(screen) => {
-                        if let Some(p) = &sound {
-                            p.borrow_mut().pause();
-                        }
-                        cx.push(screen);
-                    }
+                    Ok(screen) => cx.push(screen),
                     Err(e) => eprintln!("editor: {song}: {e}"),
                 }
                 return;
@@ -1022,11 +1032,7 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
             if matches!(call, SelectCall::NewSong) {
                 match crate::editor::new_song::pick(&env, &songs) {
                     Some(Ok(screen)) => {
-                        if let Some(p) = &sound {
-                            p.borrow_mut().pause();
-                        }
-                        songs.feed.borrow_mut().data = Some(songs.data());
-                        cx.broadcast(Message::new(FEED));
+                        songs.refresh(cx);
                         cx.push(screen);
                     }
                     Some(Err(e)) => {
@@ -1050,8 +1056,7 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
             );
             songs.call(call, sound.as_ref(), cx);
             if rows_change {
-                songs.feed.borrow_mut().data = Some(songs.data());
-                cx.broadcast(Message::new(FEED));
+                songs.refresh(cx);
             }
         })
     };
@@ -1072,37 +1077,15 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
 
 /// Unix seconds now.
 fn now_secs() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_secs_f64())
+    crate::play::epoch_ms() / 1000.0
 }
 
 /// Song select on the share open (`Songs::open_share`): its songs alone,
 /// played as the library's are; Back closes the share and leaves (to the
 /// screen it was opened over: song select, or Options' Shares).
 pub fn shared_screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> SelectScreen {
-    let play: PlayFn = {
-        let songs = songs.clone();
-        Rc::new(move |song, chart, _env, _cx| {
-            let mut request =
-                crate::play::Request::song(&song.id, chart.index, songs.autoplay.get());
-            request.backdrop = song.background.clone();
-            request.countdown = true;
-            *songs.play.borrow_mut() = Some(request);
-        })
-    };
-    let open: OpenFn = {
-        let (songs, sound) = (songs.clone(), sound.clone());
-        Rc::new(move |env: &Env, cx: &mut Cx| {
-            if let Some(p) = &sound {
-                p.borrow_mut().pause();
-            }
-            let (screen, shared) = crate::options::screen(env, sound.clone(), Some(songs.clone()));
-            *songs.options.borrow_mut() = Some(shared);
-            songs.tell_options();
-            cx.push(screen);
-        })
-    };
+    let play = play_fn(songs);
+    let open = open_fn(songs, sound.clone());
     let calls: ShellFn = {
         let (songs, env) = (songs.clone(), env.clone());
         Rc::new(move |call, cx| match call {
@@ -1111,15 +1094,13 @@ pub fn shared_screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) 
                 songs.call(SelectCall::Leave, sound.as_ref(), cx);
             }
             SelectCall::Open(what) if what == "calibrate" => {
-                if let Some(p) = &sound {
-                    p.borrow_mut().pause();
-                }
                 cx.push(crate::calibrate::menu(&env, &songs, sound.clone()));
             }
             // The share's place is its own: the library's is kept.
             SelectCall::Place(_) => {}
             call @ (SelectCall::Selected { .. }
             | SelectCall::Volume(_)
+            | SelectCall::Shown(_)
             | SelectCall::WatchPlay(_)
             | SelectCall::ShowPlay(_)
             | SelectCall::RemovePlay(_)) => songs.call(call, sound.as_ref(), cx),

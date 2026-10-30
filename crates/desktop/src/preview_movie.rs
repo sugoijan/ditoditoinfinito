@@ -82,12 +82,13 @@ impl PreviewMovieHost {
     }
 
     /// Follows song select before a frame: the song `env`'s state says it
-    /// shows while it is what `ui` shows (`feed`: its feed, `None` without
-    /// a library); the song's movie looked up when it changes.
-    pub fn follow(&mut self, ui: &Ui, env: &Env, feed: Option<&SharedFeed>) {
+    /// shows while song select does (`shown`, `SelectCall::Shown`; `feed`:
+    /// its feed, `None` without a library); the song's movie looked up
+    /// when it changes.
+    pub fn follow(&mut self, shown: bool, env: &Env, feed: Option<&SharedFeed>) {
         self.feed = feed.cloned();
         let song = env.state.borrow().song_id.clone();
-        let song = (feed.is_some() && preview::select_shows(&ui.layers())).then_some(song.as_str());
+        let song = (feed.is_some() && shown).then_some(song.as_str());
         let now = self.now();
         self.state.follow(song, env.reduced(), now, |id| {
             if !cfg!(feature = "video") {

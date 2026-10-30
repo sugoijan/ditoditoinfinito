@@ -19,6 +19,7 @@
 //! Platform-free: built natively and for wasm, with no platform code.
 
 pub mod editor_field;
+pub mod field_preview;
 pub mod scripted;
 pub mod stage;
 
@@ -67,6 +68,27 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
     }
 }
 
+/// The field's filter on the start prompt's picture: the band `song`'s
+/// chart `chart` will take on a screen of `size` (logical pixels), as
+/// fractions of its width, and how dark (`None`: no filter, or no lanes).
+pub fn prompt_filter(
+    song: &ddi_chart::Song,
+    chart: usize,
+    settings: &Settings,
+    size: [f32; 2],
+) -> Option<([f32; 2], f32)> {
+    if settings.field_filter <= 0.0 {
+        return None;
+    }
+    let layout = song
+        .charts
+        .get(chart)
+        .and_then(|c| song.layout_of(c))
+        .filter(|l| !l.lanes.is_empty())?;
+    let band = ddi_render::scene::filter_fraction(&layout, size[0], size[1], settings.reverse);
+    Some((band, settings.field_filter))
+}
+
 /// The ghost's lead as the HUD shows it: a percentage, or whole points.
 pub fn score_delta(delta: GhostDelta) -> ScoreDelta {
     match delta {
@@ -113,44 +135,41 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
 
 /// The noteskin play would draw the preview's layout with under
 /// `settings`, and what it is readied for (its key, the layout, the
-/// direction, its parameters' values as [`play_skin`] passes them): key
-/// `None` for the built-in arrows. The demo has no colors of its own.
+/// direction, its parameters' values as [`play_skin`] passes them). The
+/// demo has no colors of its own.
 pub fn field_preview_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
     let key = settings.play_skin(&options.layout);
     SkinWant {
-        params: key
-            .as_deref()
-            .map(|k| settings.skin_params(k))
-            .unwrap_or_default(),
-        ..SkinWant::new(key, options)
+        params: settings.skin_params(&key),
+        ..SkinWant::new(Some(key), options)
     }
 }
 
 /// The noteskin a play draws `song`'s chart `chart` (of layout `layout`)
 /// with under `settings`, and what its Lua is told: the play's timing
 /// shifted by `shift` (the song offset), its direction and the values of
-/// the skin's parameters. `None` for the built-in arrows.
+/// the skin's parameters.
 pub fn play_skin(
     settings: &Settings,
     song: &ddi_chart::Song,
     chart: &ddi_chart::Chart,
     layout: &Layout,
     shift: f64,
-) -> Option<(String, Env)> {
-    let key = settings.play_skin(&layout.id)?;
+) -> (String, Env) {
+    let key = settings.play_skin(&layout.id);
     let env = Env {
         params: settings.skin_params(&key),
         ..ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift)
     };
-    Some((key, env))
+    (key, env)
 }
 
 /// The skins a play may draw with, best first ([`play_skins`]).
 #[derive(Clone)]
 pub struct SkinWants {
-    /// Each one's key with its parameters' values; `None`, the built-in
-    /// arrows, ends the list.
-    pub keys: Vec<Option<(String, Values)>>,
+    /// Each one's key with its parameters' values; Infinito, always
+    /// there, ends the list.
+    pub keys: Vec<(String, Values)>,
     /// What the Lua of the one drawn with is told, but its parameters'
     /// values.
     pub env: Env,
@@ -159,58 +178,53 @@ pub struct SkinWants {
 /// The skins a play may draw `song`'s chart `chart` with, best first
 /// ([`play_skin`]): the chosen one, then what is drawn when it is not
 /// there (gone, or chosen on another machine), the choice let go as
-/// Options lets it go ([`Settings::let_go_missing_skins`]). `None` for
-/// the built-in arrows; [`first_there`] picks.
+/// Options lets it go ([`Settings::let_go_missing_skins`]);
+/// [`first_there`] picks.
 pub fn play_skins(
     settings: &Settings,
     song: &ddi_chart::Song,
     chart: &ddi_chart::Chart,
     layout: &Layout,
     shift: f64,
-) -> Option<SkinWants> {
+) -> SkinWants {
     let mut settings = settings.clone();
     let want = |s: &Settings| {
-        s.play_skin(&layout.id).map(|k| {
-            let params = s.skin_params(&k);
-            (k, params)
-        })
+        let k = s.play_skin(&layout.id);
+        let params = s.skin_params(&k);
+        (k, params)
     };
-    let mut keys = vec![Some(want(&settings)?)];
-    while let Some(Some((key, _))) = keys.last()
+    let mut keys = vec![want(&settings)];
+    while let Some((key, _)) = keys.last()
         && settings.let_go_missing_skins(|k| k != key)
     {
         keys.push(want(&settings));
     }
     let env = ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift);
-    Some(SkinWants { keys, env })
+    SkinWants { keys, env }
 }
 
 /// The first of `wants` ([`play_skins`]) among the skins one can pick,
-/// `there` (`(key, name)`; Infinito always is): `None` for the built-in
-/// arrows.
-pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> Option<(String, Env)> {
+/// `there` (`(key, name)`; Infinito always is).
+pub fn first_there(wants: SkinWants, there: &[(String, String)]) -> (String, Env) {
     let (key, params) = wants
         .keys
         .into_iter()
-        .find(|w| {
-            w.as_ref()
-                .is_none_or(|(k, _)| k == INFINITO || there.iter().any(|(t, _)| t == k))
-        })
-        .flatten()?;
-    Some((
+        .find(|(k, _)| k == INFINITO || there.iter().any(|(t, _)| t == k))
+        .unwrap_or_else(|| (INFINITO.to_string(), Values::default()));
+    (
         key,
         Env {
             params,
             ..wants.env
         },
-    ))
+    )
 }
 
 /// The pre-start diagram's skin for `controls` (a chart's, following it
 /// rather than the menu's style): the preview's options, the skin
 /// wanted and the layout it is readied for (the diagram's, one strip).
 /// Both hosts use it, for the prompt's picture
-/// ([`receptor_preview_options`]) and to ready the skin ahead, while
+/// ([`ReceptorSkin`]) and to ready the skin ahead, while
 /// song select shows the chart.
 pub fn receptor_skin(
     controls: &ddi_ui::screens::prompt_controls::Controls,
@@ -223,22 +237,45 @@ pub fn receptor_skin(
     (options, want, controls.diagram_layout())
 }
 
-/// Settings for the pre-start diagram's picture ([`receptor_skin`] with
-/// the picture's pose). Both hosts use the same skin and pose.
-pub fn receptor_preview_options(
-    p: &ddi_ui::screens::prompt_controls::Picture,
-) -> (
-    FieldPreviewOptions,
-    SkinWant,
-    ddi_render::field_preview::ReceptorPreview,
-) {
-    let (options, want, layout) = receptor_skin(&p.controls);
-    let pose = ddi_render::field_preview::ReceptorPreview {
-        layout,
-        time: p.time,
-        active: p.active,
-    };
-    (options, want, pose)
+/// The pre-start diagram's picture for a host drawing it every frame:
+/// the preview's options and skin ([`receptor_skin`]) worked out again
+/// only when the picture's controls change, the pose (its time, the key
+/// pressed) every frame. Both hosts use the same skin and pose.
+#[derive(Default)]
+pub struct ReceptorSkin {
+    last: Option<(
+        std::rc::Rc<ddi_ui::screens::prompt_controls::Controls>,
+        FieldPreviewOptions,
+        SkinWant,
+        Layout,
+    )>,
+}
+
+impl ReceptorSkin {
+    pub fn options(
+        &mut self,
+        p: &ddi_ui::screens::prompt_controls::Picture,
+    ) -> (
+        FieldPreviewOptions,
+        SkinWant,
+        ddi_render::field_preview::ReceptorPreview,
+    ) {
+        let fresh = !self
+            .last
+            .as_ref()
+            .is_some_and(|(c, ..)| std::rc::Rc::ptr_eq(c, &p.controls));
+        if fresh {
+            let (options, want, layout) = receptor_skin(&p.controls);
+            self.last = Some((p.controls.clone(), options, want, layout));
+        }
+        let (_, options, want, layout) = self.last.as_ref().expect("set above");
+        let pose = ddi_render::field_preview::ReceptorPreview {
+            layout: layout.clone(),
+            time: p.time,
+            active: p.active,
+        };
+        (options.clone(), want.clone(), pose)
+    }
 }
 
 #[cfg(test)]
@@ -266,6 +303,34 @@ mod tests {
         assert_eq!(render.background, 0.25);
         assert_eq!(render.note_colors, note_scheme(settings.note_colors()));
         assert!(render.ghost.is_none() && render.frame_aspect.is_none());
+    }
+
+    #[test]
+    fn the_prompts_filter_is_the_plays_band() {
+        let song = ddi_chart::formats::sm::parse_simfile(
+            "#TITLE:T;#OFFSET:0;#BPMS:0=120;\n\
+             #NOTES:\n dance-single:\n:\n Hard:\n 9:\n 0,0,0,0,0:\n1000\n0100\n0010\n0001\n;\n",
+            "sm",
+        )
+        .unwrap();
+        let layout = song.layout_of(&song.charts[0]).unwrap();
+        let size = [1280.0, 720.0];
+        let off = Settings {
+            field_filter: 0.0,
+            ..Settings::default()
+        };
+        assert_eq!(prompt_filter(&song, 0, &off, size), None);
+        for reverse in [false, true] {
+            let on = Settings {
+                field_filter: 0.6,
+                reverse,
+                ..Settings::default()
+            };
+            let band = ddi_render::scene::filter_fraction(&layout, size[0], size[1], reverse);
+            assert_eq!(prompt_filter(&song, 0, &on, size), Some((band, 0.6)));
+            // A chart the song does not have: none.
+            assert_eq!(prompt_filter(&song, 1, &on, size), None);
+        }
     }
 
     #[test]
@@ -309,17 +374,12 @@ mod tests {
         for chosen in [None, Some("dance/mine")] {
             settings.noteskin = chosen.map(str::to_string);
             let preview = field_preview_skin(&settings, &field_preview_options(&settings));
-            let (key, env) = play_skin(&settings, &song, chart, &layout, 0.0).unwrap();
+            let (key, env) = play_skin(&settings, &song, chart, &layout, 0.0);
             assert_eq!(preview.key.as_deref(), Some(key.as_str()));
             assert_eq!(preview.env(&layout).params, env.params);
             assert_eq!(env.params, settings.skin_params(chosen.unwrap_or(INFINITO)));
             assert!(!env.params.is_empty());
         }
-        // Explicit internal fallback: the built-in arrows, in both.
-        settings.noteskin = Some(ddi_ui::state::settings::BUILT_IN.into());
-        assert!(play_skin(&settings, &song, chart, &layout, 0.0).is_none());
-        let preview = field_preview_skin(&settings, &field_preview_options(&settings));
-        assert_eq!(preview.key, None);
         assert_eq!(
             render_options(&settings).note_colors,
             note_scheme(NoteColors::Vivid)
@@ -340,40 +400,24 @@ mod tests {
             ..Settings::default()
         };
         settings.set_infinito_param("Onigiri", ParamValue::Bool(false));
-        let wants = play_skins(&settings, &song, chart, &layout, 0.0).unwrap();
-        let keys: Vec<_> = wants
-            .keys
-            .iter()
-            .map(|w| w.as_ref().map(|(k, _)| k.as_str()))
-            .collect();
-        assert_eq!(
-            keys,
-            [Some("pump/mine"), Some("dance/mine"), Some(INFINITO)]
-        );
+        let wants = play_skins(&settings, &song, chart, &layout, 0.0);
+        let keys: Vec<_> = wants.keys.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["pump/mine", "dance/mine", INFINITO]);
         let pick = |there: &[&str]| {
             let there: Vec<(String, String)> = there
                 .iter()
                 .map(|k| (k.to_string(), String::new()))
                 .collect();
-            first_there(wants.clone(), &there).map(|(k, env)| (k, env.params))
+            let (k, env) = first_there(wants.clone(), &there);
+            (k, env.params)
         };
-        assert_eq!(pick(&["pump/mine", "dance/mine"]).unwrap().0, "pump/mine");
-        assert_eq!(pick(&["dance/mine"]).unwrap().0, "dance/mine");
+        assert_eq!(pick(&["pump/mine", "dance/mine"]).0, "pump/mine");
+        assert_eq!(pick(&["dance/mine"]).0, "dance/mine");
         // Infinito, with its parameters.
-        assert_eq!(
-            pick(&[]),
-            Some((INFINITO.into(), settings.skin_params(INFINITO)))
-        );
-        // Explicit internal fallback: the built-in arrows.
-        settings.noteskin = Some(ddi_ui::state::settings::BUILT_IN.into());
-        settings.pump_noteskin = None;
-        assert!(play_skins(&settings, &song, chart, &layout, 0.0).is_none());
+        assert_eq!(pick(&[]), (INFINITO.into(), settings.skin_params(INFINITO)));
         // Nothing chosen: Infinito alone.
-        let wants = play_skins(&Settings::default(), &song, chart, &layout, 0.0).unwrap();
+        let wants = play_skins(&Settings::default(), &song, chart, &layout, 0.0);
         assert_eq!(wants.keys.len(), 1);
-        // Nothing chosen readies the new default.
-        (settings.noteskin, settings.pump_noteskin) = (None, None);
-        assert!(play_skins(&settings, &song, chart, &layout, 0.0).is_some());
     }
 
     #[test]

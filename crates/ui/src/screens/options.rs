@@ -98,6 +98,9 @@ pub struct OptionsScreen {
     focus: usize,
     preview_focused: bool,
     places: Places,
+    /// The description panel's height for a width ([`Self::desc_height`]),
+    /// kept until the data changes: the screen is placed every frame.
+    desc_cache: std::cell::Cell<Option<(f32, f32)>>,
     /// How far the rows are scrolled, and the tab strip.
     scroll: f32,
     /// The slider row a pointer drags (pressed on its track).
@@ -126,6 +129,7 @@ impl OptionsScreen {
             focus: 0,
             preview_focused: false,
             places: Places::default(),
+            desc_cache: std::cell::Cell::new(None),
             scroll: 0.0,
             sliding: None,
             tabs_scroll: 0.0,
@@ -280,18 +284,16 @@ impl OptionsScreen {
         let mut children = vec![ground(&env, screen)];
         children.push(self.sections_actor());
         children.push(self.rows_actor());
-        self.preview_hint = (!crate::controller_hints::active()
-            && !p.compact
-            && self.data.preview_layout.is_some())
-        .then(|| {
-            super::key_hint(
-                &env,
-                "PreviewKey",
-                &[super::prompt_controls::keycap("KeyP")],
-                "",
-                cx,
-            )
-        });
+        self.preview_hint =
+            (!cx.hints().active() && !p.compact && self.data.preview_layout.is_some()).then(|| {
+                super::key_hint(
+                    &env,
+                    "PreviewKey",
+                    &[super::prompt_controls::keycap("KeyP")],
+                    "",
+                    cx,
+                )
+            });
         if let Some(selector) = self.preview_selector() {
             children.push(selector);
         }
@@ -824,6 +826,11 @@ impl OptionsScreen {
     /// A description panel `w` wide holding the longest sentence (six
     /// lines at most).
     fn desc_height(&self, w: f32) -> f32 {
+        if let Some((cw, h)) = self.desc_cache.get()
+            && cw == w
+        {
+            return h;
+        }
         let lines = self
             .data
             .sections
@@ -834,7 +841,9 @@ impl OptionsScreen {
             .max()
             .unwrap_or(1)
             .clamp(1, 6);
-        36.0 + lines as f32 * 17.0 + 10.0
+        let h = 36.0 + lines as f32 * 17.0 + 10.0;
+        self.desc_cache.set(Some((w, h)));
+        h
     }
 
     /// What the focused option does: its name on top, then its sentence
@@ -877,6 +886,7 @@ impl OptionsScreen {
         let section = self.data.sections.get(self.section).map(|s| s.name.clone());
         let id = self.options().get(self.focus).map(|o| o.id.clone());
         self.data = data;
+        self.desc_cache.set(None);
         if let Some(i) = section.and_then(|n| self.data.sections.iter().position(|s| s.name == n)) {
             self.section = i;
         }
@@ -1218,11 +1228,16 @@ impl Screen for OptionsScreen {
         v
     }
 
+    fn shown(&mut self, shown: bool, _root: &mut Actor, _cx: &mut Cx) {
+        // The screen over it may have stopped or replaced the field
+        // texture: the preview's place told again once it shows.
+        if shown {
+            self.told = None;
+        }
+    }
+
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
-            // The child may have stopped or replaced the field texture.
-            // Publish our preview again when this caller becomes current.
-            self.told = None;
             return;
         }
         self.live.tick(root, "Wordmark", &self.env, cx);

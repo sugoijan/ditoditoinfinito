@@ -122,80 +122,48 @@ length, Vivid flags and texture-coordinate offsets for taps/lifts/fakes: Peters'
 center uses a horizontal quantized-color sheet, valid there but not for
 layered sheets. Peters' own metrics are unchanged.
 
-## Continuous masked hold material (2026-10-24)
+## Long notes and lifts in a skin's material (2026-10-30)
 
-`[NoteDisplay] HoldStencilMaterial=1` opts a skin's holds into a continuous
-material pass using the existing stencil and per-corner color renderer. Rolls
-and skins without this opt-in retain their existing rendering. It is
-presentation only. Body and bottom-cap sprites declare three states: color
-alpha mask, solid exterior envelope (enclosed holes filled), then black exterior
-shadow. Top-cap sprites declare two masks at the head: clear the head interior
-and outside contour from the color mask; clear only the outside contour from
-the exterior envelope. Heads use ordinary actors: `MaskDest` for the exterior
-shadow, `MaskSource` for the band, and normal sprites for charge regions.
-The renderer phases descendant head sprites from the hold's beat clock.
+Holds, rolls and lifts painted by a skin's own WGSL are components of its
+SVG (`docs/plans/noteskin-scene.md`, steps 3 and 4). The earlier metrics
+for them (`HoldStencilMaterial`, `RollStencilMaterial`,
+`LiftStencilMaterial` and their `*Material*`, `RollPulse*` and `Lift*`
+values, drawn by a wave built into the engine) were removed on
+2026-10-30: Infinito, their only user, already drew its long notes this
+way (`docs/plans/infinito-wave-material.md`).
 
-The body repeats from the tail, with its frame height overridden by
-`HoldMaterialPitch` (4–64 logical pixels), meeting a 96 px bottom cap whose
-center is the tail. Head and cap masks are 96 logical pixels. The head can
-clear the repeats behind its transparent charge areas. A separate envelope
-pass excludes all interior shadow; open terminal notches remain exterior.
-Reverse mirrors the authored hold along its length. Hidden/Sudden spans and
-dropped-hold brightness remain in effect.
+A hold's or roll's body element returns `Def.LongNote { File, Head, Body,
+Cap, Pitch, Join, Anchor, Parts, Material }`: `Head` (drawn at the note),
+`Body` (one tile `Pitch` units tall, repeated from the head's `Join` to the
+cap; its `viewBox` height when `Pitch` is not given) and `Cap` (around the
+tail) are components whose parts' roles (`data-role`) say what they are:
+`band` (where the fill paints), `envelope` (around which the shadows fall),
+`shadow` (outside the envelope), `overlap-shadow` (on the band, a roll's),
+`pulse` (a roll's, outside the band), and on the head `protect` (kept out
+of the body's band and shading under the head) and `outside` (the
+envelope around the head); a head's parts without a role are drawn over
+the rest. `Anchor` (`head`, the default, or `tail`) is where the fill's
+coordinates are 0 along the note. A roll's pulse is an `Opacity` binding
+on the `roll` clock (the active scaled roll window, times
+`RollAnimationTimingWindowRatio`). Reverse mirrors the note along its
+length; Hidden/Sudden spans and a let-go hold's greying apply.
 
-The common material is sampled relative to the head, across all parts, with
-4 px cells clipped to the visible field. `HoldMaterialPeriod` (16–2048),
-`HoldMaterialAngle` (degrees), `HoldMaterialPhase` (cycles), and
-`HoldMaterialSpeed` (cycles per song second) set the base field.
-`HoldMaterialWave`, `HoldMaterialWaveWidth` and `HoldMaterialWaveLength` bend it
-with one spatial sine wave; zero amplitude keeps a straight gradient. Three
-hex colors (`HoldMaterialGreen`, `HoldMaterialLime`, `HoldMaterialHighlight`)
-form the looping green → lime → highlight → lime → green palette. Numeric
-inputs are bounded and nonfinite values use defaults. No gameplay clock or
-judging behavior changes.
+A lift element returns `Def.Lift { File, Id, Trail, Seconds, Fade, Opacity,
+Material }`: the head (`Id`) drawn as a tap's component, and the `Trail`
+component (its `viewBox` from the note's center, up the lane ahead of it)
+shown over the distance the note travels in `Seconds` (0.05–2, at least a
+quarter of a beat, at most 256 units), faded toward its far end by `Fade`
+(0–8) at `Opacity` (0–1): its `trail` part a mask the fill paints, its
+`shadow` drawn under it. This is visual preparation, never a hold or a
+change to lift judging.
 
-
-#### Continuous roll materials
-
-`RollStencilMaterial=1` uses the same bounded material fields with a `Roll`
-prefix (`RollMaterialGreen/Lime/Highlight` are the three palette slots).
-Roll body and bottomcap sprites contain five states: colored mask, exterior
-envelope, exterior shadow, overlap shadow, and repeated charge mask. Topcap
-contains four states: head knockout, outside-head knockout, head-area overlap
-shadow, and head-area repeated charge mask. The latter two contain only the
-visible repeated body beneath the head; the head retains its regular beat
-charge. Overlap shadows are drawn over the continuous colored field through
-its stencil; body charge is a separate transparent white layer.
-
-`RollPulseDuty` (0.01–1), `RollPulseRest` and `RollPulseBrightness` (0–1)
-shape a quick pulse with power-0.65 decay, matching the study. Its phase uses
-song seconds divided by the current scaled roll window times
-`RollAnimationTimingWindowRatio`; ruleset/song window changes apply every
-frame. There is no noteskin judging change. Two alternating sideways offsets
-are baked into a 25 px tile for the selected 12.5 px repeat spacing. Reverse
-and visibility clipping follow the hold material path, including the roll's
-full tail extent.
-
-For masked holds, short head/cap rectangles overlap geometrically. Mask
-passes retain the full cap; exterior overlays crop it at head +48 px with
-adjusted UVs. Rolls instead keep all repeated layers tail-anchored over their
-body/cap geometry, cropped at the head plane with UVs preserved. Their topcap slots 0/1 carry the protected head
-envelope; slots 2/3 are retained for compatibility but never drawn. Only a
-standalone head silhouette casts a head-anchored exterior/overlap shadow. Body
-shadows are clipped against the combined exterior envelope and colored-body
-stencil respectively, with the head removed; repeated charge is clipped outside
-the protected head envelope. No fixed head-area crop of the body is drawn.
-A regression compares band, envelope, exterior shadow, overlap shadow and pulse
-positions/UV phases as the roll shrinks, for lengths 32, 64, 96 and 173 px in
-both scroll directions, including the full cap extent.
-
-The masked material path reads the topcap actor's Y placement as the repeat
-start relative to the head, bounded to ±48 logical pixels. All body/cap layers
-are cropped there with their UVs preserved. This lets a factory declare a
-shape-specific tangent height after resolving parameters and aliases. The
-current masks use protected head envelopes in topcap states 0/1 for both holds
-and rolls; head exterior shadows come only from the standalone silhouette.
-The repeat-start regression covers negative, zero and positive crop heights.
+`Material = Def.Material { File, Space, Origin, Params, Images }` paints
+the band or the trail: `File` the skin's WGSL `paint` function (checked
+for WebGL2 at load, `crates/render/src/material.rs`), `Space` `"lane"` or
+`"note"`, up to eight `vec4` `Params` (a hex color is its RGB) read as
+`m.params[i]`, and a `Phase` binding read as `m.phase`. Infinito's files
+are the example: `_spiral hold.lua` (holds and rolls, which differ only in
+their parameters), `_spiral lift.lua` and `_spiral wave.wgsl`.
 
 ### Merged mine outlines
 
@@ -215,24 +183,5 @@ renderer keeps legacy unsplit mine ordering unchanged. This preserves visible
 electricity even when the chosen radius/neck passes inside a neighboring body.
 A regression uses distinct body/rim/link tints to assert the complete overlay
 order, alongside visibility restoration and physical adjacency tests.
-
-### Leading lift material
-
-`LiftStencilMaterial=1` opts a lift ActorFrame into a leading, distance-faded
-trail. Direct children `LiftTrail` (band and combined exterior shadow states),
-`LiftBand` (head band), `LiftCharge` (animated charge stencil) and `LiftColors`
-(ordinary color actors) supply the artwork. `LiftTrail`'s Y placement records
-the head origin within the exported texture. The regular lift path remains
-unchanged without the opt-in or when a required layer is missing.
-
-`LiftPreparationSeconds` (0.05–2) sizes the trail from the current local field
-speed, with a quarter-beat minimum and a 256 logical pixel cap. `Frame.note_motion`
-carries local arrow heights per song second and seconds per beat; the probe uses
-the same scroll action, speed ratio and scroll segments as notes. This is visual
-preparation, never a hold or a change to lift judging. Reverse mirrors the
-leading artwork along the field. `LiftTrailFade` (0.1–8), `LiftTrailOpacity`
-(0–1) and `LiftBandWhite` (0–1) control the fade and head overlay. The continuous
-green material uses the existing `HoldMaterial*` fields so head and trail match.
-Charge masks and color children share the lift's Vivid clock.
 
 The authoring demo includes lifts in four-lane and wider layouts.

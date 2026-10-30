@@ -708,12 +708,12 @@ fn screens_come_in_and_back_out_with_their_transitions() {
         layers(&h),
         vec![("menu".into(), "covered"), ("second".into(), "in")]
     );
-    // Coming in for 0.5 s (its `In` sleeps); input meanwhile goes nowhere.
+    // Coming in for 0.5 s (its `In` sleeps), it takes input meanwhile.
     h.run(0.25);
     clear(&log);
-    h.key("Enter", "Enter");
     h.key("ArrowDown", "ArrowDown");
-    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
+    assert!(!logged(&log, "second: ").is_empty(), "{:?}", log.borrow());
+    assert_eq!(layers(&h)[1], ("second".into(), "in"));
     assert!(h.ui.needs_redraw());
     h.run(0.3);
     assert_eq!(layers(&h)[1], ("second".into(), "active"));

@@ -5,12 +5,11 @@
 //! reads the music from `#SAMPLESTART` for `#SAMPLELENGTH` (12 s when the
 //! simfile gives none, 30 s at most), and it plays with the web's 0.5 s
 //! fades in and out, again 0.6 s after it ends. No gesture is needed:
-//! it starts as soon as it is decoded. The beat pulse follows the music
-//! as heard ([`Player::beat`]).
+//! it starts as soon as it is decoded.
 //!
-//! For now the songs are the bundled ones, read from `assets/songs/`
-//! (song select runs on sample data until the library on disk, step
-//! 7.3); the made-up songs have no music and pulse by their BPM.
+//! The songs are the bundled ones, read from `assets/songs/`, and the
+//! library's (`crate::library::preview_song`); the made-up songs of the
+//! sample screens have no music.
 //!
 //! The [`Player`] also plays the developer screen's tone and the
 //! options' volume sample.
@@ -20,7 +19,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use ddi_chart::TimingMap;
 use ddi_session::preview::{FADE, LEAD};
 
 use crate::audio::decoder::Decoder;
@@ -39,7 +37,6 @@ pub struct PreviewSong {
     /// Seconds into the music, and how long.
     pub from: f64,
     pub length: f64,
-    pub timing: Rc<TimingMap>,
     /// Whose decode an MP3 lines up with (a work's: Chrome's).
     pub target: ddi_platform::mp3::Target,
 }
@@ -74,19 +71,17 @@ impl PreviewSong {
             music,
             song.preview_start,
             song.preview_length,
-            song.timing,
         ))
     }
 
     /// A preview of `music` from the simfile's `#SAMPLESTART` and
     /// `#SAMPLELENGTH` (the defaults where it gives none).
-    pub fn of(id: &str, music: PathBuf, start: f64, length: f64, timing: TimingMap) -> PreviewSong {
+    pub fn of(id: &str, music: PathBuf, start: f64, length: f64) -> PreviewSong {
         PreviewSong {
             id: id.to_string(),
             music,
             from: start.max(0.0),
             length: ddi_session::preview::length(length),
-            timing: Rc::new(timing),
             target: Default::default(),
         }
     }
@@ -98,16 +93,10 @@ struct Loaded {
     sound: Sound,
 }
 
-/// What plays: since which context time, from which song second.
+/// What plays, and when it plays again.
 struct Playing {
     id: String,
-    started: f64,
-    from: f64,
-    timing: Rc<TimingMap>,
-    /// When to play it again.
     again: Instant,
-    /// When its first frame is heard, until then (`started` is set).
-    heard_at: Option<Instant>,
 }
 
 /// Previews and the shell's sounds.
@@ -123,9 +112,6 @@ pub struct Player {
     playing: Option<Playing>,
     /// The developer screen's tone, made once.
     tone: Option<Sound>,
-    /// A preview began to be heard since [`Player::take_started`] (the
-    /// screen draws a frame to start its pulse).
-    started: bool,
     /// Stopped for a play ([`Player::pause`]): the wanted preview plays
     /// again when song select shows again ([`Player::resume`]).
     paused: bool,
@@ -153,7 +139,6 @@ impl Player {
             loaded: None,
             playing: None,
             tone: None,
-            started: false,
             paused: false,
             decoded: Vec::new(),
             errors: Vec::new(),
@@ -303,16 +288,7 @@ impl Player {
             self.playing = None;
             self.replay();
         }
-        if let Some(p) = &mut self.playing
-            && p.heard_at.is_some_and(|at| now >= at)
-        {
-            p.heard_at = None;
-            self.started = true;
-        }
-        let mut next = self
-            .playing
-            .as_ref()
-            .map(|p| p.heard_at.unwrap_or(p.again).min(p.again));
+        let mut next = self.playing.as_ref().map(|p| p.again);
         if self.decoder.busy() {
             let soon = now + Duration::from_millis(8);
             next = Some(next.map_or(soon, |n| n.min(soon)));
@@ -341,32 +317,10 @@ impl Player {
         self.audio.gain_at(id, 1.0, end - FADE);
         self.audio.gain_ramp(id, 0.0, end);
         self.audio.stop_at(id, Some(end));
-        let latency = ddi_platform::AudioBackend::now(&self.audio).output_latency;
         self.playing = Some(Playing {
             id: l.song.id.clone(),
-            started: start,
-            from: l.song.from,
-            timing: l.song.timing.clone(),
             again: Instant::now() + Duration::from_secs_f64(end - start + AGAIN - LEAD),
-            heard_at: Some(Instant::now() + Duration::from_secs_f64(LEAD + latency.max(0.0))),
         });
-    }
-
-    /// Whether a preview began to be heard since last asked.
-    pub fn take_started(&mut self) -> bool {
-        std::mem::take(&mut self.started)
-    }
-
-    /// The beat of song `id` as its preview is heard now; `None` when it
-    /// does not play (or not yet: its first frame is still on its way).
-    pub fn beat(&self, id: &str) -> Option<f64> {
-        let p = self.playing.as_ref().filter(|p| p.id == id)?;
-        let s = ddi_platform::AudioBackend::now(&self.audio);
-        let heard = s.context_time - s.output_latency;
-        if heard < p.started {
-            return None;
-        }
-        Some(p.timing.beat_at(p.from + heard - p.started))
     }
 
     /// The song wanted and the one playing.
@@ -459,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn a_selection_settles_then_decodes_then_plays_and_pulses() {
+    fn a_selection_settles_then_decodes_then_plays() {
         let mut p = Player::with(Audio::silent(0.8), PreviewSong::bundled);
         p.select(Some("sweeteners"));
         assert_eq!(p.status(), (Some("sweeteners"), None));
@@ -480,18 +434,6 @@ mod tests {
         let len = p.loaded.as_ref().unwrap().sound.duration();
         let song = PreviewSong::bundled("sweeteners").unwrap();
         assert!((len - song.length).abs() < 0.01, "{len}");
-        // Silent backend: the clock is the host's, no latency; the beat
-        // comes once its first frame is heard.
-        assert!(!p.take_started());
-        std::thread::sleep(Duration::from_millis(80));
-        // Heard now: the shell is told once, to draw.
-        p.tick();
-        assert!(p.take_started());
-        assert!(!p.take_started());
-        let beat = p.beat("sweeteners").unwrap();
-        let want = song.timing.beat_at(song.from);
-        assert!(beat >= want && beat < want + 1.0, "{beat} {want}");
-        assert_eq!(p.beat("beatucada"), None);
         // Another selection stops it.
         p.select(Some("beatucada"));
         assert_eq!(p.status(), (Some("beatucada"), None));

@@ -19,8 +19,8 @@ use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
 use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::prompt::{
-    PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptScreen, PromptState, PromptStep,
-    SharedPrompt, chart_line, mods_line,
+    Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptScreen,
+    PromptState, PromptStep, SharedPrompt, chart_line,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
@@ -152,11 +152,38 @@ pub type MenuFn = Rc<dyn Fn(&Env, &mut Ui)>;
 /// Hears a song's id and chart once read ([`Host::chart_loaded`]).
 pub type ChartLoadedFn = Rc<dyn Fn(&str, &ddi_chart::Song)>;
 
+/// What covers the screens under a play (song select, calibration's
+/// menu) while it runs ([`Host::start`]): it draws nothing and takes
+/// nothing (the play has the keys and the pointer), and goes once the
+/// play has, whatever came up over it first (its results, the prompt
+/// again), so the screens under it are told they show only then.
+struct PlayScreen {
+    in_play: Rc<Cell<bool>>,
+}
+
+impl ddi_ui::Screen for PlayScreen {
+    fn name(&self) -> &str {
+        "play"
+    }
+
+    fn build(&mut self, _cx: &mut ddi_ui::Cx) -> ddi_actor::Actor {
+        ddi_actor::Actor::new(ddi_actor::Kind::Frame(Vec::new()))
+    }
+
+    fn update(&mut self, _dt: f32, _root: &mut ddi_actor::Actor, cx: &mut ddi_ui::Cx) {
+        if !self.in_play.get() {
+            cx.close(false);
+        }
+    }
+}
+
 pub struct Host {
     /// Song select's play call puts what to play here.
     pub requested: Rc<RefCell<Option<Request>>>,
     pub feed: Rc<RefCell<Feed>>,
     stage: Stage,
+    /// A play runs: its [`PlayScreen`] stays while it does.
+    in_play: Rc<Cell<bool>>,
     /// Wakes the event loop (a song read on its thread).
     pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
     pub plays: Option<Rc<Plays>>,
@@ -205,6 +232,7 @@ impl Default for Host {
             requested: Rc::default(),
             feed: Rc::default(),
             stage: Stage::Idle,
+            in_play: Rc::default(),
             wake: None,
             plays: None,
             chart_loaded: None,
@@ -241,20 +269,12 @@ impl Host {
 /// What the prompt names before the song is read: a test's title and
 /// hint, or the song's title and artist from the library.
 fn first_info(request: &Request) -> PromptInfo {
-    let badge = if request.replay.is_some() || request.refused.is_some() {
-        "REPLAY".to_string()
-    } else if request.auto {
-        "AUTOPLAY".to_string()
-    } else {
-        String::new()
-    };
+    let badge = Badge::new(
+        request.replay.is_some() || request.refused.is_some(),
+        request.auto,
+    );
     if let Some(mode) = request.calibration {
-        return PromptInfo {
-            title: mode.title().into(),
-            artist: mode.hint().into(),
-            badge,
-            ..PromptInfo::default()
-        };
+        return PromptInfo::for_test(mode.title().into(), mode.hint().into(), badge);
     }
     let entry = crate::library::song(&request.song)
         .map(|s| s.entry)
@@ -274,23 +294,17 @@ fn first_info(request: &Request) -> PromptInfo {
 /// What the prompt names once the song is read: its chart and the mods
 /// it will play with too (the web's `prompt_info`).
 fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptInfo {
-    let mut info = first_info(request);
+    let info = first_info(request);
     if request.calibration.is_some() {
         return info;
     }
-    info.title = loaded.entry.title.clone();
-    info.artist = loaded.entry.artist.clone();
-    if let Some(c) = loaded.song.charts.get(request.chart) {
-        let style = loaded
-            .song
-            .layout_of(c)
-            .map(|l| l.name.clone())
-            .unwrap_or_default();
-        info.chart = chart_line(c.difficulty, c.meter, &style);
-        info.difficulty = ddi_ui::screens::data::difficulty_name(c.difficulty).into();
-    }
-    info.mods = mods_line(settings);
-    info
+    PromptInfo::for_chart(
+        loaded.entry.title.clone(),
+        loaded.entry.artist.clone(),
+        PromptChart::of(&loaded.song, request.chart),
+        settings,
+        info.badge,
+    )
 }
 
 impl Host {
@@ -656,30 +670,18 @@ impl Host {
         if request.calibration.is_some() || request.replay.is_some() || request.auto {
             return None;
         }
-        use ddi_ui::state::history::timing::{Verdict, timing_verdict};
-        let s = Settings::load();
-        // The devices watched, else those seen last; none known: not
-        // calibrated, surely.
-        let ids = match &self.watcher.last {
-            Some(d) => Some((d.audio.id.clone(), d.display.id.clone())),
-            None => s.last_devices(),
-        };
-        let Some((audio_id, display_id)) = ids else {
-            return Some(ddi_ui::screens::prompt::timing_hint(
-                &Verdict::Inconclusive { plays: 0, hits: 0 },
-                false,
-            ));
-        };
-        let audio = s.audio_profile(&audio_id);
-        let display = s.display_profile(&display_id);
-        let calibrated =
-            audio.is_some_and(|p| p.calibrated) && display.is_some_and(|p| p.calibrated);
-        let offset = audio.map_or(s.audio_offset, |p| p.offset);
-        let verdict = match &self.plays {
-            Some(plays) => timing_verdict(&plays.history(), &audio_id, &display_id, offset),
-            None => Verdict::Inconclusive { plays: 0, hits: 0 },
-        };
-        Some(ddi_ui::screens::prompt::timing_hint(&verdict, calibrated))
+        // The devices watched.
+        let ids = self
+            .watcher
+            .last
+            .as_ref()
+            .map(|d| (d.audio.id.clone(), d.display.id.clone()));
+        let history = self.plays.as_ref().map(|p| p.history());
+        Some(ddi_ui::screens::prompt::timing_hint_for(
+            &Settings::load(),
+            ids,
+            history.as_deref(),
+        ))
     }
 
     fn open_menu(&self, ui: &mut Ui, env: &Env) {
@@ -979,6 +981,11 @@ impl Host {
         // (a retry, an interruption) waits for Start.
         let entrance = r.prompt.borrow().entrance();
         r.prompt.borrow_mut().countdown = None;
+        // The play covers what was under the prompt until it ends.
+        self.in_play.set(true);
+        ui.push(PlayScreen {
+            in_play: self.in_play.clone(),
+        });
         r.prompt.borrow_mut().finish();
         ui.update(0.0);
         let settings = r.settings();
@@ -1051,6 +1058,7 @@ impl Host {
                 Stage::Playing(r, Box::new(play), Box::new(render))
             }
             Err(e) => {
+                self.in_play.set(false);
                 r.prompt.borrow_mut().set_step(PromptStep::Error(e));
                 self.push_prompt(ui, env, &mut r);
                 Stage::Prompt(r)
@@ -1081,11 +1089,12 @@ impl Host {
         if let Some(v) = r.view.as_mut() {
             v.scale = self.scale;
             v.present_at = self.present_at.take();
-            v.quit_shown = self
+            let since = self
                 .feed
                 .borrow()
                 .pointer_at
-                .is_some_and(|at| at.elapsed() < super::QUIT_LINGER);
+                .map(|at| at.elapsed().as_secs_f64());
+            v.quit_shown = ddi_session::play::quit_shown(false, since);
             v.draw(
                 dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
@@ -1104,6 +1113,7 @@ impl Host {
         let Stage::Playing(r, play, _) = stage else {
             return;
         };
+        self.in_play.set(false);
         #[cfg(feature = "video")]
         if let Some(v) = r.view.as_ref()
             && (v.movies.shown_any() || v.movies.trouble().is_some())
@@ -1449,26 +1459,17 @@ impl Host {
     }
 }
 
-/// The field's filter for the prompt's picture: the band the chart's
-/// lanes will take, as fractions of the screen's width, and how dark.
+/// The field's filter for the prompt's picture
+/// ([`ddi_shell::prompt_filter`] on the viewport's logical size; none for
+/// an empty one).
 fn filter(loaded: &Loaded, chart: usize, settings: &Settings, ui: &Ui) -> Option<([f32; 2], f32)> {
-    if settings.field_filter <= 0.0 {
-        return None;
-    }
-    let layout = loaded
-        .song
-        .charts
-        .get(chart)
-        .and_then(|c| loaded.song.layout_of(c))
-        .filter(|l| !l.lanes.is_empty())?;
     let v = ui.viewport();
     let ratio = v.ratio.max(0.1);
     let (w, h) = (v.physical[0] / ratio, v.physical[1] / ratio);
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let band = ddi_render::scene::filter_fraction(&layout, w, h, settings.reverse);
-    Some((band, settings.field_filter))
+    ddi_shell::prompt_filter(&loaded.song, chart, settings, [w, h])
 }
 
 /// The song's chart's noteskin, readied (`None`: the built-in arrows;
@@ -1486,15 +1487,15 @@ pub fn noteskin(
     let shift = settings.song_offset(&loaded.entry.id);
     let (wants, layout) = skin_wants(loaded, chart, settings, shift)?;
     let skins = crate::library::noteskins::all(&crate::library::all_folders());
-    let (key, env) = ddi_shell::first_there(wants, &crate::library::noteskins::choices(&skins))?;
+    let (key, env) = ddi_shell::first_there(wants, &crate::library::noteskins::choices(&skins));
     let p = super::skins::prepare(&key, &layout, env, &skins)?;
     Some((p.play, p.images, p.strike))
 }
 
 /// The skins the song's chart may be drawn with, best first, and its
 /// layout ([`ddi_shell::play_skins`]: what their Lua sees, the timing as
-/// the play shifts it by `shift`, the song offset); `None` when it draws
-/// the built-in arrows.
+/// the play shifts it by `shift`, the song offset); `None` when the chart
+/// or its layout is not there.
 fn skin_wants(
     loaded: &Loaded,
     chart: usize,
@@ -1503,7 +1504,7 @@ fn skin_wants(
 ) -> Option<(ddi_shell::SkinWants, ddi_chart::Layout)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
-    let wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift)?;
+    let wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift);
     Some((wants, layout))
 }
 

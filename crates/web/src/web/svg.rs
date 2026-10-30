@@ -26,22 +26,6 @@ use web_sys::{Event, ImageBitmap, MessageEvent, Worker};
 
 use super::js_err;
 
-/// The worker's files' stem when the page names none (a build without the
-/// stage step).
-const DEFAULT_STEM: &str = "svg-worker";
-
-/// The worker's own script: loads wasm-bindgen's glue and starts the
-/// module the page sends (compiled, or its address).
-const BOOT_JS: &str = r#"self.onmessage = async (e) => {
-  self.onmessage = null;
-  try {
-    importScripts(e.data.glue);
-    await wasm_bindgen({ module_or_path: e.data.module || e.data.wasm });
-  } catch (err) {
-    postMessage({ failed: 'the SVG worker could not start: ' + ((err && err.message) || err) });
-  }
-};"#;
-
 /// The most workers drawing at once.
 const MAX_WORKERS: usize = 4;
 
@@ -110,26 +94,8 @@ thread_local! {
     static COMPILING: RefCell<Option<Promise>> = const { RefCell::new(None) };
 }
 
-/// The worker's files' stem, as index.html names it.
-fn stem() -> String {
-    web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| {
-            d.query_selector("meta[name=\"ddi-svg-worker\"]")
-                .ok()
-                .flatten()
-        })
-        .and_then(|m| m.get_attribute("content"))
-        .filter(|s| !s.is_empty() && !s.contains('/'))
-        .unwrap_or_else(|| DEFAULT_STEM.to_string())
-}
-
 fn urls() -> (String, String) {
-    let stem = stem();
-    (
-        crate::songs::asset_url(&format!("{stem}.js")),
-        crate::songs::asset_url(&format!("{stem}_bg.wasm")),
-    )
+    super::wasm_worker::urls("ddi-svg-worker", "svg-worker")
 }
 
 /// The module, fetched and compiled the first time.
@@ -141,22 +107,10 @@ async fn module() -> Result<WebAssembly::Module, String> {
         c.get_or_insert_with(|| {
             wasm_bindgen_futures::future_to_promise(async {
                 let (_, wasm) = urls();
-                let fetch_err = |e: String| format!("the SVG worker could not be fetched: {e}");
-                let resp = gloo::net::http::Request::get(&wasm)
-                    .send()
+                super::wasm_worker::compile(&wasm, "the SVG worker")
                     .await
-                    .map_err(|e| JsValue::from_str(&fetch_err(e.to_string())))?;
-                if !resp.ok() {
-                    return Err(JsValue::from_str(&fetch_err(format!(
-                        "HTTP {}",
-                        resp.status()
-                    ))));
-                }
-                let bytes = resp
-                    .binary()
-                    .await
-                    .map_err(|e| JsValue::from_str(&fetch_err(e.to_string())))?;
-                JsFuture::from(WebAssembly::compile(&Uint8Array::from(&bytes[..]))).await
+                    .map(JsValue::from)
+                    .map_err(|e| JsValue::from_str(&e))
             })
         })
         .clone()
@@ -390,12 +344,7 @@ fn start_worker() -> Result<(), String> {
     let (module, boot, n) = POOL.with_borrow_mut(|p| {
         let boot = match &p.boot {
             Some(b) => Ok(b.clone()),
-            None => {
-                super::files::bytes_blob(BOOT_JS.as_bytes(), "text/javascript").and_then(|blob| {
-                    web_sys::Url::create_object_url_with_blob(&blob)
-                        .map_err(|e| js_err("the SVG worker's script", e))
-                })
-            }
+            None => super::wasm_worker::boot_url("failed", "the SVG worker"),
         };
         if let Ok(b) = &boot {
             p.boot = Some(b.clone());

@@ -145,7 +145,7 @@ impl Setup {
 
     /// The controller's `button` pressed or let go at song second `at`.
     fn pad_at(&mut self, button: u16, down: bool, at: f64) {
-        self.h.send(UiEvent::Raw(RawInput {
+        self.h.send(UiEvent::Pad(RawInput {
             device: DeviceId::Gamepad("pad".into()),
             control: format!("button:{button}"),
             pressed: down,

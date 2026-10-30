@@ -48,7 +48,6 @@ numbers_weight = 800
 "Cell" = "#ffffff0d"
 "CellEmpty" = "#ffffff05"
 "BannerEmpty" = "#1f1b28"
-"Greyed" = "#6d6676"
 "Track" = "#24212b"
 "Thumb" = "#6d6676"
 "Preview" = "#0f0d14"
@@ -197,8 +196,7 @@ numbers_weight = 800
 # from above, the footer from below, a list from the right, a song's
 # side from the left; `ddi_ui::screens::transitions`) and leaving, how
 # far they slide (virtual pixels) sideways and up or down, and how much
-# later the sides follow the top and bottom; and the beat pulse (the
-# selection's ring lit this much on each beat, settling in this long).
+# later the sides follow the top and bottom.
 "Motion.Select" = 0.12
 "Motion.Screen" = 0.22
 "Motion.Screen.Out" = 0.14
@@ -210,5 +208,3 @@ numbers_weight = 800
 # slower, none at rest or under reduced motion.
 "List.MotionBlur" = 0.5
 "List.MotionBlurFrom" = 600
-"Pulse.Amount" = 0.35
-"Pulse.Decay" = 0.3

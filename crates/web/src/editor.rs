@@ -469,9 +469,7 @@ const ANALYSIS_BUDGET_MS: f64 = 4.0;
 
 /// The page's clock, milliseconds.
 fn now_ms() -> f64 {
-    web_sys::window()
-        .and_then(|w| w.performance())
-        .map_or(0.0, |p| p.now())
+    crate::web::clock::PerformanceClock::now_ms()
 }
 
 /// Until the next animation frame.

@@ -191,18 +191,16 @@ impl StartScreen {
             // No entrance this once: `update` puts the real one back.
             crate::look::command_of(title, "On", "");
         }
-        self.publish();
+        self.publish(cx.hints());
         root
     }
 
-    fn publish(&self) {
+    fn publish(&self, hints: &crate::controller_hints::Hints) {
         let mut st = self.env.state.borrow_mut();
         st.screen = "start".into();
         st.compact = self.size[0] < super::DESIGN[0] || self.size[1] < 480.0;
         st.backdrop = None;
-        st.pulsing = false;
-        st.pulse = 0.0;
-        st.hints = if crate::controller_hints::active() {
+        st.hints = if hints.active() {
             let label = |caps: Vec<crate::keycaps::Keycap>| {
                 caps.iter()
                     .map(crate::keycaps::Keycap::label)
@@ -212,12 +210,9 @@ impl StartScreen {
             vec![
                 format!(
                     "{} Move",
-                    label(crate::controller_hints::actions(&[
-                        ddi_engine::MenuInput::Up,
-                        ddi_engine::MenuInput::Down
-                    ]))
+                    label(hints.actions(&[ddi_engine::MenuInput::Up, ddi_engine::MenuInput::Down]))
                 ),
-                format!("{} Choose", label(crate::controller_hints::activate())),
+                format!("{} Choose", label(hints.activate())),
             ]
         } else {
             vec!["↑↓ Move".into(), "ENTER Choose".into()]
@@ -249,9 +244,9 @@ impl Screen for StartScreen {
         }
         root
     }
-    fn message(&mut self, m: &crate::Message, _root: &mut Actor, _cx: &mut Cx) {
+    fn message(&mut self, m: &crate::Message, _root: &mut Actor, cx: &mut Cx) {
         if m.name == crate::controller_hints::CHANGED {
-            self.publish();
+            self.publish(cx.hints());
         }
     }
     fn focusables(&self) -> Vec<Focusable> {
@@ -299,7 +294,7 @@ impl Screen for StartScreen {
             );
         }
         self.live.tick(root, "Title", &self.env, cx);
-        self.publish();
+        self.publish(cx.hints());
     }
     fn animating(&self) -> bool {
         self.live.animating(&self.env) || (self.background_animating && !self.env.reduced())

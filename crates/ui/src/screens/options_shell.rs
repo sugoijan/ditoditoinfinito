@@ -87,13 +87,33 @@ pub fn shell(
     feed: OptionsFeed,
     platform: Rc<dyn OptionsPlatform>,
 ) -> OptionsShell {
-    Rc::new(move |call, cx| call_with(&env, &model, &feed, &platform, call, cx))
+    Rc::new(move |call, cx| {
+        follow_hints(&model, cx);
+        let data = call_with(&env, &model, &feed, &platform, call, cx);
+        follow_hints(&model, cx);
+        data
+    })
 }
 
 /// The rows, now, to the screen from a dialog.
 fn send(model: &Rc<RefCell<OptionsModel>>, feed: &OptionsFeed, cx: &mut Cx) {
+    follow_hints(model, cx);
     *feed.borrow_mut() = Some(model.borrow().data());
     cx.broadcast(Message::new(OPTIONS_CHANGED));
+}
+
+/// The UI's menus follow the controller bindings and styles as edited (a
+/// bind, a style, a reset: a new Back works at once), and the rows' help
+/// follows the UI's hints.
+fn follow_hints(model: &Rc<RefCell<OptionsModel>>, cx: &mut Cx) {
+    let mut m = model.borrow_mut();
+    let (controls, styles) = (&m.settings.controls, &m.settings.controller_styles);
+    if cx.hints().controls() != controls || cx.hints().styles() != styles {
+        cx.set_controls(controls.clone(), styles.clone());
+    }
+    if *m.world.hints != *cx.hints() {
+        m.world.hints = cx.hints_rc();
+    }
 }
 
 /// The connected controllers with a standard mapping, by id.

@@ -51,8 +51,6 @@ use std::collections::VecDeque;
 use std::rc::{Rc, Weak};
 
 use crate::component::{Component, Context, NodeRef};
-use ddi_engine::ControlBindings;
-use ddi_platform::DeviceId;
 use ddi_platform::storage::{self, Area};
 use ddi_render::DrawList;
 use ddi_render::texture_cache::TextureKey;
@@ -72,7 +70,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{HtmlCanvasElement, HtmlElement, HtmlInputElement, HtmlTextAreaElement};
 
 use crate::web::audio::WebAudio;
-use crate::web::gamepad::Gamepads;
+use crate::web::gamepad::{Gamepads, PadNews};
 use crate::web::gfx::{Gfx, SurfaceMode};
 use crate::web::screen;
 
@@ -229,9 +227,9 @@ pub(crate) struct Host {
     beep: Option<web_sys::AudioBuffer>,
     sounds: u32,
     composition: Option<Composition>,
-    controls: ControlBindings,
-    /// Whether a pad press is a user gesture here (not in WebKit).
-    pad_gesture: bool,
+    /// The input the hints followed in the host before, a pad its hub has
+    /// not listed yet: taken with its first list ([`hand_over`]).
+    pending_source: Option<ddi_ui::controller_hints::Source>,
     /// History entries pushed for the layers over the first, and pops of
     /// ours to ignore.
     depth: usize,
@@ -242,9 +240,8 @@ pub(crate) struct Host {
     navigate_after_pops: Option<String>,
     files_picked: u32,
     last_consumed: bool,
-    /// The mouse pointer hidden after a key or a pad's press (until the
-    /// mouse moves), and the cursor the screen asked for meanwhile.
-    pointer_hidden: bool,
+    /// The pointer's shape the screen asked for (`screen::set_shape`,
+    /// written again when the canvas comes back).
     cursor: &'static str,
     /// A mouse button is held (the pointer is not hidden then).
     mouse_held: bool,
@@ -423,6 +420,7 @@ impl Component for UiDev {
         if let Some(host) = &self.host
             && let Ok(mut h) = host.try_borrow_mut()
         {
+            keep_source(h.ui.hints().source().clone());
             h.closed = true;
             h.raf = None;
             h.attachment = None;
@@ -452,6 +450,15 @@ fn document() -> web_sys::Document {
 
 pub(crate) type Started = (Rc<RefCell<Host>>, Vec<EventListener>, Option<Gamepads>);
 
+/// A page's UI on the theme's design: under the boot shell its screen
+/// comes in as the shell fades; the theme draws its own focus.
+pub(crate) fn theme_ui() -> Ui {
+    let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
+    ui.hold_entrances(crate::boot::shown());
+    ui.set_focus_ring(false);
+    ui
+}
+
 /// Gives the host the app's device once it is there; `failed` hears why it
 /// is not.
 pub(crate) fn attach_gfx(host: Rc<RefCell<Host>>, failed: impl FnOnce(String) + 'static) {
@@ -480,6 +487,7 @@ pub(crate) fn stop_ui(host: &Rc<RefCell<Host>>, pads: Option<&Gamepads>) {
         pads.set_listener(None);
     }
     if let Ok(mut h) = host.try_borrow_mut() {
+        keep_source(h.ui.hints().source().clone());
         h.closed = true;
         h.raf = None;
         h.attachment = None;
@@ -569,11 +577,7 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
     let ui = if theme_screen(first) {
         let t = theme_host(fold.clone());
         let env = &t.env;
-        let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        // The theme draws its own focus.
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(sample::start_screen(env, false));
         if first != "start" {
             ui.push(sample::select_screen(
@@ -675,7 +679,10 @@ pub(crate) fn start_ui(
         // Edges go to the listener alone: nothing drains a queue here.
         p.set_queue(false);
         let weak = Rc::downgrade(&host);
-        p.set_listener(Some(Box::new(move |edge| pad_edge(&weak, edge))));
+        p.set_listener(Some(Box::new(move |news| pad_news(&weak, news))));
+        hand_over(&host, p.connected());
+    } else {
+        hand_over(&host, Vec::new());
     }
     publish(&host.borrow());
     Ok((host, listeners, pads))
@@ -743,11 +750,14 @@ fn new_host(
     HOSTS.with(|h| h.set(h.get() + 1));
     let settings = crate::settings::Settings::load();
     let embedded = frame_el.is_none();
-    // The canvas is the app's one: a pointer a host before this one hid
-    // (a key's press on the start prompt) stays hidden until the mouse
-    // moves, and this host is the one that shows it.
-    let pointer_hidden =
-        canvas.style().get_property_value("cursor").ok().as_deref() == Some("none");
+    let mut ui = ui;
+    // The menus' controller bindings (Options gives the UI its edits),
+    // and whether a pad's press is a user gesture here (not in WebKit).
+    ui.set_controls(
+        settings.controls.clone(),
+        settings.controller_styles.clone(),
+    );
+    ui.set_pad_gesture(!is_webkit());
     let host = Rc::new(RefCell::new(Host {
         ui,
         dev: Shared::default(),
@@ -768,14 +778,12 @@ fn new_host(
         beep: None,
         sounds: 0,
         composition: None,
-        controls: settings.controls,
-        pad_gesture: !is_webkit(),
+        pending_source: None,
         depth: 0,
         ignore_pops: 0,
         navigate_after_pops: None,
         files_picked: 0,
         last_consumed: false,
-        pointer_hidden,
         cursor: "default",
         mouse_held: false,
         lost: None,
@@ -803,7 +811,9 @@ fn new_host(
         frame_hook: None,
         hook_busy: false,
     }));
-    host.borrow().show_cursor();
+    // A pointer a host before this one hid (a key's press on the start
+    // prompt) stays hidden until the mouse moves.
+    screen::set_shape("default");
     UP.with_borrow_mut(|up| {
         up.retain(|w| w.strong_count() > 0);
         up.push(Rc::downgrade(&host));
@@ -927,7 +937,7 @@ fn embedded_gfx(weak: &Weak<RefCell<Host>>, gfx: Rc<Gfx>, again: bool) {
         if let Ok(mut h) = rc.try_borrow_mut() {
             h.attachment = attachment;
             h.canvas = canvas.clone();
-            h.show_cursor();
+            screen::set_shape(h.cursor);
             h.listeners.clear();
         }
         let listeners = listen(&rc, &canvas, &textarea, &files);
@@ -990,6 +1000,9 @@ thread_local! {
     /// The hosts alive: whether a UI screen draws on the canvas
     /// (`crate::boot::ready_when_settled` waits for its screen).
     static HOSTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The input the hints followed when the last host closed (or in the
+    /// play since): the next host's UI starts from it ([`hand_over`]).
+    static LAST_SOURCE: RefCell<ddi_ui::controller_hints::Source> = RefCell::default();
     /// The hosts up, to wake for the shell's fade ([`wake_all`]).
     static UP: RefCell<Vec<Weak<RefCell<Host>>>> = const { RefCell::new(Vec::new()) };
 }
@@ -997,6 +1010,26 @@ thread_local! {
 /// How many UI hosts are alive.
 pub(crate) fn hosts() -> usize {
     HOSTS.with(std::cell::Cell::get)
+}
+
+/// The input the hints follow, kept for the next host (a host closing,
+/// a play's key or pad press).
+pub(crate) fn keep_source(source: ddi_ui::controller_hints::Source) {
+    LAST_SOURCE.with_borrow_mut(|s| *s = source);
+}
+
+/// A new host's UI: the pads connected (`pads`, its hub's) and the input
+/// the hints followed last.
+pub(crate) fn hand_over(host: &Rc<RefCell<Host>>, pads: Vec<ddi_engine::ConnectedPad>) {
+    if let Ok(mut h) = host.try_borrow_mut() {
+        h.ui.set_pads(pads);
+        let source = LAST_SOURCE.with_borrow(Clone::clone);
+        h.ui.set_source(source.clone());
+        // A hub just made has read no pads yet.
+        if h.ui.hints().source() != &source {
+            h.pending_source = Some(source);
+        }
+    }
 }
 
 /// A frame for every host up (the shell's fade begins: the screens
@@ -1018,6 +1051,7 @@ impl Drop for Host {
 impl Drop for Embedded {
     fn drop(&mut self) {
         if let Ok(mut h) = self.host.try_borrow_mut() {
+            keep_source(h.ui.hints().source().clone());
             h.closed = true;
             h.raf = None;
             h.listeners.clear();
@@ -1026,9 +1060,7 @@ impl Drop for Embedded {
             // asked for (over the prompt's Start, pressed) would stay on
             // whatever draws next (a play) with no host to change it. A
             // hidden pointer stays hidden until the mouse moves.
-            if !h.pointer_hidden {
-                let _ = h.canvas.style().set_property("cursor", "default");
-            }
+            screen::set_shape("default");
             drop_field(&h);
             h.textarea.remove();
             h.files.remove();
@@ -1548,11 +1580,10 @@ fn dispatch(weak: &Weak<RefCell<Host>>, event: UiEvent) -> bool {
             UiEvent::Wheel(_) => Some(false),
             _ => None,
         };
-        if let Some(hide) = hide
-            && hide != h.pointer_hidden
-        {
-            h.pointer_hidden = hide;
-            h.show_cursor();
+        match hide {
+            Some(true) => screen::hide_until_move(),
+            Some(false) => screen::mouse_moved(),
+            None => {}
         }
         let out = h.ui.handle(event);
         h.last_consumed = out.consumed;
@@ -1593,62 +1624,26 @@ fn sync_text(weak: &Weak<RefCell<Host>>) {
     dispatch(weak, UiEvent::Text(TextEvent::Sync(sync)));
 }
 
-pub(crate) fn pad_edge(weak: &Weak<RefCell<Host>>, edge: &ddi_platform::RawInput) {
-    let DeviceId::Gamepad(id) = &edge.device else {
-        return;
-    };
-    // Binding: the press as it is.
-    let raw = weak
-        .upgrade()
-        .and_then(|rc| rc.try_borrow().ok().map(|h| h.ui.wants_raw()))
-        .unwrap_or(false);
-    if raw {
-        dispatch(weak, UiEvent::Raw(edge.clone()));
-        return;
+/// A gamepad hub's news for the UI of `weak`, as it is: the pads
+/// connected, or an edge (the UI resolves it to a menu action, or hands it
+/// on to a screen binding controls).
+pub(crate) fn pad_news(weak: &Weak<RefCell<Host>>, news: PadNews<'_>) {
+    match news {
+        PadNews::Pads(pads) => {
+            if let Some(rc) = weak.upgrade()
+                && let Ok(mut h) = rc.try_borrow_mut()
+            {
+                h.ui.set_pads(pads.to_vec());
+                if let Some(source) = h.pending_source.take() {
+                    h.ui.set_source(source);
+                }
+            }
+            schedule_weak(weak);
+        }
+        PadNews::Edge(edge) => {
+            dispatch(weak, UiEvent::Pad(edge.clone()));
+        }
     }
-    let (action, gesture) = {
-        let Some(rc) = weak.upgrade() else { return };
-        let Ok(h) = rc.try_borrow() else { return };
-        let Some(action) = h
-            .controls
-            .menu_control(id, pad_standard(edge.slot), &edge.control)
-        else {
-            return;
-        };
-        (action, h.pad_gesture)
-    };
-    dispatch(
-        weak,
-        UiEvent::Menu(MenuEvent {
-            action: action.into(),
-            down: edge.pressed,
-            source: edge.slot,
-            gesture,
-            time: edge.host_time.0 * 1000.0,
-        }),
-    );
-}
-
-/// Whether the pad in `slot` has the standard mapping (read from the
-/// browser: the poller is busy calling us).
-fn pad_standard(slot: u32) -> bool {
-    let Some(nav) = web_sys::window().map(|w| w.navigator()) else {
-        return false;
-    };
-    let Ok(get) = js_sys::Reflect::get(&nav, &"getGamepads".into()) else {
-        return false;
-    };
-    let Ok(get) = get.dyn_into::<js_sys::Function>() else {
-        return false;
-    };
-    let Ok(list) = get.call0(&nav) else {
-        return false;
-    };
-    let pad = js_sys::Reflect::get(&list, &JsValue::from(slot)).unwrap_or(JsValue::NULL);
-    js_sys::Reflect::get(&pad, &"mapping".into())
-        .ok()
-        .and_then(|m| m.as_string())
-        .is_some_and(|m| m == "standard")
 }
 
 fn schedule_weak(weak: &Weak<RefCell<Host>>) {
@@ -1716,16 +1711,6 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
 }
 
 impl Host {
-    /// The canvas's cursor as this host has it: hidden, or the screen's.
-    fn show_cursor(&self) {
-        let css = if self.pointer_hidden {
-            "none"
-        } else {
-            self.cursor
-        };
-        let _ = self.canvas.style().set_property("cursor", css);
-    }
-
     /// Whether the field preview is a still frame (reduced motion).
     fn field_still(&self) -> bool {
         self.receptor_preview.is_some()
@@ -1839,7 +1824,7 @@ impl Host {
                         Cursor::Grabbing => "grabbing",
                     };
                     self.cursor = css;
-                    self.show_cursor();
+                    screen::set_shape(css);
                 }
                 UiRequest::Persist { key, value } => {
                     let _ = storage::set(Area::Local, &key, &value);
@@ -1971,6 +1956,7 @@ impl Host {
             let _ =
                 js_sys::Reflect::set(&marker, &HISTORY_MARK.into(), &JsValue::from(mark as f64));
             let _ = history.push_state(&marker, "");
+            crate::router::history_changed();
         }
         if let Some(n) = step.back {
             // One `go`, one `popstate`, however far.
@@ -2032,6 +2018,10 @@ impl Host {
         }
         if crate::boot::revealed() {
             self.ui.reveal();
+            // Its entrance played out: a play's skin may load now.
+            if self.ui.settled() {
+                crate::boot::entrance_done();
+            }
         }
         if !self.embedded
             && let Some(theme) = &self.theme
@@ -2411,7 +2401,7 @@ fn publish(h: &Host) {
     set(&ui, "files", (h.files_picked as f64).into());
     set(&ui, "consumed", h.last_consumed.into());
     set(&ui, "needsRedraw", h.ui.needs_redraw().into());
-    set(&ui, "padGesture", h.pad_gesture.into());
+    set(&ui, "padGesture", (!is_webkit()).into());
     {
         let d = h.dev.borrow();
         set(&ui, "status", d.status.as_str().into());
@@ -2661,8 +2651,6 @@ fn publish(h: &Host) {
         set(&o, "suggestions", strings(&st.suggestions));
         set(&o, "matches", (st.matches as f64).into());
         set(&o, "hints", strings(&st.hints));
-        set(&o, "pulse", st.pulse.into());
-        set(&o, "pulsing", st.pulsing.into());
         set(
             &o,
             "backdrop",

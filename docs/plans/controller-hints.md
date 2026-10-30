@@ -367,10 +367,12 @@ this phase on recognizable controls and correct binding-derived presentation.
    raw controls remain numbered/axis/hat controls under every override.
 5. **Artwork and screens — implemented.** Shared footers, song-list style hint,
    pre-start receptor diagram, binding rows and quit/cover copy follow effective
-   controls. Both shells retain the latest deliberate device across routes;
-   fresh key/button/threshold edges switch source. Repeats/releases do not.
-   Disconnect/slot replacement clears old UI directional holds and falls back
-   to keyboard hints. Overrides take effect immediately.
+   controls. The UI core keeps the latest deliberate device, which the web
+   carries between its route hosts (since 2026-10-30, `controller-input-core.md`;
+   it was a thread-local both shells fed); fresh key/button/threshold edges
+   switch source. Repeats/releases and synthetic menu actions do not.
+   Disconnect/slot replacement releases what the gone pad's held controls
+   pressed and falls back to keyboard hints. Overrides take effect immediately.
 6. **Automated verification — implemented; physical hardware checks pending.**
    Engine, UI, theme and session suites cover saved/empty tables, reset/override
    separation, inverse dispatch, raw devices, split fields, fresh/repeat/release

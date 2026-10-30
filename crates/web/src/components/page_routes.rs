@@ -17,7 +17,7 @@ use std::rc::Rc;
 use crate::component::{Component, Context, NodeRef};
 use ddi_ui::screens::calibration::{self, CalAct};
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
-use ddi_ui::{Cx, TextMode, Ui, UiRequest};
+use ddi_ui::{Cx, UiRequest};
 use web_sys::HtmlElement;
 
 use crate::components::ui_dev::{self, Host, Started};
@@ -148,10 +148,7 @@ impl PagePage {
             })
         };
         let screen = PageScreen::new(env, name, doc).with_shell(shell, self.feed.clone());
-        let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         if which == Which::Start {
             ui.push(
                 ddi_ui::screens::start::StartScreen::new(

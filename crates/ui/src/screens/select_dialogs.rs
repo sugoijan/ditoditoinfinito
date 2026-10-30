@@ -46,6 +46,31 @@ pub(crate) fn shell(
     (vec![dim, panel, t], [x, y])
 }
 
+/// A dialog's `buttons` (name, label, component) at its bottom right in
+/// rows of `per_row`, inside the dialog at `[x, y, w, h]`: as wide as a
+/// row has room for, 200 at most while they fit in one.
+fn button_rows(
+    env: &Env,
+    buttons: &[(&'static str, String, &'static str)],
+    per_row: usize,
+    [x, y, w, h]: [f32; 4],
+) -> Vec<Actor> {
+    let room = w - 48.0;
+    let rows = buttons.len().div_ceil(per_row);
+    let mut out = Vec::new();
+    for (r, chunk) in buttons.chunks(per_row).enumerate() {
+        let k = chunk.len() as f32;
+        let bw = ((room - (k - 1.0) * 10.0) / k).min(if rows > 1 { room } else { 200.0 });
+        let mut bx = x + w - 24.0 - k * bw - (k - 1.0) * 10.0;
+        let by = y + h - 44.0 - (rows - 1 - r) as f32 * 50.0;
+        for (name, label, kind) in chunk {
+            out.push(button(env, name, label, [bx + bw / 2.0, by], bw, kind));
+            bx += bw + 10.0;
+        }
+    }
+    out
+}
+
 pub(crate) fn button(
     env: &Env,
     name: &str,
@@ -408,16 +433,7 @@ impl Screen for ManageDialog {
             wrap(&mut b, w - 48.0);
             children.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
         }
-        for (r, chunk) in buttons.chunks(per_row).enumerate() {
-            let k = chunk.len() as f32;
-            let bw = ((room - (k - 1.0) * 10.0) / k).min(if rows > 1 { room } else { 200.0 });
-            let mut bx = x + w - 24.0 - k * bw - (k - 1.0) * 10.0;
-            let by = y + h - 44.0 - (rows - 1 - r) as f32 * 50.0;
-            for (name, label, kind) in chunk {
-                children.push(button(&env, name, label, [bx + bw / 2.0, by], bw, kind));
-                bx += bw + 10.0;
-            }
-        }
+        children.extend(button_rows(&env, &buttons, per_row, [x, y, w, h]));
         dialog_root(children)
     }
 
@@ -649,7 +665,6 @@ impl Screen for ShareDialog {
             .collect();
         let buttons = self.buttons();
         let n = buttons.len();
-        let room = w - 48.0;
         let per_row = if n > 3 { 3 } else { n.max(1) };
         let rows = n.div_ceil(per_row);
         let h = 110.0 + body.len() as f32 * 18.0 + rows as f32 * 50.0;
@@ -660,16 +675,7 @@ impl Screen for ShareDialog {
             wrap(&mut b, w - 48.0);
             children.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
         }
-        for (r, chunk) in buttons.chunks(per_row).enumerate() {
-            let k = chunk.len() as f32;
-            let bw = ((room - (k - 1.0) * 10.0) / k).min(if rows > 1 { room } else { 200.0 });
-            let mut bx = x + w - 24.0 - k * bw - (k - 1.0) * 10.0;
-            let by = y + h - 44.0 - (rows - 1 - r) as f32 * 50.0;
-            for (name, label, kind) in chunk {
-                children.push(button(&env, name, label, [bx + bw / 2.0, by], bw, kind));
-                bx += bw + 10.0;
-            }
-        }
+        children.extend(button_rows(&env, &buttons, per_row, [x, y, w, h]));
         // The buttons by name, for the debug state's rects.
         env.state.borrow_mut().page_items = buttons.iter().map(|(n, _, _)| n.to_string()).collect();
         dialog_root(children)
@@ -1423,6 +1429,10 @@ impl Screen for ImportDialog {
     fn animating(&self) -> bool {
         self.list.animating() || self.busy_animation()
     }
+
+    fn moving(&self) -> bool {
+        self.list.animating()
+    }
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         if self.busy_animation() {
             self.progress_phase = (self.progress_phase + dt.clamp(0.0, 0.25) / 2.0) % 1.0;
@@ -1768,24 +1778,238 @@ impl Screen for NoticesDialog {
 /// first, a page at a time, the best marked; the chosen one watched,
 /// opened on the results screen, or removed (pressed twice). A row is
 /// chosen by a tap or Start on it (Start then on Watch watches it).
+/// A dialog's rows a page at a time, one chosen, with an action a first
+/// press arms and a second takes (the plays list's Remove, the shares'
+/// Delete): what [`PlaysDialog`] and Options' Shares dialog share.
+#[derive(Default)]
+pub(crate) struct PagedRows {
+    /// The chosen row, and the page's first.
+    pub chosen: usize,
+    pub first: usize,
+    /// The armed action was pressed once for the chosen row.
+    pub arming: bool,
+}
+
+/// A row's height in a [`PagedRows`] list.
+pub(crate) const PAGED_ROW: f32 = 46.0;
+
+/// What [`PagedRows::act`] did with an activation.
+pub(crate) enum Paged {
+    /// A row was chosen: built again, the focus on the dialog's first
+    /// action.
+    Chosen,
+    /// Another page: built again, the focus on this button.
+    Page(&'static str),
+    /// Closed (Close).
+    Closed,
+    /// Taken, nothing to do (a row no longer there).
+    Taken,
+}
+
+impl PagedRows {
+    /// Rows a page on a screen `screen_h` high: as many as fit, 3 to 8.
+    pub fn per_page(screen_h: f32) -> usize {
+        let room = screen_h - 16.0 - 70.0 - 2.0 * 50.0 - 40.0;
+        ((room / (PAGED_ROW + 6.0)).floor() as usize).clamp(3, 8)
+    }
+
+    /// The chosen row kept among `len`, on the page that holds it.
+    pub fn settle(&mut self, len: usize, per_page: usize) {
+        self.chosen = self.chosen.min(len.saturating_sub(1));
+        if self.chosen < self.first || self.chosen >= self.first + per_page {
+            self.first = self.chosen / per_page * per_page;
+        }
+    }
+
+    /// The pages' buttons where there are pages before or after.
+    pub fn page_buttons(
+        &self,
+        len: usize,
+        per_page: usize,
+        v: &mut Vec<(&'static str, String, &'static str)>,
+    ) {
+        if self.first > 0 {
+            v.push(("Newer", "‹ Newer".to_string(), "Button"));
+        }
+        if self.first + per_page < len {
+            v.push(("Older", "Older ›".to_string(), "Button"));
+        }
+    }
+
+    /// The page's rows as focusables, then `buttons`.
+    pub fn focusables(
+        &self,
+        len: usize,
+        per_page: usize,
+        buttons: Vec<(&'static str, String, &'static str)>,
+    ) -> Vec<Focusable> {
+        (self.first..(self.first + per_page).min(len))
+            .map(|i| Focusable::new(format!("Row{i}")))
+            .chain(buttons.into_iter().map(|(n, _, _)| Focusable::new(n)))
+            .collect()
+    }
+
+    /// A menu move disarms the armed action: whether it was (the dialog
+    /// builds again and lets the menu move the focus).
+    pub fn disarm(&mut self, input: &Input) -> bool {
+        let moved = matches!(
+            input,
+            Input::Menu {
+                action: MenuAction::Up | MenuAction::Down | MenuAction::Left | MenuAction::Right,
+                ..
+            }
+        );
+        moved && std::mem::take(&mut self.arming)
+    }
+
+    /// An activation of a row, a page button or Close, among `len` rows;
+    /// `None` for the dialog's own actions.
+    pub fn act(&mut self, name: &str, len: usize, per_page: usize, cx: &mut Cx) -> Option<Paged> {
+        if let Some(i) = name
+            .strip_prefix("Row")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            if i >= len {
+                return Some(Paged::Taken);
+            }
+            self.chosen = i;
+            self.arming = false;
+            return Some(Paged::Chosen);
+        }
+        match name {
+            "Newer" => {
+                self.first = self.first.saturating_sub(per_page);
+                self.chosen = self.first;
+                self.arming = false;
+                Some(Paged::Page(if self.first > 0 { "Newer" } else { "Older" }))
+            }
+            "Older" => {
+                self.first += per_page;
+                self.chosen = self.first;
+                self.arming = false;
+                let more = self.first + per_page < len;
+                Some(Paged::Page(if more { "Older" } else { "Newer" }))
+            }
+            "Close" => {
+                cx.close(true);
+                Some(Paged::Closed)
+            }
+            _ => None,
+        }
+    }
+
+    /// Row `i`'s plate at `[x, y, w]` (its top left), ringed in the accent
+    /// when it is the chosen one.
+    pub fn plate(&self, env: &Env, i: usize, [x, y, w]: [f32; 3]) -> Vec<Actor> {
+        let mut plate = look::component_or(
+            &*env.look,
+            "Button",
+            "Button",
+            &Spec::new([w, PAGED_ROW], ""),
+        );
+        plate.name = format!("Row{i}");
+        call(&mut plate, "xy", &[x + w / 2.0, y + PAGED_ROW / 2.0]);
+        let mut out = vec![plate];
+        if i == self.chosen {
+            let c = env.color("Accent");
+            for (size, at) in [
+                ([w + 6.0, 2.0], [x + w / 2.0, y - 2.0]),
+                ([w + 6.0, 2.0], [x + w / 2.0, y + PAGED_ROW + 2.0]),
+                ([2.0, PAGED_ROW + 6.0], [x - 2.0, y + PAGED_ROW / 2.0]),
+                ([2.0, PAGED_ROW + 6.0], [x + w + 2.0, y + PAGED_ROW / 2.0]),
+            ] {
+                let mut q = quad("", size, c);
+                call(&mut q, "xy", &at);
+                out.push(q);
+            }
+        }
+        out
+    }
+
+    /// "1–8 of 20" at the dialog's top right, when there are pages.
+    pub fn page_label(
+        &self,
+        env: &Env,
+        shown: usize,
+        len: usize,
+        [right, y]: [f32; 2],
+    ) -> Option<Actor> {
+        (len > shown).then(|| {
+            let t = env.text(
+                "Page",
+                &format!("{}–{} of {}", self.first + 1, self.first + shown, len),
+                12.0,
+                400,
+                "Faint",
+            );
+            super::right(t, right, y)
+        })
+    }
+}
+
+/// `buttons` from the left in lines no wider than `room`: each line's
+/// buttons (by index) and each button's width.
+pub(crate) fn button_lines(
+    buttons: &[(&'static str, String, &'static str)],
+    room: f32,
+) -> (Vec<Vec<usize>>, Vec<f32>) {
+    let widths: Vec<f32> = buttons
+        .iter()
+        .map(|(_, l, _)| look::mono_width(l, 15.0) + 32.0)
+        .collect();
+    let mut lines: Vec<Vec<usize>> = vec![Vec::new()];
+    let mut used = 0.0;
+    for (i, bw) in widths.iter().enumerate() {
+        let line = lines.last_mut().expect("a line");
+        if !line.is_empty() && used + 10.0 + bw > room {
+            lines.push(vec![i]);
+            used = *bw;
+        } else {
+            used += if line.is_empty() { *bw } else { 10.0 + bw };
+            line.push(i);
+        }
+    }
+    (lines, widths)
+}
+
+/// [`button_lines`]' buttons, the last line `bottom` high, from `x`.
+pub(crate) fn place_button_lines(
+    env: &Env,
+    buttons: &[(&'static str, String, &'static str)],
+    (lines, widths): &(Vec<Vec<usize>>, Vec<f32>),
+    [x, bottom]: [f32; 2],
+) -> Vec<Actor> {
+    let mut out = Vec::new();
+    for (l, line) in lines.iter().enumerate() {
+        let by = bottom - (lines.len() - 1 - l) as f32 * 50.0;
+        let mut bx = x;
+        for &i in line {
+            let (name, label, kind) = &buttons[i];
+            out.push(button(
+                env,
+                name,
+                label,
+                [bx + widths[i] / 2.0, by],
+                widths[i],
+                kind,
+            ));
+            bx += widths[i] + 10.0;
+        }
+    }
+    out
+}
+
 pub struct PlaysDialog {
     env: Env,
     title: String,
     rows: Vec<PlayRow>,
-    /// The chosen row's index.
-    chosen: usize,
-    /// The page's first row.
-    first: usize,
-    /// Remove was pressed once for the chosen row.
-    arming: bool,
+    /// The chosen row, the page, Remove armed.
+    paged: PagedRows,
     shell: Option<ShellFn>,
     screen: [f32; 2],
     /// Built once: Watch (or Close) took focus.
     focused: bool,
 }
-
-/// A row's height in the plays list.
-const PLAY_ROW: f32 = 46.0;
 
 impl PlaysDialog {
     /// The plays `rows` of the chart `title` names ("Hard 9"); the best
@@ -1796,27 +2020,18 @@ impl PlaysDialog {
             env,
             title: format!("PLAYS · {title}"),
             rows,
-            chosen,
-            first: 0,
-            arming: false,
+            paged: PagedRows {
+                chosen,
+                ..PagedRows::default()
+            },
             shell,
             screen: super::DESIGN,
             focused: false,
         }
     }
 
-    /// Rows a page: as many as fit, 3 to 8.
     fn per_page(&self) -> usize {
-        let room = self.screen[1] - 16.0 - 70.0 - 2.0 * 50.0 - 40.0;
-        ((room / (PLAY_ROW + 6.0)).floor() as usize).clamp(3, 8)
-    }
-
-    /// The page holding the chosen row.
-    fn settle_page(&mut self) {
-        let n = self.per_page();
-        if self.chosen < self.first || self.chosen >= self.first + n {
-            self.first = self.chosen / n * n;
-        }
+        PagedRows::per_page(self.screen[1])
     }
 
     /// The buttons now, `(name, label, kind)`.
@@ -1825,18 +2040,14 @@ impl PlaysDialog {
         if !self.rows.is_empty() {
             v.push(("Watch", "Watch".to_string(), "PlayButton"));
             v.push(("Open", "Results".to_string(), "Button"));
-            v.push(if self.arming {
+            v.push(if self.paged.arming {
                 ("Remove", "Sure? Remove".to_string(), "DangerButton")
             } else {
                 ("Remove", "Remove".to_string(), "Button")
             });
         }
-        if self.first > 0 {
-            v.push(("Newer", "‹ Newer".to_string(), "Button"));
-        }
-        if self.first + self.per_page() < self.rows.len() {
-            v.push(("Older", "Older ›".to_string(), "Button"));
-        }
+        self.paged
+            .page_buttons(self.rows.len(), self.per_page(), &mut v);
         v.push(("Close", "Close".to_string(), "Button"));
         v
     }
@@ -1859,7 +2070,7 @@ impl PlaysDialog {
                 )
             })
             .collect();
-        st.plays_selected = self.rows.get(self.chosen).map(|r| r.id.clone());
+        st.plays_selected = self.rows.get(self.paged.chosen).map(|r| r.id.clone());
     }
 
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx, focus: &str) {
@@ -1870,30 +2081,7 @@ impl PlaysDialog {
 
     fn row(&self, i: usize, r: &PlayRow, [x, y, w]: [f32; 3]) -> Vec<Actor> {
         let env = &self.env;
-        let chosen = i == self.chosen;
-        let mut plate = look::component_or(
-            &*env.look,
-            "Button",
-            "Button",
-            &Spec::new([w, PLAY_ROW], ""),
-        );
-        plate.name = format!("Row{i}");
-        call(&mut plate, "xy", &[x + w / 2.0, y + PLAY_ROW / 2.0]);
-        // The chosen one ringed in the accent.
-        let mut ring = Vec::new();
-        if chosen {
-            let c = env.color("Accent");
-            for (size, at) in [
-                ([w + 6.0, 2.0], [x + w / 2.0, y - 2.0]),
-                ([w + 6.0, 2.0], [x + w / 2.0, y + PLAY_ROW + 2.0]),
-                ([2.0, PLAY_ROW + 6.0], [x - 2.0, y + PLAY_ROW / 2.0]),
-                ([2.0, PLAY_ROW + 6.0], [x + w + 2.0, y + PLAY_ROW / 2.0]),
-            ] {
-                let mut q = quad("", size, c);
-                call(&mut q, "xy", &at);
-                ring.push(q);
-            }
-        }
+        let chosen = i == self.paged.chosen;
         let mut first = vec![r.when.clone(), r.ruleset.clone()];
         if r.autoplay {
             first.push("AUTOPLAY".into());
@@ -1919,9 +2107,8 @@ impl PlaysDialog {
         };
         let c = env.numbers("", score.trim(), 15.0, "Text");
         let d = look::tracked(env.text("", &r.lamp_text, 11.0, 700, "Gold"), 80);
-        let mut out = ring;
+        let mut out = self.paged.plate(env, i, [x, y, w]);
         out.extend([
-            plate,
             left(a, x + 14.0, y + 15.0),
             left(b, x + 14.0, y + 32.0),
             super::right(c, x + w - 14.0, y + 15.0),
@@ -1943,41 +2130,26 @@ impl Screen for PlaysDialog {
     fn build(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
         self.screen = [vp.width, vp.height];
-        self.settle_page();
+        let n = self.per_page();
+        self.paged.settle(self.rows.len(), n);
         let env = self.env.clone();
         let w = 760.0_f32.min(self.screen[0] - 32.0);
         let page: Vec<(usize, &PlayRow)> = self
             .rows
             .iter()
             .enumerate()
-            .skip(self.first)
-            .take(self.per_page())
+            .skip(self.paged.first)
+            .take(n)
             .collect();
         let buttons = self.buttons();
         let room = w - 48.0;
-        let widths: Vec<f32> = buttons
-            .iter()
-            .map(|(_, l, _)| look::mono_width(l, 15.0) + 32.0)
-            .collect();
-        // Rows of buttons that fit.
-        let mut lines: Vec<Vec<usize>> = vec![Vec::new()];
-        let mut used = 0.0;
-        for (i, bw) in widths.iter().enumerate() {
-            let line = lines.last_mut().expect("a line");
-            if !line.is_empty() && used + 10.0 + bw > room {
-                lines.push(vec![i]);
-                used = *bw;
-            } else {
-                used += if line.is_empty() { *bw } else { 10.0 + bw };
-                lines.last_mut().expect("a line").push(i);
-            }
-        }
+        let lines = button_lines(&buttons, room);
         let body = if self.rows.is_empty() {
             30.0
         } else {
-            page.len() as f32 * (PLAY_ROW + 6.0)
+            page.len() as f32 * (PAGED_ROW + 6.0)
         };
-        let h = (70.0 + body + 20.0 + lines.len() as f32 * 50.0 + 6.0).min(self.screen[1] - 16.0);
+        let h = (70.0 + body + 20.0 + lines.0.len() as f32 * 50.0 + 6.0).min(self.screen[1] - 16.0);
         let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &self.title);
         if self.rows.is_empty() {
             children.push(left(
@@ -1996,40 +2168,21 @@ impl Screen for PlaysDialog {
             children.extend(self.row(
                 *i,
                 r,
-                [x + 24.0, y + 60.0 + k as f32 * (PLAY_ROW + 6.0), room],
+                [x + 24.0, y + 60.0 + k as f32 * (PAGED_ROW + 6.0), room],
             ));
         }
-        if self.rows.len() > page.len() {
-            let t = env.text(
-                "Page",
-                &format!(
-                    "{}–{} of {}",
-                    self.first + 1,
-                    self.first + page.len(),
-                    self.rows.len()
-                ),
-                12.0,
-                400,
-                "Faint",
-            );
-            children.push(super::right(t, x + w - 24.0, y + 30.0));
-        }
-        for (l, line) in lines.iter().enumerate() {
-            let by = y + h - 30.0 - (lines.len() - 1 - l) as f32 * 50.0;
-            let mut bx = x + 24.0;
-            for &i in line {
-                let (name, label, kind) = &buttons[i];
-                children.push(button(
-                    &env,
-                    name,
-                    label,
-                    [bx + widths[i] / 2.0, by],
-                    widths[i],
-                    kind,
-                ));
-                bx += widths[i] + 10.0;
-            }
-        }
+        children.extend(self.paged.page_label(
+            &env,
+            page.len(),
+            self.rows.len(),
+            [x + w - 24.0, y + 30.0],
+        ));
+        children.extend(place_button_lines(
+            &env,
+            &buttons,
+            &lines,
+            [x + 24.0, y + h - 30.0],
+        ));
         self.publish();
         // At first Start watches the chosen play.
         if !std::mem::replace(&mut self.focused, true) {
@@ -2043,46 +2196,29 @@ impl Screen for PlaysDialog {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let n = self.per_page();
-        (self.first..(self.first + n).min(self.rows.len()))
-            .map(|i| Focusable::new(format!("Row{i}")))
-            .chain(
-                self.buttons()
-                    .into_iter()
-                    .map(|(n, _, _)| Focusable::new(n)),
-            )
-            .collect()
+        self.paged
+            .focusables(self.rows.len(), self.per_page(), self.buttons())
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         // Focus moving away from an armed Remove disarms it (the move
         // itself is the menu's).
-        if self.arming
-            && let Input::Menu { action, .. } = input
-            && matches!(
-                action,
-                MenuAction::Up | MenuAction::Down | MenuAction::Left | MenuAction::Right
-            )
-        {
-            self.arming = false;
+        if self.paged.disarm(input) {
             *root = self.build(cx);
             root.finish_tweening();
             return Handled::No;
         }
         match input {
             Input::Activate { name } => {
-                if let Some(i) = name
-                    .strip_prefix("Row")
-                    .and_then(|n| n.parse::<usize>().ok())
-                {
-                    if i < self.rows.len() {
-                        self.chosen = i;
-                        self.arming = false;
-                        self.rebuild(root, cx, "Watch");
+                if let Some(done) = self.paged.act(name, self.rows.len(), self.per_page(), cx) {
+                    match done {
+                        Paged::Chosen => self.rebuild(root, cx, "Watch"),
+                        Paged::Page(focus) => self.rebuild(root, cx, focus),
+                        Paged::Closed | Paged::Taken => {}
                     }
                     return Handled::Yes;
                 }
-                let id = self.rows.get(self.chosen).map(|r| r.id.clone());
+                let id = self.rows.get(self.paged.chosen).map(|r| r.id.clone());
                 match (name.as_str(), id) {
                     // The call first: a closed layer's requests go nowhere
                     // (it goes at once under reduced motion).
@@ -2095,11 +2231,10 @@ impl Screen for PlaysDialog {
                         cx.close(false);
                     }
                     ("Remove", Some(id)) => {
-                        if self.arming {
-                            self.arming = false;
+                        if self.paged.arming {
+                            self.paged.arming = false;
                             self.call(SelectCall::RemovePlay(id), cx);
-                            self.rows.remove(self.chosen);
-                            self.chosen = self.chosen.min(self.rows.len().saturating_sub(1));
+                            self.rows.remove(self.paged.chosen);
                             let focus = if self.rows.is_empty() {
                                 "Close"
                             } else {
@@ -2107,26 +2242,10 @@ impl Screen for PlaysDialog {
                             };
                             self.rebuild(root, cx, focus);
                         } else {
-                            self.arming = true;
+                            self.paged.arming = true;
                             self.rebuild(root, cx, "Remove");
                         }
                     }
-                    ("Newer", _) => {
-                        let n = self.per_page();
-                        self.first = self.first.saturating_sub(n);
-                        self.chosen = self.first;
-                        self.arming = false;
-                        self.rebuild(root, cx, if self.first > 0 { "Newer" } else { "Older" });
-                    }
-                    ("Older", _) => {
-                        let n = self.per_page();
-                        self.first += n;
-                        self.chosen = self.first;
-                        self.arming = false;
-                        let more = self.first + n < self.rows.len();
-                        self.rebuild(root, cx, if more { "Older" } else { "Newer" });
-                    }
-                    ("Close", _) => cx.close(true),
                     _ => return Handled::No,
                 }
                 Handled::Yes

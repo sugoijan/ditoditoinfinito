@@ -1,19 +1,10 @@
 //! Alpha-mask long notes: one continuous fill over a band, protected head
 //! holes, exterior and overlapping shadows and a roll's pulse, drawn with
-//! the stencil from named layers ([`HoldLayers`]): a skin's sprite sheets
-//! under the `HoldStencilMaterial`/`RollStencilMaterial` metrics (frames by
-//! index), or a `Def.LongNote`'s components (parts by role,
-//! `docs/plans/noteskin-scene.md`).
+//! the stencil from named layers ([`HoldLayers`]): a `Def.LongNote`'s
+//! components (parts by role, `docs/plans/noteskin-scene.md`).
 use super::*;
-use crate::material::{MaterialParams, MaterialQuad};
+use crate::material::MaterialQuad;
 use ddi_noteskin::component::{Anchor, LongNote};
-use ddi_noteskin::metrics::HoldMaterial;
-
-pub(super) fn head_phase(element: &mut Element, percent: f32) {
-    if let Element::Actor(actor) = element {
-        set_note_animation(actor, percent, true);
-    }
-}
 
 /// One image of a long note's layers: the skin's texture, its frame's
 /// rectangle, its size in units and its middle's place across the note.
@@ -25,6 +16,7 @@ pub(super) struct Layer {
     across: f32,
 }
 
+#[cfg(test)]
 fn layer(element: &Element, state: usize) -> Option<Layer> {
     let Element::Actor(actor) = element else {
         return None;
@@ -52,8 +44,6 @@ const ROLES: [&str; 5] = ["band", "envelope", "shadow", "overlap-shadow", "pulse
 /// What paints a long note's band.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Fill {
-    /// The metrics' wave (`HoldMaterial*`).
-    Wave { material: HoldMaterial, slot: u16 },
     /// A skin's material: its quad (all but its place), and where its
     /// coordinates are 0 along the note.
     Skin {
@@ -86,14 +76,16 @@ pub(super) struct HoldLayers {
 }
 
 impl HoldLayers {
-    /// The metrics' layers: the body's and bottom cap's frames 0 to 2 (3
-    /// and 4 for a moving roll), the top cap's two (its Y the join); `None`
-    /// when one is missing.
+    /// Layers from sprite sheets, frames by index (tests of the stencil
+    /// drawing): the body's and bottom cap's frames 0 to 2 (3 and 4 for a
+    /// moving roll), the top cap's two (its Y the join); `None` when one
+    /// is missing.
+    #[cfg(test)]
     pub(super) fn of_sprites(
         parts: &HoldParts,
         state: usize,
-        material: HoldMaterial,
-        slot: u16,
+        pitch: f32,
+        fill: Fill,
         pulse: Option<f32>,
     ) -> Option<HoldLayers> {
         let count = if pulse.is_some() { 5 } else { 3 };
@@ -122,9 +114,9 @@ impl HoldLayers {
             protect: Some(protect),
             outside: Some(outside),
             head_span: (-head_h / 2.0, head_h / 2.0),
-            pitch: material.pitch,
+            pitch,
             join,
-            fill: Fill::Wave { material, slot },
+            fill,
             pulse,
         })
     }
@@ -200,29 +192,6 @@ impl HoldLayers {
     }
 }
 
-/// The wave's parameters ([`crate::material::HOLD_WAVE`],
-/// `materials/hold_wave.wgsl`).
-pub(super) fn wave_params(m: HoldMaterial) -> MaterialParams {
-    let (sin, cos) = m.angle.sin_cos();
-    let color = |i: usize| [m.colors[i][0], m.colors[i][1], m.colors[i][2], 0.0];
-    [
-        [sin, cos, m.period, m.wave[0]],
-        [m.wave[1], m.wave[2], 0.0, 0.0],
-        color(0),
-        color(1),
-        color(2),
-        [0.0; 4],
-        [0.0; 4],
-        [0.0; 4],
-    ]
-}
-
-/// The wave's phase at song `time`: its own, moved by its speed (the
-/// motion's fraction taken in double precision, so a long song keeps it).
-pub(super) fn wave_phase(m: HoldMaterial, time: f64) -> f32 {
-    (m.phase + (time * f64::from(m.speed)).rem_euclid(1.0) as f32).rem_euclid(1.0)
-}
-
 /// A quad of a long note painted by `base`'s material: the note's own
 /// coordinates `lo..hi` along it (units from the head) and `left..right`
 /// across, at `x` and `head`, `k` screen pixels a unit, in direction
@@ -263,44 +232,6 @@ pub(super) fn fill_quad(
             UNTEXTURED,
         )
     }
-}
-
-/// The wave's material quad (all but its place): `slot`'s parameters at
-/// `phase`, its colors scaled by `scale`.
-fn wave_base(slot: u16, phase: f32, scale: f32) -> MaterialQuad {
-    MaterialQuad {
-        material: crate::material::HOLD_WAVE,
-        slot,
-        axes: [0.0; 4],
-        origin: [0.0; 2],
-        phase,
-        seed: 0.0,
-        value: [scale, 0.0, 0.0, 0.0],
-        images: [UNTEXTURED; 2],
-    }
-}
-
-/// A quad of a long note painted with the wave, 96 units across (a lift's
-/// rows and band).
-#[allow(clippy::too_many_arguments)]
-pub(super) fn wave_quad(
-    slot: u16,
-    phase: f32,
-    scale: f32,
-    place: [f32; 4],
-    span: (f32, f32),
-    mask: Mask,
-    colors: [[f32; 4]; 4],
-) -> TexQuad {
-    fill_quad(
-        wave_base(slot, phase, scale),
-        place,
-        span,
-        (-48.0, 48.0),
-        [0.0; 2],
-        mask,
-        colors,
-    )
 }
 
 impl NoteskinPlay {
@@ -486,21 +417,6 @@ impl NoteskinPlay {
         let place = [x, head, k, dir];
         let across = layers.band_across();
         match layers.fill {
-            Fill::Wave { material, slot } => {
-                let base = wave_base(slot, wave_phase(material, frame.song_time), color_scale);
-                let white = to_target([1.0; 4], self.srgb);
-                for &span in &spans {
-                    out.push(fill_quad(
-                        base,
-                        place,
-                        span,
-                        across,
-                        [0.0; 2],
-                        Mask::Inside,
-                        [white; 4],
-                    ));
-                }
-            }
             Fill::Skin {
                 quad,
                 anchor,
@@ -566,30 +482,5 @@ impl NoteskinPlay {
                 .map(mirror),
         );
         bound_clears(&mut out[first..]);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn the_wave_loops_with_its_speed() {
-        let m = HoldMaterial {
-            pitch: 12.5,
-            period: 121.0,
-            angle: 60.0_f32.to_radians(),
-            phase: 0.7,
-            speed: 1.0,
-            wave: [31.0, 209.0, 206.0],
-            colors: [[0.2; 3], [0.5; 3], [0.8; 3]],
-        };
-        for t in [0.37, 125.0, 3600.25] {
-            let a = wave_phase(m, t);
-            let b = wave_phase(m, t + 1.0);
-            assert!((a - b).abs() < 1e-5 && (0.0..1.0).contains(&a), "{a} {b}");
-        }
-        let p = wave_params(m);
-        assert_eq!(p[0][2], 121.0);
-        assert_eq!(p[4][..3], [0.8; 3]);
     }
 }

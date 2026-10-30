@@ -32,6 +32,8 @@ pub(crate) struct App {
     /// Bumped when the play screen asks to start over: part of its key.
     play_mounts: u32,
     _hash: Option<EventListener>,
+    /// Back, Forward and our own `go`s: the history's entry is another.
+    _pop: Option<EventListener>,
     _lost: crate::web::screen::Listener,
 }
 
@@ -49,8 +51,13 @@ pub(crate) fn start(root: Element) {
     let app = Rc::new_cyclic(|weak: &Weak<RefCell<App>>| {
         let hash = web_sys::window().map(|w| {
             let weak = weak.clone();
-            EventListener::new(&w, "hashchange", move |_| later(&weak, |a| a.show()))
+            EventListener::new(&w, "hashchange", move |_| {
+                crate::router::history_changed();
+                later(&weak, |a| a.show())
+            })
         });
+        let pop = web_sys::window()
+            .map(|w| EventListener::new(&w, "popstate", |_| crate::router::history_changed()));
         let lost = {
             let weak = weak.clone();
             // A screen on the device starts over on the new one.
@@ -64,6 +71,7 @@ pub(crate) fn start(root: Element) {
             key: String::new(),
             play_mounts: 0,
             _hash: hash,
+            _pop: pop,
             _lost: lost,
         })
     });

@@ -80,14 +80,8 @@ pub fn download_line() -> Option<String> {
     let d = download()?;
     Some(if d.songs > 0 && d.bytes == 0 {
         format!("reading the share… {} of {} songs", d.songs_done, d.songs)
-    } else if d.bytes > 0 {
-        format!(
-            "downloading the song… {:.1} of {:.1} MB",
-            d.bytes_done as f64 / 1e6,
-            d.bytes as f64 / 1e6
-        )
     } else {
-        "downloading the song…".to_string()
+        contract::download_line(d.bytes_done as f64, d.bytes as f64)
     })
 }
 
@@ -133,7 +127,7 @@ fn share_root(id: &str) -> Result<PathBuf, String> {
 /// says them.
 pub fn fetch(id: &str) -> Result<ShareDoc, String> {
     if !contract::valid_id(id) {
-        return Err("This link doesn't exist or has expired.".into());
+        return Err(contract::GONE.into());
     }
     let url = format!("{}/s/{id}", base());
     let mut resp = agent()
@@ -141,7 +135,7 @@ pub fn fetch(id: &str) -> Result<ShareDoc, String> {
         .call()
         .map_err(|e| http_err("reading the share", e))?;
     match resp.status().as_u16() {
-        404 | 410 => return Err("This link doesn't exist or has expired.".into()),
+        404 | 410 => return Err(contract::GONE.into()),
         200 => {}
         s => return Err(format!("reading the share: HTTP {s}")),
     }
@@ -362,7 +356,7 @@ pub fn upload(
     progress: &mut dyn FnMut(&ShareView),
 ) -> Result<String, String> {
     if token.trim().is_empty() {
-        return Err("Set the upload token under Options → Sharing first.".into());
+        return Err(contract::NO_TOKEN.into());
     }
     if ids.is_empty() {
         return Err("Nothing to share.".into());
@@ -430,7 +424,10 @@ pub fn upload(
         .map_err(|e| http_err("making the share", e))?;
     let status = resp.status().as_u16();
     if status != 201 {
-        return Err(refusal(status, resp.body_mut().read_to_string().ok()));
+        return Err(contract::refusal(
+            status,
+            resp.body_mut().read_to_string().ok().as_deref(),
+        ));
     }
     let created: serde_json::Value = serde_json::from_str(
         &resp
@@ -466,7 +463,7 @@ pub fn upload(
             if status != 200 {
                 return Err(format!(
                     "{stored}: {}",
-                    refusal(status, resp.body_mut().read_to_string().ok())
+                    contract::refusal(status, resp.body_mut().read_to_string().ok().as_deref())
                 ));
             }
             view.done_bytes += len as f64;
@@ -482,7 +479,10 @@ pub fn upload(
         .map_err(|e| http_err("finishing the share", e))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(refusal(status, resp.body_mut().read_to_string().ok()));
+        return Err(contract::refusal(
+            status,
+            resp.body_mut().read_to_string().ok().as_deref(),
+        ));
     }
     Ok(link_of(&id))
 }
@@ -502,24 +502,10 @@ fn source_of(files: &Files, named: &str) -> Option<Source> {
     }
 }
 
-fn refusal(status: u16, body: Option<String>) -> String {
-    match status {
-        401 | 403 => "the upload token was refused".into(),
-        413 => "too large to share (2 GB a share, 512 MB a file, 200 songs)".into(),
-        s => format!(
-            "HTTP {s}{}",
-            body.filter(|b| !b.is_empty() && b.len() < 200)
-                .map(|b| format!(": {b}"))
-                .unwrap_or_default()
-        ),
-    }
-}
-
 /// The shares the token may see (`GET <base>/s`), each with its link.
 pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
-    use ddi_ui::screens::data::{ShareRow, SharesState, SharesView};
     if token.trim().is_empty() {
-        return Err("Set the upload token under Options → Sharing first.".into());
+        return Err(contract::NO_TOKEN.into());
     }
     let mut resp = agent()
         .get(format!("{}/s", base()))
@@ -528,7 +514,10 @@ pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
         .map_err(|e| http_err("reading the shares", e))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(refusal(status, resp.body_mut().read_to_string().ok()));
+        return Err(contract::refusal(
+            status,
+            resp.body_mut().read_to_string().ok().as_deref(),
+        ));
     }
     let text = resp
         .body_mut()
@@ -538,19 +527,9 @@ pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
         .map_err(|e| format!("reading the shares: {e}"))?;
     let listing: contract::ShareListing =
         serde_json::from_str(&text).map_err(|e| format!("the shares: {e}"))?;
-    Ok(SharesView {
-        state: SharesState::Ready,
-        admin: listing.role == "admin",
-        shares: listing
-            .shares
-            .into_iter()
-            .map(|summary| ShareRow {
-                link: link_of(&summary.id),
-                summary,
-            })
-            .collect(),
-        error: String::new(),
-    })
+    Ok(ddi_ui::screens::data::SharesView::from_listing(
+        listing, link_of,
+    ))
 }
 
 /// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).
@@ -562,7 +541,10 @@ pub fn delete(token: &str, id: &str) -> Result<(), String> {
         .map_err(|e| http_err("deleting the share", e))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(refusal(status, resp.body_mut().read_to_string().ok()));
+        return Err(contract::refusal(
+            status,
+            resp.body_mut().read_to_string().ok().as_deref(),
+        ));
     }
     Ok(())
 }

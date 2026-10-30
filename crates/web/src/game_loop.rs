@@ -129,19 +129,16 @@ pub(crate) struct GameLoop {
 type ScriptTexts = std::rc::Rc<std::cell::RefCell<Vec<(String, crate::stage::Bitmap, [f32; 2])>>>;
 
 impl GameLoop {
-    /// `skins`: the player draws layouts with a skin (not the
-    /// built-in arrows, chosen to be lighter).
     pub(crate) fn new(
         gfx: Rc<Gfx>,
         canvas: HtmlCanvasElement,
         on_event: Callback<SessionEvent>,
-        skins: bool,
     ) -> GameLoop {
         let renderer = Renderer::new(
             &gfx.device,
             &gfx.queue,
             gfx.view_format(),
-            gfx.skin_blending(skins),
+            gfx.skin_blending(),
             &[FONT],
         );
         let rect = canvas.get_bounding_client_rect();

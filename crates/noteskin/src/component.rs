@@ -522,7 +522,7 @@ pub const MAX_PART_DOCUMENTS: usize = 8 * svg::MAX_SVG;
 
 /// An SVG file's components and every part's and frame's image path with
 /// its document ([`part_documents`]).
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct PartDocuments {
     pub components: Vec<SvgComponent>,
     pub documents: Vec<(String, String)>,

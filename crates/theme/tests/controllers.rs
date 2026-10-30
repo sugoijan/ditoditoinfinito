@@ -308,7 +308,6 @@ fn browser_picker_refusal_keeps_the_dialog_and_controller_back_works() {
 
 #[test]
 fn hints_follow_physical_input_and_keep_keyboard_art_separate() {
-    use ddi_ui::controller_hints as hints;
     let (mut h, env) = setup(SIZES[0]);
     h.push(sample::select_screen(&env, None));
     h.run(0.4);
@@ -329,7 +328,7 @@ fn hints_follow_physical_input_and_keep_keyboard_art_separate() {
         .any(|s| format!("{s:?}").contains("controllers.png"));
     assert!(atlas);
     h.key("ArrowUp", "ArrowUp");
-    assert!(!hints::active());
+    assert!(!h.ui.hints().active());
     assert!(env.state.borrow().hints.iter().any(|s| s.contains("ENTER")));
     assert!(h.ui.problems().is_empty(), "{:?}", h.ui.problems());
 }
@@ -337,17 +336,20 @@ fn hints_follow_physical_input_and_keep_keyboard_art_separate() {
 #[test]
 fn prompt_renders_primary_triggers_and_changes_on_override_without_rebinding() {
     use ddi_actor::Kind;
-    use ddi_ui::controller_hints::{self as hints, Style};
+    use ddi_ui::controller_hints::{Source, Style};
     let (mut h, env) = setup(SIZES[0]);
     let settings = ddi_ui::state::settings::Settings::default();
-    hints::devices(vec![ddi_engine::ConnectedPad {
+    h.ui.set_controls(settings.controls.clone(), Default::default());
+    h.pads(vec![ddi_engine::ConnectedPad {
         id: "Xbox Controller".into(),
         index: 0,
         standard: true,
         vendor_product: None,
     }]);
-    hints::configure(&settings.controls, &Default::default());
-    hints::pad_press(0);
+    h.ui.set_source(Source::Pad {
+        slot: 0,
+        id: "Xbox Controller".into(),
+    });
     h.push(sample::prompt_screen(
         &env,
         screens::prompt::PromptStep::Ready,
@@ -368,13 +370,13 @@ fn prompt_renders_primary_triggers_and_changes_on_override_without_rebinding() {
         }
         assert_eq!(sprite(holder).unwrap().states.len(), 2);
     }
-    hints::configure(
-        &settings.controls,
-        &std::collections::BTreeMap::from([("Xbox Controller".into(), Style::PlayStation)]),
+    h.ui.set_controls(
+        settings.controls.clone(),
+        std::collections::BTreeMap::from([("Xbox Controller".into(), Style::PlayStation)]),
     );
     h.frame(0.0);
     assert_eq!(bindings(), ["L1", "L2", "R2", "R1"]);
-    hints::keyboard();
+    h.ui.set_source(Source::Keyboard);
     h.frame(0.0);
     assert_eq!(
         bindings(),
@@ -390,12 +392,11 @@ fn disconnect_releases_song_list_holds_even_without_a_mapped_release() {
     h.run(0.4);
     h.controller(&Default::default(), "Xbox", true, "button:13", true);
     h.run(0.08);
-    ddi_ui::controller_hints::devices(vec![]);
-    h.frame(0.0);
+    h.pads(vec![]);
     // The already pressed single tap may finish its delayed browse action.
     h.run(0.3);
     let song = env.state.borrow().song.clone();
     h.run(1.5);
     assert_eq!(env.state.borrow().song, song);
-    assert!(!ddi_ui::controller_hints::active());
+    assert!(!h.ui.hints().active());
 }

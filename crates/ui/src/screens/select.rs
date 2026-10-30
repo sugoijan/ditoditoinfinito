@@ -43,10 +43,7 @@ use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 use super::data::{
     ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, closest, difficulty_name,
 };
-use super::{
-    Backdrop, Env, FooterHint, Pulse, extent, footer_hints, frame, ground, header, left, light,
-    right,
-};
+use super::{Backdrop, Env, FooterHint, extent, footer_hints, frame, ground, header, left, right};
 use crate::hit;
 use crate::look::{self, Spec, call, quad};
 use crate::message::Message;
@@ -110,6 +107,10 @@ pub enum SelectCall {
     },
     /// Where the list is, kept for the session.
     Place(SelectPlace),
+    /// Song select shows (`true`: at first, and uncovered, after its
+    /// `Selected`) or not (another screen over it, or it leaves): its
+    /// preview plays or stops ([`Screen::shown`]; dialogs cover nothing).
+    Shown(bool),
     /// A link: `calibrate`, `credits`, `source` (Options is [`OpenFn`]).
     Open(String),
     /// Import a folder (the browser's picker, kept to read again where it
@@ -584,8 +585,6 @@ pub struct SelectScreen {
     volume: Volume,
     suggester: RefCell<Option<Suggester>>,
     backdrop: Backdrop,
-    pulse: Pulse,
-    lit: Option<String>,
     layout: Layout,
     /// The footer's hints, whether a search was in them, its note and
     /// whether Manage was offered.
@@ -636,6 +635,8 @@ pub struct SelectScreen {
     /// What the shell was last told.
     told_place: Option<SelectPlace>,
     told_song: Option<Option<String>>,
+    /// The shell was told it shows ([`SelectCall::Shown`]).
+    told_shown: bool,
     /// The input being handled came from a controller.
     from_pad: bool,
     navigation: Navigation,
@@ -713,8 +714,6 @@ impl SelectScreen {
             volume: Volume::new("Volume", crate::state::settings::Settings::load().volume),
             suggester: RefCell::new(None),
             backdrop: Backdrop::new(),
-            pulse: Pulse::default(),
-            lit: None,
             layout,
             hints: None,
             gesture_note: 0.0,
@@ -743,6 +742,7 @@ impl SelectScreen {
             notices_dirty: true,
             told_place: None,
             told_song: None,
+            told_shown: false,
             from_pad: false,
             navigation: Navigation::default(),
             wheel_motion: None,
@@ -1425,7 +1425,6 @@ impl SelectScreen {
         // The same song and chart, drawn again.
         self.left_dirty = true;
         self.publish_dirty = true;
-        self.lit = None;
         self.dimmed = false;
         self.backdrop.restore(&mut root, cx, &env);
         root
@@ -1485,7 +1484,6 @@ impl SelectScreen {
         if item != self.shown {
             self.shown = item;
             self.pick = None;
-            self.pulse.restart();
             self.left_dirty = true;
         }
     }
@@ -1975,8 +1973,8 @@ impl SelectScreen {
         }
         self.hints = Some(key);
         if let Some(old) = hit::find_mut(root, "TabKey") {
-            let mut hint = if crate::controller_hints::active() {
-                let caps = crate::controller_hints::actions(&[HintAction::Select]);
+            let mut hint = if cx.hints().active() {
+                let caps = cx.hints().actions(&[HintAction::Select]);
                 if caps.is_empty() {
                     frame("TabKey", Vec::new())
                 } else {
@@ -2315,6 +2313,10 @@ impl SelectScreen {
             self.told_song = Some(song.clone());
             let from_pad = self.from_pad;
             self.call(SelectCall::Selected { song, from_pad }, cx);
+        }
+        if !self.told_shown {
+            self.told_shown = true;
+            self.call(SelectCall::Shown(true), cx);
         }
         let (charts, pick) = self.charts();
         if self.resume.is_some() || self.resume_pack.is_some() {
@@ -2950,8 +2952,6 @@ impl SelectScreen {
             .iter()
             .map(|(t, _)| t.clone())
             .collect();
-        st.pulse = self.pulse.value;
-        st.pulsing = self.pulse.on;
         st.backdrop = self.backdrop.source().map(str::to_string);
         st.selected_row = self.list.selected().and_then(|i| self.list.item_actor(i));
         st.wheel = self.layout.wheel;
@@ -3211,19 +3211,38 @@ impl Screen for SelectScreen {
         self.navigation.holding()
     }
 
+    fn moving(&self) -> bool {
+        // The wheel gliding, flicked or opening its room by hand.
+        self.navigation.animating()
+            || self.wheel_motion.is_some()
+            || self.list.animating()
+            || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
+    }
+
     fn animating(&self) -> bool {
         self.live.animating(&self.env)
             || self.navigation.animating()
             || self.wheel_motion.is_some()
             || self.list.animating()
-            || self.pulse.on
             || self.volume.animating()
             || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
     }
 
+    fn shown(&mut self, shown: bool, _root: &mut Actor, cx: &mut Cx) {
+        if shown {
+            // The song shown now told again (Options' sample may have
+            // changed the player's), then that it shows.
+            self.tell(cx);
+        } else {
+            self.cancel_navigation();
+            self.told_song = None;
+            self.told_shown = false;
+            self.call(SelectCall::Shown(false), cx);
+        }
+    }
+
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
-            self.cancel_navigation();
             return;
         }
         self.fill_footer(root, cx);
@@ -3307,29 +3326,6 @@ impl Screen for SelectScreen {
                 call(t, "y", &[y + 12.0 + thumb / 2.0 + at * (track - thumb)]);
             }
         }
-        // The beat pulse on the selected row and chart.
-        let song = match self.shown {
-            Some(Item::Song(s)) => self.data.songs.get(s),
-            _ => None,
-        };
-        let (id, bpm) = song.map_or(("", 0.0), |s| (s.id.as_str(), s.bpm));
-        let v = self.pulse.update(dt, &self.env, id, bpm);
-        let row = self.list.selected().and_then(|i| self.list.item_actor(i));
-        light(root, row.as_deref(), v, &mut self.lit);
-        let (_, pick) = self.charts();
-        let (first, n) = self.ladder;
-        if let Some(p) = pick.filter(|&p| p >= first && p < first + n) {
-            let name = if self.layout.compact {
-                format!("Chart{}", p - first)
-            } else {
-                format!("Ladder.Row{}", p - first)
-            };
-            if let Some(a) = hit::find_mut(root, &name)
-                && let Some(pp) = part(a, "Pulse")
-            {
-                call(pp, "diffusealpha", &[v]);
-            }
-        }
         if let Some(clear) = hit::find_mut(root, "ClearSearch") {
             clear.visible = self.typing || !self.search.text.is_empty();
         }
@@ -3355,10 +3351,6 @@ impl Screen for SelectScreen {
         }
         if std::mem::take(&mut self.publish_dirty) || event.is_some() || self.list.animating() {
             self.publish();
-        } else {
-            let mut st = self.env.state.borrow_mut();
-            st.pulse = self.pulse.value;
-            st.pulsing = self.pulse.on;
         }
     }
 

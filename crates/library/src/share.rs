@@ -126,6 +126,43 @@ pub struct ShareListing {
     pub shares: Vec<ShareSummary>,
 }
 
+/// What both shells say of a share that is gone (a 404 or a 410).
+pub const GONE: &str = "This link doesn't exist or has expired.";
+
+/// What both shells say of an upload or a listing without a token.
+pub const NO_TOKEN: &str = "Set the upload token under Options → Sharing first.";
+
+/// The server's refusal of an upload, a listing or a deletion (`status`
+/// not a success), with its `body` when it is short.
+pub fn refusal(status: u16, body: Option<&str>) -> String {
+    match status {
+        401 | 403 => "the upload token was refused".into(),
+        413 => "too large to share (2 GB a share, 512 MB a file, 200 songs)".into(),
+        s => format!(
+            "HTTP {s}{}",
+            body.filter(|b| !b.is_empty() && b.len() < 200)
+                .map(|b| format!(": {b}"))
+                .unwrap_or_default()
+        ),
+    }
+}
+
+/// The start prompt's quiet line on a shared song coming down, `done` of
+/// `total` bytes (0: not known yet).
+pub fn download_line(done: f64, total: f64) -> String {
+    if total > 0.0 {
+        format!(
+            "downloading the song… {:.1} of {:.1} MB",
+            done / 1e6,
+            total / 1e6
+        )
+    } else if done > 0.0 {
+        format!("downloading the song… {:.1} MB", done / 1e6)
+    } else {
+        "downloading the song…".to_string()
+    }
+}
+
 /// A size in a few words ("12 MB").
 pub fn size_text(bytes: f64) -> String {
     if bytes >= 1e9 {
@@ -254,7 +291,7 @@ pub fn resolve_url(base: &str, url: &str) -> String {
 /// The URL of file `stored` of song `n` of share `id` at `base`, as the
 /// server has it (what a listing leaves out is asked for there).
 pub fn file_url(base: &str, id: &str, n: usize, stored: &str) -> String {
-    let encoded: Vec<String> = stored.split('/').map(encode_part).collect();
+    let encoded: Vec<String> = stored.split('/').map(percent_encode).collect();
     format!(
         "{}/s/{id}/f/{n}/{}",
         base.trim_end_matches('/'),
@@ -262,7 +299,8 @@ pub fn file_url(base: &str, id: &str, n: usize, stored: &str) -> String {
     )
 }
 
-fn encode_part(part: &str) -> String {
+/// `part` percent-encoded but for RFC 3986's unreserved characters.
+pub fn percent_encode(part: &str) -> String {
     let mut out = String::new();
     for b in part.bytes() {
         match b {

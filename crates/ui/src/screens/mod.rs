@@ -21,7 +21,7 @@
 //! - `SongList.Row` (`List.Row`): `Plate`, `Banner`, `Title`, `Subtitle`
 //!   (the artist), `Right` (kept at the row's right edge as the wheel
 //!   moves rows right) holding `Cell0`…`Cell4` with `Meter0`…`Meter4`
-//!   (Beginner to Challenge) and `NoCharts`; `Pulse`. Commands
+//!   (Beginner to Challenge) and `NoCharts`. Commands
 //!   `Select`, `Deselect`, `Available`, `Unavailable`; `Full` and
 //!   `Empty` on a cell. `SongList.Header` (`List.Header`): `Plate`,
 //!   `Chevron`, `Title`, `Count`; `Select`, `Deselect`.
@@ -31,7 +31,7 @@
 //! - `StyleTab` (centered; `Button`): `Label`, `Count`, `Extent`;
 //!   commands `Selected`, `Available`, `Unavailable`.
 //! - `ChartLadder.Row` (`List.Row`): `Plate`, `Bar`, `Label`, `Notes`,
-//!   `Meter`, `Pulse`; `Select`, `Deselect` and the difficulty's name
+//!   `Meter`; `Select`, `Deselect` and the difficulty's name
 //!   (`Hard`). `ChartLadder.Empty` (`Panel`): `Title`, `Hint`.
 //!   `ChartButton` (centered; `Button`): `Meter`, `Assist`; the same
 //!   commands, and `Assisted`, `Converted` or `Original` (a generated
@@ -44,18 +44,17 @@
 //!   name as a command (`Judgement.W1`). `Results.Score` (`Panel`):
 //!   `Grade`, `Score`, `Ex`. `Panel`: `Plate`, `Title`, `Note`.
 //! - `Options.Section` (`List.Header`): `Plate`, `Title`, `Mark`;
-//!   `Select`, `Deselect`. `Options.Row` (`List.Row`): `Plate`, `Label`,
-//!   `Pulse`; `Select`, `Deselect` (the focused option).
+//!   `Select`, `Deselect`. `Options.Row` (`List.Row`): `Plate`, `Label`;
+//!   `Select`, `Deselect` (the focused option).
 //!   `Options.Description` (`Panel`): `Title`, `Note`. `Options.Preview`
 //!   (`Panel`): `Plate`, `Title`.
 //!
 //! Colors a screen asks for itself: `Ground`, `Text`, `Muted`,
 //! `Accent`, `Difficulty.<name>`, `Judgement.<W1…Miss>`, `Graph.*`.
 //!
-//! Motion: selections glide, the beat pulse lights the selection once a
-//! beat of the previewed song ([`Pulse`]), screens fade and slide in;
-//! with reduced motion ([`Env::reduced_motion`]) the pulse and the
-//! slides stop and the wheel jumps.
+//! Motion: selections glide, screens fade and slide in; with reduced
+//! motion ([`Env::reduced_motion`]) the slides stop, the art holds still
+//! and the wheel jumps.
 
 pub mod calibration;
 pub mod credits;
@@ -130,17 +129,6 @@ pub fn design_for(look: &dyn Look, css: [f32; 2]) -> [f32; 2] {
     }
 }
 
-/// Where the beat is: given the song's id, seconds since it was
-/// selected and its display BPM, the beat now (fractions count), or
-/// `None` while nothing plays. The developer routes count from the BPM
-/// ([`bpm_beat`]); step 6 reads the preview's audio time.
-pub type BeatFn = Rc<dyn Fn(&str, f64, f32) -> Option<f64>>;
-
-/// Beats from the display BPM alone.
-pub fn bpm_beat() -> BeatFn {
-    Rc::new(|_, t, bpm| (bpm > 0.0).then(|| t * f64::from(bpm) / 60.0))
-}
-
 /// What the screens did, shared with the shell (its debug view, tests).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ThemeState {
@@ -177,9 +165,6 @@ pub struct ThemeState {
     pub matches: usize,
     /// The footer's hints ("ENTER Play").
     pub hints: Vec<String>,
-    /// The pulse now (0 at rest), and whether it runs.
-    pub pulse: f32,
-    pub pulsing: bool,
     /// The backdrop's image.
     pub backdrop: Option<String>,
     /// Results: the panel set; the song offset.
@@ -247,7 +232,6 @@ pub struct Env {
     /// preference; the shell keeps it current).
     pub reduced_motion: Rc<Cell<bool>>,
     pub cursor: Rc<Cell<(crate::state::settings::CursorStyle, f32)>>,
-    pub beat: BeatFn,
     pub state: SharedTheme,
 }
 
@@ -261,7 +245,6 @@ impl Env {
                 crate::state::settings::CursorStyle::default(),
                 28.0,
             ))),
-            beat: bpm_beat(),
             state: SharedTheme::default(),
         }
     }
@@ -581,42 +564,41 @@ pub fn footer_hints(
     let mut children = vec![plate];
     let mut x = margin;
     let mut texts = Vec::new();
-    let resolved: Vec<(Vec<crate::keycaps::Keycap>, &str, &str)> =
-        if crate::controller_hints::active() {
-            controller
-                .iter()
-                .filter_map(|(actions, label)| {
-                    let caps = if *actions
-                        == [ddi_engine::MenuInput::Confirm, ddi_engine::MenuInput::Start]
-                    {
-                        crate::controller_hints::activate()
+    let active = cx.hints().active();
+    let resolved: Vec<(Vec<crate::keycaps::Keycap>, &str, &str)> = if active {
+        controller
+            .iter()
+            .filter_map(|(actions, label)| {
+                let caps =
+                    if *actions == [ddi_engine::MenuInput::Confirm, ddi_engine::MenuInput::Start] {
+                        cx.hints().activate()
                     } else {
-                        crate::controller_hints::actions(actions)
+                        cx.hints().actions(actions)
                     };
-                    (!caps.is_empty()).then_some((caps, "", *label))
-                })
-                .collect()
-        } else {
-            hints
-                .iter()
-                .map(|h| {
-                    (
-                        h.keys
-                            .iter()
-                            .map(|k| crate::keycaps::Keycap::from_hint(k))
-                            .collect(),
-                        h.prefix,
-                        h.label,
-                    )
-                })
-                .collect()
-        };
+                (!caps.is_empty()).then_some((caps, "", *label))
+            })
+            .collect()
+    } else {
+        hints
+            .iter()
+            .map(|h| {
+                (
+                    h.keys
+                        .iter()
+                        .map(|k| crate::keycaps::Keycap::from_hint(k))
+                        .collect(),
+                    h.prefix,
+                    h.label,
+                )
+            })
+            .collect()
+    };
     for (i, (caps, prefix, label)) in resolved.iter().enumerate() {
         let (mut a, w) = key_hint_prefixed(env, &format!("Hint{i}"), caps, prefix, label, cx);
         call(&mut a, "xy", &[x + w / 2.0, h / 2.0]);
         x += w + hint_gap;
         children.push(a);
-        let printed = if crate::controller_hints::active() {
+        let printed = if active {
             caps.iter()
                 .map(crate::keycaps::Keycap::label)
                 .collect::<Vec<_>>()
@@ -781,63 +763,6 @@ impl Backdrop {
 impl Default for Backdrop {
     fn default() -> Backdrop {
         Backdrop::new()
-    }
-}
-
-/// The beat pulse: how lit the selection is, from 1 on the beat down to
-/// 0, settling over `Pulse.Decay` seconds, times `Pulse.Amount`.
-#[derive(Clone, Debug, Default)]
-pub struct Pulse {
-    /// Seconds since the song was selected.
-    pub since: f64,
-    pub value: f32,
-    /// Whether it runs (a song with a tempo, motion not reduced).
-    pub on: bool,
-}
-
-impl Pulse {
-    /// A new song: its beat counts from now.
-    pub fn restart(&mut self) {
-        self.since = 0.0;
-    }
-
-    /// `dt` later, for song `id` at `bpm`.
-    pub fn update(&mut self, dt: f32, env: &Env, id: &str, bpm: f32) -> f32 {
-        self.since += f64::from(dt);
-        let beat = if env.reduced() {
-            None
-        } else {
-            (env.beat)(id, self.since, bpm)
-        };
-        self.on = beat.is_some();
-        self.value = match beat {
-            Some(b) if bpm > 0.0 => {
-                let after = (b.rem_euclid(1.0) * 60.0 / f64::from(bpm)) as f32;
-                let decay = env.metric("Pulse.Decay", 0.3).max(0.01);
-                env.metric("Pulse.Amount", 0.35) * (-after / decay * 3.0).exp()
-            }
-            _ => 0.0,
-        };
-        self.value
-    }
-}
-
-/// Shows the pulse on the `Pulse` part of the actor named `owner` (and
-/// takes it off the one lit before).
-pub fn light(root: &mut Actor, owner: Option<&str>, value: f32, last: &mut Option<String>) {
-    if last.as_deref() != owner
-        && let Some(old) = last.take()
-        && let Some(a) = hit::find_mut(root, &old)
-        && let Some(p) = crate::widgets::part(a, "Pulse")
-    {
-        call(p, "diffusealpha", &[0.0]);
-    }
-    if let Some(name) = owner
-        && let Some(a) = hit::find_mut(root, name)
-        && let Some(p) = crate::widgets::part(a, "Pulse")
-    {
-        call(p, "diffusealpha", &[value]);
-        *last = Some(name.to_string());
     }
 }
 

@@ -460,7 +460,7 @@ async fn take_device(
         &gfx.device,
         &gfx.queue,
         gfx.view_format(),
-        gfx.skin_blending(true),
+        gfx.skin_blending(),
         &[crate::game_loop::FONT],
     );
     // A device made again comes with a new canvas, in the old one's place.

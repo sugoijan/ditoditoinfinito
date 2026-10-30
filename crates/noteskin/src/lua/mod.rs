@@ -577,6 +577,29 @@ impl LuaSkin {
     /// slices of [`LOAD_SLICE`] fuel with the host's turn between them
     /// when `pause` is given. Limits, fuel and the deadline end the skin's
     /// Lua; an error is returned as it is.
+    /// The first of a chunk's `results` converted, when it is a table; a
+    /// host limit met on the way ends the skin's Lua like the VM's own.
+    fn convert_first(
+        &mut self,
+        results: &[ddi_lua::lunita::StashedValue],
+        textures: &mut Textures,
+        images: &dyn Images,
+    ) -> Result<Option<convert::Converted>, Failure> {
+        let host = self.host.clone();
+        let registries = &self.registries;
+        let converted = self.vm.lua().enter(|ctx| {
+            let Some(Value::Table(t)) = results.first().map(|v| ctx.fetch(v)) else {
+                return Ok(None);
+            };
+            let mut host = host.borrow_mut();
+            convert::element(ctx, &mut host, registries, textures, images, t).map(Some)
+        });
+        if let Err(f) = &converted {
+            self.failed = Some(f.clone());
+        }
+        converted
+    }
+
     async fn run<A>(
         &mut self,
         f: &StashedFunction,
@@ -711,23 +734,7 @@ impl LuaSkin {
                 Some(Value::Boolean(true))
             )
         });
-        let host = self.host.clone();
-        let registries = &self.registries;
-        let converted = self.vm.lua().enter(|ctx| {
-            let Some(Value::Table(t)) = results.first().map(|v| ctx.fetch(v)) else {
-                return Ok(None);
-            };
-            let mut host = host.borrow_mut();
-            convert::element(ctx, &mut host, registries, textures, images, t).map(Some)
-        });
-        let converted = match converted {
-            Err(f) => {
-                // A host limit ends the skin's Lua like the VM's own.
-                self.failed = Some(f.clone());
-                return Err(f);
-            }
-            Ok(c) => c,
-        };
+        let converted = self.convert_first(&results, textures, images)?;
         let Some(converted) = converted else {
             return Ok((
                 built_in(format!("{element}: Load did not return a table")),
@@ -902,22 +909,7 @@ impl LuaSkin {
             Err(Failure::Error(m)) if self.failed.is_none() => return Ok(blank(m)),
             r => r?,
         };
-        let host = self.host.clone();
-        let registries = &self.registries;
-        let converted = self.vm.lua().enter(|ctx| {
-            let Some(Value::Table(t)) = results.first().map(|v| ctx.fetch(v)) else {
-                return Ok(None);
-            };
-            let mut host = host.borrow_mut();
-            convert::element(ctx, &mut host, registries, textures, images, t).map(Some)
-        });
-        let converted = match converted {
-            Err(f) => {
-                self.failed = Some(f.clone());
-                return Err(f);
-            }
-            Ok(c) => c,
-        };
+        let converted = self.convert_first(&results, textures, images)?;
         let Some(converted) = converted else {
             return Ok(blank(format!("{path}: did not return a table")));
         };

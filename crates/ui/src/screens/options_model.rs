@@ -22,8 +22,8 @@ use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUILT_IN, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, Graphics,
-    INFINITO, PadBindings, ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode,
+    BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, Graphics, INFINITO,
+    PadBindings, ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode,
     slider_to_volume, volume_to_slider,
 };
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
@@ -58,6 +58,9 @@ pub struct World {
     pub library_styles: Vec<Layout>,
     /// The controllers connected, one by one.
     pub connected: Vec<ConnectedPad>,
+    /// What controller hints are drawn from (the UI's, `options_shell`
+    /// keeps it fresh): the lane cover's help names the Start bound.
+    pub hints: std::rc::Rc<crate::controller_hints::Hints>,
     /// Whether the platform reads controllers at all.
     pub pads_supported: bool,
     pub sample: Sample,
@@ -327,7 +330,6 @@ impl OptionsModel {
     pub fn skin_name(&self, key: Option<&str>) -> String {
         match key {
             None | Some(INFINITO) => "Infinito".into(),
-            Some(BUILT_IN) => "Built-in arrows".into(),
             Some(k) => self
                 .world
                 .noteskins
@@ -487,8 +489,8 @@ impl OptionsModel {
                 pos(&COVER_MODES, cover.mode),
                 &format!(
                     "A panel over the lanes. Sudden+ covers the end the notes come from, Hidden+ the end they go to. {}",
-                    if crate::controller_hints::active() {
-                        crate::controller_hints::cover_instruction().unwrap_or_else(|| "Bind a controller Start control to move or toggle the cover during play.".into())
+                    if self.world.hints.active() {
+                        self.world.hints.cover_instruction().unwrap_or_else(|| "Bind a controller Start control to move or toggle the cover during play.".into())
                     } else {
                         "In play, Page Up and Page Down move it and Enter hides or shows it.".into()
                     }
@@ -849,7 +851,7 @@ impl OptionsModel {
             "Reduced motion",
             &["As the system", "On", "Off"],
             pos(&REDUCED_MOTION, s.reduced_motion),
-            "No beat pulse and no slides in the menus.",
+            "No slides in the menus, and their art held still.",
         );
         menus.heading = Some("MENUS".into());
         section(
@@ -992,7 +994,6 @@ impl OptionsModel {
         // Desktop reads skins in place (bundled ones, the song folders'):
         // none is stored to remove.
         if let Some(k) = s.noteskin.as_deref()
-            && k != BUILT_IN
             && !k.starts_with(BUNDLED)
             && !desktop
         {
@@ -1983,7 +1984,7 @@ impl OptionsModel {
                     .settings
                     .noteskin
                     .as_deref()
-                    .is_some_and(|k| k != BUILT_IN && !k.starts_with(BUNDLED))
+                    .is_some_and(|k| !k.starts_with(BUNDLED))
                 {
                     self.settings.noteskin = None;
                 }
@@ -2543,7 +2544,7 @@ mod tests {
                 Some(&ParamValue::Text(name.into()))
             );
             assert_eq!(
-                m.settings.play_skin("dance-single").as_deref(),
+                Some(m.settings.play_skin("dance-single").as_str()),
                 Some(INFINITO)
             );
         }
@@ -2564,7 +2565,7 @@ mod tests {
         assert!(m.settings.skin_params.is_empty());
         m.change("skin.ShockArrows", 1);
         assert_eq!(
-            m.settings.play_skin("dance-single").as_deref(),
+            Some(m.settings.play_skin("dance-single").as_str()),
             Some(INFINITO)
         );
         // Another skin's, as the shell read them.

@@ -2,9 +2,11 @@
 //! after each poll and each frame): on while a play runs (its keys read,
 //! the present mode the play's), off once it ends, in the frame that
 //! ends it; the keys pressed between plays never reach the next one's
-//! log. A play's surface is not the menus': the mouse over it hovers and
-//! presses nothing of song select under the prompt that closed, and the
-//! menus tell the pointer's look again once the play ends. On this
+//! log. A play's surface is not the menus': song select is covered by
+//! the play's stand-in screen while it runs, so the mouse over it hovers
+//! and presses nothing of it, and the menus tell the pointer's look again
+//! once the play ends (the system's pointer here, the theme's drawn one
+//! hiding it otherwise). On this
 //! machine's GPU offscreen, a fake clock, no sound device. Skipped where
 //! there is no GPU adapter (CI).
 
@@ -38,6 +40,9 @@ fn play_mode_ends_with_the_play() {
     let (device, queue) = gpu::device(&adapter).unwrap();
     let mut shell = ddi_desktop::shell::Shell::named_at("select", Some(0.0));
     let env = shell.theme.clone().expect("the theme").0;
+    // The system's pointer, so that the screens ask for its looks.
+    env.cursor
+        .set((ddi_ui::state::settings::CursorStyle::System, 28.0));
     shell.ui.handle(UiEvent::Resize {
         size: [SIZE[0] as f32, SIZE[1] as f32],
         ratio: 1.0,
@@ -109,14 +114,28 @@ fn play_mode_ends_with_the_play() {
         shell.sync_play_mode();
         assert!(shell.play.playing());
         assert!(shell.play_mode_on() && shell.input.keyboard.enabled);
-        // The play's surface is not the menus': the mouse over it hovers
-        // and presses nothing of song select under the prompt that
-        // closed. Tapped through, its list's first and last rows shown
-        // (one of them not the song selected) would move the selection
-        // or start a play, and the mouse's leave afterwards would put a
+        // The play's surface is not the menus': the play's stand-in covers
+        // song select, so the mouse over it hovers and presses nothing of
+        // it. Tapped through, its list's first and last rows shown (one
+        // of them not the song selected) would move the selection or
+        // start a play, and the mouse's leave afterwards would put a
         // pointer asked for over them back to the default.
-        // Song select, uncovered, is in and still by now.
         shell.ui.update(1.0);
+        let names: Vec<(String, &str)> = shell
+            .ui
+            .layers()
+            .into_iter()
+            .map(|l| (l.name, l.phase))
+            .collect();
+        assert_eq!(
+            names.last().map(|(n, _)| n.as_str()),
+            Some("play"),
+            "round {round}: {names:?}"
+        );
+        assert!(
+            names.iter().any(|(n, p)| n == "select" && *p == "covered"),
+            "round {round}: {names:?}"
+        );
         let rows: Vec<[f32; 4]> = (0..64)
             .filter_map(|k| shell.ui.visible_bounds(&format!("Wheel#{k}")))
             .filter(|b| b[3] > b[1])

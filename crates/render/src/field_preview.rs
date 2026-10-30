@@ -184,13 +184,6 @@ impl SkinWant {
     }
 }
 
-/// The texture drawn into.
-struct Target {
-    size: [u32; 2],
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
 /// The preview's state.
 pub struct FieldPreview {
     renderer: Renderer,
@@ -199,7 +192,7 @@ pub struct FieldPreview {
     demo: Option<Demo>,
     names: JudgeNames,
     noteskin: Option<NoteskinPlay>,
-    target: Option<Target>,
+    target: crate::gpu::PictureTarget,
     /// The plate behind the field.
     plate: usize,
     /// The demo's time, and the host's at the last frame.
@@ -207,9 +200,8 @@ pub struct FieldPreview {
     last: Option<f64>,
     /// The demo's time at its last step (`None`: started again).
     stepped: Option<f64>,
-    /// Frames drawn, and textures made (a new one wants registering).
+    /// Frames drawn.
     frames: u64,
-    generation: u64,
     receptors: Option<ReceptorPreview>,
     receptor_time: Option<f32>,
     receptor_active: Option<usize>,
@@ -242,13 +234,12 @@ impl FieldPreview {
             demo: None,
             names: presets::itg().names,
             noteskin: None,
-            target: None,
+            target: crate::gpu::PictureTarget::default(),
             plate,
             demo_time: 0.0,
             last: None,
             stepped: None,
             frames: 0,
-            generation: 0,
             receptors: None,
             receptor_time: None,
             receptor_active: None,
@@ -396,7 +387,7 @@ impl FieldPreview {
             device,
             queue,
             encoder,
-            &self.target.as_ref().unwrap().view,
+            self.target.view().expect("made above"),
             None,
             size[0],
             size[1],
@@ -427,13 +418,7 @@ impl FieldPreview {
         play: Option<NoteskinPlay>,
         upload: impl FnOnce(&mut Renderer, &mut NoteskinPlay),
     ) {
-        self.renderer.clear_noteskin_textures();
-        self.renderer.set_skins_drawn(device, queue, play.is_some());
-        self.noteskin = play.map(|mut p| {
-            p.set_srgb(self.renderer.skin_colors_linear());
-            upload(&mut self.renderer, &mut p);
-            p
-        });
+        self.noteskin = self.renderer.install_noteskin(device, queue, play, upload);
         self.receptor_time = None;
         self.receptor_active = None;
         // At the same time, the effects under way played on the new skin.
@@ -447,13 +432,13 @@ impl FieldPreview {
 
     /// The texture drawn into, once a frame was.
     pub fn texture(&self) -> Option<&wgpu::Texture> {
-        self.target.as_ref().map(|t| &t.texture)
+        self.target.texture()
     }
 
     /// Changes each time the texture is made again (a new size): the 2D
     /// pass's image is set again then.
     pub fn generation(&self) -> u64 {
-        self.generation
+        self.target.generation()
     }
 
     pub fn frames(&self) -> u64 {
@@ -476,7 +461,7 @@ impl FieldPreview {
     /// next frame makes them again, under a new
     /// [`FieldPreview::generation`]; the demo goes on from where it was.
     pub fn release_targets(&mut self) {
-        self.target = None;
+        self.target.release();
         self.renderer.release_targets();
         self.last = None;
     }
@@ -510,27 +495,8 @@ impl FieldPreview {
         let limit = device.limits().max_texture_dimension_2d;
         let scale = (limit as f32 / size[0].max(size[1]).max(1) as f32).min(1.0);
         let size = size.map(|v| ((v as f32 * scale).round() as u32).clamp(1, limit));
-        if self.target.as_ref().is_none_or(|t| t.size != size) {
-            let texture = crate::gpu::texture_2d(
-                device,
-                "ddi-field-preview",
-                size,
-                FORMAT,
-                1,
-                // Read back by tests.
-                wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC,
-                &[],
-            );
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.target = Some(Target {
-                size,
-                texture,
-                view,
-            });
-            self.generation += 1;
-        }
+        self.target
+            .ensure(device, "ddi-field-preview", size, FORMAT);
         if let Some(pose) = self.receptors.clone() {
             self.draw_receptors(device, queue, encoder, size, &pose);
             return;
@@ -567,14 +533,14 @@ impl FieldPreview {
             field_filter: o.field_filter,
             ..RenderOptions::default()
         };
-        let Some(target) = &self.target else {
+        let Some(view) = self.target.view() else {
             return;
         };
         self.renderer.render(
             device,
             queue,
             encoder,
-            &target.view,
+            view,
             None,
             size[0],
             size[1],

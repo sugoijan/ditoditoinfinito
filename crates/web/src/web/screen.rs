@@ -69,6 +69,23 @@ struct Screen {
     to_close: Vec<ImageBitmap>,
     /// `webglcontextlost` on the canvas.
     loss_hook: Option<EventListener>,
+    pointer: Pointer,
+}
+
+/// The mouse pointer over the canvas, which every holder shares: hidden by
+/// a key's or a pad's press until the mouse moves, else the shape the
+/// screen last asked for. Written to the canvas's `cursor`, never read
+/// back from it.
+struct Pointer {
+    hidden: bool,
+    shape: &'static str,
+}
+
+impl Pointer {
+    fn write(&self, canvas: &HtmlCanvasElement) {
+        let css = if self.hidden { "none" } else { self.shape };
+        let _ = canvas.style().set_property("cursor", css);
+    }
 }
 
 thread_local! {
@@ -141,6 +158,10 @@ pub(crate) fn boot() {
             failed: Vec::new(),
             to_close: Vec::new(),
             loss_hook: None,
+            pointer: Pointer {
+                hidden: false,
+                shape: "default",
+            },
         })
     });
     install_test_hook();
@@ -301,6 +322,7 @@ fn fresh_canvas(s: &mut Screen) {
     }
     if let Ok(fresh) = replace_canvas(&s.canvas) {
         s.canvas = fresh;
+        s.pointer.write(&s.canvas);
     }
     s.state = State::Starting;
 }
@@ -364,6 +386,34 @@ pub(crate) fn current() -> Option<Rc<Gfx>> {
 /// The canvas now (it is replaced when a device is made again).
 pub(crate) fn canvas() -> Option<HtmlCanvasElement> {
     with(|s| s.canvas.clone())
+}
+
+/// A key's or a pad's press: the pointer hides until the mouse moves.
+pub(crate) fn hide_until_move() {
+    with(|s| {
+        if !s.pointer.hidden {
+            s.pointer.hidden = true;
+            s.pointer.write(&s.canvas);
+        }
+    });
+}
+
+/// The mouse moved (or its wheel turned): a hidden pointer shows again.
+pub(crate) fn mouse_moved() {
+    with(|s| {
+        if s.pointer.hidden {
+            s.pointer.hidden = false;
+            s.pointer.write(&s.canvas);
+        }
+    });
+}
+
+/// The pointer's shape (a CSS `cursor`), shown once it is not hidden.
+pub(crate) fn set_shape(css: &'static str) {
+    with(|s| {
+        s.pointer.shape = css;
+        s.pointer.write(&s.canvas);
+    });
 }
 
 /// Devices lost so far: a route keyed by it starts over on a new one.
@@ -603,7 +653,7 @@ pub(crate) fn texture_decoded(id: TextureId, result: Result<ImageBitmap, String>
 }
 
 /// The screen's part of `window.__DDI_DEBUG`: `screen` (backend,
-/// generation, losses, surface mode), `textures` and `text` (the 2D
+/// generation, losses, surface mode, the pointer), `textures` and `text` (the 2D
 /// pass's caches); and `history` (`crate::history::debug_into`).
 pub(crate) fn debug_into(obj: &js_sys::Object) {
     // Every page's debug state carries the play history's.
@@ -623,6 +673,10 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
         set(&screen, "generation", (s.generation as f64).into());
         set(&screen, "losses", s.losses.into());
         set(&screen, "held", (s.owner != 0).into());
+        let pointer = js_sys::Object::new();
+        set(&pointer, "hidden", s.pointer.hidden.into());
+        set(&pointer, "shape", s.pointer.shape.into());
+        set(&screen, "pointer", pointer.into());
         set(obj, "screen", screen.into());
         if let Some((_, p)) = &s.painter {
             let stats = p.stats();

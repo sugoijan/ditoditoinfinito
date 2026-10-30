@@ -39,7 +39,7 @@ use ddi_ui::screens::editor::{
     EditorCall, EditorHost, EditorPlace, EditorScreen, RecordInput, SAVED,
 };
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
-use ddi_ui::screens::select::{FEED, SelectCall};
+use ddi_ui::screens::select::SelectCall;
 use ddi_ui::state::editor::audio::{Analysis, Builder};
 use ddi_ui::state::editor::autosave::Autosave;
 use ddi_ui::state::editor::{Editor, export};
@@ -273,8 +273,7 @@ impl EditorHost for Host {
                                 // The song list reads the pack again.
                                 self.songs
                                     .call(SelectCall::Reread(t.pack.clone()), None, cx);
-                                self.songs.feed.borrow_mut().data = Some(self.songs.data());
-                                cx.broadcast(Message::new(FEED));
+                                self.songs.refresh(cx);
                                 Message::new(SAVED)
                                     .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64)))
                             }
@@ -323,8 +322,7 @@ impl EditorHost for Host {
                 self.listen.borrow_mut().stop();
                 if let Some(dir) = self.fresh.borrow_mut().take() {
                     new_song::forget(&self.songs, &self.id, &dir);
-                    self.songs.feed.borrow_mut().data = Some(self.songs.data());
-                    cx.broadcast(Message::new(FEED));
+                    self.songs.refresh(cx);
                 }
             }
             EditorCall::Listen { from } | EditorCall::Record { from, .. } => {

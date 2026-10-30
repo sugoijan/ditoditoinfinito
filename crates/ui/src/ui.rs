@@ -28,10 +28,11 @@
 //! they leave; dialogs are modal (input and focus stay inside, a press
 //! outside is [`Input::Outside`]). Input goes down from the top through
 //! popups to the first dialog or screen. A screen pushed from a dialog
-//! goes above it. A layer coming in or leaving takes no input, as
-//! `ScreenWithMenuElements` ignores Start and Back while it transitions;
-//! a layer that drops out of the input's way (covered, leaving) has its
-//! pointers cancelled.
+//! goes above it. A layer takes input as soon as it starts coming in; one
+//! leaving (or covering, or covered) takes none, so a press while the
+//! last screen leaves is dropped rather than acting on a screen not seen
+//! yet; a layer that drops out of the input's way (covered, leaving) has
+//! its pointers cancelled.
 //!
 //! **Transitions** follow `ScreenWithMenuElements` (`TweenOnScreen`,
 //! `StartTransitioningScreen`, `Cancel`) and `Transition`
@@ -58,6 +59,7 @@ use ddi_actor::{
     Actor, Blend, Clocks, Depth, Drawn, Kind, Problems, Quad, UNTEXTURED, Value, View,
 };
 
+use crate::controller_hints::{self as hints, Hints};
 use crate::event::{
     KeyEvent, MenuEvent, PointerEvent, PointerKind, PointerPhase, TextEvent, UiEvent, WheelEvent,
     buttons,
@@ -71,6 +73,7 @@ use crate::screen::{Cx, Handled, Input, Op, Screen, TextChange};
 use crate::text_field::{KeyResult, TextField, TextMode};
 use crate::textures::TextureTable;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// The message screens hear when the design size changed
@@ -121,6 +124,12 @@ enum Phase {
 }
 
 impl Phase {
+    /// Taking input: active, or coming in (a press during an entrance is
+    /// the new screen's; one while the last screen leaves is dropped).
+    fn takes_input(&self) -> bool {
+        matches!(self, Phase::Active | Phase::Entering(_))
+    }
+
     /// Moving: a frame is needed.
     fn in_transition(&self) -> bool {
         matches!(
@@ -159,6 +168,9 @@ struct Layer {
     /// overlay is built again when it changes (a window resized, the
     /// chrome's banner come or gone), since dialogs lay out only there.
     built: [f32; 2],
+    /// A screen's: what [`Screen::shown`] last told it (covered or
+    /// leaving: not shown).
+    shown: bool,
 }
 
 /// A pointer held down: where its gesture goes.
@@ -194,11 +206,23 @@ pub struct LayerInfo {
     pub focused: Option<String>,
 }
 
+/// What a controller's held control produced when pressed
+/// ([`UiEvent::Pad`]), so its release (or its pad's going) releases that.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Held {
+    Menu(MenuAction),
+    Raw,
+    Unbound,
+}
+
 /// The UI: screens, input routing, focus, typing, transitions.
 pub struct Ui {
-    hint_revision: u64,
-    controller_devices_revision: u64,
-    controller_identities: Vec<(u32, String)>,
+    /// What controller hints are drawn from ([`Ui::hints`]).
+    hints: Rc<Hints>,
+    /// Controls held, by `(slot, control)`, and what each produced.
+    pad_held: HashMap<(u32, String), Held>,
+    /// Whether a pad's press counts as a user gesture ([`Ui::set_pad_gesture`]).
+    pad_gesture: bool,
     design: [f32; 2],
     viewport: Viewport,
     mode: TextMode,
@@ -213,6 +237,14 @@ pub struct Ui {
     textures: Rc<RefCell<TextureTable>>,
     pointers: Vec<Pointer>,
     hover: Option<(u64, Option<Target>)>,
+    /// Something changed what may be under a still mouse (an event, a
+    /// screen's change, a layer come or gone): the next frame picks the
+    /// hover again ([`Ui::moving`] too).
+    hover_stale: bool,
+    /// The hover the cursor was worked out for ([`Ui::refresh_cursor`]).
+    cursor_for: Option<(u64, Option<Target>)>,
+    /// Hit tests made for the hover (tests: [`Ui::picks`]).
+    picks: std::cell::Cell<u64>,
     /// Where the mouse is (virtual pixels), while it is over the surface.
     mouse: Option<[f32; 2]>,
     /// Semantic pointer role and the last native shape told to the shell.
@@ -267,9 +299,9 @@ impl Ui {
     /// [`UiEvent::Resize`] the surface is the design at a ratio of 1.
     pub fn new(design: [f32; 2], mode: TextMode, gestures: bool) -> Ui {
         Ui {
-            hint_revision: crate::controller_hints::revision(),
-            controller_devices_revision: crate::controller_hints::devices_revision(),
-            controller_identities: crate::controller_hints::connected_identities(),
+            hints: Rc::default(),
+            pad_held: HashMap::new(),
+            pad_gesture: true,
             design,
             viewport: Viewport::new(design, design, 1.0),
             mode,
@@ -282,6 +314,9 @@ impl Ui {
             textures: Rc::default(),
             pointers: Vec::new(),
             hover: None,
+            hover_stale: true,
+            cursor_for: None,
+            picks: std::cell::Cell::new(0),
             mouse: None,
             cursor: Cursor::Default,
             sent_cursor: Cursor::Default,
@@ -344,9 +379,11 @@ impl Ui {
             && matches!(l.phase, Phase::Active | Phase::Entering(_))
         {
             l.phase = Phase::Covered;
+            let id = l.id;
+            self.set_shown(id, false, false);
         }
         self.push_layer(Box::new(screen), false, false, None, false);
-        self.dirty = true;
+        self.touch();
     }
 
     /// The current screen's layer: the topmost that is neither an
@@ -364,8 +401,10 @@ impl Ui {
     fn push_screen(&mut self, screen: Box<dyn Screen>, gesture: bool) {
         let mut problems = Problems::default();
         let mut screen = Some(screen);
+        let mut covered = None;
         let covering = match self.current_screen_mut() {
             Some(top) if matches!(top.phase, Phase::Active | Phase::Entering(_)) => {
+                covered = Some(top.id);
                 let left = start_transition(&mut top.root, "Off", &["Out"], &mut problems);
                 if left > 0.0 {
                     top.phase = Phase::Covering(left);
@@ -379,11 +418,14 @@ impl Ui {
             _ => None,
         };
         self.problems.messages.extend(problems.messages);
+        if let Some(id) = covered {
+            self.set_shown(id, false, gesture);
+        }
         if let Some(id) = covering {
             self.release_layer(id);
             self.cancel_directions();
             self.prune_inputs();
-            self.dirty = true;
+            self.touch();
         } else if let Some(screen) = screen {
             self.push_layer(screen, false, false, None, gesture);
         }
@@ -404,8 +446,25 @@ impl Ui {
         } else {
             Phase::Active
         };
+        let id = top.id;
         self.problems.messages.extend(problems.messages);
-        self.dirty = true;
+        self.touch();
+        self.set_shown(id, true, false);
+    }
+
+    /// Tells screen `id` it is shown or not ([`Screen::shown`]), once a
+    /// change; overlays and the chrome are never told.
+    fn set_shown(&mut self, id: u64, shown: bool, gesture: bool) {
+        match self.layer_mut(id) {
+            Some(l) if !l.overlay && !l.chrome && l.shown != shown => l.shown = shown,
+            _ => return,
+        }
+        let mut cx = self.cx(id, gesture);
+        let Some(layer) = self.layer_mut(id) else {
+            return;
+        };
+        layer.screen.shown(shown, &mut layer.root, &mut cx);
+        self.apply(id, cx);
     }
 
     /// A request the current screen leaves with: it plays `Off` (or
@@ -443,7 +502,7 @@ impl Ui {
             l.focused = None;
         }
         self.follow_inset();
-        self.dirty = true;
+        self.touch();
     }
 
     /// The other layers' viewport: the part of the surface below the
@@ -509,7 +568,7 @@ impl Ui {
             .sum();
         if inset != self.inset {
             self.inset = inset.max(0.0);
-            self.dirty = true;
+            self.touch();
         }
         if let Some(c) = self.chrome_focus
             && self
@@ -525,7 +584,7 @@ impl Ui {
         self.cancel_directions();
         let Some((id, first)) = self.layers.iter().rev().find_map(|l| {
             let f = l.screen.focusables().into_iter().next()?;
-            (l.chrome && matches!(l.phase, Phase::Active)).then_some((l.id, f.name))
+            (l.chrome && l.phase.takes_input()).then_some((l.id, f.name))
         }) else {
             return false;
         };
@@ -594,40 +653,42 @@ impl Ui {
                 self.layers[i].phase = Phase::Entering(left);
             }
         }
-        self.dirty = true;
+        self.touch();
     }
 
     /// Broadcasts a message to every layer (the app's own:
     /// `CurrentSongChanged`, a device notice). Not a gesture.
     pub fn broadcast(&mut self, message: Message) {
         self.broadcast_inner(&message, false);
-        self.dirty = true;
+        self.touch();
     }
 
     /// Whether the plain focus ring is drawn (a theme draws its own).
     pub fn set_focus_ring(&mut self, draw: bool) {
         self.draw_ring = draw;
-        self.dirty = true;
+        self.touch();
     }
 
     /// Handles one event.
     pub fn handle(&mut self, event: UiEvent) -> Outcome {
+        // Any event may change what is under the mouse.
+        self.hover_stale = true;
         if (matches!(&event, UiEvent::Key(k) if k.down)
-            || matches!(&event, UiEvent::Menu(m) if m.down))
+            || matches!(&event, UiEvent::Menu(m) if m.down)
+            || matches!(&event, UiEvent::Pad(e) if e.pressed))
             && !self.pointers.iter().any(|p| p.kind == PointerKind::Mouse)
         {
             self.pointer_art.visible = false;
             self.pointer_art.hit = None;
         }
-        match &event {
-            UiEvent::Key(k) if k.down && !k.repeat => crate::controller_hints::keyboard(),
-            UiEvent::Menu(m) if m.down => crate::controller_hints::pad_press(m.source),
-            UiEvent::Raw(e) => crate::controller_hints::edge(e),
-            UiEvent::Focus(false) => crate::controller_hints::focus_lost(),
-            _ => {}
+        // A key's first press: the hints follow the keyboard.
+        if let UiEvent::Key(k) = &event
+            && k.down
+            && !k.repeat
+        {
+            self.set_source(hints::Source::Keyboard);
         }
-        self.refresh_hints();
-        self.dirty = true;
+        self.touch();
         self.consumed = false;
         match event {
             UiEvent::Pointer(e) => self.pointer(e),
@@ -645,9 +706,12 @@ impl Ui {
                     }
                 }
             }
-            UiEvent::Raw(e) => self.raw(e),
+            UiEvent::Pad(e) => self.pad(e),
             UiEvent::Focus(true) => {}
-            UiEvent::Focus(false) => self.blur(),
+            UiEvent::Focus(false) => {
+                self.blur();
+                self.pad_held.clear();
+            }
             UiEvent::Resize { size, ratio } => {
                 self.viewport = Viewport::new(self.design, size, ratio);
                 self.ime_rect = None;
@@ -663,35 +727,164 @@ impl Ui {
 
     /// Steps `dt` seconds: key repeats, long presses, actors, screens,
     /// transitions.
-    fn refresh_hints(&mut self) {
-        let devices_revision = crate::controller_hints::devices_revision();
-        if self.controller_devices_revision != devices_revision {
-            self.controller_devices_revision = devices_revision;
-            let connected = crate::controller_hints::connected_identities();
-            let previous = std::mem::replace(&mut self.controller_identities, connected);
-            for (slot, id) in previous {
-                if self.controller_identities.contains(&(slot, id)) {
-                    continue;
-                }
-                // Disconnect releases may no longer resolve after the shell
-                // removes its mapping. Release the old slot's UI holds here.
-                for action in [
-                    MenuAction::Up,
-                    MenuAction::Down,
-                    MenuAction::Left,
-                    MenuAction::Right,
-                ] {
-                    let source = Source::Pad(slot, action);
-                    self.repeater.release(&source);
-                    self.menu_release(source);
-                }
+    /// What controller hints are drawn from.
+    pub fn hints(&self) -> &Hints {
+        &self.hints
+    }
+
+    /// The controller bindings and the styles the player chose for their
+    /// controllers: the menus resolve pads' edges with them from now on
+    /// (a control held keeps what it was pressed as).
+    pub fn set_controls(
+        &mut self,
+        controls: ddi_engine::ControlBindings,
+        styles: std::collections::BTreeMap<String, hints::Style>,
+    ) {
+        if self.hints.controls() == &controls && self.hints.styles() == &styles {
+            return;
+        }
+        let pad = self.hints.source() != &hints::Source::Keyboard;
+        self.hints = Rc::new(self.hints.with_controls(controls, styles));
+        if pad {
+            self.hints_changed();
+        }
+    }
+
+    /// The controllers connected now: one gone releases what its held
+    /// controls produced, and hands the hints back to the keyboard if it
+    /// was their source.
+    pub fn set_pads(&mut self, pads: Vec<ddi_engine::ConnectedPad>) {
+        if self.hints.pads() == pads.as_slice() {
+            return;
+        }
+        let there = |slot: u32, id: &str| pads.iter().any(|p| p.index == slot && p.id == id);
+        let gone: Vec<u32> = self
+            .hints
+            .pads()
+            .iter()
+            .filter(|p| !there(p.index, &p.id))
+            .map(|p| p.index)
+            .collect();
+        let mut released: Vec<((u32, String), Held)> = self
+            .pad_held
+            .iter()
+            .filter(|((slot, _), _)| gone.contains(slot))
+            .map(|(k, h)| (k.clone(), *h))
+            .collect();
+        released.sort_by(|a, b| a.0.cmp(&b.0));
+        for ((slot, control), held) in released {
+            self.pad_held.remove(&(slot, control.clone()));
+            if let Held::Menu(action) = held {
+                self.pad_menu(slot, action, false, 0.0);
+            }
+            // A screen binding controls hears it let go, as a release.
+            let Some(id) = self.hints.pads().iter().find(|p| p.index == slot) else {
+                continue;
+            };
+            let release = ddi_platform::RawInput {
+                device: ddi_platform::DeviceId::Gamepad(id.id.clone()),
+                control,
+                pressed: false,
+                host_time: ddi_platform::HostTime(self.time),
+                slot,
+            };
+            self.raw(release);
+        }
+        let was_pad = self.hints.source() != &hints::Source::Keyboard;
+        let source = match self.hints.source() {
+            hints::Source::Pad { slot, id } if there(*slot, id) => self.hints.source().clone(),
+            _ => hints::Source::Keyboard,
+        };
+        self.hints = Rc::new(self.hints.with_pads(pads, source));
+        if was_pad {
+            self.hints_changed();
+        }
+    }
+
+    /// The input the hints follow, carried in (a page's host handing it
+    /// to the next, a play's input): a pad not connected is the keyboard.
+    pub fn set_source(&mut self, source: hints::Source) {
+        let source = match source {
+            hints::Source::Pad { slot, id } if self.hints.pad_at(slot, &id).is_some() => {
+                hints::Source::Pad { slot, id }
+            }
+            _ => hints::Source::Keyboard,
+        };
+        if self.hints.source() != &source {
+            self.hints = Rc::new(self.hints.with_source(source));
+            self.hints_changed();
+        }
+    }
+
+    /// Whether a pad's press may start audio as a user gesture: the poll
+    /// loop's presses count as one in Chrome and Firefox, not in Safari
+    /// (P2; the web says). Even then it starts only what
+    /// [`UiRequest::pad_may_start`] allows.
+    pub fn set_pad_gesture(&mut self, gesture: bool) {
+        self.pad_gesture = gesture;
+    }
+
+    fn hints_changed(&mut self) {
+        self.broadcast(Message::new(hints::CHANGED));
+    }
+
+    /// A controller's edge ([`UiEvent::Pad`]).
+    fn pad(&mut self, e: ddi_platform::RawInput) {
+        let ddi_platform::DeviceId::Gamepad(id) = &e.device else {
+            return;
+        };
+        let key = (e.slot, e.control.clone());
+        let time = e.host_time.0 * 1000.0;
+        if !e.pressed {
+            if let Some(Held::Menu(action)) = self.pad_held.remove(&key) {
+                self.pad_menu(e.slot, action, false, time);
+            }
+            // A screen binding controls hears every release (of what was
+            // held when it opened too).
+            self.raw(e);
+            return;
+        }
+        if self.pad_held.contains_key(&key) {
+            return;
+        }
+        let standard = match self.hints.pad_at(e.slot, id) {
+            Some(p) => {
+                let standard = p.standard;
+                self.set_source(hints::Source::Pad {
+                    slot: e.slot,
+                    id: id.clone(),
+                });
+                standard
+            }
+            // A pad the shell has not listed yet plays its saved table.
+            None => false,
+        };
+        if self.wants_raw() {
+            self.pad_held.insert(key, Held::Raw);
+            self.raw(e);
+            return;
+        }
+        match self.hints.controls().menu_control(id, standard, &e.control) {
+            Some(action) => {
+                let action = action.into();
+                self.pad_held.insert(key, Held::Menu(action));
+                self.pad_menu(e.slot, action, true, time);
+            }
+            None => {
+                self.pad_held.insert(key, Held::Unbound);
             }
         }
-        let revision = crate::controller_hints::revision();
-        if self.hint_revision != revision {
-            self.hint_revision = revision;
-            self.broadcast(Message::new(crate::controller_hints::CHANGED));
-        }
+    }
+
+    /// A pad's menu action pressed or released.
+    fn pad_menu(&mut self, slot: u32, action: MenuAction, down: bool, time: f64) {
+        self.menu_event(MenuEvent {
+            action,
+            down,
+            source: slot,
+            gesture: self.pad_gesture,
+            time,
+        });
     }
 
     /// The shell's clock, seconds on its own origin (the web's
@@ -710,7 +903,6 @@ impl Ui {
     }
 
     pub fn update(&mut self, dt: f32) {
-        self.refresh_hints();
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.time += f64::from(dt);
         self.pointer_art.update(dt);
@@ -803,6 +995,9 @@ impl Ui {
                 layer.phase = Phase::Active;
             }
             self.problems.messages.extend(problems.messages);
+            if entered || done || covered.is_some() {
+                self.touch();
+            }
             self.apply(id, cx);
             if done {
                 self.left(id);
@@ -814,28 +1009,72 @@ impl Ui {
         self.problems.messages.truncate(64);
         self.follow_inset();
         // What is under a still mouse changes too (a list scrolled under
-        // it, a screen come in): the hover follows, with the cursor.
+        // it, a screen come in): the hover follows, with the cursor; picked
+        // only when something changed or moves.
         if let Some(pos) = self.mouse
             && !self.pointers.iter().any(|p| p.kind == PointerKind::Mouse)
         {
-            let now = self.pick(pos).map(|(l, t, _)| (l, t));
-            self.set_hover(now);
+            if self.hover_stale || self.moving() {
+                let now = self.pick(pos).map(|(l, t, _)| (l, t));
+                self.set_hover(now);
+            } else if cfg!(debug_assertions) {
+                // A screen moving its contents without saying so lags the
+                // hover: said, so the tests catch it.
+                let now = self.pick(pos).map(|(l, t, _)| (l, t));
+                self.picks.set(self.picks.get() - 1);
+                if now != self.hover {
+                    let name = now
+                        .as_ref()
+                        .and_then(|(l, _)| self.layer(*l))
+                        .map_or("", |l| l.screen.name())
+                        .to_string();
+                    self.problems.messages.push(format!(
+                        "the hover moved with nothing said ({name}: Screen::moving)"
+                    ));
+                    self.set_hover(now);
+                }
+            }
         }
         self.refresh_cursor();
+        self.hover_stale = false;
     }
 
     /// Tells the shell the pointer's look when what the mouse is over
     /// calls for another: its screen's [`Screen::cursor`], else a pointer
     /// over a focusable actor or a list's item (not a list's empty space,
     /// which a tap does not act on), else the default.
+    /// A change made here: a frame is drawn, and the hover picked again.
+    fn touch(&mut self) {
+        self.dirty = true;
+        self.hover_stale = true;
+    }
+
+    /// Whether what is under a still mouse may be moving: a layer taking
+    /// input (or the chrome) in transition, with a tween left in its tree,
+    /// or whose screen moves its contents by hand ([`Screen::moving`]).
+    fn moving(&self) -> bool {
+        fn tweening(a: &Actor) -> bool {
+            a.tween_time_left() > 0.0 || a.children().iter().any(tweening)
+        }
+        let chain = self.input_chain();
+        self.layers
+            .iter()
+            .filter(|l| l.chrome || chain.contains(&l.id))
+            .any(|l| l.phase.in_transition() || l.screen.moving() || tweening(&l.root))
+    }
+
     fn refresh_cursor(&mut self) {
-        let cursor = match &self.hover {
-            Some((l, Some(t))) => self
-                .layer(*l)
-                .map_or(Cursor::Default, |layer| cursor_over(&*layer.screen, t)),
-            _ => Cursor::Default,
-        };
-        self.cursor = cursor;
+        // Worked out again only for another hover, or a change.
+        if self.cursor_for != self.hover || self.hover_stale {
+            self.cursor = match &self.hover {
+                Some((l, Some(t))) => self
+                    .layer(*l)
+                    .map_or(Cursor::Default, |layer| cursor_over(&*layer.screen, t)),
+                _ => Cursor::Default,
+            };
+            self.cursor_for = self.hover.clone();
+        }
+        let cursor = self.cursor;
         let sent = if self.custom_pointer() {
             Cursor::Hidden
         } else {
@@ -1032,11 +1271,6 @@ impl Ui {
     /// screen's deadline came. Otherwise the shell may stop its frames
     /// until the next event or [`Ui::wake_in`] (P13).
     pub fn needs_redraw(&self) -> bool {
-        if self.hint_revision != crate::controller_hints::revision()
-            || self.controller_devices_revision != crate::controller_hints::devices_revision()
-        {
-            return true;
-        }
         self.dirty
             || self.pointer_art.hit.is_some()
             || (self.active_animating
@@ -1199,6 +1433,22 @@ impl Ui {
     }
 
     /// What the actors' commands reported (most recent last, at most 64).
+    /// Hit tests made so far (the hover's among them; tests).
+    #[doc(hidden)]
+    pub fn picks(&self) -> u64 {
+        self.picks.get()
+    }
+
+    /// The hovered target's chain of names, nearest first (tests).
+    #[doc(hidden)]
+    pub fn hovered(&self) -> Vec<String> {
+        self.hover
+            .as_ref()
+            .and_then(|(_, t)| t.as_ref())
+            .map(|t| t.chain.clone())
+            .unwrap_or_default()
+    }
+
     pub fn problems(&self) -> &[String] {
         &self.problems.messages
     }
@@ -1263,14 +1513,14 @@ impl Ui {
         self.input_chain().last().copied()
     }
 
-    fn active(&self, id: u64) -> bool {
-        self.layer(id)
-            .is_some_and(|l| matches!(l.phase, Phase::Active))
+    /// Whether layer `id` takes input by its phase ([`Phase::takes_input`]).
+    fn live(&self, id: u64) -> bool {
+        self.layer(id).is_some_and(|l| l.phase.takes_input())
     }
 
     /// Whether layer `id` takes input now.
     fn takes_input(&self, id: u64) -> bool {
-        self.active(id)
+        self.live(id)
             && (self.input_chain().contains(&id) || self.layer(id).is_some_and(|l| l.chrome))
     }
 
@@ -1289,6 +1539,7 @@ impl Ui {
         cx.menu_source = self.menu_source.clone();
         cx.menu_pad = self.menu_pad;
         cx.by_keys = self.ring_shown;
+        cx.hints = self.hints.clone();
         cx.current_screen = self
             .layers
             .iter()
@@ -1329,6 +1580,7 @@ impl Ui {
             self.textures.clone(),
         );
         cx.holding = self.hold_entrances;
+        cx.hints = self.hints.clone();
         let mut root = screen.build(&mut cx);
         if self.hold_entrances {
             crate::screens::hold_entrances(&mut root);
@@ -1353,6 +1605,7 @@ impl Ui {
             owner,
             chrome: false,
             built,
+            shown: !overlay,
         };
         // An overlay goes directly above its owner and the owner's other
         // overlays; a screen on top of everything but the chrome.
@@ -1409,6 +1662,7 @@ impl Ui {
         };
         layer.phase = Phase::Leaving(left);
         self.problems.messages.extend(problems.messages);
+        self.set_shown(id, false, false);
         let owned: Vec<u64> = self
             .layers
             .iter()
@@ -1437,7 +1691,7 @@ impl Ui {
             l.phase = Phase::Left;
         }
         self.out.push(request);
-        self.dirty = true;
+        self.touch();
     }
 
     /// What a leaving layer held: typing, pointers, hover, held keys.
@@ -1484,7 +1738,7 @@ impl Ui {
             self.uncover();
         }
         self.prune_inputs();
-        self.dirty = true;
+        self.touch();
     }
 
     /// Cancels the pointers held on layers that no longer take input (a
@@ -1494,7 +1748,7 @@ impl Ui {
         let stale: Vec<u64> = self
             .pointers
             .iter()
-            .filter(|p| !chain.contains(&p.layer) || !self.active(p.layer))
+            .filter(|p| !chain.contains(&p.layer) || !self.live(p.layer))
             .map(|p| p.id)
             .collect();
         for p in stale {
@@ -1509,7 +1763,7 @@ impl Ui {
     fn apply(&mut self, id: u64, cx: Cx) {
         let gesture = cx.in_gesture();
         for op in cx.ops {
-            self.dirty = true;
+            self.touch();
             match op {
                 Op::Request(r @ (UiRequest::Navigate(_) | UiRequest::Back)) => self.leave_with(r),
                 Op::Request(r) => self.emit(id, r, gesture),
@@ -1531,6 +1785,7 @@ impl Ui {
                         self.enter_chrome(gesture);
                     }
                 }
+                Op::SetControls { controls, styles } => self.set_controls(controls, styles),
                 Op::BeginText { name, text, hints } => {
                     self.begin_text(id, name, &text, hints, gesture)
                 }
@@ -1607,7 +1862,7 @@ impl Ui {
         let Some(layer) = self.layer(id) else {
             return false;
         };
-        if !self.active(id) || layer.focused.is_some() || !layer.screen.defer_initial_focus() {
+        if !self.live(id) || layer.focused.is_some() || !layer.screen.defer_initial_focus() {
             return false;
         }
         let first = layer
@@ -1646,7 +1901,7 @@ impl Ui {
             a.play("GainFocus", &mut problems);
         }
         self.problems.messages.extend(problems.messages);
-        self.dirty = true;
+        self.touch();
         self.dispatch(id, Input::Focus { from, to }, gesture);
     }
 
@@ -1722,7 +1977,7 @@ impl Ui {
             action
         };
         self.ring_shown = true;
-        self.dirty = true;
+        self.touch();
         // The chrome's actions, while it has the focus: Left and Right
         // between them, Start presses one, Down or Back go back.
         if let Some(c) = self.chrome_focus {
@@ -1743,7 +1998,7 @@ impl Ui {
         // Menu buttons are ours wherever they go (no page scrolling).
         self.consumed |= !chain.is_empty();
         for id in chain {
-            if !self.active(id) {
+            if !self.live(id) {
                 if self.blocks(id) {
                     return;
                 }
@@ -1788,7 +2043,7 @@ impl Ui {
 
     fn menu_release(&mut self, source: Source) {
         for id in self.input_chain() {
-            if self.active(id) && self.layer(id).is_some_and(|l| l.screen.direction_edges()) {
+            if self.live(id) && self.layer(id).is_some_and(|l| l.screen.direction_edges()) {
                 self.dispatch(
                     id,
                     Input::MenuRelease {
@@ -1843,8 +2098,8 @@ impl Ui {
     }
 
     /// Whether the screen on top takes keys and controls as they are
-    /// ([`Screen::raw_input`]): the shell then sends a controller's edges
-    /// as [`UiEvent::Raw`].
+    /// ([`Screen::raw_input`]): a controller's edges ([`UiEvent::Pad`]) go
+    /// to it as they are.
     pub fn wants_raw(&self) -> bool {
         self.raw_layer().is_some()
     }
@@ -1852,7 +2107,7 @@ impl Ui {
     fn raw_layer(&self) -> Option<u64> {
         let id = self.focus_layer()?;
         let l = self.layer(id)?;
-        (matches!(l.phase, Phase::Active) && l.screen.raw_input()).then_some(id)
+        (l.phase.takes_input() && l.screen.raw_input()).then_some(id)
     }
 
     fn raw(&mut self, e: ddi_platform::RawInput) {
@@ -1927,7 +2182,7 @@ impl Ui {
         // A screen holding keys (the editor's lanes) hears them let go.
         if !k.down
             && let Some(id) = self.input_chain().into_iter().find(|&id| {
-                self.active(id) && self.layer(id).is_some_and(|l| l.screen.key_releases())
+                self.live(id) && self.layer(id).is_some_and(|l| l.screen.key_releases())
             })
         {
             self.dispatch(id, Input::Key(k.clone()), false);
@@ -1949,7 +2204,7 @@ impl Ui {
             return;
         }
         for id in self.input_chain() {
-            if !self.active(id) {
+            if !self.live(id) {
                 if self.blocks(id) {
                     return;
                 }
@@ -2083,7 +2338,7 @@ impl Ui {
     fn text_changed(&mut self, change: TextChange, gesture: bool) {
         let Some(t) = &self.text else { return };
         let (layer, name, field) = (t.layer, t.name.clone(), t.field.clone());
-        self.dirty = true;
+        self.touch();
         self.dispatch(
             layer,
             Input::Text {
@@ -2101,7 +2356,7 @@ impl Ui {
     fn end_typing(&mut self, stop: bool) {
         let Some(t) = self.text.take() else { return };
         self.ime_rect = None;
-        self.dirty = true;
+        self.touch();
         if stop {
             self.out.push(UiRequest::StopTextInput);
         }
@@ -2209,9 +2464,10 @@ impl Ui {
     /// The topmost target under `pos` along the input chain: the layer,
     /// and the target (`None`: a dialog's outside, or a screen's nothing).
     fn pick(&self, pos: [f32; 2]) -> Option<(u64, Option<Target>, bool)> {
+        self.picks.set(self.picks.get() + 1);
         // The chrome's actors first; around them, what is under.
         for l in self.layers.iter().rev().filter(|l| l.chrome) {
-            if matches!(l.phase, Phase::Active)
+            if l.phase.takes_input()
                 && let Some(t) = hit::target_at(&l.root, &IDENTITY, pos)
                 && !l.screen.lets_through(&t)
             {
@@ -2223,7 +2479,7 @@ impl Ui {
         let pos = [(pos[0] - t[0]) / k, (pos[1] - t[1]) / k];
         for id in self.input_chain() {
             let layer = self.layer(id)?;
-            if !matches!(layer.phase, Phase::Active) {
+            if !layer.phase.takes_input() {
                 if self.blocks(id) {
                     return None;
                 }

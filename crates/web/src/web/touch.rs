@@ -41,9 +41,6 @@ pub(crate) const CANCEL_CONTROL: &str = "cancel";
 /// read at.
 type Insets = ((u32, u32), [f32; 4]);
 
-/// How long the quit button stays after the mouse moved (ms).
-pub(crate) const QUIT_LINGER_MS: f64 = 2000.0;
-
 thread_local! {
     /// A play runs, and a touch screen plays it (the quit button shows).
     static PLAYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -67,26 +64,26 @@ pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
     }
 }
 
-/// The mouse moved over the play at `now_ms`: the quit button shows for
-/// [`QUIT_LINGER_MS`].
+/// The mouse moved over the play at `now_ms`: the quit button shows a
+/// moment (`ddi_session::play::quit_shown`).
 pub(crate) fn mouse_moved(now_ms: f64) {
     MOUSE_AT.with(|m| m.set(now_ms));
     // A pointer the prompt's screen hid (a key pressed on it) shows again
     // as the mouse moves, as it would over the menus
     // (`crate::components::ui_dev`), which hold the canvas no more while
     // the play runs.
-    if PLAYING.with(|p| p.get())
-        && let Some(c) = super::screen::canvas()
-        && c.style().get_property_value("cursor").ok().as_deref() == Some("none")
-    {
-        let _ = c.style().set_property("cursor", "default");
+    if PLAYING.with(|p| p.get()) {
+        super::screen::mouse_moved();
     }
 }
 
 /// Whether the quit button shows at `now_ms`.
 pub(crate) fn quit_shown(now_ms: f64) -> bool {
     PLAYING.with(|p| p.get())
-        && (TOUCH.with(|t| t.get()) || now_ms - MOUSE_AT.with(|m| m.get()) < QUIT_LINGER_MS)
+        && ddi_session::play::quit_shown(
+            TOUCH.with(|t| t.get()),
+            Some((now_ms - MOUSE_AT.with(|m| m.get())) / 1000.0),
+        )
 }
 
 /// The safe area's insets for a canvas of `css` size, read again when

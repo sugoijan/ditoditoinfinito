@@ -12,20 +12,9 @@ use ddi_chart::Layout;
 use ddi_render::Painter;
 use ddi_render::editor_field::{EditorField, SOURCE};
 use ddi_render::field_preview::SkinWant;
+use ddi_shell::editor_field::Shown;
 use ddi_ui::screens::editor_field::FieldPicture;
 use ddi_ui::state::editor::Editor;
-
-/// What the editor shows: its picture, the skin it wants and what that
-/// skin's Lua is told, the note colors (read from the settings for each
-/// layout and direction), and whether it changed since it was drawn.
-#[derive(Default)]
-struct Shown {
-    picture: Option<FieldPicture>,
-    want: Option<(SkinWant, ddi_noteskin::lua::Env)>,
-    colors: ddi_shell::editor_field::NoteColors,
-    read_for: Option<(String, bool)>,
-    changed: bool,
-}
 
 thread_local! {
     static SHOWN: RefCell<Shown> = RefCell::default();
@@ -33,26 +22,7 @@ thread_local! {
 
 /// The editor's picture from now on (`None`: none; the texture goes).
 pub fn show(picture: Option<&FieldPicture>, editor: &Editor) {
-    SHOWN.with_borrow_mut(|s| {
-        match picture {
-            Some(p) if s.read_for.as_ref() != Some(&(p.layout.clone(), p.reverse)) => {
-                let settings = crate::store::settings_cached();
-                let want = ddi_shell::editor_field::skin(&settings, p);
-                if s.want.as_ref().is_none_or(|(w, _)| *w != want) {
-                    let env =
-                        ddi_shell::editor_field::skin_env(&want, editor.song(), editor.chart());
-                    s.want = Some((want, env));
-                }
-                s.colors = ddi_shell::editor_field::note_colors(&settings);
-                s.read_for = Some((p.layout.clone(), p.reverse));
-            }
-            Some(_) => {}
-            // The settings read again for the next editor.
-            None => s.read_for = None,
-        }
-        s.picture = picture.cloned();
-        s.changed = true;
-    });
+    SHOWN.with_borrow_mut(|s| s.show(picture, editor, crate::store::settings_cached));
 }
 
 /// The field on the device, while the editor shows it.

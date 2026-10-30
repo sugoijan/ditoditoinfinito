@@ -25,23 +25,6 @@ use web_sys::{AudioBuffer, BaseAudioContext, Event, MessageEvent, Worker};
 
 use super::js_err;
 
-/// The worker's files' stem when the page names none (a build without the
-/// stage step).
-const DEFAULT_STEM: &str = "opus-worker";
-
-/// The worker's own script: loads wasm-bindgen's glue and starts the
-/// module the page sends (compiled, or its address), and says why if it
-/// cannot. The decoder's code then answers `{ready}` and decodes.
-const BOOT_JS: &str = r#"self.onmessage = async (e) => {
-  self.onmessage = null;
-  try {
-    importScripts(e.data.glue);
-    await wasm_bindgen({ module_or_path: e.data.module || e.data.wasm });
-  } catch (err) {
-    postMessage({ error: 'the Opus decoder could not start: ' + ((err && err.message) || err) });
-  }
-};"#;
-
 /// How long a worker may take to say it is ready, ms.
 const READY_MS: f64 = 25_000.0;
 
@@ -78,40 +61,12 @@ impl Drop for Running {
     }
 }
 
-/// The worker's files' stem, as index.html names it.
-fn stem() -> String {
-    web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| {
-            d.query_selector("meta[name=\"ddi-opus-worker\"]")
-                .ok()
-                .flatten()
-        })
-        .and_then(|m| m.get_attribute("content"))
-        .filter(|s| !s.is_empty() && !s.contains('/'))
-        .unwrap_or_else(|| DEFAULT_STEM.to_string())
-}
-
 /// The module, fetched and compiled the first time.
 async fn module(url: &str) -> Result<WebAssembly::Module, String> {
     if let Some(m) = MODULE.with(|m| m.borrow().clone()) {
         return Ok(m);
     }
-    let fetch_err = |e: String| format!("the Opus decoder could not be fetched: {e}");
-    let resp = gloo::net::http::Request::get(url)
-        .send()
-        .await
-        .map_err(|e| fetch_err(e.to_string()))?;
-    if !resp.ok() {
-        return Err(fetch_err(format!("HTTP {}", resp.status())));
-    }
-    let bytes = resp.binary().await.map_err(|e| fetch_err(e.to_string()))?;
-    let compiled = JsFuture::from(WebAssembly::compile(&Uint8Array::from(&bytes[..])))
-        .await
-        .map_err(|e| js_err("compiling the Opus decoder", e))?;
-    let m: WebAssembly::Module = compiled
-        .dyn_into()
-        .map_err(|e| js_err("compiling the Opus decoder", e))?;
+    let m = super::wasm_worker::compile(url, "the Opus decoder").await?;
     MODULE.with(|c| *c.borrow_mut() = Some(m.clone()));
     Ok(m)
 }
@@ -121,9 +76,7 @@ fn boot() -> Result<String, String> {
     if let Some(u) = BOOT.with(|b| b.borrow().clone()) {
         return Ok(u);
     }
-    let blob = super::files::bytes_blob(BOOT_JS.as_bytes(), "text/javascript")?;
-    let url = web_sys::Url::create_object_url_with_blob(&blob)
-        .map_err(|e| js_err("the Opus decoder's script", e))?;
+    let url = super::wasm_worker::boot_url("error", "the Opus decoder")?;
     BOOT.with(|b| *b.borrow_mut() = Some(url.clone()));
     Ok(url)
 }
@@ -135,9 +88,7 @@ pub(crate) async fn decode(
     bytes: &[u8],
     gone: &dyn Fn() -> bool,
 ) -> Result<AudioBuffer, String> {
-    let stem = stem();
-    let glue = crate::songs::asset_url(&format!("{stem}.js"));
-    let wasm = crate::songs::asset_url(&format!("{stem}_bg.wasm"));
+    let (glue, wasm) = super::wasm_worker::urls("ddi-opus-worker", "opus-worker");
     let module = module(&wasm).await?;
     if gone() {
         return Err("the decode is no longer wanted".into());

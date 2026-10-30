@@ -22,7 +22,6 @@ use ddi_library::backgrounds::BgImage;
 use ddi_platform::video::VideoFormat;
 use ddi_render::movie_picture::{MoviePicture, SOURCE};
 use ddi_session::movies::preview::{self, PreviewMovie, Step};
-use ddi_ui::Ui;
 
 use crate::movies::MovieDeck;
 use crate::songs::ManifestEntry;
@@ -57,13 +56,11 @@ impl PreviewMovieHost {
         &mut self,
         gfx: &Gfx,
         encoder: &mut wgpu::CommandEncoder,
-        ui: &Ui,
         (song, still): (Option<&str>, bool),
         now_ms: f64,
         entry: &dyn Fn(&str) -> Option<ManifestEntry>,
     ) -> (bool, Option<Option<String>>) {
         let now = now_ms / 1000.0;
-        let song = song.filter(|_| preview::select_shows(&ui.layers()));
         self.state.follow(song, still, now, |id| {
             let mode = crate::settings::Settings::load().video;
             preview::movie_of(&entry(id)?, mode)

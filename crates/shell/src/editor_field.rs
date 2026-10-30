@@ -87,16 +87,12 @@ pub fn size(picture: &FieldPicture) -> [u32; 2] {
 }
 
 /// The skin a play would draw `picture`'s layout with under `settings`,
-/// readied for its direction (key `None`: the built-in arrows), with its
-/// parameters' values.
+/// readied for its direction, with its parameters' values.
 pub fn skin(settings: &Settings, picture: &FieldPicture) -> SkinWant {
     let key = settings.play_skin(&picture.layout);
     SkinWant {
-        params: key
-            .as_deref()
-            .map(|k| settings.skin_params(k))
-            .unwrap_or_default(),
-        key,
+        params: settings.skin_params(&key),
+        key: Some(key),
         layout: picture.layout.clone(),
         reverse: picture.reverse,
     }
@@ -176,5 +172,52 @@ mod tests {
                 (play.note_colors, play.chart_colors)
             );
         }
+    }
+}
+
+/// What the editor shows, as each shell keeps it for its field: its
+/// picture, the skin it wants and what that skin's Lua is told, the note
+/// colors (read from the settings for each layout and direction), and
+/// whether it changed since it was drawn.
+#[derive(Default)]
+pub struct Shown {
+    pub picture: Option<FieldPicture>,
+    pub want: Option<(SkinWant, Env)>,
+    pub colors: NoteColors,
+    read_for: Option<(String, bool)>,
+    pub changed: bool,
+}
+
+impl Shown {
+    /// The editor's picture from now on (`None`: none; the texture goes),
+    /// the settings read (`settings`) when its layout or direction is new.
+    pub fn show(
+        &mut self,
+        picture: Option<&FieldPicture>,
+        editor: &ddi_ui::state::editor::Editor,
+        settings: impl FnOnce() -> Settings,
+    ) {
+        match picture {
+            Some(p)
+                if self
+                    .read_for
+                    .as_ref()
+                    .is_none_or(|(l, r)| *l != p.layout || *r != p.reverse) =>
+            {
+                let settings = settings();
+                let want = skin(&settings, p);
+                if self.want.as_ref().is_none_or(|(w, _)| *w != want) {
+                    let env = skin_env(&want, editor.song(), editor.chart());
+                    self.want = Some((want, env));
+                }
+                self.colors = note_colors(&settings);
+                self.read_for = Some((p.layout.clone(), p.reverse));
+            }
+            Some(_) => {}
+            // The settings read again for the next editor.
+            None => self.read_for = None,
+        }
+        self.picture = picture.cloned();
+        self.changed = true;
     }
 }

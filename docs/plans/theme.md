@@ -43,7 +43,8 @@ The maintainer chose:
   the prompt and the field keep the still, so the cut stays seamless.
   With Video off (the movie never plays) the prompt and the field show
   the `#BACKGROUND`, and song select keeps the still.
-- **The beat pulse.**
+- **The beat pulse** (removed 2026-10-30: the active outline, below,
+  hid it; nothing of it showed).
 - **The style selector moves next to the chart ladder.** The song list
   then shows every song whatever the style:
   - a song with no chart in the selected style is greyed out, not
@@ -391,12 +392,10 @@ the right holding the charts as buttons and a large Play button.
 ## Motion (not shown in the mockups)
 
 - **Selection moves:** 100–150 ms, decelerating.
-- **Beat pulse:** the selected row and the accent pulse once per beat of
-  the previewed song, at its BPM.
 - **Rows:** slide in and out along the wheel's curve.
 - **Screens:** cross-fade, with a short slide (see "Transitions" below
   for what was built).
-- **Off with reduced motion:** the beat pulse and the slides. This
+- **Off with reduced motion:** the slides, and the art held still. This
   follows the system's reduced-motion setting, and a setting of our own
   overrides it.
 
@@ -437,7 +436,9 @@ layer kept as it ended until the page changes. So the web shows the
 same sequence as desktop's stack, out then in, and the browser's own Back
 (which changes the address before the page could leave) shows the
 entrance alone. The shell's own `Ui::push` (the first screen, desktop's
-`--screen`) is immediate. Checked natively (`crates/ui/src/ui.rs`'
+`--screen`) is immediate. A screen takes input as soon as it starts
+coming in; a press while the screen before it leaves is dropped
+(2026-10-30, `ui-core-mechanics.md`). Checked natively (`crates/ui/src/ui.rs`'
 transition tests, `crates/theme/src/tests.rs`) and in Chrome
 (`target/scratch/pw/transitions.mjs`: the parts' places frame by frame
 between the start menu and song select, Options and the credits, both
@@ -486,7 +487,7 @@ web omits it. `TitleMenu.Primary`,
 `TitleMenu.Choice` and `TitleMenu.Disabled` components dress the choices;
 `TitleMenu.Width`, `RowHeight`, `Gap`, `TitleWidth` and `TitleHeight` in `infinito.toml`
 control their layout. Touch rows retain a 44 CSS pixel minimum. Start uses
-the theme ground with no song backdrop, beat pulse or audio. Ordinary
+the theme ground with no song backdrop or audio. Ordinary
 On/Off and focus commands apply. Importing theme metrics/Lua screen flow
 is still future work. See [start-menu.md](start-menu.md).
 
@@ -544,9 +545,9 @@ cross-fading two active outlines. Secondary choices retain their selected
 plates, text and underlines, rather than receiving another animated ring.
 
 `active.rs` derives the outline from the actual plate's geometry, including
-animated wheel rows, wrappers, press transforms and transitions. It keeps the
-old named Ring/Pulse parts for widget commands but suppresses their paint.
-The new outline is visual-only (`Actor::decoration`), excluded from control
+animated wheel rows, wrappers, press transforms and transitions. The old
+`Ring` and `Pulse` parts and song select's beat pulse were removed
+(2026-10-30): the outline had hidden them. The outline is visual-only (`Actor::decoration`), excluded from control
 bounds and hit-testing. Frame controls own it without changing a list's row
 slots; primitive page hit areas use their manually-built parent. The wheel reserves 8 px at both sides so the
 6 px total extension is not clipped. `Screen::presentation` and

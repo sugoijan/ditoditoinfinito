@@ -1468,14 +1468,13 @@ pub fn bundled() -> Vec<ManifestEntry> {
 }
 
 /// A library song's preview made ready on a thread: its music's path (a
-/// zip's extracted into the cache folder), its window and timing.
+/// zip's extracted into the cache folder) and its window.
 struct Prepared {
     music: PathBuf,
     from: f64,
     length: f64,
     /// A separate preview file (`#PREVIEW`), played from its start.
     separate: bool,
-    timing: ddi_chart::TimingMap,
     target: ddi_platform::mp3::Target,
 }
 
@@ -1533,13 +1532,7 @@ pub fn preview_song(id: &str) -> Option<crate::preview::PreviewSong> {
     let mut list = preps().lock().ok()?;
     match list.iter().find(|(k, _)| k == id).map(|(_, p)| p) {
         Some(Prep::Ready(p)) => {
-            let mut song = crate::preview::PreviewSong::of(
-                id,
-                p.music.clone(),
-                p.from,
-                p.length,
-                p.timing.clone(),
-            );
+            let mut song = crate::preview::PreviewSong::of(id, p.music.clone(), p.from, p.length);
             song.target = p.target;
             if p.separate {
                 song.length = ddi_session::preview::file_length(p.length);
@@ -1588,16 +1581,15 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
     };
     // A separate preview file (`#PREVIEW`), else the music.
     let file = s.entry.preview.as_ref().unwrap_or(&s.entry.music);
-    // The timing for the beat pulse, from the chart as it is now; an FFR
-    // level SWF's music read with it.
-    let chart = reader.read(&s.rooted(&s.entry.chart)).ok()?;
-    let (parsed, level_music) = if ddi_library::ffr::is_level_chart(&s.entry.chart) {
-        let (song, mp3) =
-            ddi_library::ffr::chart_song_and_music(&s.entry.chart, &chart, &s.entry.title).ok()?;
-        (song, mp3.filter(|_| file == &s.entry.chart))
+    // An FFR level SWF's music, read from the level.
+    let level_music = if ddi_library::ffr::is_level_chart(&s.entry.chart) && file == &s.entry.chart
+    {
+        let chart = reader.read(&s.rooted(&s.entry.chart)).ok()?;
+        ddi_library::ffr::chart_song_and_music(&s.entry.chart, &chart, &s.entry.title)
+            .ok()?
+            .1
     } else {
-        let song = crate::play::load::parse_simfile(&s.entry.chart, &chart, false).ok()?;
-        (song, None)
+        None
     };
     // An FFR level's music is inside it: taken out once, as a zip's.
     let in_level = ddi_library::ffr::is_swf_name(file);
@@ -1635,7 +1627,6 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
         },
         length: s.entry.preview_length,
         separate: s.entry.preview.is_some(),
-        timing: parsed.timing,
         target: Default::default(),
     })
 }
@@ -1674,7 +1665,6 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
         length: 0.0,
         separate: false,
         target: ddi_session::music_target(&song),
-        timing: song.timing,
     })
 }
 

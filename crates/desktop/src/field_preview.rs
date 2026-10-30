@@ -20,16 +20,33 @@ use ddi_chart::Layout;
 use ddi_render::Painter;
 pub use ddi_render::field_preview::SkinWant;
 use ddi_render::field_preview::{FieldPreview, FieldPreviewOptions, SOURCE};
+use ddi_shell::field_preview::{SkinLoad, SkinSlot};
 use ddi_ui::screens::prompt_controls::Controls;
 use ddi_ui::state::settings::Settings;
+
+use crate::play::skins::{Prepared, Reading};
+
+/// A skin read on its thread, made for its layout on the UI thread once
+/// in (the Lua's second pass).
+pub struct Load {
+    reading: Reading,
+    layout: Layout,
+}
+
+impl SkinLoad for Load {
+    type Skin = Prepared;
+    fn poll(&mut self) -> Option<Option<Prepared>> {
+        let read = self.reading.poll()?;
+        Some(read.and_then(|r| crate::play::skins::build(r, &self.layout)))
+    }
+}
 
 /// The preview, while a screen shows it.
 pub struct Field {
     preview: Option<FieldPreview>,
-    /// The skin wanted and the layout it is readied for, and the one
-    /// shown with its (a demo's layout, or the diagram's strip).
-    wanted: Option<(SkinWant, Layout)>,
-    shown: Option<(SkinWant, Layout)>,
+    /// The skin wanted (a demo's layout, or the diagram's strip), shown
+    /// and read.
+    skin: SkinSlot<Load>,
     /// Where it shows, physical pixels `[x, y, w, h]`.
     rect: Option<[f32; 4]>,
     options: FieldPreviewOptions,
@@ -38,24 +55,19 @@ pub struct Field {
     /// The texture generation the painter was given.
     registered: Option<u64>,
     start: Instant,
-    /// The skin wanted, read on its thread (a newer pick lets an older
-    /// read go).
-    reading: Option<(SkinWant, Layout, crate::play::skins::Reading)>,
 }
 
 impl Default for Field {
     fn default() -> Field {
         Field {
             preview: None,
-            wanted: None,
-            shown: None,
+            skin: SkinSlot::default(),
             rect: None,
             options: FieldPreviewOptions::default(),
             receptors: None,
             receptor_ready: None,
             registered: None,
             start: Instant::now(),
-            reading: None,
         }
     }
 }
@@ -69,7 +81,7 @@ impl Field {
             options: self.options.clone(),
             receptors: self.receptors.clone(),
             receptor_ready: self.receptor_ready.clone(),
-            wanted: self.wanted.clone().or_else(|| self.shown.clone()),
+            skin: self.skin.for_new_device(),
             ..Field::default()
         }
     }
@@ -85,7 +97,7 @@ impl Field {
 
     /// A pick's skin is being read.
     pub fn reading(&self) -> bool {
-        self.reading.is_some()
+        self.skin.loading()
     }
 
     pub fn set_options(&mut self, options: FieldPreviewOptions) {
@@ -97,11 +109,7 @@ impl Field {
     pub fn set_settings(&mut self, settings: &Settings) {
         self.receptors = None;
         self.receptor_ready = None;
-        let options = ddi_shell::field_preview_options(settings);
-        let want = ddi_shell::field_preview_skin(settings, &options);
-        let layout = want.layout();
-        self.wanted = Some((want, layout));
-        self.options = options;
+        self.options = self.skin.set_settings(settings);
     }
 
     /// The prompt's receptor diagram (`None`: gone), its skin readied
@@ -110,9 +118,8 @@ impl Field {
         self.receptor_ready = picture.map(|p| p.ready.clone());
         self.rect = picture.map(|p| [0.0, 0.0, p.size[0], p.size[1]]);
         self.receptors = picture.map(|p| {
-            let (options, want, pose) = ddi_shell::receptor_preview_options(p);
+            let (options, pose) = self.skin.set_receptors(p);
             self.options = options;
-            self.wanted = Some((want, pose.layout.clone()));
             pose
         });
     }
@@ -121,16 +128,13 @@ impl Field {
     /// shows) without showing anything, so the prompt's diagram is in
     /// from its first frame.
     pub fn warm(&mut self, controls: &Controls) {
-        let (options, want, layout) = ddi_shell::receptor_skin(controls);
-        self.options = options;
-        self.wanted = Some((want, layout));
+        self.options = self.skin.warm(controls);
     }
 
     /// Whether frames must go on: the demo plays, or the skin wanted is
     /// not in yet (its read started and polled by the frames).
     pub fn animating(&self) -> bool {
-        (self.wanted.is_some() && self.shown != self.wanted)
-            || (self.rect.is_some() && self.receptors.is_none())
+        !self.skin.ready() || (self.rect.is_some() && self.receptors.is_none())
     }
 
     /// The noteskin drawn (`None`: the built-in arrows), its name.
@@ -153,12 +157,12 @@ impl Field {
     /// Whether the skin in is the one wanted, readied for the layout
     /// wanted.
     pub fn ready(&self) -> bool {
-        self.wanted.is_none() || self.shown == self.wanted
+        self.skin.ready()
     }
 
     /// The layout the skin in was readied for (tests).
     pub fn shown_layout(&self) -> Option<&Layout> {
-        self.shown.as_ref().map(|(_, l)| l)
+        self.skin.shown_layout()
     }
 
     /// Whether the preview holds its textures (tests).
@@ -187,38 +191,11 @@ impl Field {
         });
         preview.set_options(self.options.clone());
         preview.set_receptors(self.receptors.clone());
-        let Some((want, layout)) = self.wanted.clone() else {
-            return;
-        };
-        if self.shown == self.wanted {
-            self.reading = None;
-            return;
-        }
-        if self
-            .reading
-            .as_ref()
-            .is_some_and(|(w, l, _)| (w, l) != (&want, &layout))
-        {
-            self.reading = None;
-        }
-        if self.reading.is_none() {
-            match &want.key {
-                Some(key) => {
-                    let env = want.env(&layout);
-                    let reading = crate::play::skins::Reading::start(key, &layout, env, None);
-                    self.reading = Some((want, layout, reading));
-                }
-                None => {
-                    preview.set_noteskin(device, queue, None, |_, _| {});
-                    self.shown = Some((want, layout));
-                }
-            }
-            return;
-        }
-        if let Some((want, layout, reading)) = &self.reading
-            && let Some(read) = reading.poll()
-        {
-            let prepared = read.and_then(|r| crate::play::skins::build(r, layout));
+        let skin = self.skin.step(|key, layout, env| Load {
+            reading: Reading::start(key, layout, env, None),
+            layout: layout.clone(),
+        });
+        if let Some(prepared) = skin {
             let (play, images) = match prepared {
                 Some(p) => (Some(p.play), p.images),
                 None => (None, Vec::new()),
@@ -226,8 +203,6 @@ impl Field {
             preview.set_noteskin(device, queue, play, |renderer, play| {
                 crate::play::view::upload_noteskin(renderer, device, queue, play, &images);
             });
-            self.shown = Some((want.clone(), layout.clone()));
-            self.reading = None;
         }
     }
 

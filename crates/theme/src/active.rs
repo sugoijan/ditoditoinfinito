@@ -1,6 +1,6 @@
 //! One active outline per UI input layer. Widget selections stay independent;
 //! only the screen's primary target receives the animated decoration.
-use ddi_actor::{Actor, Kind, Sprite, TRANSFORM_IDENTITY, Vivid, apply, mul};
+use ddi_actor::{Actor, Kind, Sprite, TRANSFORM_IDENTITY, Vivid, mul};
 use ddi_ui::hit;
 use ddi_ui::look::named;
 
@@ -9,9 +9,7 @@ use super::Infinito;
 pub(super) const NAME: &str = "ActiveOutline";
 
 fn clear(actor: &mut Actor) {
-    // Retain the named parts and their commands for widget compatibility,
-    // but their old rings/pulses no longer compete for visual emphasis.
-    if matches!(actor.name.as_str(), NAME | "Ring" | "Pulse") {
+    if actor.name == NAME {
         actor.visible = false;
     }
     for child in actor.children_mut() {
@@ -26,23 +24,8 @@ struct Body {
 
 fn sprite_body(s: &Sprite, m: [f32; 6]) -> Body {
     let [w, h] = s.size;
-    let points = [
-        [-w / 2.0, -h / 2.0],
-        [w / 2.0, -h / 2.0],
-        [w / 2.0, h / 2.0],
-        [-w / 2.0, h / 2.0],
-    ]
-    .map(|p| apply(&m, p));
-    let [mut x0, mut y0] = points[0];
-    let [mut x1, mut y1] = points[0];
-    for [x, y] in points {
-        x0 = x0.min(x);
-        y0 = y0.min(y);
-        x1 = x1.max(x);
-        y1 = y1.max(y);
-    }
     Body {
-        bounds: [x0, y0, x1, y1],
+        bounds: hit::rect_bounds(&m, [-w / 2.0, -h / 2.0, w / 2.0, h / 2.0]),
         radius: s.shape.radius * m[0].hypot(m[1]).min(m[2].hypot(m[3])),
     }
 }

@@ -383,40 +383,6 @@ fn search_filters_the_wheel_and_never_shows_its_popup_while_composing() {
 }
 
 #[test]
-fn the_pulse_runs_on_the_beat_and_not_with_reduced_motion() {
-    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
-    // 160 BPM: lit on the beat, settled between.
-    let mut seen = Vec::new();
-    for _ in 0..30 {
-        h.frame(1.0 / 60.0);
-        seen.push(s.borrow().pulse);
-    }
-    assert!(s.borrow().pulsing);
-    let max = seen.iter().copied().fold(0.0, f32::max);
-    let min = seen.iter().copied().fold(1.0, f32::min);
-    assert!(max > 0.2 && min < 0.05, "{min} {max}");
-    // It needs frames while it runs.
-    assert_eq!(h.run_on_demand(1.0), 60);
-
-    let (mut h, s) = select([1280.0, 720.0], DESIGN, true);
-    h.run(1.0);
-    assert!(!s.borrow().pulsing);
-    assert_eq!(s.borrow().pulse, 0.0);
-    assert!(s.borrow().reduced_motion);
-    // Idle: no frames at all.
-    assert_eq!(h.run_on_demand(1.0), 0);
-    // The wheel jumps rather than glides (the backdrop still fades).
-    h.key("ArrowDown", "ArrowDown");
-    h.frame(1.0 / 60.0);
-    assert_eq!(h.ui.bounds("Wheel").map(|_| ()), Some(()));
-    assert!(
-        h.run_on_demand(1.0) <= 45,
-        "tap window plus the backdrop fade"
-    );
-    assert_eq!(s.borrow().song, "Sweeteners");
-}
-
-#[test]
 fn results_and_options_come_and_go() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
     h.key("Enter", "Enter");
@@ -2806,4 +2772,113 @@ fn a_pad_reaches_the_quick_volume_in_the_header() {
     assert_eq!(h.ui.focused(), Some("Wheel"));
     h.run(0.5);
     assert!(!volume_shown(&h));
+}
+
+/// What song select told its shell of showing, in order: `Shown` and
+/// the songs `Selected` after the first.
+fn shown_calls(calls: &Calls, from: usize) -> Vec<String> {
+    calls.borrow()[from..]
+        .iter()
+        .filter_map(|c| match c {
+            SelectCall::Shown(s) => Some(format!("shown {s}")),
+            SelectCall::Selected { song, .. } => Some(format!("selected {song:?}")),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A screen over song select that closes on Start.
+pub(super) struct Cover;
+
+impl crate::Screen for Cover {
+    fn name(&self) -> &str {
+        "cover"
+    }
+
+    fn build(&mut self, _cx: &mut crate::Cx) -> ddi_actor::Actor {
+        ddi_actor::Actor::new(ddi_actor::Kind::Frame(vec![]))
+    }
+
+    fn input(
+        &mut self,
+        input: &crate::Input,
+        _root: &mut ddi_actor::Actor,
+        cx: &mut crate::Cx,
+    ) -> crate::Handled {
+        if matches!(
+            input,
+            crate::Input::Menu {
+                action: crate::MenuAction::Start,
+                ..
+            }
+        ) {
+            cx.close(true);
+            return crate::Handled::Yes;
+        }
+        crate::Handled::No
+    }
+}
+
+/// Song select tells its shell it shows at first, that it no longer does
+/// under another screen, and again (its song first) once uncovered; a
+/// dialog over it changes nothing.
+#[test]
+fn song_select_tells_the_shell_when_it_shows() {
+    let (mut h, _, calls, _) = shelled(library(), Some("sweeteners"));
+    assert_eq!(
+        shown_calls(&calls, 0),
+        ["selected Some(\"sweeteners\")", "shown true"]
+    );
+    // A dialog (More): nothing.
+    let n = calls.borrow().len();
+    h.tap(PointerKind::Mouse, "More");
+    h.run(0.3);
+    assert_eq!(top(&h), "editor-actions");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert!(
+        shown_calls(&calls, n).is_empty(),
+        "{:?}",
+        shown_calls(&calls, n)
+    );
+    // Covered, then uncovered.
+    let n = calls.borrow().len();
+    h.push(Cover);
+    assert_eq!(shown_calls(&calls, n), ["shown false"]);
+    h.run(0.3);
+    h.key("Enter", "Enter");
+    h.run(0.5);
+    assert_eq!(
+        shown_calls(&calls, n),
+        ["shown false", "selected Some(\"sweeteners\")", "shown true"]
+    );
+}
+
+/// A still mouse over the wheel: no hit test while nothing changes, the
+/// hover following the rows when a wheel's notch moves them under it.
+#[test]
+fn a_still_mouse_is_picked_again_only_when_something_moves() {
+    let (mut h, _) = select([1280.0, 720.0], DESIGN, false);
+    let row = (0..12)
+        .map(|k| format!("Wheel#{k}"))
+        .find(|n| h.ui.bounds(n).is_some_and(|b| b[3] > b[1]))
+        .unwrap();
+    let at = h.centre(&row);
+    h.hover(at);
+    h.run(1.0);
+    let row_of = |h: &Harness| h.ui.hovered().into_iter().find(|n| n.starts_with("Wheel#"));
+    let hovered = row_of(&h);
+    assert!(hovered.is_some(), "{:?}", h.ui.hovered());
+    let picks = h.ui.picks();
+    h.run(1.0);
+    assert_eq!(h.ui.picks(), picks, "no hit test while nothing moves");
+    // A notch scrolls the rows under the mouse: the hover follows.
+    h.wheel_lines(at, [0.0, 3.0]);
+    h.run(1.0);
+    assert_ne!(row_of(&h), hovered);
+    assert!(
+        h.ui.problems().iter().all(|p| !p.contains("hover")),
+        "{:?}",
+        h.ui.problems()
+    );
 }

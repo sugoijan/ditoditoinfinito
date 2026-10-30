@@ -115,9 +115,10 @@ pub(super) struct AudioView {
     pub(super) analysis: Option<Rc<Analysis>>,
     pub(super) coming: bool,
     texture: u32,
-    /// The timing's seconds where the mapping bends, and the timing
-    /// they are of.
-    knots: Option<(TimingMap, Vec<f64>)>,
+    /// The timing's seconds where the mapping bends, the timing they
+    /// are of and its number (what the pictures are keyed by: the
+    /// timing compared each frame, copied only when it changes).
+    knots: Option<(TimingMap, u64, Vec<f64>)>,
     /// What the picture was painted for, and the picture.
     painted_for: Option<Key>,
     picture: Option<AudioPicture>,
@@ -142,7 +143,7 @@ struct ScrollKey {
     beat_h: f32,
     scale: f32,
     width: usize,
-    timing: TimingMap,
+    timing: u64,
     mode: AudioMode,
     analysis: *const Analysis,
 }
@@ -157,7 +158,7 @@ struct Row {
 #[derive(Clone, PartialEq)]
 struct Key {
     mapping: Mapping,
-    timing: TimingMap,
+    timing: u64,
     pixels: [f32; 4],
     top: f32,
     scale: f32,
@@ -347,9 +348,14 @@ impl EditorScreen {
         let e = self.editor.borrow();
         let timing = e.timing();
         let mapping = self.mapping(timing);
+        if self.audio.knots.as_ref().is_none_or(|(t, ..)| t != timing) {
+            let n = self.audio.knots.as_ref().map_or(0, |(_, n, _)| n + 1);
+            self.audio.knots = Some((timing.clone(), n, knots(timing)));
+        }
+        let timing_n = self.audio.knots.as_ref().map_or(0, |(_, n, _)| *n);
         let key = Key {
             mapping,
-            timing: timing.clone(),
+            timing: timing_n,
             pixels,
             top: (pixels[1] - g.origin[1]) / g.scale,
             scale: g.scale,
@@ -362,11 +368,8 @@ impl EditorScreen {
         }
         let clock = || self.host.as_ref().and_then(|h| h.clock());
         let started = clock();
-        if self.audio.knots.as_ref().is_none_or(|(t, _)| t != timing) {
-            self.audio.knots = Some((timing.clone(), knots(timing)));
-        }
         let knots = self.audio.knots.take();
-        let cuts = knots.as_ref().map_or(&[][..], |(_, k)| &k[..]);
+        let cuts = knots.as_ref().map_or(&[][..], |(.., k)| &k[..]);
         let w = pixels[2] as usize;
         let row_h = 1.0 / g.scale;
         let colors = self.audio_colors(&analysis);
@@ -387,7 +390,7 @@ impl EditorScreen {
                 beat_h: mapping.beat_h,
                 scale: g.scale,
                 width: w,
-                timing: timing.clone(),
+                timing: timing_n,
                 mode: self.audio.mode,
                 analysis: Rc::as_ptr(&analysis),
             };

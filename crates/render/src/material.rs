@@ -6,7 +6,7 @@
 //! entry points, bindings or global variables of its own, no loops (WGSL
 //! has no recursion, so its cost per pixel is bounded), and the whole
 //! shader valid for WebGL2's capabilities. The engine has no paints of its
-//! own but the wave its long-note metrics declare ([`HOLD_WAVE`]).
+//! own: every material is a skin's.
 
 /// The most bytes of a material's source.
 pub const MAX_SOURCE: usize = 16 << 10;
@@ -19,17 +19,10 @@ pub const SLOTS: usize = 64;
 /// A material's parameters: eight `vec4`s, `Material::params`.
 pub type MaterialParams = [[f32; 4]; 8];
 
-/// The material the long-note metrics' wave is drawn with
-/// ([`crate::textured::TexturedPipeline`] registers it first).
-pub const HOLD_WAVE: u32 = 0;
-
 /// [`MaterialQuad::material`] with this bit: the note layer's own material
 /// of that index ([`crate::noteskin::NoteLayer::skin_materials`]), which
 /// the renderer registers and names by its id before the frame is drawn.
 pub const LOCAL: u32 = 1 << 31;
-
-/// The source of the long-note metrics' wave.
-pub(crate) const HOLD_WAVE_SOURCE: &str = include_str!("materials/hold_wave.wgsl");
 
 const PRELUDE: &str = include_str!("material_prelude.wgsl");
 const STUB: &str = include_str!("material_stub.wgsl");
@@ -56,8 +49,7 @@ const RESERVED: [&str; 12] = [
 /// lies in material coordinates and its own inputs.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MaterialQuad {
-    /// A registered material ([`crate::textured::TexturedPipeline::add_material`],
-    /// or [`HOLD_WAVE`]).
+    /// A registered material ([`crate::textured::TexturedPipeline::add_material`]).
     pub material: u32,
     /// Its parameters' slot in this frame's [`MaterialFrame::params`].
     pub slot: u16,
@@ -350,9 +342,25 @@ pub fn compile(paint: &str) -> Result<Compiled, MaterialError> {
 mod tests {
     use super::*;
 
+    /// Infinito's materials as they ship: valid for WebGL2.
     #[test]
-    fn the_hold_wave_compiles() {
-        compile(HOLD_WAVE_SOURCE).expect("the wave compiles");
+    fn infinitos_materials_compile() {
+        for (name, source) in [
+            (
+                "wave",
+                include_str!("../../../assets/noteskins/dance/Infinito/_spiral wave.wgsl"),
+            ),
+            (
+                "material",
+                include_str!("../../../assets/noteskins/dance/Infinito/_spiral material.wgsl"),
+            ),
+            (
+                "effect",
+                include_str!("../../../assets/noteskins/dance/Infinito/_spiral effect.wgsl"),
+            ),
+        ] {
+            compile(source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
     }
 
     #[test]

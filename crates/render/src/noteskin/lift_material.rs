@@ -1,23 +1,6 @@
-//! Time-sized leading lift masks. Ordinary lift actors remain unchanged unless
-//! the skin declares LiftStencilMaterial and supplies the four named children.
+//! A skin's `Def.Lift`: a time-sized leading trail under its head
+//! (`docs/plans/noteskin-scene.md`).
 use super::*;
-use ddi_actor::Actor;
-
-type ImageLayer = (u32, [f32; 4], [f32; 2]);
-fn layer(actor: &Actor, name: &str, state: usize) -> Option<ImageLayer> {
-    let child = actor.children().iter().find(|c| c.name == name)?;
-    let Kind::Sprite(sprite) = &child.kind else {
-        return None;
-    };
-    Some((sprite.texture, sprite.states.get(state)?.rect, sprite.size))
-}
-
-pub(super) fn lead_length(
-    m: ddi_noteskin::metrics::LiftMaterial,
-    motion: ddi_engine::frame::NoteMotion,
-) -> f32 {
-    lead(m.seconds, motion)
-}
 
 /// How far ahead of a lift its trail leads: the distance the note travels
 /// in `seconds`, a quarter of a beat at least, in units (64 an arrow).
@@ -188,195 +171,6 @@ impl NoteskinPlay {
             out,
         );
     }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn material_lift(
-        &self,
-        element: &mut Element,
-        metrics: &NoteDisplay,
-        note: &NoteSprite,
-        frame: &Frame,
-        geo: &FieldGeometry,
-        [x, head]: [f32; 2],
-        k: f32,
-        dir: f32,
-        slot: Option<u16>,
-        out: &mut Vec<TexQuad>,
-    ) -> bool {
-        let (Some(m), Some(slot)) = (metrics.lift_material, slot) else {
-            return false;
-        };
-        let Element::Actor(actor) = element else {
-            return false;
-        };
-        let phase = animation_percent(
-            metrics.part(Part::TapLift),
-            metrics.animation_is_beat_based,
-            frame.beat as f32,
-            frame.song_time as f32,
-            note.beat,
-        );
-        let state = (phase.rem_euclid(1.0) * 16.0).floor() as usize;
-        let (Some(trail), Some(shadow), Some(band), Some(charge)) = (
-            layer(actor, "LiftTrail", 0),
-            layer(actor, "LiftTrail", 1),
-            layer(actor, "LiftBand", 0),
-            layer(actor, "LiftCharge", state),
-        ) else {
-            return false;
-        };
-        let Some(origin) = actor
-            .children()
-            .iter()
-            .find(|c| c.name == "LiftTrail")
-            .map(|c| c.current().pos[1])
-        else {
-            return false;
-        };
-        if !actor.children().iter().any(|c| c.name == "LiftColors") {
-            return false;
-        }
-        let visibility: Vec<_> = actor.children().iter().map(|c| c.visible).collect();
-        for child in actor.children_mut() {
-            child.visible &= child.name == "LiftColors";
-        }
-        let mut colors = Vec::new();
-        self.note_actor(
-            element,
-            metrics,
-            Part::TapLift,
-            note.beat,
-            (note.alpha, note.glow),
-            frame,
-            [x, head],
-            k,
-            1.0,
-            &mut colors,
-        );
-        let Element::Actor(actor) = element else {
-            unreachable!()
-        };
-        for (child, visible) in actor.children_mut().iter_mut().zip(visibility) {
-            child.visible = visible;
-        }
-        let length = lead_length(m, frame.note_motion);
-        let first = out.len();
-        let fade = |y: f32| ((y + length) / length).clamp(0.0, 1.0).powf(m.fade) * m.opacity;
-        let alpha = |y: f32| frame.appearance.visibility(note.y + y / 64.0).0;
-        let image = |asset: ImageLayer,
-                     y0: f32,
-                     y1: f32,
-                     source_y: f32,
-                     mask: Mask,
-                     opacity: [f32; 2],
-                     out: &mut Vec<TexQuad>| {
-            let Some(texture) = self.texture_id(asset.0) else {
-                return;
-            };
-            let screen0 = (0.0 - head) / (k * dir);
-            let screen1 = (geo.height - head) / (k * dir);
-            let a = y0.max(screen0.min(screen1));
-            let b = y1.min(screen0.max(screen1));
-            if b <= a {
-                return;
-            }
-            let uv_y =
-                |y: f32| asset.1[1] + (asset.1[3] - asset.1[1]) * (y + source_y) / asset.2[1];
-            let v = |y: f32| opacity[0] + (opacity[1] - opacity[0]) * (y - y0) / (y1 - y0);
-            let color = |a| to_target([1.0, 1.0, 1.0, a], self.srgb);
-            out.push(TexQuad {
-                mask,
-                gradient: Some([color(v(a)), color(v(a)), color(v(b)), color(v(b))]),
-                blend: mask_blend(mask),
-                ..TexQuad::new(
-                    Shape::Quad {
-                        transform: [
-                            asset.2[0] * k,
-                            0.0,
-                            0.0,
-                            (b - a) * k * dir,
-                            x,
-                            head + (a + b) * 0.5 * k * dir,
-                        ],
-                        uv: [asset.1[0], uv_y(a), asset.1[2], uv_y(b)],
-                    },
-                    [1.0; 4],
-                    texture,
-                )
-            });
-        };
-        out.push(clear_quad());
-        // The exported shadow surrounds the combined trail and head, so there
-        // is no second stationary head shadow darkening their overlap.
-        let mut y = -length;
-        while y < 48.0 {
-            let end = (y + 4.0).min(48.0);
-            image(
-                shadow,
-                y,
-                end,
-                origin,
-                Mask::None,
-                [fade(y) * alpha(y), fade(end) * alpha(end)],
-                out,
-            );
-            y = end;
-        }
-        out.push(clear_quad());
-        image(trail, -length, 48.0, origin, Mask::Write, [1.0; 2], out);
-        // The wave over the trail in four-pixel rows, each faded from its
-        // top to its bottom; over the head's band, one quad.
-        let phase = hold_material::wave_phase(m.material, frame.song_time);
-        let white = |a| to_target([1.0, 1.0, 1.0, a], self.srgb);
-        let wave = |span, colors| {
-            hold_material::wave_quad(
-                slot,
-                phase,
-                1.0,
-                [x, head, k, dir],
-                span,
-                Mask::Inside,
-                colors,
-            )
-        };
-        let paint = |lo: f32, hi: f32, head_band: bool, out: &mut Vec<TexQuad>| {
-            if head_band {
-                out.push(wave((lo, hi), [white(note.alpha); 4]));
-                return;
-            }
-            let mut y = lo;
-            while y < hi {
-                let end = (y + 4.0).min(hi);
-                let (a, b) = (white(fade(y) * alpha(y)), white(fade(end) * alpha(end)));
-                out.push(wave((y, end), [a, a, b, b]));
-                y = end;
-            }
-        };
-        paint(-length, 48.0, false, out);
-        out.push(clear_quad());
-        image(band, -48.0, 48.0, 48.0, Mask::Write, [1.0; 2], out);
-        paint(-48.0, 48.0, true, out);
-        out.push(TexQuad {
-            mask: Mask::Inside,
-            ..TexQuad::new(
-                Shape::Quad {
-                    transform: [96.0 * k, 0.0, 0.0, 96.0 * k, x, head],
-                    uv: [0.0, 0.0, 1.0, 1.0],
-                },
-                to_target([1.0, 1.0, 1.0, m.white * note.alpha], self.srgb),
-                UNTEXTURED,
-            )
-        });
-        out.push(clear_quad());
-        image(charge, -48.0, 48.0, 48.0, Mask::Write, [1.0; 2], out);
-        for mut q in colors {
-            q.mask = Mask::Inside;
-            out.push(mirror_about(q, head, dir));
-        }
-        out.push(clear_quad());
-        bound_clears(&mut out[first..]);
-        true
-    }
 }
 
 #[cfg(test)]
@@ -384,35 +178,16 @@ mod tests {
     use super::*;
     #[test]
     fn preparation_is_time_sized_with_a_quarter_beat_minimum_and_bounded_extent() {
-        let skin = ddi_noteskin::skin::Skin::load(&[], "dance", "default").unwrap();
-        let material = NoteDisplay::read(&skin, "Down").hold_material.unwrap_or(
-            ddi_noteskin::metrics::HoldMaterial {
-                pitch: 12.5,
-                period: 121.0,
-                angle: 0.0,
-                phase: 0.7,
-                speed: 1.0,
-                wave: [0.0, 209.0, 206.0],
-                colors: [[0.5; 3]; 3],
-            },
-        );
-        let m = ddi_noteskin::metrics::LiftMaterial {
-            material,
-            seconds: 0.28,
-            fade: 2.0,
-            opacity: 1.0,
-            white: 0.7,
-        };
         let motion = |speed, seconds_per_beat| ddi_engine::frame::NoteMotion {
             arrows_per_second: speed,
             seconds_per_beat,
         };
-        assert!((lead_length(m, motion(3.75, 0.5)) - 67.2).abs() < 1e-4);
-        assert!((lead_length(m, motion(3.75, 2.0)) - 120.0).abs() < 1e-4);
+        assert!((lead(0.28, motion(3.75, 0.5)) - 67.2).abs() < 1e-4);
+        assert!((lead(0.28, motion(3.75, 2.0)) - 120.0).abs() < 1e-4);
         assert_eq!(
-            lead_length(m, motion(-3.75, 0.5)),
-            lead_length(m, motion(3.75, 0.5))
+            lead(0.28, motion(-3.75, 0.5)),
+            lead(0.28, motion(3.75, 0.5))
         );
-        assert_eq!(lead_length(m, motion(2000.0, 0.5)), 256.0);
+        assert_eq!(lead(0.28, motion(2000.0, 0.5)), 256.0);
     }
 }

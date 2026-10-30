@@ -47,6 +47,17 @@ impl fmt::Display for CommandError {
     }
 }
 
+/// Runs a command string on `a` at once (what fails to parse runs
+/// nothing; what fails to run is skipped).
+pub fn run(a: &mut crate::Actor, commands: &str) {
+    let mut p = crate::Problems::default();
+    if let Ok(calls) = parse(commands) {
+        for c in &calls {
+            let _ = a.call(c, &mut p, 0);
+        }
+    }
+}
+
 /// Parses a command string into calls.
 pub fn parse(commands: &str) -> Result<Vec<Call>, CommandError> {
     if commands.starts_with('%') || commands.starts_with('\u{1b}') {

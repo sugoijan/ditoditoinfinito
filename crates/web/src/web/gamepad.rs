@@ -185,7 +185,14 @@ struct Slot {
 
 /// Called synchronously from the poll that saw an edge (so it may start
 /// gesture-gated APIs where the browser treats pad presses as a gesture).
-type Listener = Box<dyn FnMut(&RawInput)>;
+/// What a hub tells its listener: the pads connected (before the edges of
+/// the poll that changed them), and each edge.
+pub(crate) enum PadNews<'a> {
+    Pads(&'a [ddi_engine::ConnectedPad]),
+    Edge(&'a RawInput),
+}
+
+type Listener = Box<dyn FnMut(PadNews<'_>)>;
 
 struct State {
     buf: Float64Array,
@@ -196,6 +203,10 @@ struct State {
     slots: BTreeMap<u32, Slot>,
     snapshot: PadSnapshot,
     queue: Vec<RawInput>,
+    /// The pads connected as last read, and whether the listener is yet
+    /// to hear of them.
+    connected: Vec<ddi_engine::ConnectedPad>,
+    pads_news: bool,
     listener: Option<Listener>,
     /// Whether edges are queued for [`InputSource::poll`] (off where a
     /// listener takes them all and nothing drains the queue).
@@ -286,19 +297,10 @@ impl State {
             kept
         });
 
-        ddi_ui::controller_hints::devices(
-            self.slots
-                .iter()
-                .map(|(&index, p)| ddi_engine::ConnectedPad {
-                    id: p.id.clone(),
-                    index,
-                    standard: p.standard,
-                    vendor_product: None,
-                })
-                .collect(),
-        );
-        for edge in &self.queue[before..] {
-            ddi_ui::controller_hints::edge(edge);
+        let connected = connected(&self.slots);
+        if connected != self.connected {
+            self.connected = connected;
+            self.pads_news = true;
         }
         if now_ms - self.window_start >= 1000.0 {
             self.polls_per_second = self.window_polls;
@@ -313,18 +315,22 @@ impl State {
 /// Polls `state` and hands the new edges to the listener, outside the
 /// borrow so the listener may call back into the hub.
 fn poll_and_notify(state: &Rc<RefCell<State>>, now_ms: f64) {
-    let (fresh, mut listener) = {
+    let (pads, fresh, mut listener) = {
         let mut s = state.borrow_mut();
         let added = s.poll(now_ms);
-        if added == 0 || s.listener.is_none() {
+        if (added == 0 && !s.pads_news) || s.listener.is_none() {
             return;
         }
+        let pads = std::mem::take(&mut s.pads_news).then(|| s.connected.clone());
         let start = s.queue.len() - added;
-        (s.queue[start..].to_vec(), s.listener.take())
+        (pads, s.queue[start..].to_vec(), s.listener.take())
     };
     if let Some(l) = listener.as_mut() {
+        if let Some(pads) = &pads {
+            l(PadNews::Pads(pads));
+        }
         for edge in &fresh {
-            l(edge);
+            l(PadNews::Edge(edge));
         }
     }
     let mut s = state.borrow_mut();
@@ -363,17 +369,20 @@ thread_local! {
 /// The pads connected to the page's UI, as a play reads them (the chart
 /// editor's recording binds its lanes with them).
 pub(crate) fn page_pads() -> Vec<ddi_engine::ConnectedPad> {
-    let Some(hub) = PAGE.with(|p| p.borrow().upgrade()) else {
-        return Vec::new();
-    };
-    Gamepads(hub)
-        .pads()
-        .into_iter()
-        .map(|p| ddi_engine::ConnectedPad {
-            vendor_product: None,
-            id: p.id,
-            index: p.index,
+    PAGE.with(|p| p.borrow().upgrade())
+        .map(|hub| Gamepads(hub).connected())
+        .unwrap_or_default()
+}
+
+/// The pads in `slots`, as the UI and a play know them.
+fn connected(slots: &BTreeMap<u32, Slot>) -> Vec<ddi_engine::ConnectedPad> {
+    slots
+        .iter()
+        .map(|(&index, p)| ddi_engine::ConnectedPad {
+            id: p.id.clone(),
+            index,
             standard: p.standard,
+            vendor_product: None,
         })
         .collect()
 }
@@ -404,6 +413,8 @@ impl Gamepads {
             slots: BTreeMap::new(),
             snapshot: PadSnapshot::default(),
             queue: Vec::new(),
+            connected: Vec::new(),
+            pads_news: false,
             listener: None,
             queue_edges: true,
             created: HostTime(
@@ -480,6 +491,11 @@ impl Gamepads {
     /// These are the page's pads ([`page_pads`]).
     pub(crate) fn for_page(&self) {
         PAGE.with(|p| *p.borrow_mut() = Rc::downgrade(&self.0));
+    }
+
+    /// The pads connected now, as the UI and a play know them.
+    pub(crate) fn connected(&self) -> Vec<ddi_engine::ConnectedPad> {
+        connected(&self.0.state.borrow().slots)
     }
 
     pub(crate) fn pads(&self) -> Vec<PadInfo> {

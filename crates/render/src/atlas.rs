@@ -50,6 +50,8 @@ pub struct ShelfPacker {
     shelves: Vec<Shelf>,
     /// The top of the next shelf.
     next_y: u32,
+    /// [`WASTE`], or the page's own ([`ShelfPacker::with_waste`]).
+    waste: f32,
 }
 
 /// A shelf takes a rectangle whose height is within this fraction of its
@@ -63,7 +65,16 @@ impl ShelfPacker {
             height,
             shelves: Vec::new(),
             next_y: 0,
+            waste: WASTE,
         }
+    }
+
+    /// A shelf takes a rectangle up to `waste` of its height shorter than
+    /// it (1: any shorter one; for rectangles placed tallest first, as a
+    /// skin's images are).
+    pub fn with_waste(mut self, waste: f32) -> ShelfPacker {
+        self.waste = waste;
+        self
     }
 
     /// A place for a `width × height` rectangle, or `None` when the page
@@ -79,7 +90,7 @@ impl ShelfPacker {
             .enumerate()
             .filter(|(_, s)| {
                 s.height >= height
-                    && (s.height - height) as f32 <= s.height as f32 * WASTE
+                    && (s.height - height) as f32 <= s.height as f32 * self.waste
                     && s.x + width <= self.width
             })
             .min_by_key(|(_, s)| s.height)
@@ -142,6 +153,21 @@ mod tests {
         // The shortest shelf that fits wins.
         let e = p.alloc(10, 9).unwrap();
         assert_eq!((e.x, e.y), (10, 20));
+    }
+
+    /// A skin's images, tallest first: any shorter one shares a shelf,
+    /// and room left on an earlier shelf is used before a new one opens.
+    #[test]
+    fn a_loose_page_takes_any_shorter_rectangle() {
+        let mut p = ShelfPacker::new(100, 100).with_waste(1.0);
+        let a = p.alloc(60, 40).unwrap();
+        let b = p.alloc(70, 20).unwrap();
+        assert_eq!((a.x, a.y, b.x, b.y), (0, 0, 0, 40));
+        // Too wide for the second shelf's room, short enough for the
+        // first's: there, not on a new shelf.
+        let c = p.alloc(35, 10).unwrap();
+        assert_eq!((c.x, c.y), (60, 0));
+        assert_eq!(p.used_height(), 60);
     }
 
     #[test]

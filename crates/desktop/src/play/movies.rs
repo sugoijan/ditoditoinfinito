@@ -131,13 +131,9 @@ impl Movies {
         if answer.is_none()
             && let (Some(i), Some(h)) = (*id, host)
         {
-            *answer = h.probe_result(i).map(|r| {
-                r.ok()
-                    .and_then(|p| p.bounds)
-                    .filter(|b| b.3 > 0)
-                    .map(|b| b.2 as f32 / b.3 as f32)
-                    .ok_or(())
-            });
+            *answer = h
+                .probe_result(i)
+                .map(|r| r.ok().and_then(|p| p.aspect()).ok_or(()));
         }
         match answer {
             None => Err(true),

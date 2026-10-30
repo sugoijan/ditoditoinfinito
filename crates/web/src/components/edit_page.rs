@@ -10,7 +10,7 @@ use std::rc::Rc;
 use ddi_chart::Song;
 use ddi_ui::screens::editor::EditorScreen;
 use ddi_ui::state::editor::Editor;
-use ddi_ui::{TextMode, Ui};
+
 use web_sys::HtmlElement;
 
 use crate::component::{Component, Context, NodeRef};
@@ -149,10 +149,7 @@ impl EditPage {
         let screen = EditorScreen::shared(theme.env().clone(), editor, crate::editor::place(&id))
             .with_host(host)
             .with_status(status);
-        let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
-        // Under the boot shell, the screen comes in as the shell fades.
-        ui.hold_entrances(crate::boot::shown());
-        ui.set_focus_ring(false);
+        let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(screen);
         match ui_dev::start_ui(&el, ui, Some(theme), Some(debug)) {
             Ok(started) => {

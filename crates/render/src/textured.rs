@@ -389,8 +389,8 @@ pub struct TexturedPipeline {
     /// (an `ActorFrameTexture` without an alpha buffer stays opaque).
     target_pipelines: [Pipelines; 2],
     stats: QuadStats,
-    /// Materials, by [`MaterialQuad::material`] ([`material::HOLD_WAVE`]
-    /// first), their uniforms, and the layout their pipelines share.
+    /// Materials, by [`MaterialQuad::material`], their uniforms, and the
+    /// layout their pipelines share.
     materials: Vec<MaterialShader>,
     material_layout: wgpu::PipelineLayout,
     material_buffer: wgpu::Buffer,
@@ -552,9 +552,6 @@ impl TexturedPipeline {
         };
         let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
-        let wave = material::compile(material::HOLD_WAVE_SOURCE).expect("the wave compiles");
-        let id = p.add_material(device, &wave, &[QuadBlend::Normal]);
-        debug_assert_eq!(id, material::HOLD_WAVE);
         p
     }
 
@@ -836,7 +833,7 @@ impl TexturedPipeline {
                         id: page_id,
                         format: texture.format(),
                         side,
-                        shelf: [0; 3],
+                        packer: crate::atlas::ShelfPacker::new(side, side).with_waste(1.0),
                     };
                     let at = page.place(w, h).expect("an empty page holds it");
                     self.pages.push(page);
@@ -1493,29 +1490,19 @@ fn page_side(area: u64, largest: u32, most: u32) -> u32 {
 }
 
 /// An atlas page ([`TexturedPipeline::pack`]): its texture's id, format
-/// and side, and its current shelf's top, height and next free column.
+/// and side, and its shelves (the images placed tallest first, so any
+/// shorter one goes on a shelf with room).
 struct Page {
     id: u32,
     format: wgpu::TextureFormat,
     side: u32,
-    shelf: [u32; 3],
+    packer: crate::atlas::ShelfPacker,
 }
 
 impl Page {
-    /// A place for `w × h` pixels: on the current shelf, else on a new one
-    /// below; `None` when the page is full.
+    /// A place for `w × h` pixels; `None` when the page is full for it.
     fn place(&mut self, w: u32, h: u32) -> Option<[u32; 2]> {
-        let [top, height, x] = self.shelf;
-        if x + w <= self.side && h <= height {
-            self.shelf[2] = x + w;
-            return Some([x, top]);
-        }
-        let below = top + height;
-        if below + h > self.side || w > self.side {
-            return None;
-        }
-        self.shelf = [below, h, w];
-        Some([0, below])
+        self.packer.alloc(w, h).map(|r| [r.x, r.y])
     }
 }
 

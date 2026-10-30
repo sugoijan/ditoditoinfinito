@@ -22,7 +22,7 @@ use ddi_engine::{ControlBindings, MenuInput};
 use ddi_platform::{DeviceId, HostTime, RawInput};
 
 use super::editor_field::Mapping;
-use super::{EditorCall, EditorScreen, trim_number};
+use super::{EditorCall, EditorScreen, trim_number, with_alpha};
 use crate::gesture::Gesture;
 use crate::look::{call, quad};
 use crate::screen::{Cx, Handled, Input};
@@ -349,7 +349,7 @@ impl EditorScreen {
         // The span: a line at its start, its last row's when it has one.
         let take = &rec.take;
         for t in std::iter::once(take.start()).chain(take.last()) {
-            let mut line = quad("Record.Edge", [lanes_w + 16.0, 2.0], with(TINT, 0.8));
+            let mut line = quad("Record.Edge", [lanes_w + 16.0, 2.0], with_alpha(TINT, 0.8));
             call(&mut line, "xy", &[g.lanes_x + lanes_w / 2.0, y_of(t.0)]);
             c.push(line);
         }
@@ -366,21 +366,25 @@ impl EditorScreen {
                 } else {
                     0.55
                 };
-                let mut body = quad("", [size * 0.55, (y1 - y0).max(1.0)], with(TINT, alpha));
+                let mut body = quad(
+                    "",
+                    [size * 0.55, (y1 - y0).max(1.0)],
+                    with_alpha(TINT, alpha),
+                );
                 call(&mut body, "xy", &[x, (y0 + y1) / 2.0]);
                 c.push(body);
             }
-            let mut p = quad(&format!("Record.{i}"), [size, head_h], with(TINT, 0.85));
+            let mut p = quad(
+                &format!("Record.{i}"),
+                [size, head_h],
+                with_alpha(TINT, 0.85),
+            );
             call(&mut p, "xy", &[x, y]);
             call(&mut p, "cornerradius", &[head_h * 0.3]);
             c.push(p);
         }
         c
     }
-}
-
-fn with(c: [f32; 4], a: f32) -> [f32; 4] {
-    [c[0], c[1], c[2], c[3] * a]
 }
 
 /// Whether `raw`, bound to no lane, stops recording: R, Escape,

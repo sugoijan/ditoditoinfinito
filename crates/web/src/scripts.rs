@@ -87,12 +87,9 @@ pub(crate) async fn load(
     let foregrounds = backgrounds::foregrounds(song, &folders);
     let env = ddi_session::scripted::env(song, ddi_session::scripted::frame_aspect(frame));
     let screen = env.screen;
-    let performance = web_sys::window().and_then(|w| w.performance());
-    let clock = Box::new(move || performance.as_ref().map_or(0.0, |p| p.now() / 1000.0));
+    let clock = crate::noteskins::clock();
     // In slices, the page drawing between them (the start prompt).
-    let mut pause = || -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
-        Box::pin(gloo::timers::future::TimeoutFuture::new(0))
-    };
+    let mut pause = crate::noteskins::pause;
     let scripts = Scripts::load_sliced(
         files,
         env,
