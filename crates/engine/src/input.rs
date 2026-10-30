@@ -277,7 +277,7 @@ mod tests {
         let mut b = Bindings::from_layout(&Layout::dance_single());
         let raw = RawInput {
             device: DeviceId::Keyboard,
-            control: "KeyJ".into(),
+            control: "KeyW".into(),
             pressed: true,
             host_time: HostTime(1.0),
             slot: 0,
@@ -297,7 +297,7 @@ mod tests {
         // Binding a control already used elsewhere moves it.
         b.bind(BindingDevice::Keyboard, "ArrowLeft", 3);
         assert_eq!(b.lane_of(&DeviceId::Keyboard, "ArrowLeft"), Some(3));
-        // Left keeps its other keys (KeyD and the number pad's 4).
+        // Left keeps its other keys (KeyA and the number pad's 4).
         assert_eq!(b.controls_of(0).count(), 2);
     }
 }

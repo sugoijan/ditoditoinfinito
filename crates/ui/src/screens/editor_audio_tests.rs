@@ -416,20 +416,20 @@ fn the_column_beside_the_lanes_and_its_keys() {
         "{y}: {onsets:?}"
     );
     assert_eq!(view(&s).audio.onsets, onsets);
-    // Shift W: the waveform alone, then the spectrogram, then both.
-    s.h.key_with("KeyW", "W", SHIFT);
+    // Shift G: the waveform alone, then the spectrogram, then both.
+    s.h.key_with("KeyG", "G", SHIFT);
     s.h.frame(1.0 / 60.0);
     assert_eq!(view(&s).audio.mode, "waveform");
-    s.h.key_with("KeyW", "W", SHIFT);
+    s.h.key_with("KeyG", "G", SHIFT);
     s.h.frame(1.0 / 60.0);
     assert_eq!(view(&s).audio.mode, "spectrogram");
     assert!(view(&s).audio.onsets.is_empty(), "no waveform drawn");
-    s.h.key_with("KeyW", "W", SHIFT);
+    s.h.key_with("KeyG", "G", SHIFT);
     s.h.frame(1.0 / 60.0);
     assert_eq!(view(&s).audio.mode, "both");
-    // W hides it: the lanes take the room, the shell shows none.
+    // G hides it: the lanes take the room, the shell shows none.
     let lanes_before = s.h.ui.bounds("Cursor").unwrap();
-    s.h.key("KeyW", "w");
+    s.h.key("KeyG", "g");
     s.h.run(0.2);
     let v = view(&s).audio;
     assert!(!v.shown && v.layout.is_empty());
@@ -443,17 +443,17 @@ fn the_column_beside_the_lanes_and_its_keys() {
     assert!(
         s.h.texts()
             .iter()
-            .any(|t| t == "Audio: waveform and spectrogram (W)")
+            .any(|t| t == "Audio: waveform and spectrogram (G)")
     );
     // The menu has both.
     s.h.key("Tab", "Tab");
     s.h.run(0.2);
     let texts = s.h.texts();
     assert!(
-        texts.iter().any(|t| t == "Hide the audio view (W)"),
+        texts.iter().any(|t| t == "Hide the audio view (G)"),
         "{texts:?}"
     );
-    assert!(texts.iter().any(|t| t == "Audio view: waveform (Shift W)"));
+    assert!(texts.iter().any(|t| t == "Audio view: waveform (Shift G)"));
 }
 
 #[test]
@@ -528,7 +528,7 @@ fn where_there_is_no_room_it_is_behind_the_lanes() {
         // Hidden at first: no room beside the lanes.
         let v = view(&s).audio;
         assert!(v.ready && !v.shown, "{size:?}: {v:?}");
-        s.h.key("KeyW", "w");
+        s.h.key("KeyG", "g");
         s.h.run(0.2);
         let v = view(&s).audio;
         assert!(v.shown, "{size:?}");
@@ -563,7 +563,7 @@ fn without_music_there_is_no_view() {
         EditorPlace::default(),
     ));
     h.run(0.3);
-    h.key("KeyW", "w");
+    h.key("KeyG", "g");
     h.run(0.2);
     let v = env.state.borrow().editor.clone().unwrap().audio;
     assert!(!v.ready && !v.shown);

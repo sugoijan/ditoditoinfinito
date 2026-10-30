@@ -481,7 +481,8 @@ noteskin no longer installed.
 
 **Where.**
 
-- **Results:** "Watch replay" (W) once the play is kept. After a replay
+- **Results:** "Watch replay" (V; W until W A S D moved through the
+  menus, 2026-10-30) once the play is kept. After a replay
   the results are marked REPLAY, Retry becomes "Watch again", and the
   song offset editor is not offered (a replay changes nothing).
 - **Song select:** P opens the chosen chart's plays (its hint says so;
@@ -489,7 +490,7 @@ noteskin no longer installed.
   page; when, grade, score, lamp, ruleset and the options as played,
   autoplays marked, the best marked. Each can be watched, opened on the
   results screen (judged again from its log: the same results), or
-  removed (pressed twice). W watches the chart's best play.
+  removed (pressed twice). V watches the chart's best play.
 - **The play route:** `#/play?replay=<play id>` on the web
   (`&view=results` opens its results); desktop's host takes the same
   requests (`--replay ID [--results]`).

@@ -637,8 +637,8 @@ impl PadUse {
 /// pump and techno layouts had it from the start). Every version writes
 /// the single table (`keys_single`), so a player who never bound keys
 /// comes with the defaults of the version that saved them: a saved table
-/// equal to a layout's defaults without their numpad keys is the defaults
-/// too, and takes the number pad.
+/// equal to a layout's defaults of an earlier version is the defaults
+/// too, and takes the keys added since.
 const NUMPAD_ADDED: [&str; 6] = [
     "dance-single",
     "dance-solo",
@@ -648,11 +648,51 @@ const NUMPAD_ADDED: [&str; 6] = [
     "danoni-9B",
 ];
 
+/// Single's second set before W A S D took its place on 2026-10-30.
+const SINGLE_DFJK: [&str; 4] = ["KeyD", "KeyF", "KeyJ", "KeyK"];
+
 /// Whether a saved keyboard table of layout `id` is its defaults, of this
-/// version or of one before the number pad.
+/// version or of an earlier one.
 fn is_default(id: &str, table: &LaneTable, layout: &Layout) -> bool {
+    *table == default_keys(layout) || earlier_defaults(id, layout).contains(table)
+}
+
+/// The default keys earlier versions had for layout `id`: before W A S D
+/// (Single's D F J K in their place), and before that the number pad.
+fn earlier_defaults(id: &str, layout: &Layout) -> Vec<LaneTable> {
+    if !NUMPAD_ADDED.contains(&id) {
+        return Vec::new();
+    }
     let defaults = default_keys(layout);
-    *table == defaults || NUMPAD_ADDED.contains(&id) && *table == without_numpad(&defaults)
+    let before_wasd: LaneTable = match id {
+        "dance-single" => defaults
+            .iter()
+            .zip(SINGLE_DFJK)
+            .map(|(keys, old)| {
+                keys.iter()
+                    .map(|k| {
+                        if k.starts_with("Key") {
+                            old.to_string()
+                        } else {
+                            k.clone()
+                        }
+                    })
+                    .collect()
+            })
+            .collect(),
+        "danoni-5" => defaults
+            .iter()
+            .map(|keys| {
+                keys.iter()
+                    .filter(|k| !matches!(k.as_str(), "KeyW" | "KeyA" | "KeyS" | "KeyD"))
+                    .cloned()
+                    .collect()
+            })
+            .collect(),
+        _ => defaults,
+    };
+    let before_numpad = without_numpad(&before_wasd);
+    vec![before_wasd, before_numpad]
 }
 
 /// A table less its number pad keys.
@@ -858,17 +898,40 @@ mod tests {
             let layout = Layout::builtin(id).unwrap();
             let before = without_numpad(&default_keys(&layout));
             assert_ne!(before, default_keys(&layout), "{id}");
-            let mut c = ControlBindings::default();
-            c.keys.insert(id.to_string(), before.clone());
-            c.sanitize();
-            assert!(c.keys.is_empty(), "{id}");
-            assert_eq!(c.keyboard(&layout), default_keys(&layout), "{id}");
-            let mut custom = before;
-            custom[0].push("KeyZ".into());
-            c.keys.insert(id.to_string(), custom.clone());
-            c.sanitize();
-            assert_eq!(c.keys.get(id), Some(&custom), "{id}");
+            for before in earlier_defaults(id, &layout) {
+                let mut c = ControlBindings::default();
+                c.keys.insert(id.to_string(), before.clone());
+                c.sanitize();
+                assert!(c.keys.is_empty(), "{id}");
+                assert_eq!(c.keyboard(&layout), default_keys(&layout), "{id}");
+                let mut custom = before;
+                custom[0].push("KeyZ".into());
+                c.keys.insert(id.to_string(), custom.clone());
+                c.sanitize();
+                assert_eq!(c.keys.get(id), Some(&custom), "{id}");
+            }
         }
+        // Single's and danoni 5's tables before W A S D, as saved.
+        let single_dfjk = r#"{"keys_single":[["ArrowLeft","KeyD","Numpad4"],["ArrowDown","KeyF","Numpad2"],["ArrowUp","KeyJ","Numpad8"],["ArrowRight","KeyK","Numpad6"]]}"#;
+        let mut d: ControlBindings = serde_json::from_str(single_dfjk).unwrap();
+        d.sanitize();
+        assert!(d.keys.is_empty());
+        let five = Layout::builtin("danoni-5").unwrap();
+        let mut d = ControlBindings::default();
+        let old: LaneTable = [
+            &["ArrowLeft", "Numpad4"][..],
+            &["ArrowDown", "Numpad2"],
+            &["ArrowUp", "Numpad8"],
+            &["ArrowRight", "Numpad6"],
+            &["Space", "Numpad5"],
+        ]
+        .iter()
+        .map(|keys| keys.iter().map(|k| k.to_string()).collect())
+        .collect();
+        d.keys.insert(five.id.clone(), old);
+        d.sanitize();
+        assert!(d.keys.is_empty());
+        assert_eq!(d.keyboard(&five)[0], ["ArrowLeft", "KeyA", "Numpad4"]);
         // Pump's number pad was always there: a table without it is the
         // player's own.
         let pump = Layout::pump_single();

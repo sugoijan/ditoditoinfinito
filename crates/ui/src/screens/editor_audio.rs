@@ -2,7 +2,7 @@
 //! the music's waveform and spectrogram in a column beside the lanes,
 //! time down the field as the notes are, so a beat's onset and its row
 //! read together: when the timing is right, a kick's onset is on its
-//! beat's line. W shows or hides it, Shift W shows the waveform, the
+//! beat's line. G shows or hides it, Shift G shows the waveform, the
 //! spectrogram or both; where the field has no room beside the lanes it
 //! is drawn behind them, faint.
 //!
@@ -208,7 +208,7 @@ impl EditorScreen {
         }
     }
 
-    /// W: shown or hidden; Shift W: the next of what it shows (shown).
+    /// G: shown or hidden; Shift G: the next of what it shows (shown).
     pub(super) fn toggle_audio(&mut self, next: bool) {
         if self.audio.analysis.is_none() && !self.audio.coming {
             self.say("No music to show");
@@ -241,7 +241,7 @@ impl EditorScreen {
         } else {
             self.audio.mode.says()
         };
-        let key = if self.geo.compact { "" } else { " (W)" };
+        let key = if self.geo.compact { "" } else { " (G)" };
         Some(format!("Audio: {what}{key}"))
     }
 
@@ -254,15 +254,15 @@ impl EditorScreen {
         items.push((
             "audio",
             if on {
-                "Hide the audio view (W)".into()
+                "Hide the audio view (G)".into()
             } else {
-                "Show the audio view (W)".into()
+                "Show the audio view (G)".into()
             },
         ));
         items.push((
             "audio-mode",
             format!(
-                "Audio view: {} (Shift W)",
+                "Audio view: {} (Shift G)",
                 (if on {
                     self.audio.mode.next()
                 } else {

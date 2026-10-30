@@ -3627,11 +3627,11 @@ impl SelectScreen {
                 self.publish();
                 return Handled::Yes;
             }
-            // The chart's plays (P), its best's replay (W).
+            // The chart's plays (P), its best's replay (V; W A S D move).
             Input::Key(k)
                 if self.letter_shortcut(k)
                     && self.plays.is_some()
-                    && (k.key.eq_ignore_ascii_case("p") || k.key.eq_ignore_ascii_case("w")) =>
+                    && (k.key.eq_ignore_ascii_case("p") || k.key.eq_ignore_ascii_case("v")) =>
             {
                 if k.key.eq_ignore_ascii_case("p") {
                     self.open_plays(cx);

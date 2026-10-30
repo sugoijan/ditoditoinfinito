@@ -189,7 +189,7 @@ fn play_mode_ends_with_the_play() {
         // Off in the frame that ended it: the menus' keys are not
         // queued for a play.
         assert!(!shell.play_mode_on() && !shell.input.keyboard.enabled);
-        for code in ["KeyF", "KeyJ", "ArrowLeft", "ArrowRight"] {
+        for code in ["KeyS", "KeyW", "ArrowLeft", "ArrowRight"] {
             shell.input.keyboard.key(code, true, false, now());
             shell.input.keyboard.key(code, false, false, now());
         }

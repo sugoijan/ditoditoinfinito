@@ -1,6 +1,6 @@
 //! Replays as the window runs them (`play::host`; `docs/plans/
 //! play-history.md`, Replays), on this machine's GPU offscreen and on a
-//! fake clock with no sound device: a play to its results, W watches its
+//! fake clock with no sound device: a play to its results, V watches its
 //! replay (its prompt marked, the play drawn again from its log) to the
 //! same results, not kept again; a kept play's results opened at once and
 //! its replay from them; Escape twice quits a replay; a play that is not
@@ -133,9 +133,9 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     assert_eq!(top(&ui), "results");
     assert_eq!(store.len(), 1);
     let id = plays.history().last().unwrap().0.clone();
-    // W: its replay's prompt, marked.
+    // V: its replay's prompt, marked.
     ui.update(3.0);
-    key(&mut ui, "KeyW", "w");
+    key(&mut ui, "KeyV", "v");
     ui.update(0.5);
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     poll_until_ready(&mut host, &mut ui);
@@ -181,7 +181,7 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     );
     // Its replay from there; Escape twice quits it.
     ui.update(3.0);
-    key(&mut ui, "KeyW", "w");
+    key(&mut ui, "KeyV", "v");
     ui.update(0.5);
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     poll_until_ready(&mut host, &mut ui);

@@ -1124,12 +1124,12 @@ fn results_offer_the_replay_and_a_replays_results_watch_again() {
                 assert!(apart, "{size:?}: WatchReplay {r:?} over {other} {o:?}");
             }
         }
-        h.key("KeyW", "w");
+        h.key("KeyV", "v");
         h.tap(PointerKind::Mouse, "WatchReplay");
         assert_eq!(*log.borrow(), ["replay", "replay"], "{size:?}");
         log.borrow_mut().clear();
     }
-    // A replay's results: marked, Watch again, no editor, no W.
+    // A replay's results: marked, Watch again, no editor, no V.
     let mut data = sample::results();
     super::play::mark_replay(&mut data, ResultsKind::Replay, "Played 2026-10-16 14:03");
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
@@ -1138,7 +1138,7 @@ fn results_offer_the_replay_and_a_replays_results_watch_again() {
     assert!(h.ui.bounds("WatchReplay").is_none());
     assert!(h.ui.bounds("OffsetUp").is_none());
     assert!(h.ui.bounds("Replay").is_some());
-    h.key("KeyW", "w");
+    h.key("KeyV", "v");
     h.key("KeyR", "r");
     h.tap(PointerKind::Mouse, "Retry");
     assert_eq!(*log.borrow(), ["retry", "retry"]);
@@ -1151,7 +1151,7 @@ fn results_offer_the_replay_and_a_replays_results_watch_again() {
     h.run(1.0);
     assert!(h.ui.bounds("Retry").is_none());
     h.key("KeyR", "r");
-    h.key("KeyW", "w");
+    h.key("KeyV", "v");
     h.pad(crate::MenuAction::Select, true);
     h.pad(crate::MenuAction::Select, false);
     h.key("Escape", "Escape");
@@ -2256,8 +2256,8 @@ fn song_selects_plays_list_watches_opens_and_removes() {
     h.key("Escape", "Escape");
     h.run(0.3);
     assert!(state.borrow().plays.is_empty());
-    // W: the best's replay at once.
-    h.key("KeyW", "w");
+    // V: the best's replay at once.
+    h.key("KeyV", "v");
     assert_eq!(watched(&calls).len(), 4);
     assert_eq!(watched(&calls).last().map(String::as_str), Some("watch p2"));
     // P opens the list again.

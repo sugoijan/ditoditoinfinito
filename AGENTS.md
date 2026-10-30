@@ -775,9 +775,11 @@ play (`&auto=1`) it presses on the judged timeline, so it stays exact under any
 calibrated offset.
 
 Menu Back is unmodified Escape or Backspace after text/binding/dialog handling.
-The menus move with the arrow keys or the number pad's 8 2 4 6 on every
-screen (`ddi_ui::nav::key_action`, by physical code), Enter or Numpad Enter
-confirms; a text field being typed into takes the pad's digits as digits.
+The menus move with the arrow keys, W A S D or the number pad's 8 2 4 6 on
+every screen (`ddi_ui::nav::key_action`, by physical code), Enter, Numpad
+Enter or Space confirms; a text field being typed into takes the letters
+and the pad's digits as typed. No screen takes W A S D as a shortcut (Watch
+replay is V, the editor's audio view G).
 Song browsing returns to Start in one press, keeping its filter and place;
 Clear (the × inside Search) clears the filter explicitly; the quick volume
 between Search and More is Music volume (`ddi_ui::widgets::volume`, hover or
@@ -804,7 +806,9 @@ the UI stack. Every played layout's default keys end with the number pad as
 a second set (4 2 8 6 the arrows, 5 the middle, the corners the diagonals;
 `crates/chart/src/layout/mod.rs`, decision 70), the main keys first and
 unchanged; `Numpad*` codes are the number pad's alone, never the number
-row's, on both shells. Preview audio belongs to visible song select (or an explicit
+row's, on both shells. Single and danoni 5 keys play their arrows on W A S D
+too, between the arrow keys and the number pad (Single's D F J K went;
+decision 77). Preview audio belongs to visible song select (or an explicit
 Options sample); Start is silent. See `docs/plans/start-menu.md`.
 
 ## Additional chart versions

@@ -2552,7 +2552,7 @@ mod tests {
     fn any_other_press_cancels_the_countdown_and_start_waits() {
         type Press = fn(&mut Harness);
         let presses: [(&str, Press); 6] = [
-            ("a letter", |h| drop(h.key("KeyA", "a"))),
+            ("a letter", |h| drop(h.key("KeyQ", "q"))),
             ("a direction", |h| drop(h.key("ArrowDown", "ArrowDown"))),
             ("Tab", |h| drop(h.key("Tab", "Tab"))),
             ("a pad's direction", |h| {
@@ -2593,7 +2593,7 @@ mod tests {
         let mut repeat = KeyEvent::down("Enter", "Enter");
         repeat.repeat = true;
         h.send(UiEvent::Key(repeat));
-        let mut repeat = KeyEvent::down("KeyA", "a");
+        let mut repeat = KeyEvent::down("KeyQ", "q");
         repeat.repeat = true;
         h.send(UiEvent::Key(repeat));
         h.pad(MenuAction::Start, false);

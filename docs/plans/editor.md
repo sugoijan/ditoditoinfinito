@@ -530,10 +530,11 @@ drawn across it; where the field has no room beside the lanes (the
 compact layouts, 844×390 and 390×844) it is drawn behind the lanes at
 40 % and starts hidden. Colors from the theme (`Editor.Audio.Ramp1`–`5`:
 the ground up through violet, magenta, the accent and gold to near
-white; `Editor.Audio.Wave`, `Editor.Audio.Rms`). **Keys**: W shows or
-hides it, Shift W shows the waveform, the spectrogram or both, in turn;
+white; `Editor.Audio.Wave`, `Editor.Audio.Rms`). **Keys**: G shows or
+hides it, Shift G shows the waveform, the spectrogram or both, in turn
+(W and Shift W until 2026-10-30, when W A S D joined the arrows);
 the menu has both, and the panel a line ("Audio: waveform and
-spectrogram (W)", a tap toggles); kept with the screen as V and F are.
+spectrogram (G)", a tap toggles); kept with the screen as V and F are.
 A tap on the column moves the cursor to its row (as left of the lanes),
 the wheel scrolls. **Drawing**: the screen paints an RGBA picture of
 the column at its whole physical pixels (`audio::AudioPicture`) only
@@ -690,7 +691,7 @@ Safari, real Firefox's speed.
   than left out, so the hit that starts a stop shows on its beat;
   marked across the column.
 - The audio view starts shown where the field has room beside the
-  lanes, hidden where it would be drawn behind them; W and Shift W
+  lanes, hidden where it would be drawn behind them; G and Shift G
   are kept with the screen, not the settings.
 - The analysis keeps the mid channel to the sample (16-bit) for the
   waveform; the spectrogram uses a Hann window of about 21 ms every

@@ -28,7 +28,7 @@
 //! What the buttons do is the shell's ([`ResultsActions`]); without them
 //! (the developer route) Song list leaves the screen.
 //!
-//! Replays (`docs/plans/play-history.md`): "Watch replay" (W) where the
+//! Replays (`docs/plans/play-history.md`): "Watch replay" (V) where the
 //! shell offers it; a replay's results ([`ResultsKind::Replay`]) offer
 //! "Watch again" for Retry, a kept play's ([`ResultsKind::Kept`]) its
 //! replay and no Retry; both are marked REPLAY.
@@ -340,7 +340,7 @@ impl ResultsScreen {
             ResultsKind::Kept => {}
         }
         if self.actions.replay.is_some() && self.data.kind != ResultsKind::Replay {
-            hints.push((&["W"], "Watch replay"));
+            hints.push((&["V"], "Watch replay"));
         }
         let mut controller: Vec<(&[HintAction], &str)> = vec![
             (&[HintAction::Confirm, HintAction::Start], "Activate"),
@@ -1541,7 +1541,7 @@ impl Screen for ResultsScreen {
                 {
                     self.retry(cx);
                     Handled::Yes
-                } else if k.key.eq_ignore_ascii_case("w")
+                } else if k.key.eq_ignore_ascii_case("v")
                     && !k.modifiers.command()
                     && self.data.kind != ResultsKind::Replay
                 {

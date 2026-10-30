@@ -13,7 +13,10 @@
 //! diagonals, 1 and 3 for the down ones, 5 for a middle panel or the
 //! onigiri (and, on a two-pad layout, the right pad). Its keys come after
 //! each lane's main ones, as a second set. `Numpad*` codes are the number
-//! pad's alone, never the number row's, on both shells.
+//! pad's alone, never the number row's, on both shells. Single and
+//! Dancing☆Onigiri's 5 keys also take W A S D for their arrows between
+//! the arrow keys and the number pad, as the menus do
+//! ([`danoni::wasd_keys`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -241,21 +244,21 @@ impl Layout {
             players: 1,
             family: LayoutFamily::StepMania,
             lanes: vec![
-                Self::arrow("left", "Left", 0.0, 0.0, &["ArrowLeft", "KeyD", "Numpad4"]),
+                Self::arrow("left", "Left", 0.0, 0.0, &["ArrowLeft", "KeyA", "Numpad4"]),
                 Self::arrow(
                     "down",
                     "Down",
                     -90.0,
                     1.0,
-                    &["ArrowDown", "KeyF", "Numpad2"],
+                    &["ArrowDown", "KeyS", "Numpad2"],
                 ),
-                Self::arrow("up", "Up", 90.0, 2.0, &["ArrowUp", "KeyJ", "Numpad8"]),
+                Self::arrow("up", "Up", 90.0, 2.0, &["ArrowUp", "KeyW", "Numpad8"]),
                 Self::arrow(
                     "right",
                     "Right",
                     180.0,
                     3.0,
-                    &["ArrowRight", "KeyK", "Numpad6"],
+                    &["ArrowRight", "KeyD", "Numpad6"],
                 ),
             ],
             // StepMania `GetTrackMapping` (`src/Style.cpp`), `dance-single`.
@@ -480,6 +483,9 @@ impl Layout {
                 PLAYED_DANONI_MODES.contains(&mode).then_some(())?;
                 danoni::builtin(mode).map(|k| {
                     let mut layout = k.layout(id.to_string());
+                    for (lane, code) in danoni::wasd_keys(mode).iter().enumerate() {
+                        layout.lanes[lane].default_keys.push(code.to_string());
+                    }
                     for (lane, code) in danoni::numpad_keys(mode).iter().enumerate() {
                         layout.lanes[lane].default_keys.push(code.to_string());
                     }
@@ -550,6 +556,30 @@ mod tests {
         assert_eq!(
             numpad(&Layout::dance_single()),
             [pad(4), pad(2), pad(8), pad(6)]
+        );
+        // Single and danoni 5 play their arrows on W A S D too, between
+        // the arrow keys and the number pad, as the menus move.
+        let keys = |l: &Layout| -> Vec<Vec<String>> {
+            l.lanes.iter().map(|l| l.default_keys.clone()).collect()
+        };
+        assert_eq!(
+            keys(&Layout::dance_single()),
+            [
+                ["ArrowLeft", "KeyA", "Numpad4"],
+                ["ArrowDown", "KeyS", "Numpad2"],
+                ["ArrowUp", "KeyW", "Numpad8"],
+                ["ArrowRight", "KeyD", "Numpad6"],
+            ]
+        );
+        assert_eq!(
+            keys(&Layout::builtin("danoni-5").unwrap()),
+            [
+                vec!["ArrowLeft", "KeyA", "Numpad4"],
+                vec!["ArrowDown", "KeyS", "Numpad2"],
+                vec!["ArrowUp", "KeyW", "Numpad8"],
+                vec!["ArrowRight", "KeyD", "Numpad6"],
+                vec!["Space", "Numpad5"],
+            ]
         );
         assert_eq!(
             numpad(&Layout::dance_solo()),

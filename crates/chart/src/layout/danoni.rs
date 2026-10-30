@@ -120,6 +120,17 @@ pub fn builtin(mode: &str) -> Option<KeyDef> {
     })
 }
 
+/// W A S D as a second set of arrows for a played built-in mode whose
+/// main keys are the arrow keys (5 keys: Left, Down, Up, Right), before
+/// the number pad's ([`numpad_keys`]), as Single and the menus have them.
+/// Only [`Layout::builtin`] adds them.
+pub fn wasd_keys(mode: &str) -> &'static [&'static str] {
+    match mode {
+        "5" => &["KeyA", "KeyS", "KeyW", "KeyD"],
+        _ => &[],
+    }
+}
+
 /// The number pad as a second set of keys for a played built-in mode (the
 /// layout module's rule), per lane: the arrows at the edges' middles, the
 /// onigiri on 5, 7's diagonals on 1 and 3, 9B's second set of arrows on

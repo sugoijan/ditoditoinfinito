@@ -30,10 +30,10 @@
 //! it by the snap; − and = zoom; V the view, F the compact field;
 //! Escape leaves (asking when unsaved).
 //! K turns the metronome on or off, Shift K the assist clap; Y is tapped
-//! along to the music, Shift Y sets the BPM tapped ([`sound`]). W shows
+//! along to the music, Shift Y sets the BPM tapped ([`sound`]). G shows
 //! or hides the audio view (the music's waveform and spectrogram beside
-//! the lanes, on the field's rows), Shift W cycles what it shows
-//! ([`audio`]).
+//! the lanes, on the field's rows), Shift G cycles what it shows
+//! ([`audio`]). W A S D move as the arrows do.
 //! R records the lanes played along to the music from the cursor (over
 //! the selection when there is one), on the snap's rows; Shift R adds to
 //! the notes there; R, Escape or a tap stops ([`record`]).
@@ -2255,7 +2255,7 @@ impl EditorScreen {
                 "f" => self.toggle_plates(),
                 "k" => self.toggle_sound(shift),
                 "r" if !k.repeat => self.record(shift, cx),
-                "w" => self.toggle_audio(shift),
+                "g" => self.toggle_audio(shift),
                 "y" if shift => self.apply_tap(false),
                 "y" if !k.repeat => self.tap(k.time, cx),
                 "y" => {}
