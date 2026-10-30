@@ -46,6 +46,15 @@ use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
 use std::cell::RefCell;
 
+/// The start menu offers Quit ([`hide_quit`]).
+static QUIT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// From now on the start menu offers no Quit, as the web's (the README's
+/// video shows the game's menu, not the window's way out).
+pub fn hide_quit() {
+    QUIT_SHOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
 thread_local! {
     /// The wall clock less the host clock, at the first frame (`Shell::redraw`'s clock).
     static WALL_ORIGIN: std::cell::OnceCell<f64> = const { std::cell::OnceCell::new() };
@@ -121,6 +130,17 @@ fn dev_dock_icon() {
     }
 }
 
+/// A texture drawn into instead of a window ([`Shell::offscreen`]): the
+/// plain view the UI and skins draw through, the sRGB one the play's
+/// scene does.
+struct Offscreen {
+    gpu: Gpu,
+    texture: wgpu::Texture,
+    plain: wgpu::TextureView,
+    srgb: wgpu::TextureView,
+    formats: crate::play::view::Formats,
+}
+
 struct Surface {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
@@ -140,6 +160,8 @@ pub struct Shell {
     pub ui: Ui,
     pub dev: Shared,
     surface: Option<Surface>,
+    /// Drawing with no window ([`Shell::offscreen`]): the README's video.
+    offscreen: Option<Offscreen>,
     scale: f64,
     cursor: [f32; 2],
     buttons: u32,
@@ -351,6 +373,15 @@ impl Shell {
             songs,
             pointer_hidden: false,
             custom_cursor_hidden: false,
+            offscreen: None,
+        }
+    }
+
+    /// The device the UI draws with: the window's, or the offscreen one.
+    fn gpu_mut(&mut self) -> Option<&mut Gpu> {
+        match &mut self.surface {
+            Some(s) => Some(&mut s.gpu),
+            None => self.offscreen.as_mut().map(|o| &mut o.gpu),
         }
     }
 
@@ -653,24 +684,25 @@ impl Shell {
                 // Options' field preview: drawn where the screen says,
                 // with the settings as they are now.
                 UiRequest::ReceptorPreview(picture) => {
-                    if let Some(s) = &mut self.surface {
-                        s.gpu.field.set_receptors(picture.as_ref());
+                    if let Some(gpu) = self.gpu_mut() {
+                        gpu.field.set_receptors(picture.as_ref());
                     }
                 }
                 UiRequest::FieldPreview(rect) => {
-                    if let Some(s) = &mut self.surface {
-                        s.gpu.field.set_rect(rect);
-                        if rect.is_some() {
-                            // As the options screen edits them, on the
-                            // layout picked for the preview.
-                            let settings = self
-                                .input
-                                .options
-                                .as_ref()
-                                .map_or_else(ddi_ui::state::settings::Settings::load, |o| {
-                                    o.preview_settings()
-                                });
-                            s.gpu.field.set_settings(&settings);
+                    // As the options screen edits them, on the layout
+                    // picked for the preview.
+                    let settings = rect.is_some().then(|| {
+                        self.input
+                            .options
+                            .as_ref()
+                            .map_or_else(ddi_ui::state::settings::Settings::load, |o| {
+                                o.preview_settings()
+                            })
+                    });
+                    if let Some(gpu) = self.gpu_mut() {
+                        gpu.field.set_rect(rect);
+                        if let Some(settings) = &settings {
+                            gpu.field.set_settings(settings);
                         }
                     }
                 }
@@ -889,11 +921,19 @@ impl Shell {
             return;
         };
         let rate = self.sound.borrow().audio.sample_rate();
-        let dev = self.surface.as_ref().map(|s| crate::play::host::Device {
-            device: &s.gpu.device,
-            queue: &s.gpu.queue,
-            formats: s.formats,
-        });
+        let dev = match (&self.surface, &self.offscreen) {
+            (Some(s), _) => Some(crate::play::host::Device {
+                device: &s.gpu.device,
+                queue: &s.gpu.queue,
+                formats: s.formats,
+            }),
+            (None, Some(o)) => Some(crate::play::host::Device {
+                device: &o.gpu.device,
+                queue: &o.gpu.queue,
+                formats: o.formats,
+            }),
+            (None, None) => None,
+        };
         self.play.poll(&mut self.ui, &env, dev, rate);
         self.sync_play_mode();
         if self.play.playing() {
@@ -1786,7 +1826,7 @@ fn title_screen(
     let e = env.clone();
     theme_screens::start::StartScreen::new(
         env.clone(),
-        true,
+        QUIT_SHOWN.load(std::sync::atomic::Ordering::Relaxed),
         Rc::new(move |choice, cx| {
             use theme_screens::start::Choice;
             sound.borrow_mut().pause();
@@ -1818,6 +1858,163 @@ fn title_screen(
             }
         }),
     )
+}
+
+/// Driving the shell with no window and no event loop, frame by frame on
+/// a clock the caller runs (the README's video, `examples/screenshot.rs`):
+/// the same polls as the loop's and the same drawing as a window's frame,
+/// into a texture.
+impl Shell {
+    /// Draws from now on into a texture of `size` physical pixels on
+    /// `device`, the UI laid out for it at a scale of 1.
+    pub fn offscreen(&mut self, device: wgpu::Device, queue: wgpu::Queue, size: [u32; 2]) {
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("offscreen shell"),
+            size: wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        });
+        let plain = texture.create_view(&Default::default());
+        let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            ..Default::default()
+        });
+        self.offscreen = Some(Offscreen {
+            gpu: Gpu::new(device, queue, format),
+            texture,
+            plain,
+            srgb,
+            formats: crate::play::view::Formats::of(format, true),
+        });
+        self.scale = 1.0;
+        let logical = [size[0] as f32, size[1] as f32];
+        if let Some((_, look)) = &self.theme {
+            let design = theme_screens::design_for(&**look, logical);
+            self.ui.set_design(design);
+        }
+        self.send(UiEvent::Resize {
+            size: logical,
+            ratio: 1.0,
+        });
+    }
+
+    /// Something loads that the next frames would show missing (the
+    /// prompt's skin, the song, a preview's sound; images are waited for
+    /// by the frame itself): a caller on its own clock waits for it, its
+    /// clock held, drawing the frame again meanwhile.
+    pub fn offscreen_busy(&self) -> bool {
+        self.offscreen
+            .as_ref()
+            .is_some_and(|o| o.gpu.field.reading())
+            || self.play.wants_poll()
+            || self.sound.borrow().loading()
+    }
+
+    /// What the loop does between frames: the library's news, the
+    /// play's, the preview's sound.
+    pub fn offscreen_poll(&mut self) {
+        if let Some(songs) = self.songs.clone() {
+            songs.poll(&mut self.ui);
+            if crate::library::take_prepared() {
+                self.sound.borrow_mut().refind();
+            }
+            if let Some(c) = songs.warm.borrow_mut().take()
+                && let Some(gpu) = self.gpu_mut()
+            {
+                gpu.field.warm(&c);
+            }
+        }
+        self.poll_play();
+        if let Some(settings) = self.input.take_edited()
+            && let Some(gpu) = self.gpu_mut()
+        {
+            gpu.field.set_settings(&settings);
+        }
+        self.sound.borrow_mut().tick();
+    }
+
+    /// A key pressed and let go, as a window's keyboard sends it.
+    pub fn offscreen_key(&mut self, code: &str, key: &str) {
+        self.send(UiEvent::Key(KeyEvent::down(code, key)));
+        self.send(UiEvent::Key(KeyEvent::up(code, key)));
+    }
+
+    /// One frame at host time `now`, `dt` after the last, the screens'
+    /// live art at `clock` (seconds since the epoch, as the window's):
+    /// a play's frame while one runs, else the UI's, drawn as a window's
+    /// frame is. With `read`, its pixels (RGBA rows).
+    pub fn offscreen_frame(
+        &mut self,
+        clock: f64,
+        now: ddi_platform::HostTime,
+        dt: f32,
+        read: bool,
+    ) -> Option<Vec<u8>> {
+        self.ui.set_clock(clock);
+        self.ui.update(dt);
+        let r = self.ui.take_requests();
+        self.run(r);
+        let env = self.theme.as_ref().map(|(e, _)| e.clone());
+        let o = self.offscreen.as_mut()?;
+        let size = [o.texture.width(), o.texture.height()];
+        if self.play.playing()
+            && let Some(env) = &env
+        {
+            let dev = crate::play::host::Device {
+                device: &o.gpu.device,
+                queue: &o.gpu.queue,
+                formats: o.formats,
+            };
+            let mut encoder =
+                o.gpu
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("play"),
+                    });
+            self.play.scale = 1.0;
+            self.play.present_at = None;
+            self.play.draw_play(
+                &dev,
+                &mut encoder,
+                &o.srgb,
+                Some(&o.plain),
+                size,
+                now,
+                &mut self.ui,
+                env,
+            );
+            o.gpu.queue.submit(Some(encoder.finish()));
+        } else {
+            if let Some(env) = &env {
+                let feed = self.songs.as_ref().map(|songs| &songs.feed);
+                let shown = self.songs.as_ref().is_some_and(|s| s.select_shown.get());
+                o.gpu.movie.follow(shown, env, feed);
+            }
+            o.gpu.draw(&mut self.ui, &o.plain, size);
+            // Drawn again with the images it asked for, never with their
+            // placeholders.
+            if o.gpu.loading() {
+                o.gpu.wait_images();
+                self.ui.update(0.0);
+                o.gpu.draw(&mut self.ui, &o.plain, size);
+            }
+        }
+        let pixels = read.then(|| gpu::read_rgba(&o.gpu.device, &o.gpu.queue, &o.texture));
+        self.frames += 1;
+        self.sync_play_mode();
+        let r = self.ui.take_requests();
+        self.run(r);
+        pixels
+    }
 }
 
 #[cfg(test)]

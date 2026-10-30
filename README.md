@@ -1,26 +1,16 @@
-<h1><picture>
+<h1><a href="https://sugoijan.dev/ditoditoinfinito/"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/logo.svg">
   <img alt="Dito Dito Infinito" src="docs/logo-light.svg" width="640">
-</picture></h1>
+</picture></a></h1>
 
-A dance rhythm game (four arrows, hit them in time with the music) that plays
-StepMania and DWI simfiles: a few bundled songs, plus any packs you import
-(folder, zip or drag and drop; they stay in your browser). Live at
-`https://sugoijan.dev/ditoditoinfinito/`.
+<picture>
+  <source srcset="docs/screenshots/readme.avif" type="image/avif">
+  <img alt="How gameplay looks like" src="docs/screenshots/readme.png">
+</picture>
 
-![Beatucada's Hard single chart with Dito arrows over its beach background, autoplayed in a short loop.](docs/screenshots/readme.gif)
+> Song: Beatucada by Kurio Prokos · Chart: by Timo Kitsune · Background: by Jose Varela.
 
-*Beatucada* by Kurio Prokos · chart by Chriszo · background by Jose Varela.
-[Generated from a fixed gameplay scenario](docs/screenshots/README.md).
-[Full-size still](docs/screenshots/readme.png).
-
-Implementation notes: written in Rust; the same game runs in the browser (wasm
-through Trunk, on GitHub Pages) and as a desktop app (`cargo run`), which reads
-your song folders and zips where they are.
-
-Status: early development. See [`docs/PLAN.md`](docs/PLAN.md) for the
-architecture, MVP scope and roadmap, and [`docs/research/`](docs/research/)
-for the format, rules and tech-stack research with sources.
+A dance rhythm game that works on the web. Alternative to StepMania, ITGmania, Etterna and others.
 
 ## Develop and build
 

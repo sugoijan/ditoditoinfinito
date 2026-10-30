@@ -327,6 +327,14 @@ impl Host {
         matches!(self.stage, Stage::Playing(..))
     }
 
+    /// The play running, if one is.
+    pub fn running(&self) -> Option<&Play> {
+        match &self.stage {
+            Stage::Playing(_, play, _) => Some(play),
+            _ => None,
+        }
+    }
+
     /// The prompt is up.
     pub fn prompting(&self) -> bool {
         matches!(self.stage, Stage::Prompt(_))

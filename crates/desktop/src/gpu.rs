@@ -130,6 +130,11 @@ impl Gpu {
         self.images.pending() > 0
     }
 
+    /// Waits for every image asked for and puts it on the device.
+    pub fn wait_images(&mut self) {
+        self.receive(true);
+    }
+
     /// Whether decoded images wait for a frame to show them.
     pub fn images_ready(&mut self) -> bool {
         self.images.has_ready()
@@ -280,51 +285,7 @@ impl Gpu {
             self.receive(true);
             ui.update(0.0);
         }
-        let row = size[0] * 4;
-        let padded =
-            row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size: u64::from(padded * size[1]),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded),
-                    rows_per_image: Some(size[1]),
-                },
-            },
-            wgpu::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-        );
-        self.queue.submit(Some(encoder.finish()));
-        let slice = buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        let Ok(data) = slice.get_mapped_range() else {
-            return Vec::new();
-        };
-        let mut out = Vec::with_capacity((row * size[1]) as usize);
-        for y in 0..size[1] {
-            let start = (y * padded) as usize;
-            out.extend_from_slice(&data[start..start + row as usize]);
-        }
+        let mut out = read_rgba(&self.device, &self.queue, &texture);
         if format == wgpu::TextureFormat::Bgra8Unorm {
             for px in out.as_chunks_mut::<4>().0 {
                 px.swap(0, 2);
@@ -332,4 +293,46 @@ impl Gpu {
         }
         out
     }
+}
+
+/// A texture's pixels read back: its rows, unpadded (empty if the read
+/// fails).
+pub fn read_rgba(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture) -> Vec<u8> {
+    let size = [texture.width(), texture.height()];
+    let row = size[0] * 4;
+    let padded =
+        row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: u64::from(padded * size[1]),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: Some(size[1]),
+            },
+        },
+        texture.size(),
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = buffer.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |_| {});
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    let Ok(data) = slice.get_mapped_range() else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity((row * size[1]) as usize);
+    for y in 0..size[1] {
+        let start = (y * padded) as usize;
+        out.extend_from_slice(&data[start..start + row as usize]);
+    }
+    out
 }

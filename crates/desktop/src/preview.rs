@@ -323,6 +323,12 @@ impl Player {
         });
     }
 
+    /// A preview is wanted and on its way (settling, decoding): not
+    /// playing yet, nor paused for a play, nor failed.
+    pub fn loading(&self) -> bool {
+        !self.paused && self.playing.is_none() && (self.settle.is_some() || self.job.is_some())
+    }
+
     /// The song wanted and the one playing.
     pub fn status(&self) -> (Option<&str>, Option<&str>) {
         (

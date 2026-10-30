@@ -602,17 +602,24 @@ Rust and the browser are implementation details, not advertised features.
   another machine, tunnel instead (`ssh -N -L 8080:127.0.0.1:8080 <host>`,
   then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
-- `just screenshot [scenario.json] [output.png]` regenerates the README's
-  gameplay image from `docs/screenshots/readme.json` (Beatucada, with its
-  background). The desktop example `screenshot` runs the actual play and
-  renderer offscreen on a fixed clock, with no window or sound device;
-  its home is isolated under `target/scratch/screenshot/home`. Requires
-  a GPU. `just animation [scenario.json] [output.gif]` uses the same
-  example with `docs/screenshots/animation.json` to generate a small,
-  silent looping GIF, requiring FFmpeg on `PATH`. Media provenance and
-  reproduction are documented in `docs/screenshots/README.md`; the generated
-  PNG and GIF are committed and their third-party visual components are
-  annotated in `REUSE.toml`.
+- `just screenshot [scenario.json] [animation.avif] [still.png]`
+  regenerates the README's animation and still from
+  `docs/screenshots/readme.json` (Beatucada's Challenge chart,
+  autoplayed). The desktop example `screenshot` drives the desktop shell
+  offscreen on a fixed clock (`Shell::offscreen`, `offscreen_frame`), with
+  no window or sound device: the start menu (its Quit hidden,
+  `shell::hide_quit`), song select and the prompt pressed through, then
+  the play's stretches the scenario names in beats, each crossfaded into
+  the next on a downbeat of both (one unrecorded frame stretched so that
+  they are exactly in step), and the results faded to black. Drawn at
+  1280×720, it is encoded as a silent animated AVIF (SVT-AV1) at the
+  scenario's `animation` size and rate; the README shows it with the
+  PNG as the `<picture>` fallback. The still is the full-size frame just
+  after the combo reaches 100. Its home is isolated under
+  `target/scratch/screenshot/home`. Requires a GPU and FFmpeg with
+  SVT-AV1 on `PATH`. Media provenance and reproduction are documented in
+  `docs/screenshots/README.md`; the generated AVIF and PNG are committed
+  and their third-party components are annotated in `REUSE.toml`.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - macOS video planes remain copied by default. A build with
   `--features ddi-desktop/video-metal` and `DDI_VIDEO_PLANES=metal` opts

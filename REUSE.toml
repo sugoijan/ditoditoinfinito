@@ -26,13 +26,22 @@ path = ["assets/ui/play-hud.r8"]
 SPDX-FileCopyrightText = ["Renzhi Li (aka. Belleve Invis)", "すごいジャン <me@sugoijan.dev>"]
 SPDX-License-Identifier = "MIT AND OFL-1.1"
 
-# Generated gameplay still and GIF: the game's own display over Beatucada's
-# background (Jose Varela) and Hard chart (Chriszo). Reproduction and
-# modifications: docs/screenshots/README.md, `just screenshot` / `just animation`.
+# Generated gameplay still: the game's own display over Beatucada's
+# background (Jose Varela) and Challenge chart (Timo Kitsune). Reproduction and
+# modifications: docs/screenshots/README.md, `just screenshot`.
 [[annotations]]
-path = ["docs/screenshots/readme.png", "docs/screenshots/readme.gif"]
-SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Jose Varela", "Chriszo"]
+path = ["docs/screenshots/readme.png"]
+SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Jose Varela", "Timo Kitsune"]
 SPDX-License-Identifier = "MIT AND CC-BY-4.0"
+
+# Generated animation (no sound): the same, and song select's banners of
+# the other bundled songs (Kevin Turner and Step Revolution, Lirodon: CC BY
+# 4.0; Jack5: CC BY 3.0). Reproduction: docs/screenshots/README.md,
+# `just screenshot`.
+[[annotations]]
+path = ["docs/screenshots/readme.avif"]
+SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Jose Varela", "Timo Kitsune", "Kevin Turner", "Step Revolution", "Jack5", "Lirodon"]
+SPDX-License-Identifier = "MIT AND CC-BY-4.0 AND CC-BY-3.0"
 
 # The video decoder module (target/video/ddivideo.wasm, built by
 # video/build.sh, never committed) is FFmpeg, LGPL-2.1-or-later, with zlib
