@@ -501,8 +501,8 @@ pub fn quit_button(geo: &FieldGeometry, layout: &Layout, ratio: f32, inset: [f32
 
 /// The life gauge, score and watermark bounds, `[left, top, right, bottom]`
 /// in target pixels: what lyrics keep clear of.
-pub fn hud_areas(geo: &FieldGeometry) -> Vec<[f32; 4]> {
-    let [x, y, w, h] = crate::hud::life_rect(geo);
+pub fn hud_areas(geo: &FieldGeometry, span: f32) -> Vec<[f32; 4]> {
+    let [x, y, w, h] = crate::hud::life_rect(geo, span);
     let [mx, my, mw, mh] = crate::hud::mark_rect(geo);
     let size = (32.0 * crate::hud::scale(geo)).max(14.0);
     let right = geo.width - 24.0 * crate::hud::scale(geo);
@@ -1452,6 +1452,16 @@ mod tests {
         for place in [FieldPlace::Left, FieldPlace::Right] {
             assert_eq!(at(780.0, 1688.0, 4.0, place), phone);
         }
+        // The life gauge goes with the field, as wide wherever it is; in
+        // the middle where it always was.
+        let gauge = |g: &FieldGeometry| crate::hud::life_rect(g, 4.0);
+        assert!((gauge(&center)[0] - 1280.0 * 0.39).abs() < 1e-3);
+        for g in [center, left, right] {
+            let [x, y, w, _] = gauge(&g);
+            assert!((x + w / 2.0 - g.center_x(4.0)).abs() < 1e-3);
+            assert_eq!([y, w], [gauge(&center)[1], gauge(&center)[2]]);
+        }
+        assert!(gauge(&left)[0] + gauge(&left)[2] < gauge(&right)[0]);
     }
 
     #[test]

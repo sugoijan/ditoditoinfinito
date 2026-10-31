@@ -59,7 +59,7 @@ impl Place {
         ratio: f32,
     ) -> Place {
         let span = crate::scene::field_span(layout);
-        let mut keep_out = crate::scene::hud_areas(geo);
+        let mut keep_out = crate::scene::hud_areas(geo, span);
         keep_out.extend(quit.map(|[x, y, r]| [x - r, y - r, x + r, y + r]));
         Place {
             size: [geo.width, geo.height],

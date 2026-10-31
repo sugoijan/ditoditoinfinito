@@ -13,9 +13,13 @@ pub(crate) fn scale(geo: &FieldGeometry) -> f32 {
 }
 
 /// Rectangles are left, top, width, height, in target pixels.
-pub(crate) fn life_rect(geo: &FieldGeometry) -> [f32; 4] {
+///
+/// The life gauge is centered over the field, `span` lanes wide (each
+/// player's over theirs, where a side's field is a player's).
+pub(crate) fn life_rect(geo: &FieldGeometry, span: f32) -> [f32; 4] {
     let s = scale(geo);
-    [geo.width * 0.39, 22.0 * s, geo.width * 0.22, 8.0 * s]
+    let w = geo.width * 0.22;
+    [geo.center_x(span) - w / 2.0, 22.0 * s, w, 8.0 * s]
 }
 
 pub(crate) fn mark_rect(geo: &FieldGeometry) -> [f32; 4] {
@@ -323,7 +327,7 @@ impl Hud {
         }
         let globals = Globals {
             screen: [geo.width, geo.height, f32::from(self.linear), 1.0],
-            bar: life_rect(geo),
+            bar: life_rect(geo, field_span(layout)),
             combo_rect: [
                 geo.center_x(field_span(layout)) - width / 2.0,
                 geo.height / 2.0 - 16.0 * cs,
