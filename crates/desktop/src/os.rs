@@ -52,17 +52,40 @@ fn local_file(link: &str) -> Option<std::path::PathBuf> {
     .and_then(|p| p.canonicalize().ok())
 }
 
+thread_local! {
+    /// The system pointer is hidden for the theme's own (`Shell::set_native_cursor`).
+    static POINTER_HIDDEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The shell hid the system pointer for the theme's, or showed it again.
+pub fn set_pointer_hidden(hidden: bool) {
+    POINTER_HIDDEN.with(|h| h.set(hidden));
+}
+
+/// A system dialog, with the system pointer shown while it is open. On
+/// macOS the theme's pointer hides it for the whole app (`NSCursor::hide`),
+/// the dialog's window too, and the dialog runs inside the event that
+/// opened it, before a blur or a leave could show it again.
+pub fn dialog<T>(open: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "macos")]
+    if POINTER_HIDDEN.with(|h| h.get()) {
+        objc2_app_kit::NSCursor::unhide();
+        let out = open();
+        objc2_app_kit::NSCursor::hide();
+        return out;
+    }
+    open()
+}
+
 /// Files (or a folder) the player picks; none when cancelled.
 pub fn pick(folder: bool) -> Vec<std::path::PathBuf> {
     let dialog = rfd::FileDialog::new();
     if folder {
-        dialog.pick_folder().into_iter().collect()
+        self::dialog(|| dialog.pick_folder()).into_iter().collect()
     } else {
         // Packs come as zips (folders through the folder picker).
-        dialog
-            .add_filter("Zip archives", &["zip", "ZIP"])
-            .pick_files()
-            .unwrap_or_default()
+        let dialog = dialog.add_filter("Zip archives", &["zip", "ZIP"]);
+        self::dialog(|| dialog.pick_files()).unwrap_or_default()
     }
 }
 
@@ -82,9 +105,11 @@ pub fn pick_music() -> Option<std::path::PathBuf> {
         .iter()
         .flat_map(|e| [e.to_string(), e.to_ascii_uppercase()])
         .collect();
-    rfd::FileDialog::new()
-        .add_filter("Music", &extensions)
-        .pick_file()
+    dialog(|| {
+        rfd::FileDialog::new()
+            .add_filter("Music", &extensions)
+            .pick_file()
+    })
 }
 
 /// Makes the next [`pick_music`] return `picked` without a dialog (tests;

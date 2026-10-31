@@ -1059,6 +1059,7 @@ impl Shell {
                 objc2_app_kit::NSCursor::unhide();
             }
             self.custom_cursor_hidden = custom;
+            crate::os::set_pointer_hidden(custom);
         }
         if let Some(s) = &self.surface {
             #[cfg(not(target_os = "macos"))]

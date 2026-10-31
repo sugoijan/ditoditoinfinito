@@ -334,10 +334,11 @@ impl OptionsPlatform for Desktop {
         let Some(plays) = self.0.songs.as_ref().and_then(|s| s.plays.clone()) else {
             return;
         };
-        let Some(path) = rfd::FileDialog::new()
-            .set_file_name(format!("ditoditoinfinito-plays-{}.jsonl", today()))
-            .save_file()
-        else {
+        let Some(path) = crate::os::dialog(|| {
+            rfd::FileDialog::new()
+                .set_file_name(format!("ditoditoinfinito-plays-{}.jsonl", today()))
+                .save_file()
+        }) else {
             return;
         };
         let out = Rc::new(RefCell::new(String::new()));
@@ -367,10 +368,11 @@ impl OptionsPlatform for Desktop {
         let Some(songs) = &self.0.songs else {
             return;
         };
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("Play history", &["jsonl", "ndjson", "json", "txt"])
-            .pick_file()
-        else {
+        let Some(path) = crate::os::dialog(|| {
+            rfd::FileDialog::new()
+                .add_filter("Play history", &["jsonl", "ndjson", "json", "txt"])
+                .pick_file()
+        }) else {
             return;
         };
         if !songs.import_plays(path) {

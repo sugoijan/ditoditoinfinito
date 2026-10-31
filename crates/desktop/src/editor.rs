@@ -291,11 +291,12 @@ impl EditorHost for Host {
                     .and_then(|t| t.file.file_stem())
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_else(|| export::file_stem(&editor.song().title));
-                let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Simfile", &[ext])
-                    .set_file_name(format!("{stem}.{ext}"))
-                    .save_file()
-                else {
+                let Some(path) = crate::os::dialog(|| {
+                    rfd::FileDialog::new()
+                        .add_filter("Simfile", &[ext])
+                        .set_file_name(format!("{stem}.{ext}"))
+                        .save_file()
+                }) else {
                     return;
                 };
                 if let Err(e) = std::fs::write(&path, text.as_bytes()) {
