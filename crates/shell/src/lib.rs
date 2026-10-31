@@ -49,6 +49,7 @@ pub fn note_scheme(colors: NoteColors) -> ColorScheme {
 pub fn render_options(settings: &Settings) -> RenderOptions {
     RenderOptions {
         reverse: settings.reverse,
+        place: settings.field_place,
         reduced_motion: settings.reduced_motion.reduced(false),
         hud_time: None,
         hide_notes: false,
@@ -85,7 +86,13 @@ pub fn prompt_filter(
         .get(chart)
         .and_then(|c| song.layout_of(c))
         .filter(|l| !l.lanes.is_empty())?;
-    let band = ddi_render::scene::filter_fraction(&layout, size[0], size[1], settings.reverse);
+    let band = ddi_render::scene::filter_fraction(
+        &layout,
+        size[0],
+        size[1],
+        settings.reverse,
+        settings.field_place,
+    );
     Some((band, settings.field_filter))
 }
 
@@ -281,6 +288,7 @@ impl ReceptorSkin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ddi_engine::FieldPlace;
 
     #[test]
     fn a_single_color_is_the_cyan() {
@@ -294,12 +302,14 @@ mod tests {
     fn the_field_takes_the_settings() {
         let settings = Settings {
             reverse: true,
+            field_place: FieldPlace::Right,
             show_deltas: true,
             bg_brightness: 0.25,
             ..Settings::default()
         };
         let render = render_options(&settings);
         assert!(render.reverse && render.show_deltas && !render.hide_notes);
+        assert_eq!(render.place, FieldPlace::Right);
         assert_eq!(render.background, 0.25);
         assert_eq!(render.note_colors, note_scheme(settings.note_colors()));
         assert!(render.ghost.is_none() && render.frame_aspect.is_none());
@@ -320,17 +330,29 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(prompt_filter(&song, 0, &off, size), None);
-        for reverse in [false, true] {
+        let mut middles = Vec::new();
+        for (reverse, place) in [
+            (false, FieldPlace::Center),
+            (true, FieldPlace::Center),
+            (false, FieldPlace::Left),
+            (false, FieldPlace::Right),
+        ] {
             let on = Settings {
                 field_filter: 0.6,
                 reverse,
+                field_place: place,
                 ..Settings::default()
             };
-            let band = ddi_render::scene::filter_fraction(&layout, size[0], size[1], reverse);
+            let band =
+                ddi_render::scene::filter_fraction(&layout, size[0], size[1], reverse, place);
             assert_eq!(prompt_filter(&song, 0, &on, size), Some((band, 0.6)));
+            middles.push(band[0]);
             // A chart the song does not have: none.
             assert_eq!(prompt_filter(&song, 1, &on, size), None);
         }
+        // A side's band is on that half, centered on it.
+        assert_eq!(middles[..2], [0.5, 0.5]);
+        assert_eq!(middles[2..], [0.25, 0.75]);
     }
 
     #[test]

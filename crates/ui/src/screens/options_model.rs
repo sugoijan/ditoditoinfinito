@@ -13,7 +13,8 @@ use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::rules::{FailType, JUDGE_SCALES, LIFE_SCALES, LifeType, StepManiaOptions};
 use ddi_engine::scroll::SpeedSource;
 use ddi_engine::{
-    Appearance, AtOnce, ConnectedPad, CoverMode, LaneCover, PadUse, ScrollAction, TimingCut, Turn,
+    Appearance, AtOnce, ConnectedPad, CoverMode, FieldPlace, LaneCover, PadUse, ScrollAction,
+    TimingCut, Turn,
 };
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
@@ -858,6 +859,14 @@ impl OptionsModel {
             "Display",
             vec![
                 choice(
+                    "field_place",
+                    "Field position",
+                    &["Center", "Left", "Right"],
+                    pos(&FIELD_PLACES, s.field_place),
+                    "Where the lanes are on the screen: in the middle, or in the middle of its \
+                     left or right half.",
+                ),
+                choice(
                     "show_deltas",
                     "Timing error of each hit",
                     &["Off", "On"],
@@ -1556,6 +1565,7 @@ impl OptionsModel {
             }
             "speed_source" => s.speed_source = at(&SPEED_SOURCES, i),
             "reverse" => s.reverse = on,
+            "field_place" => s.field_place = at(&FIELD_PLACES, i),
             "scroll_action" => s.scroll_action = at(&SCROLL_ACTIONS, i),
             "turn" => s.transform.turn = at(&TURNS, i),
             "appearance" => s.appearance = at(&APPEARANCES, i),
@@ -2276,6 +2286,8 @@ const DANONI_GAUGES: [(Option<&str>, &str); 10] = [
     (Some("Hard"), "Hard (border)"),
 ];
 const VIDEOS: [VideoMode; 3] = [VideoMode::Auto, VideoMode::On, VideoMode::Off];
+const FIELD_PLACES: [FieldPlace; 3] = [FieldPlace::Center, FieldPlace::Left, FieldPlace::Right];
+
 const FRAMES: [BackgroundFrame; 4] = [
     BackgroundFrame::Auto,
     BackgroundFrame::FourThree,
@@ -2480,9 +2492,11 @@ mod tests {
         // Saved as changed.
         m.change("reverse", 1);
         m.change("speed", 11);
+        m.change("field_place", 2);
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert!(stored.reverse);
         assert_eq!(stored.speed, 3.0);
+        assert_eq!(stored.field_place, FieldPlace::Right);
         assert_eq!(m.data().preview, "Infinito · Single · ×3 · Reverse");
         m.change("noteskin", 2);
         assert_eq!(m.settings.noteskin.as_deref(), Some("dance/mine"));

@@ -27,6 +27,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use ddi_engine::FieldPlace;
 use ddi_platform::{DeviceId, HostTime, InputSource, RawInput};
 use ddi_render::FieldGeometry;
 use gloo::events::{EventListener, EventListenerOptions};
@@ -126,6 +127,8 @@ struct Shared {
     lanes: Vec<(f32, i8)>,
     /// Reverse scroll (moves every receptor to the other end).
     reverse: bool,
+    /// Where the field is across the screen.
+    place: FieldPlace,
     /// Pointers currently down, by `pointerId`.
     pointers: Vec<(i32, Hold)>,
     /// What the listeners and pointer captures are on.
@@ -149,6 +152,7 @@ impl TouchLanes {
         canvas: HtmlCanvasElement,
         lanes: Vec<(f32, i8)>,
         reverse: bool,
+        place: FieldPlace,
     ) -> Option<TouchLanes> {
         let window = web_sys::window()?;
         let document = window.document()?;
@@ -164,6 +168,7 @@ impl TouchLanes {
             canvas,
             lanes,
             reverse,
+            place,
             pointers: Vec::new(),
             host: host.clone(),
             lane_count: vec![0; count],
@@ -322,11 +327,12 @@ impl Shared {
             .map(|w| w.device_pixel_ratio())
             .unwrap_or(1.0);
         let span = self.lanes.iter().map(|l| l.0).fold(0.0f32, f32::max) + 1.0;
-        let geo = FieldGeometry::new(
+        let geo = FieldGeometry::placed(
             (rect.width() * dpr).round().max(1.0) as f32,
             (rect.height() * dpr).round().max(1.0) as f32,
             span,
             self.reverse,
+            self.place,
         );
         let x = ((client_x - rect.left()) * dpr) as f32;
         let y = ((client_y - rect.top()) * dpr) as f32;

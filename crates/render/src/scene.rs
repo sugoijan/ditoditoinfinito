@@ -1,10 +1,11 @@
 //! Turns an engine [`Frame`] into sprite instances and HUD text.
 //!
 //! Geometry is derived from the target size every frame: the note field is
-//! centered, one lane is one arrow wide, and one "arrow height" of engine
+//! centered (or on a side, [`RenderOptions::place`]), one lane is one arrow wide, and one "arrow height" of engine
 //! distance is one arrow of pixels (x-mod 1 = one arrow per beat).
 
 use ddi_chart::{Color, Glyph, Layout};
+use ddi_engine::FieldPlace;
 use ddi_engine::frame::{Frame, NoteSprite, SpriteKind};
 use ddi_engine::rules::{JudgeNames, Judgement};
 
@@ -74,13 +75,36 @@ pub struct FieldGeometry {
 }
 
 impl FieldGeometry {
-    /// Geometry for a field `span` lane widths wide (see [`field_span`]).
+    /// Geometry for a field `span` lane widths wide (see [`field_span`]),
+    /// centered.
     pub fn new(width: f32, height: f32, span: f32, reverse: bool) -> FieldGeometry {
+        FieldGeometry::placed(width, height, span, reverse, FieldPlace::Center)
+    }
+
+    /// [`FieldGeometry::new`] with the field at `place`: a side's field
+    /// is centered on that half of the screen, as StepMania places a
+    /// player's, but never nearer the edge than the arrow's width the
+    /// size leaves (where the screen has room for so much).
+    pub fn placed(
+        width: f32,
+        height: f32,
+        span: f32,
+        reverse: bool,
+        place: FieldPlace,
+    ) -> FieldGeometry {
         let by_height = height / 10.0;
         let by_width = width / (span + 2.0);
         let arrow = by_height.min(by_width).clamp(24.0, 160.0);
         let field_w = arrow * span;
-        let left = (width - field_w) / 2.0;
+        let centered = (width - field_w) / 2.0;
+        let margin = arrow.min(centered.max(0.0));
+        let left = match place {
+            FieldPlace::Center => centered,
+            FieldPlace::Left => (width / 4.0 - field_w / 2.0).max(margin).min(centered),
+            FieldPlace::Right => (width * 0.75 - field_w / 2.0)
+                .min(width - field_w - margin)
+                .max(centered),
+        };
         let (receptor_y, direction) = if reverse {
             (height - arrow * 1.5, -1.0)
         } else {
@@ -208,6 +232,8 @@ fn head_part(kind: &SpriteKind) -> LayerPart {
 pub struct RenderOptions {
     /// Receptors at the bottom, notes travel down.
     pub reverse: bool,
+    /// Where the field sits across the screen.
+    pub place: FieldPlace,
     /// Freeze HUD texture and palette; suppress pop and spatial life tweens.
     pub reduced_motion: bool,
     /// Host seconds for HUD transitions, independent of music rate.
@@ -671,9 +697,15 @@ fn push_covers(
 
 /// [`filter_band`] of `layout`'s field on a `width` by `height` screen,
 /// as fractions of its width: what the start prompt's picture darkens.
-pub fn filter_fraction(layout: &Layout, width: f32, height: f32, reverse: bool) -> [f32; 2] {
+pub fn filter_fraction(
+    layout: &Layout,
+    width: f32,
+    height: f32,
+    reverse: bool,
+    place: FieldPlace,
+) -> [f32; 2] {
     let span = field_span(layout);
-    let geo = FieldGeometry::new(width, height, span, reverse);
+    let geo = FieldGeometry::placed(width, height, span, reverse, place);
     let [mid, w] = filter_band(&geo, span);
     [mid / width, w / width]
 }
@@ -1391,6 +1423,34 @@ mod tests {
             assert_eq!(t.size, size);
             assert!((t.y + t.size * 0.6 - (tap_middle + a * 1.4)).abs() < 0.01);
             assert_eq!(t.color[3], 1.0);
+        }
+    }
+
+    #[test]
+    fn a_sides_field_is_centered_on_its_half() {
+        let at = |w: f32, h: f32, span: f32, place| FieldGeometry::placed(w, h, span, false, place);
+        // 16:9: each side's field is in the middle of its half, sized as
+        // the centered one.
+        let center = at(1280.0, 720.0, 4.0, FieldPlace::Center);
+        let (left, right) = (
+            at(1280.0, 720.0, 4.0, FieldPlace::Left),
+            at(1280.0, 720.0, 4.0, FieldPlace::Right),
+        );
+        assert_eq!(center.center_x(4.0), 640.0);
+        assert_eq!(left.center_x(4.0), 320.0);
+        assert_eq!(right.center_x(4.0), 960.0);
+        assert_eq!((left.arrow, right.arrow), (center.arrow, center.arrow));
+        assert_eq!(left.receptor_y, center.receptor_y);
+        // A field too wide for its half keeps an arrow's width from the
+        // edge: Double on 4:3.
+        let double = |place| at(1024.0, 768.0, 8.0, place);
+        let (l, r) = (double(FieldPlace::Left), double(FieldPlace::Right));
+        assert_eq!(l.left, l.arrow);
+        assert_eq!(r.left + 8.0 * r.arrow, 1024.0 - r.arrow);
+        // A phone upright, the field filling the width: no room to move.
+        let phone = at(780.0, 1688.0, 4.0, FieldPlace::Center);
+        for place in [FieldPlace::Left, FieldPlace::Right] {
+            assert_eq!(at(780.0, 1688.0, 4.0, place), phone);
         }
     }
 

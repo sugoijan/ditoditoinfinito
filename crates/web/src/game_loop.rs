@@ -718,11 +718,12 @@ impl GameLoop {
                 let (width, height) = self.gfx.size();
                 let ratio = width as f32 / (css.0 as f32).max(1.0);
                 let span = ddi_render::scene::field_span(&session.layout);
-                let geo = ddi_render::FieldGeometry::new(
+                let geo = ddi_render::FieldGeometry::placed(
                     width as f32,
                     height as f32,
                     span,
                     session.render.reverse,
+                    session.render.place,
                 );
                 // The touch screens' quit button, at the canvas's pixels,
                 // clear of the field's receptors and the safe area.

@@ -12,7 +12,7 @@ use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::{JudgeNames, Ruleset};
-use ddi_engine::{ConnectedPad, ControlBindings, PadBindings};
+use ddi_engine::{ConnectedPad, ControlBindings, FieldPlace, PadBindings};
 use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, RawInput};
 use ddi_ui::state::history::{
     Ghost, GhostDelta, GhostRun, InputDevice, PlayLog, Replay, Replaying, RulesetKey,
@@ -70,8 +70,9 @@ pub fn is_cancel_key(code: &str) -> bool {
 pub trait Inputs {
     /// Readies the keyboard (capturing `capture`, the bound keys and the
     /// keys the page would otherwise scroll with) and the touch lanes of
-    /// `layout` (drawn reversed or not), as the play starts.
-    fn begin(&mut self, capture: Vec<String>, layout: &Layout, reverse: bool);
+    /// `layout` (drawn reversed or not, at `place` across the screen), as
+    /// the play starts.
+    fn begin(&mut self, capture: Vec<String>, layout: &Layout, reverse: bool, place: FieldPlace);
     /// The edges since the last call, the keyboard's, then the touch
     /// lanes', then the pads'.
     fn poll(&mut self, out: &mut Vec<RawInput>);
@@ -109,6 +110,9 @@ pub struct SessionConfig {
     pub seed: u64,
     /// The field is drawn reversed (the touch lanes follow).
     pub reverse: bool,
+    /// Where the field is drawn across the screen (the touch lanes
+    /// follow).
+    pub place: FieldPlace,
     /// The notes are hidden from the start (the sound-only test).
     pub hide_notes: bool,
     /// A kept play replayed (`docs/plans/play-history.md`, Replays): its
@@ -141,6 +145,7 @@ impl SessionConfig {
             auto_pad: false,
             seed: 0,
             reverse: settings.reverse,
+            place: settings.field_place,
             hide_notes: false,
             replay: None,
             ghost: None,
@@ -451,7 +456,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .iter()
             .map(|s| s.to_string()),
         );
-        inputs.begin(capture, &layout, config.reverse);
+        inputs.begin(capture, &layout, config.reverse, config.place);
 
         let options = match &config.replay {
             // As played: its seed, its speed as it was worked out.

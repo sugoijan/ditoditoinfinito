@@ -110,6 +110,7 @@ impl PlaySession {
         let core = ddi_session::play::SessionConfig {
             seed: random_seed(),
             reverse: render.reverse,
+            place: render.place,
             hide_notes: render.hide_notes,
             ..config.session
         };
@@ -219,7 +220,13 @@ impl WebInputs {
 }
 
 impl ddi_session::play::Inputs for WebInputs {
-    fn begin(&mut self, capture: Vec<String>, layout: &Layout, reverse: bool) {
+    fn begin(
+        &mut self,
+        capture: Vec<String>,
+        layout: &Layout,
+        reverse: bool,
+        place: ddi_engine::FieldPlace,
+    ) {
         self.keyboard = WebKeyboard::new(capture);
         self.touch = self.touch_canvas.take().and_then(|canvas| {
             TouchLanes::new(
@@ -230,6 +237,7 @@ impl ddi_session::play::Inputs for WebInputs {
                     .map(|l| (l.column, l.scroll_sign))
                     .collect(),
                 reverse,
+                place,
             )
         });
     }

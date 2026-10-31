@@ -36,6 +36,7 @@ pub mod history;
 pub mod input;
 pub mod judge;
 pub mod lyrics;
+pub mod place;
 pub mod player;
 pub mod rules;
 pub mod scroll;
@@ -63,6 +64,7 @@ pub use frame::{
 };
 pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
 pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
+pub use place::FieldPlace;
 pub use player::{PlayOptions, Player, Results};
 pub use rules::{
     ComboRules, EmptyPress, FailPolicy, FailType, FullCombo, GaugeRules, GradeBasis, GradeTable,

@@ -12,7 +12,7 @@ use ddi_engine::rules::StepManiaOptions;
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
-use ddi_engine::{Appearance, ControlBindings, LaneCover, TransformOptions};
+use ddi_engine::{Appearance, ControlBindings, FieldPlace, LaneCover, TransformOptions};
 use ddi_platform::storage::{self, Area};
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +34,10 @@ pub struct Settings {
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub speed_source: SpeedSource,
     pub reverse: bool,
+    /// Where the field sits across the screen: in the middle, or on a
+    /// side (drawing only).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub field_place: FieldPlace,
     /// Boost / Brake / Wave: how notes move on their way to the receptors.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub scroll_action: ScrollAction,
@@ -351,6 +355,7 @@ impl Default for Settings {
             speed: 2.5,
             speed_source: SpeedSource::Player,
             reverse: false,
+            field_place: FieldPlace::Center,
             scroll_action: ScrollAction::Normal,
             transform: TransformOptions::default(),
             simplify_onigiri: false,
@@ -1081,6 +1086,19 @@ mod tests {
     }
 
     #[test]
+    fn the_fields_place_reads_leniently() {
+        let read = |v: &str| {
+            serde_json::from_str::<Settings>(&format!(r#"{{"field_place": {v}}}"#))
+                .unwrap()
+                .field_place
+        };
+        assert_eq!(read(r#""Left""#), FieldPlace::Left);
+        assert_eq!(read(r#""Right""#), FieldPlace::Right);
+        // A place a later version has: the middle.
+        assert_eq!(read(r#""Top""#), FieldPlace::Center);
+    }
+
+    #[test]
     fn older_settings_load_and_migrate() {
         let store = Rc::new(MemoryStore::default());
         storage::install(store.clone());
@@ -1088,6 +1106,7 @@ mod tests {
         let s = Settings::load();
         assert_eq!(s.speed, 10.0);
         assert!(s.reverse);
+        assert_eq!(s.field_place, FieldPlace::Center);
         // Stored before it was kept, and before the onigiri's: Where
         // missing, as new settings have it.
         assert_eq!(s.simplify_center, CenterVersions::Missing);

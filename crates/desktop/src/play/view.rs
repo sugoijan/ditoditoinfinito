@@ -511,7 +511,7 @@ impl View {
         // The field's place, for a work's layers and the lyrics.
         let (w, h) = (size[0] as f32, size[1] as f32);
         let span = ddi_render::scene::field_span(&session.layout);
-        let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
+        let geo = ddi_render::FieldGeometry::placed(w, h, span, render.reverse, render.place);
         // The quit button, clear of the field's receptors, while the
         // pointer was moved lately (as the web's touch screens have it).
         let quit = self

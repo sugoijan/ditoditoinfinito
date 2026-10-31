@@ -119,7 +119,7 @@ impl FakeInputs {
 }
 
 impl Inputs for FakeInputs {
-    fn begin(&mut self, capture: Vec<String>, layout: &Layout, _reverse: bool) {
+    fn begin(&mut self, capture: Vec<String>, layout: &Layout, _reverse: bool, _place: FieldPlace) {
         self.begun = Some((capture, layout.lanes.len()));
     }
     fn poll(&mut self, out: &mut Vec<RawInput>) {

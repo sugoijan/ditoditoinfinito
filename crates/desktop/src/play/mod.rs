@@ -188,7 +188,13 @@ impl DesktopInputs {
 }
 
 impl ddi_session::play::Inputs for DesktopInputs {
-    fn begin(&mut self, _capture: Vec<String>, _layout: &Layout, _reverse: bool) {
+    fn begin(
+        &mut self,
+        _capture: Vec<String>,
+        _layout: &Layout,
+        _reverse: bool,
+        _place: ddi_engine::FieldPlace,
+    ) {
         let mut f = self.feed.borrow_mut();
         f.reading = true;
         // Edges from before the start are not the play's.

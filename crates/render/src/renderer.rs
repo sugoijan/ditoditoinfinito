@@ -470,11 +470,12 @@ impl Renderer {
     ) {
         let geo = match opts.preview {
             Some(p) => p.geometry,
-            None => FieldGeometry::new(
+            None => FieldGeometry::placed(
                 width as f32,
                 height as f32,
                 scene::field_span(layout),
                 opts.reverse,
+                opts.place,
             ),
         };
         let layers = !self.stage_back.is_empty();
