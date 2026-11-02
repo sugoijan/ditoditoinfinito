@@ -574,6 +574,11 @@ impl GameLoop {
         self.frame_aspect(false)
     }
 
+    /// The play taken back (a restart's sound and music).
+    pub(crate) fn take_session(&mut self) -> Option<PlaySession> {
+        self.session.take()
+    }
+
     pub(crate) fn clear_session(&mut self) {
         self.session = None;
         self.lyrics = None;

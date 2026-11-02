@@ -1,10 +1,11 @@
 //! A play as the window runs it (`play::host`), on this machine's GPU
 //! offscreen and on a fake clock with no sound device: song select's call
 //! brings up the start prompt over it, Enter starts the play once the song
-//! is read, the play draws every frame to its end (autoplayed, all top
-//! tier), its results come up and it is kept once in the history; R
-//! retries (the prompt again), Escape goes back to song select. Skipped
-//! where there is no GPU adapter (CI).
+//! is read, R pressed twice two seconds in starts it again at once, it
+//! draws every frame to its end (autoplayed, all top tier), its results
+//! come up and it is kept once in the history; R retries (the prompt
+//! again), Escape goes back to song select. Skipped where there is no
+//! GPU adapter (CI).
 
 mod common;
 use std::rc::Rc;
@@ -118,6 +119,25 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
         if frames < 2 {
             host.feed.borrow_mut().pointer_at = moved;
         }
+        // R pressed twice, two seconds in: the play starts again.
+        if let Some(pressed) = match frames {
+            120 | 130 => Some(true),
+            121 | 131 => Some(false),
+            _ => None,
+        } {
+            host.feed.borrow_mut().edges.push(ddi_platform::RawInput {
+                device: ddi_platform::DeviceId::Keyboard,
+                control: "KeyR".into(),
+                pressed,
+                host_time: HostTime(now as f64 / 1e9),
+                slot: 0,
+            });
+        }
+        if frames == 132 {
+            assert!(host.playing(), "a restart plays on at once");
+            assert_eq!(host.log, ["restarted beatucada"]);
+            assert_eq!(store.len(), 0, "a restarted play is not kept");
+        }
         let mut encoder = device.create_command_encoder(&Default::default());
         host.draw_play(
             &dev(),
@@ -153,7 +173,7 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
     assert_eq!(top(&ui), "results");
     assert_eq!(store.len(), 1, "kept once");
     assert!(
-        host.log[0].contains("[77, 0, 0, 0, 0, 0]"),
+        host.log[1].contains("[77, 0, 0, 0, 0, 0]"),
         "{:?}",
         host.log
     );

@@ -2,7 +2,7 @@
 //! fake shell whose edges it scripts (`docs/plans/desktop.md`, section 6):
 //! autoplay of a bundled song all top tier at several frame rates and
 //! through a test pad, calibration converging on a simulated late player,
-//! the quit gesture, an interruption, the facts a play keeps.
+//! the quit and restart gestures, an interruption, the facts a play keeps.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -515,6 +515,125 @@ fn a_held_escape_quits() {
     assert_eq!(without_late(&watched), without_late(&results));
     let check = replay.check(&watched, &offline);
     assert!(check.matches, "{check:?}");
+}
+
+#[test]
+fn r_twice_or_a_held_backslash_restarts_on_the_same_sound() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut inputs = FakeInputs::new(&clock);
+    inputs.key(3.0, "KeyR", true);
+    inputs.key(3.05, "KeyR", false);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        SessionConfig::from_settings(&settings, false, None),
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        inputs,
+    )
+    .unwrap();
+    // One tap shows the restart's hint and restarts nothing.
+    assert!(run(&mut s, &clock, 60.0, 3.5).is_none());
+    assert!(s.view.cancel_progress > 0.0 && s.view.restarting);
+    assert_eq!(s.view.cancel_hint, "hold or double-tap R to restart");
+    // Escape's hint takes its place.
+    let now = *clock.borrow();
+    s.inputs.key(now + 0.01, "Escape", true);
+    s.inputs.key(now + 0.05, "Escape", false);
+    assert!(run(&mut s, &clock, 60.0, 0.2).is_none());
+    assert!(!s.view.restarting && s.view.cancel_hint.is_empty());
+    // A second R within half a second restarts.
+    let now = *clock.borrow() + 1.0;
+    s.inputs.key(now, "KeyR", true);
+    s.inputs.key(now + 0.05, "KeyR", false);
+    s.inputs.key(now + 0.2, "KeyR", true);
+    assert!(matches!(
+        run(&mut s, &clock, 60.0, 2.0),
+        Some(SessionEvent::Restart)
+    ));
+    // The sound handed back stopped and at full volume, with the music.
+    let stopped = s.audio().stopped;
+    let (audio, music) = s.into_restart();
+    assert!(audio.stopped > stopped);
+    assert_eq!(audio.ramps.last(), Some(&(None, 1.0, None, 0.0)));
+    assert_eq!(music, 110.0);
+
+    // Held: restarts after as long as a held Escape quits.
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut inputs = FakeInputs::new(&clock);
+    inputs.key(2.0, "Backslash", true);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        SessionConfig::from_settings(&settings, false, None),
+        audio,
+        music,
+        inputs,
+    )
+    .unwrap();
+    assert!(matches!(
+        run(&mut s, &clock, 60.0, 10.0),
+        Some(SessionEvent::Restart)
+    ));
+    assert!((*clock.borrow() - (2.0 + CANCEL_HOLD)).abs() < 0.05);
+}
+
+#[test]
+fn a_lane_on_r_plays_it_and_a_replay_never_restarts() {
+    let song = bundled("beatucada");
+    let mut settings = Settings::default();
+    // R is the left arrow's key.
+    let layout = song.layout_of(&song.charts[1]).unwrap();
+    let mut table = settings.controls.keyboard(&layout);
+    table[0].push("KeyR".into());
+    settings.controls.set_keyboard(&layout, table);
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut inputs = FakeInputs::new(&clock);
+    inputs.key(2.0, "KeyR", true);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        SessionConfig::from_settings(&settings, false, None),
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        inputs,
+    )
+    .unwrap();
+    assert!(run(&mut s, &clock, 60.0, 3.0).is_none());
+    assert!(s.held()[0], "R holds the left lane");
+    assert_eq!(s.view.cancel_progress, 0.0);
+
+    // A replay (of a play quit at 2.7 s): R pressed twice does nothing.
+    let settings = Settings::default();
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut inputs = FakeInputs::new(&clock);
+    inputs.key(2.0, "Escape", true);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        SessionConfig::from_settings(&settings, false, None),
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        inputs,
+    )
+    .unwrap();
+    let Some(SessionEvent::Aborted { results, facts }) = run(&mut s, &clock, 60.0, 10.0) else {
+        panic!("no quit");
+    };
+    let replay = kept("beatucada", &song, 1, &results, &facts, false);
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut inputs = FakeInputs::new(&clock);
+    inputs.key(1.0, "KeyR", true);
+    inputs.key(1.1, "KeyR", false);
+    inputs.key(1.2, "KeyR", true);
+    let (_, event) = watch(&replay, &song, 60.0, 0.0, 0.0, Some(inputs), &clock);
+    assert!(matches!(event, Some(SessionEvent::Aborted { .. })));
 }
 
 /// Every bundled song with its charts.

@@ -279,6 +279,10 @@ pub enum Ended {
     Aborted { results: Box<Results> },
     /// The window was hidden or the sound stopped.
     Interrupted,
+    /// The player restarted (R or `\` held or pressed twice): nothing
+    /// kept, the same play to start again at once on its sound
+    /// ([`Play::into_restart`]).
+    Restart,
 }
 
 /// A play of one chart.
@@ -442,7 +446,13 @@ impl Play {
                 Some(Ended::Aborted { results })
             }
             SessionEvent::Interrupted => Some(Ended::Interrupted),
+            SessionEvent::Restart => Some(Ended::Restart),
         }
+    }
+
+    /// After [`Ended::Restart`]: the play's sound, silent, for the next.
+    pub fn into_restart(self) -> Audio {
+        self.session.into_restart().0
     }
 
     /// Keeps the play in the history, once.

@@ -125,8 +125,15 @@ impl PlaySession {
         self.render.hide_notes = view.hide_notes;
         self.render.cancel_progress = view.cancel_progress;
         self.render.cancel_hint = view.cancel_hint;
+        self.render.restarting = view.restarting;
         self.render.ghost = self.core.ghost_delta().map(ddi_shell::score_delta);
         out
+    }
+
+    /// After `SessionEvent::Restart`: the sound and the music for the
+    /// next play (`ddi_session::play::PlaySession::into_restart`).
+    pub(crate) fn into_restart(self) -> (WebAudio, AudioBuffer) {
+        self.core.into_restart()
     }
 
     pub(crate) fn gamepads(&self) -> Option<&Gamepads> {

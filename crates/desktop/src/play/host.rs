@@ -1001,6 +1001,22 @@ impl Host {
             Some((a, _)) => a,
             None => self.open_audio(),
         };
+        self.begin(r, loaded, &settings, audio, entrance, ui, env)
+    }
+
+    /// The play started on `audio`, the prompt down: from Start, or
+    /// again at once after a restart (the backdrop then as it was).
+    #[allow(clippy::too_many_arguments)]
+    fn begin(
+        &mut self,
+        mut r: Box<Readied>,
+        loaded: Rc<Loaded>,
+        settings: &Settings,
+        audio: Audio,
+        entrance: ddi_actor::background::Reveal,
+        ui: &mut Ui,
+        env: &Env,
+    ) -> Stage {
         {
             let mut f = self.feed.borrow_mut();
             f.interrupted = false;
@@ -1015,12 +1031,12 @@ impl Host {
             .unwrap_or(60.0);
         let mut request = r.request.clone();
         if settings.ghost && request.replay.is_none() && request.calibration.is_none() {
-            request.ghost = self.ghost(&loaded, &request, &settings).map(Rc::new);
+            request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);
         }
         match Play::start(
             request,
             loaded,
-            &settings,
+            settings,
             audio,
             self.feed.clone(),
             self.watcher.for_play(),
@@ -1053,12 +1069,12 @@ impl Host {
                         play.song(),
                         r.request.chart,
                         &play.session.layout,
-                        &settings,
+                        settings,
                     );
                     v.set_stage_track(track);
                     v.set_lyrics(lyrics);
                 }
-                let mut render = ddi_shell::render_options(&settings);
+                let mut render = ddi_shell::render_options(settings);
                 // A test shows its plain field and each hit's error.
                 if let Some(mode) = r.request.calibration {
                     render.for_calibration(mode.hide_notes());
@@ -1121,6 +1137,16 @@ impl Host {
         let Stage::Playing(r, play, _) = stage else {
             return;
         };
+        // Restarted: the same play again at once, nothing kept, the
+        // backdrop as it was (`docs/PLAN.md` decision 79).
+        if matches!(ended, Ended::Restart) {
+            self.log.push(format!("restarted {}", play.request.song));
+            let loaded = play.loaded.clone();
+            let audio = play.into_restart();
+            let settings = r.settings();
+            self.stage = self.begin(r, loaded, &settings, audio, Default::default(), ui, env);
+            return;
+        }
         self.in_play.set(false);
         #[cfg(feature = "video")]
         if let Some(v) = r.view.as_ref()
@@ -1211,6 +1237,8 @@ impl Host {
                     Stage::Results(r)
                 }
             }
+            // (Started again above.)
+            Ended::Restart => Stage::Idle,
             Ended::Interrupted => {
                 self.log.push(format!("interrupted {}", play.request.song));
                 let mut r = r;

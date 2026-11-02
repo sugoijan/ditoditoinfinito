@@ -770,7 +770,10 @@ of what was played),
 graded QUIT in place of a letter (`Results::quit`, `Player::quit_at`),
 kept in the history as a quit (`Ending::Quit`, the lamp QUIT) that never
 counts for the bests or the ghost; its replay quits where it did
-(`PlayLog::end`). The results show the ruleset's main panel set alone
+(`PlayLog::end`). R or `\` held or pressed twice (unless a lane is bound
+to it: Dancing☆Onigiri 9A's R) starts the play again at once on the same
+sound and music, without the prompt, keeping nothing (none in a replay or
+a calibration; `SessionEvent::Restart`, PLAN.md decision 79). The results show the ruleset's main panel set alone
 (the sets' tabs went; `Settings::results_panels` waits for a picker),
 Retry then Song list as plain buttons, Song list focused first, Left and
 Right moving the focus along them.

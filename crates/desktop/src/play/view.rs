@@ -476,6 +476,7 @@ impl View {
         render.hide_notes = v.hide_notes;
         render.cancel_progress = v.cancel_progress;
         render.cancel_hint = v.cancel_hint;
+        render.restarting = v.restarting;
         render.frame_aspect = frame_aspect;
         if let Some(entrance) = &mut self.entrance {
             let reveal = entrance.sample(now.0);

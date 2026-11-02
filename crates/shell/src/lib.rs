@@ -56,6 +56,7 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         show_deltas: settings.show_deltas,
         cancel_progress: 0.0,
         cancel_hint: "",
+        restarting: false,
         note_colors: note_scheme(settings.note_colors()),
         // No skin's setting asks for a chart's own colors now.
         chart_colors: false,

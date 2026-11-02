@@ -154,8 +154,9 @@ fn release_play_background() {
 
 pub(crate) enum Msg {
     GfxReady(Result<Box<GameLoop>, String>),
-    /// The history kept the play (its id), or why it could not.
-    PlaySaved(Result<String, String>),
+    /// The history kept the play begun as the given one
+    /// (`GameCanvas::begun`): its id, or why it could not.
+    PlaySaved(u32, Result<String, String>),
     /// The results waited long enough for the play to be kept.
     SaveWaited,
     /// The app's device was lost and made again.
@@ -371,6 +372,9 @@ pub(crate) struct GameCanvas {
     _save_wait: Option<gloo::timers::callback::Timeout>,
     /// The play just kept (its replay).
     play_id: Option<String>,
+    /// The plays begun on the page, the last one's number: a restart's
+    /// play does not take the answer for the one before it.
+    begun: u32,
     /// A replay (`crate::replay`): what it replays; why it cannot be.
     replay: Option<Rc<crate::replay::ReplayProp>>,
     refused: Option<String>,
@@ -774,6 +778,7 @@ impl Component for GameCanvas {
             save: Save::NotAsked,
             _save_wait: None,
             play_id: None,
+            begun: 0,
             replay,
             refused,
             replay_check: None,
@@ -1252,7 +1257,9 @@ impl GameCanvas {
                 }
                 false
             }
-            Msg::PlaySaved(r) => {
+            // Kept before a restart (at its fail): the play now is not.
+            Msg::PlaySaved(play, _) if play != self.begun => false,
+            Msg::PlaySaved(_, r) => {
                 self.play_id = r.as_ref().ok().cloned();
                 self.save = Save::Done(r.err());
                 self.show_waiting_results(ctx)
@@ -1276,6 +1283,24 @@ impl GameCanvas {
                     back_route(ctx.props()).return_to();
                     true
                 }
+            }
+            // The same play again at once on its sound and music, nothing
+            // kept, the backdrop as it was (`docs/PLAN.md` decision 79).
+            Msg::Session(SessionEvent::Restart) => {
+                let session = self
+                    .game
+                    .borrow_mut()
+                    .as_mut()
+                    .and_then(|g| g.take_session());
+                let Some(session) = session else {
+                    return false;
+                };
+                let (audio, buffer) = session.into_restart();
+                if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.clear_session();
+                }
+                self.begin_session(ctx, audio, buffer, Default::default());
+                true
             }
             Msg::Session(SessionEvent::Interrupted) => {
                 crate::history::set_playing(false);
@@ -1628,7 +1653,8 @@ impl GameCanvas {
         else {
             return false;
         };
-        self.begin_session(ctx, audio, buffer);
+        let entrance = self.prompt_state.borrow().entrance();
+        self.begin_session(ctx, audio, buffer, entrance);
         true
     }
 
@@ -1793,7 +1819,15 @@ impl GameCanvas {
         }
     }
 
-    fn begin_session(&mut self, ctx: &Context<Self>, audio: WebAudio, buffer: AudioBuffer) {
+    /// The play started on `audio`, the backdrop's entrance from
+    /// `entrance` (where the prompt left it; after a restart, done).
+    fn begin_session(
+        &mut self,
+        ctx: &Context<Self>,
+        audio: WebAudio,
+        buffer: AudioBuffer,
+        entrance: ddi_actor::background::Reveal,
+    ) {
         self.apply_background();
         // The prompt's next showing (a retry, an interruption) waits for
         // Start.
@@ -1891,6 +1925,7 @@ impl GameCanvas {
                     &self.settings,
                 );
                 self.start_refresh = self.refresh_hz();
+                self.begun += 1;
                 self.save = Save::NotAsked;
                 self.replay_check = None;
                 crate::history::set_playing(true);
@@ -1905,7 +1940,7 @@ impl GameCanvas {
                     game.set_background_schedule(schedule);
                     game.set_session(session);
                     game.enter_background(
-                        self.prompt_state.borrow().entrance(),
+                        entrance,
                         self.settings
                             .reduced_motion
                             .reduced(crate::components::ui_dev::system_reduced()),
@@ -2436,8 +2471,9 @@ impl GameCanvas {
         self.save = Save::Pending;
         self.play_id = None;
         let link = ctx.link().clone();
+        let play = self.begun;
         crate::history::record(&record, &facts.log, results, move |r| {
-            link.send_message(Msg::PlaySaved(r))
+            link.send_message(Msg::PlaySaved(play, r))
         });
     }
 

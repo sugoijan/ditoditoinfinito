@@ -194,13 +194,98 @@ pub fn song_shift(
 }
 
 /// What the field shows of the session beside the chart: the notes hidden
-/// (the sound-only test, the end of a calibration), the quit gesture's
-/// progress and hint.
+/// (the sound-only test, the end of a calibration), the quit or restart
+/// gesture's progress and hint (the one pressed last).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SessionView {
     pub hide_notes: bool,
     pub cancel_progress: f32,
     pub cancel_hint: &'static str,
+    /// The gesture shown is the restart's.
+    pub restarting: bool,
+}
+
+/// A gesture made by holding a control or pressing it twice (the quit's,
+/// the restart's).
+#[derive(Clone, Copy, Debug, Default)]
+struct Gesture {
+    /// Host time of the last press.
+    pressed_at: Option<f64>,
+    held: bool,
+}
+
+impl Gesture {
+    /// A press or a release at `now`: whether it completes the gesture
+    /// (a second press soon after the first).
+    fn edge(&mut self, pressed: bool, now: f64) -> bool {
+        if !pressed {
+            self.held = false;
+            return false;
+        }
+        let twice = self
+            .pressed_at
+            .is_some_and(|t| now - t <= CANCEL_DOUBLE_TAP);
+        self.pressed_at = Some(now);
+        self.held = true;
+        twice
+    }
+
+    /// Its progress at `now`, 1 once held long enough; a sliver while
+    /// the hint shows after a tap; 0 otherwise.
+    fn progress(&self, now: f64) -> f64 {
+        match self.pressed_at {
+            Some(t) if self.held => ((now - t) / CANCEL_HOLD).clamp(0.0, 1.0),
+            Some(t) if now - t <= CANCEL_HINT => 0.001,
+            _ => 0.0,
+        }
+    }
+}
+
+/// The play's sound, stopped when the session goes, unless a restart
+/// took it back ([`PlaySession::into_restart`]).
+struct Sound<A: AudioBackend>(Option<A>);
+
+impl<A: AudioBackend> std::ops::Deref for Sound<A> {
+    type Target = A;
+    fn deref(&self) -> &A {
+        self.0.as_ref().expect("the session's sound")
+    }
+}
+
+impl<A: AudioBackend> std::ops::DerefMut for Sound<A> {
+    fn deref_mut(&mut self) -> &mut A {
+        self.0.as_mut().expect("the session's sound")
+    }
+}
+
+impl<A: AudioBackend> Drop for Sound<A> {
+    fn drop(&mut self) {
+        if let Some(a) = self.0.as_mut() {
+            a.stop_all();
+        }
+    }
+}
+
+/// The shell's inputs, whose fast pad loop stops when the session goes.
+struct Running<I: Inputs>(I);
+
+impl<I: Inputs> std::ops::Deref for Running<I> {
+    type Target = I;
+    fn deref(&self) -> &I {
+        &self.0
+    }
+}
+
+impl<I: Inputs> std::ops::DerefMut for Running<I> {
+    fn deref_mut(&mut self) -> &mut I {
+        &mut self.0
+    }
+}
+
+impl<I: Inputs> Drop for Running<I> {
+    fn drop(&mut self) {
+        self.0.pads_running(None);
+    }
 }
 
 pub struct PlaySession<A: AudioBackend, I: Inputs> {
@@ -213,10 +298,12 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// The music's length, seconds.
     pub length: f64,
     pub view: SessionView,
-    audio: A,
+    audio: Sound<A>,
+    /// The music, for a restart ([`PlaySession::into_restart`]).
+    buffer: A::Buffer,
     /// Music volume the session plays at (0 in the muted calibration).
     volume: f32,
-    inputs: I,
+    inputs: Running<I>,
     input: LaneInput,
     /// Pad controls that act like Escape: `(Gamepad.id, control)`.
     pad_cancel: Vec<(String, String)>,
@@ -248,9 +335,13 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// Signed error of the last judged tap, seconds.
     pub last_delta: Option<f64>,
     calibration: Option<(CalMode, Calibrator)>,
-    /// Host time of the last cancel-key press, and when it was released.
-    cancel_pressed_at: Option<f64>,
-    cancel_held: bool,
+    /// The quit gesture (Escape, Backspace, a pad's Back, the touch quit
+    /// button).
+    cancel: Gesture,
+    /// The restart gesture (R or `\`; none in a replay or a
+    /// calibration), and whether it was made.
+    restart: Option<Gesture>,
+    restarted: bool,
     pub devices: Option<DeviceProfile>,
     /// The devices whose presses reached a lane.
     played_with: Vec<InputDevice>,
@@ -351,6 +442,9 @@ pub enum SessionEvent {
     },
     /// The page was hidden or the audio suspended mid-play.
     Interrupted,
+    /// The player restarted: nothing kept, the same play to start again
+    /// at once on the same sound and music ([`PlaySession::into_restart`]).
+    Restart,
 }
 
 impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
@@ -367,6 +461,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// The shell's inputs.
     pub fn inputs(&self) -> &I {
         &self.inputs
+    }
+
+    /// After [`SessionEvent::Restart`]: the sound, silent and at full
+    /// volume again (after a fail's fade, a work's fade out), and the
+    /// music, for the next play's [`PlaySession::start`].
+    pub fn into_restart(mut self) -> (A, A::Buffer) {
+        let mut audio = self.audio.0.take().expect("the session's sound");
+        audio.stop_all();
+        audio.master_ramp(None, 1.0, None, 0.0);
+        (audio, self.buffer)
     }
 
     /// The music's volume.
@@ -567,9 +671,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 hide_notes: config.hide_notes,
                 cancel_progress: 0.0,
                 cancel_hint: "",
+                restarting: false,
             },
-            audio,
-            inputs,
+            audio: Sound(Some(audio)),
+            buffer,
+            inputs: Running(inputs),
             input: LaneInput::new(bindings),
             pad_cancel,
             pad_start,
@@ -587,8 +693,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             failed_at: None,
             last_delta: None,
             calibration: config.calibration.map(|m| (m, Calibrator::default())),
-            cancel_pressed_at: None,
-            cancel_held: false,
+            cancel: Gesture::default(),
+            restart: (config.replay.is_none() && config.calibration.is_none())
+                .then(Gesture::default),
+            restarted: false,
             devices: config.devices,
             played_with: Vec::new(),
             latency,
@@ -680,16 +788,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 self.adopt_pads();
             }
             if self.is_cancel(&raw) {
+                self.aborted |= self.cancel.edge(raw.pressed, raw.host_time.0);
                 if raw.pressed {
-                    let now = raw.host_time.0;
-                    if self
-                        .cancel_pressed_at
-                        .is_some_and(|t| now - t <= CANCEL_DOUBLE_TAP)
-                    {
-                        self.aborted = true;
-                    }
-                    self.cancel_pressed_at = Some(now);
-                    self.cancel_held = true;
+                    self.view.restarting = false;
                     self.view.cancel_hint = match raw.device {
                         DeviceId::Touch => TOUCH_CANCEL_HINT,
                         DeviceId::Gamepad(_) => ddi_ui::controller_hints::quit_hint(
@@ -699,8 +800,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                         ),
                         _ => "",
                     };
-                } else {
-                    self.cancel_held = false;
+                }
+                continue;
+            }
+            if let Some(hint) = self.restart_hint(&raw)
+                && let Some(restart) = self.restart.as_mut()
+            {
+                self.restarted |= restart.edge(raw.pressed, raw.host_time.0);
+                if raw.pressed {
+                    self.view.restarting = true;
+                    self.view.cancel_hint = hint;
                 }
                 continue;
             }
@@ -725,18 +834,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.raw = raw_inputs;
         self.cover.tick(host_now, &mut self.player);
 
-        // Hold-to-quit progress and the hint after a single tap.
-        self.view.cancel_progress = match self.cancel_pressed_at {
-            Some(t) if self.cancel_held => {
-                let p = (host_now.0 - t) / CANCEL_HOLD;
-                if p >= 1.0 {
-                    self.aborted = true;
-                }
-                p.clamp(0.0, 1.0) as f32
-            }
-            Some(t) if host_now.0 - t <= CANCEL_HINT => 0.001,
-            _ => 0.0,
-        };
+        // Hold-to-quit (or restart) progress and the hint after a single
+        // tap.
+        let quit = self.cancel.progress(host_now.0);
+        let restart = self.restart.map_or(0.0, |r| r.progress(host_now.0));
+        self.aborted |= quit >= 1.0;
+        self.restarted |= restart >= 1.0;
+        self.view.cancel_progress = if self.view.restarting { restart } else { quit } as f32;
 
         if let Some(auto) = self.auto.as_mut() {
             let opts = *self.player.clock().options();
@@ -825,12 +929,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // The event sounds: a mine stepped on now (the step that failed
         // the play too), the claps due soon while it goes on.
         let now = self.audio.now().context_time;
-        self.sounds.judged(&mut self.audio, now, &events);
+        self.sounds.judged(&mut *self.audio, now, &events);
         if !self.player.finished() {
             let (start, offset) = (self.start_ctx, self.song_offset);
             let rate = self.player.clock().options().rate;
             self.sounds
-                .schedule(&mut self.audio, now, |t| start + (t - offset) / rate);
+                .schedule(&mut *self.audio, now, |t| start + (t - offset) / rate);
         }
         for ev in &events {
             if let JudgeEventKind::Tap(j, delta) = ev.kind
@@ -875,6 +979,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 results: Box::new(self.player.results()),
                 facts: Box::new(self.facts()),
             })
+        } else if self.restarted {
+            self.audio.stop_all();
+            Some(SessionEvent::Restart)
         } else if self.inputs.interrupted() || !self.audio.running() {
             self.audio.stop_all();
             Some(SessionEvent::Interrupted)
@@ -1031,6 +1138,27 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.known_pads = connected;
     }
 
+    /// The restart's hint when `raw` is a restart key's edge: R or `\`,
+    /// held or pressed twice as the quit's (`docs/PLAN.md` decision 79),
+    /// unless a lane is bound to it (Dancing☆Onigiri 9A's R, a player's
+    /// binding), which it then plays.
+    fn restart_hint(&self, raw: &RawInput) -> Option<&'static str> {
+        if raw.device != DeviceId::Keyboard
+            || self
+                .input
+                .bindings
+                .lane_of_slot(&raw.device, raw.slot, &raw.control)
+                .is_some()
+        {
+            return None;
+        }
+        match raw.control.as_str() {
+            "KeyR" => Some("hold or double-tap R to restart"),
+            "Backslash" => Some("hold or double-tap \\ to restart"),
+            _ => None,
+        }
+    }
+
     /// Escape/Backspace, a pad's Back control, or the touch quit button.
     fn is_cancel(&self, raw: &RawInput) -> bool {
         match &raw.device {
@@ -1073,13 +1201,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             frame.beat = 0.0;
         }
         frame
-    }
-}
-
-impl<A: AudioBackend, I: Inputs> Drop for PlaySession<A, I> {
-    fn drop(&mut self) {
-        self.audio.stop_all();
-        self.inputs.pads_running(None);
     }
 }
 

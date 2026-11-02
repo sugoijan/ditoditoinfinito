@@ -249,6 +249,8 @@ pub struct RenderOptions {
     pub cancel_progress: f32,
     /// The quit hint shown with it; empty for the keyboard's.
     pub cancel_hint: &'static str,
+    /// The gesture is the restart's (R or `\`), not the quit's.
+    pub restarting: bool,
     /// Perceived brightness of the background images, `0..=1` (0 = off).
     pub background: f32,
     /// Which background images to show this frame.
@@ -1139,7 +1141,11 @@ pub fn build_into(
                     [x - w / 2.0 + w * p / 2.0, y],
                     [w * p, h * 0.7],
                     Shape::Rect,
-                    [1.0, 0.45, 0.5, 1.0],
+                    if opts.restarting {
+                        [0.45, 0.85, 1.0, 1.0]
+                    } else {
+                        [1.0, 0.45, 0.5, 1.0]
+                    },
                 )
                 .params([0.5, 0.0, 0.0, 0.0]),
             );
