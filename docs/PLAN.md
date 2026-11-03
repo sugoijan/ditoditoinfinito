@@ -593,15 +593,20 @@ Audio and video:
   song (sections 2.3, 7).
 - Videos: AV1 does not play, the module is 2.4 MB, Firefox's colors
   for SD movies are its own, MP4 through WebCodecs and movie audio are
-  later, `-random-` picks images only (section 7,
-  `docs/research/video-backgrounds.md`, `docs/plans/video-backgrounds.md`).
+  later, `-random-` shows the song background where StepMania plays
+  a random movie (section 7, `docs/research/video-backgrounds.md`,
+  `docs/plans/video-backgrounds.md`; `docs/plans/phase-8-gaps.md`,
+  step 1).
 - Phase 8 left out: the generative backgrounds and visualizers of the
   phase's deliverable (*new*: never started). The named background
-  effects are done (2026-10-21) but for a movie as an effect's second
-  file; scripted backgrounds and `#FGCHANGES` have their first slice
-  (2026-10-21): what is left is listed in
-  `docs/plans/scripted-backgrounds.md` (movies, render targets, the
-  older formats).
+  effects (2026-10-21) and scripted backgrounds and `#FGCHANGES` (their
+  Lua, text, sounds, StepMania 3.9's and ITG's formats and render
+  targets, by 2026-10-22) are done but for movies: a movie as an
+  effect's second file draws nothing, nor does a script's movie sprite
+  (`docs/plans/scripted-backgrounds.md`, "What they need"). *New:* a
+  song without changes gets no random movies from a `RandomMovies`
+  folder, as StepMania 5.1 gives it by default. All of it is planned in
+  `docs/plans/phase-8-gaps.md`.
 
 Noteskins, Lua and models:
 

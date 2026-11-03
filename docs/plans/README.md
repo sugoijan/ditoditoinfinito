@@ -141,6 +141,12 @@ architecture, the decisions and the roadmap they belong to. Status as of
   the field and as foregrounds, on the skins' sandboxed Lua host);
   StepMania 3.9's and ITG's formats drawn natively, render targets
   (2026-10-22). Left: movies.
+- [Phase 8's last gaps](phase-8-gaps.md) (2026-11-03): planned. Movies
+  wherever StepMania 5.1 plays them (random movies for songs without
+  changes and `-random-`, an effect's second file, a script's sprite),
+  then generative backgrounds of our own standing in for a missing song
+  background (never for a Dancing☆Onigiri work); the look waits for
+  the maintainer.
 - [OS and native video decoding on desktop](native-video.md) (2026-10-17):
   in progress. Done: VideoToolbox for checked H.264/HEVC/VP9, opt-in Metal
   planes, the sandboxed FFmpeg helper (decision 54). Left: Media Foundation
