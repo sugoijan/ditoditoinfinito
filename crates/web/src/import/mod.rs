@@ -376,7 +376,17 @@ async fn run(
         .iter()
         .filter(|(s, _)| ddi_library::video::is_movie(s))
         .collect();
-    report.shared_skipped = shared_files.len() - images.len() - movies.len();
+    // A pack's genre mapping for its random movies (small text, always
+    // copied; `ddi_library::backgrounds::random`).
+    let mappings: Vec<&(String, String)> = shared_files
+        .iter()
+        .filter(|(s, _)| ddi_library::backgrounds::random::is_mapping(s))
+        .collect();
+    report.shared_skipped = shared_files.len() - images.len() - movies.len() - mappings.len();
+    if !mappings.is_empty() {
+        let (_, failed) = store_shared(&db, &mappings, &sources).await;
+        report.skipped.extend(failed);
+    }
     if !movies.is_empty() {
         let linked = origin.as_ref().filter(|o| o.link);
         let (kept, failed) =

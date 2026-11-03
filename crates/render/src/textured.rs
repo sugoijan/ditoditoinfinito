@@ -752,6 +752,38 @@ impl TexturedPipeline {
         )
     }
 
+    /// A texture a song's scripts' movie is drawn into (`crate::script_movies`),
+    /// registered as a skin's image is (its id among the textures), with
+    /// a plain view allowed beside its own: the movie's frames are drawn
+    /// into it in encoded values, as images are uploaded.
+    pub fn add_movie_target(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        srgb: bool,
+    ) -> (u32, wgpu::Texture) {
+        let plain = [wgpu::TextureFormat::Rgba8Unorm];
+        let srgb = srgb && !self.plain_textures;
+        let texture = crate::gpu::texture_2d(
+            device,
+            "ddi-textured-movie",
+            [width.max(1), height.max(1)],
+            if srgb {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            },
+            1,
+            wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            if srgb { &plain } else { &[] },
+        );
+        let id = self.add_texture(device, &texture);
+        (id, texture)
+    }
+
     /// Fills the mipmaps of a texture from [`TexturedPipeline::create_texture`]
     /// whose first level is filled: averaged as the skin's quads blend
     /// (through the plain view, encoded values, as StepMania's 8-bit

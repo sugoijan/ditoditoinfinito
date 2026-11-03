@@ -94,6 +94,9 @@ pub(crate) struct GameLoop {
     stage_drawn: (usize, usize),
     /// The song's background movies.
     movies: crate::movies::MovieDeck,
+    /// Its scripts' movies (`docs/plans/phase-8-gaps.md`, step 3), decoded
+    /// while drawn, their frames on the scripts' converter.
+    script_movies: crate::movies::MovieDeck,
     /// Image and movie textures for the backdrop, rebuilt when either
     /// changes.
     shown_cache: ddi_session::movies::BackdropTextures,
@@ -193,6 +196,7 @@ impl GameLoop {
             stage: crate::stage::StageView::default(),
             stage_drawn: (0, 0),
             movies: crate::movies::MovieDeck::default(),
+            script_movies: crate::movies::MovieDeck::default(),
             shown_cache: Default::default(),
             movies_stopped: false,
             video_mode: VideoMode::Auto,
@@ -249,6 +253,7 @@ impl GameLoop {
             n.restart();
         }
         self.scripts.restart();
+        self.script_movies.stop();
         self.renderer.reset_hud();
         self.session = Some(session);
         self.done = false;
@@ -400,10 +405,24 @@ impl GameLoop {
         self.scripts_stopped = None;
         self.sound_buffers.clear();
         self.sounds_due.clear();
+        self.script_movies.reset();
+        self.script_movies = crate::movies::MovieDeck::default();
         match loaded {
             Some(l) => {
                 self.script_sounds = l.sounds.into_iter().collect();
                 self.scripts.set(Some(l.scripts), l.screen, l.images);
+                let unknown = ddi_platform::video::VideoFormat {
+                    container: ddi_platform::video::VideoContainer::Unknown,
+                    codec: ddi_platform::video::VideoCodec::Unknown,
+                };
+                for (name, blob) in l.movies {
+                    self.script_movies.add_source(
+                        name,
+                        crate::web::movie_source::MovieSource::Blob(blob),
+                        unknown.clone(),
+                        false,
+                    );
+                }
             }
             None => {
                 self.script_sounds.clear();
@@ -820,6 +839,7 @@ impl GameLoop {
                     // The song's scripts, in the background frame (they
                     // load while the play may have begun).
                     if scripts {
+                        self.scripts.set_danger(session.danger_shown());
                         let texts = &self.script_texts;
                         let drawn = self.scripts.draw(
                             (&mut self.renderer, &self.gfx.device, &self.gfx.queue),
@@ -838,6 +858,22 @@ impl GameLoop {
                         }
                         self.sounds_due.extend(drawn.sounds);
                         self.scripts_drawn = drawn.drawn;
+                        // Their movies drawn, decoded on their clocks and
+                        // their new frames drawn into their textures.
+                        if self.video_mode != VideoMode::Off && !session.player.finished() {
+                            let clips = self.scripts.movie_clips();
+                            let (device, queue) = (&self.gfx.device, &self.gfx.queue);
+                            let shown = self.script_movies.update_clips(
+                                &clips,
+                                self.scripts.movie_renderer(device, queue),
+                                device,
+                                queue,
+                            );
+                            self.scripts
+                                .show_movies(&mut self.renderer, device, queue, &shown);
+                        } else if session.player.finished() {
+                            self.script_movies.stop();
+                        }
                     }
                     self.renderer.set_stage_quads(back, mask);
                 }
@@ -981,11 +1017,15 @@ impl GameLoop {
         for (layer, draws) in layers.into_iter().enumerate() {
             for d in draws.iter().flatten() {
                 let o = js_sys::Object::new();
+                // A picture's name, else a movie's (its texture).
+                let movie = self.movies.shown_ids().find(|(_, id)| *id == d.id);
                 let file = self
                     .background_ids
                     .iter()
                     .find(|(_, id)| *id == d.id)
-                    .map(|(what, _)| match what {
+                    .cloned()
+                    .or(movie)
+                    .map(|(what, _)| match &what {
                         BgImage::File(f) | BgImage::Movie(f) => f.clone(),
                         other => format!("{other:?}"),
                     })

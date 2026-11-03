@@ -182,7 +182,7 @@ impl Listen {
             .map_or_else(RelPathBuf::default, |s| s.entry.music_for(chart).to_owned());
         if self.listener.read(&file) {
             let rate = self.audio.sample_rate();
-            let loading = Loading::start(&self.id, Some(chart), rate, false, None, None);
+            let loading = Loading::start(&self.id, Some(chart), rate, false, false, None, None);
             self.loading = Some((file, loading));
             (self.analysis, self.making) = (None, None);
         }
@@ -556,9 +556,16 @@ mod tests {
         let (edited, chart, start) = e.playtest(true);
         assert_eq!(start, 2.0);
         let cancel = std::sync::atomic::AtomicBool::new(false);
-        let loaded =
-            crate::play::load::load_with(&id, Some(chart), 48_000, false, Some(&edited), &cancel)
-                .unwrap();
+        let loaded = crate::play::load::load_with(
+            &id,
+            Some(chart),
+            48_000,
+            false,
+            false,
+            Some(&edited),
+            &cancel,
+        )
+        .unwrap();
         assert_eq!(loaded.song, edited);
         let mut request = crate::play::Request::song(&id, chart, true);
         request.edited = Some(Arc::new(edited));

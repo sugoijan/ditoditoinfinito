@@ -291,9 +291,12 @@ file, or a script's sprite, would need a decoder and a clock of its own
 per segment and per actor (StepMania's texture is shared by every actor
 that names it), a change through both shells' movie code, not a cheap
 one. A second file that is a movie draws nothing (StepMania would play
-it); a script's movie sprite draws nothing.
+it); a script's movie sprite draws nothing. (Both play since
+2026-11-03: `phase-8-gaps.md`, steps 2 and 3.)
 
-What they need (2026-10-22, step 6's last part, not started):
+What they need (2026-10-22, step 6's last part; done 2026-11-03 in
+`phase-8-gaps.md`, steps 2 and 3, where what differs from this is
+written):
 
 - **A clock per movie, not per segment.** StepMania's movie texture
   (`MovieTexture_Generic`, 5.1) is one per file, shared by every sprite

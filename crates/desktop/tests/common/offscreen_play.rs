@@ -54,6 +54,8 @@ pub fn load(root: &Path) -> Rc<Loaded> {
         files,
         music,
         movies,
+        random: Vec::new(),
+        shared: Vec::new(),
         layers: Vec::new(),
     })
 }

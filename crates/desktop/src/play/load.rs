@@ -88,6 +88,17 @@ impl Files {
         }
     }
 
+    /// A file of the song's first `len` bytes (all of it when shorter).
+    pub fn read_head(&self, file: impl AsRef<str>, len: usize) -> Result<Vec<u8>, String> {
+        let file = file.as_ref();
+        match self {
+            Files::Dir { root, .. } => {
+                DirReader { root: root.clone() }.read_at(&self.rooted(file), 0, len)
+            }
+            Files::Zip { reader, .. } => reader.read_at(&self.rooted(file), 0, len),
+        }
+    }
+
     /// Movie `name` of the song: a folder's file, a zip's stored entry
     /// read in place, a compressed one extracted once into the cache
     /// folder (`movies/`, kept to [`MOVIE_CACHE`] bytes).
@@ -318,8 +329,17 @@ pub struct Loaded {
     pub song: Song,
     pub files: Files,
     pub music: Sound,
-    /// Its movies, when asked for ([`movies`]).
+    /// Its movies, when asked for ([`movies`]), its random ones too.
     pub movies: Vec<(String, Result<MovieAt, String>)>,
+    /// The random movies it plays where StepMania would, by name (among
+    /// [`Loaded::movies`]), in the order they come
+    /// ([`crate::library::random_movies`]), when asked for.
+    pub random: Vec<String>,
+    /// The images and movies its background changes name that are in its
+    /// StepMania root's shared folders, `(name as written, file)`
+    /// ([`crate::library::shared_found`]); the movies are among
+    /// [`Loaded::movies`] when those were asked for.
+    pub shared: Vec<(String, PathBuf)>,
     /// A work's back and mask images: `(name as its data writes it,
     /// texture source)`.
     pub layers: Vec<(String, String)>,
@@ -332,6 +352,7 @@ pub fn load(id: &str, rate: u32) -> Result<Loaded, String> {
         None,
         rate,
         true,
+        true,
         None,
         &std::sync::atomic::AtomicBool::new(false),
     )
@@ -339,14 +360,15 @@ pub fn load(id: &str, rate: u32) -> Result<Loaded, String> {
 
 /// [`load`]; with `chart`, the music that chart plays (`.ssc` per-chart
 /// `#MUSIC`, `ManifestEntry::music_for`; else the song's); with
-/// `with_movies`, its movies found (a zip's compressed ones extracted);
-/// with `edited`, that song (the chart editor's) instead of its file's,
-/// with its files and music.
+/// `with_movies`, its movies found (a zip's compressed ones extracted),
+/// and with `random` too its random ones; with `edited`, that song (the
+/// chart editor's) instead of its file's, with its files and music.
 pub fn load_with(
     id: &str,
     chart: Option<usize>,
     rate: u32,
     with_movies: bool,
+    random: bool,
     edited: Option<&Song>,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Loaded, String> {
@@ -387,17 +409,34 @@ pub fn load_with(
         ..Range::default()
     };
     let music = crate::audio::decoder::sound(music, music_ext.as_deref(), range, rate)?;
-    let movies = if with_movies {
+    let mut movies = if with_movies {
         movies_unless(&files, &entry, cancel)
     } else {
         Vec::new()
     };
+    let shared = crate::library::shared_found(id);
+    if with_movies {
+        for (name, file) in &shared {
+            if ddi_library::video::is_movie(name) {
+                movies.push((name.clone(), Ok((file.clone(), None))));
+            }
+        }
+    }
+    let mut random_names = Vec::new();
+    if with_movies && random {
+        for (name, file) in crate::library::random_movies(id, &song) {
+            random_names.push(name.clone());
+            movies.push((name, Ok((file, None))));
+        }
+    }
     Ok(Loaded {
         entry,
         song,
         files,
         music,
         movies,
+        random: random_names,
+        shared,
         layers: Vec::new(),
     })
 }
@@ -517,6 +556,8 @@ fn load_work(
         files,
         music,
         movies: Vec::new(),
+        random: Vec::new(),
+        shared: Vec::new(),
         layers,
     })
 }
@@ -539,13 +580,15 @@ impl Drop for Loading {
 
 impl Loading {
     /// Starts reading song `id` (chart `chart`'s music at `rate` Hz,
-    /// movies when `with_movies`; the chart editor's song when `edited`);
-    /// `wake` wakes the event loop when it is done.
+    /// movies when `with_movies`, random ones too with `random`; the
+    /// chart editor's song when `edited`); `wake` wakes the event loop
+    /// when it is done.
     pub fn start(
         id: &str,
         chart: Option<usize>,
         rate: u32,
         with_movies: bool,
+        random: bool,
         edited: Option<Arc<Song>>,
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Loading {
@@ -562,6 +605,7 @@ impl Loading {
                         chart,
                         rate,
                         with_movies,
+                        random,
                         edited.as_deref(),
                         &cancelled,
                     )
@@ -645,6 +689,8 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         },
         music,
         movies: Vec::new(),
+        random: Vec::new(),
+        shared: Vec::new(),
         layers: Vec::new(),
     }
 }

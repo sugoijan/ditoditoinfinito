@@ -92,6 +92,10 @@ pub(crate) struct Loaded {
     pub(crate) bg_images: Vec<String>,
     /// Movies they play (manifest `bg_videos` that play, and shared ones).
     pub(crate) bg_videos: Vec<String>,
+    /// The random movies it plays where StepMania would
+    /// (`backgrounds::random`), by name, in the order they come: none when
+    /// Random movies or the videos are off.
+    pub(crate) random: Vec<String>,
     /// The song has a background image.
     pub(crate) has_background: bool,
     /// Its manifest entry (the results' song).
@@ -583,6 +587,7 @@ impl Component for GameCanvas {
                     music_bytes: None,
                     bg_images: Vec::new(),
                     bg_videos: Vec::new(),
+                    random: Vec::new(),
                     has_background: false,
                     entry: None,
                     banner: None,
@@ -1938,6 +1943,7 @@ impl GameCanvas {
                     &song.bg_videos,
                     &scripts,
                     &unshowable,
+                    &song.random,
                     song.has_background,
                 )
             }
@@ -2999,6 +3005,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     let script_frame = settings.background_frame;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
+    let random_movies = play_videos && settings.random_movies;
     let edit = ctx.props().edit;
     ctx.link().send_future(async move {
         let r = load_song(&id, chart).await.map(|mut loaded| {
@@ -3023,6 +3030,12 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 .map(|v| v.name.to_string())
                 .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
                 .collect();
+            // Random movies apart: a song without changes would take one
+            // among its own movies for its folder's one movie.
+            if !random_movies {
+                loaded.random.clear();
+            }
+            let random: Vec<String> = loaded.random.iter().map(|(n, _)| n.clone()).collect();
             // The opening movie's still (`crate::stills`): the one taken,
             // when it is still this schedule's opening, or taken now for a
             // song imported before stills were kept (never with videos
@@ -3254,7 +3267,14 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 // Movies: their files (stored, linked or in a shared
                 // folder), opened by the game loop as their changes come.
                 // Shared ones were not sniffed; the decoder probes them.
-                let shared_videos = Rc::new(loaded.shared_videos.clone());
+                let shared_videos: Rc<Vec<(String, String)>> = Rc::new(
+                    loaded
+                        .shared_videos
+                        .iter()
+                        .chain(&loaded.random)
+                        .cloned()
+                        .collect(),
+                );
                 let unknown = ddi_platform::video::VideoFormat {
                     container: ddi_platform::video::VideoContainer::Unknown,
                     codec: ddi_platform::video::VideoCodec::Unknown,
@@ -3269,6 +3289,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                         loaded
                             .shared_videos
                             .iter()
+                            .chain(&loaded.random)
                             .map(|(name, _)| (name.clone(), unknown.clone())),
                     )
                     .filter(|_| play_videos)
@@ -3314,6 +3335,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 subtitle: loaded.entry.artist.clone(),
                 bg_images,
                 bg_videos,
+                random,
                 has_background: loaded.entry.background.is_some(),
                 banner: loaded.entry.banner.as_ref().map(|b| {
                     if crate::songs::is_imported_id(&loaded.entry.id) {

@@ -98,6 +98,11 @@ pub enum FileKind {
     Text,
     /// An image, decoded ([`Sizes`]).
     Image,
+    /// A movie: its size read from its header
+    /// (`ddi_library::video::dimensions`, into [`Sizes`]), its frames
+    /// decoded while a sprite of it is drawn (`docs/plans/phase-8-gaps.md`,
+    /// step 3).
+    Movie,
     /// Anything else (a sound, read when the scripts name it).
     Other,
 }
@@ -109,6 +114,8 @@ impl FileKind {
             FileKind::Text
         } else if backgrounds::is_image(path) {
             FileKind::Image
+        } else if ddi_library::video::is_movie(path) {
+            FileKind::Movie
         } else {
             FileKind::Other
         }
@@ -236,6 +243,10 @@ pub struct Scripts {
     timer: f64,
     stopped: Option<String>,
     notes: Vec<String>,
+    /// StepMania's danger: wanted now ([`Scripts::set_danger`]), and as
+    /// last told to the scripts.
+    danger: bool,
+    danger_told: bool,
 }
 
 impl Scripts {
@@ -398,6 +409,8 @@ impl Scripts {
             timer: 0.0,
             stopped: None,
             notes,
+            danger: false,
+            danger_told: false,
         }))
     }
 
@@ -408,6 +421,11 @@ impl Scripts {
         self.current = [None; LAYERS];
         self.last = None;
         self.timer = 0.0;
+        if let Some(lua) = self.lua.as_mut() {
+            lua.rewind_movies();
+        }
+        self.danger = false;
+        self.danger_told = false;
         for fg in &mut self.foregrounds {
             fg.until = None;
             fg.done = false;
@@ -524,7 +542,11 @@ impl Scripts {
             music_seconds_no_offset: t as f32,
             beat_no_offset: beat as f32,
         };
-        match self.step(t, dt, &clocks, layers) {
+        let stepped = self
+            .tell_danger()
+            .and_then(|()| self.step(t, dt, &clocks, layers));
+        self.advance_movies();
+        match stepped {
             Ok(()) => None,
             Err(f) => {
                 let why = f.to_string();
@@ -532,6 +554,76 @@ impl Scripts {
                 Some(why)
             }
         }
+    }
+
+    /// Whether the play shows danger (`BackgroundImpl::IsDangerAllVisible`:
+    /// every player in danger, failing not off, not failed): told to the
+    /// scripts in the next frame when it changes.
+    pub fn set_danger(&mut self, on: bool) {
+        self.danger = on;
+    }
+
+    /// `ShowDangerAll` or `HideDangerAll` to every script when the danger
+    /// changed since last told, as `BackgroundImpl::Update` broadcasts it
+    /// (an actor's `…MessageCommand`).
+    fn tell_danger(&mut self) -> Result<(), Failure> {
+        if self.danger == self.danger_told {
+            return Ok(());
+        }
+        self.danger_told = self.danger;
+        let message = if self.danger {
+            "ShowDangerAllMessage"
+        } else {
+            "HideDangerAllMessage"
+        };
+        for i in 0..self.backgrounds.len() {
+            self.play(Tree::Background(i), &[message])?;
+        }
+        for i in 0..self.foregrounds.len() {
+            self.play(Tree::Foreground(i), &[message])?;
+        }
+        Ok(())
+    }
+
+    /// Each movie's clock runs on by what its sprites' updates gave it
+    /// this frame, at its rate (every sprite showing a file advances its
+    /// one texture: StepMania's `Sprite::Update`, `UpdateMovie`).
+    fn advance_movies(&mut self) {
+        let Some(lua) = self.lua.as_mut() else {
+            return;
+        };
+        let mut given: Vec<(u32, f64)> = Vec::new();
+        let mut stack: Vec<&mut Actor> = self
+            .backgrounds
+            .iter_mut()
+            .filter_map(|b| b.tree.as_mut())
+            .chain(self.foregrounds.iter_mut().filter_map(|f| f.tree.as_mut()))
+            .map(Drawn::tree)
+            .collect();
+        while let Some(actor) = stack.pop() {
+            if let ddi_actor::Kind::Sprite(s) = &mut actor.kind
+                && let Some(i) = ddi_actor::movie_index(s.texture)
+            {
+                let seconds = f64::from(s.take_movie_seconds());
+                if seconds > 0.0 {
+                    match given.iter_mut().find(|(m, _)| *m == i) {
+                        Some((_, total)) => *total += seconds,
+                        None => given.push((i, seconds)),
+                    }
+                }
+            }
+            stack.extend(actor.children_mut().iter_mut());
+        }
+        for (index, seconds) in given {
+            lua.advance_movie(index, seconds);
+        }
+    }
+
+    /// The movies the scripts show, by the index their sprites' textures
+    /// carry ([`ddi_actor::movie_texture`]): each one's file (relative to
+    /// the song's folder), size, clock, rate and looping now.
+    pub fn movies(&self) -> Vec<ddi_noteskin::lua::ScriptMovie> {
+        self.lua.as_ref().map_or(Vec::new(), LuaSkin::movies)
     }
 
     fn step(

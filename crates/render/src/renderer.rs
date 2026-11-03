@@ -323,6 +323,20 @@ impl Renderer {
         self.textured.add_target(device, width, height, self.srgb)
     }
 
+    /// A texture of `width × height` a song's scripts' movie is drawn into
+    /// (`crate::script_movies::ScriptMovies`), registered as a noteskin
+    /// texture is: the id quads draw it by, and the texture. Forgotten
+    /// with the noteskin textures.
+    pub fn add_movie_target(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> (u32, wgpu::Texture) {
+        self.textured
+            .add_movie_target(device, width, height, self.srgb)
+    }
+
     /// The quads render target `id` is drawn with in the next frame, in
     /// its pixels (colors as for skins' quads), before the frame's own
     /// passes: with `alpha` its alpha kept (else opaque, black where

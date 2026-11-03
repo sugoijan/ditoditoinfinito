@@ -750,6 +750,10 @@ pub(crate) struct LoadedSong {
     pub(crate) shared_bg: Vec<(String, String)>,
     /// Background-change movies found there, the same way.
     pub(crate) shared_videos: Vec<(String, String)>,
+    /// The random movies it plays where StepMania would
+    /// (`ddi_library::backgrounds::random`), in the order they come, as
+    /// `(name, shared path)`: a random movie's name is its shared path.
+    pub(crate) random: Vec<(String, String)>,
     /// What became of the song's opening still (imported songs).
     pub(crate) still: Option<Still>,
     /// The imported song's stored record, as read for this load: where
@@ -948,12 +952,20 @@ pub(crate) async fn load_song(id: &str, chart: usize) -> Result<LoadedSong, Load
         Origin::Imported(pack) => shared_found(&entry, pack).await?,
         Origin::Bundled | Origin::Shared => (Vec::new(), Vec::new()),
     };
+    // From the player's `RandomMovies` folders: imported songs only, as
+    // desktop gives them to its library's songs (bundled ones keep their
+    // own backgrounds, a share is what was shared).
+    let random = match &origin {
+        Origin::Imported(pack) => random_found(&song, &entry, pack).await,
+        Origin::Bundled | Origin::Shared => Vec::new(),
+    };
     Ok(LoadedSong {
         entry,
         song,
         music_bytes,
         shared_bg,
         shared_videos,
+        random,
         still,
         record: record.map(std::rc::Rc::new),
     })
@@ -972,6 +984,37 @@ pub(crate) async fn shared_found(entry: &ManifestEntry, pack: &str) -> Result<Sh
         .partition(|(name, _)| ddi_library::video::is_movie(name));
     images.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
     Ok((images, videos))
+}
+
+/// The random movies an imported song of `pack` plays
+/// (`ddi_library::backgrounds::random::random_pool`) among the library's
+/// shared files, as `(name, shared path)`, the name being the path; none
+/// when the library cannot be read.
+pub(crate) async fn random_found(
+    song: &Song,
+    entry: &ManifestEntry,
+    pack: &str,
+) -> Vec<(String, String)> {
+    use ddi_library::backgrounds::random;
+    let Ok(db) = Db::open().await else {
+        return Vec::new();
+    };
+    let shared = shared_paths(&db).await.unwrap_or_default();
+    let wanted = random::mapping_path(pack);
+    let mut mapping = None;
+    if let Some(path) = shared.iter().find(|p| p.eq_ignore_ascii_case(&wanted))
+        && let Ok(blob) = shared_file(&db, path).await
+        && let Ok(bytes) = blob_bytes(&blob).await
+    {
+        mapping = Some(ddi_library::pack::decode_text_with(
+            &bytes,
+            crate::import::legacy_text,
+        ));
+    }
+    random::random_pool(song, &entry.id, pack, &shared, mapping.as_deref())
+        .into_iter()
+        .map(|p| (p.clone(), p))
+        .collect()
 }
 
 /// [`shared_found`]'s images and movies.

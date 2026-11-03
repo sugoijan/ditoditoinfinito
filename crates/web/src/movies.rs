@@ -565,6 +565,33 @@ impl MovieDeck {
         }
     }
 
+    /// Opens, feeds and closes decoders for a song's scripts' movies drawn
+    /// now (`clips`, each on its own clock) and puts the frames due on
+    /// `renderer` (the scripts' converter's): the movies shown, `(file,
+    /// its id there)`.
+    pub(crate) fn update_clips(
+        &mut self,
+        clips: &[ddi_session::movies::Clip],
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Vec<(String, usize)> {
+        self.kept.clear();
+        if self.slots.shell().sources.is_empty() {
+            return Vec::new();
+        }
+        let due = self.slots.update_clips(clips);
+        let mut shown = Vec::new();
+        for (name, frame) in due.show {
+            self.upload(&name, &frame, renderer, device, queue);
+            crate::web::video::recycle(frame.planes);
+            if let Some(id) = self.slots.texture(&name) {
+                shown.push((name, id));
+            }
+        }
+        shown
+    }
+
     /// The texture of movie `name`, made for a `width × height` frame when
     /// it has none; `None` for a frame too large for the GPU.
     fn texture(

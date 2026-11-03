@@ -281,6 +281,33 @@ pub enum Param {
 /// keeps drawing): resolves once the host has had it.
 pub type Pause = dyn FnMut() -> Pin<Box<dyn Future<Output = ()>>>;
 
+/// A movie a song's scripts show (`docs/plans/phase-8-gaps.md`, step 3):
+/// its file and its one texture's state, shared by every sprite showing
+/// it, as StepMania 5.1 keeps one movie texture per file
+/// (`MovieTexture_Generic`: `m_fClock`, `m_fRate`, `m_bLoop`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScriptMovie {
+    /// Relative to the song's folder.
+    pub path: String,
+    /// Its frames' size, pixels: its sprites' size before their zooms.
+    pub size: [u32; 2],
+    /// `GetTexture():rate` (1).
+    pub rate: f64,
+    /// `GetTexture():loop` (on).
+    pub looping: bool,
+    /// Seconds into the movie, before looping: each update of a sprite
+    /// showing it adds its time at the rate (`UpdateMovie`); `position(0)`
+    /// puts it back.
+    pub clock: f64,
+}
+
+/// A movie's size when its file's header does not say: StepMania's 4:3
+/// screen.
+pub const UNKNOWN_MOVIE_SIZE: [u32; 2] = [640, 480];
+
+/// The movies a song's scripts may show, at most (decoders are dear).
+pub const MAX_SCRIPT_MOVIES: usize = 8;
+
 /// What the host functions share with [`LuaSkin`].
 pub(crate) struct Host {
     pub skin: Skin<'static>,
@@ -301,12 +328,39 @@ pub(crate) struct Host {
     /// each one's size, by its index, and the pixels they hold.
     pub targets: Vec<[u32; 2]>,
     pub target_pixels: u64,
+    /// A song's scripts' movies, by the index their sprites' textures
+    /// carry ([`ddi_actor::movie_texture`]).
+    pub movies: Vec<ScriptMovie>,
     /// The skin's parameters (`NOTESKIN:GetParameter`), their values in
     /// [`Env::params`].
     pub declared: crate::params::Declared,
 }
 
 impl Host {
+    /// The index of the song's movie `path` (relative to the song's
+    /// folder), `size` pixels, added when new; `None` past
+    /// [`MAX_SCRIPT_MOVIES`].
+    pub fn movie(&mut self, path: &str, size: [u32; 2]) -> Option<u32> {
+        if let Some(i) = self
+            .movies
+            .iter()
+            .position(|m| m.path.eq_ignore_ascii_case(path))
+        {
+            return Some(i as u32);
+        }
+        if self.movies.len() >= MAX_SCRIPT_MOVIES {
+            return None;
+        }
+        self.movies.push(ScriptMovie {
+            path: path.to_string(),
+            size,
+            rate: 1.0,
+            looping: true,
+            clock: 0.0,
+        });
+        Some(self.movies.len() as u32 - 1)
+    }
+
     pub fn warn(&mut self, w: String) {
         const MAX: usize = 64;
         let w: String = w.chars().take(400).collect();
@@ -415,6 +469,7 @@ impl LuaSkin {
             position: None,
             targets: Vec::new(),
             target_pixels: 0,
+            movies: Vec::new(),
             declared,
         }));
         // What its declarations left out, said as the Lua's warnings are.
@@ -958,6 +1013,32 @@ impl LuaSkin {
     /// each one's size by its index ([`ddi_actor::Target::index`]).
     pub fn render_targets(&self) -> Vec<[u32; 2]> {
         self.host.borrow().targets.clone()
+    }
+
+    /// The movies a song's scripts show, by the index their sprites'
+    /// textures carry, with each one's clock, rate and looping now.
+    pub fn movies(&self) -> Vec<ScriptMovie> {
+        self.host.borrow().movies.clone()
+    }
+
+    /// Movie `index`'s sprites gave it `seconds` this frame
+    /// ([`ddi_actor::Sprite::take_movie_seconds`]): its clock runs on at
+    /// its rate (`MovieTexture_Generic::UpdateMovie`), never below 0.
+    pub fn advance_movie(&mut self, index: u32, seconds: f64) {
+        if let Some(m) = self.host.borrow_mut().movies.get_mut(index as usize) {
+            let clock = m.clock + seconds * m.rate;
+            if clock.is_finite() {
+                m.clock = clock.max(0.0);
+            }
+        }
+    }
+
+    /// Every movie back to its start (a retry: StepMania loads the
+    /// screen's movies again), with the rate and looping the scripts set.
+    pub fn rewind_movies(&mut self) {
+        for m in &mut self.host.borrow_mut().movies {
+            m.clock = 0.0;
+        }
     }
 
     /// The sounds the scripts played (`play` on a `Sound` actor) since

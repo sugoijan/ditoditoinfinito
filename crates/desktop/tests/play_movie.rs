@@ -193,8 +193,26 @@ fn play_movies(
         files,
         music,
         movies,
+        random: Vec::new(),
+        shared: Vec::new(),
         layers: Vec::new(),
     });
+    play_loaded(adapter, loaded, chart, seconds)
+}
+
+/// [`play_movies`]' play of a song read.
+fn play_loaded(
+    adapter: &wgpu::Adapter,
+    loaded: Rc<Loaded>,
+    chart: usize,
+    seconds: f64,
+) -> (
+    ddi_platform::video::MovieStats,
+    bool,
+    Option<String>,
+    Vec<u8>,
+) {
+    let id = loaded.entry.id.clone();
     let (device, queue) = gpu::device(adapter).unwrap();
     let settings = Settings {
         ..Settings::default()
@@ -210,7 +228,7 @@ fn play_movies(
     let c = clock.clone();
     let audio = Audio::headless(1.0, Some(Arc::new(move || c.load(Ordering::SeqCst))));
     let mut play = Play::start(
-        Request::song(&s.entry.id, chart, true),
+        Request::song(&id, chart, true),
         loaded,
         &settings,
         audio,
@@ -307,6 +325,82 @@ fn play_movies(
         view.movies.trouble(),
         pixels,
     )
+}
+
+/// A song without background changes plays a random movie
+/// (`docs/plans/phase-8-gaps.md`, step 1): its schedule's movie segments
+/// named by the random movie's shared path, opened from a
+/// `RandomMovies` folder, its frames shown from the start.
+#[test]
+fn a_random_movie_plays_behind_a_song_without_changes() {
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    if ddi_desktop::video::helper_path().is_none() {
+        eprintln!("no video helper: skipped");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("ddi-random-movie-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    if song(&dir, "mpeg4", "avi").is_none() {
+        eprintln!("no ffmpeg: skipped");
+        return;
+    }
+    // The song without its change; its clip moved to `RandomMovies`.
+    let folder = dir.join("Pack/Movie");
+    let sm = std::fs::read_to_string(folder.join("song.sm")).unwrap();
+    std::fs::write(
+        folder.join("song.sm"),
+        sm.replace("#BGCHANGES:0=clip.avi=1.000=0=0=1;", ""),
+    )
+    .unwrap();
+    let movies = dir.join("RandomMovies");
+    std::fs::create_dir_all(&movies).unwrap();
+    std::fs::rename(folder.join("clip.avi"), movies.join("clip.avi")).unwrap();
+    let paths: Vec<_> = walk(&dir).listed.into_iter().map(|l| l.path).collect();
+    let reader = DirReader { root: dir.clone() };
+    let scan =
+        ddi_library::scan::scan_root(&reader, &paths, "Mine", &[], &ddi_library::legacy::none);
+    let s = scan.songs.first().expect("the song");
+    assert!(s.entry.bg_videos.is_empty());
+    let files = Files::Dir {
+        root: dir.clone(),
+        dir: s.dir.clone(),
+    };
+    let text = ddi_library::pack::decode_text(&files.read(&s.entry.chart).unwrap());
+    let parsed = ddi_chart::formats::sm::parse_simfile(&text, "sm").unwrap();
+    let pool = ddi_library::backgrounds::random::random_pool(
+        &parsed,
+        &s.entry.id,
+        "Pack",
+        &["RandomMovies/clip.avi"],
+        None,
+    );
+    assert_eq!(pool, ["RandomMovies/clip.avi"]);
+    let music = ddi_desktop::audio::decoder::sound(
+        files.read(&s.entry.music).unwrap(),
+        Some("wav"),
+        Range::default(),
+        48_000,
+    )
+    .unwrap();
+    let loaded = Rc::new(Loaded {
+        entry: s.entry.clone(),
+        song: parsed,
+        files,
+        music,
+        movies: vec![(pool[0].clone(), Ok((movies.join("clip.avi"), None)))],
+        random: pool,
+        shared: Vec::new(),
+        layers: Vec::new(),
+    });
+    let (stats, shown, trouble, _) = play_loaded(&adapter, loaded, 0, 6.0);
+    assert!(shown, "no random movie frame shown: {stats:?}");
+    assert!(stats.shown > 30, "{stats:?}");
+    assert!(trouble.is_none(), "{trouble:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A local song's movie (`DDI_MOVIE_SONGS=<folder>`, a pack or a song

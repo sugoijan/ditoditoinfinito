@@ -45,9 +45,14 @@ fn ffmpeg(args: &[&str]) -> bool {
 /// The song folder under `dir`: its images, its music (silence, written
 /// here), and with `movie` a yellow clip (needs `ffmpeg`).
 fn song(dir: &Path, movie: bool) -> Option<()> {
+    song_of(dir, &simfile(movie), movie)
+}
+
+/// [`song`] with the simfile `sm`.
+fn song_of(dir: &Path, sm: &str, movie: bool) -> Option<()> {
     let song = dir.join("Pack/Layers");
     std::fs::create_dir_all(&song).ok()?;
-    std::fs::write(song.join("song.sm"), simfile(movie)).ok()?;
+    std::fs::write(song.join("song.sm"), sm).ok()?;
     for (name, rgba) in [
         ("bg.png", [30, 30, 200, 255]),
         ("red.png", [200, 30, 30, 255]),
@@ -207,7 +212,67 @@ fn the_second_layer_draws_over_the_first() {
     }
     #[cfg(feature = "video")]
     a_movie_plays_on_the_second_layer(&adapter, &dir);
+    #[cfg(feature = "video")]
+    a_movie_plays_as_an_effects_second_file(&adapter, &dir);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `b` added to `a` in linear light (`BlendMode_Add` through the sRGB
+/// view), as encoded values.
+#[cfg(feature = "video")]
+fn add(a: [u8; 3], b: [u8; 3]) -> [u8; 3] {
+    let lin = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let enc = |l: f64| {
+        let l = l.min(1.0);
+        let c = if l <= 0.003_130_8 {
+            l * 12.92
+        } else {
+            1.055 * l.powf(1.0 / 2.4) - 0.055
+        };
+        (c * 255.0).round() as u8
+    };
+    std::array::from_fn(|i| enc(lin(a[i]) + lin(b[i])))
+}
+
+/// A movie as a change's second file (`docs/plans/phase-8-gaps.md`, step
+/// 2): the first layer's red from 2 s under `Visualization2File`, the
+/// yellow clip added over it, stretched to the screen, until the song
+/// background returns at 7 s.
+#[cfg(feature = "video")]
+fn a_movie_plays_as_an_effects_second_file(adapter: &wgpu::Adapter, dir: &Path) {
+    if ddi_desktop::video::helper_path().is_none() {
+        eprintln!("no video helper: second file skipped");
+        return;
+    }
+    let sm = simfile(false).replace(
+        "4=red.png=1=0=0=0,",
+        "4=red.png=1=0=0=0=Visualization2File=clip.avi,",
+    );
+    let sm = sm.replace(
+        "#BGCHANGES2:8=half.png=1=0=0=0,12=white.png=1=1=0=0,16=missing.png=1=0=0=0;",
+        "",
+    );
+    let viz = dir.join("viz");
+    if song_of(&viz, &sm, true).is_none() {
+        eprintln!("no ffmpeg: second file skipped");
+        return;
+    }
+    let samples = play(adapter, &viz, &[1.0, 3.0, 5.0, 7.5]);
+    assert_eq!(samples.len(), 4, "{samples:?}");
+    assert!(near(samples[0].1, BLUE, 3), "{samples:?}");
+    let yellow = [192, 192, 0];
+    for (t, got) in &samples[1..3] {
+        let want = add(RED, yellow);
+        assert!(near(*got, want, 12), "at {t:.3} s: {got:?}, want {want:?}");
+    }
+    assert!(near(samples[3].1, BLUE, 3), "{samples:?}");
 }
 
 /// The helper is found beside the test binary's profile folder

@@ -33,11 +33,13 @@ pub type ScriptView = ddi_shell::scripted::ScriptView<Rgba>;
 pub const LUA_TURN: Duration = Duration::from_millis(6);
 
 /// A song's scripts loaded: their view (the runtime, the images it
-/// loads, the texts drawn so far) and their sounds decoded at the music's
-/// rate, by file relative to the song's folder.
+/// loads, the texts drawn so far), their sounds decoded at the music's
+/// rate, by file relative to the song's folder, and their movies' files
+/// (`docs/plans/phase-8-gaps.md`, step 3).
 pub struct Ready {
     pub view: ScriptView,
     pub sounds: HashMap<String, Sound>,
+    pub movies: Vec<(String, Result<super::load::MovieAt, String>)>,
 }
 
 /// What the reading thread hands over: the texts, the images' sizes and
@@ -48,10 +50,12 @@ struct Read {
     images: Vec<(String, Rgba)>,
 }
 
-/// What the finishing thread hands over: the sounds and the texts drawn.
+/// What the finishing thread hands over: the sounds, the texts drawn and
+/// the movies' files.
 struct Finished {
     sounds: HashMap<String, Sound>,
     texts: Vec<(String, Rgba, [f32; 2])>,
+    movies: Vec<(String, Result<super::load::MovieAt, String>)>,
 }
 
 /// The scripts' Lua load, run in slices.
@@ -174,13 +178,16 @@ impl ScriptLoad {
                                 eprintln!("scripted backgrounds: {note}");
                             }
                             let sounds = scripts.sound_files();
+                            let movies: Vec<String> =
+                                scripts.movies().into_iter().map(|m| m.path).collect();
                             let mut view = ScriptView::default();
                             view.set(Some(scripts), screen, images);
                             // Their text as Init left it, drawn now rather
                             // than in a frame (the system's fonts are read
                             // the first time).
                             let texts = view.measure();
-                            self.step = Step::Finishing(Box::new(view), self.finish(sounds, texts));
+                            self.step =
+                                Step::Finishing(Box::new(view), self.finish(sounds, texts, movies));
                         }
                         Ok(None) => return Some(None),
                         Err(why) => {
@@ -200,6 +207,7 @@ impl ScriptLoad {
                         Err(TryRecvError::Disconnected) => Finished {
                             sounds: HashMap::new(),
                             texts: Vec::new(),
+                            movies: Vec::new(),
                         },
                     };
                     for (text, image, size) in finished.texts {
@@ -208,6 +216,7 @@ impl ScriptLoad {
                     return Some(Some(Ready {
                         view: *view,
                         sounds: finished.sounds,
+                        movies: finished.movies,
                     }));
                 }
                 Step::Done => return Some(None),
@@ -269,7 +278,12 @@ impl ScriptLoad {
     }
 
     /// Decodes `sounds` and draws `texts` on a thread.
-    fn finish(&self, sounds: Vec<String>, texts: Vec<String>) -> Receiver<Finished> {
+    fn finish(
+        &self,
+        sounds: Vec<String>,
+        texts: Vec<String>,
+        movies: Vec<String>,
+    ) -> Receiver<Finished> {
         let (tx, rx) = mpsc::channel();
         let (files, rate, wake) = (self.files.clone(), self.rate, self.wake.clone());
         let _ = std::thread::Builder::new()
@@ -278,6 +292,14 @@ impl ScriptLoad {
                 let mut out = Finished {
                     sounds: HashMap::new(),
                     texts: Vec::new(),
+                    // Where each is (a zip's compressed one extracted once).
+                    movies: movies
+                        .into_iter()
+                        .map(|m| {
+                            let at = files.movie(&m);
+                            (m, at)
+                        })
+                        .collect(),
                 };
                 // At the music's rate.
                 for f in sounds {
@@ -339,6 +361,16 @@ fn read(files: &Files, mut songs: SongFiles) -> Read {
                 {
                     sizes.insert(&f, own);
                     images.push((f, Rgba { size, data }));
+                }
+            }
+            // Its size, for its sprites (`ddi_library::video::dimensions`).
+            FileKind::Movie => {
+                if let Some(size) = files
+                    .read_head(&f, ddi_library::video::SNIFF_LEN)
+                    .ok()
+                    .and_then(|head| ddi_library::video::dimensions(&head))
+                {
+                    sizes.insert(&f, size);
                 }
             }
             FileKind::Other => {}

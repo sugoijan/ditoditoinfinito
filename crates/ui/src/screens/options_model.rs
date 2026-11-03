@@ -990,6 +990,14 @@ impl OptionsModel {
                      for the rest of a song when it costs frames. Off never loads the decoder.",
                 ),
                 choice(
+                    "random_movies",
+                    "Random movies",
+                    &["Off", "On"],
+                    s.random_movies as usize,
+                    "Videos from a RandomMovies folder play behind songs without background \
+                     changes, a new one every four measures, as StepMania plays them.",
+                ),
+                choice(
                     "background_frame",
                     "Background frame",
                     &["Automatic", "4:3", "16:9", "Whole screen"],
@@ -1707,6 +1715,7 @@ impl OptionsModel {
             "ghost" => s.ghost = on,
             "receptor_snap" => s.receptor_snap = on,
             "lyrics" => s.lyrics = on,
+            "random_movies" => s.random_movies = on,
             "bg_brightness" => s.bg_brightness = i as f32 / 20.0,
             "video" => s.video = at(&VIDEOS, i),
             "background_frame" => s.background_frame = at(&FRAMES, i),

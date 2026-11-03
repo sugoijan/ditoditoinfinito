@@ -61,6 +61,186 @@ pub fn sniff(head: &[u8]) -> VideoFormat {
     VideoFormat { container, codec }
 }
 
+/// A movie's frames' size, pixels, from its first bytes `head` (as many as
+/// [`SNIFF_LEN`]): an AVI's video stream format (`BITMAPINFOHEADER`), an
+/// MP4's video sample entry when its index comes first, a Matroska
+/// track's `PixelWidth` and `PixelHeight`, an Ogg Theora picture, an MPEG
+/// sequence header. `None` where the first bytes do not say (a song's
+/// scripts then size its sprite as StepMania's screen,
+/// `docs/plans/phase-8-gaps.md`, step 3).
+pub fn dimensions(head: &[u8]) -> Option<(u32, u32)> {
+    let size = if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"AVI ") {
+        avi_size(head)
+    } else if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        matroska_size(head)
+    } else if is_iso_media(head) {
+        iso_size(head)
+    } else if head.starts_with(b"OggS") {
+        find(head, b"\x80theora", 0).and_then(|p| {
+            let b24 = |i: usize| -> Option<u32> {
+                let s = head.get(p + i..p + i + 3)?;
+                Some((u32::from(s[0]) << 16) | (u32::from(s[1]) << 8) | u32::from(s[2]))
+            };
+            Some((b24(14)?, b24(17)?))
+        })
+    } else if head.starts_with(&[0, 0, 1, 0xba]) || head.starts_with(&[0, 0, 1, 0xb3]) {
+        find(head, &[0, 0, 1, 0xb3], 0).and_then(|s| {
+            let b = head.get(s + 4..s + 7)?;
+            let w = (u32::from(b[0]) << 4) | (u32::from(b[1]) >> 4);
+            let h = ((u32::from(b[1]) & 0x0f) << 8) | u32::from(b[2]);
+            Some((w, h))
+        })
+    } else {
+        None
+    };
+    size.filter(|&(w, h)| (1..=16384).contains(&w) && (1..=16384).contains(&h))
+}
+
+/// An AVI's video stream's `BITMAPINFOHEADER` size (`strf`: `biWidth` at
+/// 4, `biHeight` at 8, negative for a top-down image).
+fn avi_size(b: &[u8]) -> Option<(u32, u32)> {
+    for (id, start, end) in riff_chunks(b, 12, b.len()) {
+        if &id != b"LIST" || b.get(start..start + 4) != Some(b"hdrl") {
+            continue;
+        }
+        for (id, start, end) in riff_chunks(b, start + 4, end) {
+            if &id != b"LIST" || b.get(start..start + 4) != Some(b"strl") {
+                continue;
+            }
+            let chunks = riff_chunks(b, start + 4, end);
+            let strh = chunks.iter().find(|(id, ..)| id == b"strh");
+            let Some(&(_, h, _)) = strh else { continue };
+            if b.get(h..h + 4) != Some(b"vids") {
+                continue;
+            }
+            let &(_, f, fe) = chunks.iter().find(|(id, ..)| id == b"strf")?;
+            if f + 12 > fe {
+                return None;
+            }
+            let w = le32(b, f + 4)? as i32;
+            let h = le32(b, f + 8)? as i32;
+            return Some((w.unsigned_abs(), h.unsigned_abs()));
+        }
+    }
+    None
+}
+
+/// An MP4's first video track's sample entry size (`stsd`'s first entry:
+/// width and height at 32 and 34).
+fn iso_size(b: &[u8]) -> Option<(u32, u32)> {
+    let child = |kind: &[u8; 4], start: usize, end: usize| {
+        boxes(b, start, end)
+            .into_iter()
+            .find(|(k, ..)| k == kind)
+            .map(|(_, s, e)| (s, e))
+    };
+    let (moov, moov_end) = child(b"moov", 0, b.len())?;
+    for (kind, trak, trak_end) in boxes(b, moov, moov_end) {
+        if &kind != b"trak" {
+            continue;
+        }
+        let Some((mdia, mdia_end)) = child(b"mdia", trak, trak_end) else {
+            continue;
+        };
+        let video = child(b"hdlr", mdia, mdia_end)
+            .is_some_and(|(h, _)| b.get(h + 8..h + 12) == Some(b"vide"));
+        if !video {
+            continue;
+        }
+        let (stsd, _) = child(b"minf", mdia, mdia_end)
+            .and_then(|(s, e)| child(b"stbl", s, e))
+            .and_then(|(s, e)| child(b"stsd", s, e))?;
+        // Version and flags, entry count, then the entry.
+        let entry = stsd + 8;
+        return Some((
+            u32::from(be16(b, entry + 32)?),
+            u32::from(be16(b, entry + 34)?),
+        ));
+    }
+    None
+}
+
+/// An EBML element's id at `at` (its marker bits kept): `(id, length)`.
+fn ebml_id(b: &[u8], at: usize) -> Option<(u32, usize)> {
+    let first = *b.get(at)?;
+    let len = first.leading_zeros() as usize + 1;
+    if len > 4 {
+        return None;
+    }
+    let mut id = u32::from(first);
+    for i in 1..len {
+        id = (id << 8) | u32::from(*b.get(at + i)?);
+    }
+    Some((id, len))
+}
+
+/// The elements from `at` to `end`: `(id, data start, data end)`, an
+/// element of unknown size reaching `end`.
+fn ebml_children(b: &[u8], mut at: usize, end: usize) -> Vec<(u32, usize, usize)> {
+    let mut out = Vec::new();
+    while at < end && out.len() < 4096 {
+        let Some((id, id_len)) = ebml_id(b, at) else {
+            break;
+        };
+        let Some((size, size_len)) = ebml_size(b, at + id_len) else {
+            break;
+        };
+        let start = at + id_len + size_len;
+        let unknown = size == (1u64 << (7 * size_len)) - 1;
+        let stop = if unknown {
+            end
+        } else {
+            start
+                .saturating_add(usize::try_from(size).unwrap_or(usize::MAX))
+                .min(end)
+        };
+        out.push((id, start, stop));
+        if stop <= at {
+            break;
+        }
+        at = stop;
+    }
+    out
+}
+
+/// A Matroska file's first video track's `PixelWidth` (`0xB0`) and
+/// `PixelHeight` (`0xBA`), within Segment, Tracks, TrackEntry, Video.
+fn matroska_size(b: &[u8]) -> Option<(u32, u32)> {
+    let uint = |s: usize, e: usize| -> Option<u32> {
+        let bytes = b.get(s..e).filter(|v| (1..=4).contains(&v.len()))?;
+        Some(bytes.iter().fold(0u32, |n, &c| (n << 8) | u32::from(c)))
+    };
+    let top = ebml_children(b, 0, b.len());
+    let &(_, seg, seg_end) = top.iter().find(|(id, ..)| *id == 0x1853_8067)?;
+    for (id, tracks, tracks_end) in ebml_children(b, seg, seg_end) {
+        if id == 0x1f43_b675 {
+            break;
+        }
+        if id != 0x1654_ae6b {
+            continue;
+        }
+        for (id, entry, entry_end) in ebml_children(b, tracks, tracks_end) {
+            if id != 0xae {
+                continue;
+            }
+            for (id, video, video_end) in ebml_children(b, entry, entry_end) {
+                if id != 0xe0 {
+                    continue;
+                }
+                let fields = ebml_children(b, video, video_end);
+                let get = |want: u32| {
+                    fields
+                        .iter()
+                        .find(|(id, ..)| *id == want)
+                        .and_then(|&(_, s, e)| uint(s, e))
+                };
+                return Some((get(0xb0)?, get(0xba)?));
+            }
+        }
+    }
+    None
+}
+
 fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     haystack
         .get(from..)?
@@ -908,6 +1088,93 @@ pub(crate) mod tests {
             eprintln!("{n:5} {format}");
         }
         eprintln!("{} movies", files.len());
+    }
+
+    /// Clips of each container made with the `ffmpeg` command (skipped
+    /// without it), 336 × 208 so that width and height cannot be taken
+    /// for each other: each one's size from its first bytes; an MP4 whose
+    /// index comes last says none there.
+    #[test]
+    fn movie_sizes_come_from_their_headers() {
+        let dir = std::env::temp_dir().join(format!("ddi-movie-sizes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        type Clip<'a> = (&'a str, &'a [&'a str], Option<(u32, u32)>);
+        let clips: &[Clip] = &[
+            ("a.avi", &["-c:v", "mpeg4"], Some((336, 208))),
+            (
+                "a.mp4",
+                &["-c:v", "libx264", "-movflags", "+faststart"],
+                Some((336, 208)),
+            ),
+            (
+                "late.mp4",
+                &[
+                    "-c:v",
+                    "libx264",
+                    "-b:v",
+                    "4M",
+                    "-x264-params",
+                    "log-level=error",
+                ],
+                None,
+            ),
+            ("a.mkv", &["-c:v", "libx264"], Some((336, 208))),
+            (
+                "a.webm",
+                &["-c:v", "libvpx-vp9", "-b:v", "200k"],
+                Some((336, 208)),
+            ),
+            ("a.ogv", &["-c:v", "libtheora"], Some((336, 208))),
+            (
+                "a.mpg",
+                &["-c:v", "mpeg1video", "-f", "mpeg"],
+                Some((336, 208)),
+            ),
+        ];
+        let mut checked = 0;
+        for (name, args, want) in clips {
+            let out = dir.join(name);
+            let made = std::process::Command::new("ffmpeg")
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                ])
+                .arg("testsrc2=size=336x208:rate=30")
+                .args(["-t", "1"])
+                .args(*args)
+                .arg(&out)
+                .status()
+                .is_ok_and(|s| s.success());
+            let Ok(bytes) = std::fs::read(&out)
+                .map_err(|_| ())
+                .and_then(|b| made.then_some(b).ok_or(()))
+            else {
+                eprintln!("{name}: not made (no ffmpeg, or no encoder): skipped");
+                continue;
+            };
+            let head = &bytes[..bytes.len().min(SNIFF_LEN)];
+            assert!(
+                want.is_some() || bytes.len() > SNIFF_LEN,
+                "{name}: index within reach"
+            );
+            assert_eq!(dimensions(head), *want, "{name}");
+            checked += 1;
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        eprintln!("movie sizes checked: {checked}");
+        // A Theora identification header (its picture's width and height
+        // in 24 bits each, after the frame's in macroblocks).
+        let mut ogg = b"OggS".to_vec();
+        ogg.extend([0; 24]);
+        ogg.extend(b"\x80theora");
+        ogg.extend([3, 2, 1, 0, 21, 0, 13, 0, 1, 80, 0, 0, 208]);
+        assert_eq!(dimensions(&ogg), Some((336, 208)));
     }
 
     /// The clips `video/clips.sh` generates, when they are there (they are

@@ -1226,6 +1226,36 @@ impl<'gc> Convert<'_, 'gc> {
                 }
             }
             Source::BuiltInArt(f) => builtin_sprite(self.textures, f.name()),
+            // A song's scripts' movie (`docs/plans/phase-8-gaps.md`, step
+            // 3): a sprite of its texture, at the size its file's header
+            // says (the shell reads it with the images' sizes).
+            Source::Movie(f) if self.host.skin.is_song() => {
+                let size = match self.images.size(f.dir, &f.path) {
+                    Some((w, h)) => [w, h],
+                    None => {
+                        let [w, h] = super::UNKNOWN_MOVIE_SIZE;
+                        self.note(format!(
+                            "{where_}: {}'s size is unknown; {w}×{h} assumed",
+                            f.path
+                        ));
+                        super::UNKNOWN_MOVIE_SIZE
+                    }
+                };
+                let Some(index) = self.host.movie(&f.path, size) else {
+                    self.note(format!(
+                        "{where_}: {} is one movie too many (at most {})",
+                        f.path,
+                        super::MAX_SCRIPT_MOVIES
+                    ));
+                    return Ok(Actor::new(Kind::Actor));
+                };
+                let size = size.map(|v| v as f32);
+                Actor::new(Kind::Sprite(ddi_actor::Sprite::new(
+                    ddi_actor::movie_texture(index),
+                    Vec::new(),
+                    size,
+                )))
+            }
             Source::Movie(f) => {
                 self.note(format!("{where_}: {} is a movie", f.path));
                 self.unsupported = true;

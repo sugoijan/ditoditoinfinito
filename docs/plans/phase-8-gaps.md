@@ -1,7 +1,9 @@
 # Phase 8's last gaps: movies wherever StepMania plays them, and backgrounds of our own
 
-Status: planned 2026-11-03; steps 1–3 need no choices, steps 4–5 wait
-for the maintainer's (below, "For the maintainer").
+Status: in progress, steps 1–3 done 2026-11-03, step 4's study ready the same day for the maintainer's choices; planned the same day, the
+maintainer's choices taken then ("The maintainer's choices", at the end).
+Steps 1–3 follow StepMania; step 4 is a round of experiments the
+maintainer picks from.
 
 Phase 8 (Presentation, `docs/PLAN.md` section 5) is done except for
 two gaps listed in "Known gaps before phase 9":
@@ -147,12 +149,22 @@ not copied.
      checks that a work the chart editor saved stays so; a `.sm` with
      `danoni-<mode>` charts is a StepMania song and keeps its own
      `#BACKGROUND`.
-6. **Generative backgrounds are presentation only and deterministic.**
-   - **What drives them:** song time, the play's events, and the music
-     analyzed when the play loads. Never a live analyser, so a replay,
-     the README's capture and both shells draw the same.
+6. **Generative backgrounds follow the music alone** (the maintainer,
+   2026-11-03).
+   - **What drives them:** the music analyzed when the play loads (its
+     loudness and bands, and whatever else step 4 finds worth it) and
+     the song's beats and measures, which its timing writes down. Never
+     the play's events (judgments, combo, life), and never a live
+     analyser.
+   - **So it draws the same everywhere:** a replay, an autoplay, the
+     README's capture and both shells draw the same picture for the
+     same song. Each browser's decode may differ by a sample, which does
+     not show.
    - **Never in:** calibration (nothing may cue the player), the chart
      editor's field, or Options' preview.
+   - **On by default** for every song without a background (decision
+     4). An option also adds one over a song's own picture, as a
+     visualizer; that one is off by default.
 7. **Light.**
    - Random movies use the movie slots as they are: at most the current
      and the next movie, as now.
@@ -187,6 +199,68 @@ not copied.
   - headless Chrome importing the same as a folder and a zip (WebGPU,
     WebGL2), and Firefox.
 
+**Done 2026-11-03.**
+- **Where it lives:**
+  - **The library:** the rules are in `ddi_library::backgrounds::random`.
+  - **The schedule:** `backgrounds::layers` takes the pool. The first
+    layer plays it in StepMania's order: missing files first, then each
+    `-random-` change; for a song without changes, its whole span.
+  - **The setting:** Options → Display → Random movies
+    (`Settings::random_movies`, on).
+  - **The web:** the import keeps a pack's `BackgroundMapping.ini`, and
+    a song's load finds its pool (`songs::random_found`).
+  - **Desktop:** reads the pool from its StepMania root in place
+    (`library::random_movies`).
+- **Choices made on the way:**
+  - **Imported and library songs only.** Bundled songs keep their own
+    backgrounds on both shells, and a song shared by link is what was
+    shared.
+  - **A random movie's name is its shared path**
+    (`RandomMovies/RM/red.avi`). No song file can be confused with it,
+    and both shells open it by that name.
+  - **What takes no random movie,** as StepMania finds these:
+    - a file that exists but cannot play here (the song background, as
+      before);
+    - the four stock `BGAnimations` flashes;
+    - a song whose one movie cannot play.
+  - **When there are none:** with Background videos off there are no
+    random movies, so a missing file shows the song background rather
+    than a movie that never loads.
+  - **The last beat now follows StepMania's `GetLastBeat`**
+    (`random::span`) for the song background's return too. It leaves
+    out generated charts and an edit beside other charts, and reads
+    each chart on its own timing.
+  - **Desktop now plays shared-folder files a change names**
+    (`library::shared_found`), as the web always did. Otherwise such a
+    change would get a random movie on desktop and its own movie on the
+    web.
+  - **The import's warning** about files found nowhere now says a random
+    movie may take their place.
+  - **The web's `__DDI_DEBUG.backdrop`** names a movie by its file, not
+    its texture id.
+- **Left as it is:** images past a song's 32-image budget count as found
+  nowhere, so with a pool they get a random movie. StepMania has no
+  budget.
+
+Checked:
+- **The library's tests:** the grid across time signatures and BPM
+  changes, the lead-in, the last beat, both quirks, rate, transition and
+  effect kept, missing files, the pool's folders, extensions, order and
+  genres, a work, the span.
+- **Desktop:** a library test on a generated StepMania root (the pool,
+  the files found, a change's shared movie, a missing file's random one,
+  off), and an offscreen play decoding a random movie's frames from the
+  start (`play_movie`). The whole desktop suite passes.
+- **Headless Chrome** importing a pack and a `RandomMovies` folder of
+  colored clips at 240 BPM:
+  - a song without changes alternates blue and red at 0, 5, 9 and 13 s,
+    then shows the ground at 17 s;
+  - a change's `fire.avi` plays, then a random movie for its missing
+    file;
+  - a genre mapped to one movie keeps it alone;
+  - with the setting off, nothing.
+- Firefox and Safari by the maintainer.
+
 ### Step 2. A movie as an effect's second file
 
 - **The schedule:** `look_of` resolves a second file among movies too,
@@ -201,6 +275,50 @@ not copied.
 - **Checks:** numbered-color clips as a `Visualization2File` second
   file, read back natively, offscreen on desktop and in headless
   Chrome (WebGPU, WebGL2) and Firefox.
+
+**Done 2026-11-03.**
+- **The schedule:** a change's second file resolves among the song's
+  movies too (`backgrounds::look_of`). The change's rate is kept when
+  either file is a movie, since StepMania sets it on the whole
+  background (`SetUpdateRate`), and each effect's script passes it to
+  both files' textures.
+- **The clock** (`backgrounds::movie_position_of`,
+  `movie_loops_of`): StepMania's effects play a second file as
+  `StretchNormal` plays a first one (`File2Normal.lua`,
+  `Visualization2File.lua` and the rest: the background's rate, played
+  while current, paused after, never put back to its start). So a
+  file's clock counts every change showing it as either file. Only a
+  change showing it as its own file restarts it or stops its looping.
+- **The slots** (`backgrounds::movie_segments_at`,
+  `ddi_session::movies`):
+  - Decoders are keyed by `(layer, segment, part)`
+    (`backgrounds::movie_of`).
+  - A file current twice (both files of a change, or both layers) is
+    decoded once.
+  - A next change's movie that runs on from a current one gets no
+    decoder ahead: the current decoder moves to it at the change. A
+    visualization over changing pictures would otherwise open a second
+    decoder at every change.
+  - The automatic video rule watches a second file's movie as it does a
+    first file's.
+- **Drawing:** unchanged. The effects already found a second file's
+  texture by name, and a movie's texture is one more.
+
+Checked:
+- **Tests:** the library's (the second file resolved and its rate kept,
+  its clock across a pause and a restart, looping, the decoders wanted,
+  the drawn movie) and the slots' (a second file's decoder opened ahead,
+  its frames shown, carried into the next change).
+- **Desktop offscreen** (`play_layers`): red under `Visualization2File`
+  with a yellow clip added reads (255, 193, 30), as expected in linear
+  light.
+- **Headless Chrome on WebGPU and WebGL2,** an MPEG-4 clip through the
+  decoder module and an H.264 one through WebCodecs: (255, 194, 30) at 3
+  and 5 s, blue before and after. Before this change the red alone
+  showed, (200, 30, 30).
+- **Playwright's Firefox** (WebGL2): the same with the module, (255, 183,
+  31) with H.264 (Firefox's own colors for SD movies, a known gap).
+- Firefox and Safari by the maintainer.
 
 ### Step 3. A script's movie sprite
 
@@ -223,28 +341,154 @@ need"):
   at a rate, read back as in step 2; a danger message seen by a test
   script.
 
+**Done 2026-11-03.**
+- **The actors** (`ddi_actor`): a movie's sprite carries
+  `movie_texture(index)`, above the render targets' ids. While it
+  animates and decodes, it hands each update's effect time to its
+  movie (`Sprite::take_movie_seconds`), except the first update of a
+  new sprite and the first after `play` (StepMania's
+  `m_bSkipNextUpdate`).
+- **The Lua host:**
+  - A song's script loading a movie gets that sprite, at the size the
+    file's header says (`ddi_library::video::dimensions`: AVI, MP4 with
+    its index first, Matroska/WebM, Ogg Theora, MPEG), else 640 × 480
+    with a note. At most 8 movies a song.
+  - `GetTexture()` gives the movie's one texture, with `rate`, `loop`,
+    `position` (0 only, as StepMania), the sizes and `GetPath`.
+  - Also `SetTexture` of a movie's texture, `SetDecodeMovie` and
+    `GetDecodeMovie`.
+- **The clock** (`ddi_session::scripted`): each frame, every sprite of
+  a file adds its time to the file's clock at the texture's rate
+  (`UpdateMovie`). A retry rewinds them.
+- **Decoding:**
+  - The movies the frame's quads drew are decoded on their clocks
+    (`MovieSlots::update_clips`, a deck of their own on each shell).
+  - Their new frames are drawn into textures the quads sample
+    (`ddi_render::script_movies`). It uses a converter of its own, since
+    the backdrop's drawing keeps per-frame state.
+  - A movie's texture is made with its first frame, so it draws from the
+    next frame on. Background videos Off decodes none.
+- **Danger:** `ShowDangerAll` and `HideDangerAll` reach the scripts when
+  the play's danger changes (`PlaySession::danger_shown`).
+
+Choices made on the way:
+- **The import is unchanged.** A script folder's movies were already
+  kept with its files (`bga/<path>`, within the 64 files) and read by
+  the decoder's own probe. They are not sniffed, and the "also store
+  background videos" option does not apply to them, unlike step 3's
+  first plan.
+- **StepMania 3.9's formats' movie layers** (natively built animations)
+  still draw nothing: only Lua scripts show movies.
+
+Checked:
+- **Tests:** the actor's (time given and skipped, decoding off, an
+  image's sprite), the host and runtime's (one clock for two sprites of
+  a file at rate 2, the file's size, a retry rewinding it), the slots'
+  (a clip opened on its clock, a clock put back seeking, closed when not
+  drawn), the quads' (a movie's texture drawn, marked drawn before it is
+  made), the danger told once a change, header sizes against `ffmpeg`
+  clips of each container.
+- **Desktop offscreen** (`play_scripts::script_movies_play_in_their_sprites`):
+  a clip turning from red to blue after 1 s over the screen, and the same
+  clip held by `rate(0)` in a strip. Red, red at 0.6 s; blue, red at 2 s.
+- **Headless Chrome** (WebGPU, WebGL2) and Playwright's Firefox, the same
+  song imported as a zip: red until 1 s into the movie, blue after, the
+  held strip red throughout. Firefox's strip was black in the change's
+  first frame, before the decoder module's first frame of it.
+- Firefox and Safari by the maintainer.
+
 ### Step 4. Generative backgrounds: the look (a design study)
 
-A browser study in `tools/background-design/`, as the HUD's and the
-title's were (`tools/play-hud-design/`): candidates the maintainer
-compares and picks. It is driven by a recorded play's events and a
-song's analysis, with every parameter live. The accepted one is kept as
-`approved.json` and ported in step 5. What it explores depends on the
-maintainer's answers below.
+A round of experiments in a browser study, `tools/background-design/`,
+as the HUD's and the title's were (`tools/play-hud-design/`). The
+maintainer compares them and chooses which visualizations the game
+supports.
+
+- **What drives the study:** a song's music, analyzed in the page
+  (Web Audio's decode, the same analysis as step 5's), with its beats
+  from a simfile's timing, playing along, and every parameter live.
+- **The candidates** (the maintainer's first ideas):
+  1. **Spectrum bars**, an overlay on a base background (the song's
+     picture, or another visualization).
+  2. **A kaleidoscope** of a background image, turning and folding with
+     the beat. The study tries it on the song's picture, and shows
+     what a song without one could fold instead (its banner or jacket,
+     else none).
+  3. **An abstract field** like the HUD's turbulence, but quiet in
+     color, with wavy lines whose waves follow the spectrum.
+  4. **The start menu's outline rain** (`crates/theme/src/rain.rs`), some
+     outlines' lines vibrating with the music.
+- **Color:** sparing with Infinito's Vivid palette, which the screens
+  already lean on. The study offers quiet palettes (a few hues, mostly
+  dark and monochrome) and keeps Vivid as one choice among them, not
+  the default.
+- **What the music gives,** each shown as a live trace so its worth can
+  be judged:
+  - loudness;
+  - bands, log-spaced;
+  - onsets (spectral flux: where a sound starts, drums above all);
+  - brightness (the spectral centroid);
+  - stereo width and balance;
+  - the waveform itself, for an oscilloscope;
+  - sections (quiet stretches, builds, drops), from a slow loudness.
+
+  The beat and measures come from the simfile.
+- **What comes out:** the visualizations kept and their parameters
+  (`approved.json`), whether the player chooses one or the game picks
+  one a song, and which ones work over a picture. Step 5 ports what is
+  chosen.
+
+**Study ready 2026-11-03** (`tools/background-design/`, its README).
+- **The page:** the four candidates, one at a time or side by side, on
+  a bundled song or files picked. Each candidate's parameters are live,
+  with drivers among the music's signals.
+- **What the music gives,** traced under the stage: loudness, bands,
+  onsets, brightness, stereo width, balance, sections and the waveform,
+  with the beats and measures from the simfile.
+- **Context:** quiet palettes, Vivid among them. Options to draw over
+  the song's picture at the game's background brightness, the field's
+  band and receptors with its filter, and reduced motion.
+- **Choosing:** what to keep and what works over a picture, exported as
+  `approved.json`.
+- **Checked** in headless Chrome and Playwright's Firefox: the song
+  analyzed (Beatucada: 447 and 445 onsets, each browser's decode),
+  played, each candidate and the grid drawn, no console errors.
+
+**Revised 2026-11-05** on the maintainer's first look:
+- **The kaleidoscope** moved its whole picture with the music, and
+  looked like a picture flipped. Its mirrors now stay still and the
+  picture under them moves (turning with the beat, growing with the
+  bass, wandering). Three mirrors tile the screen with triangles, the
+  classic kaleidoscope's many reflections; a rosette of two remains a
+  choice. Each shows a small piece of the picture, or pieces of glass
+  in the palette for a song without one.
+- **The bars** run across the whole screen, behind the field's band
+  too, without rounded ends. Segmented bars with peaks held are the
+  default; solid ones remain a choice.
+- **The rain's moving outlines** do one of two things, chosen at random
+  for each as it comes in: zoom with the bass, or wave round their
+  outline with the treble. Both take what stands out of the song (a
+  signal above its median over the song), since the bass alone sits
+  high most of the time. The game's analysis has the whole song at
+  load, so it can measure the same.
 
 ### Step 5. Generative backgrounds in play
 
-- **The music's analysis** at load: a few bands about every 20 ms, from
-  the editor's analysis (`ddi_ui::state::editor::audio`, made from the
-  samples heard). The web steps it in slices, desktop runs it on a
-  thread. Start never waits: until it is in, the pass runs on the beat
-  and the events alone.
+- **The music's analysis** at load: what step 4 kept (bands, loudness,
+  onsets…) about every 20 ms, from the editor's analysis
+  (`ddi_ui::state::editor::audio`, made from the samples heard). The
+  web steps it in slices, desktop runs it on a thread. Start never
+  waits: until it is in, the pass runs on the beat alone.
 - **The stand-in rule** wherever the song background shows with none
   there (decision 4), never for a work (decision 5).
 - **The pass:** in `ddi-render`, drawn in the background frame. The
   field filter treats it as a background.
-- **Settings and screens:** the setting, reduced motion, and the song
-  select → prompt → play backdrop (`crates/actor/src/background.rs`).
+- **Settings and screens:** Options → Display. The generative
+  background is on by default where a song has none; the visualizer
+  over a song's picture is off by default; there is a choice of
+  visualization if step 4 keeps several. Also reduced motion, and the
+  song select → prompt → play backdrop
+  (`crates/actor/src/background.rs`).
 - **Checks:** natively, offscreen on desktop (pixels at set times of a
   replay), headless Chrome (WebGPU, WebGL2) and Firefox, the frame cost
   on both.
@@ -257,20 +501,19 @@ maintainer's answers below.
   their "left out" notes.
 - AGENTS.md, the verify skill, `docs/plans/README.md`.
 
-## For the maintainer
+## The maintainer's choices (2026-11-03)
 
-Where it shows was settled on 2026-11-03 (decisions 4 and 5). Steps 4–5
-still need these answered:
-
-1. **On by default?** It would show for every song without a
-   background, under a Display setting.
-2. **Also over pictures?** As a visualizer added over a song's own
-   picture, chosen in Options; off by default.
-3. **Its look.** Either Infinito's language (the Vivid palette, the
-   outlines, the menu's rain), so the play matches the menus, or
-   something apart, found in the study.
-4. **What drives it:** the beat and measures, the play's events
-   (judgments, combo hundreds, danger, the full combo), the music's
-   loudness and bands, or a subset.
-5. **FFR levels** have no background either, in FFR's own game: a
-   generative one, or explicitly none like the works?
+- **Where:** in place of a missing song background; never for a
+  Dancing☆Onigiri work, whose back layers are its background
+  (decisions 4 and 5). The point of the plain ground was that no
+  background means no band, which stays so for the works.
+- **On by default** for songs without a background; **over a picture**
+  as an option.
+- **The look:** a round of experiments first (step 4), with the four
+  ideas above. Not much more Vivid: the screens already come close to
+  using it too much.
+- **What drives it:** the music alone (loudness and bands first;
+  step 4 shows what else it gives), not the play's events.
+- **FFR levels:** to be decided when the maintainer tries FFR imports.
+  Until then they follow the general rule (they have no background, so
+  they get the generative one).

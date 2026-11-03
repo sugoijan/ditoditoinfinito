@@ -46,7 +46,9 @@ Rust and the browser are implementation details, not advertised features.
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
   play draws it into a texture the 2D pass shows) and song select's
   preview movie's picture (`crates/render/src/movie_picture.rs`, the same
-  way) and the chart editor's field in the player's skin
+  way), a song's scripts' movies drawn into textures their quads sample
+  (`crates/render/src/script_movies.rs`, a converter of its own) and
+  the chart editor's field in the player's skin
   (`crates/render/src/editor_field.rs`: a play's frame paused at the
   cursor, the skin's clock at rest; `ddi_ui::screens::editor_field`
   places its notes and the overlay over it; its audio view's picture,
@@ -312,7 +314,8 @@ Rust and the browser are implementation details, not advertised features.
   have a decoder, their tracks and what shows, each shell's decoders
   behind `MovieShell`; `BackdropTextures`, both shells' `movies.rs` run
   on it; song select's `#PREVIEWVID` movie, when it plays, `movies/preview.rs`), a song's scripted backgrounds and foregrounds (`scripted.rs`:
-  their VM, the commands at each change, one budget a frame), the
+  their VM, the commands at each change, one budget a frame, their
+  movies' clocks, one a file, and the danger told them), the
   announcer's lines in play and on the results (`announcer.rs`: 5.1's
   timings and precedence over what the play knows, the sounds a play
   decodes and their shuffles, spoken on the voice's bus; song select's
@@ -729,6 +732,10 @@ Rust and the browser are implementation details, not advertised features.
   from SkinCraft exports; editable sources are in `tools/noteskin-peters/design/`.
   `python3 tools/noteskin-peters/generate.py [--check]` reproduces only the earlier
   model/SVG study under `target/scratch/peters/model-svg-study`, not the bundled skin.
+- `tools/background-design/` is the generative backgrounds study (serve
+  the repository root and open it; `docs/plans/phase-8-gaps.md`, step 4):
+  the candidates on a song's music, every parameter live, the choices
+  exported as its `approved.json`.
 - `python3 tools/announcer-design/announcer.py` auditions announcer voices
   made with ElevenLabs (the key from `ELEVENLABS_API_KEY`, never written):
   free-plan audio, kept in `target/scratch/announcer-audition/` and never

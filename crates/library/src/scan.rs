@@ -527,7 +527,7 @@ impl Reading {
         }
         if !missing.is_empty() {
             warnings.push(format!(
-                "background changes name images or videos that were not found (the song background shows instead): {}",
+                "background changes name images or videos that were not found (the song background shows instead, or a random movie from a RandomMovies folder): {}",
                 missing.join(", ")
             ));
         }

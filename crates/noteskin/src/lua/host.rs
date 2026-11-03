@@ -21,6 +21,10 @@ pub(crate) struct ActorRef(pub u32);
 /// (`ActorFrameTexture:GetTexture`), by its index.
 pub(crate) struct TextureRef(pub u32);
 
+/// A song's scripts' movie's texture a userdata stands for (a movie
+/// sprite's `GetTexture`), by its index among the song's movies.
+pub(crate) struct MovieRef(pub u32);
+
 /// The pixels a song's render targets may hold, all together: ten
 /// screens' worth (`ActorFrameTexture`s are mostly screen-sized).
 pub const MAX_TARGET_PIXELS: u64 = 4 << 20;
@@ -1024,8 +1028,191 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             Ok(CallbackReturn::Return)
         }),
     );
-    // `Sprite::SetTexture` of a render target's texture: the sprite shows
-    // it, at its size.
+    // A song's scripts' movies (`docs/plans/phase-8-gaps.md`, step 3): a
+    // movie sprite's `GetTexture` is its movie's one texture, whose
+    // `rate`, `loop` and `position` act for every sprite showing the file
+    // (`RageTexture`'s methods; `position` seeks to 0 only, as
+    // `MovieTexture_Generic::SetPosition`).
+    let movie_class = Table::new(&ctx);
+    for (name, side) in [
+        ("GetImageWidth", 0),
+        ("GetImageHeight", 1),
+        ("GetSourceWidth", 0),
+        ("GetSourceHeight", 1),
+        ("GetTextureWidth", 0),
+        ("GetTextureHeight", 1),
+    ] {
+        let shared = host.clone();
+        let _ = movie_class.set(
+            ctx,
+            name,
+            Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                let index = movie_ref(ctx, stack.get(0))?;
+                let size = shared.borrow().movies.get(index as usize).map(|m| m.size);
+                let size = size.ok_or_else(|| error(ctx, format!("{name}: no such movie")))?;
+                stack.replace(ctx, i64::from(size[side]));
+                Ok(CallbackReturn::Return)
+            }),
+        );
+    }
+    let _ = movie_class.set(
+        ctx,
+        "GetNumFrames",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            stack.replace(ctx, 1);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let shared = host.clone();
+    let _ = movie_class.set(
+        ctx,
+        "GetPath",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let index = movie_ref(ctx, stack.get(0))?;
+            let path = shared
+                .borrow()
+                .movies
+                .get(index as usize)
+                .map(|m| m.path.clone());
+            let path = path.ok_or_else(|| error(ctx, "GetPath: no such movie"))?;
+            stack.replace(ctx, Value::String(ctx.intern(path.as_bytes())));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let shared = host.clone();
+    let _ = movie_class.set(
+        ctx,
+        "rate",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let this = stack.get(0);
+            let index = movie_ref(ctx, this)?;
+            if let Some(rate) = stack.get(1).to_number().filter(|r| r.is_finite())
+                && let Some(m) = shared.borrow_mut().movies.get_mut(index as usize)
+            {
+                m.rate = rate;
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let shared = host.clone();
+    let _ = movie_class.set(
+        ctx,
+        "loop",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let this = stack.get(0);
+            let index = movie_ref(ctx, this)?;
+            // `BIArg`: a boolean, or a number not 0.
+            let on = match stack.get(1) {
+                Value::Boolean(b) => b,
+                Value::Integer(n) => n != 0,
+                Value::Number(n) => n != 0.0,
+                _ => false,
+            };
+            if let Some(m) = shared.borrow_mut().movies.get_mut(index as usize) {
+                m.looping = on;
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let shared = host.clone();
+    let _ = movie_class.set(
+        ctx,
+        "position",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let this = stack.get(0);
+            let index = movie_ref(ctx, this)?;
+            let seconds = stack.get(1).to_number().unwrap_or(0.0);
+            let mut host = shared.borrow_mut();
+            if seconds == 0.0 {
+                if let Some(m) = host.movies.get_mut(index as usize) {
+                    m.clock = 0.0;
+                }
+            } else {
+                host.warn(format!(
+                    "position({seconds}): a movie seeks to 0 only (as StepMania); ignored"
+                ));
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let movie_mt = Table::new(&ctx);
+    let _ = movie_mt.set(ctx, "__index", movie_class);
+    // `Sprite::GetTexture`: a movie's texture, or a render target's; nil
+    // for anything else here.
+    let shared = host.clone();
+    let _ = sprite.set(
+        ctx,
+        "GetTexture",
+        Callback::from_fn_with(
+            &ctx,
+            (texture_mt, movie_mt),
+            move |&(texture_mt, movie_mt), ctx, _, mut stack| {
+                let id = actor_id(ctx, stack.get(0))?;
+                let texture = match shared.borrow().stage.get(id).map(|a| &a.kind) {
+                    Some(ddi_actor::Kind::Sprite(s)) => Some(s.texture),
+                    _ => None,
+                };
+                let userdata = |value, mt| {
+                    let _ = UserData::set_metatable(value, &ctx, Some(mt));
+                    Value::UserData(value)
+                };
+                let v = match texture {
+                    Some(t) => match ddi_actor::movie_index(t) {
+                        Some(i) => userdata(UserData::new_static(&ctx, MovieRef(i)), movie_mt),
+                        None if t != ddi_actor::UNTEXTURED && t >= ddi_actor::TARGET_TEXTURES => {
+                            let i = t - ddi_actor::TARGET_TEXTURES;
+                            userdata(UserData::new_static(&ctx, TextureRef(i)), texture_mt)
+                        }
+                        None => Value::Nil,
+                    },
+                    None => Value::Nil,
+                };
+                stack.replace(ctx, v);
+                Ok(CallbackReturn::Return)
+            },
+        ),
+    );
+    // `Sprite::SetDecodeMovie`, `GetDecodeMovie`: whether the sprite's
+    // updates give its movie time.
+    let shared = host.clone();
+    let _ = sprite.set(
+        ctx,
+        "SetDecodeMovie",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let this = stack.get(0);
+            let id = actor_id(ctx, this)?;
+            let on = matches!(stack.get(1), Value::Boolean(true))
+                || stack.get(1).to_number().is_some_and(|n| n != 0.0);
+            if let Some(ddi_actor::Actor {
+                kind: ddi_actor::Kind::Sprite(s),
+                ..
+            }) = shared.borrow_mut().stage.get_mut(id)
+            {
+                s.decode_movie = on;
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let shared = host.clone();
+    let _ = sprite.set(
+        ctx,
+        "GetDecodeMovie",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let id = actor_id(ctx, stack.get(0))?;
+            let on = match shared.borrow().stage.get(id).map(|a| &a.kind) {
+                Some(ddi_actor::Kind::Sprite(s)) => s.decode_movie,
+                _ => false,
+            };
+            stack.replace(ctx, on);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    // `Sprite::SetTexture` of a render target's texture or a movie's: the
+    // sprite shows it, at its size.
     let shared = host.clone();
     let _ = sprite.set(
         ctx,
@@ -1033,16 +1220,28 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
             let this = stack.get(0);
             let id = actor_id(ctx, this)?;
-            let index = texture_index(ctx, stack.get(1))?;
             exec.fuel().consume(16);
             let mut host = shared.borrow_mut();
-            let size = host
-                .targets
-                .get(index as usize)
-                .copied()
-                .ok_or_else(|| error(ctx, "SetTexture: no such texture"))?;
+            let (texture, size) = match movie_ref(ctx, stack.get(1)) {
+                Ok(index) => {
+                    let size = host
+                        .movies
+                        .get(index as usize)
+                        .map(|m| m.size)
+                        .ok_or_else(|| error(ctx, "SetTexture: no such movie"))?;
+                    (ddi_actor::movie_texture(index), size)
+                }
+                Err(_) => {
+                    let index = texture_index(ctx, stack.get(1))?;
+                    let size = host
+                        .targets
+                        .get(index as usize)
+                        .copied()
+                        .ok_or_else(|| error(ctx, "SetTexture: no such texture"))?;
+                    (ddi_actor::target_texture(index), size)
+                }
+            };
             let size = size.map(|v| v as f32);
-            let texture = ddi_actor::target_texture(index);
             if let Some(a) = host.stage.get_mut(id) {
                 match &mut a.kind {
                     ddi_actor::Kind::Sprite(s) => {
@@ -1052,11 +1251,11 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                         s.padded_to_image = [1.0; 2];
                     }
                     kind @ ddi_actor::Kind::Actor => {
-                        *kind = ddi_actor::Kind::Sprite(ddi_actor::Sprite::new(
-                            texture,
-                            Vec::new(),
-                            size,
-                        ));
+                        let mut s = ddi_actor::Sprite::new(texture, Vec::new(), size);
+                        // Only loading a movie's file decodes it
+                        // (`Sprite::LoadFromTexture`), not `SetTexture`.
+                        s.decode_movie = false;
+                        *kind = ddi_actor::Kind::Sprite(s);
                     }
                     _ => return Err(error(ctx, "SetTexture: not a sprite")),
                 }
@@ -1150,6 +1349,17 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         ],
     };
     (h, registries)
+}
+
+/// The index of the movie whose texture `v` stands for ([`MovieRef`]).
+fn movie_ref<'gc>(ctx: Context<'gc>, v: Value<'gc>) -> Result<u32, Error<'gc>> {
+    match v {
+        Value::UserData(ud) => ud
+            .downcast_static::<MovieRef>()
+            .map(|t| t.0)
+            .map_err(|_| error(ctx, "not a movie's texture")),
+        _ => Err(error(ctx, "not a movie's texture")),
+    }
 }
 
 /// The index of the render target's texture `v` stands for.

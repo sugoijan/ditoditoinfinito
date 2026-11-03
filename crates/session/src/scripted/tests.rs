@@ -51,6 +51,7 @@ fn load(bg: &str) -> (Scripts, [Vec<BgSegment>; LAYERS]) {
         &[] as &[&str],
         &scripts,
         &[] as &[&str],
+        &[],
         false,
     );
     let fgs = backgrounds::foregrounds(&song, &scripts);
@@ -132,6 +133,7 @@ fn a_song_without_scripts_has_none() {
         &[] as &[&str],
         &[] as &[&str],
         &[] as &[&str],
+        &[],
         false,
     );
     let r = Scripts::load(
@@ -150,7 +152,7 @@ fn a_long_load_gives_the_host_its_turns() {
     let song = song();
     let scripts = ["BG", "FG"];
     let none: &[&str] = &[];
-    let layers = backgrounds::layers(&song, none, none, &scripts, none, false);
+    let layers = backgrounds::layers(&song, none, none, &scripts, none, &[], false);
     let fgs = backgrounds::foregrounds(&song, &scripts);
     let turns = std::rc::Rc::new(std::cell::Cell::new(0));
     let counted = turns.clone();
@@ -178,7 +180,7 @@ fn sounds_play_when_their_script_says_so() {
     let song = song();
     let scripts = ["BG", "FG"];
     let none: &[&str] = &[];
-    let layers = backgrounds::layers(&song, none, none, &scripts, none, false);
+    let layers = backgrounds::layers(&song, none, none, &scripts, none, &[], false);
     let fgs = backgrounds::foregrounds(&song, &scripts);
     let mut files = files(
         "return Def.ActorFrame {\n\
@@ -246,7 +248,7 @@ fn stepmania_3_9_animations_play_without_a_vm() {
     };
     let scripts = ["BG", "FG"];
     let none: &[&str] = &[];
-    let layers = backgrounds::layers(&song, none, none, &scripts, none, false);
+    let layers = backgrounds::layers(&song, none, none, &scripts, none, &[], false);
     let fgs = backgrounds::foregrounds(&song, &scripts);
     let mut s = Scripts::load(
         files,
@@ -282,4 +284,116 @@ fn stepmania_3_9_animations_play_without_a_vm() {
     let d = s.draws(2.0, &layers);
     let sprite = &d[0].0.children()[0].children()[0].children()[0];
     assert_eq!(sprite.current().diffuse()[3], 0.0);
+}
+
+/// The movie sizes the shell read from their headers.
+fn movie_sizes() -> Sizes {
+    let mut sizes = Sizes::default();
+    sizes.insert("BG/clip.avi", (320, 240));
+    sizes
+}
+
+/// `bg` as the background script, its folder holding `clip.avi` too.
+fn load_with_movie(bg: &str) -> (Scripts, [Vec<BgSegment>; LAYERS]) {
+    let song = song();
+    let scripts = ["BG", "FG"];
+    let layers = backgrounds::layers(
+        &song,
+        &[] as &[&str],
+        &[] as &[&str],
+        &scripts,
+        &[] as &[&str],
+        &[],
+        false,
+    );
+    let fgs = backgrounds::foregrounds(&song, &scripts);
+    let mut f = files(bg);
+    f.files.push("BG/clip.avi".into());
+    let s = Scripts::load(
+        f,
+        env(&song, 16.0 / 9.0),
+        &layers,
+        &fgs,
+        &movie_sizes(),
+        Box::new(|| 0.0),
+    )
+    .unwrap()
+    .unwrap();
+    (s, layers)
+}
+
+/// A script's movies (`docs/plans/phase-8-gaps.md`, step 3): one texture,
+/// one clock a file, every sprite of it giving it its time at the rate the
+/// texture was given, `position(0)` putting it back; a retry starts it
+/// over.
+#[test]
+fn a_scripts_movie_keeps_one_clock_at_its_rate() {
+    let (mut s, layers) = load_with_movie(
+        "return Def.ActorFrame {\n\
+           LoadActor(\"clip.avi\") .. {\n\
+             OnCommand = function(self) self:GetTexture():rate(2):loop(false) end,\n\
+             RewindCommand = function(self) self:GetTexture():position(0) end,\n\
+           },\n\
+           LoadActor(\"clip.avi\"),\n\
+         }",
+    );
+    let movies = s.movies();
+    assert_eq!(movies.len(), 1, "{movies:?}");
+    assert_eq!(movies[0].path, "BG/clip.avi");
+    assert_eq!(movies[0].size, [320, 240]);
+    for t in [1.0, 2.0, 2.5, 3.0] {
+        s.frame(t, t * 2.0, &layers);
+    }
+    let m = &s.movies()[0];
+    assert_eq!((m.rate, m.looping), (2.0, false));
+    let at = m.clock;
+    s.frame(3.5, 7.0, &layers);
+    // Two sprites of the file, half a second each, at rate 2.
+    assert!(
+        (s.movies()[0].clock - at - 2.0).abs() < 1e-6,
+        "{at} {:?}",
+        s.movies()
+    );
+    // Their sizes are the file's.
+    let d = s.draws(3.5, &layers);
+    let sprite = &d[0].0.children()[0].children()[0];
+    let ddi_actor::Kind::Sprite(sprite) = &sprite.kind else {
+        panic!("{:?}", sprite.kind)
+    };
+    assert_eq!(sprite.size, [320.0, 240.0]);
+    assert_eq!(ddi_actor::movie_index(sprite.texture), Some(0));
+    s.restart();
+    assert_eq!(s.movies()[0].clock, 0.0);
+}
+
+/// `ShowDangerAll` and `HideDangerAll` reach a script when the danger
+/// changes, as `BackgroundImpl::Update` broadcasts them.
+#[test]
+fn the_danger_is_told_to_the_scripts() {
+    let (mut s, layers) = load(
+        "return Def.ActorFrame {\n\
+           Def.Quad {\n\
+             OnCommand = cmd(FullScreen; diffuse, color(\"0,1,0,1\")),\n\
+             ShowDangerAllMessageCommand = cmd(diffuse, color(\"1,0,0,1\")),\n\
+             HideDangerAllMessageCommand = cmd(diffuse, color(\"0,0,1,1\")),\n\
+           },\n\
+         }",
+    );
+    let color = |s: &mut Scripts| {
+        let d = s.draws(2.5, &layers);
+        let quad = &d[0].0.children()[0].children()[0];
+        quad.current().diffuse()
+    };
+    s.frame(2.0, 4.0, &layers);
+    s.frame(2.5, 5.0, &layers);
+    assert_eq!(color(&mut s)[..3], [0.0, 1.0, 0.0]);
+    s.set_danger(true);
+    s.frame(2.6, 5.2, &layers);
+    assert_eq!(color(&mut s)[..3], [1.0, 0.0, 0.0]);
+    // Told once a change.
+    s.frame(2.7, 5.4, &layers);
+    assert_eq!(color(&mut s)[..3], [1.0, 0.0, 0.0]);
+    s.set_danger(false);
+    s.frame(2.8, 5.6, &layers);
+    assert_eq!(color(&mut s)[..3], [0.0, 0.0, 1.0]);
 }

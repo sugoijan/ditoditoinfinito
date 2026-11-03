@@ -31,17 +31,28 @@ pub fn screen_transform(frame: [f32; 4], screen: [f32; 2]) -> [f32; 6] {
 }
 
 /// The registered textures quads draw with: by the texture ids the
-/// actors carry (`None`: not loaded yet, not drawn), and the render
-/// targets' by their index ([`ddi_actor::Target::index`]).
+/// actors carry (`None`: not loaded yet, not drawn), the render targets'
+/// by their index ([`ddi_actor::Target::index`]) and the movies' by
+/// theirs ([`ddi_actor::movie_texture`]); with `movies_drawn`, the
+/// movies a quad drew marked in it (bit `index`), whether their texture
+/// holds a frame yet or not: what the shell decodes.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Ids<'a> {
     pub textures: &'a [Option<u32>],
     pub targets: &'a [Option<u32>],
+    pub movies: &'a [Option<u32>],
+    pub movies_drawn: Option<&'a std::cell::Cell<u32>>,
 }
 
 impl Ids<'_> {
     /// The registered texture of id `texture` an actor carries.
     fn of(&self, texture: u32) -> Option<u32> {
+        if let Some(i) = ddi_actor::movie_index(texture) {
+            if let Some(drawn) = self.movies_drawn {
+                drawn.set(drawn.get() | 1u32.checked_shl(i).unwrap_or(0));
+            }
+            return *self.movies.get(i as usize)?;
+        }
         if texture != ddi_actor::UNTEXTURED && texture >= TARGET_TEXTURES {
             return *self.targets.get((texture - TARGET_TEXTURES) as usize)?;
         }
@@ -292,7 +303,7 @@ mod tests {
         let frame = [0.0, 0.0, 640.0, 480.0];
         let ids = Ids {
             textures: &[Some(3)],
-            targets: &[],
+            ..Ids::default()
         };
         let (back, _) = quads(
             [(&mut quad, 1.0, false)],
@@ -322,6 +333,48 @@ mod tests {
     }
 
     #[test]
+    fn a_movies_sprite_draws_its_texture_and_is_marked_drawn() {
+        let sprite = Sprite::new(ddi_actor::movie_texture(1), Vec::new(), [320.0, 240.0]);
+        let mut actor = Actor::new(Kind::Sprite(sprite));
+        let drawn = std::cell::Cell::new(0);
+        let frame = [0.0, 0.0, 640.0, 480.0];
+        // Its texture not made yet: nothing drawn, but marked.
+        let ids = Ids {
+            movies: &[None, None],
+            movies_drawn: Some(&drawn),
+            ..Ids::default()
+        };
+        let mut targets = Vec::new();
+        let (back, _) = quads(
+            [(&mut actor, 1.0, false)],
+            frame,
+            [640.0, 480.0],
+            ids,
+            &|_| None,
+            false,
+            &mut targets,
+        );
+        assert!(back.is_empty());
+        assert_eq!(drawn.get(), 0b10);
+        // Made: drawn with it.
+        let ids = Ids {
+            movies: &[None, Some(5)],
+            ..Ids::default()
+        };
+        let (back, _) = quads(
+            [(&mut actor, 1.0, false)],
+            frame,
+            [640.0, 480.0],
+            ids,
+            &|_| None,
+            false,
+            &mut targets,
+        );
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].texture, 5);
+    }
+
+    #[test]
     fn render_targets_are_drawn_in_their_pixels_and_shown_by_sprites() {
         // A 64 × 32 target holding a quad over its right half, and a
         // sprite showing it on the screen.
@@ -344,8 +397,8 @@ mod tests {
         }
         let mut tree = Actor::new(Kind::Frame(vec![aft, shown]));
         let ids = Ids {
-            textures: &[],
             targets: &[Some(9)],
+            ..Ids::default()
         };
         let mut targets = Vec::new();
         let (back, _) = quads(

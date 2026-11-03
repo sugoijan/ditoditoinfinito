@@ -170,6 +170,32 @@ impl Movies {
         }
     }
 
+    /// Opens, feeds and closes decoders for a song's scripts' movies drawn
+    /// now (`clips`, each on its own clock) and puts the frames due on
+    /// `renderer` (the scripts' converter's): the movies shown, `(file,
+    /// its id there)`.
+    pub fn update_clips(
+        &mut self,
+        clips: &[ddi_session::movies::Clip],
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Vec<(String, usize)> {
+        if self.slots.shell().sources.is_empty() {
+            return Vec::new();
+        }
+        let due = self.slots.update_clips(clips);
+        let mut shown = Vec::new();
+        for (name, frame) in due.show {
+            self.upload(&name, &frame, renderer, device, queue);
+            self.slots.shell().recycle(frame);
+            if let Some(id) = self.slots.texture(&name) {
+                shown.push((name, id));
+            }
+        }
+        shown
+    }
+
     fn texture(
         &mut self,
         name: &str,

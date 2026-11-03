@@ -63,11 +63,25 @@ pub trait MovieShell {
     fn info(&self, _line: &str) {}
 }
 
+/// A song's scripts' movie to decode now ([`MovieSlots::update_clips`],
+/// `docs/plans/phase-8-gaps.md`, step 3): its file's name for the shell,
+/// where its clock stands (movie seconds, before looping) and whether it
+/// loops.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Clip {
+    pub name: String,
+    pub position: f64,
+    pub looping: bool,
+}
+
 /// An open movie: its decoder and track, and the segment it plays.
 pub struct OpenMovie<D> {
-    /// The background layer and the segment of its schedule it plays.
+    /// The background layer and the segment of its schedule it plays, and
+    /// which of the segment's files ([`backgrounds::movie_of`]: 0 its own,
+    /// 1 an effect's second file).
     pub layer: usize,
     pub segment: usize,
+    pub part: usize,
     pub name: String,
     pub decoder: D,
     /// The movie position it was last given.
@@ -344,19 +358,46 @@ impl<S: MovieShell> MovieSlots<S> {
         // (a file current on both layers once).
         let movies = backgrounds::movie_segments_at(layers, t, LEAD_SECONDS);
         let currents = movies.currents;
-        let wanted = movies.wanted;
+        // A next change's movie that runs on from a current one (an
+        // effect's second file over several changes, a change of rate)
+        // needs no decoder ahead: the current one's moves to it at the
+        // change.
+        let decoded_now: Vec<(usize, usize, usize)> = movies
+            .wanted
+            .iter()
+            .copied()
+            .filter(|&(l, i, _)| currents[l] == Some(i))
+            .collect();
+        let runs_on = |(l, i, p): (usize, usize, usize)| {
+            let name = backgrounds::movie_of(&layers[l][i], p);
+            let start = layers[l][i].seconds;
+            let there = backgrounds::movie_position_of(layers, l, i, p, start);
+            decoded_now.iter().any(|&(cl, ci, cp)| {
+                backgrounds::movie_of(&layers[cl][ci], cp) == name
+                    && (backgrounds::movie_position_of(layers, cl, ci, cp, start) - there).abs()
+                        <= CONTINUOUS_SECONDS
+            })
+        };
+        let wanted: Vec<(usize, usize, usize)> = movies
+            .wanted
+            .iter()
+            .copied()
+            .filter(|&w| currents[w.0] == Some(w.1) || !runs_on(w))
+            .collect();
         for (layer, current) in currents.iter().enumerate() {
             let Some(current) = *current else {
                 continue;
             };
             if self.current[layer] != Some(current) {
                 self.current[layer] = Some(current);
-                // A movie that starts over shows nothing old meanwhile.
+                // A movie that starts over shows nothing old meanwhile (a
+                // change's own file; a second file never starts over).
                 let seg = &layers[layer][current];
-                if let BgImage::Movie(name) = &seg.image
+                if let Some(name) = backgrounds::movie_of(seg, 0)
                     && seg.effect.restarts()
                 {
-                    self.set_fresh(name, false);
+                    let name = name.to_string();
+                    self.set_fresh(&name, false);
                 }
             }
         }
@@ -364,26 +405,27 @@ impl<S: MovieShell> MovieSlots<S> {
         // wanted segment (seeking only where the movie does not run on from
         // where it was); the others close (a movie fading out stays on its
         // last frame in its texture).
-        for &(layer, segment) in &wanted {
+        for &(layer, segment, part) in &wanted {
             if self
                 .open
                 .iter()
-                .any(|o| (o.layer, o.segment) == (layer, segment))
+                .any(|o| (o.layer, o.segment, o.part) == (layer, segment, part))
             {
                 continue;
             }
-            let BgImage::Movie(name) = &layers[layer][segment].image else {
+            let Some(name) = backgrounds::movie_of(&layers[layer][segment], part) else {
                 continue;
             };
             if let Some(open) = self
                 .open
                 .iter_mut()
-                .find(|o| o.name == *name && !wanted.contains(&(o.layer, o.segment)))
+                .find(|o| o.name == name && !wanted.contains(&(o.layer, o.segment, o.part)))
             {
                 open.layer = layer;
                 open.segment = segment;
+                open.part = part;
                 let at = t.max(layers[layer][segment].seconds);
-                let position = backgrounds::movie_position_in(layers, layer, segment, at);
+                let position = backgrounds::movie_position_of(layers, layer, segment, part, at);
                 if (position - open.position).abs() > CONTINUOUS_SECONDS {
                     open.held = None;
                     open.track.start(&mut open.decoder, position);
@@ -392,32 +434,30 @@ impl<S: MovieShell> MovieSlots<S> {
         }
         let mut i = 0;
         while i < self.open.len() {
-            if wanted.contains(&(self.open[i].layer, self.open[i].segment)) {
+            let o = &self.open[i];
+            if wanted.contains(&(o.layer, o.segment, o.part)) {
                 i += 1;
             } else {
                 let open = self.open.remove(i);
                 self.close(open);
             }
         }
-        for &(layer, segment) in &wanted {
+        for &(layer, segment, part) in &wanted {
             if !self
                 .open
                 .iter()
-                .any(|o| (o.layer, o.segment) == (layer, segment))
+                .any(|o| (o.layer, o.segment, o.part) == (layer, segment, part))
             {
-                self.open_segment(layers, layer, segment, t);
+                self.open_segment(layers, layer, segment, part, t);
             }
         }
         let mut errors = Vec::new();
         for open in &mut self.open {
-            let position = backgrounds::movie_position_in(layers, open.layer, open.segment, t);
+            let (layer, segment, part) = (open.layer, open.segment, open.part);
+            let position = backgrounds::movie_position_of(layers, layer, segment, part, t);
             // A change on either layer may stop it looping mid-run.
-            open.track.set_looping(backgrounds::movie_loops_in(
-                layers,
-                open.layer,
-                open.segment,
-                t,
-            ));
+            open.track
+                .set_looping(backgrounds::movie_loops_of(layers, layer, segment, part, t));
             open.position = position;
             let frame = open.track.update(&mut open.decoder, position);
             if let Some(e) = open.track.error() {
@@ -448,17 +488,113 @@ impl<S: MovieShell> MovieSlots<S> {
                 Ok(false) => {}
                 Ok(true) => {
                     open.held = None;
-                    let (layer, segment) = (open.layer, open.segment);
+                    let (layer, segment, part) = (open.layer, open.segment, open.part);
                     let at = t.max(layers[layer][segment].seconds);
                     open.track.start(
                         &mut open.decoder,
-                        backgrounds::movie_position_in(layers, layer, segment, at),
+                        backgrounds::movie_position_of(layers, layer, segment, part, at),
                     );
                 }
                 Err(e) => {
                     let name = open.name.clone();
                     self.fail(&name, e);
                 }
+            }
+        }
+        for (name, e) in errors {
+            self.fail(&name, e);
+        }
+        let failed = std::mem::take(&mut self.failed);
+        let (keep, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.open)
+            .into_iter()
+            .partition(|o| !failed.iter().any(|(n, _)| *n == o.name));
+        self.failed = failed;
+        self.open = keep;
+        for open in gone {
+            self.close(open);
+        }
+        due
+    }
+
+    /// Opens, feeds and closes decoders for `clips`, a song's scripts'
+    /// movies drawn now, each on its own clock rather than a schedule's: a
+    /// decoder opened while its movie is drawn, closed when it is not; a
+    /// clock put back (`position(0)`) seeks. The shell makes the textures
+    /// and shows the frames it returns ([`DueFrames::show`]).
+    pub fn update_clips(&mut self, clips: &[Clip]) -> DueFrames {
+        let mut due = DueFrames::default();
+        if self.off.is_some() || self.paused {
+            return due;
+        }
+        let mut i = 0;
+        while i < self.open.len() {
+            if clips.iter().any(|c| c.name == self.open[i].name) {
+                i += 1;
+            } else {
+                let open = self.open.remove(i);
+                self.close(open);
+            }
+        }
+        for c in clips {
+            if self.failed.iter().any(|(n, _)| *n == c.name)
+                || self.open.iter().any(|o| o.name == c.name)
+            {
+                continue;
+            }
+            let mut decoder = match self.shell.open(&c.name) {
+                None => continue,
+                Some(Ok(decoder)) => decoder,
+                Some(Err(e)) => {
+                    self.fail(&c.name, e);
+                    continue;
+                }
+            };
+            let end = self
+                .ends
+                .iter()
+                .find(|(n, _)| *n == c.name)
+                .map(|(_, e)| *e);
+            let mut track = MovieTrack::new(c.looping, AHEAD, end);
+            track.start(&mut decoder, c.position);
+            self.open.push(OpenMovie {
+                layer: LAYERS,
+                segment: 0,
+                part: 0,
+                name: c.name.clone(),
+                decoder,
+                position: c.position,
+                track,
+                held: None,
+            });
+        }
+        let mut errors = Vec::new();
+        for open in &mut self.open {
+            let Some(c) = clips.iter().find(|c| c.name == open.name) else {
+                continue;
+            };
+            if c.position + CONTINUOUS_SECONDS < open.position {
+                open.held = None;
+                open.track.start(&mut open.decoder, c.position);
+            }
+            open.track.set_looping(c.looping);
+            open.position = c.position;
+            let frame = open.track.update(&mut open.decoder, c.position);
+            if let Some(e) = open.track.error() {
+                errors.push((open.name.clone(), e.to_string()));
+                continue;
+            }
+            if let Some(frame) = frame {
+                due.show.push((open.name.clone(), frame));
+            }
+        }
+        for open in &mut self.open {
+            match self.shell.fall_back(&open.name, &mut open.decoder) {
+                Ok(false) => {}
+                Ok(true) => {
+                    open.held = None;
+                    open.track.start(&mut open.decoder, open.position);
+                }
+                Err(e) => errors.push((open.name.clone(), e)),
             }
         }
         for (name, e) in errors {
@@ -511,34 +647,43 @@ impl<S: MovieShell> MovieSlots<S> {
         }
     }
 
-    fn open_segment(&mut self, layers: &[Vec<BgSegment>], layer: usize, segment: usize, t: f64) {
+    fn open_segment(
+        &mut self,
+        layers: &[Vec<BgSegment>],
+        layer: usize,
+        segment: usize,
+        part: usize,
+        t: f64,
+    ) {
         let schedule = &layers[layer];
-        let BgImage::Movie(name) = &schedule[segment].image else {
+        let Some(name) = backgrounds::movie_of(&schedule[segment], part) else {
             return;
         };
-        if self.failed.iter().any(|(n, _)| n == name) {
+        let name = name.to_string();
+        if self.failed.iter().any(|(n, _)| *n == name) {
             return;
         }
-        let mut decoder = match self.shell.open(name) {
+        let mut decoder = match self.shell.open(&name) {
             None => return,
             Some(Ok(decoder)) => decoder,
             Some(Err(e)) => {
-                self.fail(name, e);
+                self.fail(&name, e);
                 return;
             }
         };
-        let end = self.ends.iter().find(|(n, _)| n == name).map(|(_, e)| *e);
+        let end = self.ends.iter().find(|(n, _)| *n == name).map(|(_, e)| *e);
         let at = t.max(schedule[segment].seconds);
-        let looping = backgrounds::movie_loops_in(layers, layer, segment, at);
+        let looping = backgrounds::movie_loops_of(layers, layer, segment, part, at);
         let mut track = MovieTrack::new(looping, AHEAD, end);
         // From where the movie stands when the segment starts, or now when
         // it already has.
-        let position = backgrounds::movie_position_in(layers, layer, segment, at);
+        let position = backgrounds::movie_position_of(layers, layer, segment, part, at);
         track.start(&mut decoder, position);
         self.open.push(OpenMovie {
             layer,
             segment,
-            name: name.clone(),
+            part,
+            name,
             decoder,
             position,
             track,

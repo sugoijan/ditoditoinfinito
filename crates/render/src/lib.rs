@@ -34,6 +34,7 @@ mod offscreen;
 pub mod painter;
 pub mod renderer;
 pub mod scene;
+pub mod script_movies;
 pub mod scripted;
 pub mod sprite;
 pub mod stage;

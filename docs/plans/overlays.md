@@ -162,11 +162,10 @@ one or two sprites in a fixed way, so each is data here:
   background plainly (StepMania's static background in its place) with
   the change's transition.
 
-Left out: a movie as a second file (not decoded; the effect draws
-without it), `StretchPaused` (StepMania's `GainFocus` plays the movie
+Left out: `StretchPaused` (StepMania's `GainFocus` plays the movie
 right after `On` pauses it, so it plays like `StretchNormal`: so it does
-here), and the `Visualization*` sets of StepMania's random backgrounds
-(no `-random-` movies yet). A flash still running on the background that
+here). A movie as a second file plays since 2026-11-03, and StepMania's
+random movies (`-random-`) too (`phase-8-gaps.md`, steps 1 and 2). A flash still running on the background that
 leaves goes on under its transition (StepMania's wipes queue after it).
 Note: some packs exported by an editor write `#000000` as `Color1`
 (seen locally in one OutFox-era pack): StepMania 5.1 draws those

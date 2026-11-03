@@ -26,6 +26,9 @@ pub(crate) struct Loaded {
     /// Their sounds decoded (Ogg Vorbis and MP3, as the music's fallback
     /// decodes them), by file relative to the song's folder.
     pub(crate) sounds: Vec<(String, ddi_platform::decode::DecodedAudio)>,
+    /// Their movies' files, by file relative to the song's folder
+    /// (`docs/plans/phase-8-gaps.md`, step 3).
+    pub(crate) movies: Vec<(String, web_sys::Blob)>,
 }
 
 /// Reads `entry`'s scripts and loads them for `song` (as stored: the
@@ -64,7 +67,22 @@ pub(crate) async fn load(
                 continue;
             }
         };
-        if kind == FileKind::Image {
+        if kind == FileKind::Movie {
+            // Its size, for its sprites, from its first bytes.
+            let head = blob
+                .slice_with_i32_and_i32(0, ddi_library::video::SNIFF_LEN as i32)
+                .ok();
+            let size = match head {
+                Some(h) => crate::web::files::blob_bytes(&h)
+                    .await
+                    .ok()
+                    .and_then(|bytes| ddi_library::video::dimensions(&bytes)),
+                None => None,
+            };
+            if let Some(size) = size {
+                sizes.insert(f.as_str(), size);
+            }
+        } else if kind == FileKind::Image {
             match crate::web::image::decode_sized(&blob, MAX_CHANGE_SIDE).await {
                 Ok((bitmap, own)) => {
                     sizes.insert(f.as_str(), own);
@@ -83,7 +101,7 @@ pub(crate) async fn load(
     }
     let folders = backgrounds::script_folders_of(&entry.bg_scripts);
     let none: &[&str] = &[];
-    let layers = backgrounds::layers(song, none, none, &folders, none, false);
+    let layers = backgrounds::layers(song, none, none, &folders, none, &[], false);
     let foregrounds = backgrounds::foregrounds(song, &folders);
     let env = ddi_session::scripted::env(song, ddi_session::scripted::frame_aspect(frame));
     let screen = env.screen;
@@ -121,10 +139,20 @@ pub(crate) async fn load(
             Err(e) => web_sys::console::warn_1(&format!("scripted backgrounds: {f}: {e}").into()),
         }
     }
+    let mut movies = Vec::new();
+    for m in scripts.movies() {
+        match crate::songs::load_script_file(entry, &m.path, record).await {
+            Ok(blob) => movies.push((m.path, blob)),
+            Err(e) => {
+                web_sys::console::warn_1(&format!("scripted backgrounds: {}: {e}", m.path).into())
+            }
+        }
+    }
     Ok(Some(Loaded {
         scripts,
         screen,
         images,
         sounds,
+        movies,
     }))
 }

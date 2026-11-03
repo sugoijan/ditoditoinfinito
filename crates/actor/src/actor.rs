@@ -301,6 +301,15 @@ pub struct Sprite {
     /// the states no longer pick the frame.
     pub custom: Option<[f32; 4]>,
     use_effect_clock_for_texcoords: bool,
+    /// A movie's sprite decodes it (`m_DecodeMovie`, on for a movie's
+    /// texture; `SetDecodeMovie`): its updates advance the movie's clock
+    /// ([`Sprite::take_movie_seconds`]).
+    pub decode_movie: bool,
+    /// The next update's time is not the movie's (`m_bSkipNextUpdate`:
+    /// a new sprite's first update, the first after `play`).
+    movie_skip: bool,
+    /// The time its updates gave its movie since last taken.
+    movie_seconds: f32,
 }
 
 impl Sprite {
@@ -328,7 +337,18 @@ impl Sprite {
             custom: None,
             use_effect_clock_for_texcoords: false,
             shape: Shape::PLAIN,
+            decode_movie: movie_index(texture).is_some(),
+            movie_skip: true,
+            movie_seconds: 0.0,
         }
+    }
+
+    /// The time its updates gave its movie (a song's scripts' movie
+    /// sprite, [`movie_texture`]) since last asked: each update's effect
+    /// time while it animates and decodes, as `Sprite::Update` hands it to
+    /// `UpdateMovie`, but the first one after `play`.
+    pub fn take_movie_seconds(&mut self) -> f32 {
+        std::mem::take(&mut self.movie_seconds)
     }
 
     /// `Def.Quad`: a sprite of no texture (`Quad::Quad` loads the blank
@@ -825,8 +845,24 @@ pub fn target_texture(index: u32) -> u32 {
     TARGET_TEXTURES | index
 }
 
-/// The ids from here on (up to [`UNTEXTURED`]) are render targets'.
+/// The ids from here on (up to [`MOVIE_TEXTURES`]) are render targets'.
 pub const TARGET_TEXTURES: u32 = 0x8000_0000;
+
+/// The ids from here on (up to [`UNTEXTURED`]) are a song's scripts'
+/// movies' ([`movie_texture`]).
+pub const MOVIE_TEXTURES: u32 = 0xC000_0000;
+
+/// The texture id a sprite carries to show movie `index` of a song's
+/// scripts (one texture, one clock a file, as StepMania keeps one movie
+/// texture per file).
+pub fn movie_texture(index: u32) -> u32 {
+    MOVIE_TEXTURES | index
+}
+
+/// The movie a texture id shows, when it is one ([`movie_texture`]).
+pub fn movie_index(texture: u32) -> Option<u32> {
+    (texture != UNTEXTURED && texture >= MOVIE_TEXTURES).then(|| texture - MOVIE_TEXTURES)
+}
 
 /// A render target's frame drawn ([`Drawn::Target`]): what its children
 /// draw, in its pixels (its upper left at 0, 0).
@@ -1935,6 +1971,17 @@ impl Actor {
         if let Kind::Model(model) = &mut self.kind {
             model.advance(dt);
         }
+        // `Sprite::Update`: the skip is used up whether it animates or not.
+        if let Kind::Sprite(sprite) = &mut self.kind {
+            let skip = std::mem::replace(&mut sprite.movie_skip, false);
+            if self.animating
+                && sprite.decode_movie
+                && !skip
+                && movie_index(sprite.texture).is_some()
+            {
+                sprite.movie_seconds += effect_delta.max(0.0);
+            }
+        }
         if let Kind::Sprite(sprite) = &mut self.kind
             && self.animating
         {
@@ -1956,6 +2003,18 @@ impl Actor {
                 sprite.texcoord_offset[i] = v - v.floor();
             }
         }
+    }
+
+    /// `EnableAnimation`: a sprite starting to animate again skips its
+    /// next update's time for its movie (`Sprite::EnableAnimation`).
+    fn enable_animation(&mut self, on: bool) {
+        if on
+            && !self.animating
+            && let Kind::Sprite(s) = &mut self.kind
+        {
+            s.movie_skip = true;
+        }
+        self.animating = on;
     }
 
     // Commands.
@@ -2436,9 +2495,12 @@ impl Actor {
             "queuecommand" => self.queue_command(&text(0)?),
             "hibernate" => self.hibernate = num(0)?,
             // Sprite and animation.
-            "animate" => self.animating = flag(0)?,
-            "play" => self.animating = true,
-            "pause" => self.animating = false,
+            "animate" => {
+                let on = flag(0)?;
+                self.enable_animation(on);
+            }
+            "play" => self.enable_animation(true),
+            "pause" => self.enable_animation(false),
             "setstate" => {
                 let i = num(0)? as i64;
                 match &mut self.kind {
@@ -3757,6 +3819,49 @@ mod tests {
         };
         s.set_seconds_into_animation(1e9);
         assert!(s.state() < 4);
+    }
+
+    #[test]
+    fn a_movies_sprite_gives_it_its_time_but_after_play() {
+        let mut a = Actor::new(Kind::Sprite(Sprite::new(
+            movie_texture(0),
+            Vec::new(),
+            [32.0; 2],
+        )));
+        let mut p = Problems::default();
+        let take = |a: &mut Actor| match &mut a.kind {
+            Kind::Sprite(s) => s.take_movie_seconds(),
+            _ => panic!(),
+        };
+        // `m_bSkipNextUpdate`: a new sprite's first update is not the
+        // movie's, the next ones are.
+        a.update(0.5, &Clocks::default(), &mut p);
+        assert_eq!(take(&mut a), 0.0);
+        a.update(0.25, &Clocks::default(), &mut p);
+        a.update(0.25, &Clocks::default(), &mut p);
+        assert_eq!(take(&mut a), 0.5);
+        // Paused, nothing; played again, its first update skipped.
+        run(&mut a, "pause");
+        a.update(0.5, &Clocks::default(), &mut p);
+        run(&mut a, "play");
+        a.update(0.5, &Clocks::default(), &mut p);
+        assert_eq!(take(&mut a), 0.0);
+        a.update(0.5, &Clocks::default(), &mut p);
+        assert_eq!(take(&mut a), 0.5);
+        // Not decoding (`SetDecodeMovie(false)`), nothing.
+        if let Kind::Sprite(s) = &mut a.kind {
+            s.decode_movie = false;
+        }
+        a.update(0.5, &Clocks::default(), &mut p);
+        assert_eq!(take(&mut a), 0.0);
+        // An image's sprite never does.
+        let mut image = Actor::new(Kind::Sprite(Sprite::new(7, Vec::new(), [32.0; 2])));
+        image.update(0.5, &Clocks::default(), &mut p);
+        image.update(0.5, &Clocks::default(), &mut p);
+        assert_eq!(take(&mut image), 0.0);
+        assert_eq!(movie_index(movie_texture(3)), Some(3));
+        assert_eq!(movie_index(target_texture(3)), None);
+        assert_eq!(movie_index(UNTEXTURED), None);
     }
 
     fn quads(out: &[Drawn]) -> Vec<Quad> {

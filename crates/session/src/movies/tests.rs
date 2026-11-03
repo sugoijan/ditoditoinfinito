@@ -195,6 +195,37 @@ fn opens_ahead_and_shows_the_held_frame_at_the_change() {
 }
 
 #[test]
+fn an_effects_second_file_plays_as_a_movie() {
+    // An image with movie "v" as its effect's second file from second 1,
+    // then a movie "a" with "v" again as its second file.
+    let mut with_v = seg(1.0, BgImage::File("img".into()));
+    with_v.look.file2 = Some(movie("v"));
+    let mut both = seg(2.0, movie("a"));
+    both.look.file2 = Some(movie("v"));
+    let layers = vec![
+        vec![seg(f64::NEG_INFINITY, BgImage::Song), with_v, both],
+        Vec::new(),
+    ];
+    let mut slots = MovieSlots::new(FakeShell::default());
+    assert!(run(&mut slots, &layers, 0.5).is_empty());
+    assert_eq!(slots.shell().log.borrow().opened, vec!["v"]);
+    // Shown from the change, and watched by the automatic rule.
+    assert_eq!(run(&mut slots, &layers, 1.0), vec![0.0]);
+    assert_eq!(slots.drawing(&layers), Some(LAYERS));
+    assert_eq!(slots.shown_ids().collect::<Vec<_>>(), vec![(movie("v"), 7)]);
+    // The next change opens "a"; "v" runs on in the decoder it had.
+    run(&mut slots, &layers, 1.5);
+    run(&mut slots, &layers, 2.0);
+    assert_eq!(slots.shell().log.borrow().opened, vec!["v", "a"]);
+    let parts: Vec<(usize, usize, &str)> = slots
+        .opened()
+        .iter()
+        .map(|o| (o.segment, o.part, o.name.as_str()))
+        .collect();
+    assert_eq!(parts, vec![(2, 1, "v"), (2, 0, "a")]);
+}
+
+#[test]
 fn a_movie_that_cannot_open_fails_once() {
     let layers = layers_with("b");
     let mut slots = MovieSlots::new(FakeShell {
@@ -399,4 +430,45 @@ fn backdrop_textures_are_made_again_only_on_a_change() {
     // Black while scripts run, made again when they stop.
     assert_eq!(empty.get(&[], 0, Vec::new, 99, Some(7)).len(), 2);
     assert_eq!(empty.get(&[], 0, Vec::new, 99, None).len(), 1);
+}
+
+/// A song's scripts' movies (`docs/plans/phase-8-gaps.md`, step 3): each
+/// decoded while drawn, on its own clock; a clock put back seeks; one no
+/// longer drawn closes.
+#[test]
+fn script_clips_play_on_their_clocks() {
+    let mut slots = MovieSlots::new(FakeShell::default());
+    let clip = |name: &str, position: f64| Clip {
+        name: name.into(),
+        position,
+        looping: true,
+    };
+    let shown = |due: DueFrames| {
+        due.show
+            .into_iter()
+            .map(|(n, f)| (n, f.pts))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        shown(slots.update_clips(&[clip("m", 0.0)])),
+        [("m".to_string(), 0.0)]
+    );
+    assert!(shown(slots.update_clips(&[clip("m", 0.05)])).is_empty());
+    assert_eq!(
+        shown(slots.update_clips(&[clip("m", 0.2)])),
+        [("m".to_string(), 0.2)]
+    );
+    // `position(0)`: back to its start.
+    let seeks = slots.shell().log.borrow().seeks.len();
+    assert_eq!(
+        shown(slots.update_clips(&[clip("m", 0.0)])),
+        [("m".to_string(), 0.0)]
+    );
+    assert!(slots.shell().log.borrow().seeks.len() > seeks);
+    // Not drawn: closed; drawn again: opened where its clock stands.
+    slots.update_clips(&[]);
+    assert!(slots.opened().is_empty());
+    slots.update_clips(&[clip("m", 0.3)]);
+    assert_eq!(slots.opened().len(), 1);
+    assert_eq!(slots.shell().log.borrow().opened, ["m", "m"]);
 }

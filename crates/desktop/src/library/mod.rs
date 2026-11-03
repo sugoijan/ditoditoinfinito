@@ -1428,6 +1428,112 @@ pub fn song(id: &str) -> Option<LibSong> {
     tests.or_else(|| registry().read().ok()?.get(id).cloned())
 }
 
+/// The folder a library song's StepMania root is (the one its songs
+/// folder, `Songs`, is in): where its shared folders are. None for a song
+/// in a songs folder of its own or a zip listed alone.
+fn stepmania_root(s: &LibSong) -> Option<PathBuf> {
+    let songs = if s.zip {
+        s.root.parent()?.to_path_buf()
+    } else {
+        s.root.clone()
+    };
+    let named = songs
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("Songs"));
+    named.then(|| songs.parent().map(Path::to_path_buf))?
+}
+
+/// The files song `id`'s background changes name that its folder lacks
+/// (`ManifestEntry::bg_shared`), found in its StepMania root's
+/// `SongMovies/` and `RandomMovies/` in StepMania's order
+/// (`ddi_library::backgrounds::shared_images`), read in place, as the
+/// web's `songs::shared_found` finds them in the library: `(name as
+/// written, file)`, images within the song's budget, then movies.
+pub fn shared_found(id: &str) -> Vec<(String, PathBuf)> {
+    let Some(s) = self::song(id) else {
+        return Vec::new();
+    };
+    if s.entry.bg_shared.is_empty() {
+        return Vec::new();
+    }
+    let Some(top) = stepmania_root(&s) else {
+        return Vec::new();
+    };
+    let mut listed: Vec<(String, PathBuf)> = Vec::new();
+    for name in ["RandomMovies", "SongMovies"] {
+        let Some(dir) = child(&top, name) else {
+            continue;
+        };
+        for l in files::walk(&dir).listed {
+            if let Some(file) = l.path.to_path(&dir) {
+                listed.push((RelPath::new(name).join(&l.path).into_string(), file));
+            }
+        }
+    }
+    let paths: Vec<&str> = listed.iter().map(|(p, _)| p.as_str()).collect();
+    let found = ddi_library::backgrounds::shared_images(&s.entry.bg_shared, &s.pack, &paths);
+    let file = |path: &RelPath| {
+        listed
+            .iter()
+            .find(|(p, _)| p.as_str() == path.as_str())
+            .map(|(_, f)| f.clone())
+    };
+    let (movies, mut images): (Vec<_>, Vec<_>) = found
+        .iter()
+        .filter_map(|(name, path)| Some((name.to_string(), file(path)?)))
+        .partition(|(name, _)| ddi_library::video::is_movie(name));
+    images.truncate(scan::MAX_BG_IMAGES.saturating_sub(s.entry.bg_images.len()));
+    images.extend(movies);
+    images
+}
+
+/// The random movies song `id` of the library plays where StepMania 5.1
+/// would (`ddi_library::backgrounds::random`): from the `RandomMovies`
+/// folder of its StepMania root ([`stepmania_root`]), read in place, as
+/// `(shared path, file)`, in the order they come. None for a song
+/// outside a StepMania root (nor for a bundled one).
+pub fn random_movies(id: &str, song: &ddi_chart::Song) -> Vec<(String, PathBuf)> {
+    use ddi_library::backgrounds::random;
+    let Some(s) = self::song(id) else {
+        return Vec::new();
+    };
+    let Some(top) = stepmania_root(&s).and_then(|root| child(&root, random::DIR)) else {
+        return Vec::new();
+    };
+    // The files directly in `RandomMovies/<pack>/` and `RandomMovies/`.
+    let files_in = |dir: &Path, prefix: &str| -> Vec<(String, PathBuf)> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .filter_map(|e| {
+                let name = e.file_name().to_str()?.to_string();
+                Some((format!("{prefix}{name}"), e.path()))
+            })
+            .collect()
+    };
+    let mut listed = files_in(&top, &format!("{}/", random::DIR));
+    let mut mapping = None;
+    if let Some(dir) = child(&top, &s.pack) {
+        let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or(&s.pack);
+        let own = files_in(&dir, &format!("{}/{name}/", random::DIR));
+        mapping = own
+            .iter()
+            .find(|(p, _)| random::is_mapping(p))
+            .and_then(|(_, f)| std::fs::read(f).ok())
+            .map(|bytes| pack::decode_text_with(&bytes, legacy_text));
+        listed.extend(own);
+    }
+    let paths: Vec<&str> = listed.iter().map(|(p, _)| p.as_str()).collect();
+    random::random_pool(song, id, &s.pack, &paths, mapping.as_deref())
+        .into_iter()
+        .filter_map(|p| listed.iter().find(|(l, _)| *l == p).cloned())
+        .collect()
+}
+
 /// A song with a chart of content `digest` (a replay's chart moved to
 /// another song id): a bundled one, else the library's.
 pub fn find_by_digest(digest: ddi_chart::ChartDigest) -> Option<String> {

@@ -401,3 +401,127 @@ fn scripts_load_a_turn_at_a_time() {
     assert!(longest < LUA_TURN * 10, "{longest:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A script showing movies (`docs/plans/phase-8-gaps.md`, step 3): a clip
+/// red for its first second and blue after, over the whole screen, and
+/// another file of the same clip in a strip at the screen's left edge
+/// whose texture's rate is 0 (it holds its first frame). Each has its own
+/// clock, from the change on (2 s).
+#[cfg(feature = "video")]
+const MOVIE_SCRIPT: &str = "return Def.ActorFrame {\n\
+    LoadActor(\"turns.avi\") .. { OnCommand = cmd(Center; zoomto, SCREEN_WIDTH, SCREEN_HEIGHT) },\n\
+    LoadActor(\"held.avi\") .. {\n\
+      OnCommand = function(self)\n\
+        self:xy(20, 240):zoomto(40, 480)\n\
+        self:GetTexture():rate(0)\n\
+      end,\n\
+    },\n\
+}\n";
+
+#[cfg(feature = "video")]
+#[test]
+fn script_movies_play_in_their_sprites() {
+    let dir = std::env::temp_dir().join(format!("ddi-play-script-movies-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    if ddi_desktop::video::helper_path().is_none() {
+        eprintln!("no video helper: skipped");
+        return;
+    }
+    let song = dir.join("Pack/Movies");
+    std::fs::create_dir_all(song.join("BG")).unwrap();
+    std::fs::write(song.join("BG/default.lua"), MOVIE_SCRIPT).unwrap();
+    for clip in ["turns.avi", "held.avi"] {
+        let made = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+            ])
+            .arg("color=c=0xC81E1E:size=320x240:rate=30")
+            .args(["-t", "4", "-vf"])
+            .arg("drawbox=x=0:y=0:w=iw:h=ih:color=0x1E1EC8:t=fill:enable='gte(t,1)'")
+            .args(["-c:v", "mpeg4", "-q:v", "1", "-bf", "0"])
+            .arg(song.join("BG").join(clip))
+            .status()
+            .is_ok_and(|s| s.success());
+        if !made {
+            eprintln!("no ffmpeg: skipped");
+            return;
+        }
+    }
+    std::fs::write(
+        song.join("song.sm"),
+        simfile(false).replace("#FGCHANGES:12=FG=1=0=0=0;", ""),
+    )
+    .unwrap();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([30, 30, 200, 255]))
+        .save(song.join("bg.png"))
+        .unwrap();
+    std::fs::write(song.join("music.wav"), silence()).unwrap();
+    // The decoder helper started before the song.
+    let host = ddi_desktop::video::VideoHost::shared();
+    host.preload();
+    let start = std::time::Instant::now();
+    while !matches!(
+        host.status(),
+        ddi_desktop::video::HelperStatus::Ready { .. }
+            | ddi_desktop::video::HelperStatus::Failed(_)
+    ) && start.elapsed().as_secs() < 60
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let loaded = load(&dir);
+    assert_eq!(
+        loaded.entry.bg_scripts.len(),
+        3,
+        "{:?}",
+        loaded.entry.bg_scripts
+    );
+    let settings = Settings {
+        bg_brightness: 1.0,
+        field_filter: 0.0,
+        background_frame: BackgroundFrame::SixteenNine,
+        video: ddi_ui::state::settings::VideoMode::On,
+        ..Settings::default()
+    };
+    let mut p = OffscreenPlay::new(&adapter, loaded, &settings);
+    assert!(p.view.scripts_running());
+    let mut samples = Vec::new();
+    p.run(
+        &[1.0, 2.6, 4.0],
+        // The decoder thread's turn.
+        |_, _| std::thread::sleep(std::time::Duration::from_millis(3)),
+        |t, pixels| samples.push((t, POINTS.map(|at| pixel(pixels, at)))),
+    );
+    let near = |got: [u8; 3], want: [u8; 3]| {
+        got.iter()
+            .zip(want)
+            .all(|(&g, w)| (i32::from(g) - i32::from(w)).abs() <= 14)
+    };
+    const MOVIE_RED: [u8; 3] = [200, 30, 30];
+    const MOVIE_BLUE: [u8; 3] = [30, 30, 200];
+    // Before the script, the song's blue background; 0.6 s into the
+    // movies both red; 2 s in, the full-screen one blue, the held one
+    // still red.
+    let want = [
+        [BLUE, BLUE],
+        [MOVIE_RED, MOVIE_RED],
+        [MOVIE_RED, MOVIE_BLUE],
+    ];
+    assert_eq!(samples.len(), want.len(), "{samples:?}");
+    for ((t, got), want) in samples.iter().zip(want) {
+        for (g, w) in got.iter().zip(want) {
+            assert!(near(*g, w), "at {t:.3} s: {got:?}, want {want:?}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

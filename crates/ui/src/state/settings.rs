@@ -98,6 +98,11 @@ pub struct Settings {
     /// Whether background-change movies play.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub video: VideoMode,
+    /// Whether the movies of a `RandomMovies` folder play where StepMania
+    /// 5.1 plays them by default (`docs/plans/phase-8-gaps.md`, step 1):
+    /// behind a song without background changes, for a `-random-`
+    /// change, in place of a file found nowhere.
+    pub random_movies: bool,
     /// The shape backgrounds and movies are fitted into.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub background_frame: BackgroundFrame,
@@ -382,6 +387,7 @@ impl Default for Settings {
             import_videos: true,
             bg_brightness: 0.4,
             video: VideoMode::Auto,
+            random_movies: true,
             background_frame: BackgroundFrame::Auto,
             field_filter: 0.4,
             style: "dance-single".into(),

@@ -267,8 +267,9 @@ fn a_play_reads_its_charts_music_and_the_lyrics() {
     register_for_tests(&songs);
     let id = songs[0].entry.id.clone();
     let cancel = std::sync::atomic::AtomicBool::new(false);
-    let load =
-        |chart| crate::play::load::load_with(&id, chart, 48_000, false, None, &cancel).unwrap();
+    let load = |chart| {
+        crate::play::load::load_with(&id, chart, 48_000, false, false, None, &cancel).unwrap()
+    };
     let easy = load(Some(0));
     assert!(
         (easy.music.duration() - 1.0).abs() < 0.01,
@@ -286,6 +287,89 @@ fn a_play_reads_its_charts_music_and_the_lyrics() {
         .map(|e| e.fields[0].as_str())
         .collect();
     assert_eq!(lyrics, ["hello"]);
+}
+
+/// A StepMania root's `RandomMovies` play behind a song without changes
+/// (its pack's folder before the top one, StepMania's four extensions),
+/// and a change naming a file the song lacks finds it in the shared
+/// folders, as the web's import finds it in the library
+/// (`docs/plans/phase-8-gaps.md`, step 1).
+#[test]
+fn random_movies_and_shared_files_come_from_the_stepmania_root() {
+    let root = scratch("random-movies");
+    let plain = "#TITLE:Plain;#MUSIC:song.wav;#OFFSET:0;#BPMS:0=120;\n\
+                 #NOTES:dance-single:x:Easy:1:0,0,0,0,0:\n0000\n,\n1000\n,\n0000\n,\n1000\n;";
+    let named = "#TITLE:Named;#MUSIC:song.wav;#OFFSET:0;#BPMS:0=120;\
+                 #BGCHANGES:4=fire.avi=1=0=0=1,8=gone.png=1=0=0=1;\n\
+                 #NOTES:dance-single:x:Easy:1:0,0,0,0,0:\n0000\n,\n1000\n,\n0000\n,\n1000\n;";
+    write(
+        &root,
+        &[
+            ("Songs/Rand/Plain/s.sm", plain.as_bytes()),
+            ("Songs/Rand/Plain/song.wav", &wav(1.0)),
+            ("Songs/Rand/Named/s.sm", named.as_bytes()),
+            ("Songs/Rand/Named/song.wav", &wav(1.0)),
+            ("RandomMovies/Rand/one.avi", b"x"),
+            ("RandomMovies/Rand/two.MPG", b"x"),
+            ("RandomMovies/Rand/skip.mp4", b"x"),
+            ("RandomMovies/Rand/deep/three.avi", b"x"),
+            ("RandomMovies/top.avi", b"x"),
+            ("RandomMovies/fire.avi", b"x"),
+        ],
+    );
+    let (songs, report, _) = scan(std::slice::from_ref(&root), None, &[]);
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    register_for_tests(&songs);
+    let id = |title: &str| {
+        songs
+            .iter()
+            .find(|s| s.entry.title == title)
+            .unwrap()
+            .entry
+            .id
+            .clone()
+    };
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let load = |id: &str, random| {
+        crate::play::load::load_with(id, None, 48_000, true, random, None, &cancel).unwrap()
+    };
+    let plain = load(&id("Plain"), true);
+    let mut random = plain.random.clone();
+    random.sort();
+    assert_eq!(
+        random,
+        ["RandomMovies/Rand/one.avi", "RandomMovies/Rand/two.MPG"]
+    );
+    for name in &plain.random {
+        let (_, at) = plain.movies.iter().find(|(n, _)| n == name).unwrap();
+        assert!(at.as_ref().unwrap().0.is_file(), "{name}");
+    }
+    let [first, _] = crate::play::view::schedule(&plain.song, &plain);
+    let shown: Vec<&ddi_library::backgrounds::BgImage> = first.iter().map(|s| &s.image).collect();
+    // Beats 4 to 12, under four measures: one, then the song background.
+    assert_eq!(shown.len(), 3, "{shown:?}");
+    assert!(
+        matches!(shown[1], ddi_library::backgrounds::BgImage::Movie(m) if *m == plain.random[0])
+    );
+    // Random movies off: none.
+    assert!(load(&id("Plain"), false).random.is_empty());
+
+    // The change's movie from `RandomMovies/`; the file found nowhere
+    // takes a random one.
+    let named = load(&id("Named"), true);
+    assert_eq!(named.shared.len(), 1, "{:?}", named.shared);
+    assert_eq!(named.shared[0].0, "fire.avi");
+    assert!(named.shared[0].1.ends_with("RandomMovies/fire.avi"));
+    let [first, _] = crate::play::view::schedule(&named.song, &named);
+    let shown: Vec<String> = first
+        .iter()
+        .map(|s| match &s.image {
+            ddi_library::backgrounds::BgImage::Movie(m) => m.clone(),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(shown[1], "fire.avi");
+    assert_eq!(shown[2], named.random[0]);
 }
 
 /// A pump chart is listed with its version without centers after the
@@ -325,7 +409,8 @@ fn pump_charts_are_listed_and_played_without_their_centers() {
     register_for_tests(&songs);
     let id = songs[0].entry.id.clone();
     let cancel = std::sync::atomic::AtomicBool::new(false);
-    let loaded = crate::play::load::load_with(&id, Some(2), 48_000, false, None, &cancel).unwrap();
+    let loaded =
+        crate::play::load::load_with(&id, Some(2), 48_000, false, false, None, &cancel).unwrap();
     let chart = &loaded.song.charts[2];
     assert_eq!(
         chart.derivation,

@@ -200,9 +200,16 @@ fn a_new_song_made_charted_played_saved_and_opened_again() {
     let edited = request.edited.clone().expect("the song as edited");
     assert_eq!(request.start, Some(2.0), "beat 8 at 120 BPM, less 2 s");
     let cancel = std::sync::atomic::AtomicBool::new(false);
-    let loaded =
-        ddi_desktop::play::load::load_with(&id, Some(0), 48_000, false, Some(&edited), &cancel)
-            .expect("loaded");
+    let loaded = ddi_desktop::play::load::load_with(
+        &id,
+        Some(0),
+        48_000,
+        false,
+        false,
+        Some(&edited),
+        &cancel,
+    )
+    .expect("loaded");
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
     let c = clock.clone();
     let audio =

@@ -107,6 +107,12 @@ pub struct View {
     video: VideoMode,
     #[cfg(feature = "video")]
     pub movies: super::movies::Movies,
+    /// The song's scripts' movies (`docs/plans/phase-8-gaps.md`, step 3):
+    /// decoded while drawn, their frames on the scripts' converter.
+    #[cfg(feature = "video")]
+    pub script_movies: super::movies::Movies,
+    /// Their files, kept for [`View::take_scripts`].
+    script_movie_files: Vec<(String, Result<super::load::MovieAt, String>)>,
     /// Frames drawn.
     pub frames: u64,
     entrance: Option<ddi_actor::background::Entrance>,
@@ -158,6 +164,9 @@ impl View {
             video: VideoMode::Auto,
             #[cfg(feature = "video")]
             movies: Default::default(),
+            #[cfg(feature = "video")]
+            script_movies: Default::default(),
+            script_movie_files: Vec::new(),
             frames: 0,
             entrance: None,
             scale: 1.0,
@@ -223,11 +232,21 @@ impl View {
         let ready = ready.unwrap_or_else(|| super::scripts::Ready {
             view: Default::default(),
             sounds: Default::default(),
+            movies: Vec::new(),
         });
         self.scripts = ready.view;
         self.scripts.forget_textures();
         self.script_sounds = ready.sounds;
         self.scripts_stopped = None;
+        #[cfg(feature = "video")]
+        {
+            self.script_movies.reset();
+            self.script_movies = Default::default();
+            for (name, at) in &ready.movies {
+                self.script_movies.add(name, at.clone());
+            }
+        }
+        self.script_movie_files = ready.movies;
     }
 
     /// The song's scripts taken back (the view is let go: a lost device),
@@ -237,10 +256,11 @@ impl View {
             return None;
         }
         let mut view = std::mem::take(&mut self.scripts);
-        view.forget_textures();
+        view.forget_device();
         Some(super::scripts::Ready {
             view,
             sounds: std::mem::take(&mut self.script_sounds),
+            movies: std::mem::take(&mut self.script_movie_files),
         })
     }
 
@@ -287,6 +307,16 @@ impl View {
                 loaded.files.source(name),
                 MAX_CHANGE_SIDE,
             ));
+        }
+        // Those found in the shared folders, under the names written.
+        for (name, file) in &loaded.shared {
+            if !ddi_library::video::is_movie(name) {
+                out.push((
+                    BgImage::File(name.clone()),
+                    file.display().to_string(),
+                    MAX_CHANGE_SIDE,
+                ));
+            }
         }
         out
     }
@@ -369,6 +399,8 @@ impl View {
             n.restart();
         }
         self.scripts.restart();
+        #[cfg(feature = "video")]
+        self.script_movies.stop();
         let refresh = self
             .fps
             .refresh_estimate()
@@ -533,6 +565,7 @@ impl View {
                     .quads(frame.song_time, geo.center_x(span), h, srgb);
             }
             if scripts {
+                self.scripts.set_danger(session.danger_shown());
                 let drawn = self.scripts.draw(
                     (&mut self.renderer, device, queue),
                     (frame.song_time, frame.beat),
@@ -551,6 +584,21 @@ impl View {
                         self.sounds_due.push(s.clone());
                         self.sounds_played += 1;
                     }
+                }
+                // Their movies drawn, decoded on their clocks and their
+                // new frames drawn into their textures (shown from the
+                // next frame on, the first time).
+                #[cfg(feature = "video")]
+                if self.video != VideoMode::Off && !session.player.finished() {
+                    let clips = self.scripts.movie_clips();
+                    let shown = self.script_movies.update_clips(
+                        &clips,
+                        self.scripts.movie_renderer(device, queue),
+                        device,
+                        queue,
+                    );
+                    self.scripts
+                        .show_movies(&mut self.renderer, device, queue, &shown);
                 }
             }
             self.stage_drawn = (back.len(), mask.len());
@@ -761,13 +809,27 @@ impl View {
 
 /// The background changes of `song` (`loaded`'s, as played or not), a
 /// schedule per layer.
-pub(super) fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS] {
+pub(crate) fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS] {
     let e = &loaded.entry;
-    let movies: Vec<String> = e
+    // The song's own, then those found in shared folders under the names
+    // it writes (the web's `bg_images` and `bg_videos`).
+    let (shared_movies, shared_images): (Vec<&str>, Vec<&str>) = loaded
+        .shared
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .partition(|name| ddi_library::video::is_movie(name));
+    let images: Vec<&str> = e
+        .bg_images
+        .iter()
+        .map(|p| p.as_str())
+        .chain(shared_images)
+        .collect();
+    let movies: Vec<&str> = e
         .bg_videos
         .iter()
         .filter(|v| v.plays())
-        .map(|v| v.name.to_string())
+        .map(|v| v.name.as_str())
+        .chain(shared_movies)
         .collect();
     // Movies found but that do not play: the second layer shows nothing
     // for them.
@@ -781,10 +843,11 @@ pub(super) fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegmen
     let scripts = backgrounds::script_folders_of(&e.bg_scripts);
     backgrounds::layers(
         song,
-        &e.bg_images,
+        &images,
         &movies,
         &scripts,
         &unshowable,
+        &loaded.random,
         e.background.is_some(),
     )
 }

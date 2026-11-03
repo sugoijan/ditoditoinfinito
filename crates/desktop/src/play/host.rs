@@ -746,6 +746,7 @@ impl Host {
                     Some(r.request.chart),
                     r.rate,
                     movies,
+                    movies && s.random_movies,
                     r.request.edited.clone(),
                     self.wake.clone(),
                 ));

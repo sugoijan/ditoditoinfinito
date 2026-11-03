@@ -35,6 +35,11 @@ pub struct ScriptView<C> {
     texts: HashMap<String, (C, [f32; 2], Option<u32>)>,
     /// Texts asked of the shell, drawn or not yet.
     asked: HashSet<String>,
+    /// Their movies' converter and textures, made once a movie is to be
+    /// decoded (`docs/plans/phase-8-gaps.md`, step 3).
+    movies: Option<ddi_render::script_movies::ScriptMovies>,
+    /// The movies the last frame's quads drew (bit `index`).
+    movies_drawn: std::cell::Cell<u32>,
 }
 
 impl<C> Default for ScriptView<C> {
@@ -47,6 +52,8 @@ impl<C> Default for ScriptView<C> {
             targets: Vec::new(),
             texts: HashMap::new(),
             asked: HashSet::new(),
+            movies: None,
+            movies_drawn: std::cell::Cell::new(0),
         }
     }
 }
@@ -65,6 +72,77 @@ impl<C: StageContent> ScriptView<C> {
         self.targets.clear();
         self.texts.clear();
         self.asked.clear();
+        // The last song's movies' converter goes (made again for these
+        // as one is drawn, on the device then in use).
+        self.movies = None;
+        self.movies_drawn.set(0);
+    }
+
+    /// The device went (lost, or the view let go): the movies' converter
+    /// goes with it, made again on the next device as asked for.
+    pub fn forget_device(&mut self) {
+        self.forget_textures();
+        self.movies = None;
+    }
+
+    /// The play's danger as the scripts are told it
+    /// ([`Scripts::set_danger`]).
+    pub fn set_danger(&mut self, on: bool) {
+        if let Some(s) = self.scripts.as_mut() {
+            s.set_danger(on);
+        }
+    }
+
+    /// The movies to decode now: those the last frame's quads drew, each
+    /// by its file (relative to the song's folder) at its clock, as the
+    /// shell's movie deck takes them (`ddi_session::movies::Clip`).
+    pub fn movie_clips(&self) -> Vec<ddi_session::movies::Clip> {
+        let Some(scripts) = &self.scripts else {
+            return Vec::new();
+        };
+        let drawn = self.movies_drawn.get();
+        scripts
+            .movies()
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| drawn & 1u32.checked_shl(*i as u32).unwrap_or(0) != 0)
+            .map(|(_, m)| ddi_session::movies::Clip {
+                name: m.path,
+                position: m.clock,
+                looping: m.looping,
+            })
+            .collect()
+    }
+
+    /// The renderer the movies' frames go on (made at the first call).
+    pub fn movie_renderer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> &mut Renderer {
+        self.movies
+            .get_or_insert_with(|| ddi_render::script_movies::ScriptMovies::new(device, queue))
+            .renderer_mut()
+    }
+
+    /// The movies' frames the shell's deck just showed, `(file, its id
+    /// among the movie renderer's)`: each drawn into the movie's texture
+    /// in `renderer` (the play's), made at the size its file's header
+    /// gave the scripts.
+    pub fn show_movies(
+        &mut self,
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        shown: &[(String, usize)],
+    ) {
+        let (Some(scripts), Some(movies)) = (&self.scripts, self.movies.as_mut()) else {
+            return;
+        };
+        let list = scripts.movies();
+        for (name, video) in shown {
+            let Some(index) = list.iter().position(|m| m.path == *name) else {
+                continue;
+            };
+            movies.target(renderer, device, index, list[index].size);
+            movies.draw(device, queue, index, *video);
+        }
     }
 
     /// Measures the scripts' text (after [`ScriptView::frame`], before
@@ -146,6 +224,9 @@ impl<C: StageContent> ScriptView<C> {
     pub fn forget_textures(&mut self) {
         self.textures.clear();
         self.targets.clear();
+        if let Some(m) = self.movies.as_mut() {
+            m.forget_targets();
+        }
         for t in self.texts.values_mut() {
             t.2 = None;
         }
@@ -265,9 +346,13 @@ impl<C: StageContent> ScriptView<C> {
             Some(((*id)?, *size))
         };
         let registered: Vec<Option<u32>> = self.targets.iter().map(|&id| Some(id)).collect();
+        let movies = self.movies.as_ref().map_or(Vec::new(), |m| m.ids());
+        self.movies_drawn.set(0);
         let ids = ddi_render::scripted::Ids {
             textures: &self.textures,
             targets: &registered,
+            movies: &movies,
+            movies_drawn: Some(&self.movies_drawn),
         };
         ddi_render::scripted::quads(draws, frame, self.screen, ids, &texts, srgb, targets)
     }

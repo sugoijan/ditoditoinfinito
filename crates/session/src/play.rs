@@ -1197,6 +1197,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
     }
 
+    /// Whether the play shows StepMania's danger to a song's scripts
+    /// (`BackgroundImpl::IsDangerAllVisible`): the gauge in danger, failing
+    /// not off, not failed (it is too late then).
+    pub fn danger_shown(&self) -> bool {
+        use ddi_engine::rules::FailPolicy;
+        let rules = self.player.ruleset();
+        rules.gauge.danger() && !matches!(rules.fail, FailPolicy::Off) && !self.player.failed()
+    }
+
     /// The play as the announcer reads it now: at context time `now`,
     /// `dt` after the last frame, judged to `judged`.
     fn moment(&self, now: f64, dt: f64, judged: HostTime) -> Moment {
