@@ -7,50 +7,96 @@ use bytemuck::{Pod, Zeroable};
 #[repr(u32)]
 pub enum Shape {
     Rect = 0,
-    Arrow = 1,
-    ArrowOutline = 2,
+    /// Infinito's mine, made light: an eight-pointed band turning round a
+    /// red core.
     Mine = 3,
     Circle = 4,
+    /// A long note's body: `params` its roll (1) or hold (0), its state
+    /// (0 waiting, 1 held, 2 dropped), its ribs' way (1 to its tail at
+    /// the quad's +y, -1 to its head, 0 flat) and the lane's pixels; with
+    /// [`HOLD_TAIL`] its tail end pointed.
     HoldBody = 5,
-    /// An arrow with a flowing two-color gradient: `color` to
-    /// `params[0..3]` down the screen, shifted by `params[3]` cycles.
-    ArrowGradient = 7,
-    /// An arrow running from `color` at its tail to `params[0..3]` at its
-    /// tip.
-    ArrowRamp = 8,
 }
 
-/// A lane symbol (Dancing☆Onigiri's non-arrow lanes), drawn by
-/// `shader.wgsl` from `SYMBOL_BASE` on.
+/// [`Shape::HoldBody`]'s bit: the body ends at its tail here.
+pub const HOLD_TAIL: u32 = 1 << 8;
+
+/// A built-in note or receptor (`docs/PLAN.md` decision 80): Infinito's
+/// shapes, drawn by `shader.wgsl` from `GLYPH_BASE` on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
-pub enum Symbol {
-    Star = 16,
-    Square = 17,
-    Dot = 18,
+pub enum Glyph {
+    Arrow = 32,
+    /// Pump's centre panel, and other square lanes.
+    Center = 33,
+    Onigiri = 34,
+    /// Any other lane: a ring.
+    Dot = 35,
 }
 
-/// How a [`Symbol`] is drawn.
+/// How a [`Glyph`]'s band is painted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
-pub enum SymbolMode {
-    /// A thick stroke along the outline with a darker rim, as the arrows
-    /// are drawn.
-    Fill = 0,
-    /// A ring along the outline (receptors).
-    Outline = 1,
-    /// Rings flowing outward from `color` to `params[0..3]`, shifted by
-    /// `params[3]` cycles.
-    Flow = 2,
-    /// `params[0..3]` at the centre to `color` at the rim.
-    Ramp = 3,
+pub enum Paint {
+    /// Infinito's palette, its window at `params[0]` cycles (Vivid, Flat).
+    Palette = 0,
+    /// `color` to `params[0..3]` in waves shifted by `params[3]` cycles
+    /// (Rainbow).
+    Flow = 1,
+    /// `color`, shimmering (Quantized, one color, the chart's colors, a
+    /// glow).
+    Solid = 2,
+    /// White and mint: a lift.
+    Lift = 3,
+    /// A long note's waves (its head): `params` as [`Shape::HoldBody`]'s.
+    Long = 4,
+    /// A receptor's neutral band: `params[0]` 1 on the beat's bright part,
+    /// `params[1]` a judgment's flash in `color`.
+    Receptor = 5,
 }
 
-impl Symbol {
-    /// The instance shape id of this symbol drawn in `mode`.
-    pub fn shape(self, mode: SymbolMode) -> u32 {
-        self as u32 | (mode as u32) << 8
+/// A glyph's quad, in arrow widths: room for its shadow round the arrow
+/// (`GLYPH_UNITS` of Infinito's SVG units in half of it, the arrow 48.75
+/// wide).
+pub const GLYPH_QUAD: f32 = 1.567;
+
+impl Glyph {
+    /// The instance shape id of this glyph painted with `paint`, showing
+    /// `charge`'s frame (0 full, on the hit; 1 empty; 2 and 3 filling).
+    pub fn shape(self, paint: Paint, charge: Option<u32>) -> u32 {
+        self as u32 | (paint as u32) << 8 | charge.map_or(0, |c| (c % 4) + 1) << 12
     }
+
+    /// The glyph and paint of an instance's `shape`, if it is one.
+    pub fn of(shape: u32) -> Option<(Glyph, Paint)> {
+        let glyph = match shape & 0xff {
+            32 => Glyph::Arrow,
+            33 => Glyph::Center,
+            34 => Glyph::Onigiri,
+            35 => Glyph::Dot,
+            _ => return None,
+        };
+        let paint = match (shape >> 8) & 0xf {
+            0 => Paint::Palette,
+            1 => Paint::Flow,
+            2 => Paint::Solid,
+            3 => Paint::Lift,
+            4 => Paint::Long,
+            _ => Paint::Receptor,
+        };
+        Some((glyph, paint))
+    }
+
+    /// The charge frame an instance's `shape` shows.
+    pub fn charge(shape: u32) -> Option<u32> {
+        ((shape >> 12) & 0x7).checked_sub(1)
+    }
+}
+
+/// Whether an instance's `params[0..3]` is a color (the renderer moves
+/// it to the target's space as it does `color`).
+pub fn params_are_color(shape: u32) -> bool {
+    matches!(Glyph::of(shape), Some((_, Paint::Flow)))
 }
 
 #[repr(C)]
@@ -239,6 +285,30 @@ impl SpritePipeline {
 
 #[cfg(test)]
 mod tests {
+    use super::{Glyph, Paint, params_are_color};
+
+    #[test]
+    fn a_glyphs_shape_says_its_paint_and_charge() {
+        for glyph in [Glyph::Arrow, Glyph::Center, Glyph::Onigiri, Glyph::Dot] {
+            for paint in [
+                Paint::Palette,
+                Paint::Flow,
+                Paint::Solid,
+                Paint::Lift,
+                Paint::Long,
+                Paint::Receptor,
+            ] {
+                for charge in [None, Some(0), Some(3)] {
+                    let shape = glyph.shape(paint, charge);
+                    assert_eq!(Glyph::of(shape), Some((glyph, paint)));
+                    assert_eq!(Glyph::charge(shape), charge);
+                    assert_eq!(params_are_color(shape), paint == Paint::Flow);
+                }
+            }
+        }
+        assert_eq!(Glyph::of(super::Shape::Mine as u32), None);
+    }
+
     /// The shader parses and validates (the browser would only say so at
     /// run time, on the player's machine).
     #[test]

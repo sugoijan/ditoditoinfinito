@@ -49,7 +49,7 @@ pub use gpu::write_rgba;
 pub use painter::{Painter, PainterStats};
 pub use renderer::{Renderer, SkinBlending};
 pub use scene::{ColorScheme, FieldGeometry, Preview, RenderOptions, ScoreDelta, Skin, field_span};
-pub use sprite::{Instance, Shape, SpritePipeline, Symbol, SymbolMode};
+pub use sprite::{GLYPH_QUAD, Glyph, Instance, Paint, Shape, SpritePipeline};
 pub use text::{Align, TextItem, TextPipeline};
 pub use text_atlas::RunRasterizer;
 pub use texture_cache::{TextureId, TextureKey};

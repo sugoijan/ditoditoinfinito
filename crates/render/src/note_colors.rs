@@ -161,6 +161,14 @@ impl ColorScheme {
         }
     }
 
+    /// Where Infinito's palette window starts for a Vivid or Flat note
+    /// (the built-in notes', `PAINT_PALETTE`), in cycles: its
+    /// `Bind.Linear` from 0.626 down by one over the four-beat cycle.
+    pub fn palette_phase(self, beat_frac: f32, song_beat: f64) -> Option<f32> {
+        matches!(self, ColorScheme::Vivid | ColorScheme::Flat)
+            .then(|| (0.626 - self.cycle_phase(beat_frac, song_beat)).rem_euclid(1.0) as f32)
+    }
+
     /// Phase in cycles of a Vivid or Flat note's tail color.
     fn cycle_phase(self, beat_frac: f32, song_beat: f64) -> f64 {
         let phase = song_beat / CYCLE_BEATS;

@@ -504,7 +504,6 @@ impl Renderer {
             frame,
             layout,
             names,
-            &self.skin,
             &geo,
             scene_opts,
             self.srgb,
@@ -518,9 +517,7 @@ impl Renderer {
         }
         for i in &mut scene.instances {
             i.color = to_target(i.color, self.srgb);
-            if i.shape == crate::sprite::Shape::ArrowGradient as u32
-                || i.shape == crate::sprite::Shape::ArrowRamp as u32
-            {
+            if crate::sprite::params_are_color(i.shape) {
                 let [r, g, b, phase] = i.params;
                 let [r, g, b, _] = to_target([r, g, b, 1.0], self.srgb);
                 i.params = [r, g, b, phase];

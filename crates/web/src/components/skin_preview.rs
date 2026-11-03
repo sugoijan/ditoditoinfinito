@@ -12,7 +12,9 @@
 //! window and a miss, holds and rolls kept and dropped, a mine; `rows` arrows tall, default 5, `speed` its x-mod,
 //! default 1.5), `layout` (a built-in layout's id, default
 //! `dance-single`; a skin draws Dancing☆Onigiri's onigiri with its own
-//! onigiri or centre elements, else its Down's: `docs/plans/danoni-skins.md`). A test may set `window.__DDI_PREVIEW_BEAT`; after drawing it the
+//! onigiri or centre elements, else its Down's: `docs/plans/danoni-skins.md`),
+//! `colors` (the built-in arrows' `vivid`, `flat` or `rainbow`; quantized
+//! by default). A test may set `window.__DDI_PREVIEW_BEAT`; after drawing it the
 //! page sets `window.__DDI_PREVIEW_DRAWN` to that beat.
 
 use std::cell::{Cell, RefCell};
@@ -124,7 +126,12 @@ impl PreviewOptions {
                 .and_then(|s| s.parse().ok())
                 .filter(|s: &f64| *s > 0.0 && *s <= 8.0)
                 .unwrap_or(d.speed),
-            colors: d.colors,
+            colors: match get("colors") {
+                Some("vivid") => ColorScheme::Vivid,
+                Some("flat") => ColorScheme::Flat,
+                Some("rainbow") => ColorScheme::Rainbow,
+                _ => d.colors,
+            },
             pixel_ratio: d.pixel_ratio,
         }
     }

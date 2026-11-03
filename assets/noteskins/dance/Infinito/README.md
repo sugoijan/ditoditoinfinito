@@ -17,7 +17,8 @@ lifts, fakes, receptors, holds, rolls, mines and hit effects for arrows, center 
 Infinito is the default under Options → Arrows. Saved SVG Dito / Spiral Base selections and controls migrate to Infinito.
 The original procedural Dito and its
 color-variant skins have been retired; procedural arrows remain an internal
-fallback, without a picker entry or a Lighter control.
+fallback, without a picker entry or a Lighter control. They draw this skin's
+shapes and palette in a light form (`docs/PLAN.md` decision 80).
 
 Mines use a slowly spinning hollow spiked band with a reddish contour charge
 that alternates between full and almost-full. Electricity and links stay fixed

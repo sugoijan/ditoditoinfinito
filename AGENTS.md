@@ -33,7 +33,9 @@ Rust and the browser are implementation details, not advertised features.
   equal). Pure, natively tested.
 - `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
   scroll, calibration maths. No I/O. Replay fixtures in `crates/engine/tests/`.
-- `crates/render/` wgpu scene (procedural SDF arrows, glyphon text) and the 2D pass
+- `crates/render/` wgpu scene (the built-in notes: Infinito's shapes as
+  distance fields in `shader.wgsl`, made light, PLAN.md decision 80;
+  glyphon text) and the 2D pass
   the menus move onto (`docs/plans/ui-core.md`): a draw list, its painter,
   the texture cache and the text atlas (runs measured and drawn by the
   platform: the browser on the web, cosmic-text natively; drawn over a

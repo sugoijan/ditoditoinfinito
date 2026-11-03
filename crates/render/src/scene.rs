@@ -10,30 +10,28 @@ use ddi_engine::frame::{Frame, NoteSprite, SpriteKind};
 use ddi_engine::rules::{JudgeNames, Judgement};
 
 use crate::noteskin::{LayerPart, NoteLayer};
-use crate::sprite::{Instance, Shape, Symbol, SymbolMode};
+use crate::sprite::{GLYPH_QUAD, HOLD_TAIL, Instance, Paint, Shape};
 use crate::text::{Align, TextItem};
 use crate::textured::TexQuad;
 
 pub use crate::note_colors::{ColorScheme, Gradient, quantization_color};
 
+/// A built-in arrow's width, in lanes (Infinito's).
+pub const ARROW_WIDTH: f32 = 0.83;
+
+/// The built-in receptors' and long notes' opacity.
+const RECEPTOR_ALPHA: f32 = 0.9;
+const LONG_ALPHA: f32 = 0.95;
+
+/// What the field is drawn on (its notes are Infinito's, decision 80).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Skin {
-    pub receptor: [f32; 4],
-    pub hold_active: [f32; 4],
-    pub hold_inactive: [f32; 4],
-    pub hold_dropped: [f32; 4],
-    pub mine: [f32; 4],
     pub background: wgpu::Color,
 }
 
 impl Default for Skin {
     fn default() -> Skin {
         Skin {
-            receptor: [0.75, 0.75, 0.8, 0.9],
-            hold_active: [0.55, 0.95, 0.65, 0.95],
-            hold_inactive: [0.35, 0.65, 0.45, 0.85],
-            hold_dropped: [0.4, 0.4, 0.4, 0.6],
-            mine: [0.35, 0.3, 0.45, 1.0],
             background: wgpu::Color {
                 r: ddi_actor::background::GROUND[0] as f64,
                 g: ddi_actor::background::GROUND[1] as f64,
@@ -758,41 +756,79 @@ pub fn field_span(layout: &Layout) -> f32 {
     layout.lanes.iter().map(|l| l.column).fold(0.0f32, f32::max) + 1.0
 }
 
-/// The shape id of a lane's glyph drawn in `mode`: arrows, or the symbols
-/// standing for the other lanes (decision 27): a square for a pump pad's
-/// centre, a star for the onigiri, a square for giko, a circle for iyo and
-/// anything else. A triangle would read as an up arrow.
-fn glyph_shape(glyph: &Glyph, mode: SymbolMode) -> u32 {
-    let symbol = match glyph {
-        Glyph::Arrow { .. } => {
-            return match mode {
-                SymbolMode::Fill => Shape::Arrow,
-                SymbolMode::Outline => Shape::ArrowOutline,
-                SymbolMode::Flow => Shape::ArrowGradient,
-                SymbolMode::Ramp => Shape::ArrowRamp,
-            } as u32;
-        }
-        Glyph::Onigiri => Symbol::Star,
-        // Pump's centre panel is square too; giko is no longer played.
-        Glyph::Center | Glyph::Giko => Symbol::Square,
-        Glyph::Iyo | Glyph::Custom(_) => Symbol::Dot,
-    };
-    symbol.shape(mode)
+/// The built-in glyph standing for a lane (decision 27, in Infinito's
+/// shapes since decision 80): arrows, an onigiri, a square for a pump
+/// pad's centre (and giko), a ring for iyo and anything else.
+fn glyph_of(glyph: &Glyph) -> crate::sprite::Glyph {
+    use crate::sprite::Glyph as Shaped;
+    match glyph {
+        Glyph::Arrow { .. } => Shaped::Arrow,
+        Glyph::Onigiri => Shaped::Onigiri,
+        Glyph::Center | Glyph::Giko => Shaped::Center,
+        Glyph::Iyo | Glyph::Custom(_) => Shaped::Dot,
+    }
 }
 
-/// An instance drawing a lane's glyph.
+/// An instance drawing a lane's glyph `size` pixels wide (an arrow's
+/// width; the quad is larger, [`GLYPH_QUAD`]), its band painted with
+/// `paint`, showing `charge`'s frame.
 fn glyph_instance(
     center: [f32; 2],
     size: f32,
     glyph: &Glyph,
-    mode: SymbolMode,
+    paint: Paint,
+    charge: Option<u32>,
     color: [f32; 4],
 ) -> Instance {
+    let side = size * GLYPH_QUAD;
+    let turn = glyph_rotation(glyph);
+    // Up and Down a unit of Infinito's component toward their tails (its
+    // `vertical` shapes), so the art's rows centre on the note's row.
+    let (sin, cos) = turn.sin_cos();
+    let center = if matches!(glyph, Glyph::Arrow { .. }) && sin.abs() > 0.9 {
+        let unit = size / 53.09;
+        [center[0] + cos * unit, center[1] + sin * unit]
+    } else {
+        center
+    };
     Instance {
-        shape: glyph_shape(glyph, mode),
-        ..Instance::new(center, [size, size], Shape::Rect, color)
+        shape: glyph_of(glyph).shape(paint, charge),
+        ..Instance::new(center, [side, side], Shape::Rect, color)
     }
-    .rotated(glyph_rotation(glyph))
+    .rotated(turn)
+}
+
+/// The charge frame of a note `note_beat` while the song is at
+/// `song_beat`: Infinito's one-beat cycle of four steps, full on the hit
+/// (`NoteTimedCharge`).
+fn charge_frame(note_beat: f64, song_beat: f64) -> u32 {
+    ((song_beat - note_beat).rem_euclid(1.0) * 4.0).floor() as u32 % 4
+}
+
+/// A long note's state for the shader: 0 waiting, 1 held, 2 dropped.
+fn long_state(active: bool, dropped: bool) -> f32 {
+    if dropped {
+        2.0
+    } else if active {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+/// Which way a long note's ribs point along its body, from its head to
+/// its tail (`tail_down`: the tail below the head): as its glyph's tip
+/// points, flat for a glyph pointing across.
+fn rib_way(glyph: &Glyph, tail_down: bool) -> f32 {
+    let tip_down = -glyph_rotation(glyph).sin();
+    if !matches!(glyph, Glyph::Arrow { .. }) || tip_down.abs() < 0.5 {
+        return 0.0;
+    }
+    if (tip_down > 0.0) == tail_down {
+        1.0
+    } else {
+        -1.0
+    }
 }
 
 /// Build the sprite and text lists for one frame. `srgb_target`: the
@@ -802,7 +838,6 @@ pub fn build(
     frame: &Frame,
     layout: &Layout,
     names: &JudgeNames,
-    skin: &Skin,
     geo: &FieldGeometry,
     opts: RenderOptions,
     srgb_target: bool,
@@ -815,7 +850,6 @@ pub fn build(
         frame,
         layout,
         names,
-        skin,
         geo,
         opts,
         srgb_target,
@@ -832,7 +866,6 @@ pub fn build_into(
     frame: &Frame,
     layout: &Layout,
     names: &JudgeNames,
-    skin: &Skin,
     geo: &FieldGeometry,
     opts: RenderOptions,
     srgb_target: bool,
@@ -895,25 +928,32 @@ pub fn build_into(
         }
         let state = frame.receptors.get(i);
         let pressed = state.is_some_and(|s| s.pressed);
-        let scale = if pressed { 0.88 } else { 1.0 };
-        let mut color = skin.receptor;
-        if let Some((j, age)) = state.and_then(|s| s.flash) {
-            let t = (1.0 - age / 0.25).clamp(0.0, 1.0);
-            let jc = judgement_color(j);
-            for k in 0..3 {
-                color[k] = color[k] + (jc[k] - color[k]) * t;
-            }
-        }
-        instances.push(glyph_instance(
-            [
-                geo.lane_x(lane.column),
-                geo.lane_receptor_y(lane.scroll_sign),
-            ],
-            a * 0.92 * scale,
-            &lane.glyph,
-            SymbolMode::Outline,
-            color,
-        ));
+        let scale = if pressed { 0.9 } else { 1.0 };
+        // Infinito's: light on the first fifth of each beat, a judgment's
+        // flash glowing round it.
+        let bright = if (frame.beat + 1e-3).rem_euclid(1.0) < 0.2 {
+            1.0
+        } else {
+            0.0
+        };
+        let (color, flash) = match state.and_then(|s| s.flash) {
+            Some((j, age)) => (judgement_color(j), (1.0 - age / 0.25).clamp(0.0, 1.0)),
+            None => ([1.0; 4], 0.0),
+        };
+        instances.push(
+            glyph_instance(
+                [
+                    geo.lane_x(lane.column),
+                    geo.lane_receptor_y(lane.scroll_sign),
+                ],
+                a * ARROW_WIDTH * scale,
+                &lane.glyph,
+                Paint::Receptor,
+                None,
+                [color[0], color[1], color[2], RECEPTOR_ALPHA],
+            )
+            .params([bright, flash, 0.0, 0.0]),
+        );
     }
 
     // Hold bodies first so heads draw over them.
@@ -936,30 +976,31 @@ pub fn build_into(
             if drawn(&layer, usize::from(note.lane), layer_part(&note.kind)) {
                 continue;
             }
-            let color = if dropped {
-                skin.hold_dropped
-            } else if active {
-                skin.hold_active
-            } else {
-                skin.hold_inactive
-            };
             let is_roll = matches!(note.kind, SpriteKind::RollHead { .. });
-            let w = if is_roll { a * 0.38 } else { a * 0.5 };
-            // Only the parts Hidden/Sudden leave visible.
+            let state = long_state(active, dropped);
+            let head_y = geo.lane_y(lane.scroll_sign, note.y);
+            let tail_screen = geo.lane_y(lane.scroll_sign, tail_y);
+            let tail_down = tail_screen >= head_y;
+            let ribs = rib_way(&lane.glyph, tail_down);
+            // Only the parts Hidden/Sudden leave visible; the one reaching
+            // the tail ends in a point.
             for (lo, hi) in frame.appearance.visible_spans(note.y, tail_y) {
                 let y0 = geo.lane_y(lane.scroll_sign, lo);
                 let y1 = geo.lane_y(lane.scroll_sign, hi);
                 let center_y = (y0 + y1) / 2.0;
                 let h = (y1 - y0).abs().max(1.0);
-                instances.push(
-                    Instance::new(
-                        [geo.lane_x(lane.column), center_y],
-                        [w, h],
-                        Shape::HoldBody,
-                        color,
-                    )
-                    .params([0.6, 0.0, 0.0, 0.0]),
-                );
+                let mut body = Instance::new(
+                    [geo.lane_x(lane.column), center_y],
+                    [a * 1.1, h],
+                    Shape::HoldBody,
+                    [1.0, 1.0, 1.0, LONG_ALPHA],
+                )
+                .params([if is_roll { 1.0 } else { 0.0 }, state, ribs, a]);
+                if hi >= tail_y {
+                    body.shape |= HOLD_TAIL;
+                }
+                // The quad's +y is the tail's way.
+                instances.push(body.rotated(if tail_down { 0.0 } else { std::f32::consts::PI }));
             }
         }
     }
@@ -978,7 +1019,7 @@ pub fn build_into(
         if drawn(&layer, usize::from(note.lane), head_part(&note.kind)) {
             continue;
         }
-        push_note(&mut instances, note, layout, skin, geo, &opts, frame.beat);
+        push_note(&mut instances, note, layout, geo, &opts, frame.beat);
     }
     order.sprites(instances.len());
     if !opts.hide_notes
@@ -1177,7 +1218,6 @@ fn push_note(
     out: &mut Vec<Instance>,
     note: &NoteSprite,
     layout: &Layout,
-    skin: &Skin,
     geo: &FieldGeometry,
     opts: &RenderOptions,
     song_beat: f64,
@@ -1193,60 +1233,74 @@ fn push_note(
         return;
     }
     let explicit = note.color.filter(|_| opts.chart_colors);
-    let mut color = match explicit {
-        Some(c) => rgba(c),
-        None => scheme.note_color(note.quantization, note.beat_frac, song_beat),
+    // The band: the scheme's paint, unless the chart colors the note or it
+    // is glowing (Hidden's and Sudden's switch: plain, toward white).
+    let solid = |color: [f32; 4]| (Paint::Solid, glowing(color, note), [0.0; 4]);
+    let (paint, color, params) = match explicit {
+        Some(c) => solid(rgba(c)),
+        None if note.glow > 0.0 => {
+            solid(scheme.note_color(note.quantization, note.beat_frac, song_beat))
+        }
+        None => match (
+            scheme.palette_phase(note.beat_frac, song_beat),
+            scheme.note_gradient(note.beat_frac, song_beat),
+        ) {
+            (Some(phase), _) => (
+                Paint::Palette,
+                glowing([1.0; 4], note),
+                [phase, 0.0, 0.0, 0.0],
+            ),
+            (
+                None,
+                Some(Gradient::Flow {
+                    to: [r, g, b],
+                    phase,
+                }),
+            ) => (
+                Paint::Flow,
+                glowing(
+                    scheme.note_color(note.quantization, note.beat_frac, song_beat),
+                    note,
+                ),
+                [r, g, b, phase],
+            ),
+            _ => solid(scheme.note_color(note.quantization, note.beat_frac, song_beat)),
+        },
     };
-    // A flowing gradient on notes of a scheme that has one (along an
-    // arrow, radial on a symbol), unless the chart colors the note or it
-    // is glowing (the glow is plain white).
-    let gradient = (explicit.is_none() && note.glow <= 0.0)
-        .then(|| scheme.note_gradient(note.beat_frac, song_beat))
-        .flatten();
-    let arrow = |color: [f32; 4], gradient: Option<Gradient>| {
-        let (mode, params) = match gradient {
-            Some(Gradient::Flow {
-                to: [r, g, b],
-                phase,
-            }) => (SymbolMode::Flow, [r, g, b, phase]),
-            Some(Gradient::Ramp { tip: [r, g, b] }) => (SymbolMode::Ramp, [r, g, b, 0.0]),
-            None => (SymbolMode::Fill, [0.0; 4]),
-        };
-        glyph_instance([x, y], a * 0.92, &lane.glyph, mode, color).params(params)
+    let charge = Some(charge_frame(f64::from(note.beat), song_beat));
+    let glyph = |paint: Paint, charge: Option<u32>, color: [f32; 4], params: [f32; 4]| {
+        glyph_instance([x, y], a * ARROW_WIDTH, &lane.glyph, paint, charge, color).params(params)
     };
-    color = glowing(color, note);
     match note.kind {
-        SpriteKind::Tap | SpriteKind::Lift | SpriteKind::Dummy => {
-            out.push(arrow(color, gradient));
-            if matches!(note.kind, SpriteKind::Lift) {
-                out.push(Instance::new(
-                    [x, y],
-                    [a * 0.3, a * 0.3],
-                    Shape::Circle,
-                    [1.0, 1.0, 1.0, 0.8 * color[3]],
-                ));
-            }
+        SpriteKind::Tap | SpriteKind::Dummy => out.push(glyph(paint, charge, color, params)),
+        SpriteKind::Lift => out.push(glyph(Paint::Lift, None, glowing([1.0; 4], note), [0.0; 4])),
+        SpriteKind::HoldHead {
+            active, dropped, ..
         }
-        SpriteKind::HoldHead { dropped, .. } | SpriteKind::RollHead { dropped, .. } => {
-            if dropped {
-                out.push(arrow(glowing(skin.hold_dropped, note), None));
-            } else {
-                out.push(arrow(color, gradient));
-            }
-        }
-        SpriteKind::Fake => {
-            color[3] *= 0.6;
-            out.push(glyph_instance(
-                [x, y],
-                a * 0.92,
-                &lane.glyph,
-                SymbolMode::Fill,
-                color,
+        | SpriteKind::RollHead {
+            active, dropped, ..
+        } => {
+            let roll = matches!(note.kind, SpriteKind::RollHead { .. });
+            out.push(glyph(
+                Paint::Long,
+                charge,
+                glowing([1.0; 4], note),
+                [
+                    if roll { 1.0 } else { 0.0 },
+                    long_state(active, dropped),
+                    0.0,
+                    a,
+                ],
             ));
         }
+        SpriteKind::Fake => {
+            let mut color = color;
+            color[3] *= 0.6;
+            out.push(glyph(paint, None, color, params));
+        }
         SpriteKind::Mine | SpriteKind::Shock => {
-            let m = glowing(skin.mine, note);
-            out.push(Instance::new([x, y], [a * 0.8, a * 0.8], Shape::Mine, m));
+            let m = glowing([1.0; 4], note);
+            out.push(Instance::new([x, y], [a, a], Shape::Mine, m));
         }
     }
 }
@@ -1333,7 +1387,6 @@ mod tests {
             f,
             &layout,
             &presets::itg().names,
-            &Skin::default(),
             &geo,
             opts,
             false,
@@ -1341,6 +1394,89 @@ mod tests {
             (&[], &[]),
         )
         .instances
+    }
+
+    #[test]
+    fn notes_charge_in_four_steps_to_full_on_the_hit() {
+        // A one-beat cycle: full on each beat, empty a quarter after,
+        // then the slot's foot, the slot, full on the hit.
+        let steps: Vec<u32> = [9.0, 9.25, 9.5, 9.75, 10.0, 10.1]
+            .iter()
+            .map(|&song| charge_frame(10.0, song))
+            .collect();
+        assert_eq!(steps, [0, 1, 2, 3, 0, 0]);
+        let f = frame(
+            vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let tap = notes(&shapes(&f, RenderOptions::default()))[0].shape;
+        assert_eq!(
+            crate::sprite::Glyph::charge(tap),
+            Some(charge_frame(0.0, f.beat))
+        );
+    }
+
+    #[test]
+    fn a_long_notes_ribs_point_as_its_arrow() {
+        let lanes = Layout::dance_single().lanes;
+        let [left, down, up, _] = [0, 1, 2, 3].map(|i| &lanes[i].glyph);
+        // Down's ribs point down: to a tail below, away from one above.
+        assert_eq!(rib_way(down, true), 1.0);
+        assert_eq!(rib_way(down, false), -1.0);
+        assert_eq!(rib_way(up, true), -1.0);
+        assert_eq!(rib_way(left, true), 0.0);
+        assert_eq!(rib_way(&Glyph::Center, true), 0.0);
+    }
+
+    #[test]
+    fn a_hold_body_points_its_tail_and_follows_its_state() {
+        let hold = SpriteKind::HoldHead {
+            tail_y: 3.0,
+            active: true,
+            dropped: false,
+        };
+        let f = frame(
+            vec![note(1.0, hold, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let out = shapes(&f, RenderOptions::default());
+        let body = out
+            .iter()
+            .find(|i| i.shape & 0xff == Shape::HoldBody as u32)
+            .unwrap();
+        assert_ne!(body.shape & HOLD_TAIL, 0, "it reaches its tail");
+        // Held, a hold, the tail below (no turn), the lane's pixels.
+        assert_eq!(body.params[..2], [0.0, 1.0]);
+        assert_eq!(body.rotation, 0.0);
+        let head = notes(&out)[0];
+        assert_eq!(crate::sprite::Glyph::of(head.shape).unwrap().1, Paint::Long);
+        assert_eq!(head.params[..2], body.params[..2]);
+    }
+
+    #[test]
+    fn vivid_notes_take_infinitos_palette() {
+        let f = frame(
+            vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let out = shapes(
+            &f,
+            RenderOptions {
+                note_colors: ColorScheme::Vivid,
+                ..Default::default()
+            },
+        );
+        let arrow = notes(&out)[0];
+        assert_eq!(
+            crate::sprite::Glyph::of(arrow.shape).unwrap().1,
+            Paint::Palette
+        );
+        let phase = ColorScheme::Vivid.palette_phase(0.0, f.beat).unwrap();
+        assert_eq!(arrow.params[0], phase);
+        // The window moves back by one over the four-beat cycle.
+        let later = ColorScheme::Vivid.palette_phase(0.0, f.beat + 1.0).unwrap();
+        assert!(((phase - later).rem_euclid(1.0) - 0.25).abs() < 1e-5);
+        assert_eq!(ColorScheme::Quantized.palette_phase(0.0, 0.0), None);
     }
 
     #[test]
@@ -1382,7 +1518,6 @@ mod tests {
             &f,
             &Layout::dance_single(),
             names,
-            &Skin::default(),
             &geo,
             RenderOptions::default(),
             false,
@@ -1503,7 +1638,6 @@ mod tests {
             &f,
             &Layout::dance_single(),
             &presets::itg().names,
-            &Skin::default(),
             &geo,
             RenderOptions::default(),
             false,
@@ -1536,7 +1670,6 @@ mod tests {
                 &f,
                 &layout,
                 &presets::itg().names,
-                &Skin::default(),
                 &geo,
                 opts,
                 false,
@@ -1561,8 +1694,14 @@ mod tests {
         assert_eq!(without.instances.len(), 1);
     }
 
-    fn count(instances: &[Instance], shape: Shape) -> usize {
-        instances.iter().filter(|i| i.shape == shape as u32).count()
+    /// The notes among `instances`: glyphs but the receptors.
+    fn notes(instances: &[Instance]) -> Vec<&Instance> {
+        instances
+            .iter()
+            .filter(|i| {
+                crate::sprite::Glyph::of(i.shape).is_some_and(|(_, p)| p != Paint::Receptor)
+            })
+            .collect()
     }
 
     #[test]
@@ -1576,11 +1715,11 @@ mod tests {
         let f = frame(vec![note(1.0, SpriteKind::Tap, a), note(0.5, hold, a)], a);
         let out = shapes(&f, RenderOptions::default());
         // Receptors only: the tap and the hold head are hidden.
-        assert_eq!(count(&out, Shape::Arrow), 0);
+        assert_eq!(notes(&out).len(), 0);
         // The body is drawn only above the hidden line (140 px / 48 = 2.92).
         let bodies: Vec<&Instance> = out
             .iter()
-            .filter(|i| i.shape == Shape::HoldBody as u32)
+            .filter(|i| i.shape & 0xff == Shape::HoldBody as u32)
             .collect();
         assert_eq!(bodies.len(), 1);
         let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
@@ -1591,10 +1730,7 @@ mod tests {
             vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
             Appearance::Visible,
         );
-        assert_eq!(
-            count(&shapes(&f, RenderOptions::default()), Shape::Arrow),
-            1
-        );
+        assert_eq!(notes(&shapes(&f, RenderOptions::default())).len(), 1);
     }
 
     #[test]
@@ -1604,12 +1740,16 @@ mod tests {
         assert_eq!(n.alpha, 0.0);
         assert!(n.glow > 1.0);
         let out = shapes(&frame(vec![n], a), RenderOptions::default());
-        let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
+        let arrow = notes(&out)[0];
         assert_eq!(arrow.color, [1.0, 1.0, 1.0, 1.0]);
         n.alpha = 1.0;
         n.glow = 0.5;
         let out = shapes(&frame(vec![n], a), RenderOptions::default());
-        let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
+        let arrow = notes(&out)[0];
+        assert_eq!(
+            crate::sprite::Glyph::of(arrow.shape),
+            Some((crate::sprite::Glyph::Arrow, Paint::Solid))
+        );
         let red = quantization_color(Quantization::N4);
         assert!((arrow.color[1] - (red[1] + (1.0 - red[1]) * 0.5)).abs() < 1e-6);
     }
@@ -1628,7 +1768,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
+        let arrow = notes(&out)[0];
         assert_eq!(arrow.color, single);
     }
 
@@ -1645,10 +1785,11 @@ mod tests {
                 ..Default::default()
             },
         );
-        let arrow = out
-            .iter()
-            .find(|i| i.shape == Shape::ArrowGradient as u32)
-            .expect("gradient arrow");
+        let arrow = notes(&out)[0];
+        assert_eq!(
+            crate::sprite::Glyph::of(arrow.shape).map(|(_, p)| p),
+            Some(Paint::Flow)
+        );
         // A quarter note: orange running to yellow, at the song's beat phase.
         let Some(Gradient::Flow { to, phase }) = ColorScheme::Rainbow.note_gradient(0.0, f.beat)
         else {
@@ -1673,7 +1814,6 @@ mod tests {
                 &f,
                 &layout,
                 &presets::itg().names,
-                &Skin::default(),
                 &geo,
                 RenderOptions {
                     ghost,
@@ -1763,7 +1903,6 @@ mod tests {
             &f,
             &layout,
             &presets::itg().names,
-            &Skin::default(),
             &geo,
             RenderOptions::default(),
             false,
@@ -1778,7 +1917,6 @@ mod tests {
             &f,
             &layout,
             &presets::itg().names,
-            &Skin::default(),
             &FieldGeometry::new(1000.0, 1000.0, 4.0, false),
             RenderOptions::default(),
             false,

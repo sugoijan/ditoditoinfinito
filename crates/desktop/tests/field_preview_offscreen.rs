@@ -133,10 +133,11 @@ fn the_preview_follows_the_options() {
     let geo = FieldGeometry::new(SIZE[0] as f32, SIZE[1] as f32, field_span(&layout), false);
     let field = [geo.left, geo.left + geo.arrow * 4.0];
     let a = geo.arrow;
-    // Where the receptors' outlines are: rows below the life bar.
+    // Where the receptors are: rows below the life bar and above the
+    // watermark.
     let centre = |p: &[u8]| {
         let (mut sum, mut n) = (0.0, 0.0);
-        for y in (a as u32)..SIZE[1] {
+        for y in (a as u32)..SIZE[1] - a as u32 {
             let row = lit(p, field, [y as f32, y as f32 + 1.0], 0.2) as f32;
             sum += row * y as f32;
             n += row;

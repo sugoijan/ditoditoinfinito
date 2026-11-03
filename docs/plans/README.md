@@ -24,7 +24,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   raster center, derived holds/rolls and layered mines added (2026-10-22).
   The SVG skin developed as Spiral Base, now Infinito, replaces Dito as the default
   (2026-10-25); its original color variants and procedural controls are
-  retired. Procedural arrows remain an internal fallback.
+  retired. Procedural arrows remain an internal fallback, drawn as
+  Infinito's shapes made light (PLAN.md decision 80, 2026-11-03).
 - [3D models](models.md) (2026-10-12): done 2026-10-13. Later: a depth
   buffer, lighting. MilkShape meshes, materials and bones.
 - [StepMania 3.9 and OpenITG noteskins](legacy-skins.md) (2026-10-13):
