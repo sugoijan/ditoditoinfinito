@@ -91,6 +91,12 @@ struct Readied {
     options: Option<Rc<RefCell<PlayOptions>>>,
     applied: PlayOverrides,
     skins: Option<Receiver<Vec<(String, String)>>>,
+    /// The announcer's sounds for the play, decoded on a thread
+    /// (`super::voice`; none without an announcer, or in calibration).
+    voice: Option<super::voice::VoiceLoad>,
+    /// The ended play's sound, kept while its results show: their line
+    /// speaks on it.
+    lingering: Option<Audio>,
 }
 
 /// A song's scripted backgrounds (`super::scripts`): readied once for
@@ -186,6 +192,8 @@ pub struct Host {
     in_play: Rc<Cell<bool>>,
     /// Wakes the event loop (a song read on its thread).
     pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// The play beginning is a quick restart's ([`Request::restart`]).
+    restarting: bool,
     pub plays: Option<Rc<Plays>>,
     /// Told a song's id and chart once read for its prompt (the history
     /// works its stale plays out first, `Songs::chart_loaded`).
@@ -234,6 +242,7 @@ impl Default for Host {
             stage: Stage::Idle,
             in_play: Rc::default(),
             wake: None,
+            restarting: false,
             plays: None,
             chart_loaded: None,
             after: Rc::default(),
@@ -514,6 +523,8 @@ impl Host {
                 options: None,
                 applied: PlayOverrides::default(),
                 skins: None,
+                voice: None,
+                lingering: None,
             };
             // A song's prompt offers this play's options (not a test's, a
             // replay's: it is drawn with its own); the skins the song
@@ -627,6 +638,8 @@ impl Host {
                 }
                 Some(After::Retry) => {
                     let mut r = r;
+                    // The results' line stops with them.
+                    r.lingering = None;
                     // A skin whose Lua stopped is readied again (its Lua
                     // tried again, or off after a second stop).
                     if let (Some(v), Some(loaded)) = (r.view.as_ref(), r.loaded.clone())
@@ -753,6 +766,21 @@ impl Host {
                     {
                         told(&r.request.song, &loaded.song);
                     }
+                    // The announcer's sounds, decoded behind the prompt.
+                    if let Some(key) = r.settings().announcer {
+                        let notes = loaded
+                            .song
+                            .charts
+                            .get(r.request.chart)
+                            .map_or(0, |c| c.notes.len() as u32);
+                        r.voice = Some(super::voice::VoiceLoad::start(
+                            key,
+                            crate::library::all_folders(),
+                            super::voice::For::Play { notes },
+                            r.rate,
+                            self.wake.clone(),
+                        ));
+                    }
                     r.loaded = Some(Rc::new(loaded))
                 }
                 Err(e) => {
@@ -765,6 +793,9 @@ impl Host {
         }
         if r.error.is_some() {
             return;
+        }
+        if let Some(v) = r.voice.as_mut() {
+            v.poll();
         }
         // The song folders' skins, for the options' skin row.
         if let (Some(rx), Some(o)) = (&r.skins, &r.options)
@@ -1030,8 +1061,18 @@ impl Host {
             .or(self.refresh_hint)
             .unwrap_or(60.0);
         let mut request = r.request.clone();
+        request.restart = std::mem::take(&mut self.restarting);
         if settings.ghost && request.replay.is_none() && request.calibration.is_none() {
             request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);
+        }
+        // What the history says of the chart before this play, for the
+        // results' first clear and new record (a play that is kept).
+        if request.replay.is_none() && request.calibration.is_none() && request.edited.is_none() {
+            let best = self.plays.as_ref().and_then(|p| {
+                p.history()
+                    .best_of_play(&loaded.song, request.chart, settings)
+            });
+            request.prior = Some(ddi_session::announcer::Prior::of(best.as_ref()));
         }
         match Play::start(
             request,
@@ -1044,6 +1085,9 @@ impl Host {
         ) {
             Ok(mut play) => {
                 play.graphics = self.graphics.clone();
+                if let Some(v) = &r.voice {
+                    play.session.set_voice(v.voice.clone());
+                }
                 // Kept with the play's options as they were.
                 play.overrides = r
                     .options
@@ -1108,6 +1152,9 @@ impl Host {
         let Stage::Playing(r, play, render) = &mut self.stage else {
             return;
         };
+        if let Some(v) = r.voice.as_mut() {
+            v.poll();
+        }
         let ended = play.tick(now, self.plays.as_ref());
         render.ghost = play.session.ghost_delta().map(ddi_shell::score_delta);
         if let Some(v) = r.view.as_mut() {
@@ -1144,10 +1191,23 @@ impl Host {
             let loaded = play.loaded.clone();
             let audio = play.into_restart();
             let settings = r.settings();
+            self.restarting = true;
             self.stage = self.begin(r, loaded, &settings, audio, Default::default(), ui, env);
             return;
         }
         self.in_play.set(false);
+        if play.session.announcer_report() != &Default::default() {
+            let a = play.session.announcer_report();
+            let spoken: Vec<&str> = a.spoken.iter().map(|(f, _)| f.as_str()).collect();
+            self.log.push(format!(
+                "announcer: spoke {} · dropped {} · not decoded {:?} · not in the pack {:?}",
+                spoken.join(", "),
+                a.dropped,
+                a.missing,
+                a.absent
+            ));
+        }
+        let mut r = r;
         #[cfg(feature = "video")]
         if let Some(v) = r.view.as_ref()
             && (v.movies.shown_any() || v.movies.trouble().is_some())
@@ -1214,6 +1274,7 @@ impl Host {
                     }
                     _ => {
                         self.show_results(&r, &play, &results, device_changed, ui, env);
+                        r.lingering = Some(play.into_sound());
                         Stage::Results(r)
                     }
                 }
@@ -1234,6 +1295,7 @@ impl Host {
                 } else {
                     // A quit's results, graded QUIT, as a play's.
                     self.show_results(&r, &play, &results, false, ui, env);
+                    r.lingering = Some(play.into_sound());
                     Stage::Results(r)
                 }
             }

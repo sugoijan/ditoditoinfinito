@@ -562,6 +562,9 @@ mod tests {
         fn stop_all(&mut self) {
             self.stopped = true;
         }
+        fn stop_music(&mut self) {
+            self.stopped = true;
+        }
         fn running(&self) -> bool {
             true
         }
@@ -589,6 +592,9 @@ mod tests {
         }
         fn duration(&self, b: &f64) -> f64 {
             *b
+        }
+        fn play_voice(&mut self, b: &f64, at: f64, volume: f32) -> Result<SoundId, String> {
+            self.play(b, at, 0.0, volume)
         }
     }
 

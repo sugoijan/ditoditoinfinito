@@ -171,16 +171,38 @@ pub(crate) fn select(entry: Option<ManifestEntry>) {
     STATE.with(|s| s.borrow_mut().timer = Some(timer));
 }
 
-/// Stops what plays (the page goes, an import starts).
+/// Stops what plays (the page goes, an import starts): the preview,
+/// not the announcer's line.
 pub(crate) fn stop() {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         s.timer = None;
         s.playing = None;
         if let Some(a) = s.audio.as_mut() {
-            a.stop_all();
+            a.stop_music();
         }
     });
+}
+
+/// Speaks an announcer's `buffer` now at `share` of the music's volume
+/// `volume`: on song select's context where it runs (its master at the
+/// music's volume), else on the one a play took from it
+/// ([`hand_over`]; at full volume); whether it did.
+pub(crate) fn speak(buffer: &AudioBuffer, share: f32, volume: f32) -> bool {
+    use ddi_platform::AudioBackend;
+    let here = STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        let a = s.audio.as_mut().filter(|a| a.running())?;
+        let at = a.context().current_time() + 0.02;
+        Some(a.play_voice(buffer, at, share).is_ok())
+    });
+    here.or_else(|| {
+        crate::web::audio::with_kept_for_play(|a| {
+            let at = a.context().current_time() + 0.02;
+            a.play_voice(buffer, at, volume * share).is_ok()
+        })
+    })
+    .unwrap_or(false)
 }
 
 /// A play opens: the page's context for it, running (made or resumed in
@@ -197,11 +219,13 @@ pub(crate) fn hand_over(in_gesture: bool) -> Option<WebAudio> {
             None
         }
     });
-    let audio = match audio {
+    let mut audio = match audio {
         Some(a) => Some(a),
         None if in_gesture => WebAudio::new().ok(),
         None => None,
     }?;
+    // The intro still speaking stops (the chosen song's comment comes).
+    audio.stop_all();
     audio.resume_now();
     // A play's master is at full volume (its sounds have their own).
     audio.set_master_volume(1.0);

@@ -27,6 +27,10 @@ struct FakeAudio {
     sounds: Vec<(f64, f64)>,
     ramps: Vec<(Option<f32>, f32, Option<f64>, f64)>,
     stopped: u32,
+    /// The voice's starts: length, context time, gain.
+    voiced: Vec<(f64, f64, f32)>,
+    /// `stop_music` calls.
+    music_stopped: u32,
 }
 
 const EPOCH: f64 = 7.5;
@@ -41,6 +45,8 @@ impl FakeAudio {
             sounds: Vec::new(),
             ramps: Vec::new(),
             stopped: 0,
+            voiced: Vec::new(),
+            music_stopped: 0,
         }
     }
 }
@@ -66,6 +72,10 @@ impl AudioBackend for FakeAudio {
     fn duration(&self, b: &f64) -> f64 {
         *b
     }
+    fn play_voice(&mut self, b: &f64, at: f64, volume: f32) -> Result<SoundId, String> {
+        self.voiced.push((*b, at, volume));
+        Ok(1)
+    }
     fn sample_rate(&self) -> f64 {
         48_000.0
     }
@@ -74,6 +84,9 @@ impl AudioBackend for FakeAudio {
     }
     fn stop_all(&mut self) {
         self.stopped += 1;
+    }
+    fn stop_music(&mut self) {
+        self.music_stopped += 1;
     }
     fn running(&self) -> bool {
         self.running
@@ -1399,4 +1412,210 @@ fn lane_covers_move_and_hide_in_play_and_replay_alike() {
     assert_eq!(s.player.cover(), sudden(31));
     // Its heights are not kept: the settings stay as the play left them.
     assert_eq!(Settings::load().lane_cover, sudden(31));
+}
+
+/// A voice of every line a play speaks, each one sound 0.8 s long.
+fn full_voice() -> crate::announcer::SharedVoice<f64> {
+    use ddi_library::announcer::{Grade, Line};
+    let mut v = crate::announcer::Voice::default();
+    let mut lines = vec![
+        Line::Ready,
+        Line::HereWeGo,
+        Line::CommentHot,
+        Line::CommentGood,
+        Line::CommentDanger,
+        Line::ComboStopped,
+        Line::Cleared,
+        Line::Failed,
+        Line::Quit,
+        Line::FirstClear,
+        Line::NewRecord,
+        Line::EvaluationFullCombo(1),
+        Line::Cheer,
+        Line::Restart,
+        Line::FullCombo,
+        Line::FullComboW(1),
+        Line::LastLife,
+        Line::LifeLost,
+    ];
+    lines.extend((1..=10).map(|n| Line::Combo(n * 100)));
+    lines.extend(Grade::ALL.map(Line::Grade));
+    for line in lines {
+        v.expect([line]);
+        v.add(line, 0.8);
+    }
+    Rc::new(RefCell::new(v))
+}
+
+/// The announcer over an autoplayed play: ready and here we go before
+/// the first note, the combos and the comments, cleared, the results'
+/// full combo cheered, on the voice's bus at its gain; over a play the
+/// life runs out of: failed at the fail, not cut when its hold ends, the
+/// results' grade; nothing in calibration.
+#[test]
+fn the_announcer_speaks_over_a_play_and_on_its_results() {
+    let song = bundled("beatucada");
+    let settings = Settings {
+        announcer: Some("voice".into()),
+        volume: 0.5,
+        announcer_volume: 0.5,
+        ..Settings::default()
+    };
+    let clock: Clock = Rc::new(RefCell::new(100.0));
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    // Autoplay: told nothing of the history.
+    config.prior = Some(crate::announcer::Prior::default());
+    // The Hard chart: 283 notes.
+    let mut s = PlaySession::start(
+        &song,
+        3,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    s.set_voice(full_voice());
+    let Some(SessionEvent::Finished { .. }) = run(&mut s, &clock, 60.0, 200.0) else {
+        panic!("no end");
+    };
+    let r = s.announcer_report().clone();
+    let spoken: Vec<&str> = r.spoken.iter().map(|(f, _)| f.as_str()).collect();
+    assert_eq!(
+        spoken[..2],
+        ["gameplay ready", "gameplay here we go normal"]
+    );
+    for line in ["gameplay 100 combo", "gameplay comment hot"] {
+        assert!(spoken.contains(&line), "{line}: {spoken:?}");
+    }
+    // The last note keeps the full combo: said, then cleared.
+    let end = spoken.iter().position(|l| *l == "gameplay full combo w1");
+    assert_eq!(
+        end.map(|i| spoken[i + 1]),
+        Some("gameplay cleared"),
+        "{spoken:?}"
+    );
+    assert_eq!(
+        spoken[spoken.len() - 2..],
+        ["evaluation full combo w1", "evaluation cheer"]
+    );
+    assert!(r.missing.is_empty() && r.absent.is_empty(), "{r:?}");
+    // Every line on the voice's bus, at its share of the music's volume.
+    let audio = s.audio();
+    assert_eq!(audio.voiced.len(), spoken.len());
+    assert!(audio.voiced.iter().all(|v| v.2 == 0.25));
+    // Ready and here we go before the first note (their starts on the
+    // audio clock in order, here we go ending half a second before).
+    assert!(r.spoken[0].1 < r.spoken[1].1);
+
+    // The life run out: failed, then the grade.
+    let settings = Settings {
+        announcer: Some("voice".into()),
+        ..Settings::default()
+    };
+    let mut config = SessionConfig::from_settings(&settings, false, None);
+    config.prior = Some(crate::announcer::Prior {
+        played: true,
+        cleared: true,
+        best: 0.9,
+    });
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    s.set_voice(full_voice());
+    let Some(SessionEvent::Finished { results, .. }) = run(&mut s, &clock, 60.0, 200.0) else {
+        panic!("no end");
+    };
+    assert!(results.failed);
+    let spoken: Vec<String> = s
+        .announcer_report()
+        .spoken
+        .iter()
+        .map(|(f, _)| f.clone())
+        .collect();
+    assert!(
+        spoken.contains(&"gameplay failed".to_string()),
+        "{spoken:?}"
+    );
+    assert_eq!(spoken.last().map(String::as_str), Some("evaluation e"));
+    // The hold's end stopped the music, not the voice.
+    assert_eq!(s.audio().music_stopped, 1);
+
+    // Calibration: nothing.
+    let mode = CalMode::Visual;
+    let cal = calibration::song(mode);
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.calibrate(mode);
+    let audio = FakeAudio::new(&clock, 0.0);
+    let click = audio
+        .buffer_from_pcm(vec![calibration::click_samples(48_000.0, &cal)], 48_000.0)
+        .unwrap();
+    let mut s = PlaySession::start(
+        &cal,
+        0,
+        &settings,
+        config,
+        audio,
+        click,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    s.set_voice(full_voice());
+    run(&mut s, &clock, 60.0, 200.0);
+    assert!(s.audio().voiced.is_empty());
+}
+
+/// On StepMania's battery, a play left unplayed loses its lives: the
+/// announcer says one lost, the last left, then the fail.
+#[test]
+fn the_announcer_counts_a_batterys_lives_down() {
+    use ddi_engine::rules::{LifeType, StepManiaOptions};
+    let song = bundled("beatucada");
+    let settings = Settings {
+        announcer: Some("voice".into()),
+        stepmania: StepManiaOptions {
+            life_type: LifeType::Battery,
+            lives: 4,
+            ..StepManiaOptions::default()
+        },
+        ..Settings::default()
+    };
+    let clock: Clock = Rc::new(RefCell::new(100.0));
+    let mut s = PlaySession::start(
+        &song,
+        3,
+        &settings,
+        SessionConfig::from_settings(&settings, false, None),
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    s.set_voice(full_voice());
+    let Some(SessionEvent::Finished { results, .. }) = run(&mut s, &clock, 60.0, 200.0) else {
+        panic!("no end");
+    };
+    assert!(results.failed);
+    let spoken: Vec<&str> = s
+        .announcer_report()
+        .spoken
+        .iter()
+        .map(|(f, _)| f.as_str())
+        .collect();
+    let at = |line: &str| spoken.iter().position(|l| *l == line);
+    let (lost, last, failed) = (
+        at("gameplay life lost"),
+        at("gameplay last life"),
+        at("gameplay failed"),
+    );
+    assert!(lost.is_some() && last.is_some(), "{spoken:?}");
+    assert!(lost < last && last < failed, "{spoken:?}");
 }

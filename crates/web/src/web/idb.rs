@@ -22,12 +22,13 @@ use web_sys::{
 };
 
 const NAME: &str = "ddi-library";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// Song records (JSON strings) keyed by song id.
 pub(crate) const SONGS: &str = "songs";
 /// File blobs keyed by `<song id>/<file name>` (a noteskin's by
-/// `noteskin/<game>/<name>/<path>`).
+/// `noteskin/<game>/<name>/<path>`, an announcer's by
+/// `announcer/<key>/<path>`).
 pub(crate) const FILES: &str = "files";
 /// Imported noteskins (JSON strings) keyed by `<game>/<name>` (version 2).
 pub(crate) const NOTESKINS: &str = "noteskins";
@@ -38,6 +39,10 @@ pub(crate) const PLAYS: &str = "plays";
 /// The plays' summaries (JSON strings) by the same ids, read at start
 /// without the logs (version 3).
 pub(crate) const PLAY_SUMMARIES: &str = "play_summaries";
+/// Imported announcers (JSON strings, `ddi_library::announcer::Kept`)
+/// keyed by their key, the name in lower case (version 4,
+/// `crate::announcers`).
+pub(crate) const ANNOUNCERS: &str = "announcers";
 
 pub(crate) struct Db(IdbDatabase);
 
@@ -225,7 +230,7 @@ impl Db {
             let names = db.object_store_names();
             // Only what is missing is created: an upgrade keeps every
             // store there.
-            for store in [SONGS, FILES, NOTESKINS, PLAYS, PLAY_SUMMARIES] {
+            for store in [SONGS, FILES, NOTESKINS, PLAYS, PLAY_SUMMARIES, ANNOUNCERS] {
                 if !names.contains(store) {
                     let _ = db.create_object_store(store);
                 }
@@ -424,7 +429,8 @@ impl Db {
         complete(&tx).await.map_err(|e| {
             let e = err("writing the song library", e);
             if e.contains("QuotaExceeded") {
-                "the browser ran out of storage for imported songs and noteskins".to_string()
+                "the browser ran out of storage for imported songs, noteskins and announcers"
+                    .to_string()
             } else {
                 e
             }

@@ -3,7 +3,9 @@
 //! started on a frame of the output timeline, each with a gain that
 //! follows scheduled events (set, hold, linear ramp, and the exponential
 //! approach of `setTargetAtTime`), a master gain with the same events,
-//! stops on a frame or at once with a 5 ms fade (no click).
+//! stops on a frame or at once with a 5 ms fade (no click). The voice's
+//! bus (the announcer's) is mixed after the master, under a gain of its
+//! own that the master's ramps leave alone ([`Voice::bus`]).
 //!
 //! Nothing here locks or allocates: voices are built on the main thread
 //! and sent in boxes, with room for their events reserved; finished ones
@@ -313,6 +315,8 @@ pub struct Voice {
     /// It has been heard (a frame rendered): a stop fades it; before, a
     /// stop ends it at once.
     sounding: bool,
+    /// On the voice's bus, past the master ([`Mixer::render`]).
+    pub bus: bool,
 }
 
 impl Voice {
@@ -331,6 +335,7 @@ impl Voice {
             stop_at: None,
             fade: None,
             sounding: false,
+            bus: false,
         }
     }
 
@@ -362,6 +367,8 @@ pub enum Command {
         at: Option<u64>,
     },
     StopAll,
+    /// Ends every voice but the bus's, as `StopAll` does.
+    StopMusic,
     /// A voice's gain: an event, or its events from a frame cancelled.
     Gain {
         id: SoundId,
@@ -375,6 +382,12 @@ pub enum Command {
     CancelMaster {
         from: u64,
     },
+    /// The voice's bus's gain (an event; the master's volume, without
+    /// its ramps).
+    Bus(Event),
+    CancelBus {
+        from: u64,
+    },
 }
 
 /// The mixer: its voices and the master gain.
@@ -385,6 +398,8 @@ pub struct Mixer {
     #[allow(clippy::vec_box)]
     voices: Vec<Box<Voice>>,
     master: Param,
+    /// The voice's bus's gain.
+    bus: Param,
     fade_frames: u32,
 }
 
@@ -394,6 +409,7 @@ impl Mixer {
             rate,
             voices: Vec::with_capacity(MAX_VOICES),
             master: Param::new(master),
+            bus: Param::new(master),
             fade_frames: (STOP_FADE * f64::from(rate)).round().max(1.0) as u32,
         }
     }
@@ -437,11 +453,14 @@ impl Mixer {
                     None => self.voices[i].fade = Some((fade, fade)),
                 }
             }
-            Command::StopAll => {
+            c @ (Command::StopAll | Command::StopMusic) => {
                 let fade = self.fade_frames;
+                let music = matches!(c, Command::StopMusic);
                 let mut i = 0;
                 while i < self.voices.len() {
-                    if self.voices[i].sounding {
+                    if music && self.voices[i].bus {
+                        i += 1;
+                    } else if self.voices[i].sounding {
                         self.voices[i].fade.get_or_insert((fade, fade));
                         i += 1;
                     } else {
@@ -461,54 +480,18 @@ impl Mixer {
             }
             Command::Master(event) => self.master.schedule(event, now),
             Command::CancelMaster { from } => self.master.cancel(from),
+            Command::Bus(event) => self.bus.schedule(event, now),
+            Command::CancelBus { from } => self.bus.cancel(from),
         }
     }
 
     /// Mixes into `out` (stereo, interleaved, overwritten), whose first
-    /// frame is output frame `first`. Voices that end go to `done`.
+    /// frame is output frame `first`: the voices under the master, then
+    /// the bus's past it, under the bus's gain (taken once a block).
+    /// Voices that end go to `done`.
     pub fn render(&mut self, out: &mut [f32], first: u64, done: &mut impl FnMut(Box<Voice>)) {
         out.fill(0.0);
-        let frames = out.len() / 2;
-        let end = first + frames as u64;
-        let mut i = 0;
-        while i < self.voices.len() {
-            let v = &mut self.voices[i];
-            let mut over = false;
-            // Frames before its start are silent for it.
-            let from = v.start.max(first);
-            let mut f = from;
-            while f < end {
-                if v.stop_at.is_some_and(|s| f >= s) || v.pos as usize >= v.sound.frames() {
-                    over = true;
-                    break;
-                }
-                let mut g = v.gain.advance(f);
-                if let Some((left, total)) = &mut v.fade {
-                    if *left == 0 {
-                        over = true;
-                        break;
-                    }
-                    g *= *left as f32 / *total as f32;
-                    *left -= 1;
-                }
-                let (l, r) = v.sample();
-                v.sounding = true;
-                let o = ((f - first) as usize) * 2;
-                out[o] += l * g;
-                out[o + 1] += r * g;
-                v.pos += v.step;
-                f += 1;
-            }
-            if !over && (v.stop_at.is_some_and(|s| s <= end) || v.pos as usize >= v.sound.frames())
-            {
-                over = true;
-            }
-            if over {
-                done(self.voices.swap_remove(i));
-            } else {
-                i += 1;
-            }
-        }
+        mix(&mut self.voices, out, first, false, 1.0, done);
         if self.master.idle() {
             let g = self.master.value();
             if g != 1.0 {
@@ -522,6 +505,69 @@ impl Mixer {
                 pair[0] *= g;
                 pair[1] *= g;
             }
+        }
+        if self.voices.iter().any(|v| v.bus) {
+            let g = self.bus.advance(first);
+            mix(&mut self.voices, out, first, true, g, done);
+        } else {
+            self.bus.advance(first);
+        }
+    }
+}
+
+/// Adds the voices on the bus or not (`bus`) into `out`, each frame times
+/// `scale`.
+#[allow(clippy::vec_box)]
+fn mix(
+    voices: &mut Vec<Box<Voice>>,
+    out: &mut [f32],
+    first: u64,
+    bus: bool,
+    scale: f32,
+    done: &mut impl FnMut(Box<Voice>),
+) {
+    let frames = out.len() / 2;
+    let end = first + frames as u64;
+    let mut i = 0;
+    while i < voices.len() {
+        let v = &mut voices[i];
+        if v.bus != bus {
+            i += 1;
+            continue;
+        }
+        let mut over = false;
+        // Frames before its start are silent for it.
+        let from = v.start.max(first);
+        let mut f = from;
+        while f < end {
+            if v.stop_at.is_some_and(|s| f >= s) || v.pos as usize >= v.sound.frames() {
+                over = true;
+                break;
+            }
+            let mut g = v.gain.advance(f) * scale;
+            if let Some((left, total)) = &mut v.fade {
+                if *left == 0 {
+                    over = true;
+                    break;
+                }
+                g *= *left as f32 / *total as f32;
+                *left -= 1;
+            }
+            let (l, r) = v.sample();
+            v.sounding = true;
+            let o = ((f - first) as usize) * 2;
+            out[o] += l * g;
+            out[o + 1] += r * g;
+            v.pos += v.step;
+            f += 1;
+        }
+        if !over && (v.stop_at.is_some_and(|s| s <= end) || v.pos as usize >= v.sound.frames()) {
+            over = true;
+        }
+        if over {
+            done(voices.swap_remove(i));
+        } else {
+            i += 1;
         }
     }
 }
@@ -750,6 +796,49 @@ mod tests {
         assert!((out[15] - 0.5).abs() < 1e-6);
         assert_eq!(out[20], 0.0);
         assert_eq!(m.master(), 0.0);
+    }
+
+    #[test]
+    fn the_voices_bus_skips_the_masters_ramps_but_keeps_its_volume() {
+        let mut m = Mixer::new(RATE, 0.5);
+        play(&mut m, 1, dc(100, 1.0), 0, 0.0, 1.0);
+        let mut voice = Voice::new(2, dc(100, 1.0), 0, 0.0, 0.5, RATE);
+        voice.bus = true;
+        let mut nop = |_| {};
+        m.apply(Command::Play(Box::new(voice)), 0, &mut nop);
+        // The master fades out from frame 0 to 10; the bus stays.
+        m.apply(Command::Master(Event::Hold { at: 0 }), 0, &mut nop);
+        m.apply(
+            Command::Master(Event::Ramp {
+                end: 10,
+                value: 0.0,
+            }),
+            0,
+            &mut nop,
+        );
+        let (out, _) = run(&mut m, 2, 10);
+        // Music 1 × 0.5 plus the voice 0.5 × 0.5 at first; the voice alone
+        // once the master is down.
+        assert_eq!(out[0], 0.75);
+        assert_eq!(out[15], 0.25);
+        // The bus's volume moved (a preview's master volume set).
+        m.apply(
+            Command::Bus(Event::Set { at: 20, value: 1.0 }),
+            20,
+            &mut nop,
+        );
+        let mut buf = vec![0.0; 20];
+        m.render(&mut buf, 20, &mut nop);
+        assert_eq!(buf[10], 0.5);
+        // `StopMusic` spares it; `StopAll` stops it too (after its 5 ms
+        // fade).
+        m.apply(Command::StopMusic, 30, &mut nop);
+        m.render(&mut buf, 30, &mut nop);
+        assert_eq!(buf[18], 0.5);
+        m.apply(Command::StopAll, 30, &mut nop);
+        m.render(&mut buf, 30, &mut nop);
+        assert_eq!(buf[18], 0.0);
+        assert_eq!(m.voices(), 0);
     }
 
     #[test]

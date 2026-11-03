@@ -57,6 +57,8 @@ impl Store for MemoryStore {
 thread_local! {
     static STORE: RefCell<Rc<dyn Store>> = RefCell::new(Rc::new(MemoryStore::default()));
     static CLOCK: Cell<Option<fn() -> f64>> = const { Cell::new(None) };
+    /// [`now_ms`] when the clock was installed: the run's start.
+    static STARTED: Cell<f64> = const { Cell::new(0.0) };
 }
 
 /// Makes `store` the one every load and save goes to.
@@ -68,6 +70,13 @@ pub fn install(store: Rc<dyn Store>) {
 /// [`now_ms`] reads.
 pub fn install_clock(clock: fn() -> f64) {
     CLOCK.with(|c| c.set(Some(clock)));
+    STARTED.with(|s| s.set(clock()));
+}
+
+/// Milliseconds since the Unix epoch when the clock was installed (the
+/// game's start; 0 without one): what was played since is this run's.
+pub fn started_ms() -> f64 {
+    STARTED.with(Cell::get)
 }
 
 /// Milliseconds since the Unix epoch, by the installed clock (0 without

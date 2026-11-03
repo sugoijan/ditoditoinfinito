@@ -494,8 +494,10 @@ const INSTALL_FOLDERS: [&str; 12] = [
 /// Folders that hold music but no simfile (`(folder, music file)`): song
 /// folders whose simfile is missing. Not reported: folders with a simfile
 /// at or below them (a pack folder with a preview track), shared folders,
-/// and a StepMania installation's own folders (themes, note skins, …).
+/// a StepMania installation's own folders (themes, note skins, …) and
+/// announcers' folders wherever they are ([`crate::announcer`]).
 pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(RelPathBuf, RelPathBuf)> {
+    let announcers = crate::announcer::announcer_dirs(paths);
     let mut charts: Vec<&str> = Vec::new();
     let mut music: BTreeMap<&str, &str> = BTreeMap::new();
     for p in paths {
@@ -521,7 +523,9 @@ pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(RelPathBuf, R
     music
         .into_iter()
         .filter(|(dir, _)| {
-            !install(dir) && !charts.iter().any(|c| within(dir, c) || within(c, dir))
+            !install(dir)
+                && !charts.iter().any(|c| within(dir, c) || within(c, dir))
+                && !announcers.iter().any(|a| within(dir, a.as_str()))
         })
         .map(|(dir, file)| (dir.into(), file.into()))
         .collect()

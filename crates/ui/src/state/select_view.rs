@@ -184,6 +184,7 @@ fn best_of<'a>(
         pending: b.pending,
         plays: b.plays,
         play: b.score_play.clone(),
+        last_played: b.last_played,
     })
 }
 

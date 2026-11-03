@@ -846,9 +846,9 @@ impl Songs {
             SelectCall::PickFiles => {
                 let (zips, other): (Vec<PathBuf>, Vec<PathBuf>) =
                     crate::os::pick(false).into_iter().partition(|p| {
-                        p.extension()
-                            .and_then(|e| e.to_str())
-                            .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| ddi_library::zip::archive_stem(n).is_some())
                     });
                 if !other.is_empty() {
                     let names: Vec<String> = other

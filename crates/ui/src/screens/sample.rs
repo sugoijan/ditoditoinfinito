@@ -348,6 +348,7 @@ fn sample_best(grade: &str, score: &str, lamp: &str, lamp_text: &str) -> Best {
         pending: false,
         plays: 3,
         play: String::new(),
+        last_played: 0.0,
     }
 }
 

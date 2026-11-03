@@ -1369,6 +1369,7 @@ fn bests_show_on_the_ladder_and_the_wheel() {
             pending: true,
             plays: 1,
             play: String::new(),
+            last_played: 0.0,
         });
     }
     let id = d.songs[2].id.clone();
@@ -2881,4 +2882,62 @@ fn a_still_mouse_is_picked_again_only_when_something_moves() {
         "{:?}",
         h.ui.problems()
     );
+}
+
+/// The announcer's lines song select asks for (`docs/plans/announcers.md`,
+/// step 5): the intro as it shows, then a chosen chart's comment in 5.1's
+/// order.
+#[test]
+fn song_select_asks_for_its_intro_and_each_chosen_charts_comment() {
+    use super::select::{HARD_COMMENT_METER, comment};
+    use crate::request::UiRequest;
+    use ddi_library::announcer::{Comment, Line};
+    let announced = |h: &Harness| -> Vec<Line> {
+        h.requests
+            .iter()
+            .filter_map(|r| match r {
+                UiRequest::Announce(l) => Some(*l),
+                _ => None,
+            })
+            .collect()
+    };
+    let (mut h, s, _, _) = shelled(library(), Some("u-one"));
+    assert_eq!(announced(&h), [Line::SelectMusicIntro]);
+    h.key("Enter", "Enter");
+    h.run(0.2);
+    assert!(
+        s.borrow().status.starts_with("PLAYED u-one"),
+        "{}",
+        s.borrow().status
+    );
+    assert_eq!(
+        announced(&h),
+        [Line::SelectMusicIntro, Line::SelectMusic(Comment::New)]
+    );
+    // The comment's order: this run's, never played, hard, general.
+    let started = 1_000.0;
+    let best = |last_played: f64| Best {
+        last_played,
+        ..Default::default()
+    };
+    let chart = |meter: u32, best: Option<Best>| ChartEntry {
+        meter,
+        best,
+        ..Default::default()
+    };
+    assert_eq!(
+        comment(&chart(12, Some(best(1_500.0))), started),
+        Comment::Repeat
+    );
+    assert_eq!(comment(&chart(12, None), started), Comment::New);
+    assert_eq!(
+        comment(&chart(HARD_COMMENT_METER, Some(best(500.0))), started),
+        Comment::Hard
+    );
+    assert_eq!(
+        comment(&chart(9, Some(best(500.0))), started),
+        Comment::General
+    );
+    // No clock (a run that never knew when it began): nothing is this run's.
+    assert_eq!(comment(&chart(9, Some(best(500.0))), 0.0), Comment::General);
 }

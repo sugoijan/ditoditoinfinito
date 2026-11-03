@@ -2,7 +2,9 @@
 //! screen on the player's settings (`storage.json`), through the shared
 //! shell (`ddi_ui::screens::options_shell`), as the web's options page
 //! runs it. What only the platform does is [`Desktop`]'s: the volume
-//! sample on the preview player, the controllers connected and what they
+//! sample and the chosen announcer's sample line on the preview player
+//! (the announcers listed from the song folders on a thread,
+//! `crate::library::announcers`), the controllers connected and what they
 //! hold (for the bind flow), the settings as edited (the field preview,
 //! the menus' bindings), leaving for the songs; with the library on disk,
 //! its song folders (added through the system's picker, taken off the
@@ -21,6 +23,7 @@ use ddi_ui::screens::{Env, sample};
 use ddi_ui::state::settings::Settings;
 use ddi_ui::{Cx, Ui};
 
+use crate::library::announcers::DiskAnnouncer;
 use crate::preview::SharedPlayer;
 
 /// What the options screen and the shell share.
@@ -39,6 +42,10 @@ pub struct Shared {
     /// The noteskins of the song folders, listed on a thread of their own
     /// (`crate::library::noteskins`): put in the rows when they come.
     skins: RefCell<Option<std::sync::mpsc::Receiver<Skins>>>,
+    /// The song folders' announcers, listed on a thread of their own,
+    /// and what came.
+    announcers: RefCell<Option<std::sync::mpsc::Receiver<Vec<DiskAnnouncer>>>>,
+    found: RefCell<Vec<DiskAnnouncer>>,
     /// The shares read (or one deleted and the rest read) on a thread
     /// (`crate::share`): into the dialog's feed when they come.
     shares: RefCell<
@@ -144,6 +151,24 @@ impl Shared {
             self.model.borrow_mut().set_skin_parameters(parameters);
             self.refresh();
         }
+        let announcers = self
+            .announcers
+            .borrow()
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok());
+        if let Some(found) = announcers {
+            *self.announcers.borrow_mut() = None;
+            let mut list: Vec<(String, String)> = found
+                .iter()
+                .map(|a| (a.key(), a.kept.name.clone()))
+                .collect();
+            list.sort_by_key(|(_, name)| name.to_lowercase());
+            // Not `complete`, as for skins: a folder away for now (a
+            // drive unplugged) keeps its announcer chosen.
+            self.model.borrow_mut().set_announcers(list, false);
+            *self.found.borrow_mut() = found;
+            self.refresh();
+        }
         self.pending.replace(false)
     }
 
@@ -222,6 +247,21 @@ pub fn screen(
                 });
             rx
         })),
+        announcers: RefCell::new(songs.as_ref().map(|s| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let folders = s.folders();
+            let wake = s.wake.borrow().clone();
+            let _ = std::thread::Builder::new()
+                .name("ddi-announcers".into())
+                .spawn(move || {
+                    let _ = tx.send(crate::library::announcers::all(&folders));
+                    if let Some(w) = wake {
+                        w();
+                    }
+                });
+            rx
+        })),
+        found: RefCell::default(),
         sound,
         songs,
     });
@@ -299,6 +339,24 @@ impl OptionsPlatform for Desktop {
     fn volume(&self, volume: f32) {
         if let Some(sound) = &self.0.sound {
             sound.borrow_mut().set_volume(volume);
+        }
+    }
+
+    fn announce(&self, key: &str, volume: f32, share: f32, _cx: &mut Cx) {
+        let Some(sound) = &self.0.sound else {
+            return;
+        };
+        let found = self.0.found.borrow();
+        let Some(a) = found.iter().find(|a| a.key() == key) else {
+            return;
+        };
+        let pick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos() as usize);
+        if let Some(line) = a.kept.sample(pick) {
+            let mut p = sound.borrow_mut();
+            p.set_volume(volume);
+            p.announce(a, line, share);
         }
     }
 

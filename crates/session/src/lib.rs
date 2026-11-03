@@ -26,6 +26,7 @@
 //! - [`preview`]: song select's previews' length and fades.
 //! - [`sounds`]: the mine sound and the assist clap, made in code.
 
+pub mod announcer;
 pub mod backgrounds;
 pub mod calibration;
 pub mod listen;

@@ -10,7 +10,8 @@
 //! sample (an audio context made inside the press, `crate::preview`), the
 //! play history's export and import (a hidden file input the screen's
 //! Import clicks inside the press, or an export dropped on the page),
-//! removing imported songs and noteskins. The
+//! removing imported songs, noteskins and announcers, and the chosen
+//! announcer's sample line (`crate::announcers::speak_sample`). The
 //! bind dialog takes controllers' presses as they are (the UI core hands
 //! a pad's edges on raw while it is open).
 //!
@@ -53,6 +54,8 @@ pub(crate) enum Msg {
     /// for.
     Library(Option<ManifestEntry>, usize, usize, Vec<Layout>),
     Noteskins(Result<crate::noteskins::Choices, String>),
+    Announcers(Result<Vec<(String, String)>, String>),
+    AnnouncerRemoved(Result<(), String>),
     PadsTick,
     ImportChanged,
     HistoryChanged,
@@ -82,6 +85,8 @@ struct Shared {
     env: RefCell<Option<ThemeEnv>>,
     sample_song: RefCell<Option<ManifestEntry>>,
     sample: RefCell<Option<Preview>>,
+    /// The announcer's sample line speaking.
+    voice: RefCell<Option<crate::announcers::Sample>>,
     pads: RefCell<Option<crate::web::gamepad::Gamepads>>,
     /// The field preview's settings, handed over as they are edited.
     field: RefCell<Option<Rc<RefCell<Option<Settings>>>>>,
@@ -125,6 +130,8 @@ impl Component for OptionsPage {
         });
         ctx.link()
             .send_future(async { Msg::Noteskins(crate::noteskins::choices().await) });
+        ctx.link()
+            .send_future(async { Msg::Announcers(crate::announcers::choices().await) });
         import::watch(Some(ctx.link().callback(|_| Msg::ImportChanged)));
         {
             let link = ctx.link().clone();
@@ -149,6 +156,7 @@ impl Component for OptionsPage {
             env: RefCell::new(None),
             sample_song: RefCell::new(None),
             sample: RefCell::new(None),
+            voice: RefCell::new(None),
             pads: RefCell::new(None),
             field: RefCell::new(None),
             plays_input: NodeRef::default(),
@@ -207,6 +215,21 @@ impl Component for OptionsPage {
             // Neither storage nor the bundled skins could be read (another
             // tab upgrading storage, the network): the choice stays.
             Msg::Noteskins(Err(e)) => web_sys::console::warn_1(&e.into()),
+            Msg::Announcers(Ok(list)) => {
+                s.model.borrow_mut().set_announcers(list, true);
+                send(s);
+            }
+            // Storage could not be read: the choice stays.
+            Msg::Announcers(Err(e)) => web_sys::console::warn_1(&e.into()),
+            Msg::AnnouncerRemoved(r) => {
+                s.model.borrow_mut().notice = match r {
+                    Ok(()) => "Announcer removed.".into(),
+                    Err(e) => format!("Could not remove the announcer: {e}"),
+                };
+                s.link
+                    .send_future(async { Msg::Announcers(crate::announcers::choices().await) });
+                send(s);
+            }
             Msg::PadsTick => {
                 let Some(g) = s.pads.borrow().clone() else {
                     return false;
@@ -326,6 +349,8 @@ impl Component for OptionsPage {
                 }
                 s.link
                     .send_future(async { Msg::Noteskins(crate::noteskins::choices().await) });
+                s.link
+                    .send_future(async { Msg::Announcers(crate::announcers::choices().await) });
                 send(s);
             }
             Msg::HistoryReset(r, alone) => {
@@ -374,6 +399,7 @@ impl Component for OptionsPage {
         import::watch(None);
         crate::history::watch(None);
         stop_sample(&self.shared);
+        self.shared.voice.borrow_mut().take();
         if let Some((host, _, pads)) = &self.started {
             ui_dev::stop_ui(host, pads.as_ref());
         }
@@ -561,6 +587,20 @@ impl OptionsPlatform for Web {
         }
     }
 
+    /// A context made inside the press (as the volume sample's), the line
+    /// read and decoded after.
+    fn announce(&self, key: &str, volume: f32, share: f32, cx: &mut Cx) {
+        if (!cx.in_gesture() || cx.menu_from_pad()) && !crate::web::autoplay::may_start() {
+            return;
+        }
+        // One line at a time: the last one's context closes.
+        self.0.voice.borrow_mut().take();
+        match crate::announcers::speak_sample(key, volume, share) {
+            Ok(v) => *self.0.voice.borrow_mut() = Some(v),
+            Err(e) => web_sys::console::warn_1(&format!("announcer sample: {e}").into()),
+        }
+    }
+
     fn export(&self) {
         let link = self.0.link.clone();
         crate::history::export(move |r| link.send_message(Msg::PlaysExported(r)));
@@ -656,6 +696,13 @@ impl OptionsPlatform for Web {
                     link.send_message(Msg::NoteskinRemoved(r));
                 });
             }
+            Reset::Announcer(key) => {
+                self.0.voice.borrow_mut().take();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let r = crate::announcers::delete(&key).await;
+                    link.send_message(Msg::AnnouncerRemoved(r));
+                });
+            }
             // The `plays` and `play_summaries` stores emptied.
             Reset::History => {
                 crate::history::remove_all(move |r| link.send_message(Msg::HistoryReset(r, true)));
@@ -747,6 +794,20 @@ fn debug_into(shared: &Shared, obj: &js_sys::Object) {
         skins.push(&k.as_str().into());
     }
     set(&o, "noteskins", skins.into());
+    let announcers = js_sys::Array::new();
+    for (k, _) in &m.world.announcers {
+        announcers.push(&k.as_str().into());
+    }
+    set(&o, "announcers", announcers.into());
+    // The last sample line: `{spoken}` or `{error}`.
+    if let Some(r) = crate::announcers::spoken() {
+        let a = js_sys::Object::new();
+        match r {
+            Ok(path) => set(&a, "spoken", path.as_str().into()),
+            Err(e) => set(&a, "error", e.as_str().into()),
+        }
+        set(&o, "announcer", a.into());
+    }
     let pads = js_sys::Array::new();
     for p in &m.world.connected {
         pads.push(&p.id.as_str().into());

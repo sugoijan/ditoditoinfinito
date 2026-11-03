@@ -134,6 +134,15 @@ pub struct Settings {
     pub assist_clap: bool,
     /// A sound when a mine or a shock is stepped on (on, as StepMania).
     pub mine_sound: bool,
+    /// The announcer that speaks (`docs/plans/announcers.md`): its key,
+    /// the name in lower case (`ddi_library::announcer::key`; an
+    /// imported one on the web, one in the song folders on desktop);
+    /// `None`: off, as in a fresh profile. One that is gone is let go
+    /// once the shell has listed them all ([`Settings::let_go_missing_announcer`]).
+    pub announcer: Option<String>,
+    /// The announcer's volume as a share of the music's (a gain, 0..=1;
+    /// all of it by default, so muting the music mutes the voice).
+    pub announcer_volume: f32,
     /// Keyboard and controller bindings per layout (`keys`, `pads`; older
     /// `keys_single` is migrated on load).
     #[serde(flatten)]
@@ -386,6 +395,8 @@ impl Default for Settings {
             volume: DEFAULT_VOLUME,
             assist_clap: false,
             mine_sound: true,
+            announcer: None,
+            announcer_volume: 1.0,
             reduced_motion: ReducedMotion::Auto,
             cursor_style: CursorStyle::default(),
             cursor_size: 28.0,
@@ -456,6 +467,21 @@ impl Settings {
             self.pump_noteskin = None;
         }
         dance || pump
+    }
+
+    /// Lets go of the chosen announcer when it is not among those `there`
+    /// says are; whether it did.
+    pub fn let_go_missing_announcer(&mut self, there: impl Fn(&str) -> bool) -> bool {
+        let missing = self.announcer.as_deref().is_some_and(|k| !there(k));
+        if missing {
+            self.announcer = None;
+        }
+        missing
+    }
+
+    /// The announcer's gain in a play: its share of the music's.
+    pub fn voice_volume(&self) -> f32 {
+        self.volume * self.announcer_volume
     }
 
     /// The values stored for skin `key`'s parameters (what its
@@ -636,6 +662,11 @@ impl Settings {
             self.volume.clamp(0.0, 1.0)
         } else {
             defaults.volume
+        };
+        self.announcer_volume = if self.announcer_volume.is_finite() {
+            self.announcer_volume.clamp(0.0, 1.0)
+        } else {
+            defaults.announcer_volume
         };
         self.bg_brightness = if self.bg_brightness.is_finite() {
             self.bg_brightness.clamp(0.0, 1.0)
@@ -1083,6 +1114,23 @@ mod tests {
         // A volume stored (the old default among them) is the player's.
         let s: Settings = serde_json::from_str(r#"{"volume": 0.8}"#).unwrap();
         assert_eq!(s.volume, 0.8);
+    }
+
+    #[test]
+    fn the_announcer_starts_off_at_the_musics_volume_and_goes_when_gone() {
+        let s: Settings = serde_json::from_str(r#"{"speed": 2.0}"#).unwrap();
+        assert_eq!((s.announcer.as_deref(), s.announcer_volume), (None, 1.0));
+        let mut s: Settings = serde_json::from_str(
+            r#"{"volume": 0.5, "announcer": "techno", "announcer_volume": 7.0}"#,
+        )
+        .unwrap();
+        s.sanitize();
+        assert_eq!(s.announcer_volume, 1.0);
+        s.announcer_volume = 0.5;
+        assert_eq!(s.voice_volume(), 0.25);
+        assert!(!s.let_go_missing_announcer(|k| k == "techno"));
+        assert!(s.let_go_missing_announcer(|k| k == "other"));
+        assert_eq!(s.announcer, None);
     }
 
     #[test]

@@ -214,6 +214,14 @@ pub struct ZipEntry {
     pub legacy_name: Option<Vec<u8>>,
 }
 
+/// A zip's name without its extension, for a file named `.zip` or
+/// StepMania's `.smzip` (a zip of an install's folders, as announcer and
+/// theme packs come) in any case; `None` for any other file.
+pub fn archive_stem(name: &str) -> Option<&str> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    (ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("smzip")).then_some(stem)
+}
+
 /// Number of tail bytes to read for [`locate_central_directory`].
 pub fn tail_len(file_len: u64) -> u64 {
     TAIL_LEN.min(file_len)
@@ -916,6 +924,15 @@ pub(crate) fn decode_cp437(bytes: &[u8]) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn zips_and_smzips_are_archives() {
+        assert_eq!(archive_stem("Packs/Foo.zip"), Some("Packs/Foo"));
+        assert_eq!(archive_stem("Techno.SMZIP"), Some("Techno"));
+        assert_eq!(archive_stem("a.ZiP"), Some("a"));
+        assert_eq!(archive_stem("song.sm"), None);
+        assert_eq!(archive_stem("zip"), None);
+    }
 
     #[test]
     fn inflate_prefix_reads_the_start_of_a_cut_off_stream() {

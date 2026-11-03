@@ -896,6 +896,12 @@ impl GameLoop {
 
         if let Some(event) = outcome {
             self.done = true;
+            // The announcer's last word (the results' line) for the tests,
+            // the frames stopping now.
+            if let (Some(s), Some(d)) = (self.session.as_ref(), crate::web::debug_object()) {
+                let report = announcer_debug(s.announcer_report());
+                let _ = js_sys::Reflect::set(&d, &"announcer".into(), &report);
+            }
             self.on_event.emit(event);
         }
         self.frames += 1;
@@ -1185,6 +1191,7 @@ impl GameLoop {
             let (claps, mines) = s.event_sounds();
             set("claps", f64::from(claps).into());
             set("mine_sounds", f64::from(mines).into());
+            set("announcer", announcer_debug(s.announcer_report()).into());
             // A replay's edges fed so far (`__DDI_DEBUG.replay`).
             if let Some((fed, edges)) = s.replay_progress() {
                 crate::replay::progress(fed, edges);
@@ -1376,4 +1383,35 @@ pub(crate) fn upload_noteskin(
         play.set_texture(i, id);
     }
     uploaded
+}
+
+/// `__DDI_DEBUG.announcer`: the lines spoken (folders) and when (context
+/// seconds), how many its gate dropped, those due but not decoded yet,
+/// and those not in the pack (`docs/plans/announcers.md`).
+fn announcer_debug(a: &ddi_session::announcer::Report) -> js_sys::Object {
+    let o = js_sys::Object::new();
+    let list = |items: &mut dyn Iterator<Item = &str>| {
+        let out = js_sys::Array::new();
+        for i in items {
+            out.push(&i.into());
+        }
+        out
+    };
+    let at = js_sys::Array::new();
+    for (_, t) in &a.spoken {
+        at.push(&(*t).into());
+    }
+    for (k, v) in [
+        (
+            "spoken",
+            list(&mut a.spoken.iter().map(|(f, _)| f.as_str())),
+        ),
+        ("at", at),
+        ("missing", list(&mut a.missing.iter().map(String::as_str))),
+        ("absent", list(&mut a.absent.iter().map(String::as_str))),
+    ] {
+        let _ = js_sys::Reflect::set(&o, &k.into(), &v);
+    }
+    let _ = js_sys::Reflect::set(&o, &"dropped".into(), &f64::from(a.dropped).into());
+    o
 }

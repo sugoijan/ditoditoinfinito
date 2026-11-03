@@ -36,6 +36,10 @@ pub trait OptionsPlatform {
     fn sample(&self, play: bool, volume: f32, cx: &mut Cx) -> bool;
     /// The volume changed (a sample playing follows it).
     fn volume(&self, _volume: f32) {}
+    /// Speaks a line of announcer `key` (`select music intro`, else any)
+    /// at `share` of the music volume `volume`, inside the press that
+    /// chose it or moved its volume (`docs/plans/announcers.md`, step 3).
+    fn announce(&self, _key: &str, _volume: f32, _share: f32, _cx: &mut Cx) {}
     /// Downloads the play history (the platform says how it went, in
     /// the model's notice, later).
     fn export(&self);
@@ -150,6 +154,19 @@ fn call_with(
                 // not one, and it starts at the release).
                 if ready && cx.in_gesture() && platform.sample(true, volume, cx) {
                     model.borrow_mut().world.sample = Sample::Playing;
+                }
+            }
+            if id == "announcer" || id == "announcer_volume" {
+                let (key, volume, share) = {
+                    let s = &model.borrow().settings;
+                    (s.announcer.clone(), s.volume, s.announcer_volume)
+                };
+                // From a key, a pad or a tap (a drag's moves are no
+                // gesture; its release is).
+                if let Some(key) = key
+                    && cx.in_gesture()
+                {
+                    platform.announce(&key, volume, share, cx);
                 }
             }
             platform.changed(&id, &model.borrow());

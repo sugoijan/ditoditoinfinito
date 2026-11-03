@@ -295,6 +295,19 @@ impl Audio {
         id
     }
 
+    /// Plays `sound` from its start at context time `at` on the voice's
+    /// bus (the announcer's: past the master's ramps), at `gain`.
+    pub fn play_voice_sound(&mut self, sound: &Sound, at: f64, gain: f32) -> SoundId {
+        let gain = mixer::gain(gain);
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1).max(1);
+        let rate = self.sample_rate();
+        let mut voice = Voice::new(id, sound.clone(), self.frame(at), 0.0, gain, rate);
+        voice.bus = true;
+        self.send(Command::Play(Box::new(voice)));
+        id
+    }
+
     /// Sound `id`'s gain becomes `value` at context time `at`.
     pub fn gain_at(&mut self, id: SoundId, value: f32, at: f64) {
         let at = self.frame(at);
@@ -326,6 +339,11 @@ impl Audio {
         self.send(Command::StopAll);
     }
 
+    /// Stops every sound but the voice's bus's (each with a 5 ms fade).
+    pub fn stop_music(&mut self) {
+        self.send(Command::StopMusic);
+    }
+
     /// Moves the master volume smoothly to `volume` (15 ms), cancelling
     /// what was scheduled.
     pub fn set_master_volume(&mut self, volume: f32) {
@@ -335,6 +353,13 @@ impl Audio {
         let tau = (MASTER_TAU * f64::from(self.sample_rate())) as f32;
         self.send(Command::CancelMaster { from: 0 });
         self.send(Command::Master(Event::Target {
+            at: now,
+            value: volume,
+            tau,
+        }));
+        // The voice's bus follows the volume, not the ramps.
+        self.send(Command::CancelBus { from: 0 });
+        self.send(Command::Bus(Event::Target {
             at: now,
             value: volume,
             tau,
@@ -637,6 +662,10 @@ impl AudioBackend for Audio {
         Audio::stop_all(self);
     }
 
+    fn stop_music(&mut self) {
+        Audio::stop_music(self);
+    }
+
     fn running(&self) -> bool {
         Audio::running(self)
     }
@@ -670,6 +699,15 @@ impl AudioBackend for Audio {
 
     fn duration(&self, buffer: &Sound) -> f64 {
         buffer.duration()
+    }
+
+    fn play_voice(
+        &mut self,
+        buffer: &Sound,
+        start_at_context_time: f64,
+        volume: f32,
+    ) -> Result<SoundId, String> {
+        Ok(self.play_voice_sound(buffer, start_at_context_time, volume))
     }
 }
 

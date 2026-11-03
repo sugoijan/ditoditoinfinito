@@ -84,7 +84,7 @@ pub fn pick(folder: bool) -> Vec<std::path::PathBuf> {
         self::dialog(|| dialog.pick_folder()).into_iter().collect()
     } else {
         // Packs come as zips (folders through the folder picker).
-        let dialog = dialog.add_filter("Zip archives", &["zip", "ZIP"]);
+        let dialog = dialog.add_filter("Zip archives", &["zip", "ZIP", "smzip", "SMZIP"]);
         self::dialog(|| dialog.pick_files()).unwrap_or_default()
     }
 }

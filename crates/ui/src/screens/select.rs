@@ -38,6 +38,7 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
 use ddi_chart::Difficulty;
+use ddi_library::announcer::{Comment, Line};
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
 use super::data::{
@@ -89,6 +90,24 @@ use super::select_navigation::{Event as NavEvent, Motion, Navigation};
 pub type PlayFn = Rc<dyn Fn(&SongEntry, &ChartEntry, &Env, &mut Cx)>;
 /// What the Options link does.
 pub type OpenFn = Rc<dyn Fn(&Env, &mut Cx)>;
+
+/// 5.1's `HardCommentMeter`: a chart this hard has song select say
+/// `select music comment hard`.
+pub const HARD_COMMENT_METER: u32 = 10;
+
+/// What song select says of the chart chosen, in 5.1's order
+/// (`ScreenSelectMusic`): `repeat` when it was played in this run (its
+/// best's last play since `started`, milliseconds since the Unix epoch),
+/// `new` when it has no best under the rules in effect, `hard` from
+/// [`HARD_COMMENT_METER`], `general` otherwise.
+pub fn comment(chart: &ChartEntry, started: f64) -> Comment {
+    match &chart.best {
+        Some(b) if started > 0.0 && b.last_played >= started => Comment::Repeat,
+        None => Comment::New,
+        _ if chart.meter >= HARD_COMMENT_METER => Comment::Hard,
+        _ => Comment::General,
+    }
+}
 
 /// What song select asks the shell. Selection can settle on a frame;
 /// gesture-bound requests are made inside the input that asked.
@@ -2317,6 +2336,8 @@ impl SelectScreen {
         if !self.told_shown {
             self.told_shown = true;
             self.call(SelectCall::Shown(true), cx);
+            // 5.1's `ScreenSelectMusic::BeginScreen`: at every showing.
+            cx.request(UiRequest::Announce(Line::SelectMusicIntro));
         }
         let (charts, pick) = self.charts();
         if self.resume.is_some() || self.resume_pack.is_some() {
@@ -2738,6 +2759,10 @@ impl SelectScreen {
                             chart.meter
                         ));
                         let env = self.env.clone();
+                        let started = ddi_platform::storage::started_ms();
+                        cx.request(UiRequest::Announce(Line::SelectMusic(comment(
+                            &chart, started,
+                        ))));
                         (self.play)(&song, &chart, &env, cx);
                     }
                     None => self.status(format!("no {} charts", self.style_name())),

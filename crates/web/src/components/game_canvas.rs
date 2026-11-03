@@ -290,6 +290,10 @@ pub(crate) struct GameCanvas {
     /// Whether the page is still shown: a decode for it stops when not
     /// (an Opus worker ends with it).
     alive: Rc<std::cell::Cell<bool>>,
+    /// The announcer's sounds for the play, decoded behind the prompt
+    /// (`crate::announcers::load_voice`; none without an announcer, or in
+    /// calibration).
+    voice: Option<ddi_session::announcer::SharedVoice<AudioBuffer>>,
     /// Touch screen: show the quit button and touch hints.
     touch: bool,
     /// Decoded background images until they are copied to the GPU (which
@@ -740,6 +744,7 @@ impl Component for GameCanvas {
             gamepads,
             needs_gesture: false,
             alive: Rc::new(std::cell::Cell::new(true)),
+            voice: None,
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             stage_contents: Vec::new(),
@@ -911,6 +916,20 @@ impl GameCanvas {
                 {
                     o.borrow_mut().set_layout(&layout.id);
                     o.borrow().show(&mut self.prompt_state.borrow_mut());
+                }
+                // The announcer's sounds, decoded behind the prompt.
+                if let (Some(key), SongSource::Song { chart, .. }) =
+                    (self.settings.announcer.clone(), &ctx.props().source)
+                    && self.voice.is_none()
+                {
+                    let notes = song
+                        .song
+                        .charts
+                        .get(*chart)
+                        .map_or(0, |c| c.notes.len() as u32);
+                    let voice = ddi_session::announcer::SharedVoice::default();
+                    crate::announcers::load_voice(key, notes, voice.clone(), self.alive.clone());
+                    self.voice = Some(voice);
                 }
                 self.song = Status::Ready(song);
                 self.song_at = js_sys::Date::now();
@@ -1299,7 +1318,7 @@ impl GameCanvas {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
-                self.begin_session(ctx, audio, buffer, Default::default());
+                self.begin_session(ctx, audio, buffer, Default::default(), true);
                 true
             }
             Msg::Session(SessionEvent::Interrupted) => {
@@ -1654,7 +1673,7 @@ impl GameCanvas {
             return false;
         };
         let entrance = self.prompt_state.borrow().entrance();
-        self.begin_session(ctx, audio, buffer, entrance);
+        self.begin_session(ctx, audio, buffer, entrance, false);
         true
     }
 
@@ -1821,12 +1840,15 @@ impl GameCanvas {
 
     /// The play started on `audio`, the backdrop's entrance from
     /// `entrance` (where the prompt left it; after a restart, done).
+    /// `restart`: a quick restart's play (the announcer opens it with
+    /// `gameplay restart`).
     fn begin_session(
         &mut self,
         ctx: &Context<Self>,
         audio: WebAudio,
         buffer: AudioBuffer,
         entrance: ddi_actor::background::Reveal,
+        restart: bool,
     ) {
         self.apply_background();
         // The prompt's next showing (a retry, an interruption) waits for
@@ -1847,6 +1869,7 @@ impl GameCanvas {
         };
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
+        config.session.restart = restart;
         // The editor's playtest from its cursor.
         if ctx.props().edit
             && let SongSource::Song { id, .. } = &ctx.props().source
@@ -1870,6 +1893,18 @@ impl GameCanvas {
         // The best play's ghost beside it, lined up by the song offsets.
         if self.settings.ghost && self.replay.is_none() {
             config.session.ghost = self.ghost.clone().map(|g| g.for_play(shift));
+        }
+        // What the history says of the chart before this play, for the
+        // announcer's first clear and new record (a play that is kept).
+        if let SongSource::Song { chart, .. } = &ctx.props().source
+            && self.replay.is_none()
+            && !ctx.props().edit
+        {
+            let best =
+                crate::history::plays()
+                    .history()
+                    .best_of_play(&song.song, *chart, &self.settings);
+            config.session.prior = Some(ddi_session::announcer::Prior::of(best.as_ref()));
         }
         self.played_offset = shift;
         let play_song = song.song.shifted(shift);
@@ -1909,7 +1944,10 @@ impl GameCanvas {
             SongSource::Calibration(_) => Default::default(),
         };
         match PlaySession::start(&play_song, chart, &self.settings, config, audio, buffer) {
-            Ok(session) => {
+            Ok(mut session) => {
+                if let Some(v) = &self.voice {
+                    session.set_voice(v.clone());
+                }
                 self.layout = Some(session.layout.clone());
                 // The ruleset is chosen per chart when the session starts.
                 self.names = Some(session.names.clone());

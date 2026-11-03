@@ -19,6 +19,7 @@ use ddi_ui::state::history::{
 };
 use ddi_ui::state::settings::Settings;
 
+use crate::announcer::{Announcer, Ending, Moment, Prior, SharedVoice, Timing};
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
 use crate::sounds::EventSounds;
 pub use cover::{COVER_DOWN_KEY, COVER_UP_KEY, CoverControl, START_KEYS};
@@ -126,6 +127,16 @@ pub struct SessionConfig {
     /// cursor): earlier notes are skipped and the music fades in, as
     /// after a work's `startFrame`.
     pub start: Option<f64>,
+    /// The announcer's gain (`Settings::voice_volume`;
+    /// `docs/plans/announcers.md`).
+    pub voice_volume: f32,
+    /// What the history says of the chart before this play, for the
+    /// results' first clear and new record (`None`: nothing to tell them
+    /// from; never for autoplay or a replay).
+    pub prior: Option<Prior>,
+    /// A quick restart's play (decision 79): the announcer opens it with
+    /// `gameplay restart`.
+    pub restart: bool,
 }
 
 impl SessionConfig {
@@ -150,6 +161,9 @@ impl SessionConfig {
             replay: None,
             ghost: None,
             start: None,
+            voice_volume: settings.voice_volume(),
+            prior: None,
+            restart: false,
         }
     }
 
@@ -364,6 +378,9 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// `start_ctx + (t − song_offset) / rate`.
     start_ctx: f64,
     song_offset: f64,
+    /// The announcer: its lines over the play and on its results (off in
+    /// calibration; silent until the shell hands it a voice).
+    announcer: Announcer<A::Buffer>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -488,6 +505,24 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// The claps scheduled and the mine sounds played so far.
     pub fn event_sounds(&self) -> (u32, u32) {
         (self.sounds.claps, self.sounds.mines)
+    }
+
+    /// The announcer's sounds, decoded as the shell goes
+    /// (`crate::announcer::wanted`): it speaks those there when each line
+    /// is due.
+    pub fn set_voice(&mut self, voice: SharedVoice<A::Buffer>) {
+        self.announcer.set_voice(voice);
+    }
+
+    /// What the announcer did.
+    pub fn announcer_report(&self) -> &crate::announcer::Report {
+        &self.announcer.report
+    }
+
+    /// The sound, still playing what it plays (the results' line), for
+    /// the shell to keep while the results show; dropped, it stops.
+    pub fn into_sound(mut self) -> A {
+        self.audio.0.take().expect("the session's sound")
     }
 
     /// Builds the session and schedules the start on the audio clock.
@@ -643,6 +678,33 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             audio.master_ramp(Some(1.0), 0.0, Some(music_ctx + (at - music_offset)), fade);
         }
         player.start(start_ctx, song_offset);
+        // The announcer, on the music's timeline: its first note is the
+        // first judged one the play reaches.
+        let first_note = player
+            .judge()
+            .notes()
+            .iter()
+            .filter(|n| n.judgeable && n.seconds >= song_offset)
+            .map(|n| n.seconds)
+            .reduce(f64::min);
+        let announcer = Announcer::new(
+            config.calibration.is_none(),
+            config.voice_volume,
+            config
+                .prior
+                .filter(|_| config.replay.is_none() && !auto_play),
+            Timing {
+                start: start_ctx,
+                offset: song_offset,
+                rate: player.clock().options().rate,
+            },
+            first_note,
+        );
+        let announcer = if config.restart {
+            announcer.restarted()
+        } else {
+            announcer
+        };
         // Nothing may cue the player in calibration.
         let sounds = if config.calibration.is_some() {
             EventSounds::none()
@@ -707,6 +769,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             sounds,
             start_ctx,
             song_offset,
+            announcer,
         })
     }
 
@@ -743,10 +806,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// Advance to the current host time. Returns judge events for effects.
     pub fn tick(&mut self, host_now: HostTime) -> (Vec<JudgeEvent>, Option<SessionEvent>) {
         let mut events = Vec::new();
+        let mut frame_dt = 0.0;
         if let Some(last) = self.last_frame_host {
             let dt = host_now.0 - last;
             if dt > 0.0 && dt < 0.25 {
                 self.frame_interval = self.frame_interval * 0.9 + dt * 0.1;
+                frame_dt = dt;
             }
         }
         self.last_frame_host = Some(host_now.0);
@@ -944,6 +1009,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 self.calibrate_hit(delta);
             }
         }
+        // The announcer's lines due now.
+        let moment = self.moment(now, frame_dt, HostTime(judge_now));
+        self.announcer.tick(&mut *self.audio, &moment);
 
         // An immediate fail: the engine has stopped judging and the field is
         // blank; fade the music and hold the FAILED banner before the results.
@@ -975,8 +1043,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.audio.stop_all();
             // The play ends here, judged to now (`Player::quit_at`).
             self.player.quit_at(self.player.judge_time(host_now));
+            let results = self.player.results();
+            self.announce_results(&results);
             Some(SessionEvent::Aborted {
-                results: Box::new(self.player.results()),
+                results: Box::new(results),
                 facts: Box::new(self.facts()),
             })
         } else if self.restarted {
@@ -987,9 +1057,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             Some(SessionEvent::Interrupted)
         } else if let Some(at) = self.failed_at {
             (host_now.0 - at >= FAIL_HOLD).then(|| {
-                self.audio.stop_all();
+                // The music (faded) and the event sounds; the voice's
+                // `gameplay failed` goes on into the results.
+                self.audio.stop_music();
+                let results = self.player.results();
+                self.announce_results(&results);
                 SessionEvent::Finished {
-                    results: Box::new(self.player.results()),
+                    results: Box::new(results),
                     facts: Box::new(self.facts()),
                     calibration: None,
                     device_changed: self.inputs.device_changed(),
@@ -1112,13 +1186,59 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
     }
 
-    fn finished_event(&self) -> SessionEvent {
+    fn finished_event(&mut self) -> SessionEvent {
+        let results = self.player.results();
+        self.announce_results(&results);
         SessionEvent::Finished {
-            results: Box::new(self.player.results()),
+            results: Box::new(results),
             facts: Box::new(self.facts()),
             calibration: self.calibration_outcome(),
             device_changed: self.inputs.device_changed(),
         }
+    }
+
+    /// The play as the announcer reads it now: at context time `now`,
+    /// `dt` after the last frame, judged to `judged`.
+    fn moment(&self, now: f64, dt: f64, judged: HostTime) -> Moment {
+        use ddi_engine::rules::FailPolicy;
+        let rules = self.player.ruleset();
+        let fail = &rules.fail;
+        // Failed at once; else the last note judged; a play failing at
+        // its end once that end is known.
+        let ended = self.player.finished()
+            || (self.player.judge().all_resolved()
+                && !matches!(fail, FailPolicy::EndOfSong { .. }));
+        Moment {
+            now,
+            dt,
+            song_time: self.player.judge_time(judged),
+            combo: self.player.combo(),
+            life: rules.gauge.life(),
+            danger: rules.gauge.danger() && !matches!(fail, FailPolicy::Off),
+            lives: rules.gauge.lives(),
+            failed: self.player.failed(),
+            ended,
+            // Worked out once, as the end comes.
+            full_combo: if ended && !self.announcer.ended() {
+                self.player.results_brief().full_combo
+            } else {
+                ddi_engine::rules::FullCombo::None
+            },
+        }
+    }
+
+    /// The results' line, on the play's sound as they open.
+    fn announce_results(&mut self, results: &Results) {
+        let now = self.audio.now().context_time;
+        let rules = self.player.ruleset();
+        let combo_w4 = rules.combo.continue_min == ddi_engine::rules::Judgement::W4;
+        self.announcer.results(
+            &mut *self.audio,
+            now,
+            &Ending::of(results),
+            &rules.grades,
+            combo_w4,
+        );
     }
 
     /// Resolves the bindings again with the pads connected now, after a

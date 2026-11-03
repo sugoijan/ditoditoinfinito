@@ -50,6 +50,9 @@ pub struct World {
     /// Whether [`World::noteskins`] lists them all (desktop's folders'
     /// are walked after the screen opens).
     pub noteskins_listed: bool,
+    /// The announcers one can choose `(key, name)`: imported (the web),
+    /// or in the song folders (desktop), by name.
+    pub announcers: Vec<(String, String)>,
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
     /// The parameters skins declare (`docs/plans/skin-parameters.md`),
@@ -90,12 +93,14 @@ pub enum Reset {
     /// Every setting (device calibrations too) but the songs' offsets.
     Settings,
     /// Imported songs, their files and offsets, imported noteskins and
-    /// shared images.
+    /// announcers, and shared images.
     Songs,
     /// Both, and the bundled songs' offsets: like a first visit.
     Everything,
     /// An imported noteskin (its key).
     Noteskin(String),
+    /// An imported announcer (its key).
+    Announcer(String),
     /// Every play kept (the bests go with them).
     History,
 }
@@ -142,7 +147,8 @@ impl Reset {
                 "Remove imported songs?".into(),
                 format!(
                     "Deletes the songs imported into this browser ({}) and their offsets, the \
-                     imported noteskins and the shared background images ({}). Settings are kept.",
+                     imported noteskins and announcers and the shared background images ({}). \
+                     Settings are kept.",
                     count(model.world.imported, "imported song", "imported songs"),
                     count(model.world.shared, "image", "images")
                 ),
@@ -151,8 +157,8 @@ impl Reset {
             Reset::Everything => (
                 "Reset everything?".into(),
                 format!(
-                    "Settings back to their defaults, imported songs and noteskins removed, {}, \
-                     and the offsets of the bundled songs too: like a first visit.",
+                    "Settings back to their defaults, imported songs, noteskins and announcers \
+                     removed, {}, and the offsets of the bundled songs too: like a first visit.",
                     plays_deleted(model.world.plays)
                 ),
                 "Reset everything".into(),
@@ -179,6 +185,14 @@ impl Reset {
                     } else {
                         "songs play with Infinito again."
                     }
+                ),
+                "Remove".into(),
+            ),
+            Reset::Announcer(key) => (
+                "Remove this announcer?".into(),
+                format!(
+                    "{} is removed from this browser; plays are silent again.",
+                    model.announcer_name(key)
                 ),
                 "Remove".into(),
             ),
@@ -338,6 +352,15 @@ impl OptionsModel {
                 .find(|(key, _)| key == k)
                 .map_or_else(|| k.to_string(), |(_, n)| n.clone()),
         }
+    }
+
+    /// An announcer's name (its key when it is not listed).
+    pub fn announcer_name(&self, key: &str) -> String {
+        self.world
+            .announcers
+            .iter()
+            .find(|(k, _)| k == key)
+            .map_or_else(|| key.to_string(), |(_, n)| n.clone())
     }
 
     /// The rows.
@@ -810,7 +833,68 @@ impl OptionsModel {
             s.mine_sound as usize,
             "A sound when you step on a mine or a shock arrow.",
         ));
+        v.extend(self.announcer_rows());
         section("Sound", v)
+    }
+
+    /// The announcer, its volume, and removing it (the web's, imported).
+    fn announcer_rows(&self) -> Vec<OptionDef> {
+        let s = &self.settings;
+        let desktop = self.world.platform == super::data::Platform::Desktop;
+        let mut names = vec!["Off".to_string()];
+        names.extend(self.world.announcers.iter().map(|(_, n)| n.clone()));
+        let listed = |k: &str| self.world.announcers.iter().position(|(key, _)| key == k);
+        let at = match s.announcer.as_deref() {
+            None => 0,
+            Some(k) => listed(k).map_or_else(
+                // Not listed yet (desktop's folders are walked after the
+                // screen opens): shown by its key meanwhile.
+                || {
+                    names.push(k.to_string());
+                    names.len() - 1
+                },
+                |i| i + 1,
+            ),
+        };
+        let mut rows = vec![row(
+            "announcer",
+            "Announcer",
+            OptionKind::Choices(names),
+            at,
+            if desktop {
+                "A voice that comments on your plays and calls your grade: an announcer pack                  (StepMania's, or its forks') in a song folder's Announcers folder."
+            } else {
+                "A voice that comments on your plays and calls your grade: an announcer pack                  (StepMania's, or its forks') imported with Add songs."
+            },
+        )];
+        let Some(key) = s.announcer.as_deref() else {
+            return rows;
+        };
+        let percent = (volume_to_slider(s.announcer_volume) * 100.0).round() as usize;
+        let mut volume = row(
+            "announcer_volume",
+            "Announcer volume",
+            OptionKind::Slider((0..=100).map(|v| format!("{v}%")).collect()),
+            percent.min(100),
+            "How loud the announcer speaks, as a share of the music volume (muting the music \
+             mutes it too).",
+        );
+        volume.note = if s.announcer_volume > 0.0 {
+            format!("{:.0} dB", 20.0 * s.announcer_volume.log10())
+        } else {
+            "muted".into()
+        };
+        rows.push(volume);
+        if !desktop && listed(key).is_some() {
+            rows.push(actions(
+                "announcer.remove",
+                "This announcer",
+                &["Remove"],
+                "",
+                "Removes the imported announcer from this browser.",
+            ));
+        }
+        rows
     }
 
     fn display(&self) -> OptionSection {
@@ -1460,8 +1544,8 @@ impl OptionsModel {
                 } else {
                     count(w.imported, "song", "songs")
                 },
-                "Deletes the imported songs, their offsets, the imported noteskins and the \
-                     shared background images; settings are kept.",
+                "Deletes the imported songs, their offsets, the imported noteskins and \
+                     announcers and the shared background images; settings are kept.",
             ),
         };
         let plays = self.world.plays;
@@ -1611,6 +1695,14 @@ impl OptionsModel {
             "volume" => s.volume = slider_to_volume(i as f32 / 100.0),
             "assist_clap" => s.assist_clap = on,
             "mine_sound" => s.mine_sound = on,
+            "announcer" => {
+                if i == 0 {
+                    s.announcer = None;
+                } else if let Some((k, _)) = self.world.announcers.get(i - 1) {
+                    s.announcer = Some(k.clone());
+                }
+            }
+            "announcer_volume" => s.announcer_volume = slider_to_volume(i as f32 / 100.0),
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
             "receptor_snap" => s.receptor_snap = on,
@@ -1704,6 +1796,10 @@ impl OptionsModel {
             },
             ("pump_noteskin.remove", _) => match self.settings.pump_noteskin.clone() {
                 Some(k) => Act::Confirm(Reset::Noteskin(k)),
+                None => Act::Nothing,
+            },
+            ("announcer.remove", _) => match self.settings.announcer.clone() {
+                Some(k) => Act::Confirm(Reset::Announcer(k)),
                 None => Act::Nothing,
             },
             ("bind.any", _) => Act::Bind(None),
@@ -2009,8 +2105,15 @@ impl OptionsModel {
                 self.settings
                     .skin_params
                     .retain(|k, _| k.starts_with(BUNDLED));
+                // The web's are removed; desktop's folders forgotten.
+                self.settings.announcer = None;
             }
             Reset::History => {}
+            Reset::Announcer(k) => {
+                if self.settings.announcer.as_deref() == Some(k.as_str()) {
+                    self.settings.announcer = None;
+                }
+            }
             Reset::Noteskin(k) => {
                 if self.settings.noteskin.as_deref() == Some(k.as_str()) {
                     self.settings.noteskin = None;
@@ -2040,6 +2143,19 @@ impl OptionsModel {
         self.world.noteskins = skins;
         self.world.noteskins_listed = true;
         self.world.default_lua_off = lua_off;
+    }
+
+    /// The announcers one can choose: a chosen one no longer there is let
+    /// go (when every one could be read: `complete`).
+    pub fn set_announcers(&mut self, announcers: Vec<(String, String)>, complete: bool) {
+        if complete
+            && self
+                .settings
+                .let_go_missing_announcer(|k| announcers.iter().any(|(key, _)| key == k))
+        {
+            self.settings.save();
+        }
+        self.world.announcers = announcers;
     }
 
     /// The parameters the skins declare, by key (the shell reads them
@@ -2444,6 +2560,62 @@ mod tests {
         assert_eq!(m.settings.noteskin.as_deref(), Some("dance/elsewhere"));
         assert_eq!(m.preview_settings().noteskin, None);
         assert_eq!(find(&m.data(), "noteskin").index, 0);
+    }
+
+    #[test]
+    fn an_announcer_is_chosen_its_volume_set_and_removed() {
+        let has = |m: &OptionsModel, id: &str| {
+            m.data()
+                .sections
+                .iter()
+                .flat_map(|s| &s.options)
+                .any(|o| o.id == id)
+        };
+        let mut m = model();
+        // Off, none listed: the row alone.
+        assert_eq!(find(&m.data(), "announcer").values(), ["Off"]);
+        assert!(!has(&m, "announcer_volume"));
+        m.set_announcers(
+            vec![
+                ("ddr 1st mix".into(), "DDR 1st Mix".into()),
+                ("techno".into(), "Techno".into()),
+            ],
+            true,
+        );
+        assert!(m.change("announcer", 2));
+        assert_eq!(m.settings.announcer.as_deref(), Some("techno"));
+        assert_eq!(find(&m.data(), "announcer").index, 2);
+        // Its volume, a share of the music's, on the music's scale.
+        assert_eq!(find(&m.data(), "announcer_volume").value(), "100%");
+        m.change("announcer_volume", 50);
+        assert!((m.settings.announcer_volume - 0.125).abs() < 1e-6);
+        assert_eq!(find(&m.data(), "announcer_volume").note, "-18 dB");
+        // Removed from its row on the web; desktop reads them in place.
+        assert_eq!(
+            m.action("announcer.remove", 0),
+            Act::Confirm(Reset::Announcer("techno".into()))
+        );
+        m.world.platform = super::super::data::Platform::Desktop;
+        assert!(!has(&m, "announcer.remove"));
+        m.world.platform = super::super::data::Platform::Web;
+        let (_, body, _) = Reset::Announcer("techno".into()).texts(&m);
+        assert!(body.starts_with("Techno is removed"), "{body}");
+        m.reset(&Reset::Announcer("techno".into()));
+        assert_eq!(m.settings.announcer, None);
+        // One chosen and not listed yet shows by its key; gone once all
+        // are listed.
+        m.settings.announcer = Some("elsewhere".into());
+        let row = find(&m.data(), "announcer").clone();
+        assert_eq!(row.values()[row.index], "elsewhere");
+        let listed = m.world.announcers.clone();
+        m.set_announcers(listed.clone(), false);
+        assert_eq!(m.settings.announcer.as_deref(), Some("elsewhere"));
+        m.set_announcers(listed, true);
+        assert_eq!(m.settings.announcer, None);
+        // Removing the imported songs lets it go too.
+        m.change("announcer", 1);
+        m.reset(&Reset::Songs);
+        assert_eq!(m.settings.announcer, None);
     }
 
     fn find<'a>(d: &'a OptionsData, id: &str) -> &'a OptionDef {

@@ -6,6 +6,7 @@
 //! workspace-wide `cargo check`) it is empty.
 #![cfg(target_arch = "wasm32")]
 
+mod announcers;
 mod app;
 mod boot;
 mod calibration;

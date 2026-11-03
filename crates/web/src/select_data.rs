@@ -155,6 +155,12 @@ pub(crate) fn report_view(r: &ImportReport, details: bool) -> ImportReportView {
             plural(r.noteskins.len(), "noteskin", "noteskins")
         ));
     }
+    if !r.announcers.is_empty() {
+        parts.push(format!(
+            "stored {} (choose it under Options, Sound)",
+            plural(r.announcers.len(), "announcer", "announcers")
+        ));
+    }
     if r.shared_images > 0 {
         parts.push(format!(
             "stored {}",
@@ -221,6 +227,7 @@ pub(crate) fn report_view(r: &ImportReport, details: bool) -> ImportReportView {
     };
     let error = r.imported.is_empty()
         && r.noteskins.is_empty()
+        && r.announcers.is_empty()
         && r.shared_images == 0
         && r.shared_videos == 0
         && r.shared_skipped == 0
@@ -235,6 +242,7 @@ pub(crate) fn report_view(r: &ImportReport, details: bool) -> ImportReportView {
     let mut sections = Vec::new();
     for (title, items, shown) in [
         ("Noteskins", &r.noteskins, true),
+        ("Announcers", &r.announcers, true),
         ("Not imported", &r.skipped, true),
         ("Imported with problems", &r.warnings, true),
         (

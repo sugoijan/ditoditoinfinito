@@ -1813,6 +1813,7 @@ impl Host {
                 UiRequest::Quit => {}
                 UiRequest::StartAudio => self.beep(),
                 UiRequest::PlayPreview { .. } | UiRequest::StopPreview => {}
+                UiRequest::Announce(line) => crate::announcers::announce(line),
                 UiRequest::Redraw => {}
                 UiRequest::SetCursor(c) => {
                     let css = match c {

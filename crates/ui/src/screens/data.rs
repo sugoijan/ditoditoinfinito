@@ -116,6 +116,8 @@ pub struct Best {
     pub plays: u32,
     /// The play the score is from (its replay).
     pub play: String,
+    /// When the last of its plays was, milliseconds since the Unix epoch.
+    pub last_played: f64,
 }
 
 /// A kept play of a chart, as song select's plays list shows it

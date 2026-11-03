@@ -45,7 +45,7 @@ use ddi_ui::state::place::MenuPlace;
 /// How often the connected controllers are checked for missing bindings.
 const PAD_CHECK_MS: u32 = 1000;
 /// What the zip and files input takes.
-const ACCEPT: &str = ".zip,.sm,.ssc,.dwi,.swf,.as,.beatbox,.txt,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv";
+const ACCEPT: &str = ".zip,.smzip,.sm,.ssc,.dwi,.swf,.as,.beatbox,.txt,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv";
 
 /// The music a new song is made from (`SelectCall::NewSong`).
 const ACCEPT_MUSIC: &str = "audio/*,.ogg,.oga,.opus,.mp3,.wav,.flac";

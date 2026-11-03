@@ -95,7 +95,11 @@ Rust and the browser are implementation details, not advertised features.
   (`ffr.rs`: a song a level file, its folder its pack; the chart and
   music of a SWF, `swf.rs`), a stored song's entry after the chart
   editor saved it or made it new (`edited.rs`), a music file's title
-  and artist from its tags (`tags.rs`), and what the shells and the
+  and artist from its tags (`tags.rs`), the lines announcers speak and
+  the announcers found among an import's files (`announcer.rs`:
+  StepMania's layout and aliases, Etterna's two names and ours;
+  `docs/plans/announcers.md`; every line, when it speaks and what it
+  falls back to, for pack authors: `docs/announcer-lines.md`), and what the shells and the
   private shared-songs Worker agree on without the web's record types
   (`share.rs`: share ids, `shared:<id>:<n>` song ids, the time left;
   `docs/plans/shared-songs.md`). Pure, natively tested.
@@ -308,7 +312,13 @@ Rust and the browser are implementation details, not advertised features.
   have a decoder, their tracks and what shows, each shell's decoders
   behind `MovieShell`; `BackdropTextures`, both shells' `movies.rs` run
   on it; song select's `#PREVIEWVID` movie, when it plays, `movies/preview.rs`), a song's scripted backgrounds and foregrounds (`scripted.rs`:
-  their VM, the commands at each change, one budget a frame); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  their VM, the commands at each change, one budget a frame), the
+  announcer's lines in play and on the results (`announcer.rs`: 5.1's
+  timings and precedence over what the play knows, the sounds a play
+  decodes and their shuffles, spoken on the voice's bus; song select's
+  intro and comments, which it asks the shells for with
+  `UiRequest::Announce`, decoded from `menu`;
+  `docs/plans/announcers.md`); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
@@ -351,10 +361,14 @@ Rust and the browser are implementation details, not advertised features.
   device for the whole app (`crates/web/src/web/screen.rs`: made at boot, moved
   into the page that draws, made again after a lost device), Web Audio
   clock, settings in `localStorage` (`crates/web/src/web/kv.rs`), imported songs
-  and the play history in IndexedDB (`ddi-library` version 3; the plays in
+  and the play history in IndexedDB (`ddi-library` version 4; the plays in
   `plays` and `play_summaries`, `crates/web/src/history.rs`,
-  `docs/plans/play-history.md`), replays on the play route
-  (`#/play?replay=<play id>`, `crates/web/src/replay.rs`), the chart
+  `docs/plans/play-history.md`; imported announcers in `announcers`, their
+  sounds in `files`, `crates/web/src/announcers.rs`, a play's decoded
+  behind its prompt there, spoken on a bus of their own beside the
+  master's, `web/audio.rs`, song select's on its preview's context),
+  replays on the play route (`#/play?replay=<play id>`,
+  `crates/web/src/replay.rs`), the chart
   editor at `#/edit?song=<id>&chart=<n>` (`components/edit_page.rs`;
   its session, saving and playtests `#/play?…&edit=1`,
   `crates/web/src/editor.rs`; new songs from Add songs,
@@ -380,13 +394,15 @@ Rust and the browser are implementation details, not advertised features.
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
   `render`'s painter (cosmic-text, system fonts); sound through cpal with
-  our own mixer, the clock from CoreAudio's host time and latencies
+  our own mixer (the announcer on a bus of its own after the master,
+  which the fail's and a work's fades leave alone), the clock from CoreAudio's host time and latencies
   (`audio/`, music decoded with `decode-all` on a thread); keys stamped
   with the OS's time where it gives one (`keyboard.rs`, macOS's
   `NSEvent`), controllers through gilrs on their own thread (`pads.rs`);
   the library read in place (`library/`: the song folders Options lists,
-  StepMania roots, packs and zips, simfiles and Dancing☆Onigiri works,
-  with a cache; a first start offers other games' song folders,
+  StepMania roots, packs and zips (`.smzip` too), simfiles and
+  Dancing☆Onigiri works, with a cache; announcers found in place,
+  `announcers.rs`; a first start offers other games' song folders,
   `offer.rs`); plays through the shared session (`play/`: the UI core's
   start prompt, noteskins with their Lua read on a thread, backgrounds,
   a song's scripts read on a thread and their Lua run in slices
@@ -402,7 +418,9 @@ Rust and the browser are implementation details, not advertised features.
   movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
   data folder (stale plays judged again on a thread, `history.rs`),
-  replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
+  replays, `play/replays.rs`; the announcer's sounds decoded on a
+  thread, `play/voice.rs`, and the play's sound kept through its results
+  for their line); a play's frames paced (`pacing/`: blocking in the
   acquire, or each started as late before its refresh as its
   cost allows (late with two frames in flight by default when a display
   link is available, block with one elsewhere; late falls back to block
@@ -679,6 +697,9 @@ Rust and the browser are implementation details, not advertised features.
   `DDI_NOTESKINS_LUA=1`, in release under the watchdog: with each skin's
   Lua; `DDI_NOTESKINS_LUA_PLAY=1` also plays 20 s at 60 and 144 Hz and
   reports the Lua's fuel per frame).
+- `DDI_ANNOUNCERS=<dir>[:<dir>…] cargo test -p ddi-library --test local_announcers -- --ignored --nocapture`
+  finds the announcers in every folder and zip under local folders and
+  prints what each holds and passed over (third-party packs stay local).
 - `DDI_LUA_CORPUS=<dir>[:<dir>…]` / `DDI_LUA_CASES=<cases.txt>` with
   `cargo test --release -p ddi-lua --test local -- --nocapture` compile
   local skins' Lua, or run lunita's exported limit cases with
@@ -708,6 +729,10 @@ Rust and the browser are implementation details, not advertised features.
   from SkinCraft exports; editable sources are in `tools/noteskin-peters/design/`.
   `python3 tools/noteskin-peters/generate.py [--check]` reproduces only the earlier
   model/SVG study under `target/scratch/peters/model-svg-study`, not the bundled skin.
+- `python3 tools/announcer-design/announcer.py` auditions announcer voices
+  made with ElevenLabs (the key from `ELEVENLABS_API_KEY`, never written):
+  free-plan audio, kept in `target/scratch/announcer-audition/` and never
+  committed or bundled (`docs/plans/announcers.md`, "A pack of our own").
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.

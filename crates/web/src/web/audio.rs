@@ -34,6 +34,8 @@ const ANALYSER_SIZE: usize = 2048;
 struct Voice {
     source: AudioBufferSourceNode,
     gain: GainNode,
+    /// On the voice's bus ([`AudioBackend::play_voice`]).
+    bus: bool,
     /// `onended` handler; dropped with the voice so nothing leaks per sound.
     _on_ended: Closure<dyn FnMut()>,
 }
@@ -49,6 +51,10 @@ struct Voices {
 pub(crate) struct WebAudio {
     ctx: AudioContext,
     master: GainNode,
+    /// The voice's bus (the announcer's): beside the master, following
+    /// its volume ([`Self::set_master_volume`]) but not its ramps
+    /// ([`AudioBackend::master_ramp`]).
+    bus: GainNode,
     analyser: AnalyserNode,
     voices: Rc<RefCell<Voices>>,
     next_id: SoundId,
@@ -91,13 +97,18 @@ impl WebAudio {
             .create_analyser()
             .map_err(|e| js_err("creating analyser", e))?;
         analyser.set_fft_size(ANALYSER_SIZE as u32);
+        let bus = ctx
+            .create_gain()
+            .map_err(|e| js_err("creating the voice's gain", e))?;
         master
             .connect_with_audio_node(&analyser)
+            .and_then(|_| bus.connect_with_audio_node(&analyser))
             .and_then(|_| analyser.connect_with_audio_node(&ctx.destination()))
             .map_err(|e| js_err("connecting master gain", e))?;
         Ok(WebAudio {
             ctx,
             master,
+            bus,
             analyser,
             voices: Rc::new(RefCell::new(Voices::default())),
             next_id: 1,
@@ -194,12 +205,33 @@ impl WebAudio {
         Ok(id)
     }
 
-    /// Moves the master volume smoothly (no click) to `volume`.
+    /// Moves the master volume smoothly (no click) to `volume`, the
+    /// voice's bus's with it.
     pub(crate) fn set_master_volume(&self, volume: f32) {
-        let gain = self.master.gain();
         let now = self.ctx.current_time();
-        let _ = gain.cancel_scheduled_values(now);
-        let _ = gain.set_target_at_time(volume, now, 0.015);
+        for gain in [self.master.gain(), self.bus.gain()] {
+            let _ = gain.cancel_scheduled_values(now);
+            let _ = gain.set_target_at_time(volume, now, 0.015);
+        }
+    }
+
+    /// Stops and forgets every sound but the voice's.
+    pub(crate) fn stop_music(&mut self) {
+        let mut voices = self.voices.borrow_mut();
+        let music: Vec<SoundId> = voices
+            .live
+            .iter()
+            .filter(|(_, v)| !v.bus)
+            .map(|(id, _)| *id)
+            .collect();
+        let gone: Vec<Voice> = music
+            .iter()
+            .filter_map(|id| voices.live.remove(id))
+            .collect();
+        drop(voices);
+        for voice in gone {
+            Self::silence(&voice);
+        }
     }
 
     /// Stops and forgets every scheduled or playing sound.
@@ -855,6 +887,10 @@ impl AudioBackend for WebAudio {
         WebAudio::stop_all(self);
     }
 
+    fn stop_music(&mut self) {
+        WebAudio::stop_music(self);
+    }
+
     fn running(&self) -> bool {
         WebAudio::running(self)
     }
@@ -913,6 +949,33 @@ impl AudioBackend for WebAudio {
         offset: f64,
         volume: f32,
     ) -> Result<SoundId, String> {
+        self.play_into(false, buffer, start_at_context_time, offset, volume)
+    }
+
+    fn duration(&self, buffer: &AudioBuffer) -> f64 {
+        buffer.duration() + lead(buffer)
+    }
+
+    fn play_voice(
+        &mut self,
+        buffer: &AudioBuffer,
+        start_at_context_time: f64,
+        volume: f32,
+    ) -> Result<SoundId, String> {
+        self.play_into(true, buffer, start_at_context_time, 0.0, volume)
+    }
+}
+
+impl WebAudio {
+    /// [`AudioBackend::play`] into the master, or the voice's `bus`.
+    fn play_into(
+        &mut self,
+        bus: bool,
+        buffer: &AudioBuffer,
+        start_at_context_time: f64,
+        offset: f64,
+        volume: f32,
+    ) -> Result<SoundId, String> {
         // Free voices whose `onended` has fired since the last call.
         self.voices.borrow_mut().finished.clear();
         let source = self
@@ -928,7 +991,8 @@ impl AudioBackend for WebAudio {
         source
             .connect_with_audio_node(&gain)
             .map_err(|e| js_err("connect source", e))?;
-        gain.connect_with_audio_node(&self.master)
+        let out = if bus { &self.bus } else { &self.master };
+        gain.connect_with_audio_node(out)
             .map_err(|e| js_err("connect gain", e))?;
         // An MP3's lead: its audio heard that much later than its
         // samples (or earlier).
@@ -959,14 +1023,11 @@ impl AudioBackend for WebAudio {
             Voice {
                 source,
                 gain,
+                bus,
                 _on_ended: on_ended,
             },
         );
         Ok(id)
-    }
-
-    fn duration(&self, buffer: &AudioBuffer) -> f64 {
-        buffer.duration() + lead(buffer)
     }
 }
 
@@ -981,6 +1042,12 @@ thread_local! {
 /// prompt decodes the music with it, so Start only starts the sound.
 pub(crate) fn keep_for_play(song: &str, chart: usize, audio: WebAudio) {
     FOR_PLAY.with_borrow_mut(|k| *k = Some(((song.to_string(), chart), audio)));
+}
+
+/// `f` on the context kept for a play, if one is (song select's comment
+/// speaks on it: the play takes it, `crates/web/src/announcers.rs`).
+pub(crate) fn with_kept_for_play<T>(f: impl FnOnce(&mut WebAudio) -> T) -> Option<T> {
+    FOR_PLAY.with_borrow_mut(|k| k.as_mut().map(|(_, audio)| f(audio)))
 }
 
 /// The context kept for the play of `song`'s chart `chart`, if it is the

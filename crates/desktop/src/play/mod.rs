@@ -19,6 +19,7 @@ pub mod scripts;
 pub mod skins;
 pub mod stage;
 pub mod view;
+pub mod voice;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -69,6 +70,12 @@ pub struct Request {
     /// (`Settings::start_countdown`, `docs/plans/start-prompt.md`); not
     /// for `--play`, replays, playtests or calibration.
     pub countdown: bool,
+    /// What the history says of the chart before the play, for the
+    /// announcer's first clear and new record (set as the play begins).
+    pub prior: Option<ddi_session::announcer::Prior>,
+    /// A quick restart's play (the announcer opens it with `gameplay
+    /// restart`; set as it begins again).
+    pub restart: bool,
 }
 
 impl Request {
@@ -89,6 +96,8 @@ impl Request {
             edited: None,
             start: None,
             countdown: false,
+            prior: None,
+            restart: false,
         }
     }
 
@@ -109,6 +118,8 @@ impl Request {
             edited: None,
             start: None,
             countdown: false,
+            prior: None,
+            restart: false,
         }
     }
 
@@ -349,6 +360,8 @@ impl Play {
         config.auto_bias = request.bias;
         config.seed = random_seed();
         config.start = request.start;
+        config.prior = request.prior;
+        config.restart = request.restart;
         if let Some(mode) = request.calibration {
             config.calibrate(mode);
         }
@@ -453,6 +466,12 @@ impl Play {
     /// After [`Ended::Restart`]: the play's sound, silent, for the next.
     pub fn into_restart(self) -> Audio {
         self.session.into_restart().0
+    }
+
+    /// The play's sound, still saying the results' line, to keep while
+    /// they show.
+    pub fn into_sound(self) -> Audio {
+        self.session.into_sound()
     }
 
     /// Keeps the play in the history, once.

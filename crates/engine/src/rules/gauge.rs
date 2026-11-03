@@ -232,6 +232,10 @@ impl GaugeRules for Battery {
         self.remaining <= 1
     }
 
+    fn lives(&self) -> Option<u32> {
+        Some(self.remaining)
+    }
+
     fn fresh(&self) -> Box<dyn GaugeRules> {
         Box::new(Battery::new(
             self.lives,
@@ -479,11 +483,15 @@ mod tests {
         b.on_event(&tap(Judgement::W4), &ctx);
         b.on_event(&tap(Judgement::Miss), &ctx);
         assert!(close(b.life(), 0.5));
+        assert_eq!(b.lives(), Some(2));
         assert!(!b.danger());
         b.on_event(&tap(Judgement::W5), &ctx);
         assert!(b.danger());
         b.on_event(&tap(Judgement::Miss), &ctx);
         assert!(b.failed());
+        assert_eq!(b.lives(), Some(0));
+        // A bar has none.
+        assert_eq!(FixedPercent::ddr_a20().lives(), None);
     }
 
     #[test]

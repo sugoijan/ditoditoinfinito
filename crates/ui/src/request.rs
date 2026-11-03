@@ -126,6 +126,12 @@ pub enum UiRequest {
     FieldPreview(Option<[f32; 4]>),
     /// The pre-start controls diagram, using the play's skin and bindings.
     ReceptorPreview(Option<crate::screens::prompt_controls::Picture>),
+    /// Speak an announcer's line (song select's: `select music intro`,
+    /// a chosen song's comment; `docs/plans/announcers.md`, step 5): the
+    /// shell plays it on the screen's sound where the announcer chosen
+    /// has it, and says nothing otherwise. Never asks for a context: it
+    /// speaks where one runs.
+    Announce(ddi_library::announcer::Line),
 }
 
 impl UiRequest {

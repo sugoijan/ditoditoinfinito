@@ -1,0 +1,106 @@
+# What announcer.py auditions. Edit freely: a design round or a clip
+# already made is kept (and not paid for again) as long as its voice,
+# style, line and text stay the same.
+
+# Voice Design: each round of a voice gives three previews of it reading
+# this text (100 to 1000 characters, charged by its length).
+[design]
+model = "eleven_ttv_v3"
+text = """Welcome to Dito Dito Infinito! Pick a song... Ready? Here we go!
+You're on fire! Hang in there, don't give up now! Five hundred combo!
+Oh... combo broken. Shake it off! Cleared! Now that's dancing!"""
+# Any other key here goes to the design request as it is, e.g.
+# guidance_scale = 5, loudness = 0.5, quality = 0.5, should_enhance = false.
+
+# Voices designed from a description (ElevenLabs' suggested form: language,
+# gender and age, quality, persona, emotion, then timbre and delivery).
+# Never describe a real person, another game or its announcer. A voice
+# with `voice_id` in place of `description` is an existing one (one of
+# ElevenLabs' own default voices, say): it skips design and is spoken
+# as a kept voice under its name.
+
+[[voice]]
+name = "arcade-mc"
+description = "Native English. Male, 30s. Studio quality. Persona: energetic arcade MC. Emotion: hyped, playful, confident. Bright, punchy voice with a slight rasp; short phrases that land on the beat, energy rising at the end of each line."
+
+[[voice]]
+name = "stadium"
+description = "Native English. Female, late 20s. Studio quality. Persona: stadium hype announcer. Emotion: thrilled, commanding, warm. Clear, ringing projection as if calling over a crowd, crisp consonants and long bold vowels on the key words."
+
+[[voice]]
+name = "late-night"
+description = "Native English. Male, 40s. Studio quality. Persona: laid-back late-night radio host. Emotion: smooth, amused, encouraging. Deep, velvety timbre and relaxed pacing, with a smile in the voice even when teasing."
+
+[[voice]]
+name = "game-computer"
+description = "Native English. Female, 20s. Studio quality. Persona: friendly retro-futuristic game computer. Emotion: upbeat, precise, cheeky. Clean voice with a light synthetic sheen, crisp diction and a quick, bouncy rhythm."
+
+# How the kept voices speak the lines. `tags = false` strips the audio
+# tags ([excited] and the like) for models that would read them out;
+# `settings` goes to the request's voice_settings as it is; each take is
+# the same request with its own seed (1, 2, ...).
+
+[[style]]
+name = "v4"
+model = "eleven_v4"
+tags = true
+takes = 2
+settings = { stability = 0.5 }
+
+[[style]]
+name = "v3"
+model = "eleven_v3"
+tags = true
+takes = 2
+settings = { stability = 0.5 }
+
+[[style]]
+name = "v2"
+model = "eleven_multilingual_v2"
+tags = false
+takes = 1
+settings = { stability = 0.35, similarity_boost = 0.75, style = 0.45 }
+
+# The lines, by the folder a pack keeps them in (StepMania's names, as
+# `ddi_library::announcer::Line::folder` has them), a range of moods
+# rather than the whole set. Each text is a variant the game picks among.
+
+[[line]]
+folder = "select music intro"
+texts = ["[warm] Pick a song!", "[playful] What are we dancing to today?"]
+
+[[line]]
+folder = "gameplay ready"
+texts = ["[confident] Ready?", "[playful] Get ready..."]
+
+[[line]]
+folder = "gameplay here we go normal"
+texts = ["[excited] Here we go!", "[excited] Let's dance!"]
+
+[[line]]
+folder = "gameplay comment hot"
+texts = ["[excited] You're on fire!", "[impressed] Look at those feet go!"]
+
+[[line]]
+folder = "gameplay comment danger"
+texts = ["[urgent] Hang in there!", "[encouraging] Don't give up now!"]
+
+[[line]]
+folder = "gameplay 500 combo"
+texts = ["[excited] Five hundred combo!"]
+
+[[line]]
+folder = "gameplay combo stopped"
+texts = ["[sighs] Combo broken.", "[reassuring] Shake it off!"]
+
+[[line]]
+folder = "gameplay failed"
+texts = ["[disappointed] Not this time...", "[gentle] So close. Try again!"]
+
+[[line]]
+folder = "gameplay cleared"
+texts = ["[cheering] Cleared!", "[proud] You made it!"]
+
+[[line]]
+folder = "evaluation aa"
+texts = ["[impressed] Excellent!", "[excited] Now that's dancing!"]

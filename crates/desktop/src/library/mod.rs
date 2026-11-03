@@ -21,6 +21,7 @@
 //!   (`zip:<zip>!<entry>` for a zip's, `crate::images`), previews from
 //!   the music's path (a zip's extracted once into the cache folder).
 
+pub mod announcers;
 pub mod files;
 #[cfg(danoni_importer)]
 pub mod managed;
@@ -329,10 +330,11 @@ impl Root {
     }
 }
 
+/// A `.zip` or `.smzip` (`ddi_library::zip::archive_stem`).
 fn is_zip(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| ddi_library::zip::archive_stem(n).is_some())
 }
 
 /// A child folder named `name` in any case.

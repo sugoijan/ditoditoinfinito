@@ -666,6 +666,7 @@ impl Shell {
                 }
                 UiRequest::PlayPreview { song } => self.sound.borrow_mut().select(Some(&song)),
                 UiRequest::StopPreview => self.sound.borrow_mut().pause(),
+                UiRequest::Announce(line) => self.sound.borrow_mut().announce_menu(line),
                 UiRequest::Back => {}
                 UiRequest::Quit => self.request_quit(),
                 UiRequest::CopyText(text) => {

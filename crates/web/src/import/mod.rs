@@ -60,6 +60,8 @@ pub(crate) struct ImportReport {
     pub(crate) removed: usize,
     /// (noteskin, what of it draws) for the noteskins imported.
     pub(crate) noteskins: Vec<(String, String)>,
+    /// (announcer, what it speaks) for the announcers imported.
+    pub(crate) announcers: Vec<(String, String)>,
     /// Set when the import could not run at all.
     pub(crate) error: Option<String>,
 }
@@ -286,10 +288,10 @@ async fn run(
             continue;
         }
         progress.emit(format!("reading {}…", f.path));
+        // `Packs/Foo.zip` → `Packs/Foo/<entry>`: the zip acts as a folder.
+        let root = zip::archive_stem(&f.path).unwrap_or(&f.path).to_string();
         match zip_entries(&f.file).await {
             Ok(entries) => {
-                // `Packs/Foo.zip` → `Packs/Foo/<entry>`: the zip acts as a folder.
-                let root = f.path[..f.path.len() - ".zip".len()].to_string();
                 for entry in entries.into_iter().filter(|e| !e.is_dir) {
                     let path = format!("{root}/{}", entry.name);
                     // Not read, as on desktop: said so, not listed (an
@@ -309,7 +311,7 @@ async fn run(
                 }
             }
             Err(e) => {
-                unreadable.push(f.path[..f.path.len() - ".zip".len()].to_string());
+                unreadable.push(root);
                 report.skipped.push((f.path, e));
             }
         }
@@ -335,12 +337,18 @@ async fn run(
     let level_candidates = ddi_library::ffr::find_levels(&paths, &candidates, &fallback);
     let maybe_levels = !level_candidates.is_empty();
     let skins = ddi_noteskin::import::find_skins(&paths);
+    let sized: Vec<(&str, u64)> = paths
+        .iter()
+        .map(|p| (p.as_str(), sources.get(p).map_or(0, source_size)))
+        .collect();
+    let announcers = ddi_library::announcer::find_announcers(&sized, &fallback);
     // A folder read again with nothing left in it still drops its songs.
     if candidates.is_empty()
         && shared_files.is_empty()
         && !maybe_works
         && !maybe_levels
         && skins.is_empty()
+        && announcers.announcers.is_empty()
         && !rescan
     {
         report_music_without_simfile(&mut report, &paths, &HashSet::new());
@@ -358,6 +366,9 @@ async fn run(
     };
     if !skins.is_empty() {
         store_noteskins(&db, &skins, &sources, &paths, &mut report, &progress).await;
+    }
+    if !announcers.announcers.is_empty() {
+        store_announcers(&db, &announcers, &sources, &mut report, &progress).await;
     }
     let keep_videos = crate::settings::Settings::load().import_videos;
     let images: Vec<&(String, String)> = shared_files.iter().filter(|(s, _)| is_image(s)).collect();
@@ -479,6 +490,7 @@ async fn run(
         && !levels.found
         && report.skipped.is_empty()
         && report.noteskins.is_empty()
+        && report.announcers.is_empty()
     {
         report.error = Some(NOTHING_FOUND.into());
     }
@@ -545,7 +557,7 @@ pub(crate) fn stills_status() -> Option<String> {
     SHARED.with(|s| s.borrow().stills.clone())
 }
 
-const NOTHING_FOUND: &str = "No .sm, .ssc or .dwi files, Dancing☆Onigiri works, FFR levels or noteskins were found in what was picked.";
+const NOTHING_FOUND: &str = "No .sm, .ssc or .dwi files, Dancing☆Onigiri works, FFR levels, noteskins or announcers were found in what was picked.";
 
 /// "1 noteskin", "3 noteskins".
 fn plural_skins(n: usize) -> String {
@@ -722,6 +734,92 @@ async fn store_noteskins(
         }
         let line = crate::noteskins::summary(&folders, &skin.game, &skin.name).await;
         report.noteskins.push((skin.name, line));
+    }
+}
+
+/// Stores the announcers found among the import's files: each one's
+/// lines' sounds (`crate::announcers`), what it speaks in the report, what
+/// it lost in the warnings, what makes no difference in the details.
+async fn store_announcers(
+    db: &Db,
+    found: &ddi_library::announcer::Found,
+    sources: &HashMap<String, Source>,
+    report: &mut ImportReport,
+    progress: &Callback<String>,
+) {
+    use ddi_library::announcer::MAX_ANNOUNCERS;
+    if found.left_out > 0 {
+        let n = found.announcers.len() + found.left_out;
+        report.warnings.push((
+            format!("{n} announcers"),
+            format!("only the first {MAX_ANNOUNCERS} were imported"),
+        ));
+    }
+    let mut keys = HashSet::new();
+    for a in &found.announcers {
+        let label = if a.dir.is_empty() {
+            a.name.clone()
+        } else {
+            a.dir.to_string()
+        };
+        let mut kept = a.kept();
+        if kept.lines.is_empty() {
+            report.skipped.push((
+                label,
+                "an announcer with none of the lines the game speaks".into(),
+            ));
+            continue;
+        }
+        if !keys.insert(kept.key()) {
+            report.skipped.push((
+                label,
+                "another announcer of this import has the same name".into(),
+            ));
+            continue;
+        }
+        progress.emit(format!("storing the announcer {}…", a.name));
+        let mut sounds = Vec::new();
+        let mut bytes = 0;
+        for files in kept.lines.values_mut() {
+            let mut stored = Vec::new();
+            for f in files.drain(..) {
+                let at = a.dir.join(&f);
+                let Some(source) = sources.get(at.as_str()) else {
+                    continue;
+                };
+                match read_blob(source, mime_type(&f)).await {
+                    Ok(blob) => {
+                        bytes += source_size(source);
+                        sounds.push((f.to_string(), blob));
+                        stored.push(f);
+                    }
+                    Err(e) => report.warnings.push((label.clone(), format!("{f}: {e}"))),
+                }
+            }
+            *files = stored;
+        }
+        kept.lines.retain(|_, files| !files.is_empty());
+        kept.files = sounds.len();
+        kept.bytes = bytes;
+        let said = a.said();
+        let writes = match crate::announcers::store(&kept, sounds) {
+            Ok(writes) => writes,
+            Err(e) => {
+                report.skipped.push((label, e));
+                continue;
+            }
+        };
+        if let Err(e) = db.write(writes).await {
+            report.skipped.push((label, e));
+            continue;
+        }
+        report.announcers.push((a.name.clone(), said.summary));
+        report
+            .warnings
+            .extend(said.warnings.into_iter().map(|w| (label.clone(), w)));
+        report
+            .notes
+            .extend(said.details.into_iter().map(|d| (label.clone(), d)));
     }
 }
 
@@ -1114,7 +1212,7 @@ fn source(sources: &HashMap<String, Source>, path: impl AsRef<str>) -> Result<&S
 }
 
 fn is_zip(path: &str) -> bool {
-    extension(path).as_deref() == Some("zip")
+    zip::archive_stem(path).is_some()
 }
 
 /// Lowercase extension of the last path component.

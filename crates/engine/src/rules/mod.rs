@@ -542,8 +542,11 @@ impl StepManiaOptions {
 }
 
 /// Full-combo lamp.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub enum FullCombo {
+    #[default]
     None,
     /// Combo never broke (worst judgement still continued combo).
     FC,
@@ -852,6 +855,12 @@ pub trait GaugeRules {
     /// The FLARE level the gauge is on, where it is a FLARE gauge
     /// ([`ddr::Flare`]) still alive.
     fn flare_rank(&self) -> Option<u8> {
+        None
+    }
+    /// The lives left, where the gauge counts lives ([`gauge::Battery`]:
+    /// StepMania's battery, DDR's LIFE4 and RISKY); the announcer's
+    /// `oni` comment speaks on them.
+    fn lives(&self) -> Option<u32> {
         None
     }
     /// A new instance with the same parameters and no state.

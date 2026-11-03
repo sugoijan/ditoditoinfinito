@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Announcer audition</title>
+<!-- announcer.py writes this page beside what it made, with its data in D. -->
+<style>
+:root {
+  --bg: #f6f5f9; --panel: #ffffff; --ink: #1d1b24; --muted: #6b6878;
+  --line: #dddbe5; --accent: #5b3fd1; --accent-ink: #ffffff; --star: #d99a00;
+  --playing: #e7e1ff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121018; --panel: #1b1823; --ink: #ecebf2; --muted: #9a97a8;
+    --line: #2e2a3a; --accent: #9d86ff; --accent-ink: #121018; --star: #ffc53d;
+    --playing: #2d2550;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 17px; margin: 0; flex: 1; }
+header .now { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50vw; }
+main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+section { margin-bottom: 28px; }
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+.note { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.card h3 { margin: 0 0 4px; font-size: 15px; }
+.card .desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.round { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.round > .label { color: var(--muted); font-size: 13px; width: 64px; }
+.chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+button { font: inherit; color: inherit; background: transparent; border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+button:hover { background: var(--playing); }
+button.play.playing { background: var(--accent); color: var(--accent-ink); }
+button.star { color: var(--muted); padding: 3px 5px; }
+button.star.on { color: var(--star); }
+button.primary { background: var(--accent); color: var(--accent-ink); }
+.kept { font-size: 12px; color: var(--accent); padding: 0 6px; }
+code.cmd { font-size: 12px; color: var(--muted); cursor: copy; padding: 0 6px; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+thead th { position: sticky; top: 0; background: var(--panel); font-size: 13px; white-space: nowrap; }
+tbody th { font-weight: normal; min-width: 220px; }
+tbody th .folder { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+td { white-space: nowrap; }
+textarea { width: 100%; min-height: 90px; font: 12px ui-monospace, Menlo, monospace; color: var(--ink);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Announcer audition</h1>
+  <span class="now" id="now"></span>
+  <button id="stop" title="Escape">Stop</button>
+</header>
+<main id="main"></main>
+<script>
+const D = /*DATA*/null;
+const main = document.getElementById("main");
+const el = (tag, props = {}, ...kids) => {
+  const e = Object.assign(document.createElement(tag), props);
+  for (const k of kids) e.append(k);
+  return e;
+};
+
+// One player, one queue: a row or a column plays its clips in turn.
+const audio = new Audio();
+let queue = [];
+let current = null;
+function mark(item, on) {
+  if (!item) return;
+  item.button.classList.toggle("playing", on);
+  document.getElementById("now").textContent = on ? item.label : "";
+}
+function next() {
+  mark(current, false);
+  current = queue.shift() || null;
+  if (!current) return;
+  mark(current, true);
+  audio.src = encodeURI(current.src);
+  audio.play().catch(next);
+}
+function play(items) { queue = items.slice(); next(); }
+function stop() { queue = []; audio.pause(); mark(current, false); current = null; }
+audio.addEventListener("ended", () => setTimeout(next, 300));
+audio.addEventListener("error", next);
+document.getElementById("stop").onclick = stop;
+addEventListener("keydown", (e) => { if (e.key === "Escape") stop(); });
+
+// Stars: kept in this browser only; the picks below are what to paste back.
+const KEY = "ddi-announcer-audition-stars";
+let stars = new Set();
+try { stars = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); } catch {}
+function saveStars() {
+  try { localStorage.setItem(KEY, JSON.stringify([...stars])); } catch {}
+  picks.value = JSON.stringify([...stars].sort(), null, 1);
+}
+function star(id) {
+  const b = el("button", { className: "star", title: "Star", textContent: "☆" });
+  const show = () => { const on = stars.has(id); b.classList.toggle("on", on); b.textContent = on ? "★" : "☆"; };
+  b.onclick = () => { stars.has(id) ? stars.delete(id) : stars.add(id); show(); saveStars(); };
+  show();
+  return b;
+}
+function clip(src, text, label) {
+  const button = el("button", { className: "play", textContent: "▶ " + text });
+  const item = { src, button, label };
+  button.onclick = () => play([item]);
+  return item;
+}
+const picks = el("textarea", { readOnly: true });
+
+if (!D) {
+  main.append(el("p", { className: "empty", textContent: "Nothing yet: run announcer.py design." }));
+} else {
+  // The design rounds.
+  const designs = el("section", {}, el("h2", { textContent: "Voice designs" }));
+  if (D.designText) designs.append(el("p", { className: "note", textContent: "Every preview reads: “" + D.designText + "”" }));
+  if (!D.designs.length) designs.append(el("p", { className: "empty", textContent: "No design rounds yet." }));
+  for (const v of D.designs) {
+    const last = v.rounds[v.rounds.length - 1];
+    const card = el("div", { className: "card" },
+      el("h3", { textContent: v.voice }),
+      el("p", { className: "desc", textContent: last ? last.description : "" }));
+    for (const r of v.rounds) {
+      const row = el("div", { className: "round" }, el("span", { className: "label", textContent: "Round " + r.round }));
+      for (const p of r.previews) {
+        const item = clip(p.file, p.id, v.voice + " " + p.id);
+        const chip = el("span", { className: "chip" }, item.button, star(p.file));
+        if (v.kept[p.id]) chip.append(el("span", { className: "kept", textContent: "kept as " + v.kept[p.id] }));
+        else {
+          const cmd = "python3 tools/announcer-design/announcer.py keep " + v.voice + " " + p.id;
+          const code = el("code", { className: "cmd", title: "Copy: " + cmd, textContent: "keep" });
+          code.onclick = () => { navigator.clipboard?.writeText(cmd); code.textContent = "copied"; };
+          chip.append(code);
+        }
+        row.append(chip);
+      }
+      card.append(row);
+    }
+    designs.append(card);
+  }
+  main.append(designs);
+
+  // The lines, voice and style across.
+  const lines = el("section", {}, el("h2", { textContent: "Lines" }));
+  if (!D.grid.length) {
+    lines.append(el("p", { className: "empty", textContent: "No lines yet: keep a voice, then run announcer.py speak." }));
+  } else {
+    lines.append(el("p", { className: "note", textContent: "▶ on a header plays its row or column, the first take of each. Escape stops." }));
+    const cols = D.columns.map(() => []);
+    const head = el("tr", {}, el("th", { textContent: "Line" }));
+    D.columns.forEach((name, i) => {
+      const b = el("button", { className: "play", textContent: "▶ " + name.replace("--", " · ") });
+      b.onclick = () => play(cols[i]);
+      head.append(el("th", {}, b));
+    });
+    const body = el("tbody");
+    for (const r of D.grid) {
+      const rowItems = [];
+      const rowButton = el("button", { className: "play", textContent: "▶" });
+      rowButton.onclick = () => play(rowItems);
+      const tr = el("tr", {}, el("th", {}, rowButton, " ", r.text, el("div", { className: "folder", textContent: r.folder })));
+      r.cells.forEach((takes, i) => {
+        const td = el("td");
+        takes.forEach((src, n) => {
+          const item = clip(src, String(n + 1), D.columns[i] + " · " + r.text + " · take " + (n + 1));
+          if (n === 0) { rowItems.push(item); cols[i].push(item); }
+          td.append(el("span", { className: "chip" }, item.button, star(src)), " ");
+        });
+        tr.append(td);
+      });
+      body.append(tr);
+    }
+    lines.append(el("div", { className: "scroll" }, el("table", {}, el("thead", {}, head), body)));
+  }
+  main.append(lines);
+
+  const copy = el("button", { className: "primary", textContent: "Copy" });
+  copy.onclick = () => { picks.select(); navigator.clipboard?.writeText(picks.value); };
+  main.append(el("section", {},
+    el("h2", { textContent: "Picks" }),
+    el("p", { className: "note", textContent: "Starred clips, to paste back into the conversation." }),
+    picks, el("p", {}, copy)));
+  saveStars();
+}
+</script>
+</body>
+</html>

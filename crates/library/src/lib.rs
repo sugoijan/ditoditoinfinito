@@ -23,7 +23,10 @@
 //!   found among files, read into songs.
 //! - [`edited`]: a stored song's entry after the chart editor saved it.
 //! - [`tags`]: a music file's title and artist, for a new song.
+//! - [`announcer`]: the lines announcers speak, and the announcers found in
+//!   an import.
 
+pub mod announcer;
 pub mod avi;
 pub mod backgrounds;
 pub(crate) mod bytes;

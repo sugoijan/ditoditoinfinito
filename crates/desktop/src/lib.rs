@@ -621,6 +621,21 @@ pub fn run() {
             r.missing.len(),
         );
     }
+    if let Some(songs) = &shell.songs {
+        let found = library::announcers::all(&songs.folders());
+        let named: Vec<String> = found
+            .iter()
+            .map(|a| format!("{} ({} lines)", a.kept.name, a.kept.lines.len()))
+            .collect();
+        println!(
+            "announcers: {}",
+            if named.is_empty() {
+                "none".to_string()
+            } else {
+                named.join(", ")
+            }
+        );
+    }
     if let Some(songs) = &shell.songs
         && let Some(line) = songs.share_line()
     {
@@ -638,6 +653,9 @@ pub fn run() {
     }
     for e in &player.errors {
         println!("preview error: {e}");
+    }
+    for line in &player.spoken {
+        println!("announcer spoken (Options, song select): {line}");
     }
     for line in &shell.play.log {
         println!("{line}");

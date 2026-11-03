@@ -67,6 +67,9 @@ pub trait AudioBackend {
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64);
     /// Stops every sound playing or scheduled.
     fn stop_all(&mut self);
+    /// Stops every sound but the voice's ([`Self::play_voice`]): a
+    /// fail's hold over, the line it said goes on into the results.
+    fn stop_music(&mut self);
     /// Whether sound runs (not suspended, interrupted or gone).
     fn running(&self) -> bool;
     /// A buffer from planar PCM at `rate` (calibration's click track).
@@ -101,6 +104,18 @@ pub trait AudioBackend {
     /// The sound's length on the song's timeline: its samples' plus its
     /// lead (see [`Self::play`]).
     fn duration(&self, buffer: &Self::Buffer) -> f64;
+    /// Plays `buffer` from its start at `start_at_context_time` (at once
+    /// if past) on the voice's bus: the announcer
+    /// (`docs/plans/announcers.md`, step 3), which the master's ramps
+    /// leave alone (a fail's fade must not take `gameplay failed` with
+    /// the music) but which [`Self::stop_all`] stops and the master's
+    /// volume (a preview's, desktop's `--volume`) scales.
+    fn play_voice(
+        &mut self,
+        buffer: &Self::Buffer,
+        start_at_context_time: f64,
+        volume: f32,
+    ) -> Result<SoundId, Self::Error>;
 }
 
 /// Polled source of input edges.
