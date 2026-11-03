@@ -1,0 +1,276 @@
+# Our announcer in Japanese, made by kokoro.py's `pack` as pack.toml's
+# English one is: every line the game speaks (docs/announcer-lines.md),
+# each text a variant. See pack.toml for what each line is and why no
+# text names a grade's letter or a judgment.
+#
+#     uv run tools/announcer-design/kokoro.py pack tools/announcer-design/pack-ja.toml
+#
+# The game is ディーディーアイ: Japanese has no reading for Latin
+# letters here, so they are written in kana, as is any word the
+# dictionary reads wrong on its own (一回 as いちかい, 一歩一歩); numbers
+# are kanji, which it reads right (its kana for 300 comes out "san-bi-ya-ku").
+# A file is named by how its text sounds.
+
+name = "Infinito JA"
+# Kokoro's Japanese voices: jf_alpha (its best, C+), jf_gongitsune and
+# jf_tebukuro (C), jf_nezumi and jm_kumo (C-; jm_kumo its one man). All
+# but jf_alpha learned from one announcer's CC BY 3.0 readings, which a
+# pack made with them credits (audition.toml). Or another language's
+# voice speaking Japanese, or a blend, with lang = "j".
+voice = "jf_alpha"
+speed = 1
+style = "lead"
+lead = "さあ、みんな。…"
+
+[kokoro]
+repo = "onnx-community/Kokoro-82M-v1.0-ONNX"
+revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
+model = "onnx/model.onnx"
+
+# --- On song select --------------------------------------------------------
+
+[[line]]
+folder = "select music intro"
+texts = [
+  "ディーディーアイへようこそ！",
+  "ようこそ、ディーディーアイへ！曲を選んでね。",
+  "曲を選んでね！",
+  "さあ、何を踊る？",
+  "次の曲は何にする？",
+  "踊りたい曲を探そう！",
+]
+
+[[line]]
+folder = "select music comment general"
+texts = ["いい選曲！", "ナイスチョイス！", "おっ、いいね！", "よし、これでいこう！", "いいね、楽しみ！"]
+
+[[line]]
+folder = "select music comment new"
+texts = [
+  "初めての曲だね！お手並み拝見！",
+  "新しい曲に挑戦だ！",
+  "この曲は初めて？やってみよう！",
+  "新天地だね！",
+]
+
+[[line]]
+folder = "select music comment repeat"
+texts = ["もういっかいいく？", "またこの曲？今度こそ決めよう！", "第二ラウンド！", "もう一度、気持ちを込めて！"]
+
+[[line]]
+folder = "select music comment hard"
+texts = [
+  "おっ、難しいやつだね！",
+  "勇気ある選択！",
+  "これは手強いよ。がんばって！",
+  "今日は攻めるね！",
+  "これは挑戦しがいがある！",
+]
+
+# --- In play ------------------------------------------------------------------
+
+[[line]]
+folder = "gameplay ready"
+texts = ["準備はいい？", "用意はいい？", "準備して！", "さあ、いくよ。準備はいい？"]
+
+[[line]]
+folder = "gameplay restart"
+texts = ["もういっかい！", "最初から！", "仕切り直し！", "気を取り直して、もう一度！"]
+
+[[line]]
+folder = "gameplay here we go normal"
+texts = ["いくよ！", "スタート！", "踊ろう！", "さあ、いこう！"]
+
+[[line]]
+folder = "gameplay comment hot"
+texts = [
+  "絶好調！",
+  "すごい！ノリノリだね！",
+  "完璧なリズム！",
+  "これぞダンス！",
+  "止まらない！",
+  "最高！",
+  "華麗なステップ！",
+  "その調子！",
+]
+
+[[line]]
+folder = "gameplay comment good"
+texts = [
+  "いいね！",
+  "いい感じ！",
+  "いけるよ！",
+  "リズムに乗って！",
+  "落ち着いていこう。",
+  "そうそう！",
+  "焦らずにね。",
+  "その調子で続けて！",
+]
+
+[[line]]
+folder = "gameplay comment danger"
+texts = ["がんばれ！", "諦めないで！", "踏ん張って！", "集中！きみならできる！", "気をつけて！", "もう少し耐えて！"]
+
+[[line]]
+folder = "gameplay comment oni"
+texts = [
+  "慎重に。いっぽいっぽが大事だよ。",
+  "ミスは禁物！",
+  "集中して！",
+  "気をつけて、ライフは大切に！",
+  "冷静にね。",
+]
+
+[[line]]
+folder = "gameplay 100 combo"
+texts = ["百コンボ！", "百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 200 combo"
+texts = ["二百コンボ！", "二百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 300 combo"
+texts = ["三百コンボ！", "三百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 400 combo"
+texts = ["四百コンボ！", "四百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 500 combo"
+texts = ["五百コンボ！", "五百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 600 combo"
+texts = ["六百コンボ！", "六百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 700 combo"
+texts = ["七百コンボ！", "七百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 800 combo"
+texts = ["八百コンボ！", "八百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 900 combo"
+texts = ["九百コンボ！", "九百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 1000 combo"
+texts = ["千コンボ！", "千コンボ達成！すごい！"]
+
+[[line]]
+folder = "gameplay 1500 combo"
+texts = ["千五百コンボ！", "千五百コンボ達成！"]
+
+[[line]]
+folder = "gameplay 2000 combo"
+texts = ["二千コンボ！", "二千コンボ達成！信じられない！"]
+
+[[line]]
+folder = "gameplay combo overflow"
+texts = ["まだまだ続く！", "止まらない！", "コンボをつなげ！", "コンボが伸びていく！", "その勢いで！", "すごすぎる！"]
+
+[[line]]
+folder = "gameplay combo stopped"
+texts = ["コンボが途切れた…", "あっ！気にしないで。", "おっと、続けて！", "大丈夫、踊り続けよう！"]
+
+[[line]]
+folder = "gameplay life lost"
+texts = ["ライフが減った！", "気をつけて！ライフが一つ減ったよ。", "ライフを失った！"]
+
+[[line]]
+folder = "gameplay last life"
+texts = ["ラストライフ！大事にね！", "ライフはあと一つ！", "これが最後のライフ！"]
+
+[[line]]
+folder = "gameplay full combo w1"
+texts = ["完璧！一つのミスもない！", "文句なしの完璧！", "全ステップ完璧！"]
+
+[[line]]
+folder = "gameplay full combo w2"
+texts = ["フルコンボ！ほぼ完璧！", "見事なフルコンボ！"]
+
+[[line]]
+folder = "gameplay full combo w3"
+texts = ["フルコンボだ！", "フルコンボ！よくやった！"]
+
+[[line]]
+folder = "gameplay full combo"
+texts = ["フルコンボ！", "コンボをつなぎきった！"]
+
+[[line]]
+folder = "gameplay cleared"
+texts = ["クリア！", "やったね！", "ステージクリア！", "お見事！", "クリアだ！"]
+
+[[line]]
+folder = "gameplay failed"
+texts = ["残念…", "ああっ！", "惜しい…もういっかい！", "ここまでか…"]
+
+# --- On the results -------------------------------------------------------
+
+[[line]]
+folder = "evaluation quit"
+texts = ["ここでやめる？大丈夫だよ。", "また今度ね。", "ひと休み？いいよ。"]
+
+[[line]]
+folder = "evaluation first clear"
+texts = ["この曲、初クリア！おめでとう！", "初クリア！お見事！", "クリアできたね！"]
+
+[[line]]
+folder = "evaluation new record"
+texts = ["新記録！", "自己ベスト更新！", "これまでで最高だよ！"]
+
+[[line]]
+folder = "evaluation full combo w1"
+texts = ["完璧なフルコンボ！信じられない！", "全ステップ完璧！素晴らしい！"]
+
+[[line]]
+folder = "evaluation full combo w2"
+texts = ["ほぼ完璧なフルコンボ！", "見事なフルコンボ！"]
+
+[[line]]
+folder = "evaluation full combo w3"
+texts = ["フルコンボ！よくやった！", "フルコンボ！お見事！"]
+
+[[line]]
+folder = "evaluation full combo w4"
+texts = ["フルコンボ！よく粘った！", "フルコンボ！ナイスプレー！"]
+
+[[line]]
+folder = "evaluation aaaa"
+texts = ["神がかってる！", "完璧そのもの！", "達人の域だ！"]
+
+[[line]]
+folder = "evaluation aaa"
+texts = ["素晴らしい！", "見事なダンス！", "圧巻のパフォーマンス！"]
+
+[[line]]
+folder = "evaluation aa"
+texts = ["すごい！", "これぞダンス！", "いいパフォーマンス！"]
+
+[[line]]
+folder = "evaluation a"
+texts = ["いいね！", "よくできました！", "ナイスダンス！"]
+
+[[line]]
+folder = "evaluation b"
+texts = ["悪くないよ！", "いい調子。", "よくがんばった！"]
+
+[[line]]
+folder = "evaluation c"
+texts = ["クリアできたね！", "練習あるのみ！", "あと少し！"]
+
+[[line]]
+folder = "evaluation d"
+texts = ["手強かったね。", "次はもっとよくなるよ！", "練習すればうまくなる！"]
+
+[[line]]
+folder = "evaluation e"
+texts = ["諦めないで！", "次はきっといける。", "気を取り直して、もういっかい！"]
+
+[[line]]
+folder = "evaluation cheer"
+texts = ["イェーイ！", "ブラボー！", "やったー！最高！"]

@@ -104,3 +104,131 @@ texts = ["[cheering] Cleared!", "[proud] You made it!"]
 [[line]]
 folder = "evaluation aa"
 texts = ["[impressed] Excellent!", "[excited] Now that's dancing!"]
+
+# --- Kokoro (kokoro.py) ----------------------------------------------------
+# Kokoro-82M (Apache-2.0), run here: no account, nothing to pay, and what
+# it makes is ours to release as CC0. It has no audio tags (taken out of
+# the lines above); its delivery follows the punctuation.
+
+[kokoro]
+repo = "onnx-community/Kokoro-82M-v1.0-ONNX"
+revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
+model = "onnx/model.onnx"
+# Kokoro's English voices, best graded first (its VOICES.md), each reading
+# [design] text. Most share their names with other services' stock voices
+# (OpenAI's alloy, echo, fable, nova, onyx, sky; Gemini's aoede, kore,
+# puck, fenrir; ElevenLabs' bella, nicole, sarah, jessica, river, adam,
+# michael, eric, liam, alice, lily, george, daniel), and its model card
+# says some of its training audio was closed services' synthetic speech:
+# they may imitate those voices, which blends blur. af_sky is left out:
+# the voice it is named after was withdrawn in a dispute over its
+# likeness to an actor's.
+sample = [
+  "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore", "af_sarah",
+  "af_alloy", "af_nova", "af_jessica", "af_river",
+  "am_fenrir", "am_michael", "am_puck", "am_echo", "am_eric", "am_liam",
+  "am_onyx", "am_santa", "am_adam",
+  "bf_emma", "bf_isabella", "bf_alice", "bf_lily",
+  "bm_george", "bm_fable", "bm_lewis", "bm_daniel",
+  # Japanese (pack-ja.toml), reading [kokoro.texts] j. All but jf_alpha
+  # learned from minutes of one TV Nishinippon announcer reading a
+  # children's story, recordings under CC BY 3.0 (the Koniwa corpus's
+  # `tnc`): a pack with them credits that.
+  "jf_alpha", "jf_gongitsune", "jf_tebukuro", "jf_nezumi", "jm_kumo",
+]
+# Said before each line in the `lead` style, then cut off: Kokoro is
+# weakest on utterances this short. The ellipsis after the period makes
+# the pause it is cut in longer.
+lead = "Alright, everybody.…"
+
+# Words its dictionary lacks, in misaki's phonemes (its American set: O is
+# the vowel of "go", I of "fire", A of "day").
+[kokoro.words]
+"Dito Dito Infinito" = "dˈitO dˈitO ˌɪnfɪnˈitO"
+
+# What the voices of other languages read in `sample` (English reads
+# [design] text), by Kokoro's language code.
+[kokoro.texts]
+j = """ディーディーアイへようこそ！曲を選んでね…準備はいい？いくよ！
+絶好調だね！がんばれ、諦めないで！500コンボ！
+あっ…コンボが途切れた。気にしないで！クリア！これぞダンス！"""
+
+# The voices that say the lines: one of Kokoro's, or a blend of their
+# styles by weight (a voice of our own); `speed` 1 is Kokoro's pace.
+[[kokoro.voice]]
+name = "heart"
+voice = "af_heart"
+
+[[kokoro.voice]]
+name = "bella"
+voice = "af_bella"
+
+[[kokoro.voice]]
+name = "emma"
+voice = "bf_emma"
+
+[[kokoro.voice]]
+name = "puck"
+voice = "am_puck"
+
+[[kokoro.voice]]
+name = "fenrir"
+voice = "am_fenrir"
+
+[[kokoro.voice]]
+name = "michael"
+voice = "am_michael"
+
+[[kokoro.voice]]
+name = "heart-bella"
+voice = { af_heart = 0.5, af_bella = 0.5 }
+
+[[kokoro.voice]]
+name = "puck-fenrir"
+voice = { am_puck = 0.5, am_fenrir = 0.5 }
+
+# The pack's voice (pack.toml), for its two styles side by side.
+[[kokoro.voice]]
+name = "george"
+voice = "bm_george"
+
+# George speaking Japanese (`lang`: Kokoro's language code; a voice
+# speaks its own otherwise), and Kokoro's one Japanese man with him.
+[[kokoro.voice]]
+name = "george-ja"
+voice = "bm_george"
+lang = "j"
+
+[[kokoro.voice]]
+name = "kumo-george"
+voice = { jm_kumo = 0.5, bm_george = 0.5 }
+lang = "j"
+
+# How what is said around a line changes how it is said (`context`): each
+# line said plainly, then after each mood's lead, before its closer and
+# between both, cut off each time; a grid on the page. A closer is cut in
+# the pause the line's own . ! or ? leaves before it.
+[[kokoro.context]]
+name = "george"
+voice = "bm_george"
+lines = ["Nice!", "Ready?", "Full combo!", "Good job!", "You made it!", "Maybe next time."]
+
+[[kokoro.context.mood]]
+name = "neutral"
+lead = "Alright, everybody.…"
+closer = "Okay, on to the next one."
+
+[[kokoro.context.mood]]
+name = "excited"
+lead = "Oh wow, this is incredible!…"
+closer = "I can't believe it, that was amazing!"
+
+[[kokoro.context.mood]]
+name = "sarcastic"
+lead = "Oh, great. Just wonderful.…"
+closer = "Yeah, sure. Whatever you say."
+
+[[kokoro.context.mood]]
+name = "disappointed"
+lead = "Oh no. What a shame.…"
+closer = "Oh well. It just wasn't meant to be."

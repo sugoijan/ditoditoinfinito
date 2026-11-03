@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use ddi_library::announcer::{self, Found, Spoken};
-use ddi_library::zip;
+use ddi_library::{pack, zip};
 
 /// The files under `dir` (`(path relative to it, bytes)`).
 fn listing(dir: &Path, base: &Path, out: &mut Vec<(String, u64)>) {
@@ -22,7 +22,10 @@ fn listing(dir: &Path, base: &Path, out: &mut Vec<(String, u64)>) {
     }
 }
 
-/// A zip's entries (`(name, bytes)`).
+/// A zip's entries (`(name, bytes)`), names in no declared encoding
+/// decoded as the shells decode them (`pack::decode_legacy_names`: UTF-8
+/// when they all read as it, as macOS's zips do; CP437 here otherwise,
+/// where the shells try the legacy code pages first).
 fn zip_listing(path: &Path) -> Result<Vec<(String, u64)>, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let len = bytes.len() as u64;
@@ -35,8 +38,16 @@ fn zip_listing(path: &Path) -> Result<Vec<(String, u64)>, String> {
         }
     };
     let at = cd.offset as usize;
-    let entries = zip::parse_central_directory(&bytes[at..at + cd.size as usize], &cd)
+    let mut entries = zip::parse_central_directory(&bytes[at..at + cd.size as usize], &cd)
         .map_err(|e| e.to_string())?;
+    let raws: Vec<&[u8]> = entries
+        .iter()
+        .filter_map(|e| e.legacy_name.as_deref())
+        .collect();
+    let mut names = pack::decode_legacy_names(&raws, |_, _| None).into_iter();
+    for e in entries.iter_mut().filter(|e| e.legacy_name.is_some()) {
+        e.name = names.next().unwrap_or_default();
+    }
     Ok(entries
         .into_iter()
         .filter(|e| !e.is_dir)

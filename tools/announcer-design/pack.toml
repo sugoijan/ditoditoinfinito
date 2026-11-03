@@ -1,0 +1,328 @@
+# The announcer kokoro.py's `pack` makes: every line the game speaks
+# (docs/announcer-lines.md), each text a variant the game picks among in
+# a shuffle. Made with Kokoro-82M (Apache-2.0), ours to release as CC0;
+# the same bytes again from the same file. See README.md.
+#
+#     uv run tools/announcer-design/kokoro.py pack
+#
+# The texts never name a grade's letter or a judgment: the game maps
+# every ruleset's grades onto StepMania's seven by place, and names
+# judgments by ruleset, so a line says how it went, not what it is called.
+
+name = "Mr. Clank"
+# One of Kokoro's voices, or a blend of their styles by weight, e.g.
+# { bm_george = 0.8, bm_lewis = 0.2 }.
+voice = "bm_george"
+speed = 1
+# "lead": each line said after a lead, which is cut off (Kokoro is weakest
+# on utterances this short, and how it says the lead carries into the
+# line); "plain": each line on its own. A [[line]] may set its own
+# `style`, and its own `lead` (which puts it in the lead style). A folder
+# may be given in several [[line]]s, its sounds theirs together: the same
+# text after two leads, say.
+style = "lead"
+
+# A lead for each place the game speaks, by a folder's first word, to set
+# its tone; or one for every line, as `lead = "Alright, everybody.…"`
+# above. The cut goes in the pause between lead and line, so end the lead
+# as a sentence ends, . or !: George pauses 150–250 ms there. A … after
+# it (said as a trailing pause) makes that a little longer and steadier;
+# without . or !, a lead runs into its line, or … alone may.
+[lead]
+select = "Hey there, welcome back.…"
+gameplay = "Oh yeah, here we go!…"
+evaluation = "And the results are in.…"
+
+[kokoro]
+repo = "onnx-community/Kokoro-82M-v1.0-ONNX"
+revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
+model = "onnx/model.onnx"
+
+# Words Kokoro's dictionary lacks, in misaki's phonemes (none yet: it
+# says "DDI" as its letters).
+[kokoro.words]
+
+# --- On song select --------------------------------------------------------
+
+[[line]]
+folder = "select music intro"  # each time song select shows, after a play too
+texts = [
+  "Welcome to DDI!",
+  "This is DDI. Pick a song!",
+  "Pick a song!",
+  "What shall we dance to?",
+  "Choose your next song.",
+  "Let's find something to dance to.",
+]
+
+[[line]]
+folder = "select music comment general"  # a chart chosen
+texts = [
+  "Good choice!",
+  "Nice pick.",
+  "Ooh, I like this one.",
+  "Let's do it!",
+  "Sounds good to me!",
+]
+
+[[line]]
+folder = "select music comment new"  # never played under these rules
+texts = [
+  "Something new! Let's see what you've got.",
+  "A first time for everything!",
+  "Never played this one? Let's find out!",
+  "Fresh territory!",
+]
+
+[[line]]
+folder = "select music comment repeat"  # played in this run
+texts = [
+  "Back for another go?",
+  "This one again? Let's nail it!",
+  "Round two!",
+  "Once more, with feeling!",
+]
+
+[[line]]
+folder = "select music comment hard"  # meter 10 or more
+texts = [
+  "Ooh, a tough one!",
+  "Brave choice!",
+  "That's a hard one. Good luck!",
+  "Feeling bold today?",
+  "Now that's a challenge!",
+]
+
+# --- In play ------------------------------------------------------------------
+
+[[line]]
+folder = "gameplay ready"
+texts = ["Ready?", "Get ready!", "Are you ready?", "Here it comes. Ready?"]
+
+[[line]]
+folder = "gameplay restart"  # in place of ready, on a quick restart
+texts = ["Let's try that again.", "Once more!", "From the top!", "Take two!"]
+
+[[line]]
+folder = "gameplay here we go normal"  # ends half a second before the first note: short
+texts = ["Here we go!", "Let's dance!", "Let's go!", "And... go!"]
+
+[[line]]
+folder = "gameplay comment hot"  # every 10 s at full life
+texts = [
+  "You're on fire!",
+  "Look at those feet go!",
+  "Perfect rhythm!",
+  "Now that's dancing!",
+  "You're unstoppable!",
+  "Brilliant!",
+  "Smooth moves!",
+  "Keep it up!",
+]
+
+[[line]]
+folder = "gameplay comment good"  # every 10 s otherwise
+texts = [
+  "Nice!",
+  "Looking good!",
+  "You've got this!",
+  "Stay with the beat!",
+  "Keep it steady.",
+  "That's it!",
+  "Nice and easy.",
+  "Good, keep going!",
+]
+
+[[line]]
+folder = "gameplay comment danger"  # every 10 s in danger
+texts = [
+  "Hang in there!",
+  "Don't give up now!",
+  "Stay with it!",
+  "Focus! You can do this!",
+  "Careful now!",
+  "Hold on!",
+]
+
+[[line]]
+folder = "gameplay comment oni"  # every 10 s on a gauge of lives
+texts = [
+  "Steady now. Every step counts.",
+  "No mistakes!",
+  "Stay sharp!",
+  "Careful, every life counts!",
+  "Keep your cool.",
+]
+
+[[line]]
+folder = "gameplay 100 combo"
+texts = ["One hundred combo!", "A hundred in a row!"]
+
+[[line]]
+folder = "gameplay 200 combo"
+texts = ["Two hundred combo!", "Two hundred in a row!"]
+
+[[line]]
+folder = "gameplay 300 combo"
+texts = ["Three hundred combo!", "Three hundred in a row!"]
+
+[[line]]
+folder = "gameplay 400 combo"
+texts = ["Four hundred combo!", "Four hundred in a row!"]
+
+[[line]]
+folder = "gameplay 500 combo"
+texts = ["Five hundred combo!", "Five hundred in a row!"]
+
+[[line]]
+folder = "gameplay 600 combo"
+texts = ["Six hundred combo!", "Six hundred in a row!"]
+
+[[line]]
+folder = "gameplay 700 combo"
+texts = ["Seven hundred combo!", "Seven hundred in a row!"]
+
+[[line]]
+folder = "gameplay 800 combo"
+texts = ["Eight hundred combo!", "Eight hundred in a row!"]
+
+[[line]]
+folder = "gameplay 900 combo"
+texts = ["Nine hundred combo!", "Nine hundred in a row!"]
+
+[[line]]
+folder = "gameplay 1000 combo"
+texts = ["One thousand combo!", "A thousand in a row! Incredible!"]
+
+# Past 1000 (ours): the hundreds named here, the overflow's for the rest.
+[[line]]
+folder = "gameplay 1500 combo"
+texts = ["Fifteen hundred combo!", "Fifteen hundred in a row!"]
+
+[[line]]
+folder = "gameplay 2000 combo"
+texts = ["Two thousand combo!", "Two thousand in a row! Unbelievable!"]
+
+[[line]]
+folder = "gameplay combo overflow"  # every other hundred past 1000
+texts = [
+  "Still going!",
+  "Unstoppable!",
+  "Keep that combo alive!",
+  "The combo keeps growing!",
+  "Don't stop now!",
+  "Amazing!",
+]
+
+[[line]]
+folder = "gameplay combo stopped"  # a combo above 50 broken
+texts = [
+  "Combo broken.",
+  "Oh! Shake it off.",
+  "Ouch. Keep going!",
+  "That's alright, keep dancing!",
+]
+
+[[line]]
+folder = "gameplay life lost"  # ours: a gauge of lives
+texts = ["There goes a life.", "Careful! That cost you a life.", "Life lost!"]
+
+[[line]]
+folder = "gameplay last life"  # ours
+texts = ["Last life! Make it count!", "One life left!", "This is it. Your last life!"]
+
+# Ours: as the last note keeps a full combo, of its kind (w1: nothing
+# worse than the first judgment), then `cleared`. A kind without its own
+# says `gameplay full combo` (w4's, where the rules keep a combo on it).
+[[line]]
+folder = "gameplay full combo w1"
+texts = ["Perfection! Every single step!", "Absolutely flawless!", "Not one step out of place!"]
+
+[[line]]
+folder = "gameplay full combo w2"
+texts = ["Full combo! So close to perfect!", "Brilliant full combo!"]
+
+[[line]]
+folder = "gameplay full combo w3"
+texts = ["That's a full combo!", "Full combo! Well done!"]
+
+[[line]]
+folder = "gameplay full combo"
+texts = ["Full combo!", "You kept the combo!"]
+
+[[line]]
+folder = "gameplay cleared"
+texts = ["Cleared!", "You made it!", "Stage cleared!", "Well done!", "And that's a clear!"]
+
+[[line]]
+folder = "gameplay failed"  # carries into the results
+texts = ["Not this time...", "Oh no!", "So close... Try again!", "That's the end of that one."]
+
+# --- On the results -------------------------------------------------------
+# One of these, the first that applies: quit, first clear, new record,
+# the full combo, the grade; then the cheer, for the top three grades.
+
+[[line]]
+folder = "evaluation quit"
+texts = ["Calling it there? No problem.", "Maybe next time.", "Taking a break? Fair enough."]
+
+[[line]]
+folder = "evaluation first clear"  # ours
+texts = ["Your first clear on this one! Congratulations!", "First clear! Nicely done!", "You cleared it!"]
+
+[[line]]
+folder = "evaluation new record"
+texts = ["A new record!", "New personal best!", "That's your best yet!"]
+
+[[line]]
+folder = "evaluation full combo w1"
+texts = ["A perfect full combo! Incredible!", "Every step perfect. Outstanding!"]
+
+[[line]]
+folder = "evaluation full combo w2"
+texts = ["A full combo, and nearly perfect!", "Superb full combo!"]
+
+[[line]]
+folder = "evaluation full combo w3"
+texts = ["Full combo! Great work!", "Full combo! Nicely done!"]
+
+[[line]]
+folder = "evaluation full combo w4"  # where the rules keep a combo on the fourth judgment
+texts = ["Full combo! You held it together!", "A full combo! Well played."]
+
+# The grades, best first (StepMania's seven, by place for other rules).
+[[line]]
+folder = "evaluation aaaa"
+texts = ["Phenomenal!", "Simply perfect!", "Masterful!"]
+
+[[line]]
+folder = "evaluation aaa"
+texts = ["Outstanding!", "Superb dancing!", "Brilliant performance!"]
+
+[[line]]
+folder = "evaluation aa"
+texts = ["Excellent!", "Now that's dancing!", "Great performance!"]
+
+[[line]]
+folder = "evaluation a"
+texts = ["Very nice!", "Good job!", "Well danced!"]
+
+[[line]]
+folder = "evaluation b"
+texts = ["Not bad at all!", "Nice work.", "Good effort!"]
+
+[[line]]
+folder = "evaluation c"
+texts = ["You got through it!", "Keep practicing!", "Getting there."]
+
+[[line]]
+folder = "evaluation d"
+texts = ["That was a tough one.", "It can only get better!", "Practice makes perfect."]
+
+[[line]]
+folder = "evaluation e"  # a failed play (Etterna's `evaluation f` falls back to it)
+texts = ["Don't give up!", "Better luck next time.", "Shake it off and try again!"]
+
+[[line]]
+folder = "evaluation cheer"  # 2.5 s after the line above, for the top three grades
+texts = ["Woo-hoo!", "Bravo!", "Yeah! Fantastic!"]

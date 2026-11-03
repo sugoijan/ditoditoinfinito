@@ -74,7 +74,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
   where StepMania 5.1 speaks them (in play, on the results, on song
   select), Etterna's two names included; a few lines of our own in the
   same layout, documented for pack authors in `docs/announcer-lines.md`.
-  A pack of our own is being explored, not bundled.
+  Packs of our own, `Mr. Clank` and a Japanese one, are made with Kokoro
+  (every line, from `tools/announcer-design/pack.toml` and `pack-ja.toml`),
+  not bundled yet.
 - [Play HUD](play-hud.md) (2026-10-29): done; accepted study ported
   to the shared renderer and checked offscreen. Life trails, Iosevka type,
   combo tiers and still title watermark.

@@ -100,11 +100,15 @@ class State:
         self.designs = data.get("designs", {})
         self.kept = data.get("kept", {})
         self.clips = data.get("clips", {})
+        self.samples = data.get("samples", {})  # kokoro.py's voices reading the design text
+        self.pack = data.get("pack", {})  # kokoro.py's announcer, every line
+        self.contexts = data.get("contexts", {})  # kokoro.py's lines said around leads and closers
 
     def save(self):
         self.out.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        data = {"designs": self.designs, "kept": self.kept, "clips": self.clips}
+        data = {"designs": self.designs, "kept": self.kept, "clips": self.clips,
+                "samples": self.samples, "pack": self.pack, "contexts": self.contexts}
         tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
         tmp.replace(self.path)
 
@@ -305,9 +309,11 @@ def cmd_page(cfg, state, args):
 
 
 def write_page(cfg, state):
-    """index.html beside what was made: previews, then lines by voice and style."""
-    style_order = [s["name"] for s in cfg.get("style", [])]
-    voice_order = list(voices_to_speak(cfg, state))
+    """index.html beside what was made: previews and samples, then lines by
+    voice and style."""
+    style_order = [s["name"] for s in cfg.get("style", [])] + ["kokoro", "kokoro-lead"]
+    voice_order = list(voices_to_speak(cfg, state)) + [
+        v["name"] for v in cfg.get("kokoro", {}).get("voice", [])]
     line_order = [l["folder"] for l in cfg.get("line", [])]
 
     def rank(seq, x):
@@ -329,7 +335,39 @@ def write_page(cfg, state):
                 if (c["folder"], c["text_index"], c["voice"], c["style"]) == (folder, t, voice, style))
             cells.append([rel for _, rel in takes])
         grid.append({"folder": folder, "text": texts[(folder, t)], "cells": cells})
+    k = cfg.get("kokoro", {})
+    sample_order = k.get("sample", []) + [v["name"] for v in k.get("voice", [])]
+    groups = {}
+    for rel, s in sorted(state.samples.items(), key=lambda rs: (rank(sample_order, rs[1]["name"]), rs[0])):
+        groups.setdefault(s["group"], []).append(
+            {"name": s["name"], "file": rel, "detail": s.get("detail", "")})
+    details = {}
+    for c in state.clips.values():
+        details.setdefault(f"{c['voice']}--{c['style']}", c.get("detail") or c.get("model", ""))
+    packs = {}
+    # By their files (pack.toml, then pack-ja.toml), each in its lines' order.
+    for rel, c in sorted(state.pack.items(),
+                         key=lambda rc: (rc[1].get("source", "pack.toml").removesuffix(".toml"),
+                                         rc[1]["line_index"], rc[1]["text_index"])):
+        p = packs.setdefault(c["pack"], {"name": c["pack"], "detail": c["detail"], "lines": {}})
+        # A folder's sounds together, though several [[line]]s give them.
+        p["lines"].setdefault(c["folder"], {"folder": c["folder"], "items": []})["items"].append(
+            {"file": rel, "text": c["text"], "style": c["style"], "lead": c["params"].get("lead")})
+    # kokoro.py's context studies, as configured: each line's ways of saying it.
+    contexts = []
+    for study in cfg.get("kokoro", {}).get("context", []):
+        mine = [(rel, c) for rel, c in state.contexts.items() if c["study"] == study["name"]]
+        rows = {}
+        for rel, c in mine:
+            rows.setdefault(c["line_index"], {"text": c["text"], "cells": {}})["cells"][c["way"]] = {
+                "file": rel, "cutDb": c.get("cut_db")}
+        if rows:
+            contexts.append({"name": study["name"], "detail": mine[0][1]["detail"],
+                             "moods": [{k: m[k] for k in ("name", "lead", "closer")} for m in study.get("mood", [])],
+                             "rows": [rows[i] for i in sorted(rows)]})
     data = {
+        "packs": [{**p, "lines": list(p["lines"].values())} for p in packs.values()],
+        "contexts": contexts,
         "designText": " ".join(cfg.get("design", {}).get("text", "").split()),
         "designs": [
             {"voice": voice, "rounds": rounds,
@@ -337,7 +375,10 @@ def write_page(cfg, state):
                       if k.get("from", "").split(" ")[0] == voice}}
             for voice, rounds in state.designs.items()
         ],
+        "sampleTexts": list(dict.fromkeys(s["params"]["text"] for s in state.samples.values())),
+        "samples": [{"group": g, "items": items} for g, items in groups.items()],
         "columns": [f"{v}--{s}" for v, s in columns],
+        "details": details,
         "grid": grid,
     }
     blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")

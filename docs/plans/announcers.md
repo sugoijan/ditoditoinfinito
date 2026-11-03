@@ -460,3 +460,38 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   whether speech falls under that; their written answer goes with the
   pack's `PROVENANCE.toml`. Bundling it amends decision 1 (and maybe
   decision 2, Off by default).
+- **Or Kokoro, as the placeholder** (from 2026-11-03): Kokoro-82M
+  (Apache-2.0), run here by `tools/announcer-design/kokoro.py`, says the
+  same lines with no account or plan, and what it makes is ours to
+  release as CC0; it makes the same bytes again from its pinned
+  revision. Its stock voices share their names with other services' and
+  its model card says some of its training audio was closed services'
+  synthetic speech, so a pack to bundle would take a blend of them. Not
+  chosen yet; it would amend decision 1 the same way.
+- **Our pack, `Mr. Clank`** (2026-11-04; "Infinito" names the noteskin only): Kokoro's `bm_george` as it is
+  (the maintainer's choice), the game called "DDI" (said as its
+  letters). `tools/announcer-design/pack.toml` writes every line the
+  game speaks (`docs/announcer-lines.md`) and `kokoro.py pack` makes
+  them, 165 sounds over 50 lines (3.6 MB): our own lines too, the combos
+  past 1000 at 1500 and 2000 with the overflow for the other hundreds,
+  every line but `evaluation aaaaa` (nothing gives it) and `evaluation
+  f` (it falls back to `e`). Variants where a line comes again, eight
+  for the comments; no text names a grade's letter or a judgment, since
+  grades map by place and judgments' names are the ruleset's. Each line
+  said after a lead that is cut off (Kokoro is weakest on short
+  utterances), one for each place since its tone carries into the line
+  (song select's, play's and the results', `[lead]`). Checked: the scan reads all 50 lines with nothing unused
+  or unknown, desktop's decoder decodes every sound, and the pack is
+  made again byte for byte. Made in `target/scratch/`, not committed or
+  bundled yet: bundling it amends decisions 1 and 2.
+- **And in Japanese** (2026-11-04): `tools/announcer-design/pack-ja.toml`,
+  the same lines in Japanese (the game ディーディーアイ), in `jf_alpha`,
+  Kokoro's best Japanese voice (C+), until the maintainer picks one on the
+  page. Its other four (`jf_gongitsune`, `jf_tebukuro`, `jf_nezumi`, and
+  `jm_kumo`, the one man) each learned from one TV Nishinippon
+  announcer's CC BY 3.0 readings (the Koniwa corpus's `tnc`): a pack in
+  them, or a blend with them, credits that and has that announcer's
+  voice. Any voice speaks Japanese with `lang = "j"` (`bm_george` with
+  an English accent). The phonemes are misaki's cutlet over UniDic's
+  lite edition, Kokoro's own way; kana for Latin letters and for words it
+  misreads, kanji for numbers.

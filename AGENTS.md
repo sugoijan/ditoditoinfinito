@@ -740,6 +740,13 @@ Rust and the browser are implementation details, not advertised features.
   made with ElevenLabs (the key from `ELEVENLABS_API_KEY`, never written):
   free-plan audio, kept in `target/scratch/announcer-audition/` and never
   committed or bundled (`docs/plans/announcers.md`, "A pack of our own").
+  `uv run tools/announcer-design/kokoro.py sample|speak|context` makes the same
+  lines beside them with Kokoro-82M, locally (no key; the model from
+  Hugging Face at a pinned revision; its output ours to release as CC0),
+  and `kokoro.py pack` our announcers: every line the game speaks with
+  its variants, in English (`tools/announcer-design/pack.toml`) and
+  Japanese (`pack-ja.toml`), made there too, byte for byte the same each
+  time.
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.

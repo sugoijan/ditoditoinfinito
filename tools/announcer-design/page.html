@@ -9,14 +9,14 @@
 :root {
   --bg: #f6f5f9; --panel: #ffffff; --ink: #1d1b24; --muted: #6b6878;
   --line: #dddbe5; --accent: #5b3fd1; --accent-ink: #ffffff; --star: #d99a00;
-  --playing: #e7e1ff;
+  --playing: #e7e1ff; --warn: #b45309;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #121018; --panel: #1b1823; --ink: #ecebf2; --muted: #9a97a8;
     --line: #2e2a3a; --accent: #9d86ff; --accent-ink: #121018; --star: #ffc53d;
-    --playing: #2d2550;
+    --playing: #2d2550; --warn: #f59e0b;
     color-scheme: dark;
   }
 }
@@ -34,8 +34,15 @@ h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: v
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
 .card h3 { margin: 0 0 4px; font-size: 15px; }
 .card .desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.chip .own-lead { color: var(--muted); font-size: 12px; }
+.card p.mood { margin: 2px 0; font-size: 13px; }
+th.mood { text-align: center; }
+.warn { color: var(--warn); }
 .round { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
 .round > .label { color: var(--muted); font-size: 13px; width: 64px; }
+.round > .label.wide { width: 84px; }
+.round > .label.folder { width: 230px; font: 12px ui-monospace, Menlo, monospace; }
+.card h3 { display: flex; gap: 8px; align-items: center; }
 .chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
 button { font: inherit; color: inherit; background: transparent; border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
 button:hover { background: var(--playing); }
@@ -123,8 +130,9 @@ const picks = el("textarea", { readOnly: true });
 if (!D) {
   main.append(el("p", { className: "empty", textContent: "Nothing yet: run announcer.py design." }));
 } else {
-  // The design rounds.
+  // The design rounds (ElevenLabs).
   const designs = el("section", {}, el("h2", { textContent: "Voice designs" }));
+  const samples = D.samples || [];
   if (D.designText) designs.append(el("p", { className: "note", textContent: "Every preview reads: “" + D.designText + "”" }));
   if (!D.designs.length) designs.append(el("p", { className: "empty", textContent: "No design rounds yet." }));
   for (const v of D.designs) {
@@ -150,7 +158,136 @@ if (!D) {
     }
     designs.append(card);
   }
-  main.append(designs);
+  const packs = D.packs || [];
+  if (D.designs.length || (!samples.length && !packs.length)) main.append(designs);
+
+  // Our announcer: every line it has, by where the game speaks it.
+  const WHERE = [["select music", "On song select"], ["gameplay", "In play"], ["evaluation", "On the results"]];
+  const whereOf = (folder) => (WHERE.find(([prefix]) => folder.startsWith(prefix)) || [, "Other"])[1];
+  for (const pk of packs) {
+    const sec = el("section", {}, el("h2", { textContent: "Pack: " + pk.name }));
+    const styles = [...new Set(pk.lines.flatMap((l) => l.items.map((v) => v.style)))].join(" and ");
+    sec.append(el("p", { className: "note", textContent: pk.detail + ", " + styles + " style" +
+      ". Each sound a variant of its line, which the game takes in a shuffle. ▶▶ on a line plays its variants in turn; on a card, the first of each line." }));
+    const cards = new Map();
+    for (const line of pk.lines) {
+      const where = whereOf(line.folder);
+      if (!cards.has(where)) {
+        const firsts = [];
+        const all = el("button", { className: "play", title: "The first variant of each line", textContent: "▶▶" });
+        all.onclick = () => play(firsts);
+        // The lead most of its sounds are said after, cut off; a sound said after another, or none, shows its own.
+        const here = pk.lines.filter((l) => whereOf(l.folder) === where).flatMap((l) => l.items);
+        const counts = new Map();
+        for (const v of here) if (v.lead) counts.set(v.lead, (counts.get(v.lead) || 0) + 1);
+        const [top] = [...counts].sort((a, b) => b[1] - a[1]);
+        const lead = top && top[1] * 2 > here.length ? top[0] : undefined;
+        const card = el("div", { className: "card" }, el("h3", {}, where, all));
+        if (lead) card.append(el("p", { className: "desc", textContent: "Said after “" + lead + "”, cut off." }));
+        cards.set(where, { card, firsts, lead });
+        sec.append(card);
+      }
+      const { card, firsts, lead } = cards.get(where);
+      const items = [];
+      const all = el("button", { className: "play", title: "Play the variants", textContent: "▶▶" });
+      all.onclick = () => play(items);
+      const row = el("div", { className: "round" },
+        el("span", { className: "label folder", textContent: line.folder,
+          title: [...new Set(line.items.map((v) => v.style))].join(" and ") + " style" }), all);
+      for (const v of line.items) {
+        const after = v.lead ? " (after “" + v.lead + "”)" : "";
+        const item = clip(v.file, v.text, pk.name + " · " + line.folder + " · " + v.text + after);
+        items.push(item);
+        const chip = el("span", { className: "chip", title: v.style + " style" + after }, item.button);
+        if ((v.lead || undefined) !== lead) chip.append(el("span", { className: "own-lead", textContent: v.lead ? "after “" + v.lead + "”" : "plain" }));
+        chip.append(star(v.file));
+        row.append(chip);
+      }
+      firsts.push(items[0]);
+      card.append(row);
+    }
+    main.append(sec);
+  }
+
+  // Lines said around a lead and a closer: plainly, then each mood's lead, closer and both.
+  for (const st of D.contexts || []) {
+    const sec = el("section", {}, el("h2", { textContent: "Lead and closer: " + st.name }));
+    sec.append(el("p", { className: "note", textContent: st.detail + ". Each line said plainly, then after a mood's lead, " +
+      "before its closer, and between both, cut off each time. ▶ on a line plays it across; on a column, down. " +
+      "⚠: a cut landed in a sound, not the pause." }));
+    const legend = el("div", { className: "card" });
+    for (const m of st.moods) {
+      legend.append(el("p", { className: "mood" }, el("b", { textContent: m.name }),
+        ": lead “" + m.lead + "”, closer “" + m.closer + "”"));
+    }
+    sec.append(legend);
+    const ways = [{ key: "plain", label: "plain", title: "Each line on its own" }];
+    for (const m of st.moods) {
+      ways.push({ key: m.name + "-lead", label: m.name + " lead", title: "After “" + m.lead + "”" },
+        { key: m.name + "-closer", label: m.name + " closer", title: "Before “" + m.closer + "”" },
+        { key: m.name + "-both", label: m.name + " both", title: "After “" + m.lead + "”, before “" + m.closer + "”" });
+    }
+    const cols = ways.map(() => []);
+    const colButton = (i, text) => {
+      const b = el("button", { className: "play", title: ways[i].title, textContent: "▶ " + text });
+      b.onclick = () => play(cols[i]);
+      return b;
+    };
+    const top = el("tr", {}, el("th", { rowSpan: 2, textContent: "Line" }), el("th", { rowSpan: 2 }, colButton(0, "plain")));
+    const sub = el("tr");
+    st.moods.forEach((m, mi) => {
+      top.append(el("th", { colSpan: 3, className: "mood", textContent: m.name }));
+      ["lead", "closer", "both"].forEach((w, wi) => sub.append(el("th", {}, colButton(1 + mi * 3 + wi, w))));
+    });
+    const body = el("tbody");
+    for (const r of st.rows) {
+      const rowItems = [];
+      const rowButton = el("button", { className: "play", title: "Play the line across", textContent: "▶" });
+      rowButton.onclick = () => play(rowItems);
+      const tr = el("tr", {}, el("th", {}, rowButton, " ", r.text));
+      ways.forEach((w, i) => {
+        const td = el("td");
+        const c = r.cells[w.key];
+        if (c) {
+          const item = clip(c.file, "", st.name + " · " + r.text + " · " + w.label);
+          rowItems.push(item);
+          cols[i].push(item);
+          const chip = el("span", { className: "chip", title: w.title }, item.button, star(c.file));
+          const dbs = (c.cutDb || []).filter((d) => d != null);
+          if (dbs.some((d) => d > -35)) {
+            chip.append(el("span", { className: "warn", title: "Cut in a sound: " + dbs.join(", ") + " dB under its loudest", textContent: "⚠" }));
+          }
+          td.append(chip);
+        }
+        tr.append(td);
+      });
+      body.append(tr);
+    }
+    sec.append(el("div", { className: "scroll" }, el("table", {}, el("thead", {}, top, sub), body)));
+    main.append(sec);
+  }
+
+  // Kokoro's voices, and our blends of them, reading the same text.
+  if (samples.length) {
+    const sec = el("section", {}, el("h2", { textContent: "Kokoro voices" }));
+    const texts = (D.sampleTexts || []).map((t) => "“" + t + "”").join(" or ");
+    sec.append(el("p", { className: "note", textContent: "Each reads, in its language: " + texts + " ▶▶ plays a row in turn." }));
+    const card = el("div", { className: "card" });
+    for (const g of samples) {
+      const items = [];
+      const all = el("button", { className: "play", title: "Play the row", textContent: "▶▶" });
+      all.onclick = () => play(items);
+      const row = el("div", { className: "round" }, el("span", { className: "label wide", textContent: g.group }), all);
+      for (const s of g.items) {
+        const item = clip(s.file, s.name, "kokoro " + s.name + (s.detail && s.detail !== s.name ? " (" + s.detail + ")" : ""));
+        items.push(item);
+        row.append(el("span", { className: "chip", title: s.detail }, item.button, star(s.file)));
+      }
+      card.append(row);
+    }
+    sec.append(card);
+    main.append(sec);
+  }
 
   // The lines, voice and style across.
   const lines = el("section", {}, el("h2", { textContent: "Lines" }));
@@ -161,7 +298,7 @@ if (!D) {
     const cols = D.columns.map(() => []);
     const head = el("tr", {}, el("th", { textContent: "Line" }));
     D.columns.forEach((name, i) => {
-      const b = el("button", { className: "play", textContent: "▶ " + name.replace("--", " · ") });
+      const b = el("button", { className: "play", title: (D.details || {})[name] || "", textContent: "▶ " + name.replace("--", " · ") });
       b.onclick = () => play(cols[i]);
       head.append(el("th", {}, b));
     });
