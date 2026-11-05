@@ -37,6 +37,7 @@ pub(crate) const FONT: &[u8] =
     include_bytes!("../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 
 pub(crate) struct GameLoop {
+    pub(crate) dance: ddi_shell::dance::Preview,
     /// The app's device (`web::screen`), shared.
     gfx: Rc<Gfx>,
     canvas: HtmlCanvasElement,
@@ -167,6 +168,8 @@ impl GameLoop {
             gfx,
             canvas,
             renderer,
+
+            dance: Default::default(),
             session: None,
             entrance: None,
             on_event,
@@ -581,6 +584,19 @@ impl GameLoop {
         }
         let _ = self.fps.tick(time_ms);
         self.upload_backgrounds();
+
+        {
+            let (w, h) = self.gfx.size();
+            self.dance.preload_work(
+                &self.gfx.device,
+                &self.gfx.queue,
+                self.gfx
+                    .plain_format()
+                    .unwrap_or_else(|| self.gfx.view_format()),
+                [w, h],
+                &|| crate::web::clock::PerformanceClock::now_ms() / 1000.,
+            );
+        }
         self.frames += 1;
         if self.frames.is_multiple_of(10) {
             self.publish_debug(HostTime(time_ms / 1000.0));
@@ -599,6 +615,7 @@ impl GameLoop {
     }
 
     pub(crate) fn clear_session(&mut self) {
+        self.dance.reset_preload();
         self.session = None;
         self.lyrics = None;
         self.stage.set_track(None);
@@ -877,6 +894,27 @@ impl GameLoop {
                     }
                     self.renderer.set_stage_quads(back, mask);
                 }
+
+                self.dance.prepare(frame.song_time, &|| {
+                    crate::web::clock::PerformanceClock::now_ms() / 1000.
+                });
+
+                if self.dance.behind_field() {
+                    self.dance.draw_underlay(
+                        &self.gfx.device,
+                        &self.gfx.queue,
+                        &mut encoder,
+                        &mut self.renderer,
+                        self.gfx
+                            .plain_format()
+                            .unwrap_or_else(|| self.gfx.view_format()),
+                        [width, height],
+                        frame.song_time,
+                    );
+                } else {
+                    self.renderer
+                        .set_field_underlay(&self.gfx.device, &mut encoder, None);
+                }
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -891,6 +929,28 @@ impl GameLoop {
                     render,
                     layer,
                 );
+
+                if self.dance.behind_field() {
+                    self.dance.draw_guide(
+                        &self.gfx.device,
+                        &self.gfx.queue,
+                        &mut encoder,
+                        plain_view.as_ref().unwrap_or(&view),
+                        [width, height],
+                    );
+                } else {
+                    self.dance.draw(
+                        &self.gfx.device,
+                        &self.gfx.queue,
+                        &mut encoder,
+                        plain_view.as_ref().unwrap_or(&view),
+                        self.gfx
+                            .plain_format()
+                            .unwrap_or_else(|| self.gfx.view_format()),
+                        [width, height],
+                        frame.song_time,
+                    );
+                }
             }
             None => {
                 self.playing_at = None;
@@ -1062,6 +1122,9 @@ impl GameLoop {
             let _ = js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(k), &v);
         };
         set("frames", (self.frames as f64).into());
+        if let Ok(value) = js_sys::JSON::parse(&self.dance.debug().to_string()) {
+            set("dance", value);
+        }
         // The lyrics drawn over the play (their texts).
         let lyrics = js_sys::Array::new();
         for l in &self.lyrics_shown {

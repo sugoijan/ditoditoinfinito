@@ -811,6 +811,16 @@ impl TexturedPipeline {
         self.textures.len() as u32 - 1
     }
 
+    /// Replace one device image without growing the texture registry on resize.
+    pub fn replace_texture(&mut self, device: &wgpu::Device, id: u32, texture: &wgpu::Texture) {
+        self.image_groups
+            .retain(|(images, _), _| !images.contains(&id));
+        self.textures[id as usize] = self.bind(device, texture);
+        self.sources[id as usize] = Some(texture.clone());
+        if let Some(entry) = self.atlas.get_mut(id as usize) {
+            *entry = None;
+        }
+    }
     /// Packs textures `ids` (a skin's images drawn whole or by frame,
     /// never repeated: `NoteLayer::atlas_textures`) into atlas pages, each
     /// once, by GPU copies recorded on `encoder`; quads drawing one then

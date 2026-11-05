@@ -255,6 +255,7 @@ pub(crate) struct Props {
 /// The page's few DOM elements around the canvas.
 struct PlayDom {
     overlay: HtmlElement,
+
     _pointer: EventListener,
     _moved: EventListener,
 }
@@ -285,9 +286,12 @@ pub(crate) struct GameCanvas {
     /// Layout of the chart played, for the results.
     layout: Option<ddi_chart::Layout>,
     settings: Settings,
+
     devices: Option<DeviceProfile>,
     /// Song offset (seconds) the current or last play ran with.
     played_offset: f64,
+    play_seed: u64,
+    hand_restart: bool,
     gamepads: Option<Gamepads>,
     /// A pad start left the audio suspended; the prompt asks for a gesture.
     needs_gesture: bool,
@@ -563,6 +567,7 @@ impl Component for GameCanvas {
         let replay = ctx.props().replay.clone();
         let refused = replay.as_ref().and_then(|r| r.refused.clone());
         // A replay is drawn with its own settings (`Replay::settings`).
+
         let play_settings = play_settings(replay.as_deref());
         match ctx.props().source.clone() {
             // Refused: nothing to load, the prompt says why.
@@ -744,8 +749,11 @@ impl Component for GameCanvas {
             names: None,
             layout: None,
             settings: play_settings,
+
             devices: None,
             played_offset: 0.0,
+            play_seed: crate::play::random_seed(),
+            hand_restart: false,
             gamepads,
             needs_gesture: false,
             alive: Rc::new(std::cell::Cell::new(true)),
@@ -1067,6 +1075,7 @@ impl GameCanvas {
                 false
             }
             Msg::VideoTick => {
+                self.preload_hand(ctx);
                 // A play started early: the pictures' wait may be over.
                 if self.try_begin(ctx) {
                     return true;
@@ -1323,7 +1332,20 @@ impl GameCanvas {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
-                self.begin_session(ctx, audio, buffer, Default::default(), true);
+                self.play_seed = crate::play::random_seed();
+                let supported = match (&self.song, &ctx.props().source) {
+                    (Status::Ready(song), SongSource::Song { chart, .. }) => self
+                        .settings
+                        .dancing_hand_for(&song.song.charts[*chart].layout),
+                    _ => false,
+                };
+                if supported {
+                    self.hand_restart = true;
+                    self.stage = Stage::Waiting { audio, buffer };
+                    self.try_begin(ctx);
+                } else {
+                    self.begin_session(ctx, audio, buffer, Default::default(), true);
+                }
                 true
             }
             Msg::Session(SessionEvent::Interrupted) => {
@@ -1350,7 +1372,9 @@ impl GameCanvas {
                 _ => false,
             },
             Msg::Retry => {
+                self.hand_restart = false;
                 self.results_failed = false;
+                self.play_seed = crate::play::random_seed();
                 if self.device_lost {
                     ctx.props().restart.emit(());
                     return false;
@@ -1428,6 +1452,7 @@ impl GameCanvas {
             }
         });
         let playing = matches!(self.stage, Stage::Playing);
+
         root.set_class_name(if playing {
             "game-canvas-host playing"
         } else {
@@ -1653,6 +1678,15 @@ impl GameCanvas {
         if self.skin_loading {
             w.push("noteskin");
         }
+
+        if self
+            .game
+            .borrow()
+            .as_ref()
+            .is_some_and(|g| g.dance.preload_pending())
+        {
+            w.push("dancing hand");
+        }
         let decoded =
             self.shell.predecoded.borrow().is_some() || matches!(self.stage, Stage::Waiting { .. });
         if !decoded {
@@ -1670,6 +1704,7 @@ impl GameCanvas {
     /// The music decoded and the devices settled: the play begins once
     /// all else is ready ([`GameCanvas::assets_ready`]); whether it did.
     fn try_begin(&mut self, ctx: &Context<Self>) -> bool {
+        self.preload_hand(ctx);
         if !matches!(self.stage, Stage::Waiting { .. }) || !self.assets_ready() {
             return false;
         }
@@ -1677,8 +1712,13 @@ impl GameCanvas {
         else {
             return false;
         };
-        let entrance = self.prompt_state.borrow().entrance();
-        self.begin_session(ctx, audio, buffer, entrance, false);
+        let restart = std::mem::take(&mut self.hand_restart);
+        let entrance = if restart {
+            Default::default()
+        } else {
+            self.prompt_state.borrow().entrance()
+        };
+        self.begin_session(ctx, audio, buffer, entrance, restart);
         true
     }
 
@@ -1711,6 +1751,7 @@ impl GameCanvas {
         if let Some(o) = &self.options {
             o.borrow().over(&mut s);
         }
+
         s
     }
 
@@ -1843,10 +1884,65 @@ impl GameCanvas {
         }
     }
 
-    /// The play started on `audio`, the backdrop's entrance from
-    /// `entrance` (where the prompt left it; after a restart, done).
-    /// `restart`: a quick restart's play (the announcer opens it with
-    /// `gameplay restart`).
+    fn session_config(&self, ctx: &Context<Self>) -> (SessionConfig, usize) {
+        let mut config =
+            SessionConfig::from_settings(&self.settings, ctx.props().auto, self.devices.clone());
+        let chart = match &ctx.props().source {
+            SongSource::Song { chart, .. } => *chart,
+            SongSource::Calibration(mode) => {
+                config.session.calibrate(*mode);
+                config.render.for_calibration(mode.hide_notes());
+                0
+            }
+        };
+        config.session.seed = self.play_seed;
+        config.session.auto_bias = ctx.props().auto_bias;
+        config.session.auto_pad = ctx.props().auto_pad;
+        // The editor's playtest from its cursor.
+        if ctx.props().edit
+            && let SongSource::Song { id, .. } = &ctx.props().source
+        {
+            config.session.start = crate::editor::playtest(id).map(|(_, start)| start);
+        }
+        config.gamepads = self.gamepads.clone();
+        config.touch_canvas = crate::web::screen::canvas();
+        // A replay: its log on the lanes, its options and rules, the
+        // offsets this device needs (`Replay::replaying`).
+        if let Some(r) = self.kept() {
+            config.session.set_replay(r);
+        }
+        (config, chart)
+    }
+
+    fn preload_hand(&mut self, ctx: &Context<Self>) {
+        if !matches!(
+            self.stage,
+            Stage::Idle | Stage::Decoding | Stage::Waiting { .. }
+        ) {
+            return;
+        }
+        let Status::Ready(song) = &self.song else {
+            return;
+        };
+        let (config, chart) = self.session_config(ctx);
+        let shift = match &ctx.props().source {
+            SongSource::Song { id, .. } => {
+                ddi_session::play::song_shift(&self.settings, id, self.kept(), false)
+            }
+            SongSource::Calibration(_) => 0.,
+        };
+        if let Some(game) = self.game.borrow_mut().as_mut() {
+            game.dance.preload(
+                &song.song.shifted(shift),
+                chart,
+                &self.settings,
+                &config.session,
+                self.settings.dancing_hand
+                    && !matches!(ctx.props().source, SongSource::Calibration(_)),
+            );
+        }
+    }
+
     fn begin_session(
         &mut self,
         ctx: &Context<Self>,
@@ -1862,33 +1958,8 @@ impl GameCanvas {
         let Status::Ready(song) = &self.song else {
             return;
         };
-        let mut config =
-            SessionConfig::from_settings(&self.settings, ctx.props().auto, self.devices.clone());
-        let chart = match &ctx.props().source {
-            SongSource::Song { chart, .. } => *chart,
-            SongSource::Calibration(mode) => {
-                config.session.calibrate(*mode);
-                config.render.for_calibration(mode.hide_notes());
-                0
-            }
-        };
-        config.session.auto_bias = ctx.props().auto_bias;
-        config.session.auto_pad = ctx.props().auto_pad;
+        let (mut config, chart) = self.session_config(ctx);
         config.session.restart = restart;
-        // The editor's playtest from its cursor.
-        if ctx.props().edit
-            && let SongSource::Song { id, .. } = &ctx.props().source
-        {
-            config.session.start = crate::editor::playtest(id).map(|(_, start)| start);
-        }
-        config.gamepads = self.gamepads.clone();
-        config.touch_canvas = crate::web::screen::canvas();
-        // A replay: its log on the lanes, its options and rules, the
-        // offsets this device needs (`Replay::replaying`).
-        if let Some(r) = self.kept() {
-            config.session.set_replay(r);
-            crate::replay::publish(&r.id, "playing", None, None);
-        }
         let shift = match &ctx.props().source {
             SongSource::Song { id, .. } => {
                 ddi_session::play::song_shift(&self.settings, id, self.kept(), false)
@@ -1911,8 +1982,12 @@ impl GameCanvas {
                     .best_of_play(&song.song, *chart, &self.settings);
             config.session.prior = Some(ddi_session::announcer::Prior::of(best.as_ref()));
         }
+        if let Some(r) = self.kept() {
+            crate::replay::publish(&r.id, "playing", None, None);
+        }
         self.played_offset = shift;
         let play_song = song.song.shifted(shift);
+
         // On the song's timing as played, so the song offset moves them too.
         let schedule = match &ctx.props().source {
             SongSource::Song { .. } => {
@@ -1953,6 +2028,9 @@ impl GameCanvas {
             Ok(mut session) => {
                 if let Some(v) = &self.voice {
                     session.set_voice(v.clone());
+                }
+                if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.dance.start_preloaded();
                 }
                 self.layout = Some(session.layout.clone());
                 // The ruleset is chosen per chart when the session starts.
@@ -2199,6 +2277,7 @@ impl GameCanvas {
                     .find(|c| c.index == *chart)
                     .and_then(|c| {
                         Some(PromptChart {
+                            layout: layout.id.clone(),
                             difficulty: ddi_chart::Difficulty::from_name(&c.difficulty)?,
                             meter: c.meter,
                             style: layout.name.clone(),

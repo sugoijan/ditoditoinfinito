@@ -81,6 +81,8 @@ impl Drop for Load {
 /// The preview on one device.
 pub(crate) struct FieldPreviewHost {
     preview: FieldPreview,
+
+    hand: ddi_shell::hand_field_preview::HandPreview,
     /// The device it was made on.
     generation: u64,
     /// The preview's texture generation the 2D pass was given.
@@ -113,6 +115,8 @@ impl FieldPreviewHost {
         );
         FieldPreviewHost {
             preview,
+
+            hand: Default::default(),
             generation: gfx.generation,
             registered: None,
             skin: SkinSlot::default(),
@@ -160,6 +164,8 @@ impl FieldPreviewHost {
     pub(crate) fn set_settings(&mut self, settings: &Settings) {
         self.preview.set_receptors(None);
         let options = self.skin.set_settings(settings);
+
+        self.hand.set_settings(settings, &options.layout);
         self.preview.set_options(options);
     }
 
@@ -212,8 +218,14 @@ impl FieldPreviewHost {
         // wanted: the panel's placeholder, or the last frame, never the
         // built-in arrows on the way.
         if self.skin.ready() {
-            self.preview
-                .draw(&gfx.device, &gfx.queue, encoder, size, now_ms / 1000.0);
+            self.preview.draw_with_underlay(
+                &gfx.device,
+                &gfx.queue,
+                encoder,
+                size,
+                now_ms / 1000.,
+                |r, d, q, e, s, t| self.hand.draw(r, d, q, e, s, t),
+            );
         }
         let generation = self.preview.generation();
         if self.registered != Some(generation) {
@@ -235,6 +247,8 @@ impl FieldPreviewHost {
             });
         }
         self.preview.release_targets();
+
+        self.hand.release_targets();
     }
 
     /// Starts loading the skin wanted unless it is shown or loading, and

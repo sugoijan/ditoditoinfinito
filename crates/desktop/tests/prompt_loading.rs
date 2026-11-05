@@ -77,7 +77,7 @@ fn start_during_a_slow_skin_shows_the_loading_screen_then_plays() {
     let plain = texture.create_view(&Default::default());
     let prompt_view = || env.state.borrow().prompt.clone().unwrap_or_default();
 
-    *host.requested.borrow_mut() = Some(Request::song("beatucada", 2, true));
+    *host.requested.borrow_mut() = Some(Request::song("beatucada", 4, true));
     // Start at once; the skin still reading behind it.
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     ui.update(0.05);
@@ -116,6 +116,10 @@ fn start_during_a_slow_skin_shows_the_loading_screen_then_plays() {
         asked.elapsed() >= Duration::from_millis(1500),
         "the skin's delay"
     );
+    let hand = host.hand_debug().unwrap();
+    assert_eq!(hand["preloaded"], true, "{hand}");
+    assert_eq!(hand["runtime"]["available"], true, "{hand}");
+    assert!(hand["character"]["drawn"].as_u64().unwrap() > 0);
     // The prompt went before the play's first frame.
     assert_ne!(
         ui.layers().last().map(|l| l.name.clone()).as_deref(),
@@ -137,6 +141,42 @@ fn start_during_a_slow_skin_shows_the_loading_screen_then_plays() {
         queue.submit(Some(encoder.finish()));
     }
     assert!(host.playing());
+    // A quick restart gets a fresh opening buffer before rescheduling audio.
+    for frame in 0..145 {
+        let now = clock.fetch_add(1_000_000_000 / 60, Ordering::SeqCst) + 1_000_000_000 / 60;
+        if let Some(pressed) = match frame {
+            120 | 130 => Some(true),
+            121 | 131 => Some(false),
+            _ => None,
+        } {
+            host.feed.borrow_mut().edges.push(ddi_platform::RawInput {
+                device: ddi_platform::DeviceId::Keyboard,
+                control: "KeyR".into(),
+                pressed,
+                host_time: HostTime(now as f64 / 1e9),
+                slot: 0,
+            });
+        }
+        host.poll(&mut ui, &env, Some(dev()), 48_000);
+        ui.update(1. / 60.);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        host.draw_play(
+            &dev(),
+            &mut encoder,
+            &srgb,
+            Some(&plain),
+            SIZE,
+            HostTime(now as f64 / 1e9),
+            &mut ui,
+            &env,
+        );
+        queue.submit([encoder.finish()]);
+    }
+    assert!(host.playing(), "restart must finish its readiness gate");
+    assert!(host.log.iter().any(|line| line == "restarted beatucada"));
+    let hand = host.hand_debug().unwrap();
+    assert_eq!(hand["preloaded"], true, "{hand}");
+    assert!(hand["runtime_error"].is_null(), "{hand}");
     // Another play's prompt, left from its loading screen.
     drop(host);
     let mut host = Host::new(Rc::default(), None);

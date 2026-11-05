@@ -794,6 +794,8 @@ pub struct OptionsData {
     pub sections: Vec<OptionSection>,
     /// The layout selector above the preview, shared by every section.
     pub preview_layout: Option<OptionDef>,
+    /// Show the whole play composition at the current viewport aspect.
+    pub preview_whole_play: bool,
     /// Under the field preview ("Infinito · Single · ×2.5 · Reverse").
     pub preview: String,
     /// What the last action did ("Settings reset.", "3 plays

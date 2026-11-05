@@ -385,6 +385,146 @@ impl Judge {
         &self.table
     }
 
+    /// Extend a streaming tap/hold validation window without replaying its past.
+    /// Resolved notes are dropped; active hold life/release budgets, buttons and
+    /// the judging clock survive. Incoming rows must be complete, sorted and
+    /// strictly after all previously known heads and the current clock.
+    /// Ticked holds and other note kinds require their own streaming contract.
+    pub fn append_future_taps_and_holds(
+        &mut self,
+        incoming: &[Note],
+        timing: &TimingMap,
+    ) -> Result<(), &'static str> {
+        self.append_future_contacts(incoming, timing, 0)
+    }
+
+    /// The same bounded checkpoint contract, also retaining pending mines and
+    /// their real press/crossing windows. Mines must arrive before their window.
+    pub fn append_future_taps_holds_and_mines(
+        &mut self,
+        incoming: &[Note],
+        timing: &TimingMap,
+    ) -> Result<(), &'static str> {
+        self.append_future_contacts(incoming, timing, 1)
+    }
+
+    /// Bounded physical-contact checkpoint including rolls, scored releases and full-row hazards.
+    /// Existing tap/hold and mine-only APIs retain their strict contracts.
+    pub fn append_future_hand_contacts(
+        &mut self,
+        incoming: &[Note],
+        timing: &TimingMap,
+    ) -> Result<(), &'static str> {
+        self.append_future_contacts(incoming, timing, 2)
+    }
+
+    fn append_future_contacts(
+        &mut self,
+        incoming: &[Note],
+        timing: &TimingMap,
+        kinds: u8,
+    ) -> Result<(), &'static str> {
+        if (kinds != 2 && self.table.hold.is_ticked())
+            || self.notes.iter().map(|n| &n.note).chain(incoming).any(|n| {
+                !matches!(n.kind, NoteKind::Tap | NoteKind::HoldHead { .. })
+                    && !(kinds >= 1 && n.kind == NoteKind::Mine)
+                    && !(kinds == 2
+                        && matches!(
+                            n.kind,
+                            NoteKind::Shock | NoteKind::Lift | NoteKind::RollHead { .. }
+                        ))
+            })
+        {
+            return Err(if kinds == 2 {
+                "streaming judge supports taps, holds, rolls, mines, shocks and lifts only"
+            } else if kinds == 1 {
+                "streaming judge supports unticked taps, holds and mines only"
+            } else {
+                "streaming judge supports unticked taps and holds only"
+            });
+        }
+        if kinds >= 1
+            && incoming.iter().any(|n| {
+                matches!(n.kind, NoteKind::Mine | NoteKind::Shock)
+                    && self.last_time.is_some_and(|t| {
+                        timing.seconds_at(n.tick) - self.table.mine_window_seconds() <= t
+                    })
+            })
+        {
+            return Err("streaming mine arrived after its early window");
+        }
+        if kinds == 2
+            && incoming.iter().any(|n| {
+                n.kind == NoteKind::Lift
+                    && self
+                        .last_time
+                        .is_some_and(|t| timing.seconds_at(n.tick) - self.table.max_early() <= t)
+            })
+        {
+            return Err("streaming lift arrived after its early window");
+        }
+        if incoming
+            .windows(2)
+            .any(|w| (w[0].tick, w[0].lane) >= (w[1].tick, w[1].lane))
+            || incoming.first().is_some_and(|n| {
+                self.notes.last().is_some_and(|old| n.tick <= old.note.tick)
+                    || self
+                        .last_time
+                        .is_some_and(|t| timing.seconds_at(n.tick) <= t)
+            })
+        {
+            return Err("streaming judge received an old, partial or unordered row");
+        }
+        if self.notes.iter().any(|n| {
+            timing.seconds_at(n.note.tick) != n.seconds
+                || n.note
+                    .kind
+                    .hold_end()
+                    .is_some_and(|e| timing.seconds_at(e).max(n.seconds) != n.end_seconds)
+        }) {
+            return Err("streaming judge timing changed for existing notes");
+        }
+        let kept: Vec<_> = self
+            .notes
+            .iter()
+            .filter(|n| !n.state.is_terminal())
+            .collect();
+        let notes: Vec<_> = kept
+            .iter()
+            .map(|n| n.note.clone())
+            .chain(incoming.iter().cloned())
+            .collect();
+        let mut next = Self::new(&notes, timing, self.table.clone()).with_lanes(self.down.len());
+        for (fresh, old) in next.notes.iter_mut().zip(kept) {
+            let row = fresh.row;
+            *fresh = old.clone();
+            fresh.row = row;
+        }
+        // A resolved step can be pruned at a checkpoint's exact second before
+        // that checkpoint crosses. Keep its row unscored after pruning too.
+        for row in &mut next.checkpoints {
+            if let Ok(i) = self.checkpoints.binary_search_by_key(&row.tick, |r| r.tick) {
+                row.scored &= self.checkpoints[i].scored;
+            }
+        }
+        // Rebuilt checkpoint rows include active holds' elapsed ticks. Resume
+        // strictly at the judging clock; never replay their checkpoint counts.
+        if let Some(t) = self.last_time {
+            next.next_checkpoint = next.checkpoints.partition_point(|r| r.seconds < t);
+            next.next_head = next.heads.partition_point(|&i| next.notes[i].seconds <= t);
+        }
+        next.last_time = self.last_time;
+        next.down[..self.down.len()].copy_from_slice(&self.down);
+        next.first_note = self.first_note.or(next.first_note);
+        *self = next;
+        Ok(())
+    }
+
+    /// Physical buttons at the current judging checkpoint.
+    pub fn buttons_down(&self) -> &[bool] {
+        &self.down
+    }
+
     /// The song second judged up to (the last press, release or update),
     /// `None` before any.
     pub fn last_time(&self) -> Option<f64> {

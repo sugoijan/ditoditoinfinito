@@ -245,3 +245,71 @@ fn late_pacing_judges_as_steady_frames_do() {
     }
     assert!(charts > 10, "{charts}");
 }
+
+#[test]
+fn later_plays_accept_revised_display_predictions_without_stopping_the_hand() {
+    use ddi_shell::dance_runtime::RuntimePreview;
+    use std::cell::Cell;
+    let song=ddi_chart::formats::sm::parse_sm("#TITLE:Prediction revisions;#OFFSET:-1;#BPMS:0=120;#NOTES:dance-single::Easy:2:0,0,0,0,0:\n1000\n0100\n0010\n0001;").unwrap();
+    let mut pacer = Pacer::new(Mode::Late);
+    pacer.set_refresh_hint(Some(60.));
+    let mut surface = Surface::new(Display::Fixed {
+        period: 1. / 60.,
+        phase: 0.002,
+    });
+    Compositor::WINDOWED.apply(&mut surface);
+    let mut l = sim::Loop::default();
+    let mut noise = Noise::new(0);
+    let mut wake = Noise::new(1);
+    for round in 0..3 {
+        pacer.restart();
+        let base = l.t;
+        let start = l.records.len();
+        let mut cost = |_: usize| {
+            if round == 0 {
+                (0.007 + 0.003 * noise.normal()).max(0.0001)
+            } else {
+                (0.001 + 0.0005 * noise.normal()).max(0.0001)
+            }
+        };
+        l.until(base + 3., &mut pacer, &mut surface, &mut cost, &mut |_| {
+            wake.uniform() * 0.001
+        });
+        let player = ddi_engine::player::Player::new(
+            &song,
+            0,
+            ddi_engine::rules::presets::itg(),
+            ddi_engine::player::PlayOptions {
+                transform: ddi_engine::TransformOptions {
+                    at_once: ddi_engine::AtOnce::Two,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let mut hand = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        let ticks = Cell::new(0.);
+        let clock = || {
+            let t = ticks.get();
+            ticks.set(t + 0.0000005);
+            t
+        };
+        for _ in 0..2000 {
+            hand.prepare(-1., &clock);
+            if hand.available {
+                break;
+            }
+        }
+        assert!(hand.available);
+        hand.start_preloaded();
+        for (i, record) in l.records[start..].iter().enumerate() {
+            hand.prepare(record.predicted - base, &clock);
+            assert!(
+                hand.failure().is_none() && hand.available,
+                "round {round} frame {i}: {}",
+                hand.debug()
+            );
+        }
+        l.t += 1.;
+    }
+}

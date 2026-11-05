@@ -323,3 +323,10 @@ SPDX-License-Identifier = "MIT"
 path = ["tools/danoni-importer/licenses/crates/symphonia*.txt"]
 SPDX-FileCopyrightText = "The Symphonia contributors"
 SPDX-License-Identifier = "MPL-2.0"
+
+# Runtime subset of the hand development study; inherited terms retained.
+[[annotations]]
+path = ["assets/hand/**"]
+precedence = "override"
+SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Dan Ulrich", "MZiemys", "WAVEFILE", "Carnegie Mellon University Graphics Lab", "MMD reference contributors", "OutFox Serenity contributors"]
+SPDX-License-Identifier = "MIT AND CC0-1.0 AND LicenseRef-WAVEFILE AND LicenseRef-MMD-Reference AND LicenseRef-CMU-Mocap AND CC-BY-4.0"

@@ -242,6 +242,7 @@ fn conversions_keep_their_sources_rules_and_are_not_assisted() {
     keys.add_chart_versions();
     // Each chart by its game's rules.
     let settings = crate::state::settings::Settings {
+        dancing_hand: false,
         ruleset_mode: ddi_engine::rules::presets::RulesetMode::Original,
         ..Default::default()
     };
@@ -286,6 +287,15 @@ fn conversions_keep_their_sources_rules_and_are_not_assisted() {
                 .any(|k| k.digest == digest && !k.assist)
         );
         assert!(history.best_of_play(song, index, &settings).is_some());
+        let accompanied = crate::state::settings::Settings {
+            dancing_hand: true,
+            ..settings.clone()
+        };
+        assert_eq!(
+            history.best_of_play(song, index, &accompanied).is_none(),
+            accompanied.dancing_hand_for(&chart.layout),
+            "only supported hand-assisted plays use the separate best"
+        );
     }
 }
 

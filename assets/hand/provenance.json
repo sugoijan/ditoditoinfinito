@@ -1,0 +1,28 @@
+{
+  "source_commit": "399a1c028fb4f64cfc0df551382ce0b95e6d066b",
+  "source_branch": "codex/dancing-hand-preview",
+  "source_files": [
+    "art/procedural-dance/study-018/hand-static.glb",
+    "art/procedural-dance/study-018/model.json"
+  ],
+  "modifications": "Runtime files copied byte-identically; paths relocated. No archived choreography or reference streams included.",
+  "upstreams": [
+    {
+      "author": "Dan Ulrich",
+      "asset": "Hand - Realistic, Human Base Meshes v1.4.1",
+      "url": "https://www.blender.org/download/demo-files/",
+      "license": "CC0-1.0"
+    },
+    {
+      "author": "MZiemys",
+      "url": "https://blendswap.com/blend/17281",
+      "license": "CC0-1.0"
+    }
+  ],
+  "inherited_terms": "MIT AND CC0-1.0 AND LicenseRef-WAVEFILE AND LicenseRef-MMD-Reference AND LicenseRef-CMU-Mocap AND CC-BY-4.0",
+  "notice": "NOTICE.txt",
+  "files": {
+    "hand.glb": "518cec7949e2fa0bb8a36233347df06a3c56e267223a52860812ead6269dd230",
+    "model.json": "895a69baf87bde27afce988cd8649f2bffa302a15565b13aca22f9a342ad163c"
+  }
+}

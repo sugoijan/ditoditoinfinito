@@ -44,6 +44,8 @@ impl SkinLoad for Load {
 /// The preview, while a screen shows it.
 pub struct Field {
     preview: Option<FieldPreview>,
+
+    hand: ddi_shell::hand_field_preview::HandPreview,
     /// The skin wanted (a demo's layout, or the diagram's strip), shown
     /// and read.
     skin: SkinSlot<Load>,
@@ -61,6 +63,8 @@ impl Default for Field {
     fn default() -> Field {
         Field {
             preview: None,
+
+            hand: Default::default(),
             skin: SkinSlot::default(),
             rect: None,
             options: FieldPreviewOptions::default(),
@@ -78,6 +82,8 @@ impl Field {
     pub fn for_new_device(&self) -> Field {
         Field {
             rect: self.rect,
+
+            hand: self.hand.for_new_device(),
             options: self.options.clone(),
             receptors: self.receptors.clone(),
             receptor_ready: self.receptor_ready.clone(),
@@ -110,6 +116,8 @@ impl Field {
         self.receptors = None;
         self.receptor_ready = None;
         self.options = self.skin.set_settings(settings);
+
+        self.hand.set_settings(settings, &self.options.layout);
     }
 
     /// The prompt's receptor diagram (`None`: gone), its skin readied
@@ -227,6 +235,8 @@ impl Field {
             if let Some(p) = &mut self.preview {
                 p.release_targets();
             }
+
+            self.hand.release_targets();
             return;
         };
         let ready = self.ready();
@@ -238,12 +248,14 @@ impl Field {
         // built-in arrows on the way.
         if ready {
             let size = [w.round().max(1.0) as u32, h.round().max(1.0) as u32];
-            preview.draw(
+
+            preview.draw_with_underlay(
                 device,
                 queue,
                 encoder,
                 size,
                 self.start.elapsed().as_secs_f64(),
+                |r, d, q, e, s, t| self.hand.draw(r, d, q, e, s, t),
             );
         }
         if let Some(r) = &self.receptor_ready {

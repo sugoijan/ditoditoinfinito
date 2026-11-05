@@ -1,0 +1,13 @@
+[package]
+name = "ddi-character"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Bounded glTF character loading and deterministic clip deformation"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -133,6 +133,30 @@ impl Request {
         }
     }
 
+    fn session_config(
+        &self,
+        settings: &Settings,
+        devices: Option<DeviceProfile>,
+        seed: u64,
+    ) -> SessionConfig {
+        let mut config = SessionConfig::from_settings(settings, self.auto, devices);
+        config.auto_pad = self.auto_pad;
+        config.auto_bias = self.bias;
+        config.seed = seed;
+        config.start = self.start;
+        config.prior = self.prior;
+        config.restart = self.restart;
+        if let Some(mode) = self.calibration {
+            config.calibrate(mode);
+        }
+        // A replay: its log on the lanes, its options and rules, the
+        // offsets this device needs.
+        if let Some(r) = &self.replay {
+            config.set_replay(r);
+        }
+        config
+    }
+
     /// The song offset the notes are shifted by in a play run with
     /// `settings` ([`ddi_session::play::song_shift`]).
     pub fn song_shift(&self, settings: &Settings) -> f64 {
@@ -355,21 +379,30 @@ impl Play {
         devices: Option<DeviceProfile>,
         refresh_hz: f64,
     ) -> Result<Play, String> {
-        let mut config = SessionConfig::from_settings(settings, request.auto, devices);
-        config.auto_pad = request.auto_pad;
-        config.auto_bias = request.bias;
-        config.seed = random_seed();
-        config.start = request.start;
-        config.prior = request.prior;
-        config.restart = request.restart;
-        if let Some(mode) = request.calibration {
-            config.calibrate(mode);
-        }
-        // A replay: its log on the lanes, its options and rules, the
-        // offsets this device needs.
-        if let Some(r) = &request.replay {
-            config.set_replay(r);
-        }
+        Self::start_seeded(
+            request,
+            loaded,
+            settings,
+            audio,
+            feed,
+            devices,
+            refresh_hz,
+            random_seed(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn start_seeded(
+        request: Request,
+        loaded: Rc<Loaded>,
+        settings: &Settings,
+        audio: Audio,
+        feed: Rc<RefCell<Feed>>,
+        devices: Option<DeviceProfile>,
+        refresh_hz: f64,
+        seed: u64,
+    ) -> Result<Play, String> {
+        let mut config = request.session_config(settings, devices, seed);
         let shift = request.song_shift(settings);
         config.ghost = request
             .ghost

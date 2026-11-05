@@ -207,7 +207,7 @@ fn rows_change_the_settings_and_save_them() {
         .unwrap();
     r.h.tap(PointerKind::Mouse, &format!("Option{i}.Choice1"));
     assert!(stored().reverse);
-    assert!(r.model.borrow().data().preview.ends_with("Reverse"));
+    assert!(r.model.borrow().data().preview.contains("Reverse"));
     // The volume: changed by a key, the sample plays (in the key's
     // gesture) at the volume chosen; its row stops it.
     r.section("Sound");
@@ -257,9 +257,10 @@ fn the_preview_is_told_once_and_again_when_it_moves() {
     assert_eq!(told(&r.h), 1);
     let rect = r.state.borrow().preview.unwrap();
     assert!(
-        rect[0] > 640.0 && rect[2] > 200.0 && rect[3] > 200.0,
+        rect[0] > 640.0 && rect[2] > 200.0 && rect[3] > 150.0,
         "{rect:?}"
     );
+    assert!((rect[2] / rect[3] - 1280. / 720.).abs() < 0.02);
     // A change does not move it.
     r.h.key("ArrowRight", "ArrowRight");
     r.h.run(0.2);

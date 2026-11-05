@@ -1619,3 +1619,109 @@ fn the_announcer_counts_a_batterys_lives_down() {
     assert!(lost.is_some() && last.is_some(), "{spoken:?}");
     assert!(lost < last && last < failed, "{spoken:?}");
 }
+
+#[test]
+fn dancing_hand_simplifies_the_play_copy_and_records_the_effective_options() {
+    let song = ddi_chart::formats::sm::parse_sm("#TITLE:Shared input;#BPMS:0=120;#NOTES:dance-single::Medium:4:0,0,0,0,0:\n1111\n2000\n0111\n3000\n;").unwrap();
+    for enabled in [false, true] {
+        let settings = Settings {
+            dancing_hand: enabled,
+            ..Settings::default()
+        };
+        let active = settings.dancing_hand_for("dance-single");
+        let clock: Clock = Rc::new(RefCell::new(0.));
+        let mut config = SessionConfig::from_settings(&settings, true, None);
+        config.seed = 7;
+        let mut s = PlaySession::start(
+            &song,
+            0,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            10.,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let expected = ddi_engine::transform::apply(
+            &song.charts[0].notes,
+            &ddi_chart::Layout::dance_single(),
+            &ddi_engine::TransformOptions {
+                at_once: if active {
+                    ddi_engine::AtOnce::Two
+                } else {
+                    ddi_engine::AtOnce::Any
+                },
+                ..Default::default()
+            },
+            7,
+        )
+        .notes;
+        assert_eq!(
+            s.player
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(settings.transform.at_once, ddi_engine::AtOnce::Any);
+        assert_eq!(song.charts[0].notes.len(), 8);
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
+        else {
+            panic!("play did not finish")
+        };
+        assert_eq!(results.assist, active);
+        assert_eq!(
+            facts.options.transform.at_once,
+            if active {
+                ddi_engine::AtOnce::Two
+            } else {
+                ddi_engine::AtOnce::Any
+            }
+        );
+        assert_eq!(results.tally.let_go, 0);
+        assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
+        if !active {
+            let replay = kept("before-hand-mode", &song, 0, &results, &facts, false);
+            let hand_settings = Settings {
+                dancing_hand: true,
+                ..Settings::default()
+            };
+            let replay_clock: Clock = Rc::new(RefCell::new(0.));
+            let mut config = SessionConfig::from_settings(&hand_settings, false, None);
+            config.set_replay(&replay);
+            let replayed = PlaySession::start(
+                &song,
+                0,
+                &hand_settings,
+                config,
+                FakeAudio::new(&replay_clock, 0.),
+                10.,
+                FakeInputs::new(&replay_clock),
+            )
+            .unwrap();
+            assert_eq!(replayed.player.options().transform, facts.options.transform);
+            assert_eq!(
+                replayed.player.judge().notes().len(),
+                song.charts[0].notes.len()
+            );
+            let mut config = SessionConfig::from_settings(&hand_settings, true, None);
+            config.calibrate(CalMode::Combined);
+            let calibration = PlaySession::start(
+                &song,
+                0,
+                &hand_settings,
+                config,
+                FakeAudio::new(&replay_clock, 0.),
+                10.,
+                FakeInputs::new(&replay_clock),
+            )
+            .unwrap();
+            assert_eq!(
+                calibration.player.options().transform,
+                ddi_engine::TransformOptions::default()
+            );
+        }
+    }
+}

@@ -387,6 +387,7 @@ impl Badge {
 /// A chart as the card names it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PromptChart {
+    pub layout: String,
     pub difficulty: ddi_chart::Difficulty,
     pub meter: u32,
     /// Its layout's name.
@@ -398,6 +399,7 @@ impl PromptChart {
     pub fn of(song: &ddi_chart::Song, chart: usize) -> Option<PromptChart> {
         let c = song.charts.get(chart)?;
         Some(PromptChart {
+            layout: c.layout.clone(),
             difficulty: c.difficulty,
             meter: c.meter,
             style: song
@@ -418,6 +420,12 @@ impl PromptInfo {
         settings: &crate::state::settings::Settings,
         badge: Badge,
     ) -> PromptInfo {
+        let mut options = settings.play_options(None);
+        if badge != Badge::Replay
+            && let Some(c) = &chart
+        {
+            options.transform = settings.hand_transform(&c.layout, options.transform);
+        }
         let (chart, difficulty) = chart.map_or_else(Default::default, |c| {
             (
                 chart_line(c.difficulty, c.meter, &c.style),
@@ -429,7 +437,7 @@ impl PromptInfo {
             artist,
             chart,
             difficulty,
-            mods: mods_line(settings),
+            mods: super::play::options_line(&options),
             badge,
             timing: None,
         }
@@ -1993,6 +2001,33 @@ mod tests {
     }
 
     #[test]
+
+    fn hand_mode_names_the_effective_limit_only_for_four_panels() {
+        let settings = crate::state::settings::Settings {
+            dancing_hand: true,
+            ..Default::default()
+        };
+        for layout in ["dance-single", "pump-single"] {
+            let info = PromptInfo::for_chart(
+                "T".into(),
+                "A".into(),
+                Some(PromptChart {
+                    layout: layout.into(),
+                    difficulty: ddi_chart::Difficulty::Medium,
+                    meter: 5,
+                    style: layout.into(),
+                }),
+                &settings,
+                Badge::None,
+            );
+            let mut options = settings.play_options(None);
+            options.transform = settings.hand_transform(layout, options.transform);
+            assert_eq!(info.mods, super::super::play::options_line(&options));
+        }
+        assert_eq!(settings.transform.at_once, ddi_engine::AtOnce::Any);
+    }
+
+    #[test]
     fn a_songs_card_names_its_chart_and_a_tests_its_hint() {
         let song = ddi_chart::formats::sm::parse_simfile(
             "#TITLE:T;#OFFSET:0;#BPMS:0=120;\n\
@@ -2007,6 +2042,7 @@ mod tests {
         assert_eq!(
             chart,
             Some(PromptChart {
+                layout: "dance-single".into(),
                 difficulty: ddi_chart::Difficulty::Hard,
                 meter: 9,
                 style: style.clone(),
@@ -2015,7 +2051,7 @@ mod tests {
         let info = PromptInfo::for_chart("T".into(), "A".into(), chart, &settings, Badge::Auto);
         assert_eq!(info.chart, format!("Hard 9 · {style}"));
         assert_eq!(info.difficulty, "Hard");
-        assert_eq!(info.mods, mods_line(&settings));
+        assert_eq!(info.mods, "×2.5 · up to two at once");
         assert_eq!((info.badge, info.timing), (Badge::Auto, None));
         // A chart the song does not have: the card without its line.
         assert_eq!(PromptChart::of(&song, 3), None);

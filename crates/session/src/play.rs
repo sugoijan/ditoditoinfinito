@@ -167,6 +167,37 @@ impl SessionConfig {
         }
     }
 
+    /// Resolve the exact effective chart before starting audio or reading inputs.
+    /// Hosts use this same specification to preload chart accompaniment.
+    pub fn player_spec(
+        &self,
+        song: &Song,
+        chart_index: usize,
+        settings: &Settings,
+    ) -> Result<(Ruleset, PlayOptions), String> {
+        let chart = song.charts.get(chart_index).ok_or("chart missing")?;
+        song.layout_of(chart).ok_or("layout not playable")?;
+        let rules = match (&self.replay, self.calibration) {
+            (Some(r), _) => r.ruleset.build(chart),
+            (None, Some(_)) => self.ruleset.fresh(),
+            (None, None) => settings.ruleset_for(chart),
+        };
+        let mut options = self.replay.as_ref().map_or(self.options, |r| r.options);
+        if self.replay.is_none() {
+            options.seed = self.seed;
+            options.scroll.speed = ddi_engine::scroll::speed_for_chart(
+                song,
+                chart_index,
+                options.scroll.speed,
+                settings.speed_source,
+            );
+            if self.calibration.is_none() {
+                options.transform = settings.hand_transform(&chart.layout, options.transform);
+            }
+        }
+        Ok((rules, options))
+    }
+
     /// Calibration test `mode` instead of a song: the plain chart is
     /// measured (its ruleset, no turn, no removed notes, a steady speed);
     /// the sound-only test hides the notes, the arrows-only one is muted.
@@ -490,6 +521,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         (audio, self.buffer)
     }
 
+    /// Mutable shell input state for bounded host-side inspection controls.
+    pub fn inputs_mut(&mut self) -> &mut I {
+        &mut self.inputs
+    }
+
     /// The music's volume.
     pub fn volume(&self) -> f32 {
         self.volume
@@ -547,11 +583,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .ok_or_else(|| format!("layout {} not playable", chart.layout))?;
         // Calibration keeps its own ruleset; songs follow the ruleset mode;
         // a replay plays by the rules it was played by.
-        let ruleset = match (&config.replay, config.calibration) {
-            (Some(r), _) => r.ruleset.build(chart),
-            (None, Some(_)) => config.ruleset,
-            (None, None) => settings.ruleset_for(chart),
-        };
+        let (ruleset, options) = config.player_spec(song, chart_index, settings)?;
         // A replay is never autoplayed.
         let auto_play = config.auto && config.replay.is_none();
         let names = ruleset.names.clone();
@@ -597,23 +629,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         );
         inputs.begin(capture, &layout, config.reverse, config.place);
 
-        let options = match &config.replay {
-            // As played: its seed, its speed as it was worked out.
-            Some(r) => r.options,
-            None => {
-                let mut options = config.options;
-                // A fresh shuffle every play; the seed is kept in the results.
-                options.seed = config.seed;
-                // Frame-based works: the x-mod means the same as at their tempo.
-                options.scroll.speed = ddi_engine::scroll::speed_for_chart(
-                    song,
-                    chart_index,
-                    options.scroll.speed,
-                    settings.speed_source,
-                );
-                options
-            }
-        };
         let mut player = Player::new(song, chart_index, ruleset, options);
         player.set_autoplay(auto_play);
         player.judge_all_in(any_lane);

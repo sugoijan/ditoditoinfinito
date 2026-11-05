@@ -18,8 +18,11 @@
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
+pub mod dance;
 pub mod editor_field;
 pub mod field_preview;
+
+pub mod hand;
 pub mod scripted;
 pub mod stage;
 
@@ -135,6 +138,7 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
         rules,
         note_colors: note_scheme(settings.note_colors()),
         field_filter: settings.field_filter,
+        place: settings.field_place,
         show_deltas: settings.show_deltas,
         background: settings.bg_brightness,
         frame_aspect: preview_frame_aspect(settings.background_frame),
@@ -452,3 +456,7 @@ mod tests {
         assert_eq!(field_preview_options(&settings).layout, "dance-single");
     }
 }
+
+pub mod dance_runtime;
+
+pub mod hand_field_preview;

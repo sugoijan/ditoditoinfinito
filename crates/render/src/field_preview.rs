@@ -92,6 +92,7 @@ pub struct FieldPreviewOptions {
     pub rules: RulesetKey,
     pub note_colors: ColorScheme,
     pub field_filter: f32,
+    pub place: ddi_engine::FieldPlace,
     /// The timing error under the judgement.
     pub show_deltas: bool,
     /// The background's brightness, 0..=1 (0: off).
@@ -109,6 +110,7 @@ impl Default for FieldPreviewOptions {
             rules: presets::itg().key(),
             note_colors: ColorScheme::default(),
             field_filter: 0.0,
+            place: ddi_engine::FieldPlace::Center,
             show_deltas: false,
             background: 0.6,
             frame_aspect: None,
@@ -490,6 +492,30 @@ impl FieldPreview {
         size: [u32; 2],
         now: f64,
     ) {
+        self.draw_with_underlay(device, queue, encoder, size, now, |r, d, _, e, _, _| {
+            r.set_field_underlay(d, e, None);
+        });
+    }
+
+    /// Shell-owned character rendering before the note field. The callback uses
+    /// the preview's paused/seekable clock; receptor diagrams never call it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_with_underlay(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        size: [u32; 2],
+        now: f64,
+        underlay: impl FnOnce(
+            &mut Renderer,
+            &wgpu::Device,
+            &wgpu::Queue,
+            &mut wgpu::CommandEncoder,
+            [u32; 2],
+            f64,
+        ),
+    ) {
         // A wide custom layout's strip can exceed the device's texture limit.
         // Keep its aspect ratio; the UI still crops every lane from the strip.
         let limit = device.limits().max_texture_dimension_2d;
@@ -498,6 +524,7 @@ impl FieldPreview {
         self.target
             .ensure(device, "ddi-field-preview", size, FORMAT);
         if let Some(pose) = self.receptors.clone() {
+            self.renderer.set_field_underlay(device, encoder, None);
             self.draw_receptors(device, queue, encoder, size, &pose);
             return;
         }
@@ -526,6 +553,7 @@ impl FieldPreview {
         let opts = RenderOptions {
             reverse,
             show_deltas: o.show_deltas,
+            place: o.place,
             note_colors: o.note_colors,
             background: o.background,
             backdrop: Backdrop::image(self.plate),
@@ -536,6 +564,14 @@ impl FieldPreview {
         let Some(view) = self.target.view() else {
             return;
         };
+        underlay(
+            &mut self.renderer,
+            device,
+            queue,
+            encoder,
+            size,
+            self.demo_time,
+        );
         self.renderer.render(
             device,
             queue,
@@ -619,6 +655,7 @@ mod tests {
         let a = FieldPreviewOptions::default();
         let mut b = a.clone();
         b.field_filter = 0.5;
+        b.place = ddi_engine::FieldPlace::NearRight;
         b.note_colors = ColorScheme::default();
         b.play.clock.visual_offset = 0.03;
         b.play.seed = 9;

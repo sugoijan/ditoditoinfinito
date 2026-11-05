@@ -79,7 +79,7 @@ impl DerefMut for PlaySession {
 }
 
 /// A random 64-bit seed for the Shuffle turn.
-fn random_seed() -> u64 {
+pub(crate) fn random_seed() -> u64 {
     let hi = (js_sys::Math::random() * 4_294_967_296.0) as u64;
     let lo = (js_sys::Math::random() * 4_294_967_296.0) as u64;
     (hi << 32) | lo
@@ -108,7 +108,6 @@ impl PlaySession {
         let inputs = WebInputs::new(config.gamepads, config.touch_canvas, &audio);
         let render = config.render;
         let core = ddi_session::play::SessionConfig {
-            seed: random_seed(),
             reverse: render.reverse,
             place: render.place,
             hide_notes: render.hide_notes,

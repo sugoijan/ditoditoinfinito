@@ -754,7 +754,9 @@ impl History {
             c.derivation
                 .as_ref()
                 .is_some_and(ddi_chart::simplify::Derivation::assisted)
-                || settings.transform.is_assist(),
+                || settings
+                    .hand_transform(&c.layout, settings.transform)
+                    .is_assist(),
         )
     }
 

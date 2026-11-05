@@ -329,6 +329,19 @@ pub trait BackgroundLayer { fn update(&mut self, song_time: f64, events: &[Effec
 
 Skins are data (atlas image + TOML describing per-lane rotation or per-lane sprites, color tables, animation) plus optional Rust implementations for procedural ones. Backgrounds are optional layers: none, static image, SM `BGCHANGES` playback, DanOni `back_data`, and built-in generative visualizers driven by beat/judgement events.
 
+### Dancing hand
+
+The production-audit repair restores mine clearance choices and roll scheduling,
+and keeps continuous skin/knuckle clearance without changing contact tolerances.
+Its focused rerun recovers 80 of 82 former-pass regressions; remaining contact
+rejections and CPU caps are recorded in the plan.
+
+The [dancing hand gameplay integration](plans/dancing-hand.md) adds a default-on,
+configurable character on supported four-panel/five-key plays. Shared contact and
+pose preparation runs single-threaded in a three-second rolling window; startup
+waits for its opening buffer and GPU frame. This production extraction keeps only
+runtime assets/notices and basic tests; broader research and audits remain separate.
+
 ### 3.5 `platform` traits and the web shell
 
 ```rust

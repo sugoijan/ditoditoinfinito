@@ -130,6 +130,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## Presentation and video
 
+- [Dancing hand in gameplay](dancing-hand.md): production extraction with three-second single-threaded planning, accepted rendering, startup readiness, layout options and basic tests. Research/audit/developer tools remain on the hand branch.
+
 - [Video backgrounds](video-backgrounds.md) (2026-10-09): done on the web,
   steps 1–9. Movies through WebCodecs or the FFmpeg wasm module in a
   worker; desktop's in `native-video.md`.

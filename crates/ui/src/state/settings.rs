@@ -3,6 +3,9 @@
 //! on the web `localStorage`, as JSON, as they always were, so players keep
 //! theirs; older shapes migrate on load ([`Settings::load`]).
 
+mod hand;
+pub use hand::HandLayout;
+
 use std::collections::BTreeMap;
 
 pub use ddi_engine::PadBindings;
@@ -184,6 +187,12 @@ pub struct Settings {
     /// Show how far ahead of the chart's best play (or behind it) a play
     /// is, under the score (`docs/plans/play-history.md`, Replays).
     pub ghost: bool,
+    /// Hand accompaniment; supported plays use at most two simultaneous presses.
+    pub dancing_hand: bool,
+    pub hand_layout: HandLayout,
+    /// Percent of the play viewport, bottom-aligned.
+    pub hand_frame_width: u8,
+    pub hand_frame_height: u8,
     /// Draw a note exactly on the receptor in the closest frame.
     pub receptor_snap: bool,
     /// Per-audio-path calibrated offsets, keyed by fingerprint id.
@@ -412,6 +421,10 @@ impl Default for Settings {
             graphics: Graphics::Auto,
             show_deltas: false,
             ghost: false,
+            dancing_hand: true,
+            hand_layout: HandLayout::default(),
+            hand_frame_width: 50,
+            hand_frame_height: 100,
             receptor_snap: true,
             audio_profiles: Vec::new(),
             display_profiles: Vec::new(),
@@ -781,6 +794,23 @@ impl Settings {
             receptor_snap: self.receptor_snap,
             ..PlayOptions::default()
         }
+    }
+
+    /// Whether this build accompanies this layout with the dancing hand.
+    pub fn dancing_hand_for(&self, layout: &str) -> bool {
+        self.dancing_hand && matches!(layout, "dance-single" | "danoni-5")
+    }
+
+    /// This play's simplification, without changing stored preferences.
+    pub fn hand_transform(
+        &self,
+        layout: &str,
+        mut transform: TransformOptions,
+    ) -> TransformOptions {
+        if self.dancing_hand_for(layout) {
+            transform.at_once = ddi_engine::AtOnce::Two;
+        }
+        transform
     }
 
     /// Keeps the heights a play left the lane covers at, as DDR and
@@ -1424,5 +1454,26 @@ mod tests {
         assert_eq!(s.ruleset_for(&plain).id, "ffr");
         s.ruleset_mode = RulesetMode::AllDanoni;
         assert_eq!(s.ruleset_for(&level).id, "danoni");
+    }
+}
+
+#[cfg(test)]
+mod dancing_hand_tests {
+    use super::*;
+    #[test]
+    fn hand_mode_defaults_on_for_four_panels_and_five_keys() {
+        let mut s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.dancing_hand);
+        let original = s.transform;
+        s.dancing_hand = true;
+        assert!(s.dancing_hand_for("dance-single"));
+        assert!(s.dancing_hand_for("danoni-5"));
+        assert!(!s.dancing_hand_for("pump-single"));
+        assert_eq!(s.hand_transform("pump-single", original), original);
+        assert_eq!(s.transform, original);
+        assert_eq!(
+            s.hand_transform("dance-single", original).at_once,
+            ddi_engine::AtOnce::Two
+        );
     }
 }

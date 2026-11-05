@@ -99,6 +99,10 @@ impl FieldGeometry {
         let left = match place {
             FieldPlace::Center => centered,
             FieldPlace::Left => (width / 4.0 - field_w / 2.0).max(margin).min(centered),
+            FieldPlace::NearLeft => (width * 0.375 - field_w / 2.0).max(margin).min(centered),
+            FieldPlace::NearRight => (width * 0.625 - field_w / 2.0)
+                .min(width - field_w - margin)
+                .max(centered),
             FieldPlace::Right => (width * 0.75 - field_w / 2.0)
                 .min(width - field_w - margin)
                 .max(centered),

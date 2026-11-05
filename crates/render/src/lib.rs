@@ -13,6 +13,7 @@ pub mod actors2d;
 pub mod art;
 pub mod atlas;
 pub mod background;
+pub mod character;
 pub mod color;
 pub mod cosmic;
 pub mod draw2d;

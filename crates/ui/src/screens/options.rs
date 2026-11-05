@@ -275,6 +275,15 @@ impl OptionsScreen {
                 }
             }
         };
+        if self.data.preview_whole_play
+            && let Some(rect) = &mut self.places.preview
+        {
+            let aspect = w / h.max(1.);
+            let width = rect[2].min((rect[3] - 24.).max(1.) * aspect);
+            rect[0] += (rect[2] - width) / 2.;
+            rect[2] = width;
+            rect[3] = width / aspect;
+        }
     }
 
     fn build_tree(&mut self, cx: &mut Cx) -> Actor {
@@ -314,6 +323,18 @@ impl OptionsScreen {
                 c.push(field);
             }
             children.push(panel);
+            if self.data.preview_whole_play {
+                let mut caption = env.text(
+                    "Preview.Caption",
+                    "Standing hand · layout preview",
+                    11.,
+                    400,
+                    "Muted",
+                );
+                call(&mut caption, "xy", &[px + pw / 2., py + ph + 12.]);
+                call(&mut caption, "maxwidth", &[pw]);
+                children.push(caption);
+            }
         }
         let [dx, dy, dw, dh] = p.desc;
         children.push(env.component(

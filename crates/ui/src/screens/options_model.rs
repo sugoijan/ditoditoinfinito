@@ -6,6 +6,7 @@
 //! connected, the library's counts) and carries out what only it can
 //! ([`Act`]).
 
+use crate::state::settings::HandLayout;
 use ddi_chart::Layout;
 use ddi_engine::rules::danoni::JudgeRange;
 use ddi_engine::rules::ddr::DdrGauge;
@@ -397,7 +398,12 @@ impl OptionsModel {
             .chain(self.sharing())
             .collect(),
             preview_layout: Some(self.preview_layout_option()),
-            preview: preview.join(" · "),
+            preview_whole_play: s.dancing_hand_for(shown),
+            preview: if s.dancing_hand_for(shown) {
+                format!("{} · Standing hand", preview.join(" · "))
+            } else {
+                preview.join(" · ")
+            },
             notice: self.notice.clone(),
         }
     }
@@ -945,7 +951,7 @@ impl OptionsModel {
                 choice(
                     "field_place",
                     "Field position",
-                    &["Center", "Left", "Right"],
+                    &["Center", "Left", "Right", "Near left", "Near right"],
                     pos(&FIELD_PLACES, s.field_place),
                     "Where the lanes are on the screen: in the middle, or in the middle of its \
                      left or right half.",
@@ -956,6 +962,42 @@ impl OptionsModel {
                     &["Off", "On"],
                     s.show_deltas as usize,
                     "Shows how many milliseconds early or late each hit was.",
+                ),
+                choice(
+                    "dancing_hand",
+                    "Dancing hand",
+                    &["Off", "On"],
+                    s.dancing_hand as usize,
+                    "A hand dances along to four-panel and five-key charts (Oni on the center tile). Uses at most two simultaneous presses, including holds.",
+                ),
+                choice(
+                    "hand_layout",
+                    "Field + hand layout",
+                    &[
+                        "Follow field",
+                        "Field right / hand left",
+                        "Field left / hand right",
+                        "Field center / hand right",
+                        "Field center / hand left",
+                        "Field near right / hand near left",
+                        "Field near left / hand near right",
+                    ],
+                    pos(&HandLayout::ALL, s.hand_layout),
+                    "Places both views together. Changing Field position returns to Follow field. The preview shows the hand's standing reference pose.",
+                ),
+                choice(
+                    "hand_frame_width",
+                    "Hand frame width",
+                    &["30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"],
+                    usize::from(s.hand_frame_width.clamp(30, 100) - 30) / 10,
+                    "Width of the hand's camera frame as a share of the screen. It may extend behind the note band.",
+                ),
+                choice(
+                    "hand_frame_height",
+                    "Hand frame height",
+                    &["50%", "60%", "70%", "80%", "90%", "100%"],
+                    usize::from(s.hand_frame_height.clamp(50, 100) - 50) / 10,
+                    "Height of the hand's camera frame, aligned to the bottom with a small margin.",
                 ),
                 choice(
                     "ghost",
@@ -1657,7 +1699,18 @@ impl OptionsModel {
             }
             "speed_source" => s.speed_source = at(&SPEED_SOURCES, i),
             "reverse" => s.reverse = on,
-            "field_place" => s.field_place = at(&FIELD_PLACES, i),
+            "field_place" => {
+                s.field_place = at(&FIELD_PLACES, i);
+                s.hand_layout = HandLayout::FollowField;
+            }
+            "hand_layout" => {
+                s.hand_layout = at(&HandLayout::ALL, i);
+                if let Some(place) = s.hand_layout.field() {
+                    s.field_place = place;
+                }
+            }
+            "hand_frame_width" => s.hand_frame_width = 30 + i.min(7) as u8 * 10,
+            "hand_frame_height" => s.hand_frame_height = 50 + i.min(5) as u8 * 10,
             "scroll_action" => s.scroll_action = at(&SCROLL_ACTIONS, i),
             "turn" => s.transform.turn = at(&TURNS, i),
             "appearance" => s.appearance = at(&APPEARANCES, i),
@@ -1713,6 +1766,7 @@ impl OptionsModel {
             "announcer_volume" => s.announcer_volume = slider_to_volume(i as f32 / 100.0),
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
+            "dancing_hand" => s.dancing_hand = on,
             "receptor_snap" => s.receptor_snap = on,
             "lyrics" => s.lyrics = on,
             "random_movies" => s.random_movies = on,
@@ -2411,7 +2465,13 @@ const DANONI_GAUGES: [(Option<&str>, &str); 10] = [
     (Some("Hard"), "Hard (border)"),
 ];
 const VIDEOS: [VideoMode; 3] = [VideoMode::Auto, VideoMode::On, VideoMode::Off];
-const FIELD_PLACES: [FieldPlace; 3] = [FieldPlace::Center, FieldPlace::Left, FieldPlace::Right];
+const FIELD_PLACES: [FieldPlace; 5] = [
+    FieldPlace::Center,
+    FieldPlace::Left,
+    FieldPlace::Right,
+    FieldPlace::NearLeft,
+    FieldPlace::NearRight,
+];
 
 const FRAMES: [BackgroundFrame; 4] = [
     BackgroundFrame::Auto,
@@ -2434,6 +2494,36 @@ mod tests {
     use std::rc::Rc;
 
     use ddi_platform::storage::{self, Area, MemoryStore};
+
+    #[test]
+
+    fn dancing_hand_option_defaults_on_and_saved_off_persists() {
+        let mut m = model();
+        assert_eq!(find(&m.data(), "dancing_hand").value(), "On");
+        m.change("dancing_hand", 0);
+        assert!(!m.settings.dancing_hand);
+        assert_eq!(find(&m.data(), "dancing_hand").value(), "Off");
+        assert!(!Settings::load().dancing_hand);
+    }
+
+    #[test]
+
+    fn hand_layout_presets_change_both_views_and_manual_field_resets_recipe() {
+        let mut m = model();
+        m.change("hand_layout", 5);
+        assert_eq!(m.settings.field_place, FieldPlace::NearRight);
+        assert_eq!(m.settings.hand_frame().center, 0.375);
+        assert!(m.data().preview_whole_play);
+        m.change("hand_frame_width", 4);
+        m.change("hand_frame_height", 1);
+        let saved = Settings::load();
+        assert_eq!((saved.hand_frame_width, saved.hand_frame_height), (70, 60));
+        m.change("field_place", 1);
+        assert_eq!(m.settings.hand_layout, HandLayout::FollowField);
+        assert_eq!(m.settings.hand_frame().center, 0.75);
+        m.change("dancing_hand", 0);
+        assert!(!m.data().preview_whole_play);
+    }
 
     fn model() -> OptionsModel {
         storage::install(Rc::new(MemoryStore::default()));

@@ -84,6 +84,7 @@ struct Readied {
     started: bool,
     /// Everything the play waits for is ready (as of the last poll).
     ready: bool,
+    play_seed: u64,
     /// The play options on the prompt (`ddi_ui::screens::prompt_options`;
     /// none for a test or a replay), the ones its drawing was readied
     /// with, and the song folders' skins for its skin row, listed on a
@@ -344,6 +345,14 @@ impl Host {
         }
     }
 
+    /// Bounded hand/runtime diagnostics for off-screen checks and the host.
+    pub fn hand_debug(&self) -> Option<serde_json::Value> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref().map(|v| v.dance.debug())
+    }
+
     /// The prompt is up.
     pub fn prompting(&self) -> bool {
         matches!(self.stage, Stage::Prompt(_))
@@ -422,6 +431,11 @@ impl Host {
     /// Puts `r`'s prompt up; its buttons choose for the next poll. Start
     /// is asked for again (after an interruption, a test's outcome).
     fn push_prompt(&self, ui: &mut Ui, env: &Env, r: &mut Readied) {
+        r.play_seed = super::random_seed();
+
+        if let Some(v) = r.view.as_mut() {
+            v.dance.reset_preload();
+        }
         *self.choice.borrow_mut() = None;
         r.started = false;
         r.prompt.borrow_mut().done = false;
@@ -520,6 +534,7 @@ impl Host {
                 scripts: SongScripts::Unread,
                 started: false,
                 ready: false,
+                play_seed: super::random_seed(),
                 options: None,
                 applied: PlayOverrides::default(),
                 skins: None,
@@ -968,6 +983,27 @@ impl Host {
                 brightness: settings.bg_brightness,
                 filter: filter(&loaded, r.request.chart, &settings, ui),
             });
+
+        {
+            let config = r
+                .request
+                .session_config(&settings, self.watcher.for_play(), r.play_seed);
+            view.dance.preload(
+                &loaded.song.shifted(r.request.song_shift(&settings)),
+                r.request.chart,
+                &settings,
+                &config,
+                settings.dancing_hand && r.request.calibration.is_none(),
+            );
+            let at = Instant::now();
+            view.dance.preload_work(
+                dev.device,
+                dev.queue,
+                dev.formats.plain.unwrap_or(dev.formats.view),
+                ui.viewport().physical.map(|v| v.max(1.) as u32),
+                &|| at.elapsed().as_secs_f64(),
+            );
+        }
         let sound = r
             .audio
             .as_ref()
@@ -980,6 +1016,7 @@ impl Host {
             (!images_done, "pictures"),
             (scripts, "scripts"),
             (!sound, "audio"),
+            (view.dance.preload_pending(), "dancing hand"),
         ]
         .into_iter()
         .filter(|(w, _)| *w)
@@ -1075,7 +1112,7 @@ impl Host {
             });
             request.prior = Some(ddi_session::announcer::Prior::of(best.as_ref()));
         }
-        match Play::start(
+        match Play::start_seeded(
             request,
             loaded,
             settings,
@@ -1083,6 +1120,7 @@ impl Host {
             self.feed.clone(),
             self.watcher.for_play(),
             refresh,
+            r.play_seed,
         ) {
             Ok(mut play) => {
                 play.graphics = self.graphics.clone();
@@ -1100,6 +1138,8 @@ impl Host {
                     // The background changes on the song as played: its
                     // offset moves them too.
                     v.set_played_song(play.song(), &play.loaded);
+
+                    v.dance.start_preloaded();
                     v.start();
                     v.enter_background(entrance, env.reduced());
                 }
@@ -1193,7 +1233,22 @@ impl Host {
             let audio = play.into_restart();
             let settings = r.settings();
             self.restarting = true;
-            self.stage = self.begin(r, loaded, &settings, audio, Default::default(), ui, env);
+            if settings.dancing_hand_for(&loaded.song.charts[r.request.chart].layout) {
+                let mut r = r;
+                self.in_play.set(false);
+                ui.update(0.);
+                r.audio = Some((audio, Instant::now()));
+                r.ready = false;
+                self.push_prompt(ui, env, &mut r);
+                r.started = true;
+                r.prompt.borrow_mut().countdown = None;
+                r.prompt
+                    .borrow_mut()
+                    .set_step(PromptStep::Loading("loading…".into()));
+                self.stage = Stage::Prompt(r);
+            } else {
+                self.stage = self.begin(r, loaded, &settings, audio, Default::default(), ui, env);
+            }
             return;
         }
         self.in_play.set(false);

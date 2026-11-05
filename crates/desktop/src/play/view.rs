@@ -59,6 +59,7 @@ impl Formats {
 
 /// The play field's drawing.
 pub struct View {
+    pub dance: ddi_shell::dance::Preview,
     pub renderer: Renderer,
     formats: Formats,
     noteskin: Option<NoteskinPlay>,
@@ -130,6 +131,7 @@ pub struct View {
 impl View {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, formats: Formats) -> View {
         View {
+            dance: Default::default(),
             renderer: Renderer::new(
                 device,
                 queue,
@@ -606,6 +608,26 @@ impl View {
         }
         #[cfg(feature = "video")]
         crate::video::protect_external_frames(device, encoder);
+
+        {
+            let origin = std::time::Instant::now();
+            self.dance
+                .prepare(frame.song_time, &|| origin.elapsed().as_secs_f64());
+        }
+
+        if self.dance.behind_field() {
+            self.dance.draw_underlay(
+                device,
+                queue,
+                encoder,
+                &mut self.renderer,
+                self.formats.plain.unwrap_or(self.formats.view),
+                size,
+                frame.song_time,
+            );
+        } else {
+            self.renderer.set_field_underlay(device, encoder, None);
+        }
         self.renderer.render(
             device,
             queue,
@@ -620,6 +642,21 @@ impl View {
             render,
             layer,
         );
+
+        if self.dance.behind_field() {
+            self.dance
+                .draw_guide(device, queue, encoder, plain.unwrap_or(view), size);
+        } else {
+            self.dance.draw(
+                device,
+                queue,
+                encoder,
+                plain.unwrap_or(view),
+                self.formats.plain.unwrap_or(self.formats.view),
+                size,
+                frame.song_time,
+            );
+        }
         // The lyrics at this frame's time, over the field's middle.
         let lyrics = self
             .lyrics

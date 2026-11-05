@@ -54,6 +54,9 @@ pub struct Renderer {
     /// A work's back and mask layers' quads ([`Renderer::set_stage_quads`]).
     stage_back: Vec<crate::textured::TexQuad>,
     stage_mask: Vec<crate::textured::TexQuad>,
+    field_underlay: Option<crate::textured::TexQuad>,
+    underlay_image: Option<(u32, wgpu::Texture)>,
+    underlay_back: Vec<crate::textured::TexQuad>,
     /// The last frame's scene, its lists' room reused by the next.
     scene: scene::SceneOutput,
     /// For skins' masks ([`crate::stencil`]).
@@ -110,6 +113,9 @@ impl Renderer {
             srgb,
             stage_back: Vec::new(),
             stage_mask: Vec::new(),
+            field_underlay: None,
+            underlay_image: None,
+            underlay_back: Vec::new(),
             scene: Default::default(),
             stencil: Default::default(),
             encoded,
@@ -391,6 +397,9 @@ impl Renderer {
         self.textured.clear_textures();
         self.stage_back.clear();
         self.stage_mask.clear();
+        self.field_underlay = None;
+        self.underlay_image = None;
+        self.underlay_back.clear();
     }
 
     /// The back and mask layers' quads of the next frames (a Dancing☆Onigiri
@@ -403,6 +412,51 @@ impl Renderer {
     ) {
         self.stage_back = back;
         self.stage_mask = mask;
+    }
+
+    /// A straight-alpha encoded image above the backdrop and behind the field
+    /// filter/notes/HUD. GPU-copy into the renderer's correct sampling format.
+    /// One texture slot is reused across updates and resizes.
+    pub fn set_field_underlay(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        image: Option<(&wgpu::Texture, [f32; 4], f32)>,
+    ) {
+        let Some((source, rect, opacity)) = image else {
+            self.field_underlay = None;
+            return;
+        };
+        let size = [source.width(), source.height()];
+        if self
+            .underlay_image
+            .as_ref()
+            .is_none_or(|(_, t)| [t.width(), t.height()] != size)
+        {
+            let texture = self.create_noteskin_texture(device, size[0], size[1], false);
+            let id = if let Some((id, _)) = self.underlay_image.as_ref() {
+                self.textured.replace_texture(device, *id, &texture);
+                *id
+            } else {
+                self.add_noteskin_texture(device, &texture)
+            };
+            self.underlay_image = Some((id, texture));
+        }
+        let (id, texture) = self.underlay_image.as_ref().unwrap();
+        encoder.copy_texture_to_texture(
+            source.as_image_copy(),
+            texture.as_image_copy(),
+            source.size(),
+        );
+        let [x, y, w, h] = rect;
+        self.field_underlay = Some(crate::textured::TexQuad::new(
+            crate::textured::Shape::Quad {
+                transform: [w, 0., 0., h, x + w / 2., y + h / 2.],
+                uv: [0., 0., 1., 1.],
+            },
+            [1., 1., 1., opacity],
+            *id,
+        ));
     }
 
     /// HUD runs shaped since the start (a counter for the debug state).
@@ -492,7 +546,7 @@ impl Renderer {
                 opts.place,
             ),
         };
-        let layers = !self.stage_back.is_empty();
+        let layers = !self.stage_back.is_empty() || self.field_underlay.is_some();
         let path = filter_path(
             opts.field_filter,
             !layout.lanes.is_empty(),
@@ -513,6 +567,14 @@ impl Renderer {
         // Render targets first: the frame samples them as drawn now.
         self.textured.draw_targets(device, queue, encoder);
         let mut scene = std::mem::take(&mut self.scene);
+        self.underlay_back.clear();
+        let back = if let Some(quad) = self.field_underlay {
+            self.underlay_back.extend_from_slice(&self.stage_back);
+            self.underlay_back.push(quad);
+            &self.underlay_back
+        } else {
+            &self.stage_back
+        };
         scene::build_into(
             &mut scene,
             frame,
@@ -522,7 +584,7 @@ impl Renderer {
             scene_opts,
             self.srgb,
             layer.as_deref_mut(),
-            (&self.stage_back, &self.stage_mask),
+            (back, &self.stage_mask),
         );
         if opts.preview.is_none()
             && let Some(b) = self.quit_button

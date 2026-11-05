@@ -9,6 +9,7 @@ repository.workspace = true
 description = "DitoDitoInfinito: screens, input routing, focus, text fields over ddi-actor (UiEvent in, UiRequest out)"
 
 [dependencies]
+ddi-character.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true

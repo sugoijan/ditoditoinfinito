@@ -15,6 +15,9 @@ repository = "https://github.com/sugoijan/ditoditoinfinito"
 
 [workspace.dependencies]
 # local crates
+ddi-character = { path = "crates/character" }
+ddi-hand-pose = { path = "crates/hand-pose" }
+ddi-hand-plan = { path = "crates/hand-plan" }
 ddi-icon = { path = "crates/icon" }
 ddi-danoni-export = { path = "tools/danoni-dump/rust", default-features = false }
 ddi-importer-protocol = { path = "crates/importer-protocol" }
@@ -104,6 +107,12 @@ opt-level = 3
 [profile.release.package.roxmltree]
 opt-level = 3
 [profile.release.package.ddi-svg-worker]
+opt-level = 3
+
+# Numeric pose fitting stays fast in the size-oriented web release profile.
+[profile.release.package.ddi-hand-pose]
+opt-level = 3
+[profile.release.package.ddi-hand-plan]
 opt-level = 3
 
 # Native release builds (`cargo run --profile desktop`): `release` is

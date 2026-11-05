@@ -13,4 +13,8 @@ pub enum FieldPlace {
     Left,
     /// Centered on the right half, player 2's.
     Right,
+    /// Halfway between center and the left-half placement.
+    NearLeft,
+    /// Halfway between center and the right-half placement.
+    NearRight,
 }
