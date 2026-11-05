@@ -936,6 +936,14 @@ impl Shell {
             (None, None) => None,
         };
         self.play.poll(&mut self.ui, &env, dev, rate);
+        // The prompt's generated still, for the painter that draws it.
+        let (source, still) = self.play.prompt_still();
+        if let Some(s) = &mut self.surface {
+            s.gpu.stills.set(source.clone(), still.clone());
+        }
+        if let Some(o) = &mut self.offscreen {
+            o.gpu.stills.set(source, still);
+        }
         self.sync_play_mode();
         if self.play.playing() {
             let mut feed = self.play.feed.borrow_mut();

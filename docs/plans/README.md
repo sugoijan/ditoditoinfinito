@@ -148,7 +148,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Phase 8's last gaps](phase-8-gaps.md) (2026-11-03): in progress, steps
   1 (random movies), 2 (a movie as an effect's second file) and 3 (a
   script's movie sprite) done 2026-11-03; step 4's study
-  (`tools/background-design/`) ready for the maintainer's choices. Movies
+  (`tools/background-design/`) chosen from and step 5 (generative
+  backgrounds in play: four looks, the player's choice) done 2026-11-05;
+  step 6 (documentation) left. Movies
   wherever StepMania 5.1 plays them (random movies for songs without
   changes and `-random-`, an effect's second file, a script's sprite),
   then generative backgrounds of our own, driven by the music alone, on

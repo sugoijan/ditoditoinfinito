@@ -98,6 +98,9 @@ pub(crate) struct Loaded {
     pub(crate) random: Vec<String>,
     /// The song has a background image.
     pub(crate) has_background: bool,
+    /// The beat at the play's first frame, on the chart's timing as the
+    /// play shifts it (the prompt's generated still is drawn at it).
+    pub(crate) first_beat: f64,
     /// Its manifest entry (the results' song).
     pub(crate) entry: Option<ddi_library::manifest::ManifestEntry>,
     /// Its banner as a texture source (`crate::web::textures`).
@@ -188,6 +191,8 @@ pub(crate) enum Msg {
     /// A finger or pen touched the screen.
     TouchSeen,
     Decoded(Result<(WebAudio, AudioBuffer), String>),
+    /// The music analyzed for the generated background.
+    MusicAnalyzed(Rc<ddi_library::generative::Series>),
     /// A card's action (a song's score, should the results not start).
     CardAction(String),
     /// The prompt's quiet line: calibration's menu (Back comes back).
@@ -298,6 +303,10 @@ pub(crate) struct GameCanvas {
     /// Whether the page is still shown: a decode for it stops when not
     /// (an Opus worker ends with it).
     alive: Rc<std::cell::Cell<bool>>,
+    /// The music analyzed for the generated background
+    /// (`crate::generated`), and whether its analysis began.
+    music: Option<Rc<ddi_library::generative::Series>>,
+    analyzing: bool,
     /// The announcer's sounds for the play, decoded behind the prompt
     /// (`crate::announcers::load_voice`; none without an announcer, or in
     /// calibration).
@@ -594,6 +603,7 @@ impl Component for GameCanvas {
                     bg_videos: Vec::new(),
                     random: Vec::new(),
                     has_background: false,
+                    first_beat: 0.0,
                     entry: None,
                     banner: None,
                     pictures: 0,
@@ -746,6 +756,8 @@ impl Component for GameCanvas {
             stage: Stage::Idle,
             raf: Rc::new(RefCell::new(None)),
             game: Rc::new(RefCell::new(None)),
+            music: None,
+            analyzing: false,
             names: None,
             layout: None,
             settings: play_settings,
@@ -1192,6 +1204,7 @@ impl GameCanvas {
                 self.shell.early_ctx.take();
                 match r {
                     Ok((audio, buffer)) if matches!(self.stage, Stage::Idle) => {
+                        self.analyze_music(ctx, &buffer);
                         self.shell.predecoded.replace(Some((audio, buffer)));
                     }
                     Ok(_) => {}
@@ -1264,9 +1277,17 @@ impl GameCanvas {
                 if self.replay.is_none() {
                     self.register_devices();
                 }
+                self.analyze_music(ctx, &buffer);
                 self.stage = Stage::Waiting { audio, buffer };
                 self.try_begin(ctx);
                 true
+            }
+            Msg::MusicAnalyzed(series) => {
+                if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.set_generated_series(series.clone());
+                }
+                self.music = Some(series);
+                false
             }
             Msg::Decoded(Err(e)) => {
                 self.shell.pad_ctx.borrow_mut().take();
@@ -1943,6 +1964,42 @@ impl GameCanvas {
         }
     }
 
+    /// The generated background this song's plays get
+    /// (`ddi_shell::generative::wanted`): never in calibration, nor with
+    /// the backgrounds off.
+    fn generated_want(&self, ctx: &Context<Self>) -> Option<ddi_shell::generative::Want> {
+        let Status::Ready(song) = &self.song else {
+            return None;
+        };
+        if !matches!(ctx.props().source, SongSource::Song { .. })
+            || self.settings.bg_brightness <= 0.0
+        {
+            return None;
+        }
+        ddi_shell::generative::wanted(&self.settings, &song.song)
+    }
+
+    /// The music's analysis for the generated background, begun once
+    /// where the look may show (no picture, or over it), from the prompt
+    /// on ([`Msg::MusicAnalyzed`]).
+    fn analyze_music(&mut self, ctx: &Context<Self>, buffer: &AudioBuffer) {
+        let has_picture = matches!(&self.song, Status::Ready(s) if s.has_background);
+        if self.analyzing
+            || !ddi_shell::generative::needs_music(self.generated_want(ctx), has_picture)
+        {
+            return;
+        }
+        self.analyzing = true;
+        let alive = self.alive.clone();
+        let buffer = buffer.clone();
+        let link = ctx.link().clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(series) = crate::generated::analyze(buffer, || !alive.get()).await {
+                link.send_message(Msg::MusicAnalyzed(Rc::new(series)));
+            }
+        });
+    }
+
     fn begin_session(
         &mut self,
         ctx: &Context<Self>,
@@ -2052,6 +2109,10 @@ impl GameCanvas {
                 self.replay_check = None;
                 crate::history::set_playing(true);
                 if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.set_generated(self.generated_want(ctx));
+                    if let Some(m) = &self.music {
+                        game.set_generated_series(m.clone());
+                    }
                     game.set_video(
                         self.settings.video,
                         self.settings.background_frame,
@@ -2125,6 +2186,14 @@ impl GameCanvas {
             && let Some(line) = &self.download_line
         {
             notes.push(line.clone());
+        }
+        // The play's generated background, made behind the prompt: its
+        // first frame is the prompt's picture for a song without one.
+        if let Some(game) = self.game.borrow_mut().as_mut() {
+            game.set_generated(self.generated_want(ctx));
+            if let Some(m) = &self.music {
+                game.set_generated_series(m.clone());
+            }
         }
         let picture = self.prompt_picture(ctx);
         let info = self.prompt_info(ctx);
@@ -2309,7 +2378,6 @@ impl GameCanvas {
     /// else its background, in the background frame, dimmed, with the
     /// field's filter where the chart's lanes will be.
     fn prompt_picture(&self, ctx: &Context<Self>) -> Option<PromptPicture> {
-        let (source, aspect) = self.still.clone().or_else(|| self.song_picture.clone())?;
         // The canvas's size in CSS pixels (the field's geometry is its).
         let (cw, ch) = crate::web::screen::canvas()
             .map(|c| (c.client_width() as f32, c.client_height() as f32))
@@ -2327,11 +2395,39 @@ impl GameCanvas {
             .ok()
             .and_then(|mut g| g.as_mut().map(|g| g.prompt_frame()))
             .flatten();
+        let picture = self.still.clone().or_else(|| self.song_picture.clone());
+        // A song without one: its generated background's first frame held
+        // still, self-lit as the play draws it (`crate::generated`).
+        let still = match (&picture, &self.song) {
+            (None, Status::Ready(song)) if !song.has_background => {
+                let reduced = self
+                    .settings
+                    .reduced_motion
+                    .reduced(crate::components::ui_dev::system_reduced());
+                self.game.try_borrow().ok().and_then(|g| {
+                    g.as_ref()?.generated_still(
+                        (backgrounds::PLAY_START, song.first_beat),
+                        self.settings.bg_brightness,
+                        reduced,
+                        frame.unwrap_or(cw / ch),
+                    )
+                })
+            }
+            _ => None,
+        };
+        let source = prompt_source("generated").filter(|_| still.is_some());
+        let aspect = still.as_ref().map(|s| s.aspect);
+        crate::generated::set_still(source.clone(), still);
+        let (source, aspect, brightness) = match (picture, source, aspect) {
+            (Some((source, aspect)), _, _) => (source, aspect, self.settings.bg_brightness),
+            (None, Some(source), Some(aspect)) => (source, aspect, 1.0),
+            _ => return None,
+        };
         Some(PromptPicture {
             source,
             aspect,
             frame,
-            brightness: self.settings.bg_brightness,
+            brightness,
             filter,
         })
     }
@@ -2374,12 +2470,14 @@ impl GameCanvas {
         }
         self.results_host.borrow_mut().take();
         self.raf.borrow_mut().take();
+        crate::generated::set_still(None, None);
         crate::web::forget_debug(&["ui", "prompt", "prompt_backdrop"]);
     }
 }
 
 /// The prompt as tests read it: `__DDI_DEBUG.prompt` (`step`, `notes`,
-/// `picture`), and `prompt_backdrop` (`still`, `background` or `none`).
+/// `picture`), and `prompt_backdrop` (`still`, `background`, `generated`
+/// or `none`).
 fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
     let set = |o: &js_sys::Object, k: &str, v: JsValue| {
         let _ = js_sys::Reflect::set(o, &k.into(), &v);
@@ -2452,6 +2550,7 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
     let backdrop = match &st.picture {
         None => "none",
         Some(p) if p.source.ends_with(":still") => "still",
+        Some(p) if p.source.ends_with(":generated") => "generated",
         Some(_) => "background",
     };
     set(obj, "prompt_backdrop", backdrop.into());
@@ -3086,6 +3185,8 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     let play_videos = show_background && settings.video != VideoMode::Off;
     let random_movies = play_videos && settings.random_movies;
     let edit = ctx.props().edit;
+    // The cover the generated background's kaleidoscope folds.
+    let generated = settings.clone();
     ctx.link().send_future(async move {
         let r = load_song(&id, chart).await.map(|mut loaded| {
             // The editor's playtest: the song as edited.
@@ -3115,6 +3216,10 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 loaded.random.clear();
             }
             let random: Vec<String> = loaded.random.iter().map(|(n, _)| n.clone()).collect();
+            let with_cover = ddi_shell::generative::needs_cover(
+                ddi_shell::generative::wanted(&generated, &loaded.song),
+                loaded.entry.background.is_some(),
+            );
             // The opening movie's still (`crate::stills`): the one taken,
             // when it is still this schedule's opening, or taken now for a
             // song imported before stills were kept (never with videos
@@ -3239,8 +3344,10 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 // Loads alongside the start prompt; the play
                 // never waits for it.
                 let shared = Rc::new(loaded.shared_bg.clone());
+                let cover = with_cover.then_some(BgImage::Cover);
                 let images = std::iter::once(BgImage::Song)
-                    .chain(bg_images.iter().cloned().map(BgImage::File));
+                    .chain(bg_images.iter().cloned().map(BgImage::File))
+                    .chain(cover);
                 // A work's back and mask layers: their images (those the
                 // import kept) and text, under both scroll directions'
                 // data, within the budgets.
@@ -3321,6 +3428,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                                     // are listed above).
                                     BgImage::File(_)
                                     | BgImage::Movie(_)
+                                    | BgImage::Cover
                                     | BgImage::Still
                                     | BgImage::Clear
                                     | BgImage::Plain
@@ -3401,9 +3509,9 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 }
             }
             // What the load decodes: the still (when it keeps one), the
-            // song background and the changes' images.
+            // song background, the changes' images and the cover.
             let pictures = if show_background {
-                usize::from(still_keeps) + 1 + bg_images.len()
+                usize::from(still_keeps) + 1 + bg_images.len() + usize::from(with_cover)
             } else {
                 0
             };
@@ -3416,6 +3524,12 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 bg_videos,
                 random,
                 has_background: loaded.entry.background.is_some(),
+                first_beat: {
+                    let song = loaded.song.shifted(shift);
+                    song.charts
+                        .get(chart)
+                        .map_or(0.0, |c| c.timing(&song).beat_at(backgrounds::PLAY_START))
+                },
                 banner: loaded.entry.banner.as_ref().map(|b| {
                     if crate::songs::is_imported_id(&loaded.entry.id) {
                         format!("files:{}", crate::songs::file_key(&loaded.entry.id, b))

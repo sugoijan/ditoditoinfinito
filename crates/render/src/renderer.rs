@@ -183,6 +183,36 @@ impl Renderer {
         self.add_background(device, &texture)
     }
 
+    /// A texture for a generated background, `width × height` pixels
+    /// (`crate::generative`): drawn into by its pass, registered with
+    /// [`Renderer::add_generated`].
+    pub fn create_generated_texture(
+        &self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        self.background
+            .create_generated_texture(device, width, height)
+    }
+
+    /// Registers a generated background's texture as a background image
+    /// drawn at full brightness (its pass dims it); returns its id.
+    pub fn add_generated(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
+        self.background.add_generated(device, texture)
+    }
+
+    /// Generated background `id` draws from `texture` now.
+    pub fn replace_generated(&mut self, device: &wgpu::Device, id: usize, texture: &wgpu::Texture) {
+        self.background.replace_generated(device, id, texture);
+    }
+
+    /// Background image `id`'s view, size and whether it samples as
+    /// linear light, for a generated background to draw it.
+    pub fn background_picture(&self, id: usize) -> Option<(&wgpu::TextureView, [u32; 2], bool)> {
+        self.background.picture(id)
+    }
+
     /// The size of background image or movie `id` (its latest frame's),
     /// pixels.
     pub fn background_size(&self, id: usize) -> Option<[u32; 2]> {

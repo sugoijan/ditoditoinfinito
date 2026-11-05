@@ -432,6 +432,38 @@ fn backdrop_textures_are_made_again_only_on_a_change() {
     assert_eq!(empty.get(&[], 0, Vec::new, 99, None).len(), 1);
 }
 
+/// A generated background stands in for the song background where there
+/// is none, and comes before it when it is drawn over it
+/// (`docs/plans/phase-8-gaps.md`, decision 4).
+#[test]
+fn a_generated_background_stands_in_or_goes_over_the_song_background() {
+    let first_song = |list: &[(BgImage, usize)]| {
+        list.iter()
+            .find(|(i, _)| *i == BgImage::Song)
+            .map(|(_, id)| *id)
+    };
+    let mut cache = BackdropTextures::default();
+    cache.set_generated(Some(Generated { id: 5, over: false }));
+    assert_eq!(first_song(cache.get(&[], 0, Vec::new, 99, None)), Some(5));
+    let images = vec![(BgImage::Song, 1)];
+    assert_eq!(
+        first_song(cache.get(&images, 0, Vec::new, 99, None)),
+        Some(1)
+    );
+    // Over the picture: made again at once, the generated one first.
+    cache.set_generated(Some(Generated { id: 5, over: true }));
+    assert_eq!(
+        first_song(cache.get(&images, 0, Vec::new, 99, None)),
+        Some(5)
+    );
+    cache.set_generated(None);
+    assert_eq!(
+        first_song(cache.get(&images, 0, Vec::new, 99, None)),
+        Some(1)
+    );
+    assert_eq!(cache.generated(), None);
+}
+
 /// A song's scripts' movies (`docs/plans/phase-8-gaps.md`, step 3): each
 /// decoded while drawn, on its own clock; a clock put back seeks; one no
 /// longer drawn closes.

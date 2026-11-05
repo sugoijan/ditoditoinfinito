@@ -88,6 +88,11 @@ pub enum BgImage {
     /// change in place of the song's background, and in place of that
     /// movie while it has no frame ([`shown`]). Never in a schedule.
     Still,
+    /// The song's jacket, else its banner: what a generated background's
+    /// kaleidoscope folds where the song has no background
+    /// (`ddi_shell::generative::cover`). Never in a schedule, never shown
+    /// itself.
+    Cover,
     /// Nothing: the second layer before its first change, and where it
     /// would play what the game cannot show ([`second_layer`]).
     Clear,
@@ -1508,7 +1513,7 @@ pub fn shown(
     let id = |index: usize| match &segments[index].image {
         BgImage::Song if index == 0 => song(),
         BgImage::Song | BgImage::Still => find(&BgImage::Song),
-        BgImage::Clear | BgImage::Plain | BgImage::Black => None,
+        BgImage::Clear | BgImage::Plain | BgImage::Black | BgImage::Cover => None,
         BgImage::Scripted(_) => find(&BgImage::Black).or_else(|| find(&BgImage::Song)),
         movie @ BgImage::Movie(_) if index == 1 && opening_plays => find(movie).or_else(song),
         file => find(file).or_else(|| find(&BgImage::Song)),
@@ -1544,7 +1549,11 @@ pub fn shown_over(segments: &[BgSegment], t: f64, loaded: &[(BgImage, usize)]) -
         };
     }
     let id = |index: usize| match &segments[index].image {
-        BgImage::Clear | BgImage::Still | BgImage::Scripted(_) | BgImage::Black => None,
+        BgImage::Clear
+        | BgImage::Still
+        | BgImage::Cover
+        | BgImage::Scripted(_)
+        | BgImage::Black => None,
         what => loaded.iter().find(|(k, _)| k == what).map(|(_, id)| *id),
     };
     let state = state_at(segments, t);

@@ -18,6 +18,7 @@ mod editor_audio;
 mod editor_field;
 mod field_preview;
 mod game_loop;
+mod generated;
 mod history;
 mod import;
 mod mods;

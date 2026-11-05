@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "study": "tools/background-design",
+  "exported": "2026-11-05",
+  "approval": {
+    "choose": "player",
+    "candidates": {
+      "bars": {
+        "keep": false,
+        "overPicture": false,
+        "note": "I don't like the gap behind the notes' band. Also I don't like the rounded ends, maybe "
+      },
+      "kaleido": {
+        "keep": false,
+        "overPicture": false,
+        "note": "The \"outside\" moves too much, while the \"inside\" moves too little, maybe switch them around."
+      },
+      "field": {
+        "keep": false,
+        "overPicture": false,
+        "note": ""
+      },
+      "rain": {
+        "keep": false,
+        "overPicture": false,
+        "note": ""
+      }
+    }
+  },
+  "view": {
+    "palette": "ink",
+    "fieldFilter": 0.3,
+    "pictureBrightness": 0.55
+  },
+  "params": {
+    "bars": {
+      "base": "ground",
+      "count": 24,
+      "layout": "bottom",
+      "style": "segmented",
+      "height": 0.42,
+      "gap": 0.35,
+      "segments": 16,
+      "segmentGap": 0.3,
+      "unlit": false,
+      "peaks": true,
+      "attack": 0.03,
+      "release": 0.28,
+      "color": "gradient",
+      "opacity": 0.7
+    },
+    "kaleido": {
+      "source": "background",
+      "mirrors": "two",
+      "cell": 0.32,
+      "radius": 1,
+      "segments": 8,
+      "rings": true,
+      "piece": 0.22,
+      "turn": "beat",
+      "step": 15,
+      "growBy": "none",
+      "grow": 0.12,
+      "wander": 0.3,
+      "wanderBy": "treble",
+      "desaturate": 0.55,
+      "darken": 0.6,
+      "tint": 0.3,
+      "pulseBy": "beat",
+      "pulse": 0.12
+    },
+    "field": {
+      "scale": 2.63,
+      "contrast": 0.49,
+      "speed": 0,
+      "speedBy": "section",
+      "bright": 0.35,
+      "brightBy": "loudness",
+      "brightAmount": 0.35,
+      "lines": 10,
+      "area": "full",
+      "wave": "bands",
+      "amplitude": 40,
+      "cycles": 3.8,
+      "lineSpeed": 0.15,
+      "lineWidth": 1,
+      "lineOpacity": 0.67,
+      "lineColor": "gradient"
+    },
+    "rain": {
+      "base": "ground",
+      "count": 50,
+      "size": 1,
+      "speed": 1,
+      "vibrating": 0.35,
+      "zoomShare": 0.5,
+      "zoomBy": "bass",
+      "zoom": 0.3,
+      "waveBy": "treble",
+      "amplitude": 3,
+      "waves": 6,
+      "frequency": 17.3,
+      "color": "quiet",
+      "opacity": 1.8,
+      "quietMiddle": true
+    }
+  }
+}

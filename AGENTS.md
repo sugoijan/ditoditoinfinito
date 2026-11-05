@@ -55,7 +55,11 @@ Rust and the browser are implementation details, not advertised features.
   `crates/render/src/editor_audio.rs`); StepMania's named
   background effects drawn from `ddi_library::backgrounds::BgDraw`
   (`crates/render/src/background.rs`) and a song's scripts' actors as quads
-  in the background frame (`crates/render/src/scripted.rs`); skins'
+  in the background frame (`crates/render/src/scripted.rs`); generated
+  backgrounds drawn into a texture of encoded values the backdrop shows
+  as a picture, self-lit (`crates/render/src/generative.rs`,
+  `generative.wgsl`: the look, then the lines' and outlines' strokes);
+  skins'
   materials (`crates/render/src/material.rs`: a WGSL `paint` checked for
   WebGL2 with naga, drawn by the textured pipeline,
   `docs/plans/noteskin-scene.md`). No platform code.
@@ -117,7 +121,13 @@ Rust and the browser are implementation details, not advertised features.
   falls back to, for pack authors: `docs/announcer-lines.md`), and what the shells and the
   private shared-songs Worker agree on without the web's record types
   (`share.rs`: share ids, `shared:<id>:<n>` song ids, the time left;
-  `docs/plans/shared-songs.md`). Pure, natively tested.
+  `docs/plans/shared-songs.md`), the music's analysis a generated
+  background follows (`music.rs`, made at a play's load; its transform,
+  `fft.rs`, the chart editor's too) and those backgrounds' four looks
+  with the study's approved values (`generative.rs`: `stands_in`, never
+  for a Dancing☆Onigiri work; `Series`, every smoothing, peak and clock
+  made over the analysis, so a frame is a function of the song second;
+  `docs/plans/phase-8-gaps.md`, step 5). Pure, natively tested.
 - `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -345,7 +355,12 @@ Rust and the browser are implementation details, not advertised features.
   the HUD shows it, and a work's layers' textures
   (`crates/shell/src/stage.rs`, generic over each shell's decoded content:
   the web's `ImageBitmap`, desktop's RGBA rows) and a song's scripts'
-  (`crates/shell/src/scripted.rs`). Platform-free (native
+  (`crates/shell/src/scripted.rs`), and a play's generated background:
+  the look the settings give a song, its texture at the frame's size
+  (within the device's largest texture), its place in the backdrop's
+  list, the cover the kaleidoscope folds and the start prompt's still
+  of it, drawn for the 2D pass when it asks (`Stills`)
+  (`crates/shell/src/generative.rs`). Platform-free (native
   and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
@@ -748,7 +763,8 @@ Rust and the browser are implementation details, not advertised features.
 - `tools/background-design/` is the generative backgrounds study (serve
   the repository root and open it; `docs/plans/phase-8-gaps.md`, step 4):
   the candidates on a song's music, every parameter live, the choices
-  exported as its `approved.json`.
+  exported as its `approved.json` (the accepted one, 2026-11-05, which
+  `ddi_library::generative`'s values follow).
 - `python3 tools/announcer-design/announcer.py` auditions announcer voices
   made with ElevenLabs (the key from `ELEVENLABS_API_KEY`, never written):
   free-plan audio, kept in `target/scratch/announcer-audition/` and never
@@ -917,9 +933,17 @@ layers even for a screen-sized frame. Static filters are reused; direct RGB
 movie uploads must call `Renderer::background_texture_changed`, while YUV
 and NV12 upload methods invalidate their own filtered copies. The field
 filter darkens only a drawn background (`Renderer::render`'s
-`filter_path`, `Backdrop::shows`): a song without one, a picture that
-never loaded, the time before a first change, or brightness Off plays on
-the one #05020d ground with no band, as the prompt shows it
+`filter_path`, `Backdrop::shows`). Where the song background would show
+and there is none (no `#BACKGROUND`, a picture that never loaded, the
+time before a first change), a generated background drawn from the
+music stands in, darkened as a picture (Options → Display → Generated
+background, the field and lines by default, `ddi_shell::generative`;
+over a song's own picture too with Over song backgrounds; the
+kaleidoscope folds the song's jacket, else its banner, else glass), and
+the prompt shows its first frame held still in the picture's place, the
+play's entrance carrying on from it; with it Off,
+for a Dancing☆Onigiri work, in calibration, or with brightness Off the
+play is on the one #05020d ground with no band, as the prompt shows it
 (`docs/plans/overlays.md`, "Field filter").
 
 ## Timing model (do not break)

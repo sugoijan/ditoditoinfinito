@@ -206,10 +206,16 @@ fn placement(place: Place, frame: [f32; 2], image: [f32; 2]) -> ([f32; 4], Uv, [
 /// parameters ([`SLOTS`] of them), a draw's picked by a dynamic offset.
 struct Image {
     group: wgpu::BindGroup,
+    /// An image's view (a movie's planes have their own).
+    view: Option<wgpu::TextureView>,
     width: f32,
     height: f32,
     /// A movie: its planes and the current frame's color tags.
     video: Option<Video>,
+    /// A generated background ([`BackgroundPipeline::add_generated`]):
+    /// its texture holds encoded values on any target, and it is drawn
+    /// at full brightness (its pass dims it itself).
+    generated: bool,
 }
 
 /// One-pixel images of a color: the black base and the plain backdrop.
@@ -626,6 +632,7 @@ impl BackgroundPipeline {
         let (planes, group) = self.video_planes(device, width, height);
         self.images.push(Image {
             group,
+            view: None,
             width: width.max(1) as f32,
             height: height.max(1) as f32,
             video: Some(Video {
@@ -634,6 +641,7 @@ impl BackgroundPipeline {
                 full_range: false,
                 nv12: false,
             }),
+            generated: false,
         });
         self.images.len() - 1
     }
@@ -789,6 +797,59 @@ impl BackgroundPipeline {
         self.images.len() - 1
     }
 
+    /// A texture for a generated background (`crate::generative`):
+    /// encoded values on any target, drawn into and sampled.
+    pub fn create_generated_texture(
+        &self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        crate::gpu::texture_2d(
+            device,
+            "ddi-background-generated",
+            [width.max(1), height.max(1)],
+            crate::generative::FORMAT,
+            1,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            &[],
+        )
+    }
+
+    /// Registers a generated background's texture (from
+    /// [`BackgroundPipeline::create_generated_texture`]); returns its id.
+    /// It is drawn at full brightness: its pass dims it as the player's
+    /// brightness asks.
+    pub fn add_generated(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
+        let id = self.add_texture(device, texture);
+        self.images[id].generated = true;
+        id
+    }
+
+    /// Generated background `id` draws from `texture` now (another
+    /// size).
+    pub fn replace_generated(&mut self, device: &wgpu::Device, id: usize, texture: &wgpu::Texture) {
+        if self.images.get(id).is_some_and(|i| i.generated) {
+            self.revision = self.revision.wrapping_add(1);
+            self.images[id] = Image {
+                generated: true,
+                ..self.make_image(device, texture)
+            };
+            self.base_size = None;
+        }
+    }
+
+    /// Image `id`'s view, size and whether sampling it gives linear light
+    /// (an sRGB texture); not for a movie or a generated background.
+    pub fn picture(&self, id: usize) -> Option<(&wgpu::TextureView, [u32; 2], bool)> {
+        let image = self.images.get(id).filter(|i| !i.generated)?;
+        Some((
+            image.view.as_ref()?,
+            [image.width as u32, image.height as u32],
+            self.srgb,
+        ))
+    }
+
     /// The size of registered image or movie `id`, pixels.
     pub fn image_size(&self, id: usize) -> Option<[u32; 2]> {
         self.images
@@ -873,9 +934,11 @@ impl BackgroundPipeline {
         let size = texture.size();
         Image {
             group,
+            view: Some(view),
             width: size.width as f32,
             height: size.height as f32,
             video: None,
+            generated: false,
         }
     }
 
@@ -1032,6 +1095,13 @@ impl BackgroundPipeline {
             .filter_map(|(k, l)| l.map(|v| (k as u64, v)))
         {
             let image = self.image(draw.id).expect("validated");
+            // A generated background dims itself.
+            let lit = BASE_ALPHA + (1.0 - BASE_ALPHA) * reveal.position.clamp(0.0, 1.0);
+            let (b, source_linear) = if image.generated {
+                (lit, false)
+            } else {
+                (b, self.srgb)
+            };
             let (bt709, full) = image
                 .video
                 .as_ref()
@@ -1074,7 +1144,7 @@ impl BackgroundPipeline {
                     linear_out: if linear_out { 1.0 } else { 0.0 },
                     band: filter.0,
                     band_keep: filter.1,
-                    source_linear: if self.srgb { 1.0 } else { 0.0 },
+                    source_linear: if source_linear { 1.0 } else { 0.0 },
                     add: if draw.add { 1.0 } else { 0.0 },
                     _pad: 0.0,
                 };

@@ -669,6 +669,11 @@ pub(crate) async fn load_background(
             None => return Ok(None),
         },
         BgImage::File(path) | BgImage::Movie(path) => (format!("bg/{path}"), path.clone()),
+        // The jacket, else the banner (always stored on import).
+        BgImage::Cover => match ddi_shell::generative::cover(entry) {
+            Some(file) => (file.to_string(), file.to_string()),
+            None => return Ok(None),
+        },
         // Not a file of the song's folder (`crate::stills`), or nothing.
         BgImage::Still
         | BgImage::Clear

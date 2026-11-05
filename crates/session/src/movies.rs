@@ -735,14 +735,28 @@ impl<S: MovieShell> MovieSlots<S> {
 /// song's images, the movies' textures that hold a frame of this run, the
 /// second layer's opaque stand-in for a missing song background
 /// ([`BgImage::Plain`]) and, while the song's scripts run, black under
-/// them ([`BgImage::Black`]). Made again only when an image was added, the
-/// movies' [`MovieSlots::version`] changed or the scripts stopped, not
-/// every frame.
+/// them ([`BgImage::Black`]); a generated background
+/// ([`BackdropTextures::set_generated`]). Made again only when an image
+/// was added, the movies' [`MovieSlots::version`] changed or the scripts
+/// stopped, not every frame.
 #[derive(Debug, Default)]
 pub struct BackdropTextures {
     list: Vec<(BgImage, usize)>,
     /// `(images, movies' version, black)` the list was made for.
     key: Option<(usize, u64, Option<usize>)>,
+    generated: Option<Generated>,
+}
+
+/// A generated background's texture in a play's backdrop
+/// (`ddi_library::generative`, `docs/plans/phase-8-gaps.md` decision 4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Generated {
+    /// Its renderer id.
+    pub id: usize,
+    /// It is drawn over the song's own picture (the visualizer): it shows
+    /// wherever the song background does. Otherwise it stands in where
+    /// the song background would show and there is none.
+    pub over: bool,
 }
 
 impl BackdropTextures {
@@ -760,13 +774,32 @@ impl BackdropTextures {
         let key = (images.len(), version, black);
         if self.key != Some(key) {
             self.list.clear();
+            // The first texture of an image is the one shown: over the
+            // picture, before it; standing in, after everything.
+            let over = self.generated.filter(|g| g.over);
+            self.list.extend(over.map(|g| (BgImage::Song, g.id)));
             self.list.extend(images.iter().cloned());
             self.list.extend(movies());
             self.list.push((BgImage::Plain, plain));
             self.list.extend(black.map(|b| (BgImage::Black, b)));
+            let standing = self.generated.filter(|g| !g.over);
+            self.list.extend(standing.map(|g| (BgImage::Song, g.id)));
             self.key = Some(key);
         }
         &self.list
+    }
+
+    /// The generated background of the plays from now on (`None`: none).
+    pub fn set_generated(&mut self, generated: Option<Generated>) {
+        if self.generated != generated {
+            self.generated = generated;
+            self.key = None;
+        }
+    }
+
+    /// The generated background's id, if it is in the list.
+    pub fn generated(&self) -> Option<usize> {
+        self.generated.map(|g| g.id)
     }
 }
 

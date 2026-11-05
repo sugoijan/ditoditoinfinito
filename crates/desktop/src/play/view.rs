@@ -116,6 +116,10 @@ pub struct View {
     script_movie_files: Vec<(String, Result<super::load::MovieAt, String>)>,
     /// Frames drawn.
     pub frames: u64,
+    /// The song's generated background (`docs/plans/phase-8-gaps.md`,
+    /// step 5), and its music's analysis while a thread makes it.
+    generated: Option<ddi_shell::generative::Generated>,
+    analysis: Option<std::sync::mpsc::Receiver<ddi_library::generative::Series>>,
     entrance: Option<ddi_actor::background::Entrance>,
     /// The window's scale factor (device pixels per point).
     pub scale: f32,
@@ -170,6 +174,8 @@ impl View {
             script_movies: Default::default(),
             script_movie_files: Vec::new(),
             frames: 0,
+            generated: None,
+            analysis: None,
             entrance: None,
             scale: 1.0,
             quit_shown: false,
@@ -224,6 +230,77 @@ impl View {
         let folders = backgrounds::script_folders_of(&loaded.entry.bg_scripts);
         self.scripts
             .retime(&backgrounds::foregrounds(song, &folders));
+    }
+
+    /// The song's generated background under `settings`
+    /// (`ddi_shell::generative`): none for a work, when turned off or
+    /// with the backgrounds off. Its music is analyzed on a thread where
+    /// it may show (no picture, or over it); until then it runs on the
+    /// beat alone.
+    pub fn set_generated(&mut self, loaded: &Loaded, settings: &Settings) {
+        use ddi_shell::generative::{Generated, needs_music, wanted};
+        let want = wanted(settings, &loaded.song).filter(|_| settings.bg_brightness > 0.0);
+        self.generated = want.map(Generated::new);
+        self.backdrop_textures.set_generated(None);
+        self.analysis = None;
+        if needs_music(want, loaded.entry.background.is_some()) {
+            let music = loaded.music.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let made = std::thread::Builder::new()
+                .name("ddi-generated-music".into())
+                .spawn(move || {
+                    use ddi_library::music::Analyzer;
+                    let channels = usize::from(music.channels.max(1));
+                    let mut a = Analyzer::new(f64::from(music.rate), music.frames(), 0.0);
+                    // A second at a time: few samples kept.
+                    for chunk in music.data.chunks(music.rate as usize * channels) {
+                        a.add_interleaved(chunk, channels);
+                        a.step(usize::MAX);
+                    }
+                    let _ = tx.send(ddi_library::generative::Series::new(&a.finish()));
+                });
+            self.analysis = made.is_ok().then_some(rx);
+        }
+    }
+
+    /// Waits for the music's analysis, if it is being made (tests).
+    pub fn wait_for_generated(&mut self) {
+        if let Some(rx) = self.analysis.take()
+            && let Ok(series) = rx.recv()
+            && let Some(g) = self.generated.as_mut()
+        {
+            g.set_series(std::rc::Rc::new(series));
+        }
+    }
+
+    /// What the generated background did, if the song has one.
+    pub fn generated(&self) -> Option<ddi_shell::generative::Debug> {
+        self.generated.as_ref().map(|g| g.debug())
+    }
+
+    /// The renderer's id of image `what`, once up.
+    fn background(&self, what: &BgImage) -> Option<usize> {
+        self.backgrounds
+            .iter()
+            .find(|(w, _)| w == what)
+            .map(|(_, id)| *id)
+    }
+
+    /// What the start prompt shows of the generated background, for a
+    /// song without a picture: its frame at the play's first song second
+    /// and beat (`first`), for a frame of shape `aspect`
+    /// ([`ddi_shell::generative::Generated::still`]). `None` without one,
+    /// or while the cover it folds is read but not up.
+    pub fn generated_still(
+        &self,
+        first: (f64, f64),
+        brightness: f32,
+        reduced: bool,
+        aspect: f32,
+    ) -> Option<ddi_shell::generative::Still> {
+        let g = self.generated.as_ref()?;
+        let cover = self.background(&BgImage::Cover);
+        g.still(&self.renderer, first, brightness, reduced, aspect, cover)
     }
 
     /// The song's scripts (`docs/plans/scripted-backgrounds.md`), loaded
@@ -302,6 +379,13 @@ impl View {
         let mut out = Vec::new();
         if let Some(bg) = &e.background {
             out.push((BgImage::Song, loaded.files.source(bg), MAX_BACKGROUND_SIDE));
+        }
+        // The cover the kaleidoscope folds standing in.
+        let want = ddi_shell::generative::wanted(settings, &loaded.song);
+        if ddi_shell::generative::needs_cover(want, e.background.is_some())
+            && let Some(cover) = ddi_shell::generative::cover(e)
+        {
+            out.push((BgImage::Cover, loaded.files.source(cover), MAX_CHANGE_SIDE));
         }
         for name in &e.bg_images {
             out.push((
@@ -519,7 +603,43 @@ impl View {
                 self.entrance = None;
             }
         }
+        // A generated background: its texture at the frame's size, in
+        // the backdrop's list, drawn when the backdrop shows it.
+        if let Some(rx) = &self.analysis
+            && let Ok(series) = rx.try_recv()
+        {
+            if let Some(g) = self.generated.as_mut() {
+                g.set_series(std::rc::Rc::new(series));
+            }
+            self.analysis = None;
+        }
+        if let Some(g) = self.generated.as_mut().filter(|_| render.background > 0.0) {
+            let [w, h] = [size[0] as f32, size[1] as f32];
+            let frame_px = ddi_render::background::frame_rect(w, h, frame_aspect)
+                .map_or([w, h], |r| [r[2], r[3]]);
+            let entry = g.ensure(&mut self.renderer, device, frame_px);
+            self.backdrop_textures.set_generated(Some(entry));
+        }
         render.backdrop = self.backdrop(frame.song_time);
+        let pictures = (
+            self.background(&BgImage::Song),
+            self.background(&BgImage::Cover),
+        );
+        if let Some(g) = self.generated.as_mut()
+            && let Some(id) = g.id()
+            && ddi_shell::generative::shown(&render.backdrop, id)
+        {
+            g.draw(
+                &mut self.renderer,
+                device,
+                queue,
+                encoder,
+                (frame.song_time, frame.beat),
+                render.background,
+                render.reduced_motion,
+                pictures,
+            );
+        }
         let layer = match self.noteskin.as_mut() {
             Some(n) => {
                 let from = n.next_seq();

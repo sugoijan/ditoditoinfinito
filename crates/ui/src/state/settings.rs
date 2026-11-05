@@ -8,6 +8,8 @@ pub use hand::HandLayout;
 
 use std::collections::BTreeMap;
 
+pub use ddi_library::generative::{Look, Palette};
+
 pub use ddi_engine::PadBindings;
 use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
@@ -106,6 +108,17 @@ pub struct Settings {
     /// behind a song without background changes, for a `-random-`
     /// change, in place of a file found nowhere.
     pub random_movies: bool,
+    /// What a song without a background shows in its place, drawn from
+    /// its music (`docs/plans/phase-8-gaps.md`, step 5): a look, or
+    /// nothing (the plain ground). Never for a Dancing☆Onigiri work.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub generated_background: GeneratedBackground,
+    /// The generated background over a song's own picture too, as a
+    /// visualizer.
+    pub generated_over_pictures: bool,
+    /// The generated background's colors.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub generated_palette: Palette,
     /// The shape backgrounds and movies are fitted into.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub background_frame: BackgroundFrame,
@@ -286,6 +299,32 @@ pub enum VideoMode {
     Off,
 }
 
+/// What a song without a background shows in its place
+/// ([`Settings::generated_background`]).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GeneratedBackground {
+    /// The plain ground, as before.
+    Off,
+    Bars,
+    Kaleidoscope,
+    #[default]
+    Field,
+    Rain,
+}
+
+impl GeneratedBackground {
+    /// Its look (`None`: off).
+    pub fn look(self) -> Option<Look> {
+        match self {
+            GeneratedBackground::Off => None,
+            GeneratedBackground::Bars => Some(Look::Bars),
+            GeneratedBackground::Kaleidoscope => Some(Look::Kaleidoscope),
+            GeneratedBackground::Field => Some(Look::Field),
+            GeneratedBackground::Rain => Some(Look::Rain),
+        }
+    }
+}
+
 /// The shape backgrounds and movies are fitted into (StepMania's cover
 /// fit inside it); outside it the screen shows a blurred extension of it.
 /// Pack assets were drawn for a cabinet's screen, so a still and a movie
@@ -397,6 +436,9 @@ impl Default for Settings {
             bg_brightness: 0.4,
             video: VideoMode::Auto,
             random_movies: true,
+            generated_background: GeneratedBackground::default(),
+            generated_over_pictures: false,
+            generated_palette: Palette::default(),
             background_frame: BackgroundFrame::Auto,
             field_filter: 0.4,
             style: "dance-single".into(),
@@ -1180,6 +1222,15 @@ mod tests {
         assert_eq!(read(r#""Right""#), FieldPlace::Right);
         // A place a later version has: the middle.
         assert_eq!(read(r#""Top""#), FieldPlace::Center);
+    }
+
+    #[test]
+    fn the_generated_backgrounds_vivid_reads_as_ink() {
+        // Offered for a day (2026-11-05), then left out.
+        let s: Settings = serde_json::from_str(r#"{"generated_palette": "Vivid"}"#).unwrap();
+        assert_eq!(s.generated_palette, Palette::Ink);
+        let s: Settings = serde_json::from_str(r#"{"generated_palette": "Moss"}"#).unwrap();
+        assert_eq!(s.generated_palette, Palette::Moss);
     }
 
     #[test]

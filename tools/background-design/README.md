@@ -69,7 +69,9 @@ no local files).
 
 **Export choices** downloads `approved.json`, those choices with every
 candidate's parameters and the palette. The accepted file goes beside
-this README, and step 5 ports what it keeps. **Import choices** takes a
+this README, and step 5 ports what it keeps: the one here (2026-11-05)
+has the player choose among all four, and the game's looks follow its
+values (`ddi_library::generative`). **Import choices** takes a
 file back; only known, bounded values are applied. Settings save in
 `localStorage` under `ddi.background-study.v1`.
 

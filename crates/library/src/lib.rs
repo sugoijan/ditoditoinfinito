@@ -25,6 +25,9 @@
 //! - [`tags`]: a music file's title and artist, for a new song.
 //! - [`announcer`]: the lines announcers speak, and the announcers found in
 //!   an import.
+//! - [`fft`]: a Fourier transform; [`music`]: the music's analysis a
+//!   generative background follows; [`generative`]: those backgrounds'
+//!   looks, as the design study chose them.
 
 pub mod announcer;
 pub mod avi;
@@ -33,10 +36,13 @@ pub(crate) mod bytes;
 pub mod danoni;
 pub mod edited;
 pub mod ffr;
+pub mod fft;
+pub mod generative;
 pub mod h264;
 pub mod image;
 pub mod legacy;
 pub mod manifest;
+pub mod music;
 pub mod pack;
 pub mod path;
 pub mod scan;

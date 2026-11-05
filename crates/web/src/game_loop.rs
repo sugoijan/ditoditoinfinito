@@ -126,6 +126,9 @@ pub(crate) struct GameLoop {
     )>,
     /// The noteskin's store key.
     noteskin_key: String,
+    /// The song's generated background (`docs/plans/phase-8-gaps.md`,
+    /// step 5), kept across its plays.
+    generated: Option<ddi_shell::generative::Generated>,
 }
 
 /// Texts the browser drew for a song's scripts: `(text, drawing, size in
@@ -211,6 +214,7 @@ impl GameLoop {
             noteskin: None,
             next_noteskin: None,
             noteskin_key: String::new(),
+            generated: None,
         }
     }
 
@@ -394,6 +398,49 @@ impl GameLoop {
         let opening = movies.opening_plays(&layers[0]);
         let [first, second] = backgrounds::draws_at(layers, t, all, opening);
         Backdrop { first, second }
+    }
+
+    /// The generated background of the plays to come (`None`: none):
+    /// the one there is kept while it is the same.
+    pub(crate) fn set_generated(&mut self, want: Option<ddi_shell::generative::Want>) {
+        if self.generated.as_ref().map(|g| g.want) != want {
+            self.generated = want.map(ddi_shell::generative::Generated::new);
+            self.shown_cache.set_generated(None);
+        }
+    }
+
+    /// The music's signals for the generated background, analyzed.
+    pub(crate) fn set_generated_series(
+        &mut self,
+        series: std::rc::Rc<ddi_library::generative::Series>,
+    ) {
+        if let Some(g) = self.generated.as_mut() {
+            g.set_series(series);
+        }
+    }
+
+    /// The renderer's id of image `what`, once up.
+    fn background_id(&self, what: &BgImage) -> Option<usize> {
+        self.background_ids
+            .iter()
+            .find(|(w, _)| w == what)
+            .map(|(_, id)| *id)
+    }
+
+    /// What the start prompt shows of the generated background, for a
+    /// song without a picture: its frame at the play's first song second
+    /// and beat (`first`), for a frame of shape `aspect`
+    /// ([`ddi_shell::generative::Generated::still`]).
+    pub(crate) fn generated_still(
+        &self,
+        first: (f64, f64),
+        brightness: f32,
+        reduced: bool,
+        aspect: f32,
+    ) -> Option<ddi_shell::generative::Still> {
+        let g = self.generated.as_ref()?;
+        let cover = self.background_id(&BgImage::Cover);
+        g.still(&self.renderer, first, brightness, reduced, aspect, cover)
     }
 
     /// The back and mask layers of the play about to start (`None`: none
@@ -788,6 +835,15 @@ impl GameLoop {
                         self.entrance = None;
                     }
                 }
+                // A generated background: its texture at the frame's
+                // size, in the backdrop's list, drawn when it shows.
+                if let Some(g) = self.generated.as_mut().filter(|_| render.background > 0.0) {
+                    let [w, h] = [width as f32, height as f32];
+                    let frame_px = ddi_render::background::frame_rect(w, h, frame_aspect)
+                        .map_or([w, h], |r| [r[2], r[3]]);
+                    let entry = g.ensure(&mut self.renderer, &self.gfx.device, frame_px);
+                    self.shown_cache.set_generated(Some(entry));
+                }
                 render.backdrop = Self::backdrop(
                     &mut self.shown_cache,
                     &self.background_ids,
@@ -798,6 +854,25 @@ impl GameLoop {
                     self.scripts.running().then_some(ddi_render::BLACK),
                 );
                 self.backdrop_drawn = render.backdrop;
+                let pictures = (
+                    self.background_id(&BgImage::Song),
+                    self.background_id(&BgImage::Cover),
+                );
+                if let Some(g) = self.generated.as_mut()
+                    && let Some(id) = g.id()
+                    && ddi_shell::generative::shown(&render.backdrop, id)
+                {
+                    g.draw(
+                        &mut self.renderer,
+                        &self.gfx.device,
+                        &self.gfx.queue,
+                        &mut encoder,
+                        (frame.song_time, frame.beat),
+                        render.background,
+                        render.reduced_motion,
+                        pictures,
+                    );
+                }
                 self.playing_at = (session.player.started() && !session.player.finished())
                     .then_some(frame.song_time);
                 // The lyrics at this frame's time, over the field's middle.
@@ -1132,6 +1207,25 @@ impl GameLoop {
         }
         set("lyrics", lyrics.into());
         set("backdrop", self.backdrop_debug().into());
+        if let Some(g) = &self.generated {
+            let d = g.debug();
+            let o = js_sys::Object::new();
+            let put = |k: &str, v: wasm_bindgen::JsValue| {
+                let _ = js_sys::Reflect::set(&o, &k.into(), &v);
+            };
+            put("look", d.look.into());
+            put("palette", d.palette.into());
+            put("over", d.over.into());
+            put(
+                "analyzed",
+                d.analyzed
+                    .map_or(wasm_bindgen::JsValue::NULL, |n| (n as f64).into()),
+            );
+            put("drawn", (d.drawn as f64).into());
+            put("width", d.size[0].into());
+            put("height", d.size[1].into());
+            set("generated", o.into());
+        }
         // The song's scripts: whether they run, why they stopped, the fuel
         // of the last frame, the quads drawn (background, foreground).
         let scripts = js_sys::Object::new();

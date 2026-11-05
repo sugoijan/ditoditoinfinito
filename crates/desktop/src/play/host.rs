@@ -70,6 +70,13 @@ struct Readied {
     /// The song's background as a texture source, and its shape, for
     /// the prompt's picture.
     picture: Option<(String, f32)>,
+    /// For a song without one, the generated background's first frame
+    /// held still in its place (the painter's under `still_source`,
+    /// [`ddi_shell::generative::Stills`]), and the play's first beat it
+    /// is drawn at.
+    still: Option<ddi_shell::generative::Still>,
+    still_source: String,
+    first_beat: Option<f64>,
     /// The skin being read on its thread, for its layout.
     skin: Option<(super::skins::Reading, ddi_chart::Layout)>,
     /// When its drawing was made (the pictures are waited for a while).
@@ -488,6 +495,16 @@ impl Host {
 
     /// The play's news between frames: a play asked for, the song read,
     /// the prompt's or the results' choice. `rate` is the output's.
+    /// The start prompt's generated still and the source the painter
+    /// draws it under, while the prompt is up
+    /// ([`ddi_shell::generative::Stills::set`]).
+    pub fn prompt_still(&self) -> (Option<String>, Option<ddi_shell::generative::Still>) {
+        match &self.stage {
+            Stage::Prompt(r) => (Some(r.still_source.clone()), r.still.clone()),
+            _ => (None, None),
+        }
+    }
+
     pub fn poll(&mut self, ui: &mut Ui, env: &Env, dev: Option<Device<'_>>, rate: u32) {
         *self.devices.borrow_mut() = self.watcher.last.clone();
         let requested = self.requested.borrow_mut().take();
@@ -528,6 +545,9 @@ impl Host {
                 error: None,
                 audio: None,
                 picture: None,
+                still: None,
+                still_source: ddi_shell::generative::still_source(),
+                first_beat: None,
                 skin: None,
                 stage: None,
                 view_made: None,
@@ -582,7 +602,7 @@ impl Host {
         let stage = std::mem::replace(&mut self.stage, Stage::Idle);
         self.stage = match stage {
             Stage::Prompt(mut r) => {
-                self.ready(&mut r, dev, ui);
+                self.ready(&mut r, dev, ui, env.reduced());
                 // `--start`: Start pressed for the player once it is offered.
                 if self.start_when_ready && r.prompt.borrow().step == PromptStep::Ready {
                     self.start_when_ready = false;
@@ -740,7 +760,7 @@ impl Host {
     /// The song read, its view made, its skin readied, its pictures
     /// taken in as they come, its sound opened; the prompt says where it
     /// is, and offers Start once all is ready.
-    fn ready(&mut self, r: &mut Readied, dev: Option<Device<'_>>, ui: &Ui) {
+    fn ready(&mut self, r: &mut Readied, dev: Option<Device<'_>>, ui: &Ui, reduced: bool) {
         r.ready = false;
         // A replay refused: the prompt says why, nothing loads.
         if r.request.refused.is_some() {
@@ -867,6 +887,10 @@ impl Host {
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, dev.formats);
             view.set_song(&loaded, &settings);
+            // Never behind calibration (nothing may cue the player).
+            if r.request.calibration.is_none() {
+                view.set_generated(&loaded, &settings);
+            }
             view.set_noteskin(dev.device, dev.queue, None);
             view.start();
             r.view = Some(view);
@@ -971,18 +995,37 @@ impl Host {
         // On the device now: the frame's shape knows the picture.
         view.prepare(dev.device, dev.queue);
         // The prompt's picture, as the play opens on it (a test shows
-        // none).
-        let picture = r
-            .picture
-            .clone()
-            .filter(|_| r.request.calibration.is_none() && settings.bg_brightness > 0.0)
-            .map(|(source, aspect)| PromptPicture {
-                source,
+        // none): the song's, else its generated background's first
+        // frame held still (self-lit, as the play draws it).
+        let shown = r.request.calibration.is_none() && settings.bg_brightness > 0.0;
+        let frame = view.prompt_frame();
+        r.still = None;
+        if shown && loaded.entry.background.is_none() {
+            let first = *r
+                .first_beat
+                .get_or_insert_with(|| first_beat(&loaded, &r.request, &settings));
+            let v = ui.viewport();
+            let aspect = frame.unwrap_or(v.physical[0] / v.physical[1].max(1.0));
+            r.still = view.generated_still(
+                (ddi_library::backgrounds::PLAY_START, first),
+                settings.bg_brightness,
+                reduced,
                 aspect,
-                frame: view.prompt_frame(),
-                brightness: settings.bg_brightness,
-                filter: filter(&loaded, r.request.chart, &settings, ui),
-            });
+            );
+        }
+        let picture = match (&r.picture, &r.still) {
+            (Some((source, aspect)), _) => Some((source.clone(), *aspect, settings.bg_brightness)),
+            (None, Some(still)) => Some((r.still_source.clone(), still.aspect, 1.0)),
+            (None, None) => None,
+        }
+        .filter(|_| shown)
+        .map(|(source, aspect, brightness)| PromptPicture {
+            source,
+            aspect,
+            frame,
+            brightness,
+            filter: filter(&loaded, r.request.chart, &settings, ui),
+        });
 
         {
             let config = r
@@ -1616,6 +1659,16 @@ impl Host {
 /// The field's filter for the prompt's picture
 /// ([`ddi_shell::prompt_filter`] on the viewport's logical size; none for
 /// an empty one).
+/// The beat at the play's first frame (`ddi_library::backgrounds::PLAY_START`),
+/// on the chart's timing as the play shifts it.
+fn first_beat(loaded: &Loaded, request: &Request, settings: &Settings) -> f64 {
+    let song = loaded.song.shifted(request.song_shift(settings));
+    song.charts.get(request.chart).map_or(0.0, |c| {
+        c.timing(&song)
+            .beat_at(ddi_library::backgrounds::PLAY_START)
+    })
+}
+
 fn filter(loaded: &Loaded, chart: usize, settings: &Settings, ui: &Ui) -> Option<([f32; 2], f32)> {
     let v = ui.viewport();
     let ratio = v.ratio.max(0.1);

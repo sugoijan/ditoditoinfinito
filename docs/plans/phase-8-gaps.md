@@ -1,6 +1,6 @@
 # Phase 8's last gaps: movies wherever StepMania plays them, and backgrounds of our own
 
-Status: in progress, steps 1–3 done 2026-11-03, step 4's study ready the same day for the maintainer's choices; planned the same day, the
+Status: in progress, steps 1–3 done 2026-11-03, step 4's study ready the same day, its choices exported 2026-11-05 and step 5 done the same day; planned 2026-11-03, the
 maintainer's choices taken then ("The maintainer's choices", at the end).
 Steps 1–3 follow StepMania; step 4 is a round of experiments the
 maintainer picks from.
@@ -492,6 +492,97 @@ supports.
 - **Checks:** natively, offscreen on desktop (pixels at set times of a
   replay), headless Chrome (WebGPU, WebGL2) and Firefox, the frame cost
   on both.
+
+**Done 2026-11-05.** The maintainer's exported choices are
+`tools/background-design/approved.json`: the player chooses the look,
+from the four the study tuned (no candidate was ticked, so all four are
+kept; the field and lines is the default, Ink the default palette).
+- **The analysis** (`ddi_library::music`): the study's, less what its
+  choices left unused: 32 bands from 30 Hz to 16 kHz of a 2048-point
+  transform and the loudness, a frame every 20 ms, keeping only the
+  samples the frames to come need. Its transform is the editor's, moved
+  to `ddi_library::fft` for both. Desktop makes it on a thread from the
+  decoded music, the web in 3 ms slices an animation frame from the
+  prompt's decode (`crates/web/src/generated.rs`, at the buffer's MP3
+  lead). Only where the look may show: a song without a picture, or
+  over one.
+- **The looks** (`ddi_library::generative`): the approved values as
+  constants, lengths in pixels of a 540-pixel screen as the menu's rain
+  measures. `Series` makes every look's signals once over the analysis
+  (the bars' rise, fall and held peaks, the lines' bands, the rain's
+  zoom and waves on what stands out of the song, the kaleidoscope's
+  wandering clock), so a frame is a function of the song second and
+  beat: a replay, both shells and any refresh rate draw the same.
+- **The pass** (`ddi_render::generative`, `generative.wgsl`): the look
+  over the whole texture (ground, field, kaleidoscope, the song's
+  picture over which the bars draw), then strokes (the field's lines,
+  the rain's outlines, sampled from the menu's art) in encoded values,
+  as the study's canvas blended them. The texture is plain RGBA8 on any
+  target and registered with the backdrop as a picture of its own,
+  self-lit (`BackgroundPipeline::add_generated`), so it crossfades,
+  enters, takes the field filter's band and the blurred base as any
+  picture does. Its brightness: as designed at the default background
+  brightness (40%), dimmer under it, none at 0.
+- **The stand-in** (`ddi_session::movies::BackdropTextures::set_generated`):
+  the generated texture is the song background's last resort, or its
+  first over a picture. Never for a work, in calibration, the editor or
+  Options' preview.
+- **Settings:** Options → Display → Generated background (Off, Spectrum
+  bars, Kaleidoscope, Field and lines, Outline rain), Over song
+  backgrounds (off), Generated colors (the study's quiet palettes).
+- **Size and cost:** the background frame's size, within the device's
+  largest texture.
+- **Checks:** `crates/desktop/tests/generated_background_offscreen.rs`
+  (each look on a song without a background, the band, the same picture
+  for the same second, Off and brightness 0, the bars over a picture
+  leaving it as it was); the library's, render's (the shader validated
+  and written for WebGL2) and the shell's unit tests. In headless Chrome
+  (WebGPU and WebGL2) and Firefox (WebGL2): an imported song without a
+  background autoplayed with each look and Vivid, its 20 s analyzed
+  before the play began (1000 frames), and Beatucada with the bars and
+  the kaleidoscope over its picture, no console errors of their own
+  (`target/scratch/gen/gen.mjs`; the verify skill).
+
+**Revisited 2026-11-06** with the maintainer, the choices made above
+one by one:
+- **Kept:**
+  - all four looks, the player choosing;
+  - the field and lines and Ink as the defaults;
+  - every look over a picture with Over song backgrounds;
+  - the kaleidoscope's note in the export, settled by the revision;
+  - the brightness, full at 40% and dimmer under it;
+  - the texture made for a song with a picture, should it fail (the
+    look then on the beat alone);
+  - the export's place.
+- **Vivid left out** of Generated colors: the screens use enough of it.
+  A saved Vivid reads as Ink.
+- **The kaleidoscope folds the song's cover** where it has no
+  background: its jacket, else its banner (`BgImage::Cover`, read with
+  the song's pictures only for the kaleidoscope standing in), else
+  glass.
+- **The start prompt shows the look's first frame held still** in the
+  picture's place: the frame at the play's first second (−0.8 s), self-lit
+  as the play draws it, so the entrance carries on from it as from a
+  picture. Each shell draws it into the 2D pass's textures when the
+  pass asks for its source (`ddi_shell::generative::Stills`), at each
+  size asked, and the pass blurs it as an image it read. It is drawn
+  again when the analysis or the cover comes in.
+- **The texture is the frame's full size**, within the device's
+  largest texture (WebGL2 may allow less than a 4K screen), no longer
+  Full HD at most.
+- **Checked:**
+  - natively: the shell's tests (the cover, the picture folded, the
+    still's size);
+  - offscreen on desktop: the kaleidoscope folding a jacket in play,
+    the other looks never drawing it, and the prompt through the host
+    (`generated_prompt_offscreen.rs`: the field's still lit, the
+    kaleidoscope's glass blue gray and a jacket red, none when Off);
+  - in headless Chrome (WebGPU and WebGL2) and Firefox (WebGL2): each
+    look's prompt with its still (`prompt_backdrop` `generated`), the
+    play's entrance carrying on from it, a song with a `jacket.png`
+    folded, a saved Vivid played as Ink, none when Off, and Beatucada
+    with its own picture on the prompt and a look over it in play; no
+    console errors of their own.
 
 ### Step 6. Documentation
 

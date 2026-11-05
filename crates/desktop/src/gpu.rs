@@ -106,6 +106,8 @@ pub struct Gpu {
     pub editor: crate::editor_field::EditorFieldHost,
     /// The chart editor's audio view.
     pub editor_audio: crate::editor_audio::EditorAudioHost,
+    /// The start prompt's generated still, drawn when asked for.
+    pub stills: ddi_shell::generative::Stills,
 }
 
 impl Gpu {
@@ -122,6 +124,7 @@ impl Gpu {
             movie: Default::default(),
             editor: Default::default(),
             editor_audio: Default::default(),
+            stills: Default::default(),
         }
     }
 
@@ -245,7 +248,11 @@ impl Gpu {
         self.painter.submitted();
         // Images the draw asked for, decoded off this thread.
         let limit = self.painter.max_texture_side();
-        for (id, key) in self.painter.take_texture_requests() {
+        let requests = self.painter.take_texture_requests();
+        let requests = self
+            .stills
+            .serve(&mut self.painter, &self.device, &self.queue, requests);
+        for (id, key) in requests {
             let side = match key.max_side {
                 0 => limit,
                 s => s.min(limit),

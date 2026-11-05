@@ -24,9 +24,9 @@ use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, Graphics, INFINITO,
-    PadBindings, ParamValue, ReducedMotion, START_COUNTDOWNS, Settings, VideoMode,
-    slider_to_volume, volume_to_slider,
+    BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
+    Graphics, INFINITO, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
+    Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
@@ -1040,6 +1040,36 @@ impl OptionsModel {
                      changes, a new one every four measures, as StepMania plays them.",
                 ),
                 choice(
+                    "generated_background",
+                    "Generated background",
+                    &[
+                        "Off",
+                        "Spectrum bars",
+                        "Kaleidoscope",
+                        "Field and lines",
+                        "Outline rain",
+                    ],
+                    pos(&GENERATED, s.generated_background),
+                    "Drawn from the music in place of a missing song background (not for \
+                     Dancing☆Onigiri works, whose layers are their background). Off shows the \
+                     plain ground.",
+                ),
+                choice(
+                    "generated_over_pictures",
+                    "Over song backgrounds",
+                    &["Off", "On"],
+                    s.generated_over_pictures as usize,
+                    "Draws the generated background over a song's own background picture too \
+                     (the kaleidoscope folds the picture).",
+                ),
+                choice(
+                    "generated_palette",
+                    "Generated colors",
+                    &["Ink", "Dusk", "Moss", "Ember", "Mono"],
+                    pos(&Palette::ALL, s.generated_palette),
+                    "The generated background's colors.",
+                ),
+                choice(
                     "background_frame",
                     "Background frame",
                     &["Automatic", "4:3", "16:9", "Whole screen"],
@@ -1770,6 +1800,9 @@ impl OptionsModel {
             "receptor_snap" => s.receptor_snap = on,
             "lyrics" => s.lyrics = on,
             "random_movies" => s.random_movies = on,
+            "generated_background" => s.generated_background = at(&GENERATED, i),
+            "generated_over_pictures" => s.generated_over_pictures = on,
+            "generated_palette" => s.generated_palette = at(&Palette::ALL, i),
             "bg_brightness" => s.bg_brightness = i as f32 / 20.0,
             "video" => s.video = at(&VIDEOS, i),
             "background_frame" => s.background_frame = at(&FRAMES, i),
@@ -2473,6 +2506,13 @@ const FIELD_PLACES: [FieldPlace; 5] = [
     FieldPlace::NearRight,
 ];
 
+const GENERATED: [GeneratedBackground; 5] = [
+    GeneratedBackground::Off,
+    GeneratedBackground::Bars,
+    GeneratedBackground::Kaleidoscope,
+    GeneratedBackground::Field,
+    GeneratedBackground::Rain,
+];
 const FRAMES: [BackgroundFrame; 4] = [
     BackgroundFrame::Auto,
     BackgroundFrame::FourThree,

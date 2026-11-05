@@ -14,13 +14,16 @@
 //! - [`scripted`]: a song's scripted backgrounds and foregrounds, their
 //!   images' textures (the same contents) and quads;
 //! - [`editor_field`]: the chart editor's field in the player's skin,
-//!   its skin and its place.
+//!   its skin and its place;
+//! - [`generative`]: a play's generated background, the texture it is
+//!   drawn into and its place in the backdrop.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
 pub mod dance;
 pub mod editor_field;
 pub mod field_preview;
+pub mod generative;
 
 pub mod hand;
 pub mod scripted;

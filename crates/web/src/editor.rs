@@ -468,12 +468,12 @@ impl EditorHost for WebEditorHost {
 const ANALYSIS_BUDGET_MS: f64 = 4.0;
 
 /// The page's clock, milliseconds.
-fn now_ms() -> f64 {
+pub(crate) fn now_ms() -> f64 {
     crate::web::clock::PerformanceClock::now_ms()
 }
 
 /// Until the next animation frame.
-async fn next_frame() {
+pub(crate) async fn next_frame() {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
         if let Some(w) = web_sys::window() {
             let _ = w.request_animation_frame(&resolve);

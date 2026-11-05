@@ -21,6 +21,7 @@ pub mod editor_audio;
 pub mod editor_field;
 pub mod field_preview;
 mod gaussian;
+pub mod generative;
 mod gpu;
 mod hud;
 mod instances;

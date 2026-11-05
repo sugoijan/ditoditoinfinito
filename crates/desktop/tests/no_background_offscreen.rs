@@ -1,4 +1,6 @@
-//! A song without a background plays on one ground: the field filter
+//! A song without a background plays on one ground, with the generated
+//! background turned off (`generated_background_offscreen.rs` has it on,
+//! the default): the field filter
 //! darkens a background behind the lanes, and over the plain ground
 //! alone (no `#BACKGROUND`, a picture that is not there, the time before
 //! a song's first change, backgrounds' brightness at 0) it draws nothing,
@@ -12,7 +14,7 @@
 use std::path::Path;
 
 use ddi_desktop::gpu;
-use ddi_ui::state::settings::{BackgroundFrame, Settings};
+use ddi_ui::state::settings::{BackgroundFrame, GeneratedBackground, Settings};
 
 mod common;
 use common::offscreen_play::{H, OffscreenPlay, W, load, pixel};
@@ -92,9 +94,12 @@ fn play(
         bg_brightness: brightness,
         field_filter: filter,
         background_frame: BackgroundFrame::Screen,
+        generated_background: GeneratedBackground::Off,
         ..Settings::default()
     };
-    let mut p = OffscreenPlay::new(adapter, load(root), &settings);
+    let loaded = load(root);
+    let mut p = OffscreenPlay::new(adapter, loaded.clone(), &settings);
+    p.view.set_generated(&loaded, &settings);
     let mut out = Vec::new();
     p.run(
         times,

@@ -599,7 +599,10 @@ pub(crate) fn prepare_textures(gfx: &Gfx) {
             });
             copied.push(image);
         }
-        (copied, p.take_texture_requests(), limit)
+        // The prompt's generated still is drawn, not read.
+        let requests = p.take_texture_requests();
+        let requests = crate::generated::serve_stills(p, gfx, requests);
+        (copied, requests, limit)
     });
     let Some((copied, requests, limit)) = copied else {
         return;
