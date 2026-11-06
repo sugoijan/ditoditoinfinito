@@ -532,6 +532,63 @@ pub fn results_screen(env: &Env) -> ResultsScreen {
 
 /// The credits over song select: `credits` (the generated file where
 /// the shell has it, else [`super::credits::sample`]).
+/// The credits' sample (`credits::sample`), as `xtask gen-credits` writes
+/// `credits.json`: made-up entries, an announcer's Japanese name among
+/// them (data, drawn by the system's fonts as song titles are).
+pub const CREDITS: &str = r#"{
+  "songs": [{
+    "title": "Beatucada", "artist": "Kurio Prokos",
+    "source_url": "https://example.org/songs", "source_path": "Beatucada",
+    "source_commit": "0123456789abcdef", "retrieved": "2026-10-01",
+    "parts": [
+      {"part": "music", "spdx": "CC-BY-4.0", "holders": ["Kurio Prokos"], "url": "https://creativecommons.org/licenses/by/4.0/"},
+      {"part": "charts", "spdx": "CC-BY-4.0", "holders": ["Someone With A Rather Long Name", "Another"], "url": "https://creativecommons.org/licenses/by/4.0/"}
+    ],
+    "chart_authors": {"Daniel Rotwind": ["Beginner", "Easy"]},
+    "excluded": [], "modifications": ["banner resized: magick banner.png -resize 50% banner.png"]
+  }],
+  "noteskins": [{
+    "name": "Delta", "author": "StepMania", "source_url": "https://example.org/skins",
+    "source_path": "NoteSkins/dance/delta", "source_commit": "fedcba9876543210",
+    "parts": [{"part": "art", "spdx": "MIT", "holders": ["StepMania contributors"], "url": "https://opensource.org/license/mit"}]
+  }],
+  "announcers": [{
+    "name": "ガキンさん", "author": "すごいジャン", "language": "Japanese",
+    "made_with": "Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo",
+    "model_url": "https://example.org/kokoro", "revision": "1939ad2a8e416c0a", "made": "2026-11-04",
+    "parts": [{"part": "all", "spdx": "CC0-1.0", "holders": ["すごいジャン"], "url": "https://creativecommons.org/publicdomain/zero/1.0/"}],
+    "trained_on": [{"voice": "jm_kumo", "what": "A reading (a corpus)", "url": "https://example.org/reading", "spdx": "CC-BY-3.0", "holders": ["A broadcaster"], "license_url": "https://creativecommons.org/licenses/by/3.0/"}]
+  }],
+  "fonts": [{"file": "IosevkaTerm-Regular.woff2", "spdx": "OFL-1.1", "holders": "Renzhi Li", "source": "https://github.com/be5invis/Iosevka", "modified": "subset"}],
+  "video": {
+    "name": "FFmpeg", "version": "8.0", "spdx": "LGPL-2.1-or-later",
+    "homepage": "https://ffmpeg.org", "source_url": "https://example.org/ffmpeg/tag",
+    "tarball_url": "https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz",
+    "tarball": "video/ffmpeg-8.0.tar.xz",
+    "tarball_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "configure": ["--disable-everything", "--enable-decoder=h264", "--enable-small"],
+    "components": [{"name": "libavcodec", "spdx": "LGPL-2.1-or-later", "url": "https://ffmpeg.org/libavcodec.html"}],
+    "notices": "video/ddivideo.LICENSE.txt"
+  },
+  "code": [{
+    "name": "StepMania noteskin metrics", "what": "Metrics of the default noteskins.",
+    "license": "MIT", "holders": ["Chris Danford", "Glenn Maynard"],
+    "source": "https://github.com/stepmania/stepmania", "commit": "abcdef0123456789",
+    "license_url": "https://github.com/stepmania/stepmania/blob/master/Docs/Licenses.txt",
+    "notice": "Copyright (c) 2001-2015 Chris Danford, Glenn Maynard and others.\nPermission is hereby granted…"
+  }],
+  "rust": {
+    "crates": [
+      {"name": "rusty-opus", "version": "1.0.1", "license": "BSD-3-Clause", "chosen": "BSD-3-Clause", "repository": "", "notices": [0]},
+      {"name": "serde", "version": "1.0.0", "license": "MIT OR Apache-2.0", "chosen": "MIT", "repository": "", "notices": [1]}
+    ],
+    "notices": [
+      {"license": "BSD-3-Clause", "text": "Copyright (c) 2026 Someone\nRedistribution and use in source and binary forms…", "crates": ["rusty-opus 1.0.1"]},
+      {"license": "MIT", "text": "Permission is hereby granted, free of charge…", "crates": ["serde 1.0.0"]}
+    ]
+  }
+}"#;
+
 pub fn credits_screen(env: &Env, credits: &super::credits::Credits) -> super::page::PageScreen {
     super::page::PageScreen::new(env.clone(), "credits", super::credits::doc(credits))
 }

@@ -90,7 +90,7 @@ impl Reader<'_> {
         };
         let element = times(size, width)?;
         let stride = stride.unwrap_or(element);
-        if stride < element || stride % size != 0 || offset % size != 0 {
+        if stride < element || !stride.is_multiple_of(size) || !offset.is_multiple_of(size) {
             return Err("misaligned accessor".into());
         }
         let bytes = self.view(view)?;
@@ -235,13 +235,13 @@ pub(super) fn load(bytes: &[u8]) -> Result<Character, String> {
         return Err("invalid GLB header or size".into());
     }
     let json_len = word(bytes, 12)? as usize;
-    if json_len > 4 * 1024 * 1024 || json_len % 4 != 0 || word(bytes, 16)? != 0x4e4f534a {
+    if json_len > 4 * 1024 * 1024 || !json_len.is_multiple_of(4) || word(bytes, 16)? != 0x4e4f534a {
         return Err("invalid GLB JSON chunk".into());
     }
     let end = add(20, json_len)?;
     let json = bytes.get(20..end).ok_or("truncated JSON")?;
     let bin_len = word(bytes, end)? as usize;
-    if bin_len % 4 != 0
+    if !bin_len.is_multiple_of(4)
         || word(bytes, end + 4)? != 0x004e4942
         || add(end + 8, bin_len)? != bytes.len()
     {
@@ -340,10 +340,7 @@ pub(super) fn load(bytes: &[u8]) -> Result<Character, String> {
     if ibm.len() != joints.len() * 16 {
         return Err("inverse bind count".into());
     }
-    let inverse_bind = ibm
-        .chunks_exact(16)
-        .map(|m| m.try_into().unwrap())
-        .collect();
+    let inverse_bind = ibm.as_chunks::<16>().0.to_vec();
     let mesh = &d["meshes"][0];
     let prim = array(&mesh["primitives"])?;
     if prim.is_empty() || prim.len() > 16 {
@@ -400,10 +397,12 @@ pub(super) fn load(bytes: &[u8]) -> Result<Character, String> {
             return Err("morph size/limit".into());
         }
         let offsets: Vec<_> = values
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(_, v)| v.iter().any(|x| *x != 0.))
-            .map(|(i, v)| (i, v.try_into().unwrap()))
+            .map(|(i, v)| (i, *v))
             .collect();
         total_offsets += offsets.len();
         if total_offsets > 2_000_000 {
@@ -511,7 +510,7 @@ pub(super) fn load(bytes: &[u8]) -> Result<Character, String> {
         {
             return Err("animation output count/limit".into());
         }
-        if matches!(path, Path::Rotation) && values.chunks_exact(4).any(|q| !unit(q)) {
+        if matches!(path, Path::Rotation) && values.as_chunks::<4>().0.iter().any(|q| !unit(q)) {
             return Err("non-unit animation quaternion".into());
         }
         tracks.push(Track {

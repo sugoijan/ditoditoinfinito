@@ -1,5 +1,8 @@
 //! Single-threaded hand kinematics and bounded contact fitting. No I/O, clocks,
 //! threads or platform APIs. Millimeters/degrees internally; glTF output in meters.
+// The kinematics' matrices and Jacobians read as their math, by row and
+// column (`a[c][k]` and `a[k][c]` cleared together): index loops kept.
+#![allow(clippy::needless_range_loop)]
 mod contact_curve;
 mod correction;
 mod curve;

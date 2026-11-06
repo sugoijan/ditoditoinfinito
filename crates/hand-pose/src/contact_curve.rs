@@ -72,10 +72,10 @@ impl InspectionCache {
         }
         self.misses += 1;
         let g = m.evaluate_into(q, kin);
-        if self.entries.len() >= 8192 {
-            if let Some(old) = self.order.pop_front() {
-                self.entries.remove(&old);
-            }
+        if self.entries.len() >= 8192
+            && let Some(old) = self.order.pop_front()
+        {
+            self.entries.remove(&old);
         }
         self.entries.insert(key, g);
         self.order.push_back(key);

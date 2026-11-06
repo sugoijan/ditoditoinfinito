@@ -61,8 +61,11 @@ fn play(
     (results, plays, rules)
 }
 
+/// DDR A's rules with `gauge`, the dancing hand off: its `At once: up
+/// to two` makes a play an assist, and an assist earns no FLARE points.
 fn ddr_a(gauge: DdrGauge) -> Settings {
     Settings {
+        dancing_hand: false,
         ruleset: "ddr-a".into(),
         stepmania: StepManiaOptions {
             gauge,
