@@ -1,6 +1,7 @@
 //! The credits (`docs/plans/ui-core.md`, step 6.4): `credits/credits.json`
 //! (written by `xtask gen-credits`, the attribution the bundled works'
-//! licences require) as a [`PageDoc`]: the songs, the noteskins, the
+//! licences require) as a [`PageDoc`]: the songs, the noteskins, our
+//! announcers (what made them, what their voices learned from), the
 //! fonts, the video decoder (FFmpeg, from `video/FFMPEG.toml`, with its
 //! licence texts), the code from other projects, every source a link, and
 //! the Rust libraries of the build (folded: the web's in `credits.json`,
@@ -17,6 +18,8 @@ pub struct Credits {
     pub songs: Vec<SongCredit>,
     #[serde(default)]
     pub noteskins: Vec<SkinCredit>,
+    #[serde(default)]
+    pub announcers: Vec<AnnouncerCredit>,
     pub fonts: Vec<FontCredit>,
     pub video: VideoCredit,
     #[serde(default)]
@@ -99,6 +102,33 @@ pub struct SkinCredit {
     pub excluded: Vec<String>,
     #[serde(default)]
     pub modifications: Vec<String>,
+}
+
+/// One of our announcers: what made it, its licence, and the recordings
+/// its voice learned from where they ask for credit.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct AnnouncerCredit {
+    pub name: String,
+    pub author: String,
+    pub language: String,
+    pub made_with: String,
+    pub model_url: String,
+    pub revision: String,
+    #[serde(default)]
+    pub made: String,
+    pub parts: Vec<PartCredit>,
+    #[serde(default)]
+    pub trained_on: Vec<TrainedOnCredit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct TrainedOnCredit {
+    pub voice: String,
+    pub what: String,
+    pub url: String,
+    pub spdx: String,
+    pub holders: Vec<String>,
+    pub license_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -206,7 +236,8 @@ pub fn doc(c: &Credits) -> PageDoc {
     let mut b = vec![Block::Text(
         "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs, noteskins and \
          fonts, the video decoder and the code from other projects are third-party works used \
-         under their own licences, credited here as those licences require."
+         under their own licences, credited here as those licences require. Our announcers \
+         are CC0, credited with what made them."
             .into(),
     )];
     b.push(Block::Link {
@@ -245,6 +276,39 @@ pub fn doc(c: &Credits) -> PageDoc {
             ));
             b.extend(parts(&k.parts));
             b.extend(excluded_and_modified(&k.excluded, &k.modifications));
+        }
+    }
+    if !c.announcers.is_empty() {
+        b.push(Block::Heading("Announcers".into()));
+        for a in &c.announcers {
+            b.push(Block::Subheading(format!("{} — {}", a.name, a.author)));
+            b.push(Block::Text(format!("{}: {}", a.language, a.made_with)));
+            b.push(Block::Link {
+                label: format!("Model: {}", a.model_url),
+                url: a.model_url.clone(),
+            });
+            b.push(Block::Muted(format!(
+                "revision {}{}",
+                short(&a.revision),
+                if a.made.is_empty() {
+                    String::new()
+                } else {
+                    format!(", made {}", a.made)
+                }
+            )));
+            b.extend(parts(&a.parts));
+            for t in &a.trained_on {
+                b.push(Block::Link {
+                    label: format!(
+                        "its voice ({}) learned from {}: {} — {}",
+                        t.voice,
+                        t.what,
+                        t.holders.join(", "),
+                        t.spdx
+                    ),
+                    url: t.url.clone(),
+                });
+            }
         }
     }
     b.push(Block::Heading("Fonts".into()));
@@ -463,6 +527,13 @@ const SAMPLE: &str = r#"{
     "source_path": "NoteSkins/dance/delta", "source_commit": "fedcba9876543210",
     "parts": [{"part": "art", "spdx": "MIT", "holders": ["StepMania contributors"], "url": "https://opensource.org/license/mit"}]
   }],
+  "announcers": [{
+    "name": "ガキンさん", "author": "すごいジャン", "language": "Japanese",
+    "made_with": "Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo",
+    "model_url": "https://example.org/kokoro", "revision": "1939ad2a8e416c0a", "made": "2026-11-04",
+    "parts": [{"part": "all", "spdx": "CC0-1.0", "holders": ["すごいジャン"], "url": "https://creativecommons.org/publicdomain/zero/1.0/"}],
+    "trained_on": [{"voice": "jm_kumo", "what": "A reading (a corpus)", "url": "https://example.org/reading", "spdx": "CC-BY-3.0", "holders": ["A broadcaster"], "license_url": "https://creativecommons.org/licenses/by/3.0/"}]
+  }],
   "fonts": [{"file": "IosevkaTerm-Regular.woff2", "spdx": "OFL-1.1", "holders": "Renzhi Li", "source": "https://github.com/be5invis/Iosevka", "modified": "subset"}],
   "video": {
     "name": "FFmpeg", "version": "8.0", "spdx": "LGPL-2.1-or-later",
@@ -524,6 +595,29 @@ mod rust_tests {
         assert_eq!(
             body[1],
             Block::Muted("serde 1.0.0 — MIT OR Apache-2.0, used under MIT (notice 2)".into())
+        );
+    }
+
+    /// Our announcers follow the noteskins, each voice's recordings
+    /// credited with a link to them.
+    #[test]
+    fn announcers_credit_what_their_voices_learned_from() {
+        let d = doc(&sample());
+        let at = |b: &Block| d.blocks.iter().position(|x| x == b).expect("the block");
+        let heading = at(&Block::Heading("Announcers".into()));
+        assert!(heading > at(&Block::Heading("Noteskins".into())));
+        assert!(heading < at(&Block::Heading("Fonts".into())));
+        assert_eq!(
+            d.blocks[heading + 1],
+            Block::Subheading("ガキンさん — すごいジャン".into())
+        );
+        assert!(
+            d.blocks.contains(&Block::Link {
+                label: "its voice (jm_kumo) learned from A reading (a corpus): A broadcaster — \
+                    CC-BY-3.0"
+                    .into(),
+                url: "https://example.org/reading".into(),
+            })
         );
     }
 

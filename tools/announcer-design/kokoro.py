@@ -25,7 +25,7 @@ and make our announcer with the one chosen.
     uv run tools/announcer-design/kokoro.py sample [VOICE ...]
     uv run tools/announcer-design/kokoro.py speak [--voices ...] [--styles plain lead] [--lines ...]
     uv run tools/announcer-design/kokoro.py context
-    uv run tools/announcer-design/kokoro.py pack [PACK.toml ...]
+    uv run tools/announcer-design/kokoro.py pack [PACK.toml ...] [--bundle]
 
 `sample` has every voice of `[kokoro] sample` (Kokoro's own) and every
 blend of `[[kokoro.voice]]` read `[design] text`; `speak` has the
@@ -40,8 +40,10 @@ is said around a line changes how it is said.
 `pack` makes the whole announcer a pack file writes (pack.toml, the
 English one, and pack-ja.toml, the Japanese, by default), every line the
 game speaks with its variants, as `Announcers/<name>/` there, on the page
-too. Kokoro speaks English (its `a` and `b` voices) and Japanese (`j`)
-here; a voice speaks its own language unless `lang` gives another.
+too; `--bundle` puts each in the game, `assets/announcers/<name>/`, with
+its PROVENANCE.toml. Kokoro speaks English (its `a` and `b` voices) and
+Japanese (`j`) here; a voice speaks its own language unless `lang` gives
+another.
 
 uv makes the environment from the header above; the model comes from
 Hugging Face at the pinned revision (its cache, when it holds it). No
@@ -52,6 +54,7 @@ was made from changed. See README.md.
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -83,6 +86,16 @@ LANGS = {"a": "American English", "b": "British English", "j": "Japanese"}
 # The phonemizer's packages, recorded with what each made.
 PACKAGES = {"a": ("misaki", "spacy", "en_core_web_sm"), "b": ("misaki", "spacy", "en_core_web_sm"),
             "j": ("misaki", "fugashi", "unidic-lite", "pyopenjtalk")}
+# Where `pack --bundle` puts a pack in the game (`xtask gen-announcers`
+# indexes it, both shells list it).
+BUNDLED = A.ROOT / "assets/announcers"
+# Kokoro's voices that learned from recordings under CC BY (VOICES.md's
+# "CC BY" column, read 2026-11-06): a TV Nishinippon announcer's readings,
+# the Koniwa corpus's `tnc`, its audio CC BY 3.0 (Koniwa's README). A
+# pack in one, or a blend with one, credits them.
+KONIWA_TNC = "https://github.com/koniwa/koniwa/blob/master/source/tnc/tnc__{}.txt"
+CC_BY = {"jf_gongitsune": "gongitsune", "jf_nezumi": "nezuminoyomeiri",
+         "jf_tebukuro": "tebukurowokaini", "jm_kumo": "kumonoito"}
 
 
 class Kokoro:
@@ -547,6 +560,103 @@ def cmd_pack(cfg, source, pack, engine, state):
     print(f"{name}: {len(folders)} lines, {len(wanted)} sounds ({made} made, {kept} kept, {removed} removed)")
 
 
+def toml_str(s):
+    # JSON's escapes are TOML's.
+    return json.dumps(s, ensure_ascii=False)
+
+
+def bundle(path, pack, state):
+    """The pack just made, put in the game as it was made
+    (`assets/announcers/<name>/`) with its PROVENANCE.toml: what else is
+    there goes, and so does a folder this pack file bundled under another
+    name."""
+    source = path.name
+    name = pack["name"]
+    author = pack.get("author") or sys.exit(f"{source}: a bundled pack needs an `author`, who holds it")
+    pack_file = path.resolve().relative_to(A.ROOT).as_posix()
+    records = {rel: c for rel, c in state.pack.items() if c.get("source", "pack.toml") == source}
+    dest = BUNDLED / name
+    for other in BUNDLED.glob("*/PROVENANCE.toml"):
+        bundled_from = tomllib.loads(other.read_text()).get("kokoro", {}).get("pack")
+        if other.parent != dest and bundled_from == pack_file:
+            shutil.rmtree(other.parent)
+            print(f"removed {other.parent.relative_to(A.ROOT)} (renamed)")
+    # Each sound by its path in the pack's folder ("<line folder>/<file>").
+    wanted = {rel.split("/", 2)[2]: state.out / rel for rel in records}
+    copied = removed = 0
+    if dest.is_dir():
+        for f in sorted(dest.rglob("*"), reverse=True):
+            rel = f.relative_to(dest).as_posix()
+            if f.is_file() and rel not in wanted and rel != "PROVENANCE.toml":
+                f.unlink()
+                removed += 1
+            elif f.is_dir() and not any(f.iterdir()):
+                f.rmdir()
+    for rel, made in sorted(wanted.items()):
+        to = dest / rel
+        if not to.is_file() or to.read_bytes() != made.read_bytes():
+            to.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(made, to)
+            copied += 1
+    # What made it, from the records: one voice, model and revision a pack.
+    first = next(iter(records.values()))["params"]
+    voice, lang = first["voice"], first.get("lang") or own_language(first["voice"])
+    versions = {}
+    for c in records.values():
+        for p, v in c.get("versions", {}).items():
+            versions.setdefault(p, set()).add(v)
+    made = max(c["made"] for c in records.values())[:10]
+    model = f"https://huggingface.co/{first['repo']}"
+    made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice " + described(voice, first["speed"], lang)
+    lines = [
+        "# Made by `uv run tools/announcer-design/kokoro.py pack --bundle`",
+        f"# from {pack_file} with the sounds beside it:",
+        "# made again with them, never edited by hand. Each sound's text, lead,",
+        "# phonemes and cut are in the run's state.json",
+        "# (target/scratch/announcer-audition/); the same pack file makes them",
+        "# again byte for byte.",
+        f"name = {toml_str(name)}",
+        f"author = {toml_str(author)}",
+        f"language = {toml_str(LANGS.get(lang, lang))}",
+        f"made = {toml_str(made)}",
+        f"made_with = {toml_str(made_with)}",
+        "",
+        "[kokoro]",
+        f"pack = {toml_str(pack_file)}",
+        f"model = {toml_str(model)}",
+        f"revision = {toml_str(first['revision'])}",
+        f"voice = {toml_str(described(voice, 1))}",
+        f"speed = {first['speed']}",
+        "sound = \"MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), voiced RMS -18 dBFS\"",
+        "versions = { " + ", ".join(f"{toml_str(p)} = {toml_str(', '.join(sorted(v)))}"
+                                     for p, v in sorted(versions.items())) + " }",
+        "",
+        "[[licenses]]",
+        'part = "all"',
+        'spdx = "CC0-1.0"',
+        f"holders = [{toml_str(author)}]",
+    ]
+    for v in mixture(voice):
+        if v in CC_BY:
+            what = f"A TV Nishinippon announcer reading {CC_BY[v]} (the Koniwa corpus, tnc)"
+            lines += [
+                "",
+                "# What its voice learned from, credited as its licence asks.",
+                "[[trained_on]]",
+                f"voice = {toml_str(v)}",
+                f"what = {toml_str(what)}",
+                f"url = {toml_str(KONIWA_TNC.format(CC_BY[v]))}",
+                'spdx = "CC-BY-3.0"',
+                'holders = ["テレビ西日本 (TV Nishinippon)"]',
+            ]
+    provenance = dest / "PROVENANCE.toml"
+    text = "\n".join(lines) + "\n"
+    if not provenance.is_file() or provenance.read_text() != text:
+        provenance.write_text(text)
+        copied += 1
+    print(f"{dest.relative_to(A.ROOT)}: {len(wanted)} sounds ({copied} written, {removed} removed)")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--config", type=Path, default=A.HERE / "audition.toml")
@@ -562,6 +672,8 @@ def main():
     pk = sub.add_parser("pack")
     pk.add_argument("packs", nargs="*", type=Path,
                     default=[A.HERE / "pack.toml", A.HERE / "pack-ja.toml"])
+    pk.add_argument("--bundle", action="store_true",
+                    help="put each pack in the game, assets/announcers/<name>/, with its PROVENANCE.toml")
     args = p.parse_args()
     cfg = A.load_config(args.config)
     k = cfg.get("kokoro", {})
@@ -574,6 +686,8 @@ def main():
             with open(path, "rb") as f:
                 pack = tomllib.load(f)
             cmd_pack(cfg, path.name, pack, Kokoro(pack["kokoro"]), state)
+            if args.bundle:
+                bundle(path, pack, state)
         A.write_page(cfg, state)
         return
     engine = Kokoro(k)

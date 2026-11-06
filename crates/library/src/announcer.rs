@@ -460,6 +460,20 @@ pub fn key(name: &str) -> String {
     name.to_lowercase()
 }
 
+/// What a bundled announcer's key starts with: ours, apart from the
+/// player's (one imported under the same name is another announcer).
+pub const BUNDLED_PREFIX: &str = "bundled:";
+
+/// A bundled announcer's key: [`BUNDLED_PREFIX`], then [`key`].
+pub fn bundled_key(name: &str) -> String {
+    format!("{BUNDLED_PREFIX}{}", key(name))
+}
+
+/// Whether `key` is a bundled announcer's (never removed).
+pub fn is_bundled(key: &str) -> bool {
+    key.starts_with(BUNDLED_PREFIX)
+}
+
 /// What the shells keep of an announcer: the lines it speaks, by their
 /// folder ([`Line::folder`]), each with its sounds relative to the
 /// announcer's folder. The web stores it with those sounds (and nothing
@@ -472,11 +486,19 @@ pub struct Kept {
     /// The sounds, and their bytes.
     pub files: usize,
     pub bytes: u64,
+    /// One of ours, which comes with the game (`assets/announcers/`):
+    /// its key is [`bundled_key`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bundled: bool,
 }
 
 impl Kept {
     pub fn key(&self) -> String {
-        key(&self.name)
+        if self.bundled {
+            bundled_key(&self.name)
+        } else {
+            key(&self.name)
+        }
     }
 
     /// Its sounds for `line`, from the first of [`Line::chain`] it has.
@@ -500,6 +522,27 @@ impl Kept {
             })?;
         files.get(pick % files.len().max(1))
     }
+}
+
+/// The bundled announcers (`announcers/index.json` on the web, which
+/// `xtask gen-announcers` writes from `assets/announcers/`; desktop reads
+/// the folder itself).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Index {
+    pub announcers: Vec<Bundled>,
+}
+
+/// A bundled announcer in [`Index`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Bundled {
+    /// Its folder under `assets/announcers/` (its name).
+    pub path: String,
+    /// Its lines' sounds, relative to that folder ([`Kept::bundled`]).
+    pub kept: Kept,
+    /// Each sound's content hash, by its path in [`Kept::lines`]: its
+    /// URL's `?v=`, so a new build's sound never comes from an old one's
+    /// cache.
+    pub hashes: BTreeMap<String, String>,
 }
 
 /// `items` joined, the first `n` of them, then how many more.

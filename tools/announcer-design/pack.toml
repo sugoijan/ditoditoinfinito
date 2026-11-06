@@ -10,6 +10,8 @@
 # judgments by ruleset, so a line says how it went, not what it is called.
 
 name = "Mr. Clank"
+# Who holds the pack (CC0): its PROVENANCE.toml when bundled.
+author = "すごいジャン"
 # One of Kokoro's voices, or a blend of their styles by weight, e.g.
 # { bm_george = 0.8, bm_lewis = 0.2 }.
 voice = "bm_george"

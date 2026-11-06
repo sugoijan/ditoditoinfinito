@@ -1,17 +1,21 @@
-//! Imported announcers (`docs/plans/announcers.md`, steps 2 and 3): each
-//! kept as `ddi_library::announcer::Kept` in the `announcers` store under
-//! its key, its lines' sounds in `files` under `announcer/<key>/<path>`
-//! (the path relative to the announcer's folder). Only the lines spoken
-//! are stored; the names no line uses stay out. Options lists them,
-//! removes one and speaks a line of the one chosen ([`speak_sample`]); a
-//! play decodes the sounds it can speak behind its prompt
-//! ([`load_voice`], step 4); song select's lines are decoded when first
-//! asked for and spoken on its sound ([`announce`], step 5).
+//! Announcers (`docs/plans/announcers.md`, steps 2 and 3): ours, which
+//! come with the game, listed in `announcers/index.json` (`xtask
+//! gen-announcers`) and their sounds fetched from `announcers/<name>/`
+//! ([`bundled`]); and the imported, each kept as
+//! `ddi_library::announcer::Kept` in the `announcers` store under its key,
+//! its lines' sounds in `files` under `announcer/<key>/<path>` (the path
+//! relative to the announcer's folder). Only the lines spoken are stored;
+//! the names no line uses stay out. Options lists them (ours first),
+//! removes an imported one and speaks a line of the one chosen
+//! ([`speak_sample`]); a play decodes the sounds it can speak behind its
+//! prompt ([`load_voice`], step 4); song select's lines are decoded when
+//! first asked for and spoken on its sound ([`announce`], step 5).
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use ddi_library::announcer::{Kept, Line};
+use ddi_library::announcer::{Bundled, Index, Kept, Line, is_bundled};
 use ddi_platform::AudioBackend;
 use ddi_session::announcer::{Bags, SharedVoice};
 use wasm_bindgen::JsValue;
@@ -60,8 +64,29 @@ pub(crate) async fn all(db: &Db) -> Result<Vec<Kept>, String> {
         .collect())
 }
 
-/// The announcers one can choose `(key, name)`, by name.
+thread_local! {
+    /// Ours, once read.
+    static BUNDLED: RefCell<Option<Vec<Bundled>>> = const { RefCell::new(None) };
+}
+
+/// Ours, from `announcers/index.json` (fetched once a session; a failure
+/// is not kept, the next call tries again).
+pub(crate) async fn bundled() -> Result<Vec<Bundled>, String> {
+    if let Some(b) = BUNDLED.with_borrow(Clone::clone) {
+        return Ok(b);
+    }
+    // Revalidated each session: its hashes name the sounds.
+    let text = crate::songs::fetch_text_fresh("announcers/index.json").await?;
+    let index: Index =
+        serde_json::from_str(&text).map_err(|e| format!("announcers/index.json: {e}"))?;
+    BUNDLED.with_borrow_mut(|b| *b = Some(index.announcers.clone()));
+    Ok(index.announcers)
+}
+
+/// The announcers one can choose `(key, name)`: ours, then the imported
+/// by name. An error (storage or ours unread) keeps the choice as it is.
 pub(crate) async fn choices() -> Result<Vec<(String, String)>, String> {
+    let ours = bundled().await?;
     let db = Db::open().await?;
     let mut list: Vec<(String, String)> = all(&db)
         .await?
@@ -69,11 +94,18 @@ pub(crate) async fn choices() -> Result<Vec<(String, String)>, String> {
         .map(|k| (k.key(), k.name))
         .collect();
     list.sort_by_key(|(_, name)| name.to_lowercase());
-    Ok(list)
+    Ok(ours
+        .into_iter()
+        .map(|b| (b.kept.key(), b.kept.name))
+        .chain(list)
+        .collect())
 }
 
-/// Removes an imported announcer and its sounds.
+/// Removes an imported announcer and its sounds (never one of ours).
 pub(crate) async fn delete(key: &str) -> Result<(), String> {
+    if is_bundled(key) {
+        return Err("it comes with the game".into());
+    }
     let db = Db::open().await?;
     db.write(vec![
         Write::Delete {
@@ -98,14 +130,63 @@ async fn kept(db: &Db, key: &str) -> Result<Kept, String> {
     serde_json::from_str(&json).map_err(|e| e.to_string())
 }
 
-/// The bytes of announcer `key`'s sound `path`.
-async fn sound(db: &Db, key: &str, path: &str) -> Result<Vec<u8>, String> {
-    let blob: Blob = db
-        .get(idb::FILES, &file_key(key, path))
-        .await?
-        .ok_or_else(|| format!("{path} is not stored"))?
-        .into();
-    crate::web::files::blob_bytes(&blob).await
+/// Where an announcer's sounds are.
+enum Source {
+    /// The browser's storage: an imported one's.
+    Stored(Db),
+    /// The site: ours, in `announcers/<path>/`, each sound fetched under
+    /// its hash.
+    Bundled {
+        path: String,
+        hashes: BTreeMap<String, String>,
+    },
+}
+
+/// Announcer `key`'s record, and where its sounds are.
+async fn open(key: &str) -> Result<(Kept, Source), String> {
+    if is_bundled(key) {
+        let b = bundled()
+            .await?
+            .into_iter()
+            .find(|b| b.kept.key() == key)
+            .ok_or_else(|| format!("no announcer {key}"))?;
+        return Ok((
+            b.kept,
+            Source::Bundled {
+                path: b.path,
+                hashes: b.hashes,
+            },
+        ));
+    }
+    let db = Db::open().await?;
+    let kept = kept(&db, key).await?;
+    Ok((kept, Source::Stored(db)))
+}
+
+/// The bytes of announcer `key`'s sound `path` (a path of
+/// [`Kept::lines`]).
+async fn sound(source: &Source, key: &str, path: &str) -> Result<Vec<u8>, String> {
+    match source {
+        Source::Stored(db) => {
+            let blob: Blob = db
+                .get(idb::FILES, &file_key(key, path))
+                .await?
+                .ok_or_else(|| format!("{path} is not stored"))?
+                .into();
+            crate::web::files::blob_bytes(&blob).await
+        }
+        Source::Bundled { path: dir, hashes } => {
+            let encoded: Vec<String> = format!("{dir}/{path}")
+                .split('/')
+                .map(|p| String::from(js_sys::encode_uri_component(p)))
+                .collect();
+            let mut url = format!("announcers/{}", encoded.join("/"));
+            if let Some(hash) = hashes.get(path) {
+                url.push_str(&format!("?v={hash}"));
+            }
+            crate::songs::fetch_bytes(&url).await
+        }
+    }
 }
 
 thread_local! {
@@ -128,8 +209,7 @@ pub(crate) fn load_voice(
 ) {
     wasm_bindgen_futures::spawn_local(async move {
         let loaded = async {
-            let db = Db::open().await?;
-            let kept = kept(&db, &key).await?;
+            let (kept, source) = open(&key).await?;
             let wanted = BAGS.with_borrow_mut(|b| ddi_session::announcer::wanted(&kept, notes, b));
             voice
                 .borrow_mut()
@@ -142,7 +222,7 @@ pub(crate) fn load_voice(
                         return Ok(());
                     }
                     let path = file.to_string();
-                    let decoded = match sound(&db, &key, &path).await {
+                    let decoded = match sound(&source, &key, &path).await {
                         Ok(bytes) => decoder.decode(&bytes, Default::default()).await,
                         Err(e) => Err(e),
                     };
@@ -252,8 +332,7 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
 fn load_menu(key: String, voice: SharedVoice<AudioBuffer>) {
     wasm_bindgen_futures::spawn_local(async move {
         let loaded = async {
-            let db = Db::open().await?;
-            let kept = kept(&db, &key).await?;
+            let (kept, source) = open(&key).await?;
             let wanted = BAGS.with_borrow_mut(|b| ddi_session::announcer::menu(&kept, b));
             voice
                 .borrow_mut()
@@ -263,7 +342,7 @@ fn load_menu(key: String, voice: SharedVoice<AudioBuffer>) {
             for (line, files) in wanted {
                 for file in files {
                     let path = file.to_string();
-                    let decoded = match sound(&db, &key, &path).await {
+                    let decoded = match sound(&source, &key, &path).await {
                         Ok(bytes) => decoder.decode(&bytes, Default::default()).await,
                         Err(e) => Err(e),
                     };
@@ -326,14 +405,13 @@ pub(crate) fn speak_sample(key: &str, volume: f32, share: f32) -> Result<Sample,
     let decoder = audio.borrow().decoder();
     wasm_bindgen_futures::spawn_local(async move {
         let spoke = async {
-            let db = Db::open().await?;
-            let kept = kept(&db, &key).await?;
+            let (kept, source) = open(&key).await?;
             let pick = (js_sys::Math::random() * 1e9) as usize;
             let path = kept
                 .sample(pick)
                 .ok_or("the announcer has no sounds")?
                 .to_string();
-            let bytes = sound(&db, &key, &path).await?;
+            let bytes = sound(&source, &key, &path).await?;
             decoder.resume().await;
             let buffer = decoder.decode(&bytes, Default::default()).await?;
             let Some(audio) = weak.upgrade() else {

@@ -30,6 +30,7 @@ fn repo_root() -> PathBuf {
 struct CreditsJson {
     songs: Vec<SongCredit>,
     noteskins: Vec<SkinCredit>,
+    announcers: Vec<AnnouncerCredit>,
     fonts: Vec<FontCredit>,
     video: VideoCredit,
     code: Vec<CodeCredit>,
@@ -167,6 +168,33 @@ struct SkinCredit {
     parts: Vec<PartCredit>,
     excluded: Vec<String>,
     modifications: Vec<String>,
+}
+
+/// One of our announcers (`assets/announcers/<name>/PROVENANCE.toml`):
+/// what made it, and what its voice learned from where that asks for
+/// credit.
+#[derive(Debug, Serialize)]
+struct AnnouncerCredit {
+    name: String,
+    author: String,
+    language: String,
+    /// "Kokoro-82M (hexgrad, Apache-2.0), voice bm_george".
+    made_with: String,
+    model_url: String,
+    revision: String,
+    made: String,
+    parts: Vec<PartCredit>,
+    trained_on: Vec<TrainedOnCredit>,
+}
+
+#[derive(Debug, Serialize)]
+struct TrainedOnCredit {
+    voice: String,
+    what: String,
+    url: String,
+    spdx: String,
+    holders: Vec<String>,
+    license_url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -414,6 +442,45 @@ fn collect(root: &Path) -> Result<CreditsJson> {
         })
         .collect();
 
+    let announcers_out = crate::announcers::scan(root)?
+        .into_iter()
+        .map(|(_, prov, _)| AnnouncerCredit {
+            name: prov.name,
+            author: prov.author,
+            language: prov.language,
+            made_with: prov.made_with,
+            model_url: prov.kokoro.model,
+            revision: prov.kokoro.revision,
+            made: prov.made,
+            parts: prov
+                .licenses
+                .iter()
+                .map(|l| PartCredit {
+                    part: l.part.clone(),
+                    spdx: l.spdx.clone(),
+                    holders: l.holders.clone(),
+                    url: if l.url.is_empty() {
+                        license_url(&l.spdx)
+                    } else {
+                        l.url.clone()
+                    },
+                })
+                .collect(),
+            trained_on: prov
+                .trained_on
+                .into_iter()
+                .map(|t| TrainedOnCredit {
+                    license_url: license_url(&t.spdx),
+                    voice: t.voice,
+                    what: t.what,
+                    url: t.url,
+                    spdx: t.spdx,
+                    holders: t.holders,
+                })
+                .collect(),
+        })
+        .collect();
+
     // Fonts: assets/fonts/PROVENANCE.toml with [[file]] entries.
     let mut fonts = Vec::new();
     let font_prov = root.join("assets/fonts/PROVENANCE.toml");
@@ -448,6 +515,7 @@ fn collect(root: &Path) -> Result<CreditsJson> {
     Ok(CreditsJson {
         songs: songs_out,
         noteskins: noteskins_out,
+        announcers: announcers_out,
         fonts,
         video: video_credit(root)?,
         code: code_credits(root)?,
@@ -527,6 +595,41 @@ fn render_markdown(c: &CreditsJson) -> String {
                 md.push_str("- Modifications: none (files are byte-identical to upstream)\n");
             } else {
                 let _ = writeln!(md, "- Modifications: {}", k.modifications.join("; "));
+            }
+            md.push('\n');
+        }
+    }
+    if !c.announcers.is_empty() {
+        md.push_str("## Announcers\n\n");
+        md.push_str("Our own, made by `tools/announcer-design/kokoro.py` from the pack files beside it; each folder's `PROVENANCE.toml` records what made it.\n\n");
+        for a in &c.announcers {
+            let _ = writeln!(md, "### {} — {}\n", a.name, a.author);
+            let _ = writeln!(
+                md,
+                "{}. Made with {}: [{}]({}) at revision `{}` (made {}).\n",
+                a.language, a.made_with, a.model_url, a.model_url, a.revision, a.made
+            );
+            for p in &a.parts {
+                let _ = writeln!(
+                    md,
+                    "- **{}**: {} — [{}]({})",
+                    p.part,
+                    p.holders.join(", "),
+                    license_name(&p.spdx),
+                    p.url
+                );
+            }
+            for t in &a.trained_on {
+                let _ = writeln!(
+                    md,
+                    "- **What its voice ({}) learned from**: [{}]({}) — {} — [{}]({})",
+                    t.voice,
+                    t.what,
+                    t.url,
+                    t.holders.join(", "),
+                    license_name(&t.spdx),
+                    t.license_url
+                );
             }
             md.push('\n');
         }

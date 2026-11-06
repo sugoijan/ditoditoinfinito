@@ -116,7 +116,8 @@ Rust and the browser are implementation details, not advertised features.
   editor saved it or made it new (`edited.rs`), a music file's title
   and artist from its tags (`tags.rs`), the lines announcers speak and
   the announcers found among an import's files (`announcer.rs`:
-  StepMania's layout and aliases, Etterna's two names and ours;
+  StepMania's layout and aliases, Etterna's two names and ours; our
+  bundled packs' keys, `bundled:<name>`, and the web's index of them;
   `docs/plans/announcers.md`; every line, when it speaks and what it
   falls back to, for pack authors: `docs/announcer-lines.md`), and what the shells and the
   private shared-songs Worker agree on without the web's record types
@@ -395,7 +396,8 @@ Rust and the browser are implementation details, not advertised features.
   and the play history in IndexedDB (`ddi-library` version 4; the plays in
   `plays` and `play_summaries`, `crates/web/src/history.rs`,
   `docs/plans/play-history.md`; imported announcers in `announcers`, their
-  sounds in `files`, `crates/web/src/announcers.rs`, a play's decoded
+  sounds in `files`, `crates/web/src/announcers.rs`, ours listed by
+  `announcers/index.json` and fetched from `announcers/`, a play's decoded
   behind its prompt there, spoken on a bus of their own beside the
   master's, `web/audio.rs`, song select's on its preview's context),
   replays on the play route (`#/play?replay=<play id>`,
@@ -433,7 +435,7 @@ Rust and the browser are implementation details, not advertised features.
   the library read in place (`library/`: the song folders Options lists,
   StepMania roots, packs and zips (`.smzip` too), simfiles and
   Dancing☆Onigiri works, with a cache; announcers found in place,
-  `announcers.rs`; a first start offers other games' song folders,
+  ours from the assets' `announcers/`, `announcers.rs`; a first start offers other games' song folders,
   `offer.rs`); plays through the shared session (`play/`: the UI core's
   start prompt, noteskins with their Lua read on a thread, backgrounds,
   a song's scripts read on a thread and their Lua run in slices
@@ -591,7 +593,10 @@ Rust and the browser are implementation details, not advertised features.
   the original Dito variants are retired
   and procedural arrows are an internal fallback without a picker entry);
   `assets/fonts/` the embedded HUD faces and the theme's text face
-  (Iosevka Term, served as `fonts/`).
+  (Iosevka Term, served as `fonts/`); `assets/announcers/<name>/` our
+  announcers (`Mr. Clank`, `ガキンさん`), made by `kokoro.py pack
+  --bundle` with the `PROVENANCE.toml` it writes, Off by default
+  (`docs/plans/announcers.md`, "Packs of our own").
 
 ## Commands
 
@@ -743,9 +748,9 @@ Rust and the browser are implementation details, not advertised features.
   its sources, and fails if it fails (`DDI_NO_VIDEO=1` builds the site
   without it); `just video-check [file]` checks it on a file
   or on generated clips against the `ffmpeg` command's decode.
-- `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
-  regenerate the song manifest, the bundled noteskins' index and the
-  credits (Trunk runs them before every build; CI checks `credits/CREDITS.md` and
+- `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-announcers` /
+  `gen-credits` regenerate the song manifest, the bundled noteskins' and
+  announcers' indexes and the credits (Trunk runs them before every build; CI checks `credits/CREDITS.md` and
   `credits/THIRD_PARTY_RUST.md` are fresh). Infinito's SVG, WGSL and Lua
   sources live in `assets/noteskins/dance/Infinito/`; its experimental
   authoring playground is kept separately. The old `gen-dito` command is retired.
@@ -768,14 +773,15 @@ Rust and the browser are implementation details, not advertised features.
 - `python3 tools/announcer-design/announcer.py` auditions announcer voices
   made with ElevenLabs (the key from `ELEVENLABS_API_KEY`, never written):
   free-plan audio, kept in `target/scratch/announcer-audition/` and never
-  committed or bundled (`docs/plans/announcers.md`, "A pack of our own").
+  committed or bundled (`docs/plans/announcers.md`, "Packs of our own").
   `uv run tools/announcer-design/kokoro.py sample|speak|context` makes the same
   lines beside them with Kokoro-82M, locally (no key; the model from
   Hugging Face at a pinned revision; its output ours to release as CC0),
   and `kokoro.py pack` our announcers: every line the game speaks with
   its variants, in English (`tools/announcer-design/pack.toml`) and
   Japanese (`pack-ja.toml`), made there too, byte for byte the same each
-  time.
+  time; `pack --bundle` puts them in `assets/announcers/`, which the game
+  ships (run `gen-announcers` and `gen-credits` after).
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.
@@ -982,6 +988,10 @@ play is on the one #05020d ground with no band, as the prompt shows it
   or CC0, declared in the upstream files; code we may not take (Lua derived
   from unlicensed skins) is replaced by our own and listed as a
   modification.
+- Bundled announcers: our own alone (no other pack, ever), made by
+  `tools/announcer-design/kokoro.py` with Kokoro-82M and released as CC0;
+  a voice that learned from CC BY recordings is credited from its
+  `PROVENANCE.toml`'s `[[trained_on]]`, which kokoro.py writes.
 - Bundled fonts: OFL-1.1 (as the HUD's and the theme's Iosevka subsets,
   `assets/fonts/`; menus load files, while play embeds ExtraBold judgments
   and SemiBold numbers) or

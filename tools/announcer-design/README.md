@@ -2,9 +2,9 @@
 
 Tries voices for an announcer pack of our own made with ElevenLabs
 (`announcer.py`) or here with Kokoro (`kokoro.py`, below;
-`docs/plans/announcers.md`, "A pack of our own"), and makes our packs
+`docs/plans/announcers.md`, "Packs of our own"), and makes our packs
 with Kokoro (`pack.toml` in English, `pack-ja.toml` in Japanese; "Our
-pack" below).
+pack" below), which the game ships.
 `announcer.py` takes Python 3.11 or later, standard library only.
 
 - **ElevenLabs' audition runs on the free plan.** Its audio is non-commercial and
@@ -74,6 +74,7 @@ $K speak --voices heart --styles lead --lines combo
 $K context                    # lines said around [[kokoro.context]]'s leads and closers (below)
 $K pack                       # our announcers, pack.toml's and pack-ja.toml's (below)
 $K pack tools/announcer-design/pack-ja.toml
+$K pack --bundle              # ...and put in the game, assets/announcers/ (below)
 ```
 
 - **Voices** (`[[kokoro.voice]]`) are one of Kokoro's (`af_heart`: US
@@ -165,11 +166,20 @@ auditions and on the same page, where each line's variants play in turn:
   changed makes its sound again under its new name and removes the old
   one, and anything else in the pack's folder goes too. What a pack file
   made is its own: making one leaves the other's alone.
+- **In the game** with `--bundle`: each pack as it was made, in
+  `assets/announcers/<name>/` (what else is there goes, and a folder the
+  pack file bundled under another name), with a `PROVENANCE.toml`
+  written from the records: the pack file, model, revision, voice,
+  versions, CC0 held by its `author`, and what a voice in it learned
+  from where that asks for credit (`[[trained_on]]`, from VOICES.md's
+  CC BY column). Then `cargo run -p xtask -- gen-announcers` checks them
+  and writes the web's index, and `gen-credits` the credits. The game
+  lists them first under Options → Sound → Announcer, Off by default.
 
 ### In Japanese
 
-`pack-ja.toml` says the same lines in Japanese, in `jf_alpha` to start
-with. Kokoro's Japanese voices (VOICES.md grades them on their training
+`pack-ja.toml` says the same lines in Japanese: `ガキンさん`, in
+`jm_kumo`, the game ディトイン. Kokoro's Japanese voices (VOICES.md grades them on their training
 data) are on the page, reading `[kokoro.texts] j`:
 
 - `jf_alpha` (C+, hours of data): the best of them, of a source not
@@ -178,20 +188,21 @@ data) are on the page, reading `[kokoro.texts] j`:
   few minutes; `jm_kumo` the one man): each learned from one TV
   Nishinippon announcer reading a children's story, recordings under
   CC BY 3.0 (the Koniwa corpus's `tnc`), so a pack with them credits
-  that, and its voice is that announcer's.
+  that (`--bundle` writes it), and its voice is that announcer's.
 - Any other voice with `lang = "j"`, or a blend: `george-ja` and
   `kumo-george` on the page.
 
 Its phonemes are Kokoro's own way, misaki's cutlet over UniDic, here its
 lite edition (the full one is a separate download of hundreds of MB).
-Latin letters have no reading, so the game is ディーディーアイ; numbers
+Latin letters have no reading, so the game is ディトイン, in kana; numbers
 are kanji, which it reads right (misaki's kana for 300 comes out
 "san-bi-ya-ku"); a word it reads wrong is written in kana (一回 as
 いっかい). Anything Kokoro has no phoneme for stops the run.
 
 ## Hearing them in the game
 
-`Announcers/<voice>--<style>/` holds a StepMania announcer each (the
+Our packs, bundled, are under Options → Sound → Announcer already. For
+the auditions, `Announcers/<voice>--<style>/` holds a StepMania announcer each (the
 lines in their folders, each text's takes as variants; Kokoro's styles
 are `kokoro` and `kokoro-lead`), so:
 

@@ -71,6 +71,16 @@ path = ["crates/noteskin/src/builtin/stepmania/**", "crates/noteskin/src/builtin
 SPDX-FileCopyrightText = ["Chris Danford, the StepMania development team, et al.", "AJ Kelly, Midiman, shakesoda (the spinal shark collective), and other contributors"]
 SPDX-License-Identifier = "LicenseRef-StepMania"
 
+# Our announcers (assets/announcers/<name>/), made by
+# tools/announcer-design/kokoro.py pack --bundle with Kokoro-82M (Apache-2.0)
+# and released as CC0; each folder's PROVENANCE.toml records what made it,
+# and ガキンさん's the CC BY 3.0 readings its voice (jm_kumo) learned from,
+# credited in credits/CREDITS.md (docs/plans/announcers.md).
+[[annotations]]
+path = ["assets/announcers/**"]
+SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
+SPDX-License-Identifier = "CC0-1.0"
+
 # Bundled noteskins live under assets/noteskins/<game>/<name>/ and are NOT
 # MIT; each has a PROVENANCE.toml (docs/plans/bundled-skins.md).
 

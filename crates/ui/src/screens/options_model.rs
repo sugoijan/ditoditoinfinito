@@ -51,8 +51,9 @@ pub struct World {
     /// Whether [`World::noteskins`] lists them all (desktop's folders'
     /// are walked after the screen opens).
     pub noteskins_listed: bool,
-    /// The announcers one can choose `(key, name)`: imported (the web),
-    /// or in the song folders (desktop), by name.
+    /// The announcers one can choose `(key, name)`: ours (their keys
+    /// `bundled:`, `ddi_library::announcer::bundled_key`), then the
+    /// imported (the web) or the song folders' (desktop), by name.
     pub announcers: Vec<(String, String)>,
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
@@ -868,9 +869,12 @@ impl OptionsModel {
             OptionKind::Choices(names),
             at,
             if desktop {
-                "A voice that comments on your plays and calls your grade: an announcer pack                  (StepMania's, or its forks') in a song folder's Announcers folder."
+                "A voice that comments on your plays and calls your grade: one that comes with the \
+                 game, or an announcer pack (StepMania's, or its forks') in a song folder's \
+                 Announcers folder."
             } else {
-                "A voice that comments on your plays and calls your grade: an announcer pack                  (StepMania's, or its forks') imported with Add songs."
+                "A voice that comments on your plays and calls your grade: one that comes with the \
+                 game, or an announcer pack (StepMania's, or its forks') imported with Add songs."
             },
         )];
         let Some(key) = s.announcer.as_deref() else {
@@ -891,7 +895,8 @@ impl OptionsModel {
             "muted".into()
         };
         rows.push(volume);
-        if !desktop && listed(key).is_some() {
+        // Ours come with the game.
+        if !desktop && listed(key).is_some() && !ddi_library::announcer::is_bundled(key) {
             rows.push(actions(
                 "announcer.remove",
                 "This announcer",
@@ -2202,7 +2207,15 @@ impl OptionsModel {
                     .skin_params
                     .retain(|k, _| k.starts_with(BUNDLED));
                 // The web's are removed; desktop's folders forgotten.
-                self.settings.announcer = None;
+                // Ours stay.
+                if self
+                    .settings
+                    .announcer
+                    .as_deref()
+                    .is_some_and(|k| !ddi_library::announcer::is_bundled(k))
+                {
+                    self.settings.announcer = None;
+                }
             }
             Reset::History => {}
             Reset::Announcer(k) => {
@@ -2755,6 +2768,39 @@ mod tests {
         m.change("announcer", 1);
         m.reset(&Reset::Songs);
         assert_eq!(m.settings.announcer, None);
+    }
+
+    #[test]
+    fn our_announcers_come_first_and_stay() {
+        let has = |m: &OptionsModel, id: &str| {
+            m.data()
+                .sections
+                .iter()
+                .flat_map(|s| &s.options)
+                .any(|o| o.id == id)
+        };
+        let mut m = model();
+        // Off by default.
+        assert_eq!(m.settings.announcer, None);
+        m.set_announcers(
+            vec![
+                ("bundled:mr. clank".into(), "Mr. Clank".into()),
+                ("techno".into(), "Techno".into()),
+            ],
+            true,
+        );
+        assert_eq!(
+            find(&m.data(), "announcer").values(),
+            ["Off", "Mr. Clank", "Techno"]
+        );
+        assert_eq!(m.settings.announcer, None);
+        m.change("announcer", 1);
+        assert_eq!(m.settings.announcer.as_deref(), Some("bundled:mr. clank"));
+        // Never removed, nor let go with the imported songs.
+        assert!(has(&m, "announcer_volume"));
+        assert!(!has(&m, "announcer.remove"));
+        m.reset(&Reset::Songs);
+        assert_eq!(m.settings.announcer.as_deref(), Some("bundled:mr. clank"));
     }
 
     fn find<'a>(d: &'a OptionsData, id: &str) -> &'a OptionDef {

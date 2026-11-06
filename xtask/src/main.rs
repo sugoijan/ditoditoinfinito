@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
+mod announcers;
 mod boot_check;
 mod boot_minify;
 mod credits;
@@ -52,6 +53,14 @@ enum Commands {
     /// PROVENANCE.toml) and generate target/noteskins/index.json.
     #[command(name = "gen-noteskins")]
     GenNoteskins {
+        /// Fail instead of writing when the output would change (CI check).
+        #[arg(long)]
+        check: bool,
+    },
+    /// Check the bundled announcers (assets/announcers/<name>/ with a
+    /// PROVENANCE.toml) and generate target/announcers/index.json.
+    #[command(name = "gen-announcers")]
+    GenAnnouncers {
         /// Fail instead of writing when the output would change (CI check).
         #[arg(long)]
         check: bool,
@@ -571,6 +580,7 @@ fn main() -> Result<()> {
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),
+        Commands::GenAnnouncers { check } => announcers::gen_announcers(check),
         Commands::GenCredits { check } => credits::gen_credits(check),
         Commands::StageVideo { dest } => stage_video(dest),
         Commands::StageOpus { dest } => stage_worker(dest, "opus-worker"),

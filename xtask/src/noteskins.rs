@@ -120,7 +120,7 @@ fn name_of(path: &Path) -> String {
 }
 
 /// Every file under `dir`, `/`-separated relative to it.
-fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<()> {
+pub(crate) fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();

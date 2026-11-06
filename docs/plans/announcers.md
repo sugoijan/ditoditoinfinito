@@ -2,8 +2,9 @@
 
 Status: done 2026-11-03 (PLAN.md decision 81); planned the same day, the
 maintainer's choices taken then (step 6's lines all wanted, `oni` on the
-battery gauges, a first clear in place of a new record); a pack of our own
-being explored (the last section). Import the announcer packs made for StepMania
+battery gauges, a first clear in place of a new record); our own packs,
+`Mr. Clank` in English and `ガキンさん` in Japanese, bundled 2026-11-06,
+the announcer still Off by default (the last section). Import the announcer packs made for StepMania
 and its forks and play them where those engines do (steps 1–5), then a
 few lines of our own in the same layout (step 6). The research, with
 sources, is `docs/research/announcers.md`.
@@ -51,15 +52,17 @@ sources, is `docs/research/announcers.md`.
 
 ## Decided here (the maintainer may change any)
 
-1. **Imported, never bundled.** Announcers come only from the player's
-   imports and folders. Tests use packs generated in code (tones and the
+1. **Imported, never bundled** (amended 2026-11-06: ours come with the
+   game, the last section; no other pack is ever bundled). Announcers
+   come only from the player's imports and folders. Tests use packs generated in code (tones and the
    event sounds' synthesis, `crates/session/src/sounds.rs`), and the
    local packs only through an ignored test (step 2). An original
    reference pack of our own (recorded, or made with a voice service
    whose terms allow a free licence) can follow once the import is
    proven on existing packs; not before.
 2. **Off by default.** A fresh profile has no announcer; Options →
-   Sound → Announcer lists Off and the imported ones. One choice for
+   Sound → Announcer lists Off, ours (since 2026-11-06, the maintainer
+   keeping Off the default) and the imported ones. One choice for
    every layout (StepMania keeps one per game type; we have no game
    types to the player).
 3. **Its own volume**, Announcer volume beside Music volume, as a share
@@ -435,7 +438,7 @@ shells (written with each step; the web's bus added); the verify skill's
 Options rows and state, the import's report and stores, a generated
 pack on both shells, the debug state; the plans index's line.
 
-## A pack of our own (exploring)
+## Packs of our own (bundled 2026-11-06)
 
 Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
 (its terms as of 2026-10-09), to be followed by real recordings some day:
@@ -482,12 +485,11 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   utterances), one for each place since its tone carries into the line
   (song select's, play's and the results', `[lead]`). Checked: the scan reads all 50 lines with nothing unused
   or unknown, desktop's decoder decodes every sound, and the pack is
-  made again byte for byte. Made in `target/scratch/`, not committed or
-  bundled yet: bundling it amends decisions 1 and 2.
+  made again byte for byte. Bundled since 2026-11-06 (below).
 - **And in Japanese** (2026-11-04): `tools/announcer-design/pack-ja.toml`,
-  the same lines in Japanese (the game ディーディーアイ), in `jf_alpha`,
-  Kokoro's best Japanese voice (C+), until the maintainer picks one on the
-  page. Its other four (`jf_gongitsune`, `jf_tebukuro`, `jf_nezumi`, and
+  the same lines in Japanese, `ガキンさん` in `jm_kumo` (the maintainer's
+  choice over `jf_alpha`, Kokoro's best Japanese voice, C+), the game
+  ディトイン. `jm_kumo` and three more (`jf_gongitsune`, `jf_tebukuro`, `jf_nezumi`, and
   `jm_kumo`, the one man) each learned from one TV Nishinippon
   announcer's CC BY 3.0 readings (the Koniwa corpus's `tnc`): a pack in
   them, or a blend with them, credits that and has that announcer's
@@ -495,3 +497,22 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   an English accent). The phonemes are misaki's cutlet over UniDic's
   lite edition, Kokoro's own way; kana for Latin letters and for words it
   misreads, kanji for numbers.
+- **Bundled** (2026-11-06, the maintainer's asking; the announcer still
+  Off by default). `kokoro.py pack --bundle` puts each pack in the game
+  as it was made, `assets/announcers/<name>/` (3.7 MB each), with a
+  `PROVENANCE.toml` it writes: the pack file, the model and revision,
+  the voice, the phonemizer's versions, CC0 held by the maintainer, and
+  for a voice that learned from CC BY recordings what it learned from
+  (`[[trained_on]]`: `ガキンさん`'s `jm_kumo`, a TV Nishinippon
+  announcer reading 蜘蛛の糸 in Koniwa's `tnc`, CC BY 3.0 by Koniwa's
+  README, the file named in Kokoro's VOICES.md), which the credits
+  carry. `xtask gen-announcers` checks each (one announcer of our lines
+  and their sounds alone beside its record) and writes the web's index,
+  `announcers/index.json` (each pack's `Kept` and each sound's hash, its
+  URL's `?v=`); desktop reads the assets' `announcers/` itself. Their
+  keys are `bundled:` and the name (`bundled:mr. clank`,
+  `ddi_library::announcer::bundled_key`), apart from an imported pack of
+  the same name. Options lists them first, never with Remove, and
+  removing the imported songs keeps one chosen. The web fetches a play's
+  sounds from the site as it decodes them; a play on desktop takes ours
+  without walking the song folders.

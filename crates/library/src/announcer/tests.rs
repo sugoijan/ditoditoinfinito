@@ -444,3 +444,24 @@ fn an_announcer_beside_songs_is_no_song_without_a_simfile() {
         )]
     );
 }
+
+#[test]
+fn a_bundled_announcers_key_is_apart_from_an_imported_ones() {
+    let imported = Kept {
+        name: "Mr. Clank".into(),
+        ..Kept::default()
+    };
+    let ours = Kept {
+        bundled: true,
+        ..imported.clone()
+    };
+    assert_eq!(imported.key(), "mr. clank");
+    assert_eq!(ours.key(), "bundled:mr. clank");
+    assert!(is_bundled(&ours.key()) && !is_bundled(&imported.key()));
+    assert_eq!(bundled_key("ガキンさん"), "bundled:ガキンさん");
+    // Stored as before (the web's records): the flag only when set.
+    let json = serde_json::to_string(&imported).unwrap();
+    assert!(!json.contains("bundled"));
+    let back: Kept = serde_json::from_str(&serde_json::to_string(&ours).unwrap()).unwrap();
+    assert_eq!(back, ours);
+}

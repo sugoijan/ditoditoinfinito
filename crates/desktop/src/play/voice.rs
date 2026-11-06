@@ -61,7 +61,12 @@ impl VoiceLoad {
         let _ = std::thread::Builder::new()
             .name("ddi-announcer".into())
             .spawn(move || {
-                let found = crate::library::announcers::all(&folders);
+                // Ours without walking the song folders.
+                let found = if ddi_library::announcer::is_bundled(&key) {
+                    crate::library::announcers::bundled()
+                } else {
+                    crate::library::announcers::all(&folders)
+                };
                 let Some(a) = found.into_iter().find(|a| a.key() == key) else {
                     let _ = tx.send(Arrived::Failed(format!(
                         "no announcer {key} in the song folders"

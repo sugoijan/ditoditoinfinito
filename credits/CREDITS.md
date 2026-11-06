@@ -152,6 +152,23 @@ Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/P
 - **new raster center Vivid composition (original pixels retain the Unlicense above)**: すごいジャン — [MIT](https://opensource.org/license/mit)
 - Modifications: LICENSE and README.md copied from the repository's root; Changed metrics.ini fallback to Peters-DDR, which supplies the shared parameters and original Note assets; Added raster center tap/lift sheet using the original Vivid colors and inner-to-outer charge, assembled in SkinCraft; Added center sprite routing and animation metrics; shared holds, rolls, receptors and layered mines come from Peters-DDR; Retained the unused earlier center model study alongside the original models
 
+## Announcers
+
+Our own, made by `tools/announcer-design/kokoro.py` from the pack files beside it; each folder's `PROVENANCE.toml` records what made it.
+
+### Mr. Clank — すごいジャン
+
+British English. Made with Kokoro-82M (hexgrad, Apache-2.0), voice bm_george: [https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231` (made 2026-11-06).
+
+- **all**: すごいジャン — [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
+
+### ガキンさん — すごいジャン
+
+Japanese. Made with Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo: [https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231` (made 2026-11-06).
+
+- **all**: すごいジャン — [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
+- **What its voice (jm_kumo) learned from**: [A TV Nishinippon announcer reading kumonoito (the Koniwa corpus, tnc)](https://github.com/koniwa/koniwa/blob/master/source/tnc/tnc__kumonoito.txt) — テレビ西日本 (TV Nishinippon) — [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)
+
 ## Fonts
 
 - `IosevkaCustom-ExtraBold-latin.ttf`: Renzhi Li (aka. Belleve Invis) — [SIL Open Font License 1.1](https://openfontlicense.org/); source: https://github.com/be5invis/Iosevka; modified: subset with fonttools pyftsubset to Latin-1 and a few symbols (assets/fonts/PROVENANCE.toml)

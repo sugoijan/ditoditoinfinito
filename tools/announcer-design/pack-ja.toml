@@ -5,19 +5,21 @@
 #
 #     uv run tools/announcer-design/kokoro.py pack tools/announcer-design/pack-ja.toml
 #
-# The game is ディーディーアイ: Japanese has no reading for Latin
+# The game is ディトイン, in kana: Japanese has no reading for Latin
 # letters here, so they are written in kana, as is any word the
 # dictionary reads wrong on its own (一回 as いちかい, 一歩一歩); numbers
 # are kanji, which it reads right (its kana for 300 comes out "san-bi-ya-ku").
 # A file is named by how its text sounds.
 
-name = "Infinito JA"
+name = "ガキンさん"
+# Who holds the pack (CC0): its PROVENANCE.toml when bundled.
+author = "すごいジャン"
 # Kokoro's Japanese voices: jf_alpha (its best, C+), jf_gongitsune and
 # jf_tebukuro (C), jf_nezumi and jm_kumo (C-; jm_kumo its one man). All
 # but jf_alpha learned from one announcer's CC BY 3.0 readings, which a
-# pack made with them credits (audition.toml). Or another language's
-# voice speaking Japanese, or a blend, with lang = "j".
-voice = "jf_alpha"
+# pack made with them credits (kokoro.py writes it in its PROVENANCE.toml).
+# Or another language's voice speaking Japanese, or a blend, with lang = "j".
+voice = "jm_kumo"
 speed = 1
 style = "lead"
 lead = "さあ、みんな。…"
@@ -32,8 +34,8 @@ model = "onnx/model.onnx"
 [[line]]
 folder = "select music intro"
 texts = [
-  "ディーディーアイへようこそ！",
-  "ようこそ、ディーディーアイへ！曲を選んでね。",
+  "ディトインへようこそ！",
+  "ようこそ、ディトインへ！曲を選んでね。",
   "曲を選んでね！",
   "さあ、何を踊る？",
   "次の曲は何にする？",

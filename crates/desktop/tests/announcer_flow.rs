@@ -221,3 +221,36 @@ fn an_announcer_speaks_over_a_play_and_its_results() {
     assert_eq!(p.spoken, ["select music intro", "select music comment new"]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Ours, which come with the game, chosen by their keys: song select's
+/// lines read from the assets and decoded, with no song folder at all
+/// (`docs/plans/announcers.md`, "Packs of our own").
+#[test]
+fn ours_speak_from_the_assets() {
+    use ddi_library::announcer::{Comment, Line};
+    common::indexes();
+    storage::install(Rc::new(MemoryStore::default()));
+    for key in ["bundled:mr. clank", "bundled:ガキンさん"] {
+        Settings {
+            announcer: Some(key.into()),
+            ..Settings::default()
+        }
+        .save();
+        let mut p = ddi_desktop::preview::Player::with(
+            ddi_desktop::audio::Audio::silent(0.8),
+            ddi_desktop::preview::PreviewSong::bundled,
+        );
+        p.announce_menu(Line::SelectMusicIntro);
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while p.spoken.is_empty() && std::time::Instant::now() < until {
+            p.tick();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        p.announce_menu(Line::SelectMusic(Comment::Hard));
+        assert_eq!(
+            p.spoken,
+            ["select music intro", "select music comment hard"],
+            "{key}"
+        );
+    }
+}

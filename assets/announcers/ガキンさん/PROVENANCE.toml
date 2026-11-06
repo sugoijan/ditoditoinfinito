@@ -1,0 +1,33 @@
+# Made by `uv run tools/announcer-design/kokoro.py pack --bundle`
+# from tools/announcer-design/pack-ja.toml with the sounds beside it:
+# made again with them, never edited by hand. Each sound's text, lead,
+# phonemes and cut are in the run's state.json
+# (target/scratch/announcer-audition/); the same pack file makes them
+# again byte for byte.
+name = "ガキンさん"
+author = "すごいジャン"
+language = "Japanese"
+made = "2026-11-06"
+made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo"
+
+[kokoro]
+pack = "tools/announcer-design/pack-ja.toml"
+model = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX"
+revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
+voice = "jm_kumo"
+speed = 1
+sound = "MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), voiced RMS -18 dBFS"
+versions = { "fugashi" = "1.5.2", "misaki" = "0.9.4", "onnxruntime" = "1.31.1", "pyopenjtalk" = "0.4.1", "unidic-lite" = "1.0.8" }
+
+[[licenses]]
+part = "all"
+spdx = "CC0-1.0"
+holders = ["すごいジャン"]
+
+# What its voice learned from, credited as its licence asks.
+[[trained_on]]
+voice = "jm_kumo"
+what = "A TV Nishinippon announcer reading kumonoito (the Koniwa corpus, tnc)"
+url = "https://github.com/koniwa/koniwa/blob/master/source/tnc/tnc__kumonoito.txt"
+spdx = "CC-BY-3.0"
+holders = ["テレビ西日本 (TV Nishinippon)"]

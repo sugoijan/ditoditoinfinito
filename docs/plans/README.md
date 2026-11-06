@@ -69,14 +69,14 @@ architecture, the decisions and the roadmap they belong to. Status as of
 ## Charts, layouts and play
 
 - [Announcers](announcers.md) (2026-11-03): done 2026-11-03 (decision
-  81). StepMania-family announcer packs imported on both shells (none
-  bundled), chosen in Options with a voice bus of their own, and spoken
-  where StepMania 5.1 speaks them (in play, on the results, on song
-  select), Etterna's two names included; a few lines of our own in the
-  same layout, documented for pack authors in `docs/announcer-lines.md`.
-  Packs of our own, `Mr. Clank` and a Japanese one, are made with Kokoro
-  (every line, from `tools/announcer-design/pack.toml` and `pack-ja.toml`),
-  not bundled yet.
+  81). StepMania-family announcer packs imported on both shells, chosen
+  in Options with a voice bus of their own, and spoken where StepMania
+  5.1 speaks them (in play, on the results, on song select), Etterna's
+  two names included; a few lines of our own in the same layout,
+  documented for pack authors in `docs/announcer-lines.md`. Packs of our
+  own made with Kokoro, `Mr. Clank` and `ガキンさん` (every line, from
+  `tools/announcer-design/pack.toml` and `pack-ja.toml`), bundled
+  2026-11-06; the announcer is Off by default.
 - [Play HUD](play-hud.md) (2026-10-29): done; accepted study ported
   to the shared renderer and checked offscreen. Life trails, Iosevka type,
   combo tiers and still title watermark.

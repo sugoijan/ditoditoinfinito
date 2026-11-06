@@ -162,7 +162,13 @@ impl Shared {
                 .iter()
                 .map(|a| (a.key(), a.kept.name.clone()))
                 .collect();
-            list.sort_by_key(|(_, name)| name.to_lowercase());
+            // Ours first, then the player's, by name.
+            list.sort_by_key(|(key, name)| {
+                (
+                    !ddi_library::announcer::is_bundled(key),
+                    name.to_lowercase(),
+                )
+            });
             // Not `complete`, as for skins: a folder away for now (a
             // drive unplugged) keeps its announcer chosen.
             self.model.borrow_mut().set_announcers(list, false);
@@ -247,10 +253,11 @@ pub fn screen(
                 });
             rx
         })),
-        announcers: RefCell::new(songs.as_ref().map(|s| {
+        // Ours too where there is no library.
+        announcers: RefCell::new(Some({
             let (tx, rx) = std::sync::mpsc::channel();
-            let folders = s.folders();
-            let wake = s.wake.borrow().clone();
+            let folders = songs.as_ref().map(|s| s.folders()).unwrap_or_default();
+            let wake = songs.as_ref().and_then(|s| s.wake.borrow().clone());
             let _ = std::thread::Builder::new()
                 .name("ddi-announcers".into())
                 .spawn(move || {

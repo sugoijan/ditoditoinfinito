@@ -4,9 +4,11 @@
 //! folder of each StepMania root among the song folders (zips and
 //! `.smzip`s in it too), a song folder that is itself an announcer or a
 //! folder named `Announcers`, an announcer among a song folder's packs,
-//! and a listed zip holding one. Keys are the web's (the name in lower
-//! case), so the `announcer` setting means the same announcer in both
-//! shells; the first folder holding a key wins, as for skins.
+//! and a listed zip holding one; ours, which come with the game, from
+//! the assets' `announcers/` ([`bundled`]). Keys are the web's (the name
+//! in lower case; ours `bundled:` and the name), so the `announcer`
+//! setting means the same announcer in both shells; the first folder
+//! holding a key wins, as for skins.
 
 use std::path::{Path, PathBuf};
 
@@ -193,9 +195,29 @@ pub fn in_folder(folder: &Path) -> Vec<DiskAnnouncer> {
     out
 }
 
-/// Every announcer of the song folders, the first holding a key winning.
+/// Ours, which come with the game: the announcers in the assets'
+/// `announcers/` (`tools/announcer-design/kokoro.py pack --bundle`), each
+/// [`Kept::bundled`].
+pub fn bundled() -> Vec<DiskAnnouncer> {
+    in_assets(&crate::images::assets())
+}
+
+fn in_assets(assets: &Path) -> Vec<DiskAnnouncer> {
+    let shelf = assets.join("announcers");
+    if !shelf.is_dir() {
+        return Vec::new();
+    }
+    let mut found = in_dir(&shelf);
+    for a in &mut found {
+        a.kept.bundled = true;
+    }
+    found
+}
+
+/// Every announcer: ours, then the song folders', the first holding a
+/// key winning.
 pub fn all(folders: &[PathBuf]) -> Vec<DiskAnnouncer> {
-    let mut out: Vec<DiskAnnouncer> = Vec::new();
+    let mut out: Vec<DiskAnnouncer> = bundled();
     for f in folders {
         for a in in_folder(f) {
             if !out.iter().any(|o| o.key() == a.key()) {
@@ -270,10 +292,66 @@ mod tests {
             first_sound(&found[3], announcer::Line::Restart),
             "zipped ready"
         );
-        // The same root twice, and the shelf listed itself: once each.
+        // The same root twice, and the shelf listed itself: once each,
+        // after ours.
         let twice = all(&[root.clone(), root.join("Announcers"), root.clone()]);
-        assert_eq!(twice.len(), 4);
+        let ours = bundled().len();
+        assert_eq!(twice.len(), ours + 4);
+        assert!(twice[..ours].iter().all(|a| a.kept.bundled));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ours_come_first_apart_from_the_players() {
+        let assets = scratch("announcers-assets");
+        let lines = [
+            "gameplay ready/r.ogg",
+            "gameplay cleared/c.ogg",
+            "evaluation aa/aa.ogg",
+        ];
+        let at = |dir: &str| lines.map(|l| format!("{dir}/{l}"));
+        write(
+            &assets,
+            &at("announcers/Ours").each_ref().map(String::as_str),
+        );
+        write(&assets, &["announcers/Ours/PROVENANCE.toml"]);
+        let ours = in_assets(&assets);
+        assert_eq!(ours.len(), 1);
+        assert_eq!(ours[0].key(), "bundled:ours");
+        assert_eq!(ours[0].base, Base::Dir(assets.join("announcers/Ours")));
+        assert_eq!(
+            first_sound(&ours[0], announcer::Line::Ready),
+            "announcers/Ours/gameplay ready/r.ogg"
+        );
+        // None where the folder is not.
+        assert!(in_assets(&assets.join("elsewhere")).is_empty());
+        let _ = std::fs::remove_dir_all(&assets);
+    }
+
+    /// The repository's own: every line ours, every sound decoded.
+    #[test]
+    fn the_bundled_announcers_speak_every_line_they_hold() {
+        let found = bundled();
+        let names: Vec<&str> = found.iter().map(|a| a.kept.name.as_str()).collect();
+        assert_eq!(names, ["Mr. Clank", "ガキンさん"]);
+        for a in &found {
+            assert!(a.key().starts_with("bundled:"));
+            assert_eq!(a.kept.lines.len(), 50, "{}", a.kept.name);
+            let reader = a.reader().unwrap();
+            for f in a.kept.lines.values().flatten() {
+                assert!(reader.read(&a.name_in_reader(f)).is_ok(), "{f}");
+            }
+            let (_, files) = a.kept.files(announcer::Line::Ready).unwrap();
+            for f in files {
+                let bytes = reader.read(&a.name_in_reader(f)).unwrap();
+                let pcm =
+                    crate::audio::decoder::sound(bytes, f.extension(), Default::default(), 48_000)
+                        .unwrap();
+                // Longer than a tenth of a second, as said.
+                let frames = pcm.data.len() / usize::from(pcm.channels);
+                assert!(frames > 4800, "{}: {f}", a.kept.name);
+            }
+        }
     }
 
     #[test]
