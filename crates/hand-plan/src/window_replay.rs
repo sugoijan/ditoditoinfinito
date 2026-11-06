@@ -247,13 +247,13 @@ impl WindowReplay {
             .iter()
             .filter(|n| {
                 n.judgeable
-                    && (n.seconds
-                        + if matches!(n.note.kind, NoteKind::Mine | NoteKind::Shock) {
-                            judge.table().mine_window_seconds()
-                        } else {
-                            0.
-                        })
-                        <= self.until
+                    // Judge::update expires hazards strictly after their late
+                    // boundary. At equality they remain valid pending notes.
+                    && if matches!(n.note.kind, NoteKind::Mine | NoteKind::Shock) {
+                        n.seconds + judge.table().mine_window_seconds() < self.until
+                    } else {
+                        n.seconds <= self.until
+                    }
                     && (!matches!(
                         n.state,
                         NoteState::MineAvoided
@@ -285,5 +285,60 @@ impl WindowReplay {
     pub fn finish(mut self) -> (ReplayReport, Checkpoint) {
         self.next.time = self.certified;
         (self.report, self.next)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_chart::{Note, Tick};
+
+    fn window(
+        input: &Input,
+        plan: &ContactPlan,
+        checkpoint: &Checkpoint,
+        until: f64,
+        certified: f64,
+    ) -> (ReplayReport, Checkpoint) {
+        let mut replay = WindowReplay::new(input, plan, checkpoint, until, certified).unwrap();
+        for _ in 0..10_000 {
+            if replay.step() {
+                return replay.finish();
+            }
+        }
+        panic!("window replay did not finish");
+    }
+
+    #[test]
+    fn mine_at_its_exact_late_boundary_stays_pending_until_the_next_window() {
+        let mut song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:dance-single::Hard:1:0,0,0,0,0:\n1000;",
+        )
+        .unwrap();
+        song.charts[0].notes = vec![Note::new(Tick(96), 0, NoteKind::Mine)];
+        let input = Input::from_song(&song, 0).unwrap();
+        let mut search = Search::new(&input, Options::default()).unwrap();
+        while !search.step() {}
+        let (plan, _) = search.finish().unwrap().unwrap();
+        let initial = Checkpoint::initial(&input.timing);
+        let deadline = input.notes[0].time
+            + ddi_engine::rules::presets::ddr_a()
+                .judge
+                .mine_window_seconds();
+        let (report, checkpoint) = window(&input, &plan, &initial, deadline, 0.5);
+        assert!(report.passed, "{report:?}");
+        assert_eq!(report.rules["ddr-a"].avoided_mines, 0);
+        assert_eq!(report.rules["ddr-a"].unresolved, 0);
+        let (settled, _) = window(&input, &plan, &checkpoint, deadline + 0.2, deadline + 0.2);
+        assert!(settled.passed, "{settled:?}");
+        assert!(settled.rules.values().all(|r| r.avoided_mines == 1));
+
+        // The pending-boundary allowance must still reject an actual mine hit.
+        let mut unsafe_plan = plan.clone();
+        unsafe_plan.source_music_origin_seconds = 0.;
+        unsafe_plan.initial.left = 4;
+        let (unsafe_report, _) = window(&input, &unsafe_plan, &initial, deadline, 0.5);
+        assert!(!unsafe_report.passed);
+        assert!(unsafe_report.rules.values().all(|r| !r.bad.is_empty()));
     }
 }

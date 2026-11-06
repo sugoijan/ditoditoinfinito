@@ -80,16 +80,22 @@ impl Search {
             .partition_point(|m| m.time - self.origin < land - 0.6);
         let pending = &self.mines[start..];
         let clear = |mut state: State, mode: u8| {
-            for mine in pending
-                .iter()
-                .take_while(|m| m.time - self.origin - WINDOW <= until)
-            {
+            let mut horizon = until;
+            for mine in pending {
+                if mine.time - self.origin - WINDOW > horizon {
+                    break;
+                }
                 let time = mine.time - self.origin;
                 state = match mode {
                     0 => self.escape_mines(state, std::slice::from_ref(mine), time)?,
                     1 => self.avoid_mines(state, std::slice::from_ref(mine), time)?,
                     _ => self.head_clearance(state, std::slice::from_ref(mine), time)?,
                 };
+                // A clearance landing can expose the companion to another
+                // known mine before that landing. Plan through the enlarged
+                // horizon too: mine_safe validates this same whole interval.
+                // The sorted, already-received mine list bounds this scan.
+                horizon = state.last.into_iter().fold(horizon, f64::max);
             }
             Some(state)
         };

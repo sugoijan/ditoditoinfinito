@@ -764,6 +764,7 @@ impl Search {
         assignment: [usize; 2],
         land: f64,
         next: f64,
+        direct_lifts: bool,
     ) -> Option<State> {
         let o = self.options;
         let mut s = old.clone();
@@ -784,7 +785,7 @@ impl Search {
             }
             if n.lift {
                 let prior = s.cost;
-                self.lift_contact(&mut s, n, d, land, next)?;
+                self.lift_contact(&mut s, n, d, land, next, direct_lifts)?;
                 s.row_feet[i] = Foot::at(d);
                 landing[d] = s.panels[d];
                 cost += s.cost - prior;
@@ -839,10 +840,12 @@ impl Search {
             if old.last[d] == land
                 && old.panels[d] == target
                 && old.aux.backwards().any(|a| {
-                    a.foot.index() == d && a.time == land && a.kind == RestoreKind::MineAvoid
+                    a.foot.index() == d
+                        && a.time == land
+                        && matches!(a.kind, RestoreKind::MineAvoid | RestoreKind::LiftClear)
                 })
             {
-                // A hazard flight may already end on this exact source head.
+                // A hazard or scored-lift flight can already end on this head.
                 s.events.push(Event {
                     lift: false,
                     time: land,
@@ -1053,11 +1056,18 @@ impl Search {
                 self.candidates.extend(extra);
             }
             for assignment in [[0, 1], [1, 0]] {
-                if let Some(s) = self.ordinary(old, &heads, assignment, land, next) {
-                    for s in self.hazard_candidates(s, hazards, land) {
-                        if self.mine_safe(&s, land) {
-                            let s = self.capture(s, source_tick, land);
-                            self.candidates.push(s);
+                for direct_lifts in [false, true] {
+                    if direct_lifts && !heads.iter().any(|n| n.lift) {
+                        break;
+                    }
+                    if let Some(s) =
+                        self.ordinary(old, &heads, assignment, land, next, direct_lifts)
+                    {
+                        for s in self.hazard_candidates(s, hazards, land) {
+                            if self.mine_safe(&s, land) {
+                                let s = self.capture(s, source_tick, land);
+                                self.candidates.push(s);
+                            }
                         }
                     }
                 }

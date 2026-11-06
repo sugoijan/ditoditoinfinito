@@ -154,6 +154,56 @@ timeout, regression and warning results are under ignored
 not a new full-library pose audit or desktop/browser frame-time certification.
 
 
+## Contact follow-up (2026-11-06)
+
+Three shared fixes address the reviewed Glimmer, Silent Hill and converted
+four-panel RUDE! rejections. UNIQUE and the `At once` simplification policy are
+unchanged.
+
+- **Pending mine boundary.** The rolling validator now follows the actual
+  judge's strict late-window expiry. A mine at the exact boundary remains
+  pending in the checkpoint and resolves in a later window. It is not counted
+  as avoided early; actual mine hits still fail. This fixes the four unresolved
+  DDR-A mines in Silent Hill and the same class in D.N.A without changing any
+  judge windows or dropping cross-ruleset checks.
+- **Lift to exact tap.** A scored lift retains its normal return choice and
+  offers one additional bounded candidate when that intermediate landing leaves
+  insufficient planted/flight time for the next same-panel head. That finger
+  continues its original flight directly to the head (at most 450 ms); its
+  companion can land on center for support. The source row reuses the reserved
+  landing and emits one exact scored press. Auxiliary validation requires the
+  matching physical lift and scored landing. Default planted/swing floors stay
+  unchanged. This avoids RUDE!'s unnecessary 140 ms return plus 55 ms plant plus
+  60 ms second flight inside a 234 ms interval.
+- **Expanded hazard horizon.** A clearance flight can extend the interval
+  validated for both fingers. Planning used its original horizon, so a later
+  mine newly inside the extended interval was rejected before its companion
+  could be lifted. Each clearance now advances the planning horizon too, bounded
+  by the sorted, already-received mine list and existing candidate/beam limits.
+  In Glimmer, the LEFT landing at 74.310 s exposes the DOWN mine's early window
+  at 74.272 s. The accepted DOWN departure is 74.227 s, after its hold ends at
+  74.195 s: the passage succeeds without early release. Existing early-release
+  allowances remain unchanged; a reduced early-tail variant also passes.
+
+All six affected records pass full off-screen gameplay/contact/pose checks:
+Glimmer SM/SSC, Silent Hill SM, converted four-panel RUDE! SM/SSC and D.N.A SM.
+There are no contact/pose failures, CPU timeouts, starved frames or settling
+warnings in that check. All exact heads are checked, under the existing 2 mm
+position, 0.25 mm vertical and 1 mm tile-margin bounds and 5/10 second CPU caps.
+The existing 32 category/mirror cases retain 30 full-motion passes and two
+expected below-floor rejections. Six new authored mirrored motion cases pass,
+and 131 shared native tests pass, including checkpoint expiry/actual-mine-hit
+and rolling-publication coverage. Planner clippy has no new warnings (the ten
+inherited hand-pose warnings remain); the shared shell compiles for wasm32.
+
+This is targeted verification, not a new full-library audit. Private source
+charts, traces, frozen binary and results are under
+`/private/tmp/ddi-boundary-lifts-20261106`; the existing category rerun is
+`/private/tmp/ddi-boundary-lifts-categories-20261106`. Its small aggregate is
+ignored under `target/scratch/hand-boundary-lifts-20261106/`. Only authored
+regression patterns are added to the repository.
+
+
 ## Package boundary
 
 This is one standalone extraction from `codex/dancing-hand-preview` at `399a1c02`,

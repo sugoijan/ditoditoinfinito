@@ -406,3 +406,59 @@ fn malformed_lanes_are_rejected_before_recovery_deadline_indexing() {
     }
     assert!(job.finish().unwrap().0.is_none());
 }
+
+#[test]
+fn a_clearance_landing_expands_the_hazard_horizon_for_the_other_finger() {
+    for mirror in [false, true] {
+        for end in [192, 204] {
+            let lane = |l: u8| if mirror { [3, 1, 2, 0][l as usize] } else { l };
+            let mut song = ddi_chart::formats::sm::parse_sm(
+                "#BPMS:0=120;#NOTES:dance-single::Hard:1:0,0,0,0,0:\n1000;",
+            )
+            .unwrap();
+            song.charts[0].notes = vec![
+                Note::new(Tick(96), lane(0), NoteKind::Tap),
+                Note::new(Tick(96), lane(1), NoteKind::HoldHead { end: Tick(end) }),
+                Note::new(Tick(198), lane(3), NoteKind::Mine),
+                Note::new(Tick(204), lane(0), NoteKind::Mine),
+                Note::new(Tick(210), lane(1), NoteKind::Mine),
+                Note::new(Tick(288), lane(3), NoteKind::Tap),
+                Note::new(Tick(960), lane(0), NoteKind::Tap),
+            ];
+            let input = Input::from_song(&song, 0).unwrap();
+            let mut job = PlannerJob::new(input.clone(), Options::default());
+            while !job.step() {}
+            let (plan, report) = job.finish().unwrap();
+            let plan = plan.unwrap_or_else(|| panic!("{report:?}"));
+            assert!(ddi_hand_plan::replay(&input, &plan).unwrap().passed);
+            check_clearance(&input, &plan);
+            if end == 204 {
+                assert!(report.allowance_seconds.is_some());
+            }
+            let mut planner = RollingPlanner::new(3., input.timing.clone()).unwrap();
+            let mut cursor = 0;
+            for frame in 0..48 {
+                let now = frame as f64 / 4.;
+                let known = now + 3.;
+                let start = cursor;
+                while cursor < input.effective_notes.len()
+                    && input.timing.seconds_at(input.effective_notes[cursor].tick) <= known
+                {
+                    cursor += 1;
+                }
+                planner
+                    .push(
+                        now,
+                        &input.effective_notes[start..cursor],
+                        known,
+                        cursor == input.effective_notes.len(),
+                    )
+                    .unwrap();
+                planner.request(now);
+                while planner.step() {}
+                assert!(planner.report.failure.is_none(), "{:?}", planner.report);
+                planner.take_publication();
+            }
+        }
+    }
+}

@@ -11,6 +11,7 @@ impl Search {
         d: usize,
         time: f64,
         next: f64,
+        direct_landing: bool,
     ) -> Option<()> {
         let target = panel(n);
         let ls = limits(time - s.last[d], self.options.adaptive_timing);
@@ -80,7 +81,30 @@ impl Search {
             s.holds[other] = 0.;
             s.cost += 0.5;
         }
-        let clear = if self.layout == "danoni-5" { target } else { 5 };
+        // Preserve the ordinary return. Offer one bounded alternative when
+        // its intermediate landing would leave too little time to take off
+        // again for the next same-panel head. The other finger can land on
+        // center for support while this one continues its original flight.
+        let direct = direct_landing
+            .then(|| self.rows.get(self.row + 1))
+            .flatten()
+            .into_iter()
+            .flatten()
+            .find(|head| {
+                let gap = head.time - self.origin - time;
+                !head.mine
+                    && !head.lift
+                    && !head.roll_refresh
+                    && panel(head) == target
+                    && gap >= ls.1
+                    && gap <= 0.45
+                    && gap - duration < ls.0 + ls.1
+                    && self.allowed(target, head.time - self.origin)
+            });
+        let (clear, duration) = direct.map_or_else(
+            || (if self.layout == "danoni-5" { target } else { 5 }, duration),
+            |head| (target, head.time - self.origin - time),
+        );
         let dist = distance(clear, target, d);
         s.tracks[d].push(Swing {
             release: time,
@@ -134,7 +158,13 @@ pub(crate) fn validate_auxiliary(
                     && tr.iter().any(|s| s.land == a.time && s.to == a.panel)
             }
             RestoreKind::LiftClear => {
-                a.panel == if p.layout == "danoni-5" { panel(n) } else { 5 }
+                (a.panel == if p.layout == "danoni-5" { panel(n) } else { 5 }
+                    || (a.panel == panel(n)
+                        && a.time - t >= 0.025
+                        && a.time - t <= 0.45
+                        && p.events.iter().any(|e| {
+                            !e.lift && e.foot == a.foot && e.panel == a.panel && e.time == a.time
+                        })))
                     && tr.iter().any(|s| {
                         s.release == t && s.from == panel(n) && s.land == a.time && s.to == a.panel
                     })
