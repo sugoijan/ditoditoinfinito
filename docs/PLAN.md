@@ -303,7 +303,7 @@ pub struct Ruleset {
 
 Most of a ruleset is data (serde, shippable as presets: `ddr-a`, `ddr-extreme`, `sm5`, `itg`, `itg-fa+`, `ffr`, `danoni-normal`, …). `ScoreRules` and `GaugeRules` are traits because they carry state and formulas (DDR's step ordinal and running combo, StepMania's regen lockout, DanOni's note-count scaling). The hold model is StepMania's decaying hold-life with a configurable window, which reproduces DDR's "brief release tolerated" and ITG rolls.
 
-`PlayOptions` (as built): `scroll` (x-mod or c-mod speed, reverse, scroll action Normal/Boost/Brake/Wave), `transform` (turn Off/Mirror/Left/Right/Shuffle; cut: timing Off/Quarters/Eighths, at once Any/Two/One, no holds), `appearance` (Visible/Hidden/Sudden/HiddenSudden/Stealth), `seed` (fixes Shuffle), `clock` (audio and visual offsets, rate), `visible_range`, `receptor_snap`. It is `#[serde(default)]`, and the option enums deserialize leniently (`ddi_engine::lenient`: an unknown value falls back to that field's default instead of failing the whole settings object). `Player::new` applies the transform (`crates/engine/src/transform.rs`) before building the judge, so judging, the score's note counts and the results all describe the transformed chart; ticks never change, so judged times cannot. Scroll actions (`ScrollAction::adjust`) and appearance (`crates/engine/src/appearance.rs`) only change a note's drawn height and its alpha/glow in the `Frame`. `Results` carry the options played, the lane map and an `assist` flag (any cut). The autoplayer's press script (`crates/engine/src/autoplay.rs`) is built from the transformed notes. The maths follows StepMania; sources in `rules-ddr-itg-dwi.md` §4.1. `cover` (lane covers: Sudden+, Hidden+, both, with their heights; drawn only, moved in play and kept in the play's log, `docs/plans/lane-covers.md`). Not built yet: music rate, a separate judge offset in the UI.
+`PlayOptions` (as built): `scroll` (x-mod or c-mod speed, reverse, scroll action Normal/Boost/Brake/Wave), `transform` (turn Off/Mirror/Left/Right/Shuffle; cut: timing Off/Quarters/Eighths, at once Any/Two/One, no holds, no stretch), `appearance` (Visible/Hidden/Sudden/HiddenSudden/Stealth), `seed` (fixes Shuffle), `clock` (audio and visual offsets, rate), `visible_range`, `receptor_snap`. It is `#[serde(default)]`, and the option enums deserialize leniently (`ddi_engine::lenient`: an unknown value falls back to that field's default instead of failing the whole settings object). `Player::new` applies the transform (`crates/engine/src/transform.rs`) before building the judge, so judging, the score's note counts and the results all describe the transformed chart; ticks never change, so judged times cannot. Scroll actions (`ScrollAction::adjust`) and appearance (`crates/engine/src/appearance.rs`) only change a note's drawn height and its alpha/glow in the `Frame`. `Results` carry the options played, the lane map and an `assist` flag (any cut). The autoplayer's press script (`crates/engine/src/autoplay.rs`) is built from the transformed notes. The maths follows StepMania; sources in `rules-ddr-itg-dwi.md` §4.1. `cover` (lane covers: Sudden+, Hidden+, both, with their heights; drawn only, moved in play and kept in the play's log, `docs/plans/lane-covers.md`). Not built yet: music rate, a separate judge offset in the UI.
 
 ### 3.4 `render` and skins
 
@@ -354,6 +354,18 @@ complete; RUDE! reaches a later contact rejection also reproduced by the baselin
 planner. Contact timing/assignments and numerical guards remain unchanged; the
 full audit has not been rerun after this repair or after rebasing onto main's
 independent hand-copy integration. Those audit counts describe the pre-rebase host.
+
+Options → Notes now includes [No stretch](plans/chart-simplification.md#no-stretch-2026-11-07)
+(2026-11-07), a saved assisted-play transform for dance-double, Pump half-double/
+double and DanOni 9A. It checks ongoing holds and final turned lanes against
+layout regions; 9A's Oni may use either center. The hand-copy preparation API
+applies it automatically alongside At once Two. Double-mat animation remains gated.
+
+Next, the [double-mat plan](plans/hand-double-mat.md) proposes one hand on two
+side-by-side 3x3 mats for the remaining playable built-ins: dance-double, Pump
+half-double/double and DanOni 9A. Shared physical geometry and a static/dynamic
+reach study come first; the current 24 mm tile pitch cannot be assumed feasible
+for cross-pad simultaneous contacts. No double layout is enabled by this plan.
 
 ### 3.5 `platform` traits and the web shell
 

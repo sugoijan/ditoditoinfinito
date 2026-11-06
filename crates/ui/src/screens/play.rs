@@ -506,6 +506,9 @@ pub fn mods_summary(
     if transform.no_holds {
         out.push("no holds".into());
     }
+    if transform.no_stretch {
+        out.push("no stretch".into());
+    }
     out.extend(cover.label());
     out
 }

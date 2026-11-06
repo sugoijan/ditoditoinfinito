@@ -69,7 +69,12 @@ Rust and the browser are implementation details, not advertised features.
   plays its own copy of the judged notes, at most two at once (`At once: up to
   two`, ongoing holds included), while the play judges every note with the
   player's options, never an assist because of the hand (`RuntimePreview::
-  for_player`). Supported hand layouts are dance-single, dance-solo, danoni-5,
+  for_player`). `ddi_hand_plan::prepare_notes` applies At once Two and No stretch
+  to that copy. General No stretch is a separate saved Options → Notes cut in
+  `TransformOptions`, assisted when selected, checking final turned lanes and
+  ongoing holds for dance-double, Pump half-double/double and DanOni 9A. Oni may
+  use either center in the logical span policy; double contact/pose/rendering
+  remains gated by `layout_panels`. Supported hand layouts are dance-single, dance-solo, danoni-5,
   danoni-7, danoni-9B, pump-single and techno-single8. Resolve lanes through
   `ddi_hand_plan::layout_panels`;
   Solo L/UL/D/U/UR/R map to mat 4/7/2/8/9/6, with center unscored;

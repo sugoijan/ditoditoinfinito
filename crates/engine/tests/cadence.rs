@@ -322,6 +322,7 @@ fn transforms_judge_alike_at_every_cadence() {
             cut: TimingCut::Eighths,
             at_once: AtOnce::One,
             no_holds: false,
+            no_stretch: false,
         },
         TransformOptions {
             at_once: AtOnce::Two,

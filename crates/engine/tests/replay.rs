@@ -1081,6 +1081,7 @@ fn cut(cut: TimingCut, at_once: AtOnce, no_holds: bool) -> TransformOptions {
         cut,
         at_once,
         no_holds,
+        no_stretch: false,
     }
 }
 

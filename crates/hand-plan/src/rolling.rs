@@ -141,17 +141,11 @@ impl RollingPlanner {
         }
         let mut source = self.raw_holds.clone();
         source.extend_from_slice(raw);
-        let effective = transform::apply(
+        let effective = prepare_notes(
             &source,
             &ddi_chart::Layout::builtin(&self.input.layout).unwrap(),
-            &TransformOptions {
-                at_once: AtOnce::Two,
-                ..Default::default()
-            },
-            0,
         );
         let new = effective
-            .notes
             .iter()
             .filter(|n| self.last_raw_tick.is_none_or(|t| n.tick.0 > t))
             .cloned()
@@ -194,7 +188,6 @@ impl RollingPlanner {
             .map_or(self.last_raw_time, |n| self.input.timing.seconds_at(n.tick));
         self.last_raw_tick = raw.last().map(|n| n.tick.0).or(self.last_raw_tick);
         self.raw_holds = effective
-            .notes
             .into_iter()
             .filter(|n| {
                 n.kind

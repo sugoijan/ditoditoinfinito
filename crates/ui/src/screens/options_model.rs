@@ -566,6 +566,14 @@ impl OptionsModel {
                      The leftmost arrows go first.",
             ),
             choice(
+                "no_stretch",
+                "No stretch",
+                &["Off", "On"],
+                t.no_stretch as usize,
+                "Leaves out wide combinations on Double, Pump half-double/double and DanOni 9A. \
+                     Existing holds stay; new leftmost notes go first. Marks the play assisted.",
+            ),
+            choice(
                 "no_holds",
                 "No holds",
                 &["Off", "On"],
@@ -1773,6 +1781,7 @@ impl OptionsModel {
             "convert_pump_single" => s.convert_pump_single = on,
             "convert_five_keys" => s.convert_five_keys = on,
             "no_holds" => s.transform.no_holds = on,
+            "no_stretch" => s.transform.no_stretch = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),
             "ruleset" => {
                 if let Some(r) = ddi_engine::rules::presets::all().get(i) {
@@ -3010,6 +3019,25 @@ mod tests {
         assert_eq!(
             m.settings.skin_params(INFINITO).get("ShockArrows"),
             Some(&ParamValue::Bool(true))
+        );
+    }
+
+    #[test]
+    fn no_stretch_is_a_saved_play_simplification() {
+        let mut m = model();
+        assert_eq!(find(&m.data(), "no_stretch").value(), "Off");
+        assert!(m.change("no_stretch", 1));
+        assert_eq!(find(&m.data(), "no_stretch").value(), "On");
+        let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
+        assert!(stored.transform.no_stretch);
+        let options = stored.play_options(None);
+        assert!(options.transform.is_assist());
+        assert!(super::super::play::options_line(&options).contains("no stretch"));
+        assert!(m.change("no_stretch", 0));
+        assert!(!Settings::load().transform.no_stretch);
+        assert!(
+            !super::super::play::options_line(&m.settings.play_options(None))
+                .contains("no stretch")
         );
     }
 

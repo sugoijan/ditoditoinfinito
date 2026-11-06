@@ -1956,3 +1956,84 @@ fn nine_key_hand_leaves_the_plays_chart_and_options_alone() {
     }
     assert_eq!(song.charts[0].notes, source);
 }
+
+#[test]
+fn no_stretch_is_played_and_replayed_independently_of_the_hand_setting() {
+    use ddi_chart::{Layout, Note, NoteKind, Tick};
+    for (id, expected) in [
+        ("dance-double", 1),
+        ("pump-double", 1),
+        ("pump-halfdouble", 2),
+        ("danoni-9A", 1),
+    ] {
+        let mut song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:dance-single::Easy:1:0,0,0,0,0:1000;",
+        )
+        .unwrap();
+        song.charts[0].layout = id.into();
+        let lanes = Layout::builtin(id).unwrap().lane_count() as u8;
+        song.charts[0].notes = vec![
+            Note::new(Tick(0), 0, NoteKind::Tap),
+            Note::new(Tick(0), lanes - 1, NoteKind::Tap),
+        ];
+        let source = song.charts[0].notes.clone();
+        for hand in [false, true] {
+            for enabled in [false, true] {
+                let mut settings = Settings {
+                    dancing_hand: hand,
+                    ..Default::default()
+                };
+                settings.transform.no_stretch = enabled;
+                let clock: Clock = Rc::new(RefCell::new(0.));
+                let config = SessionConfig::from_settings(&settings, true, None);
+                let mut s = PlaySession::start(
+                    &song,
+                    0,
+                    &settings,
+                    config,
+                    FakeAudio::new(&clock, 0.),
+                    10.,
+                    FakeInputs::new(&clock),
+                )
+                .unwrap();
+                assert_eq!(
+                    s.player.judge().notes().len(),
+                    if enabled { expected } else { 2 },
+                    "{id}"
+                );
+                let Some(SessionEvent::Finished { results, facts, .. }) =
+                    run(&mut s, &clock, 60., 20.)
+                else {
+                    panic!("unfinished")
+                };
+                assert_eq!(results.assist, enabled);
+                assert_eq!(facts.options.transform.no_stretch, enabled);
+                assert_eq!(results.tally.taps[1..].iter().sum::<u32>(), 0);
+                let replay = kept("no-stretch", &song, 0, &results, &facts, true);
+                let mut config = SessionConfig::from_settings(&Settings::default(), false, None);
+                config.set_replay(&replay);
+                let rc: Clock = Rc::new(RefCell::new(0.));
+                let mut replayed = PlaySession::start(
+                    &song,
+                    0,
+                    &Settings::default(),
+                    config,
+                    FakeAudio::new(&rc, 0.),
+                    10.,
+                    FakeInputs::new(&rc),
+                )
+                .unwrap();
+                assert_eq!(replayed.player.options().transform.no_stretch, enabled);
+                let Some(SessionEvent::Finished { results: again, .. }) =
+                    run(&mut replayed, &rc, 60., 20.)
+                else {
+                    panic!("replay unfinished")
+                };
+                assert_eq!(again.tally, results.tally);
+                assert_eq!(again.score, results.score);
+                assert_eq!(again.assist, enabled);
+            }
+        }
+        assert_eq!(song.charts[0].notes, source);
+    }
+}

@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::lenient;
 
+mod stretch;
+
 /// DDR "TURN" / StepMania turn mods.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Turn {
@@ -65,13 +67,18 @@ pub struct TransformOptions {
     pub at_once: AtOnce,
     /// Holds and rolls become taps (DDR FREEZE ARROW cut).
     pub no_holds: bool,
+    /// Remove combinations spanning too much of a double mat, holds included.
+    pub no_stretch: bool,
 }
 
 impl TransformOptions {
     /// Whether notes are removed or simplified, which makes the play an
     /// assist (DDR's "assist clear" lamp). Turns are not assists.
     pub fn is_assist(&self) -> bool {
-        self.cut != TimingCut::Off || self.at_once != AtOnce::Any || self.no_holds
+        self.cut != TimingCut::Off
+            || self.at_once != AtOnce::Any
+            || self.no_holds
+            || self.no_stretch
     }
 }
 
@@ -89,6 +96,7 @@ struct StoredTransform {
     at_once: AtOnce,
     no_jumps: bool,
     no_holds: bool,
+    no_stretch: bool,
 }
 
 impl From<StoredTransform> for TransformOptions {
@@ -98,6 +106,7 @@ impl From<StoredTransform> for TransformOptions {
             cut: s.cut,
             at_once: if s.no_jumps { AtOnce::One } else { s.at_once },
             no_holds: s.no_holds,
+            no_stretch: s.no_stretch,
         }
     }
 }
@@ -123,10 +132,16 @@ pub fn apply(notes: &[Note], layout: &Layout, opts: &TransformOptions, seed: u64
     if opts.no_holds {
         remove_holds(&mut notes);
     }
-    match opts.at_once {
-        AtOnce::Any => {}
-        AtOnce::Two => remove_simultaneous(&mut notes, 2),
-        AtOnce::One => remove_simultaneous(&mut notes, 1),
+    // No Stretch checks the final physical lanes, including after Shuffle.
+    // Jointly filter its count/span constraints so a discarded hold cannot
+    // remove notes on later rows. Other modes retain the original cut order.
+    let regions = opts.no_stretch.then(|| stretch::regions(layout)).flatten();
+    if regions.is_none() {
+        match opts.at_once {
+            AtOnce::Any => {}
+            AtOnce::Two => remove_simultaneous(&mut notes, 2),
+            AtOnce::One => remove_simultaneous(&mut notes, 1),
+        }
     }
     let take_from = lane_map(layout, opts.turn, seed);
     let mut dest: Vec<u8> = (0..take_from.len() as u8).collect();
@@ -139,6 +154,9 @@ pub fn apply(notes: &[Note], layout: &Layout, opts: &TransformOptions, seed: u64
         }
     }
     notes.sort_by_key(|n| (n.tick, n.lane));
+    if let Some(regions) = regions {
+        stretch::remove(&mut notes, regions, opts.at_once);
+    }
     Transformed { notes, take_from }
 }
 

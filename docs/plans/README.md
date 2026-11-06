@@ -117,7 +117,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   select (2026-10-25); pump single and 5 keys converted to each other,
   on by default, marked but not assisted (2026-10-25); At once, a play
   option replacing No jumps, which can keep jumps and leave out hands
-  (2026-10-26).
+  (2026-10-26); No stretch, a saved play option for all four double-mat
+  layouts with hold-aware span filtering (2026-11-07).
 - [Song-select navigation](song-navigation.md) (2026-10-20): done; the
   reference for the tuned timings of taps, pairs and holds, and for the
   search field from a controller (2026-10-22).
@@ -144,6 +145,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 ## Presentation and video
 
 - [Dancing hand in gameplay](dancing-hand.md): production extraction with three-second single-threaded planning for four-panel, Solo six-panel, DanOni five-key, seven-key and 9B, Pump single and Techno single8 charts (9B uses all nine tiles and air-time hazard clearance; the pre-rebase 2026-11-06 audit records 7,776 passes, 21 contact failures, three pose failures and 78 pose CPU timeouts; targeted Pump pose repairs clear those three original errors, with RUDE! still blocked by a later baseline contact rejection), accepted rendering, startup readiness, layout options and basic tests. Research/audit/developer tools remain on the hand branch.
+- [Double mat for the remaining hand layouts](hand-double-mat.md) (2026-11-07): No stretch preparation and the general Options toggle are implemented for dance-double, Pump half-double/double and DanOni 9A (either center can stand for Oni). Physical geometry, reach/scale study, rolling contact planning and rendering remain planned; no new hand layout is enabled.
+
 
 - [Video backgrounds](video-backgrounds.md) (2026-10-09): done on the web,
   steps 1–9. Movies through WebCodecs or the FFmpeg wasm module in a

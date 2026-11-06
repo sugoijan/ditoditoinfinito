@@ -83,6 +83,7 @@ fn transforms() -> Vec<PlayOptions> {
             cut: TimingCut::Eighths,
             at_once: AtOnce::One,
             no_holds: true,
+            no_stretch: false,
         },
         TransformOptions {
             at_once: AtOnce::Two,

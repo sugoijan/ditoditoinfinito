@@ -46,6 +46,12 @@ report counts `presentation_revisions`; this does not relax contact tolerances o
 recover arbitrary buffer underruns.
 
 
+The next proposed extension is the [double-mat study](hand-double-mat.md),
+covering the four remaining playable built-in layouts. It starts with shared
+geometry and a reach study, retaining this model and the existing gameplay
+boundary. No stretch preparation and its separate general Options toggle are
+implemented; double contact/pose/rendering support is not yet enabled.
+
 ## Rebased gameplay integration (2026-11-06)
 
 The eight hand commits after `318d3d8c` through `269be984` are consolidated on

@@ -98,6 +98,23 @@ pub fn standard_rules() -> Vec<(String, ddi_engine::rules::JudgeTable)> {
         .map(|r| (r.id, r.judge))
         .collect()
 }
+/// Prepare the hand's own copy after gameplay transforms have resolved lanes.
+/// No Stretch is active on double-mat layouts; single-mat cuts are unchanged.
+/// This does not enable contact/pose support for a newly mapped layout.
+pub fn prepare_notes(notes: &[Note], layout: &ddi_chart::Layout) -> Vec<Note> {
+    transform::apply(
+        notes,
+        layout,
+        &TransformOptions {
+            at_once: AtOnce::Two,
+            no_stretch: true,
+            ..Default::default()
+        },
+        0,
+    )
+    .notes
+}
+
 fn default_layout() -> String {
     "dance-single".into()
 }
@@ -105,23 +122,14 @@ fn four(layout: &str) -> bool {
     layout == "dance-single"
 }
 impl Input {
-    /// Transform a copy; callers must judge this same effective chart. Source
-    /// notes and global play settings are never changed.
+    /// Prepare a hand copy, validated against its own effective chart. Source
+    /// notes, gameplay's judged chart and global settings are never changed.
     pub fn from_song(song: &Song, index: usize) -> Result<Self, String> {
         let c = song.charts.get(index).ok_or("chart missing")?;
         let panels = layout_panels(&c.layout)?;
-        let transformed = transform::apply(
-            &c.notes,
-            &ddi_chart::Layout::builtin(&c.layout).unwrap(),
-            &TransformOptions {
-                at_once: AtOnce::Two,
-                ..Default::default()
-            },
-            0,
-        );
+        let effective = prepare_notes(&c.notes, &ddi_chart::Layout::builtin(&c.layout).unwrap());
         let timing = c.timing(song).clone();
-        let notes = transformed
-            .notes
+        let notes = effective
             .iter()
             .map(|n| InputNote {
                 tick: n.tick.0,
@@ -149,7 +157,7 @@ impl Input {
         Ok(Self {
             notes,
             original_notes: c.notes.len(),
-            effective_notes: transformed.notes,
+            effective_notes: effective,
             timing,
             layout: c.layout.clone(),
             rules: standard_rules(),

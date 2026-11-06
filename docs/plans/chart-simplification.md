@@ -282,3 +282,84 @@ pump single), lists nothing more in song select, and marks the play
 assisted on its results and among the bests. Settings and kept plays
 from before store `no_jumps`, which still reads as One; replays judge
 again as played.
+
+
+## No stretch (2026-11-07)
+
+Implemented as **Options → Notes → No stretch**, Off by default, independent of
+At once. `TransformOptions::no_stretch` is stored in settings and kept play
+options, shown among the play's modifiers and marks it assisted like the other
+cuts. Legacy settings/replays missing the field read Off; replay restores the
+recorded value regardless of today's settings. No generated chart version or
+import-time change is made.
+
+The logical allowed regions follow StepMania's `g_ValidRows` for dance-double
+and pump-double (`NoteDataUtil.cpp` at `825467b`), with these extensions:
+
+- **Dance double:** either four-panel pad, or the seam-facing combinations
+  defined by the source's two middle regions. There are 17 allowed two-tap pairs
+  out of 28; outermost-arrow and both-UP/both-DOWN jumps are removed.
+- **Pump double:** either five-panel pad or its middle six panels; 29 of 45
+  two-tap pairs remain. **Pump half-double** is precisely that middle-six region,
+  so all 15 pairs pass this span policy. At once still handles excess contacts.
+- **DanOni 9A:** its two arrow banks use the dance-double regions, with its one
+  logical Oni lane eligible at either mat center. All eight arrow/Oni pairs
+  remain, without merging the arrow banks (25 of 36 pairs in total). This is
+  alternative-target eligibility, not two Oni notes or an automatic hold
+  transfer between centers. A future physical contact planner must select and
+  freeze the center, validate any re-grab/handoff, and apply Oni hazards to both.
+- Other layouts retain their existing note transforms; No stretch has no span
+  effect there. As with the other cuts, selecting the option marks a play assisted.
+
+This uses allowed regions rather than one Euclidean distance limit. A region's
+eligibility is not a certificate of hand reach. Ongoing holds and rolls occupy
+their lanes through the tail row inclusive. Existing holds are preserved; new
+leftmost contacts are removed until the required set fits a region and the chosen
+At once limit. Removed hold heads cannot constrain later rows. Mines, shocks,
+fakes, dummy notes and autokeysounds are neither counted nor removed by No stretch;
+they cannot erase an earlier hold's occupancy. Lifts count; At once retains its
+existing lift protection, while No stretch may remove an incompatible new lift.
+
+Unlike the source's row-only removal, this also covers a tap beside an ongoing
+hold and overlapping holds. It retains a permitted subset instead of necessarily
+collapsing an entire invalid row to one tap. Timing/color/keysound/scroll metadata
+of retained notes never changes. The No stretch/count pass runs **after Turn** on
+these four layouts, so Shuffle cannot recreate an invalid span. Timing/No holds
+cuts still happen first. With No stretch Off (or on other layouts), existing
+At once-before-Turn selection and old replay behavior remain unchanged.
+
+`ddi_hand_plan::prepare_notes` enables At once Two and No stretch on the hand's
+own copy after the Player's transforms. Whole-chart input, incoming-note batches
+and the live adapter share this entry point. It never changes gameplay options,
+notes or assist status unless the user separately selects the general option.
+**Double-mat contact/pose/rendering support is still disabled.** The preparation
+API handles these layouts before that work; all seven existing layouts retain
+their previous effective notes and motion.
+
+The regression cases cover all two-tap pairs, alternative Oni regions, held/
+roll/tail occupancy, incompatible lifts, hazards and visuals, discarded holds
+followed by later taps, combined cuts, final Mirror/Left/Right/Shuffle lanes,
+metadata preservation and equivalent complete-row batches with retained holds.
+Session tests cover all four layouts with No stretch and Dancing hand separately
+On/Off, then save/replay those plays with different current settings. The Options
+model test changes, persists and displays the option through the shared UI path.
+
+Verification: **890 native tests pass**, with the two pre-existing ignored UI
+tests unchanged. Relevant all-target clippy passes with `-D warnings`, the wasm32
+web check and ordinary Trunk release build pass (optional video decoder disabled),
+and formatting/diff checks pass. Headless Chrome on **WebGPU and WebGL2** passes
+16 synthetic plays: all four double layouts with No stretch Off/On, exact perfect
+autoplay counts, no page/console errors and the expected modifier line. The actual
+Options toggle persists across reload; fully loaded captures show the row On in
+both backends. Session tests also verify saved/replayed assist status with the
+hand independently On/Off. No full library audit or double-hand motion study was
+run. Private scratch reports/captures are under
+`/private/tmp/ddi-no-stretch-browser/`; the synthetic fixture and browser driver
+remain outside version control.
+
+Rebased onto local main `d97a18f9` on 2026-11-07, consolidating the preceding
+double-mat plan and implementation into one standalone cherry-pick. The No Stretch
+engine, hand preparation, Options and regression source matches `8a3c2ca4`. On
+this base, **903 native tests**, strict clippy, wasm32 compilation and formatting
+pass (two pre-existing ignored tests unchanged). Browser captures and the full
+library audit were not rerun for this source-preserving rebase.

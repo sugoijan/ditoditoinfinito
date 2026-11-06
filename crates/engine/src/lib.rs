@@ -114,6 +114,7 @@ mod tests {
                 cut: TimingCut::Quarters,
                 at_once: AtOnce::One,
                 no_holds: false,
+                no_stretch: false,
             }
         );
         let t: TransformOptions = serde_json::from_str(r#"{"at_once":"Two"}"#).unwrap();

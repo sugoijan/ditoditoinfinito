@@ -37,11 +37,10 @@ pub struct RuntimePreview {
 impl RuntimePreview {
     /// Bind the notes gameplay judges, after modifiers and song offsets,
     /// as two fingers can press them: at most two at once (`At once: up
-    /// to two`), on a copy of the hand's own. The play itself judges
-    /// every note, the hand an autoplay beside it.
+    /// to two`) and No Stretch, on a copy of the hand's own. The play itself
+    /// judges every note, the hand an autoplay beside it.
     pub fn for_player(player: &ddi_engine::player::Player, layout: &str) -> Result<Self, String> {
         use ddi_chart::NoteKind;
-        use ddi_engine::AtOnce;
         if usize::from(player.lanes()) != ddi_hand_plan::layout_lanes(layout)? {
             return Err("dancing hand layout/lane count mismatch".into());
         }
@@ -78,16 +77,7 @@ impl RuntimePreview {
             .collect();
         let lanes =
             ddi_chart::Layout::builtin(layout).ok_or("dancing hand layout is not built in")?;
-        let source = ddi_engine::transform::apply(
-            &source,
-            &lanes,
-            &ddi_engine::TransformOptions {
-                at_once: AtOnce::Two,
-                ..Default::default()
-            },
-            0,
-        )
-        .notes;
+        let source = ddi_hand_plan::prepare_notes(&source, &lanes);
         let first = judged
             .iter()
             .filter(|n| n.judgeable)
