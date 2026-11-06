@@ -4,6 +4,7 @@
 use super::*;
 
 impl Search {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn lift_contact(
         &self,
         s: &mut State,
@@ -12,13 +13,14 @@ impl Search {
         time: f64,
         next: f64,
         direct_landing: bool,
+        force_plant: bool,
     ) -> Option<()> {
         let target = panel(n);
         let ls = limits(time - s.last[d], self.options.adaptive_timing);
         if time < self.release_floor() || s.holds[d] - self.options.hold_tail_grace > time + 1e-9 {
             return None;
         }
-        if s.panels[d] != target {
+        if s.panels[d] != target || force_plant {
             let plant = time - 0.080;
             let release = (plant - 0.200)
                 .max(s.last[d] + ls.0)
@@ -53,34 +55,10 @@ impl Search {
             return None;
         }
         let (heading, span) = shape(s.panels);
-        if !legal(heading, span) {
+        if !self.legal(heading, span) {
             return None;
         }
         let duration = 0.140_f64.min((next - time - ls.0).max(ls.1));
-        if s.panels[1 - d] == target {
-            let other = 1 - d;
-            if self.layout != "danoni-5" || s.holds[other] > time || time - s.last[other] < 0.055 {
-                return None;
-            }
-            // A shared tile releases only when both contacts leave together.
-            s.tracks[other].push(Swing {
-                release: time,
-                land: time + duration,
-                from: target,
-                to: target,
-                lift_m: 0.035,
-            });
-            s.aux.push(Auxiliary {
-                time: time + duration,
-                foot: Foot::at(other),
-                panel: target,
-                kind: RestoreKind::LiftClear,
-                end_tick: n.tick,
-            });
-            s.last[other] = time + duration;
-            s.holds[other] = 0.;
-            s.cost += 0.5;
-        }
         // Preserve the ordinary return. Offer one bounded alternative when
         // its intermediate landing would leave too little time to take off
         // again for the next same-panel head. The other finger can land on
@@ -101,8 +79,51 @@ impl Search {
                     && gap - duration < ls.0 + ls.1
                     && self.allowed(target, head.time - self.origin)
             });
+        if s.panels[1 - d] == target {
+            let other = 1 - d;
+            if !crate::scored_center(&self.layout)
+                || s.holds[other] > time
+                || time - s.last[other] < 0.055
+            {
+                return None;
+            }
+            // A shared tile releases only when both contacts leave together.
+            let clear = crate::escape_stances(&self.layout)
+                .first()
+                .map_or(target, |p| p[other]);
+            let companion_land = if self.layout == "danoni-9B" {
+                direct.map_or(time + duration, |head| head.time - self.origin + 0.060)
+            } else {
+                time + duration
+            };
+            s.tracks[other].push(Swing {
+                release: time,
+                land: companion_land,
+                from: target,
+                to: clear,
+                lift_m: 0.035,
+            });
+            s.aux.push(Auxiliary {
+                time: companion_land,
+                foot: Foot::at(other),
+                panel: clear,
+                kind: RestoreKind::LiftClear,
+                end_tick: n.tick,
+            });
+            s.last[other] = companion_land;
+            s.panels[other] = clear;
+            s.holds[other] = 0.;
+            s.cost += 0.5;
+        }
         let (clear, duration) = direct.map_or_else(
-            || (if self.layout == "danoni-5" { target } else { 5 }, duration),
+            || {
+                (
+                    crate::escape_stances(&self.layout)
+                        .first()
+                        .map_or(target, |p| p[d]),
+                    duration,
+                )
+            },
             |head| (target, head.time - self.origin - time),
         );
         let dist = distance(clear, target, d);
@@ -158,7 +179,10 @@ pub(crate) fn validate_auxiliary(
                     && tr.iter().any(|s| s.land == a.time && s.to == a.panel)
             }
             RestoreKind::LiftClear => {
-                (a.panel == if p.layout == "danoni-5" { panel(n) } else { 5 }
+                (a.panel
+                    == crate::escape_stances(&p.layout)
+                        .first()
+                        .map_or(panel(n), |p| p[a.foot.index()])
                     || (a.panel == panel(n)
                         && a.time - t >= 0.025
                         && a.time - t <= 0.45

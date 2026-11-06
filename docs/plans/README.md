@@ -143,7 +143,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## Presentation and video
 
-- [Dancing hand in gameplay](dancing-hand.md): production extraction with three-second single-threaded planning, accepted rendering, startup readiness, layout options and basic tests. Research/audit/developer tools remain on the hand branch.
+- [Dancing hand in gameplay](dancing-hand.md): production extraction with three-second single-threaded planning for four-panel, Solo six-panel, DanOni five-key, seven-key and 9B, Pump single and Techno single8 charts (9B uses all nine tiles and air-time hazard clearance; the pre-rebase 2026-11-06 audit records 7,776 passes, 21 contact failures, three pose failures and 78 pose CPU timeouts; targeted Pump pose repairs clear those three original errors, with RUDE! still blocked by a later baseline contact rejection), accepted rendering, startup readiness, layout options and basic tests. Research/audit/developer tools remain on the hand branch.
 
 - [Video backgrounds](video-backgrounds.md) (2026-10-09): done on the web,
   steps 1–9. Movies through WebCodecs or the FFmpeg wasm module in a

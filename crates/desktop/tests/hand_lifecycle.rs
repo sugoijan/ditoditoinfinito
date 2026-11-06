@@ -1,4 +1,4 @@
-//! Consecutive desktop plays on one host, with a cumulative fake audio clock.
+//! Consecutive supported-layout desktop plays on one host and cumulative fake audio clock.
 mod common;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -66,21 +66,39 @@ fn consecutive_completed_and_quit_plays_keep_the_hand_available() {
     let plain = texture.create_view(&Default::default());
 
     let dir = std::env::temp_dir().join(format!("ddi-hand-lifecycle-{}", std::process::id()));
-    for (name, rows) in [
-        ("First", "1000\n0100\n0010\n0001"),
-        ("Second", "0010\n0001\n1000\n0100"),
+    for (name, layout, rows) in [
+        ("First", "dance-single", "1000\n0100\n0010\n0001"),
+        ("Second", "dance-solo", "010010\n100001\n001000\n000100"),
+        ("Third", "pump-single", "10000\n01000\n00100\n00010\n00001"),
+        (
+            "Fourth",
+            "danoni-7",
+            "1000000\n0100000\n0010000\n0001000\n0000100\n0000010\n0000001",
+        ),
+        (
+            "Fifth",
+            "techno-single8",
+            "10000000\n01000000\n00100000\n00010000\n00001000\n00000100\n00000010\n00000001",
+        ),
+        (
+            "Sixth",
+            "danoni-9B",
+            "100000000\n010000000\n001000000\n000100000\n000010000\n000001000\n000000100\n000000010\n000000001",
+        ),
     ] {
         let song = dir.join("Pack").join(name);
         std::fs::create_dir_all(&song).unwrap();
-        std::fs::write(song.join("song.sm"),format!("#TITLE:{name};#MUSIC:music.wav;#OFFSET:-1;#BPMS:0=120;#NOTES:dance-single::Easy:2:0,0,0,0,0:\n{rows};")).unwrap();
+        std::fs::write(song.join("song.sm"),format!("#TITLE:{name};#MUSIC:music.wav;#OFFSET:-1;#BPMS:0=120;#NOTES:{layout}::Easy:2:0,0,0,0,0:\n{rows};")).unwrap();
         std::fs::write(song.join("music.wav"), silence()).unwrap();
     }
     let (songs, report) = ddi_desktop::library::scan_folders(std::slice::from_ref(&dir));
     assert!(report.failed.is_empty(), "{:?}", report.failed);
-    assert_eq!(songs.len(), 2);
+    assert_eq!(songs.len(), 6);
     ddi_desktop::library::register_for_tests(&songs);
-    for round in 0..4 {
-        let request = Request::song(&songs[round % 2].entry.id, 0, true);
+    for round in 0..12 {
+        let name = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"][round % 6];
+        let song = songs.iter().find(|s| s.entry.title == name).unwrap();
+        let request = Request::song(&song.entry.id, 0, true);
         *host.requested.borrow_mut() = Some(request);
         let started = Instant::now();
         loop {
@@ -106,6 +124,11 @@ fn consecutive_completed_and_quit_plays_keep_the_hand_available() {
             "round {round} startup: {h}"
         );
         assert!(h["character"]["drawn"].as_u64().unwrap() > 0, "{h}");
+        assert_eq!(
+            h["runtime"]["source_notes"],
+            [4, 6, 5, 7, 8, 9][round % 6],
+            "{h}"
+        );
         let log_start = host.log.len();
         let mut frames = 0;
         while host.playing() {

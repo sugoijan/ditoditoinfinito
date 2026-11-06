@@ -415,7 +415,7 @@ impl Job {
             q,
             Goal {
                 tips: target.tips,
-                com,
+                com: self.plan.centered_balance(target.tips, com),
             },
         )
     }
@@ -527,7 +527,11 @@ impl Job {
                             .balance_relaxation_mm
                             .max((center[0] - supported[0]).hypot(center[1] - supported[1]));
                     }
-                    self.centers.copy_from_slice(&s.z);
+                    for (i, center) in s.z.iter().enumerate() {
+                        self.centers[i] = self
+                            .plan
+                            .centered_balance(self.plan.targets(self.times[i]).tips, *center);
+                    }
                     self.support = None;
                     self.stage = 4;
                     self.index = 0;

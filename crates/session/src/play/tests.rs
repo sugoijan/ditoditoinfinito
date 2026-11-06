@@ -1711,3 +1711,248 @@ fn the_dancing_hand_leaves_the_plays_chart_and_options_alone() {
         }
     }
 }
+
+#[test]
+fn solo_hand_leaves_the_plays_chart_and_options_alone() {
+    let song=ddi_chart::formats::sm::parse_sm("#TITLE:Shared Solo;#BPMS:0=120;#NOTES:dance-solo::Medium:4:0,0,0,0,0:\n110011\n020000\n001110\n030000;").unwrap();
+    let source = song.charts[0].notes.clone();
+    for enabled in [false, true] {
+        let settings = Settings {
+            dancing_hand: enabled,
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(0.));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        let mut s = PlaySession::start(
+            &song,
+            0,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            10.,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let expected = ddi_engine::transform::apply(
+            &source,
+            &ddi_chart::Layout::dance_solo(),
+            &settings.transform,
+            0,
+        )
+        .notes;
+        assert_eq!(
+            s.player
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
+        else {
+            panic!("play did not finish")
+        };
+        assert!(!results.assist);
+        assert_eq!(facts.options.transform, settings.transform);
+        assert_eq!(results.tally.let_go, 0);
+        assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
+    }
+    assert_eq!(song.charts[0].notes, source);
+}
+
+#[test]
+fn pump_hand_leaves_the_plays_chart_and_options_alone() {
+    let song=ddi_chart::formats::sm::parse_sm("#TITLE:Shared Pump;#BPMS:0=120;#NOTES:pump-single::Medium:4:0,0,0,0,0:\n11011\n02000\n10110\n03000;").unwrap();
+    let source = song.charts[0].notes.clone();
+    for enabled in [false, true] {
+        let settings = Settings {
+            dancing_hand: enabled,
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(0.));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        let mut s = PlaySession::start(
+            &song,
+            0,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            10.,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let expected = ddi_engine::transform::apply(
+            &source,
+            &ddi_chart::Layout::pump_single(),
+            &settings.transform,
+            0,
+        )
+        .notes;
+        assert_eq!(
+            s.player
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
+        else {
+            panic!("play did not finish")
+        };
+        assert!(!results.assist);
+        assert_eq!(facts.options.transform, settings.transform);
+        assert_eq!(results.tally.let_go, 0);
+        assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
+    }
+    assert_eq!(song.charts[0].notes, source);
+}
+
+#[test]
+fn seven_key_hand_leaves_the_plays_chart_and_options_alone() {
+    let song=ddi_chart::formats::sm::parse_sm("#TITLE:Shared seven-key;#BPMS:0=120;#NOTES:danoni-7::Medium:4:0,0,0,0,0:\n1100110\n0200000\n0011100\n0300000;").unwrap();
+    let source = song.charts[0].notes.clone();
+    for enabled in [false, true] {
+        let settings = Settings {
+            dancing_hand: enabled,
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(0.));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        let mut s = PlaySession::start(
+            &song,
+            0,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            10.,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let expected = ddi_engine::transform::apply(
+            &source,
+            &ddi_chart::Layout::builtin("danoni-7").unwrap(),
+            &settings.transform,
+            0,
+        )
+        .notes;
+        assert_eq!(
+            s.player
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
+        else {
+            panic!("play did not finish")
+        };
+        assert!(!results.assist);
+        assert_eq!(facts.options.transform, settings.transform);
+        assert_eq!(results.tally.let_go, 0);
+        assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
+    }
+    assert_eq!(song.charts[0].notes, source);
+}
+
+#[test]
+fn techno_hand_leaves_the_plays_chart_and_options_alone() {
+    let song=ddi_chart::formats::sm::parse_sm("#TITLE:Shared Techno;#BPMS:0=120;#NOTES:techno-single8::Medium:4:0,0,0,0,0:\n11001100\n02000000\n00111000\n03000000;").unwrap();
+    let source = song.charts[0].notes.clone();
+    for enabled in [false, true] {
+        let settings = Settings {
+            dancing_hand: enabled,
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(0.));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        let mut s = PlaySession::start(
+            &song,
+            0,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            10.,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let expected = ddi_engine::transform::apply(
+            &source,
+            &ddi_chart::Layout::builtin("techno-single8").unwrap(),
+            &settings.transform,
+            0,
+        )
+        .notes;
+        assert_eq!(
+            s.player
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
+        else {
+            panic!("play did not finish")
+        };
+        assert!(!results.assist);
+        assert_eq!(facts.options.transform, settings.transform);
+        assert_eq!(results.tally.let_go, 0);
+        assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
+    }
+    assert_eq!(song.charts[0].notes, source);
+}
+
+#[test]
+fn nine_key_hand_leaves_the_plays_chart_and_options_alone() {
+    let song=ddi_chart::formats::sm::parse_sm("#TITLE:Shared nine-key;#BPMS:0=120;#NOTES:danoni-9B::Medium:4:0,0,0,0,0:\n110011000\n020000000\n001110000\n030000000;").unwrap();
+    let source = song.charts[0].notes.clone();
+    for enabled in [false, true] {
+        let settings = Settings {
+            dancing_hand: enabled,
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(0.));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        let mut s = PlaySession::start(
+            &song,
+            0,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            10.,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let expected = ddi_engine::transform::apply(
+            &source,
+            &ddi_chart::Layout::builtin("danoni-9B").unwrap(),
+            &settings.transform,
+            0,
+        )
+        .notes;
+        assert_eq!(
+            s.player
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
+        else {
+            panic!("play did not finish")
+        };
+        assert!(!results.assist);
+        assert_eq!(facts.options.transform, settings.transform);
+        assert_eq!(results.tally.let_go, 0);
+        assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
+    }
+    assert_eq!(song.charts[0].notes, source);
+}

@@ -61,6 +61,8 @@ struct CenterTargets {
 }
 #[derive(Deserialize, Clone)]
 pub struct Plan {
+    #[serde(default)]
+    layout: String,
     pub duration: f64,
     pub initial: Initial,
     pub tracks: Tracks,
@@ -87,12 +89,48 @@ pub struct Targets {
     pub tips: [Point; 2],
     pub contact: [bool; 2],
 }
+/// Physical keypad tile coordinates, before the hand's -16 mm root offset.
+/// Solo uses the upper corners; Pump single uses all four corners and center.
+pub fn panel_position(panel: u8, pitch: f64) -> Option<[f64; 2]> {
+    Some(match panel {
+        1 => [-pitch, -pitch],
+        2 => [0., -pitch],
+        3 => [pitch, -pitch],
+        4 => [-pitch, 0.],
+        5 => [0., 0.],
+        6 => [pitch, 0.],
+        7 => [-pitch, pitch],
+        8 => [0., pitch],
+        9 => [pitch, pitch],
+        _ => return None,
+    })
+}
 fn smoother(u: f64) -> f64 {
     u * u * u * (10. + u * (-15. + 6. * u))
 }
 impl Plan {
+    // Ease very wide corner bases toward centered balance, including their
+    // lift/landing approaches. Other layouts retain their accepted guide.
+    fn wide_balance(&self, tips: [Point; 2]) -> f64 {
+        if !matches!(
+            self.layout.as_str(),
+            "pump-single" | "danoni-7" | "techno-single8" | "danoni-9B"
+        ) {
+            return 0.;
+        }
+        let span = (tips[1][0] - tips[0][0]).hypot(tips[1][1] - tips[0][1]);
+        smoother(((span - 54.) / 14.).clamp(0., 1.))
+    }
+    pub(crate) fn centered_balance(&self, tips: [Point; 2], center: [f64; 2]) -> [f64; 2] {
+        let w = self.wide_balance(tips);
+        if w == 0. {
+            return center;
+        }
+        std::array::from_fn(|j| center[j] + ((tips[0][j] + tips[1][j]) * 0.5 - center[j]) * w)
+    }
     pub fn empty(duration: f64) -> Self {
         Self {
+            layout: String::new(),
             duration,
             initial: Initial { left: 5, right: 5 },
             tracks: Tracks {
@@ -127,7 +165,7 @@ impl Plan {
             || p.mines.len() > 10000
             || p.roll_pulses.len() > 10000
             || p.mines.iter().any(|m| {
-                !matches!(m.panel, 2 | 4 | 5 | 6 | 8)
+                !matches!(m.panel, 1..=9)
                     || !m.time.is_finite()
                     || m.time < 0.
                     || m.time > p.duration
@@ -135,7 +173,7 @@ impl Plan {
         {
             return Err("plan limits".into());
         }
-        let valid_panel = |p: u8| matches!(p, 2 | 4 | 5 | 6 | 8);
+        let valid_panel = |p: u8| matches!(p, 1..=9);
         if !valid_panel(p.initial.left)
             || !valid_panel(p.initial.right)
             || p.events.iter().any(|e| {
@@ -171,7 +209,7 @@ impl Plan {
         if p.roll_pulses.iter().any(|r| {
             !matches!(r.foot.as_str(), "L" | "R")
                 || !valid_panel(r.from)
-                || !matches!(r.panel, 2 | 4 | 5 | 6 | 8)
+                || !matches!(r.panel, 1..=9)
                 || !r.release.is_finite()
                 || !r.land.is_finite()
                 || r.release < 0.
@@ -313,13 +351,8 @@ impl Plan {
             .iter()
             .filter(|m| (t - m.time).abs() <= 0.09)
             .any(|m| {
-                let (x, y) = match m.panel {
-                    4 => (-self.placement.tile_pitch_mm, 0.),
-                    2 => (0., -self.placement.tile_pitch_mm),
-                    8 => (0., self.placement.tile_pitch_mm),
-                    5 => (0., 0.),
-                    _ => (self.placement.tile_pitch_mm, 0.),
-                };
+                let [x, y] =
+                    panel_position(m.panel, self.placement.tile_pitch_mm).expect("checked panel");
                 tips.iter().any(|p| {
                     p[2] <= 0.25 && (p[0] + 16. - x).abs() <= 11.5 && (p[1] - y).abs() <= 11.5
                 })
@@ -363,24 +396,13 @@ impl Plan {
     /// Historical nominal anchor. Use `targets(time)` for contact-specific spots.
     pub fn anchor(&self, p: u8, d: usize) -> Point {
         let scale = self.placement.panel_anchor_mm;
-        let (x, y) = match p {
-            2 => (0., -scale),
-            4 => (-scale, 0.),
-            5 => (0., 0.),
-            6 => (scale, 0.),
-            8 => (0., scale),
-            _ => unreachable!("checked panel"),
-        };
+        let [x, y] = panel_position(p, scale).expect("checked panel");
         let offset = if p == 5 {
             self.placement.center_offset_mm
         } else {
             self.placement.other_offset_mm
         };
-        let center = match p {
-            4 => -self.placement.tile_pitch_mm,
-            6 => self.placement.tile_pitch_mm,
-            _ => 0.,
-        };
+        let center = panel_position(p, self.placement.tile_pitch_mm).expect("checked panel")[0];
         let half = self.placement.tile_pitch_mm * 0.47 - 1.;
         let x = (x + if d == 0 { -offset } else { offset }).clamp(center - half, center + half);
         [x - 16., y, 0.]
@@ -465,14 +487,8 @@ impl Plan {
     }
     pub fn tile_center(&self, panel: u8) -> Point {
         let pitch = self.placement.tile_pitch_mm;
-        match panel {
-            2 => [-16., -pitch, 0.],
-            4 => [-pitch - 16., 0., 0.],
-            5 => [-16., 0., 0.],
-            6 => [pitch - 16., 0., 0.],
-            8 => [-16., pitch, 0.],
-            _ => unreachable!("checked panel"),
-        }
+        let [x, y] = panel_position(panel, pitch).expect("checked panel");
+        [x - 16., y, 0.]
     }
     fn landing_anchor(&self, d: usize, i: usize) -> Point {
         self.centered.as_ref().map_or_else(
@@ -639,7 +655,8 @@ impl Plan {
         let delta = [target[1][0] - target[0][0], target[1][1] - target[0][1]];
         let span = delta[0].hypot(delta[1]);
         let angle = delta[1].atan2(delta[0]);
-        let u = self.support_u(t);
+        let support = self.support_u(t);
+        let u = support + (0.5 - support) * self.wide_balance(target);
         let mut best = f64::INFINITY;
         let mut result = m.style[0].q;
         for (s, shape) in m.style.iter().zip(&m.style_shape) {
@@ -706,6 +723,21 @@ mod tests {
         }
     }
     #[test]
+    fn solo_diagonal_mines_use_their_corner_instead_of_a_cardinal_tile() {
+        for (panel, center) in [(7, [-40., 24., 0.]), (9, [8., 24., 0.])] {
+            let mut p = Plan::empty(3.);
+            p.mines.push(Mine { time: 1., panel });
+            assert_eq!(p.tile_center(panel), center);
+            assert!(p.mine_contact(1., &[center, [-16., 0., 0.]]));
+            assert!(!p.mine_contact(1., &[[-40., 0., 0.], [8., 0., 0.]]));
+            for d in 0..2 {
+                let anchor = p.anchor(panel, d);
+                assert!((anchor[0] - center[0]).abs() <= 10.5);
+                assert!((anchor[1] - center[1]).abs() <= 10.5);
+            }
+        }
+    }
+    #[test]
     fn centers_single_contacts_and_keeps_shared_contacts_fixed_until_takeoff() {
         let mut p = Plan::empty(8.);
         p.tracks.left = vec![
@@ -758,5 +790,30 @@ mod tests {
         next.rebuild_edges();
         next.center_contacts(Some((&old, 1.5)));
         assert_eq!(old.targets(1.5).tips, next.targets(1.5).tips);
+    }
+    #[test]
+    fn wide_balance_is_smooth_and_scoped_to_corner_layouts() {
+        let mut p = Plan::empty(1.);
+        let center = [12., 4.];
+        let tips = |span: f64| [[-span / 2., 0., 0.], [span / 2., 0., 0.]];
+        for layout in ["dance-single", "dance-solo", "danoni-5"] {
+            p.layout = layout.into();
+            assert_eq!(p.centered_balance(tips(70.), center), center);
+        }
+        for layout in ["pump-single", "danoni-7", "techno-single8", "danoni-9B"] {
+            p.layout = layout.into();
+            assert_eq!(p.centered_balance(tips(54.), center), center);
+            assert_eq!(p.centered_balance(tips(68.), center), [0., 0.]);
+            for edge in [54., 68.] {
+                let h = 0.001;
+                let a = p.centered_balance(tips(edge - h), center)[0];
+                let b = p.centered_balance(tips(edge), center)[0];
+                let c = p.centered_balance(tips(edge + h), center)[0];
+                assert!((c - a).abs() / (2. * h) < 1e-5);
+                assert!((a - 2. * b + c).abs() / h.powi(2) < 0.001);
+            }
+            let next = p.visible(0.5);
+            assert_eq!(next.centered_balance(tips(68.), center), [0., 0.]);
+        }
     }
 }

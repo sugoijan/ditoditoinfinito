@@ -36,6 +36,9 @@ pub struct Attempt {
 #[derive(Clone, Debug, Serialize)]
 pub struct PlanningReport {
     pub status: Status,
+    /// The last rejected search row, absent for timeouts and judge failures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_tick: Option<i64>,
     pub attempts: Vec<Attempt>,
     pub search_seconds: f64,
     pub checkpoints: u64,
@@ -127,7 +130,7 @@ impl PlannerJob {
             .any(|w| w[1] - w[0] > 0. && w[1] - w[0] < 0.115)
             || input.notes.iter().any(|n| n.judgeable && n.roll);
         if !rapid {
-            let mut last = [f64::NEG_INFINITY; 5];
+            let mut last = [f64::NEG_INFINITY; 9];
             for n in input.notes.iter().filter(|n| n.judgeable) {
                 if n.mine {
                     if let Some(previous) = last.get(n.lane as usize) {
@@ -155,6 +158,7 @@ impl PlannerJob {
             limit_seconds: 5.,
             report: PlanningReport {
                 status: Status::ContactFailure,
+                failure_tick: None,
                 attempts: Vec::new(),
                 search_seconds: 0.,
                 checkpoints: 0,
@@ -216,6 +220,7 @@ impl PlannerJob {
         }
     }
     fn timeout(&mut self) {
+        self.report.failure_tick = None;
         self.work = Work::Done;
         self.candidate = None;
         self.report.status = Status::ContactTimeout;
@@ -309,6 +314,7 @@ impl PlannerJob {
         match std::mem::replace(&mut self.work, Work::Done) {
             Work::Begin => {
                 if let Some(o) = self.options() {
+                    self.report.failure_tick = None;
                     let search = match &self.context {
                         Some(c) => Search::seeded(
                             &self.input,
@@ -321,7 +327,7 @@ impl PlannerJob {
                     };
                     match search {
                         Ok(s) => self.work = Work::Search(Box::new(s)),
-                        Err(e) => self.reject(e),
+                        Err(e) => self.reject(e, None),
                     }
                 }
             }
@@ -333,8 +339,9 @@ impl PlannerJob {
                         .context
                         .as_ref()
                         .and_then(|c| s.boundary(c.known, c.finished));
+                    let failure_tick = s.failure_tick();
                     match s.finish().unwrap() {
-                        Err(e) => self.reject(e),
+                        Err(e) => self.reject(e, failure_tick),
                         Ok((p, report)) => {
                             let credited = match self.tier {
                                 4 | 5 => p.hold_gaps.as_ref().is_some_and(|g| {
@@ -472,9 +479,10 @@ impl PlannerJob {
             checkpoint: self.next_checkpoint,
         }
     }
-    fn reject(&mut self, e: String) {
+    fn reject(&mut self, e: String, tick: Option<i64>) {
+        self.report.failure_tick = tick;
         if self.tier == 0 {
-            if !e.starts_with("No supported contact plan at tick ") {
+            if tick.is_none() {
                 self.report.status = Status::Unsupported;
                 self.report.reason = Some(e);
                 return;

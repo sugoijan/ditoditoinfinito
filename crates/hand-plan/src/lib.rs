@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 //! Deterministic single-threaded whole-chart contacts. No I/O, clocks or workers.
+mod burst;
 mod geometry;
 mod history;
 mod policy;
@@ -8,6 +9,7 @@ mod replay;
 mod rolling;
 mod search;
 mod window_replay;
+pub use burst::{BurstFallback, TapReduction};
 use ddi_chart::{Note, NoteKind, Song, TimingMap};
 use ddi_engine::transform::{self, AtOnce, TransformOptions};
 pub use policy::{PlannerJob, PlanningReport, Status};
@@ -31,6 +33,8 @@ pub struct InputNote {
     pub tick: i64,
     pub time: f64,
     pub lane: u8,
+    /// Physical mat tile, resolved once from the chart layout and lane.
+    pub panel: u8,
     pub judgeable: bool,
     pub end: Option<(i64, f64)>,
     pub supported: bool,
@@ -40,12 +44,52 @@ pub struct InputNote {
     pub roll: bool,
     pub roll_refresh: bool,
 }
-pub fn layout_lanes(layout: &str) -> Result<usize, String> {
+/// Scored mat tiles in chart-lane order. Pump single and DanOni modes score the center.
+pub fn layout_panels(layout: &str) -> Result<&'static [u8], String> {
     match layout {
-        "dance-single" => Ok(4),
-        "danoni-5" => Ok(5),
-        _ => Err("Dancing hand supports dance-single and danoni-5 charts".into()),
+        "dance-single" => Ok(&[4, 2, 8, 6]),
+        "danoni-5" => Ok(&[4, 2, 8, 6, 5]),
+        "danoni-7" => Ok(&[4, 1, 2, 5, 8, 9, 6]),
+        "danoni-9B" => Ok(&[7, 4, 1, 2, 5, 8, 9, 6, 3]),
+        "dance-solo" => Ok(&[4, 7, 2, 8, 9, 6]),
+        "pump-single" => Ok(&[1, 7, 5, 9, 3]),
+        "techno-single8" => Ok(&[1, 4, 7, 2, 8, 9, 6, 3]),
+        _ => Err(
+            "Dancing hand supports dance-single, dance-solo, pump-single, techno-single8, danoni-5, danoni-7 and danoni-9B charts"
+                .into(),
+        ),
     }
+}
+/// Whether the center is a scored lane, so it cannot be a safe escape tile.
+pub(crate) fn scored_center(layout: &str) -> bool {
+    layout_panels(layout).is_ok_and(|panels| panels.contains(&5))
+}
+/// Unscored support stances. An empty list requires air-time avoidance.
+pub(crate) fn escape_stances(layout: &str) -> &'static [[u8; 2]] {
+    match layout {
+        "pump-single" => &[[4, 6], [6, 4]],
+        "danoni-7" => &[[7, 3], [3, 7]],
+        "dance-single" | "dance-solo" | "techno-single8" => &[[5, 5]],
+        _ => &[],
+    }
+}
+/// Layouts using the full opposite-corner reach and flexible facing.
+pub(crate) fn wide_stances(layout: &str) -> bool {
+    matches!(
+        layout,
+        "pump-single" | "danoni-7" | "techno-single8" | "danoni-9B"
+    )
+}
+/// Unique unscored support destinations in stable order.
+pub(crate) fn support_tiles(layout: &str) -> &'static [u8] {
+    match escape_stances(layout).first() {
+        Some(stance) if stance[0] == stance[1] => &stance[..1],
+        Some(stance) => stance,
+        None => &[],
+    }
+}
+pub fn layout_lanes(layout: &str) -> Result<usize, String> {
+    layout_panels(layout).map(<[u8]>::len)
 }
 pub fn standard_rules() -> Vec<(String, ddi_engine::rules::JudgeTable)> {
     use ddi_engine::rules::presets;
@@ -65,7 +109,7 @@ impl Input {
     /// notes and global play settings are never changed.
     pub fn from_song(song: &Song, index: usize) -> Result<Self, String> {
         let c = song.charts.get(index).ok_or("chart missing")?;
-        layout_lanes(&c.layout)?;
+        let panels = layout_panels(&c.layout)?;
         let transformed = transform::apply(
             &c.notes,
             &ddi_chart::Layout::builtin(&c.layout).unwrap(),
@@ -83,6 +127,7 @@ impl Input {
                 tick: n.tick.0,
                 time: timing.seconds_at(n.tick),
                 lane: n.lane,
+                panel: panels.get(n.lane as usize).copied().unwrap_or(0),
                 judgeable: timing.judgeable(n.tick),
                 end: n.kind.hold_end().map(|end| (end.0, timing.seconds_at(end))),
                 supported: matches!(
@@ -165,6 +210,8 @@ pub struct Auxiliary {
 pub enum RestoreKind {
     #[serde(rename = "companion_hop")]
     CompanionHop,
+    #[serde(rename = "support_step")]
+    SupportStep,
     #[serde(rename = "hold_restore")]
     HoldRestore,
     #[serde(rename = "mine_avoid")]

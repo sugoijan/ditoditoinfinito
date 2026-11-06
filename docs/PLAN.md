@@ -337,10 +337,23 @@ Its focused rerun recovers 80 of 82 former-pass regressions; remaining contact
 rejections and CPU caps are recorded in the plan.
 
 The [dancing hand gameplay integration](plans/dancing-hand.md) adds a default-on,
-configurable character on supported four-panel/five-key plays. Shared contact and
-pose preparation runs single-threaded in a three-second rolling window; startup
+configurable character on supported four-panel, Solo six-panel, DanOni five-key,
+seven-key and 9B, Pump single and Techno single8 plays. 9B uses all nine mat
+tiles, with air-time hazard clearance and no designated safe escape tile. The hand
+simplifies its own copy to at most two contacts; gameplay notes, options and scoring
+remain independent. Contact and pose preparation runs single-threaded in a three-second rolling window; startup
 waits for its opening buffer and GPU frame. This production extraction keeps only
-runtime assets/notices and basic tests; broader research and audits remain separate.
+runtime assets/notices and basic tests; broader research and audits remain separate. The 2026-11-06 full library rerun
+covers 12,100 original/generated records with four independent workers: 7,776
+passes, 21 contact failures, three Pump pose failures, 78 pose CPU timeouts and
+4,222 unsupported layouts. Contact/wall timeouts, fatal deadlines and settling
+warnings are zero. Nineteen previous passes now hit the CPU cap; the plan records
+these separately from new-layout failures and six nonfatal guide warnings. A focused Pump
+pose repair clears the three original numerical failures: It's Me and Mmchk
+complete; RUDE! reaches a later contact rejection also reproduced by the baseline
+planner. Contact timing/assignments and numerical guards remain unchanged; the
+full audit has not been rerun after this repair or after rebasing onto main's
+independent hand-copy integration. Those audit counts describe the pre-rebase host.
 
 ### 3.5 `platform` traits and the web shell
 

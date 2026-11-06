@@ -433,14 +433,8 @@ impl DanceRuntime {
                 let tip = m
                     .geometry(&curve.sample(e.time + probe as f64 / 480.).pose)
                     .tips[usize::from(e.foot == "R")];
-                let (x, y) = match e.panel {
-                    2 => (0., -24.),
-                    4 => (-24., 0.),
-                    5 => (0., 0.),
-                    6 => (24., 0.),
-                    8 => (0., 24.),
-                    _ => unreachable!(),
-                };
+                let [x, y] = crate::panel_position(e.panel, self.snapshot.placement.tile_pitch_mm)
+                    .expect("validated panel");
                 let touches = 11.5 - (tip[0] + 16. - x).abs().max((tip[1] - y).abs()) >= 0.
                     && tip[2].abs() <= 1.;
                 if touches {

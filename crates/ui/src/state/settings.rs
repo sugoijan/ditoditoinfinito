@@ -840,7 +840,17 @@ impl Settings {
 
     /// Whether this build accompanies this layout with the dancing hand.
     pub fn dancing_hand_for(&self, layout: &str) -> bool {
-        self.dancing_hand && matches!(layout, "dance-single" | "danoni-5")
+        self.dancing_hand
+            && matches!(
+                layout,
+                "dance-single"
+                    | "dance-solo"
+                    | "danoni-5"
+                    | "danoni-7"
+                    | "danoni-9B"
+                    | "pump-single"
+                    | "techno-single8"
+            )
     }
 
     /// Keeps the heights a play left the lane covers at, as DDR and
@@ -1500,12 +1510,28 @@ mod tests {
 mod dancing_hand_tests {
     use super::*;
     #[test]
-    fn hand_mode_defaults_on_for_four_panels_and_five_keys() {
+    fn hand_mode_defaults_on_for_supported_layouts() {
         let mut s: Settings = serde_json::from_str("{}").unwrap();
         assert!(s.dancing_hand);
         s.dancing_hand = true;
         assert!(s.dancing_hand_for("dance-single"));
         assert!(s.dancing_hand_for("danoni-5"));
-        assert!(!s.dancing_hand_for("pump-single"));
+        let original = s.transform;
+        let off: Settings = serde_json::from_str(r#"{"dancing_hand":false}"#).unwrap();
+        for layout in [
+            "dance-single",
+            "dance-solo",
+            "danoni-5",
+            "pump-single",
+            "danoni-7",
+            "techno-single8",
+            "danoni-9B",
+        ] {
+            assert!(s.dancing_hand_for(layout), "{layout}");
+            assert!(!off.dancing_hand_for(layout), "{layout}");
+        }
+        assert!(!s.dancing_hand_for("danoni-9A"));
+        assert!(!s.dancing_hand_for("pump-double"));
+        assert_eq!(s.transform, original);
     }
 }

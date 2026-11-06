@@ -69,9 +69,31 @@ Rust and the browser are implementation details, not advertised features.
   plays its own copy of the judged notes, at most two at once (`At once: up to
   two`, ongoing holds included), while the play judges every note with the
   player's options, never an assist because of the hand (`RuntimePreview::
-  for_player`). Three-second planning and bounded f64 pose preparation
+  for_player`). Supported hand layouts are dance-single, dance-solo, danoni-5,
+  danoni-7, danoni-9B, pump-single and techno-single8. Resolve lanes through
+  `ddi_hand_plan::layout_panels`;
+  Solo L/UL/D/U/UR/R map to mat 4/7/2/8/9/6, with center unscored;
+  Pump DL/UL/C/UR/DR map to 1/7/5/9/3. Pump may use unscored side stances
+  (4,6)/(6,4) and air time for clearance. Seven-key L/DL/D/Oni/U/UR/R maps to
+  4/1/2/5/8/9/6 from the displayed glyphs, leaving 7/3 as escape corners.
+  Techno DL/L/UL/D/U/UR/R/DR maps to 1/4/7/2/8/9/6/3; center is unscored
+  and can be used for escapes alongside air time. DanOni 9B maps displayed
+  UL/L/DL/D/Oni/U/UR/R/DR to 7/4/1/2/5/8/9/6/3; all tiles are scored, so
+  there is no designated escape tile. Hazard clearance uses air time; shared
+  center repeats/rolls may use a temporary scored rest after checking known
+  notes and hazards.
+  Wide corner-layout transfers can move the free finger to an unscored tile;
+  their balance guide eases toward the midpoint with existing pose/contact bounds.
+  Keep native DanOni release budgets distinct from StepMania hold grace.
+  Three-second planning and bounded f64 pose preparation
   run cooperatively on one thread; rendering samples prepared C2 motion. Preserve
   exact contact times, published prefixes and current contact/model bounds.
+  Stream fallback ranks knuckle clearance alongside fingertip accuracy. Small
+  floor corrections and near-edge tangent repairs run during checked curve
+  preparation; keep sampling solve-free and retain the same numerical guards.
+  Optional tight-burst reductions remain opt-in preparation proposals for
+  uncommitted hand input; never change the play's judged chart or rewrite the
+  hand's already-published contacts.
   Display-time revisions may only resample retained prepared output; never rewind
   the contact/planning cursor or change note times to follow a display prediction.
   The prompt gates audio on opening CPU/GPU readiness; quick restart warms a fresh

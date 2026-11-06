@@ -160,11 +160,13 @@ impl RollingPlanner {
         self.report.received += raw.len();
         self.report.kept += new.len();
         self.report.removed += raw.len() - new.len();
+        let panels = layout_panels(&self.input.layout)?;
         self.input.notes.extend(new.iter().map(|n| {
             InputNote {
                 tick: n.tick.0,
                 time: self.input.timing.seconds_at(n.tick),
                 lane: n.lane,
+                panel: panels[n.lane as usize],
                 judgeable: self.input.timing.judgeable(n.tick),
                 end: n
                     .kind

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 //! Conservative mine windows include every supported judge plus 5 ms clearance.
-//! Keep center escape steps on four-panel charts and air-time flights on either layout.
+//! Layouts use unscored center/side/corner stances where available, or air time.
 use super::*;
 pub(crate) const WINDOW: f64 = 0.095;
 impl Search {
@@ -32,13 +32,7 @@ impl Search {
         land: f64,
         mut height: f64,
     ) -> Option<f64> {
-        let xy = |panel| match panel {
-            4 => [-24., 0.],
-            2 => [0., -24.],
-            8 => [0., 24.],
-            6 => [24., 0.],
-            _ => [0., 0.],
-        };
+        let xy = |panel| ddi_hand_pose::panel_position(panel, 24.).expect("validated panel");
         let a = xy(from);
         let b = xy(to);
         for mine in &self.mines {
@@ -61,10 +55,10 @@ impl Search {
         }
         (height <= 0.075).then_some(height)
     }
-    /// At most three hazard alternatives per parent, within the existing beam.
-    /// Prefer a safe center escape when available: returning to a hazardous
+    /// At most four hazard alternatives per parent, within the existing beam.
+    /// Prefer an unscored escape when available: returning to a hazardous
     /// arrow after a fixed hop needlessly traps the next repeated mine window.
-    /// Five-key charts retain air-time avoidance without assuming a safe tile.
+    /// DanOni five-key charts use air time without assuming a safe tile.
     pub(super) fn hazard_candidates(
         &self,
         s: State,
@@ -79,7 +73,7 @@ impl Search {
             .mines
             .partition_point(|m| m.time - self.origin < land - 0.6);
         let pending = &self.mines[start..];
-        let clear = |mut state: State, mode: u8| {
+        let clear = |mut state: State, mode: u8, escape: [u8; 2]| {
             let mut horizon = until;
             for mine in pending {
                 if mine.time - self.origin - WINDOW > horizon {
@@ -87,7 +81,7 @@ impl Search {
                 }
                 let time = mine.time - self.origin;
                 state = match mode {
-                    0 => self.escape_mines(state, std::slice::from_ref(mine), time)?,
+                    0 => self.escape_mines(state, std::slice::from_ref(mine), time, escape)?,
                     1 => self.avoid_mines(state, std::slice::from_ref(mine), time)?,
                     _ => self.head_clearance(state, std::slice::from_ref(mine), time)?,
                 };
@@ -103,17 +97,30 @@ impl Search {
             || pending
                 .first()
                 .is_some_and(|m| m.time - self.origin - WINDOW <= until);
-        let escape = (has_hazard && self.layout == "dance-single")
-            .then(|| clear(s.clone(), 0))
-            .flatten();
-        let head = has_hazard.then(|| clear(s.clone(), 2)).flatten();
-        let mut flight = if has_hazard { clear(s, 1) } else { Some(s) };
-        if escape.is_some()
+        let mut choices: [Option<State>; 4] = std::array::from_fn(|_| None);
+        let mut count = 0;
+        if has_hazard {
+            for &escape in crate::escape_stances(&self.layout) {
+                if let Some(state) = clear(s.clone(), 0, escape) {
+                    choices[count] = Some(state);
+                    count += 1;
+                }
+            }
+        }
+        let head = has_hazard.then(|| clear(s.clone(), 2, [5, 5])).flatten();
+        let mut flight = if has_hazard {
+            clear(s, 1, [5, 5])
+        } else {
+            Some(s)
+        };
+        if count != 0
             && let Some(flight) = &mut flight
         {
             flight.cost += 4.;
         }
-        [escape, flight, head].into_iter().flatten()
+        choices[count] = flight;
+        choices[count + 1] = head;
+        choices.into_iter().flatten()
     }
     fn head_clearance(&self, mut s: State, hazards: &[InputNote], time: f64) -> Option<State> {
         for d in 0..2 {
@@ -144,7 +151,7 @@ impl Search {
                     let mut panels = s.panels;
                     panels[d] = target;
                     let (heading, span) = shape(panels);
-                    if !legal(heading, span) {
+                    if !self.legal(heading, span) {
                         return None;
                     }
                     let ls = self.departure_limits(&s, d, land);
@@ -192,17 +199,25 @@ impl Search {
                 s.cost += 8. + square(dist / 18.) * 0.65;
             }
         }
-        if self.layout == "dance-single" {
-            self.escape_mines(s, hazards, time)
-        } else {
+        if crate::escape_stances(&self.layout).is_empty() {
             self.avoid_mines(s, hazards, time)
+        } else {
+            crate::escape_stances(&self.layout)
+                .iter()
+                .find_map(|&escape| self.escape_mines(s.clone(), hazards, time, escape))
         }
     }
-    fn escape_mines(&self, mut s: State, hazards: &[InputNote], land: f64) -> Option<State> {
+    fn escape_mines(
+        &self,
+        mut s: State,
+        hazards: &[InputNote],
+        land: f64,
+        escape: [u8; 2],
+    ) -> Option<State> {
         if !hazards.iter().any(|n| n.mine) {
             return Some(s);
         }
-        for d in 0..2 {
+        for (d, &target) in escape.iter().enumerate() {
             let Some(mine) = hazards.iter().find(|n| n.mine && panel(n) == s.panels[d]) else {
                 continue;
             };
@@ -234,15 +249,15 @@ impl Search {
             if release > land - WINDOW || land - release < ls.1 - 1e-9 {
                 return None;
             }
-            let dist = distance(5, source, d);
+            let dist = distance(target, source, d);
             s.tracks[d].push(Swing {
                 release,
                 land,
                 from: source,
-                to: 5,
+                to: target,
                 lift_m: self.clearance_lift(
                     source,
-                    5,
+                    target,
                     release,
                     land,
                     lift(dist, false, land - release, self.options.adaptive_timing),
@@ -252,12 +267,12 @@ impl Search {
             s.aux.push(Auxiliary {
                 time: land,
                 foot: Foot::at(d),
-                panel: 5,
+                panel: target,
                 kind: RestoreKind::MineAvoid,
                 end_tick: mine.tick,
             });
             s.last[d] = land;
-            s.panels[d] = 5;
+            s.panels[d] = target;
             s.cost += 0.5 + square(dist / 18.) * 0.65;
             if restore {
                 let h = active?;
@@ -271,10 +286,10 @@ impl Search {
                 s.tracks[d].push(Swing {
                     release: land + 0.055,
                     land: restored,
-                    from: 5,
+                    from: target,
                     to: source,
                     lift_m: self.clearance_lift(
-                        5,
+                        target,
                         source,
                         land + 0.055,
                         restored,
@@ -302,10 +317,10 @@ impl Search {
             }
         }
         let (heading, span) = shape(s.panels);
-        if !legal(heading, span) {
+        if !self.legal(heading, span) {
             return None;
         }
-        s.cost += square((heading - s.heading) / 45.) * 0.25;
+        s.cost += square((heading - s.heading) / 45.) * 0.25 + self.facing_cost(heading);
         s.heading = heading;
         Some(s)
     }
@@ -406,14 +421,15 @@ impl Search {
                     restore_foot: None,
                 });
             }
+            s.record(d, s.last[d], release, restored, ls, self.options);
             s.last[d] = restored;
             s.cost += 0.6;
         }
         let (heading, span) = shape(s.panels);
-        if !legal(heading, span) {
+        if !self.legal(heading, span) {
             return None;
         }
-        s.cost += square((heading - s.heading) / 45.) * 0.25;
+        s.cost += square((heading - s.heading) / 45.) * 0.25 + self.facing_cost(heading);
         s.heading = heading;
         Some(s)
     }
@@ -482,7 +498,10 @@ pub(crate) fn validate_auxiliary(
             && n.tick == a.end_tick
             && panel(n) == swing.from
             && ((swing.to == swing.from && swing.release <= t - WINDOW && swing.land >= t + WINDOW)
-                || (input.layout == "dance-single" && a.panel == 5 && (a.time - t).abs() < 1e-9)
+                || (crate::escape_stances(&input.layout)
+                    .iter()
+                    .any(|p| p[a.foot.index()] == a.panel)
+                    && (a.time - t).abs() < 1e-9)
                 || (swing.release <= t - WINDOW
                     && a.time >= t
                     && a.time <= t + 0.170
@@ -498,4 +517,103 @@ pub(crate) fn validate_auxiliary(
         return Err("air-time clearance does not span an original hazard".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::*;
+    #[test]
+    fn pump_offers_both_side_escape_orientations_and_air_time() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:pump-single::Easy:1:0,0,0,0,0:\nM00M0;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let search = Search::new(&input, Options::default()).unwrap();
+        let mut state = State::initial();
+        state.panels = [9, 1];
+        let time = search.mines[0].time - search.origin;
+        let choices = search
+            .hazard_candidates(state, &search.mines, time)
+            .collect::<Vec<_>>();
+        for panels in [[4, 6], [6, 4], [9, 1]] {
+            assert!(
+                choices.iter().any(|s| s.panels == panels),
+                "missing {panels:?}"
+            );
+        }
+    }
+    #[test]
+    fn seven_key_hazards_offer_both_unused_corner_stances_and_air_time() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:danoni-7::Easy:1:0,0,0,0,0:\n0M000M0;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let search = Search::new(&input, Options::default()).unwrap();
+        let mut state = State::initial();
+        state.panels = [1, 9];
+        let time = search.mines[0].time - search.origin;
+        let choices = search
+            .hazard_candidates(state, &search.mines, time)
+            .collect::<Vec<_>>();
+        for panels in [[7, 3], [3, 7], [1, 9]] {
+            assert!(
+                choices.iter().any(|s| s.panels == panels),
+                "missing {panels:?}"
+            );
+        }
+    }
+    #[test]
+    fn techno_hazards_offer_center_escape_and_air_time() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:techno-single8::Easy:1:0,0,0,0,0:\nM0000M00;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let search = Search::new(&input, Options::default()).unwrap();
+        let mut state = State::initial();
+        state.panels = [1, 9];
+        let time = search.mines[0].time - search.origin;
+        let choices = search
+            .hazard_candidates(state, &search.mines, time)
+            .collect::<Vec<_>>();
+        for panels in [[5, 5], [1, 9]] {
+            assert!(
+                choices.iter().any(|s| s.panels == panels),
+                "missing {panels:?}"
+            );
+        }
+        assert_eq!(crate::support_tiles("techno-single8"), &[5]);
+        assert_eq!(crate::support_tiles("pump-single"), &[4, 6]);
+        assert_eq!(crate::support_tiles("danoni-7"), &[7, 3]);
+    }
+    #[test]
+    fn nine_key_all_tile_hazards_have_no_escape_stance() {
+        assert!(crate::escape_stances("danoni-9B").is_empty());
+        assert!(crate::support_tiles("danoni-9B").is_empty());
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:danoni-9B::Easy:1:0,0,0,0,0:\nMMMMMMMMM;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let search = Search::new(&input, Options::default()).unwrap();
+        let mut state = State::initial();
+        state.panels = [1, 9];
+        let time = search.mines[0].time - search.origin;
+        let choices = search
+            .hazard_candidates(state, &search.mines, time)
+            .collect::<Vec<_>>();
+        assert!(!choices.is_empty());
+        assert!(choices.iter().all(|s| s.panels == [1, 9]));
+        for s in choices {
+            for track in s.tracks {
+                assert!(
+                    track
+                        .backwards()
+                        .any(|f| f.release <= time - 0.095 && f.land >= time + 0.095)
+                );
+            }
+        }
+    }
 }

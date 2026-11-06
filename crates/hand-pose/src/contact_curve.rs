@@ -137,14 +137,8 @@ fn inspect(
             } else if height > 0.02 && failed.is_none() {
                 failed = Some("contact_goal");
             }
-            let (x, y) = match p.panel_at(d, t) {
-                2 => (0., -24.),
-                4 => (-24., 0.),
-                5 => (0., 0.),
-                6 => (24., 0.),
-                8 => (0., 24.),
-                _ => unreachable!(),
-            };
+            let [x, y] = crate::panel_position(p.panel_at(d, t), p.placement.tile_pitch_mm)
+                .expect("validated panel");
             let margin = 11.5 - (g.tips[d][0] + 16. - x).abs().max((g.tips[d][1] - y).abs());
             report.minimum_tile_margin_mm = report.minimum_tile_margin_mm.min(margin);
             if margin < 1. {
@@ -161,6 +155,63 @@ fn inspect(
         failed = Some("knuckle_height");
     }
     failed
+}
+
+// A small vertical error need not choose a new IK branch. Root height is a
+// rigid translation: find one offset that is safe at the failed sample and its
+// replacement anchor, then certify both with the ordinary contact guards.
+fn repair_height(m: &Model, p: &Plan, samples: [(f64, Parameters); 2]) -> Option<f64> {
+    let mut lo = -0.5_f64;
+    let mut hi = 0.5_f64;
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    for (t, q) in &samples {
+        let g = m.evaluate_into(q, &mut Kin::default());
+        lo = lo.max(m.lo[10] - q[10]);
+        hi = hi.min(m.hi[10] - q[10]);
+        for d in 0..2 {
+            // Keep reserve inside the existing 0.25 mm contact/floor limits.
+            lo = lo.max(PREPARED_FLOOR + 0.05 - g.tips[d][2]);
+            lo = lo.max(40.05 - g.knuckles[d]);
+            if p.targets(*t).contact[d] {
+                min = min.min(g.tips[d][2]);
+                max = max.max(g.tips[d][2]);
+                lo = lo.max(-0.20 - g.tips[d][2]);
+                hi = hi.min(0.20 - g.tips[d][2]);
+            }
+        }
+    }
+    if lo > hi {
+        return None;
+    }
+    let offset = (if min.is_finite() {
+        -(min + max) * 0.5
+    } else {
+        0.
+    })
+    .clamp(lo, hi);
+    if offset.abs() < 1e-9 {
+        return None;
+    }
+    for (t, mut q) in samples {
+        q[10] += offset;
+        if !matches!(
+            inspect(
+                m,
+                p,
+                t,
+                &q,
+                &mut fresh_report(0, 0, 0),
+                &mut Kin::default(),
+                &mut None,
+                false
+            ),
+            None | Some("contact_goal")
+        ) {
+            return None;
+        }
+    }
+    Some(offset)
 }
 
 impl ContactCurve {
@@ -294,6 +345,7 @@ pub struct ContactCurvePreparation {
     hard: Option<(f64, &'static str)>,
     failures: Vec<Failure>,
     refining: bool,
+    flat: std::collections::BTreeSet<u64>,
     kin: Kin,
     cache: Option<InspectionCache>,
     result: Option<Result<ContactCurve, ContactCurveError>>,
@@ -380,6 +432,7 @@ impl ContactCurvePreparation {
             hard: None,
             failures: Vec::new(),
             refining: false,
+            flat: Default::default(),
             kin: Kin::default(),
             cache: None,
             result: None,
@@ -395,6 +448,15 @@ impl ContactCurvePreparation {
                 poses: self.poses.clone(),
                 centers: vec![[0.; 2]; self.times.len()],
             }));
+            // Near a phase edge there is no room for another knot. Prevent
+            // a fast lift's tangents from leaking into planted time. Adjacent
+            // quintics share these derivatives, preserving C2 continuity.
+            for knot in &mut self.curve.as_mut().unwrap().knots {
+                if self.flat.contains(&knot.t.to_bits()) {
+                    knot.v = [0.; 16];
+                    knot.a = [0.; 16];
+                }
+            }
             self.report = fresh_report(
                 self.times.len(),
                 self.times.len() - self.original,
@@ -494,6 +556,7 @@ impl ContactCurvePreparation {
         }
         if self.at < self.failures.len() {
             let (mut t, mut q, reason) = self.failures[self.at];
+            let failed = (t, q);
             let failed_clearance = if matches!(reason, "floor_penetration" | "knuckle_height") {
                 let g = m.evaluate_into(&q, &mut self.kin);
                 [
@@ -514,13 +577,34 @@ impl ContactCurvePreparation {
                         .abs()
                         .total_cmp(&(self.times[*b] - t).abs())
                 });
+            if nearby.is_some() && reason == "planted_height" {
+                let interval = self
+                    .times
+                    .partition_point(|v| *v <= t)
+                    .saturating_sub(1)
+                    .min(self.times.len() - 2);
+                self.flat.insert(self.times[interval].to_bits());
+                self.flat.insert(self.times[interval + 1].to_bits());
+            }
             if let Some(i) = nearby {
                 t = self.times[i];
+                // Keep the authored anchor pose; the failed sample's
+                // clearance is retained separately for vertical correction.
                 q = self.poses[i];
             }
             let g = m.evaluate_into(&q, &mut self.kin);
             let prior = q;
-            if matches!(reason, "floor_penetration" | "knuckle_height")
+            let height = if reason == "floor_penetration"
+                && !relaxed_at(&self.relaxed, failed.0)
+                && !relaxed_at(&self.relaxed, t)
+            {
+                repair_height(m, p, [failed, (t, q)])
+            } else {
+                None
+            };
+            if let Some(offset) = height {
+                q[10] += offset;
+            } else if matches!(reason, "floor_penetration" | "knuckle_height")
                 && relaxed_at(&self.relaxed, t)
             {
                 // Stream time deliberately relaxes precise targets. A rigid

@@ -83,6 +83,19 @@ impl StreamOptions {
     }
 }
 
+// Contact accuracy alone cannot rank a fit whose knuckles violate the floor
+// clearance guard: lifting that whole pose would also lift its planted tip.
+// Feasible fits retain the original fingertip-error ordering.
+fn fit_score(m: &Model, q: &Parameters, error: f64) -> f64 {
+    let g = m.evaluate_into(q, &mut crate::kinematics::Kin::default());
+    let deficit = 40. - g.knuckles[0].min(g.knuckles[1]);
+    if deficit > 0. {
+        error.max(2. + deficit)
+    } else {
+        error
+    }
+}
+
 fn smoother(u: f64) -> f64 {
     if u <= 0. {
         0.
@@ -439,7 +452,8 @@ impl Stream {
                             (q, error) = (refined, r.target_error_mm);
                         }
                     }
-                    if error > 2. && raw_error < error {
+                    let score = fit_score(m, &q, error);
+                    if score > 2. && fit_score(m, &raw, raw_error) < score {
                         q = raw;
                     }
                     let complete = self.complete && t == plan.duration;
@@ -485,13 +499,14 @@ impl Stream {
                         (q, error) = (refined, r.target_error_mm);
                     }
                 }
-                if cap == 12 && error > 2. {
-                    // Only a gross miss restarts from the style poses: a
-                    // restart can land on a distant pose, a visible jump.
+                let score = fit_score(m, &q, error);
+                if cap == 12 && score > 2. {
+                    // A gross miss or unsafe knuckle clearance can need a new
+                    // style seed. Quiet feasible fits keep their original pose.
                     let mut retry = plan.seed(m, t, Some(&q));
                     let prior = retry;
                     let r = solve_with(m, &mut retry, &prior, &goal, 24, true, &self.stop);
-                    if r.target_error_mm < error {
+                    if fit_score(m, &retry, r.target_error_mm) < score {
                         (q, error) = (retry, r.target_error_mm);
                     }
                 }
@@ -626,5 +641,79 @@ fn next_knot(plan: &Plan, after: f64) -> f64 {
         // Unreachable: two fill points cannot both have markers within 1/60 s
         // without one of those markers lying ahead of `after`.
         (None, None) => (after * FILL_HZ).floor() / FILL_HZ + 3. / FILL_HZ,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accurate_tips_do_not_keep_an_unsafe_stream_seed() {
+        let m = Model::load(include_bytes!("../../../assets/hand/model.json")).unwrap();
+        let mut p = Plan::empty(1.5);
+        p.initial.left = 5;
+        p.initial.right = 1;
+        p.tracks.right.push(crate::plan::Swing {
+            release: 0.,
+            land: 1.,
+            from: 1,
+            to: 1,
+            lift_m: 0.0175,
+        });
+        p.rebuild_edges();
+        p.center_contacts(None);
+        // A curled, turned warm start close to several authored joint limits.
+        let mut q = m.style[0].q;
+        q[..8].copy_from_slice(&[
+            m.hi[0] * 0.92,
+            m.lo[1],
+            m.lo[2],
+            m.lo[3],
+            m.lo[4],
+            m.hi[5] * 0.91,
+            m.hi[6],
+            m.hi[7],
+        ]);
+        q[8..].copy_from_slice(&[0., -8., m.lo[10] + 10., 25., 0., 120.]);
+        m.clamp(&mut q);
+        let tips = p.targets(0.5).tips;
+        let com = std::array::from_fn(|i| (tips[0][i] + tips[1][i]) * 0.5);
+        let prior = q;
+        let report = solve_with(
+            &m,
+            &mut q,
+            &prior,
+            &Goal { tips, com },
+            24,
+            true,
+            &crate::solve::STRICT,
+        );
+        let g = m.geometry(&q);
+        assert!(
+            report.target_error_mm <= 2. && g.knuckles.iter().any(|z| *z < 40.),
+            "{} {:?}",
+            report.target_error_mm,
+            g.knuckles
+        );
+        let mut stream = Stream::new(StreamOptions::default(), 3., 30.);
+        stream.plan = Some(p);
+        stream.final_until = 1.5;
+        stream.complete = true;
+        stream.sections.push(Section {
+            enter: 0.,
+            full: 0.,
+            leave: None,
+            motion: Motion {
+                raw: vec![(0.5, q, com, report.target_error_mm)],
+                refitted: 1,
+                ..Default::default()
+            },
+        });
+        assert_eq!(stream.advance(&m, 0., 1), 1);
+        let raw = stream.sections[0].motion.raw.last().unwrap();
+        let g = m.geometry(&raw.1);
+        assert!(g.knuckles.iter().all(|z| *z >= 40.), "{:?}", g.knuckles);
+        assert!(raw.3 <= 2., "{}", raw.3);
     }
 }

@@ -447,18 +447,37 @@ mod tests {
 
     #[test]
     fn ordinary_charts_keep_judged_times_and_contacts_with_turns_offsets_and_immediate_notes() {
-        for (offset, turn) in [
-            (0., ddi_engine::Turn::Off),
-            (-1.5, ddi_engine::Turn::Mirror),
-            (0.3, ddi_engine::Turn::Shuffle),
+        for (layout, offset, turn) in [
+            ("dance-single", 0., ddi_engine::Turn::Off),
+            ("dance-single", -1.5, ddi_engine::Turn::Mirror),
+            ("dance-single", 0.3, ddi_engine::Turn::Shuffle),
+            ("pump-single", 0., ddi_engine::Turn::Off),
+            ("pump-single", 0.3, ddi_engine::Turn::Mirror),
+            ("danoni-7", 0., ddi_engine::Turn::Off),
+            ("danoni-7", 0.3, ddi_engine::Turn::Mirror),
+            ("techno-single8", 0., ddi_engine::Turn::Off),
+            ("techno-single8", 0.3, ddi_engine::Turn::Mirror),
+            ("techno-single8", -0.5, ddi_engine::Turn::Left),
+            ("danoni-9B", 0., ddi_engine::Turn::Off),
+            ("danoni-9B", 0.3, ddi_engine::Turn::Mirror),
         ] {
-            let song = ordinary_song(offset);
+            let song = if layout == "pump-single" {
+                ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary Pump;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:pump-single::Medium:5:0,0,0,0,0:\n10000\n01000\n00100\n00010,\n00001\n10010\n01001\n00100,\n10010\n01001\n00100\n00001,\n10000\n01000\n00010\n00001;")).unwrap()
+            } else if layout == "danoni-7" {
+                ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary seven-key;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:danoni-7::Medium:5:0,0,0,0,0:\n1000000\n0100000\n0010000\n0001000,\n0000100\n0000010\n0000001\n0001000,\n0100010\n1000001\n0002000\n0000000,\n0000000\n0010000\n0003000\n1000100;")).unwrap()
+            } else if layout == "techno-single8" {
+                ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary Techno;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:techno-single8::Medium:5:0,0,0,0,0:\n10000000\n01000000\n00100000\n00010000,\n00001000\n00000100\n00000010\n00000001,\n10000100\n00100001\n02000000\n00000000,\n00000000\n00010000\n03000000\n00001010;")).unwrap()
+            } else if layout == "danoni-9B" {
+                ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary nine-key;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:danoni-9B::Medium:5:0,0,0,0,0:\n100000000\n010000000\n001000000\n000100000,\n000010000\n000001000\n000000100\n000000010,\n000000001\n100000001\n001000100\n020000000,\n000000000\n000100000\n030000000\n000001010;")).unwrap()
+            } else {
+                ordinary_song(offset)
+            };
             let player = ordinary_player(&song, turn);
-            let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
-            // The hand's copy: the play's judged notes, at most two at once.
+            let mut r = RuntimePreview::for_player(&player, layout).unwrap();
+            // The hand caps its own copy; gameplay keeps every judged note.
             let judged = player.judge().notes();
             assert_eq!(judged.len(), song.charts[0].notes.len());
-            assert!(r.source.len() < judged.len());
+            assert!(r.source.len() <= judged.len());
             let expected: Vec<_> = judged
                 .iter()
                 .filter(|n| r.source.contains(&n.note))
@@ -468,6 +487,9 @@ mod tests {
                 expected.iter().map(|n| n.note.clone()).collect::<Vec<_>>()
             );
             assert_eq!(r.window, 3.);
+            if layout == "dance-single" {
+                assert!(r.source.len() < song.charts[0].notes.len());
+            }
             let ticks = Cell::new(0.);
             let clock = || {
                 let t = ticks.get();
@@ -481,13 +503,17 @@ mod tests {
                 r.prepare(local, &clock);
                 assert!(
                     r.failure().is_none(),
-                    "{offset}/{turn:?} at {local}: {}",
+                    "{layout}/{offset}/{turn:?} at {local}: {}",
                     r.debug()
                 );
                 if local < 0. {
                     continue;
                 }
-                assert!(r.available, "{offset}/{turn:?} at {local}: {}", r.debug());
+                assert!(
+                    r.available,
+                    "{layout}/{offset}/{turn:?} at {local}: {}",
+                    r.debug()
+                );
                 while checked < expected.len() && expected[checked].seconds - r.origin <= local {
                     let n = &expected[checked];
                     let time = n.seconds - r.origin;
@@ -497,7 +523,9 @@ mod tests {
                         .iter()
                         .find(|e| {
                             e.tick == n.note.tick.0
-                                && e.panel == [4, 2, 8, 6][usize::from(n.note.lane)]
+                                && e.panel
+                                    == ddi_hand_plan::layout_panels(layout).unwrap()
+                                        [usize::from(n.note.lane)]
                         })
                         .expect("same played event");
                     assert!((e.time + r.origin - n.seconds).abs() < 1e-9);
@@ -591,7 +619,7 @@ mod tests {
     fn ordinary_adapter_checks_rolls_layout_and_judges_and_caps_its_own_copy() {
         let mut song = ordinary_song(0.);
         let p = ordinary_player(&song, ddi_engine::Turn::Off);
-        assert!(RuntimePreview::for_player(&p, "pump-single").is_err());
+        assert!(RuntimePreview::for_player(&p, "pump-double").is_err());
         song.charts[0].notes[0].kind = ddi_chart::NoteKind::RollHead {
             end: ddi_chart::Tick(384),
         };

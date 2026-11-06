@@ -194,11 +194,15 @@ fn index(p: u8) -> usize {
         5 => 2,
         6 => 3,
         8 => 4,
+        7 => 5,
+        9 => 6,
+        1 => 7,
+        3 => 8,
         _ => unreachable!("validated panel"),
     }
 }
 fn panel(n: &InputNote) -> u8 {
-    [4, 2, 8, 6, 5][n.lane as usize]
+    n.panel
 }
 fn shape(p: [u8; 2]) -> (f64, f64) {
     SHAPES[index(p[0])][index(p[1])]
@@ -208,9 +212,6 @@ fn distance(p: u8, old: u8, d: usize) -> f64 {
 }
 fn square(v: f64) -> f64 {
     v * v
-}
-fn legal(heading: f64, span: f64) -> bool {
-    (8. ..=48.).contains(&span) && heading.abs() <= 76.
 }
 fn limits(dt: f64, adaptive: bool) -> (f64, f64) {
     if !adaptive || dt >= 0.115 {
@@ -292,7 +293,7 @@ pub struct Search {
     mines: Vec<InputNote>,
     origin: f64,
     options: Options,
-    future: Vec<[f64; 5]>,
+    future: Vec<[f64; 9]>,
     states: Vec<State>,
     candidates: Vec<State>,
     row: usize,
@@ -306,6 +307,10 @@ pub struct Search {
     duration: Option<f64>,
 }
 impl Search {
+    pub(crate) fn failure_tick(&self) -> Option<i64> {
+        self.result.as_ref()?.as_ref().err()?;
+        self.rows.get(self.row)?.first().map(|n| n.tick)
+    }
     pub fn new(input: &Input, o: Options) -> Result<Self, String> {
         Self::new_with_rolls(input, o, None, None)
     }
@@ -382,6 +387,7 @@ impl Search {
         }
         if notes.iter().any(|n| {
             n.lane as usize >= lanes
+                || layout_panels(&input.layout).unwrap().get(n.lane as usize) != Some(&n.panel)
                 || !n.time.is_finite()
                 || n.end.is_some_and(|(_, e)| !e.is_finite())
         }) {
@@ -423,8 +429,27 @@ impl Search {
         search.mines = mines;
         Ok(search)
     }
+    fn legal(&self, heading: f64, span: f64) -> bool {
+        // These layouts include the 50.8 mm opposite-corner stance and
+        // reversed escape stances. Actual reach and rotation remain
+        // subject to the unchanged bounded pose solver and contact checks.
+        if crate::wide_stances(&self.layout) {
+            (8. ..=51.).contains(&span)
+        } else {
+            (8. ..=48.).contains(&span) && heading.abs() <= 76.
+        }
+    }
+    fn facing_cost(&self, heading: f64) -> f64 {
+        // Keep broad turns available, but prefer the reference-facing family
+        // over unnecessarily crossing the fingers through a reversed stance.
+        if crate::wide_stances(&self.layout) {
+            square(heading / 45.) * 4.
+        } else {
+            0.
+        }
+    }
     fn with_rows(rows: Vec<Vec<InputNote>>, origin: f64, o: Options) -> Self {
-        let mut next = [f64::INFINITY; 5];
+        let mut next = [f64::INFINITY; 9];
         let mut future = vec![next; rows.len()];
         if o.restore_early_window > 0. {
             for i in (0..rows.len()).rev() {
@@ -698,7 +723,7 @@ impl Search {
             panels[d] = panel(n);
             panels[other] = h.panel;
             let (heading, span) = shape(panels);
-            if !legal(heading, span) {
+            if !self.legal(heading, span) {
                 continue;
             }
             let mut s = old.clone();
@@ -752,10 +777,113 @@ impl Search {
                 + square(duration / o.hold_handoff_window) * 0.5
                 + square((duration - 0.14) / 0.10) * 0.35
                 + square((span - 32.).max(0.)) * 0.006
-                + square((heading - old.heading) / 45.) * 0.25;
+                + square((heading - old.heading) / 45.) * 0.25
+                + self.facing_cost(heading);
             out.push(s);
         }
         out
+    }
+    fn wide(panels: [u8; 2]) -> bool {
+        let [a, b] =
+            panels.map(|p| ddi_hand_pose::panel_position(p, 24.).expect("validated panel"));
+        (a[0] - b[0]).hypot(a[1] - b[1]) > 60.
+    }
+    fn support_step(
+        &self,
+        old: &State,
+        head: &InputNote,
+        d: usize,
+        target: u8,
+        land: f64,
+    ) -> Option<State> {
+        let other = 1 - d;
+        if old.holds[other] > land || old.last[other] >= land || old.panels[other] == target {
+            return None;
+        }
+        let ls = self.departure_limits(old, other, land);
+        let dist = distance(target, old.panels[other], other);
+        let duration = 0.45;
+        let release = (land - duration)
+            .max(old.last[other] + ls.0)
+            .max(self.release_floor())
+            .max(old.holds[other]);
+        if land - release < ls.1 || !self.allowed(target, land) {
+            return None;
+        }
+        let mut s = old.clone();
+        s.tracks[other].push(Swing {
+            release,
+            land,
+            from: old.panels[other],
+            to: target,
+            lift_m: self.clearance_lift(
+                old.panels[other],
+                target,
+                release,
+                land,
+                lift(dist, false, land - release, self.options.adaptive_timing),
+            )?,
+        });
+        s.aux.push(Auxiliary {
+            time: land,
+            foot: Foot::at(other),
+            panel: target,
+            kind: RestoreKind::SupportStep,
+            end_tick: head.tick,
+        });
+        s.record(other, old.last[other], release, land, ls, self.options);
+        s.panels[other] = target;
+        s.last[other] = land;
+        s.cost += 0.5 + square(dist / 18.) * 0.65;
+        Some(s)
+    }
+    // A shared roll or rapid repeat needs the companion off its button. With every tile scored,
+    // choose a temporary rest only after checking known hazards and nearby heads.
+    fn companion_rest(
+        &self,
+        old: &State,
+        d: usize,
+        source: u8,
+        release: f64,
+        head: f64,
+    ) -> Option<(u8, f64, f64)> {
+        let mut candidates = Vec::new();
+        for panel in 1..=9 {
+            if panel == source {
+                continue;
+            }
+            let mut land = head + 0.060;
+            for mine in self.mines.iter().filter(|m| self::panel(m) == panel) {
+                let time = mine.time - self.origin;
+                if time + 0.095 >= land && time - 0.095 <= land + 0.055 {
+                    land = land.max(time + 0.170);
+                }
+            }
+            if land > head + 0.4
+                || self.rows.iter().skip(self.row + 1).flatten().any(|n| {
+                    !n.mine
+                        && !n.roll_refresh
+                        && self::panel(n) == panel
+                        && (n.time - self.origin - land).abs() <= 0.25
+                })
+            {
+                continue;
+            }
+            let mut panels = old.panels;
+            panels[d] = panel;
+            let (heading, span) = shape(panels);
+            if !self.legal(heading, span) {
+                continue;
+            }
+            let height = self.clearance_lift(source, panel, release, land, 0.035);
+            if let Some(height) = height {
+                let cost =
+                    square(distance(panel, source, d) / 18.) * 0.65 + self.facing_cost(heading);
+                candidates.push((cost, panel, land, height));
+            }
+        }
+        candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        candidates.first().map(|&(_, p, t, h)| (p, t, h))
     }
     fn ordinary(
         &self,
@@ -772,6 +900,20 @@ impl Search {
         let mut cost = old.cost;
         let mut landing = old.panels;
         let mut returns = Vec::new();
+        let lift_jump = crate::wide_stances(&self.layout)
+            && group.len() == 2
+            && group.iter().all(|n| n.lift)
+            && Self::wide([panel(&group[0]), panel(&group[1])])
+            && group
+                .iter()
+                .enumerate()
+                .any(|(i, n)| old.panels[assignment[i]] != panel(n));
+        let support_jump = crate::wide_stances(&self.layout)
+            && old.aux.backwards().any(|a| {
+                a.kind == RestoreKind::SupportStep
+                    && a.time == land
+                    && group.iter().any(|n| n.tick == a.end_tick)
+            });
         for (i, n) in group.iter().enumerate() {
             let d = assignment[i];
             let other = 1 - d;
@@ -785,7 +927,7 @@ impl Search {
             }
             if n.lift {
                 let prior = s.cost;
-                self.lift_contact(&mut s, n, d, land, next, direct_lifts)?;
+                self.lift_contact(&mut s, n, d, land, next, direct_lifts, lift_jump)?;
                 s.row_feet[i] = Foot::at(d);
                 landing[d] = s.panels[d];
                 cost += s.cost - prior;
@@ -800,8 +942,14 @@ impl Search {
             if held_at_hit && o.hold_restore_window == 0. {
                 return None;
             }
-            if old.panels[other] == target && !assignment[..group.len()].contains(&other) {
-                if self.layout != "danoni-5" {
+            if old.panels[other] == target
+                && !assignment[..group.len()].contains(&other)
+                && !(self.layout == "danoni-9B"
+                    && old.tracks[other]
+                        .backwards()
+                        .any(|s| s.release <= land && s.land > land))
+            {
+                if !crate::scored_center(&self.layout) {
                     return None;
                 }
                 // A shared scored tile needs both fingers lifted for a new
@@ -813,20 +961,46 @@ impl Search {
                 {
                     return None;
                 }
-                let clear = if n.roll {
+                let clear = if self.layout == "danoni-7" && n.end.is_some() && !n.roll {
+                    // Keep an already-shared freeze supported by either finger,
+                    // as on five keys. A roll still needs aggregate releases.
+                    target
+                } else if let Some(stance) = crate::escape_stances(&self.layout).first() {
+                    if crate::wide_stances(&self.layout) {
+                        stance[other]
+                    } else if n.roll {
+                        if other == 0 { 4 } else { 6 }
+                    } else {
+                        target
+                    }
+                } else if n.roll {
                     if other == 0 { 4 } else { 6 }
                 } else {
                     target
                 };
+                let (clear, rejoin, height) = if self.layout == "danoni-9B"
+                    && (n.roll
+                        || (n.end.is_none()
+                            && self.rows.iter().skip(self.row + 1).flatten().any(|head| {
+                                !head.mine
+                                    && !head.lift
+                                    && !head.roll_refresh
+                                    && panel(head) == target
+                                    && head.time - n.time < 0.215
+                            }))) {
+                    self.companion_rest(old, other, target, release, land)?
+                } else {
+                    (clear, land + 0.060, 0.035)
+                };
                 s.tracks[other].push(Swing {
                     release,
-                    land: land + 0.060,
+                    land: rejoin,
                     from: target,
                     to: clear,
-                    lift_m: 0.035,
+                    lift_m: height,
                 });
                 s.aux.push(Auxiliary {
-                    time: land + 0.060,
+                    time: rejoin,
                     foot: Foot::at(other),
                     panel: clear,
                     kind: RestoreKind::CompanionHop,
@@ -834,7 +1008,7 @@ impl Search {
                 });
                 s.panels[other] = clear;
                 landing[other] = clear;
-                s.last[other] = land + 0.060;
+                s.last[other] = rejoin;
                 cost += 0.5;
             }
             if old.last[d] == land
@@ -895,7 +1069,7 @@ impl Search {
             for duration in durations {
                 let release = land - duration;
                 let air = overlap(&old.tracks[other], release, land);
-                if air > 0.145 {
+                if air > if support_jump { 0.45 } else { 0.145 } {
                     continue;
                 }
                 let mut penalty =
@@ -993,11 +1167,21 @@ impl Search {
             }
             cost += square(dist / 18.) * 0.65 + penalty;
         }
+        if crate::wide_stances(&self.layout)
+            && group.len() == 1
+            && !group[0].lift
+            && !group[0].roll_refresh
+            && (Self::wide(old.panels) || Self::wide(landing))
+        {
+            cost += 20.;
+        }
         let (mut heading, span) = shape(landing);
-        if !legal(heading, span) {
+        if !self.legal(heading, span) {
             return None;
         }
-        cost += square((span - 32.).max(0.)) * 0.006 + square((heading - old.heading) / 45.) * 0.25;
+        cost += square((span - 32.).max(0.)) * 0.006
+            + square((heading - old.heading) / 45.) * 0.25
+            + self.facing_cost(heading);
         returns.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
         let mut i = 0;
         while i < returns.len() {
@@ -1007,10 +1191,10 @@ impl Search {
                 i += 1;
             }
             let (h, span) = shape(landing);
-            if !legal(h, span) {
+            if !self.legal(h, span) {
                 return None;
             }
-            cost += square((h - heading) / 45.) * 0.25;
+            cost += square((h - heading) / 45.) * 0.25 + self.facing_cost(h);
             heading = h;
         }
         s.cost = cost;
@@ -1059,6 +1243,38 @@ impl Search {
                 for direct_lifts in [false, true] {
                     if direct_lifts && !heads.iter().any(|n| n.lift) {
                         break;
+                    }
+                    if crate::wide_stances(&self.layout)
+                        && heads.len() == 1
+                        && !heads[0].lift
+                        && !heads[0].roll_refresh
+                    {
+                        let mut landing = old.panels;
+                        landing[assignment[0]] = panel(&heads[0]);
+                        if Self::wide(old.panels) || Self::wide(landing) {
+                            for &target in crate::support_tiles(&self.layout) {
+                                if let Some(s) = self
+                                    .support_step(old, &heads[0], assignment[0], target, land)
+                                    .and_then(|s| {
+                                        self.ordinary(
+                                            &s,
+                                            &heads,
+                                            assignment,
+                                            land,
+                                            next,
+                                            direct_lifts,
+                                        )
+                                    })
+                                {
+                                    for s in self.hazard_candidates(s, hazards, land) {
+                                        if self.mine_safe(&s, land) {
+                                            let s = self.capture(s, source_tick, land);
+                                            self.candidates.push(s);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     if let Some(s) =
                         self.ordinary(old, &heads, assignment, land, next, direct_lifts)

@@ -34,16 +34,14 @@ pub struct ReplayReport {
 fn zero(n: &usize) -> bool {
     *n == 0
 }
-pub(crate) fn lane(panel: u8) -> Option<u8> {
-    match panel {
-        4 => Some(0),
-        2 => Some(1),
-        8 => Some(2),
-        6 => Some(3),
-        5 => Some(4),
-        _ => None,
-    }
+pub(crate) fn lane(layout: &str, panel: u8) -> Option<u8> {
+    layout_panels(layout)
+        .ok()?
+        .iter()
+        .position(|p| *p == panel)
+        .map(|i| i as u8)
 }
+
 fn same(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9
 }
@@ -74,7 +72,7 @@ pub(crate) fn validate_events(
     {
         if !p.holds.iter().any(|h| {
             h.roll
-                && Some(n.lane) == lane(h.panel)
+                && Some(n.lane) == lane(&p.layout, h.panel)
                 && same(h.start + p.source_music_origin_seconds, n.time)
                 && n.end.is_some_and(|(tick, t)| {
                     tick == h.end_tick && same(h.end + p.source_music_origin_seconds, t)
@@ -101,7 +99,7 @@ pub(crate) fn validate_events(
     }
     for (n, e) in expected.iter().zip(events) {
         if n.tick != e.tick
-            || Some(n.lane) != lane(e.panel)
+            || Some(n.lane) != lane(&p.layout, e.panel)
             || !same(e.time + p.source_music_origin_seconds, n.time)
             || e.lift != n.lift
             || if e.lift {
@@ -133,6 +131,27 @@ pub(crate) fn validate_events(
         let t = a.time + p.source_music_origin_seconds;
         t > after && t <= until
     }) {
+        if a.kind == RestoreKind::SupportStep {
+            if !crate::wide_stances(&p.layout)
+                || !crate::support_tiles(&p.layout).contains(&a.panel)
+                || !input.notes.iter().any(|n| {
+                    n.judgeable
+                        && !n.mine
+                        && !n.lift
+                        && !n.roll_refresh
+                        && n.tick == a.end_tick
+                        && same(n.time, a.time + p.source_music_origin_seconds)
+                })
+                || !p
+                    .events
+                    .iter()
+                    .any(|e| e.tick == a.end_tick && e.foot != a.foot && same(e.time, a.time))
+                || !landing(p, a.foot, a.panel, a.time)
+            {
+                return Err("support step has no matching chart head or unscored landing".into());
+            }
+            continue;
+        }
         if a.kind == RestoreKind::CompanionHop {
             if !input.notes.iter().any(|n| {
                 n.judgeable
@@ -145,8 +164,21 @@ pub(crate) fn validate_events(
                         &p.tracks.right
                     })
                     .iter()
-                    .any(|s| s.land == a.time && s.to == a.panel && lane(s.from) == Some(n.lane))
-                    && same(n.time + 0.060, a.time + p.source_music_origin_seconds)
+                    .any(|s| {
+                        s.land == a.time
+                            && s.to == a.panel
+                            && lane(&p.layout, s.from) == Some(n.lane)
+                    })
+                    && (same(n.time + 0.060, a.time + p.source_music_origin_seconds)
+                        || (p.layout == "danoni-9B"
+                            && a.time + p.source_music_origin_seconds >= n.time + 0.060
+                            && a.time + p.source_music_origin_seconds <= n.time + 0.4
+                            && input.notes.iter().any(|m| {
+                                m.judgeable
+                                    && m.mine
+                                    && m.panel == a.panel
+                                    && same(m.time + 0.170, a.time + p.source_music_origin_seconds)
+                            })))
             }) || !landing(p, a.foot, a.panel, a.time)
             {
                 return Err("companion hop has no matching source head".into());
@@ -165,7 +197,7 @@ pub(crate) fn validate_events(
             crate::search::lifts::validate_auxiliary(input, p, a)?;
             continue;
         }
-        let l = lane(a.panel).ok_or("restore lane")?;
+        let l = lane(&p.layout, a.panel).ok_or("restore lane")?;
         let time = a.time + p.source_music_origin_seconds;
         if !hold_index
             .get(&(l, a.end_tick))
@@ -206,7 +238,10 @@ pub(crate) fn buttons_at(p: &ContactPlan, time: f64) -> Vec<bool> {
                 None
             };
         }
-        if let Some(l) = at.and_then(lane).filter(|l| (*l as usize) < down.len()) {
+        if let Some(l) = at
+            .and_then(|tile| lane(&p.layout, tile))
+            .filter(|l| (*l as usize) < down.len())
+        {
             down[l as usize] = true;
         }
     }
@@ -259,8 +294,8 @@ pub(crate) fn edges_since(p: &ContactPlan, after: f64) -> Result<Vec<(f64, u8, b
     changes.sort_by(|a, b| a.0.total_cmp(&b.0));
     let counts = |c: [Option<u8>; 2]| {
         let mut n = vec![0; layout_lanes(&p.layout).unwrap()];
-        for p in c.into_iter().flatten() {
-            if let Some(l) = lane(p).filter(|l| (*l as usize) < n.len()) {
+        for panel in c.into_iter().flatten() {
+            if let Some(l) = lane(&p.layout, panel).filter(|l| (*l as usize) < n.len()) {
                 n[l as usize] += 1;
             }
         }
@@ -450,4 +485,31 @@ pub fn replay(input: &Input, p: &ContactPlan) -> Result<ReplayReport, String> {
     let mut j = ReplayJob::new(input, p)?;
     while !j.step() {}
     Ok(j.finish())
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    #[test]
+    fn unscored_center_never_becomes_a_solo_button() {
+        assert_eq!(lane("dance-solo", 5), None);
+        assert_eq!(lane("dance-solo", 7), Some(1));
+        assert_eq!(lane("dance-solo", 9), Some(4));
+        assert_eq!(lane("danoni-5", 5), Some(4));
+        assert_eq!(lane("dance-single", 5), None);
+        assert_eq!(lane("pump-single", 1), Some(0));
+        assert_eq!(lane("pump-single", 5), Some(2));
+        assert_eq!(lane("pump-single", 3), Some(4));
+        assert_eq!(lane("danoni-7", 7), None);
+        assert_eq!(lane("danoni-7", 3), None);
+        assert_eq!(lane("danoni-7", 5), Some(3));
+        assert_eq!(lane("danoni-7", 1), Some(1));
+        assert_eq!(lane("danoni-7", 9), Some(5));
+        assert_eq!(lane("techno-single8", 5), None);
+        assert_eq!(lane("techno-single8", 1), Some(0));
+        assert_eq!(lane("techno-single8", 3), Some(7));
+        for panel in 1..=9 {
+            assert!(lane("danoni-9B", panel).is_some());
+        }
+    }
 }
