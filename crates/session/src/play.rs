@@ -191,9 +191,6 @@ impl SessionConfig {
                 options.scroll.speed,
                 settings.speed_source,
             );
-            if self.calibration.is_none() {
-                options.transform = settings.hand_transform(&chart.layout, options.transform);
-            }
         }
         Ok((rules, options))
     }

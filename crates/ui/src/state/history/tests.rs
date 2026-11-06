@@ -291,11 +291,8 @@ fn conversions_keep_their_sources_rules_and_are_not_assisted() {
             dancing_hand: true,
             ..settings.clone()
         };
-        assert_eq!(
-            history.best_of_play(song, index, &accompanied).is_none(),
-            accompanied.dancing_hand_for(&chart.layout),
-            "only supported hand-assisted plays use the separate best"
-        );
+        // The hand plays a copy of its own: the play's best is the same.
+        assert!(history.best_of_play(song, index, &accompanied).is_some());
     }
 }
 

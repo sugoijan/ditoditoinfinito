@@ -420,12 +420,7 @@ impl PromptInfo {
         settings: &crate::state::settings::Settings,
         badge: Badge,
     ) -> PromptInfo {
-        let mut options = settings.play_options(None);
-        if badge != Badge::Replay
-            && let Some(c) = &chart
-        {
-            options.transform = settings.hand_transform(&c.layout, options.transform);
-        }
+        let options = settings.play_options(None);
         let (chart, difficulty) = chart.map_or_else(Default::default, |c| {
             (
                 chart_line(c.difficulty, c.meter, &c.style),
@@ -2001,8 +1996,7 @@ mod tests {
     }
 
     #[test]
-
-    fn hand_mode_names_the_effective_limit_only_for_four_panels() {
+    fn the_hand_leaves_the_mods_line_alone() {
         let settings = crate::state::settings::Settings {
             dancing_hand: true,
             ..Default::default()
@@ -2020,8 +2014,7 @@ mod tests {
                 &settings,
                 Badge::None,
             );
-            let mut options = settings.play_options(None);
-            options.transform = settings.hand_transform(layout, options.transform);
+            let options = settings.play_options(None);
             assert_eq!(info.mods, super::super::play::options_line(&options));
         }
         assert_eq!(settings.transform.at_once, ddi_engine::AtOnce::Any);
@@ -2051,7 +2044,7 @@ mod tests {
         let info = PromptInfo::for_chart("T".into(), "A".into(), chart, &settings, Badge::Auto);
         assert_eq!(info.chart, format!("Hard 9 · {style}"));
         assert_eq!(info.difficulty, "Hard");
-        assert_eq!(info.mods, "×2.5 · up to two at once");
+        assert_eq!(info.mods, "×2.5");
         assert_eq!((info.badge, info.timing), (Badge::Auto, None));
         // A chart the song does not have: the card without its line.
         assert_eq!(PromptChart::of(&song, 3), None);

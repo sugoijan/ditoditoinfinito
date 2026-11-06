@@ -6,7 +6,7 @@ canonical_url = "https://sugoijan.dev/ditoditoinfinito/"
 favicon_href = "favicon.svg"
 # Trunk copies the existing, attributed gameplay capture without modification.
 social_image_url = "https://sugoijan.dev/ditoditoinfinito/images/readme.png"
-social_image_alt = "Dito Dito Infinito gameplay: four columns of colorful arrows over Beatucada's beach background."
+social_image_alt = "Dito Dito Infinito gameplay: four columns of colorful arrows over Beatucada's beach background, a hand dancing on a small pad beside them."
 social_image_type = "image/png"
 social_image_width = 1280
 social_image_height = 720

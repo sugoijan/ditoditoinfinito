@@ -843,18 +843,6 @@ impl Settings {
         self.dancing_hand && matches!(layout, "dance-single" | "danoni-5")
     }
 
-    /// This play's simplification, without changing stored preferences.
-    pub fn hand_transform(
-        &self,
-        layout: &str,
-        mut transform: TransformOptions,
-    ) -> TransformOptions {
-        if self.dancing_hand_for(layout) {
-            transform.at_once = ddi_engine::AtOnce::Two;
-        }
-        transform
-    }
-
     /// Keeps the heights a play left the lane covers at, as DDR and
     /// beatmania IIDX keep an adjusted cover for the next song (the mode
     /// stays the one chosen: a cover toggled off in play is on again).
@@ -1515,16 +1503,9 @@ mod dancing_hand_tests {
     fn hand_mode_defaults_on_for_four_panels_and_five_keys() {
         let mut s: Settings = serde_json::from_str("{}").unwrap();
         assert!(s.dancing_hand);
-        let original = s.transform;
         s.dancing_hand = true;
         assert!(s.dancing_hand_for("dance-single"));
         assert!(s.dancing_hand_for("danoni-5"));
         assert!(!s.dancing_hand_for("pump-single"));
-        assert_eq!(s.hand_transform("pump-single", original), original);
-        assert_eq!(s.transform, original);
-        assert_eq!(
-            s.hand_transform("dance-single", original).at_once,
-            ddi_engine::AtOnce::Two
-        );
     }
 }

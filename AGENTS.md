@@ -65,8 +65,11 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/noteskin-scene.md`). No platform code.
 - `crates/character/`, `crates/hand-plan/` and `crates/hand-pose/` supply the
   dancing hand (`docs/plans/dancing-hand.md`). Both default builds include it;
-  settings retain saved Off choices. The gameplay Player and hand use the same
-  AtOnce::Two chart copy. Three-second planning and bounded f64 pose preparation
+  settings retain saved Off choices. The hand is an autoplay beside the play: it
+  plays its own copy of the judged notes, at most two at once (`At once: up to
+  two`, ongoing holds included), while the play judges every note with the
+  player's options, never an assist because of the hand (`RuntimePreview::
+  for_player`). Three-second planning and bounded f64 pose preparation
   run cooperatively on one thread; rendering samples prepared C2 motion. Preserve
   exact contact times, published prefixes and current contact/model bounds.
   Display-time revisions may only resample retained prepared output; never rewind
@@ -75,7 +78,9 @@ Rust and the browser are implementation details, not advertised features.
   buffer. Unsupported/failed hand preparation must never block ordinary play.
   Only `assets/hand/` runtime data/notices are included; development archives,
   external modeling tools, full audits and developer overlays stay on the hand
-  research branch. Keep inherited asset notices; extraction is not license clearance.
+  research branch. `assets/hand/NOTICE.txt` records what the hand is made from
+  (MIT, CC0, CC BY 4.0) and what its studies only compared against; keep it
+  current with the files.
 - `crates/platform/` traits and plain data the shells implement (audio clock, input,
   device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
   the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,

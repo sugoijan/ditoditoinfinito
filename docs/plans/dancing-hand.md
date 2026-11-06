@@ -3,8 +3,12 @@
 The default native and web builds include the dancing hand. Display options
 control its visibility, coordinated field/hand layout and frame size. New settings
 start with the hand enabled; saved Off choices remain Off. Four-panel and DanOni
-five-key charts are supported, with Oni on the mat's center. Gameplay and the hand
-use the same `At once: up to two` effective chart, including ongoing holds. Source
+five-key charts are supported, with Oni on the mat's center. The hand is an
+autoplay beside the play: it plays its own copy of the notes the play judges, at
+most two at once (`At once: up to two`, ongoing holds included), while the play
+judges every note with the player's own options. The hand never makes a play an
+assist, never shows in its mods and never moves its bests (2026-11-06; before, the
+play judged the hand's copy and every play with the hand was marked ASSIST). Source
 charts and global simplification preferences are preserved.
 
 `hand-plan` receives notes in a three-second window and keeps certified contact
@@ -170,10 +174,13 @@ restart can briefly show Loading while its hand buffer is prepared.
 paths are recorded in `assets/hand/provenance.json`. The GLB retains only a
 zero-valued static carrier track (two identical keys), not a recorded dance. The
 independent mesh originated from Dan Ulrich's CC0 hand; MZiemys' CC0 bones were used
-as references. The retained
-calibration/skin study carries its inherited mixed license notices, included in
-`assets/hand/NOTICE.txt` and Credits. This extraction does not establish new
-commercial-use clearance or relabel those inputs as exclusively MIT/CC0.
+as references. The rig, correctives and calibration are ours (MIT), the motion
+planned on Beatucada's CC BY 4.0 chart: `MIT AND CC0-1.0 AND CC-BY-4.0`
+(`REUSE.toml`, Credits). The studies compared against WAVEFILE's MikuMikuDance
+motion, a reference Miku model and a CMU motion capture; none of them is in these
+files, and on 2026-11-06 the maintainer assessed the hand as original work that
+does not meaningfully use them, narrowing the conservatively inherited terms the
+extraction first carried. `assets/hand/NOTICE.txt` records both.
 
 ## Basic checks
 

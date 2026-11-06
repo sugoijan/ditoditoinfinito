@@ -55,10 +55,10 @@ fn fixture() -> (Value, Vec<u8>) {
 fn encode(mut d: Value, mut bin: Vec<u8>) -> Vec<u8> {
     d["buffers"][0]["byteLength"] = json!(bin.len());
     let mut js = serde_json::to_vec(&d).unwrap();
-    while js.len() % 4 != 0 {
+    while !js.len().is_multiple_of(4) {
         js.push(b' ')
     }
-    while bin.len() % 4 != 0 {
+    while !bin.len().is_multiple_of(4) {
         bin.push(0)
     }
     let mut b = Vec::new();

@@ -35,15 +35,15 @@ pub struct RuntimePreview {
     pub resets: usize,
 }
 impl RuntimePreview {
-    /// Bind the exact input gameplay judges, after modifiers and song offsets.
+    /// Bind the notes gameplay judges, after modifiers and song offsets,
+    /// as two fingers can press them: at most two at once (`At once: up
+    /// to two`), on a copy of the hand's own. The play itself judges
+    /// every note, the hand an autoplay beside it.
     pub fn for_player(player: &ddi_engine::player::Player, layout: &str) -> Result<Self, String> {
         use ddi_chart::NoteKind;
         use ddi_engine::AtOnce;
         if usize::from(player.lanes()) != ddi_hand_plan::layout_lanes(layout)? {
             return Err("dancing hand layout/lane count mismatch".into());
-        }
-        if player.options().transform.at_once != AtOnce::Two {
-            return Err("dancing hand requires At once: up to two".into());
         }
         let table = &player.ruleset().judge;
         if table.hold_window_seconds() < 0.22
@@ -76,6 +76,18 @@ impl RuntimePreview {
             .filter(|n| n.judgeable)
             .map(|n| n.note.clone())
             .collect();
+        let lanes =
+            ddi_chart::Layout::builtin(layout).ok_or("dancing hand layout is not built in")?;
+        let source = ddi_engine::transform::apply(
+            &source,
+            &lanes,
+            &ddi_engine::TransformOptions {
+                at_once: AtOnce::Two,
+                ..Default::default()
+            },
+            0,
+        )
+        .notes;
         let first = judged
             .iter()
             .filter(|n| n.judgeable)
@@ -413,6 +425,7 @@ mod tests {
         ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary four-panel;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:dance-single::Medium:5:0,0,0,0,0:\n1000\n0100\n0010\n0001,\n1100\n0011\n2000\n0000,\n0000\n0001\n3000\n0111,\n1111\n0100\n0001\n1000;" )).unwrap()
     }
 
+    /// A play of every note, as the game plays one beside the hand.
     fn ordinary_player(
         song: &ddi_chart::Song,
         turn: ddi_engine::Turn,
@@ -423,7 +436,6 @@ mod tests {
             ddi_engine::rules::presets::itg(),
             ddi_engine::player::PlayOptions {
                 transform: ddi_engine::TransformOptions {
-                    at_once: ddi_engine::AtOnce::Two,
                     turn,
                     ..Default::default()
                 },
@@ -442,14 +454,20 @@ mod tests {
         ] {
             let song = ordinary_song(offset);
             let player = ordinary_player(&song, turn);
-            let expected = player.judge().notes();
             let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+            // The hand's copy: the play's judged notes, at most two at once.
+            let judged = player.judge().notes();
+            assert_eq!(judged.len(), song.charts[0].notes.len());
+            assert!(r.source.len() < judged.len());
+            let expected: Vec<_> = judged
+                .iter()
+                .filter(|n| r.source.contains(&n.note))
+                .collect();
             assert_eq!(
                 r.source,
                 expected.iter().map(|n| n.note.clone()).collect::<Vec<_>>()
             );
             assert_eq!(r.window, 3.);
-            assert!(r.source.len() < song.charts[0].notes.len());
             let ticks = Cell::new(0.);
             let clock = || {
                 let t = ticks.get();
@@ -570,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_adapter_checks_rolls_layout_at_once_and_custom_judges() {
+    fn ordinary_adapter_checks_rolls_layout_and_judges_and_caps_its_own_copy() {
         let mut song = ordinary_song(0.);
         let p = ordinary_player(&song, ddi_engine::Turn::Off);
         assert!(RuntimePreview::for_player(&p, "pump-single").is_err());
@@ -578,16 +596,22 @@ mod tests {
             end: ddi_chart::Tick(384),
         };
         let p = ordinary_player(&song, ddi_engine::Turn::Off);
-        assert!(RuntimePreview::for_player(&p, "dance-single").is_ok());
+        // The play judges every note; the hand plays them up to two at
+        // once, the copy a capped play would judge.
+        let r = RuntimePreview::for_player(&p, "dance-single").unwrap();
+        assert!(p.judge().notes().len() > r.source.len());
         let mut options = *p.options();
-        options.transform.at_once = ddi_engine::AtOnce::Any;
-        let any =
+        options.transform.at_once = ddi_engine::AtOnce::Two;
+        let capped =
             ddi_engine::player::Player::new(&song, 0, ddi_engine::rules::presets::itg(), options);
-        assert!(
-            RuntimePreview::for_player(&any, "dance-single")
-                .err()
-                .unwrap()
-                .contains("At once")
+        assert_eq!(
+            r.source,
+            capped
+                .judge()
+                .notes()
+                .iter()
+                .map(|n| n.note.clone())
+                .collect::<Vec<_>>()
         );
         let mut rules = ddi_engine::rules::presets::itg();
         rules.judge.hold_window = 0.01;

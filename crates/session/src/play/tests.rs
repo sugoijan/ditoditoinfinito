@@ -1621,14 +1621,15 @@ fn the_announcer_counts_a_batterys_lives_down() {
 }
 
 #[test]
-fn dancing_hand_simplifies_the_play_copy_and_records_the_effective_options() {
+fn the_dancing_hand_leaves_the_plays_chart_and_options_alone() {
+    // A hand (four at once) and a jump over a hold: the hand plays two
+    // at once on a copy of its own; the play judges every note.
     let song = ddi_chart::formats::sm::parse_sm("#TITLE:Shared input;#BPMS:0=120;#NOTES:dance-single::Medium:4:0,0,0,0,0:\n1111\n2000\n0111\n3000\n;").unwrap();
     for enabled in [false, true] {
         let settings = Settings {
             dancing_hand: enabled,
             ..Settings::default()
         };
-        let active = settings.dancing_hand_for("dance-single");
         let clock: Clock = Rc::new(RefCell::new(0.));
         let mut config = SessionConfig::from_settings(&settings, true, None);
         config.seed = 7;
@@ -1645,14 +1646,7 @@ fn dancing_hand_simplifies_the_play_copy_and_records_the_effective_options() {
         let expected = ddi_engine::transform::apply(
             &song.charts[0].notes,
             &ddi_chart::Layout::dance_single(),
-            &ddi_engine::TransformOptions {
-                at_once: if active {
-                    ddi_engine::AtOnce::Two
-                } else {
-                    ddi_engine::AtOnce::Any
-                },
-                ..Default::default()
-            },
+            &ddi_engine::TransformOptions::default(),
             7,
         )
         .notes;
@@ -1665,24 +1659,16 @@ fn dancing_hand_simplifies_the_play_copy_and_records_the_effective_options() {
                 .collect::<Vec<_>>(),
             expected
         );
-        assert_eq!(settings.transform.at_once, ddi_engine::AtOnce::Any);
         assert_eq!(song.charts[0].notes.len(), 8);
         let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 60., 20.)
         else {
             panic!("play did not finish")
         };
-        assert_eq!(results.assist, active);
-        assert_eq!(
-            facts.options.transform.at_once,
-            if active {
-                ddi_engine::AtOnce::Two
-            } else {
-                ddi_engine::AtOnce::Any
-            }
-        );
+        assert!(!results.assist);
+        assert_eq!(facts.options.transform, settings.transform);
         assert_eq!(results.tally.let_go, 0);
         assert!(results.tally.taps[1..].iter().all(|n| *n == 0));
-        if !active {
+        if !enabled {
             let replay = kept("before-hand-mode", &song, 0, &results, &facts, false);
             let hand_settings = Settings {
                 dancing_hand: true,

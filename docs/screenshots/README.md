@@ -16,8 +16,10 @@ runs with a fresh `DDI_HOME` under `target/scratch/screenshot/home`.
 The scenario is [`readme.json`](readme.json). The desktop shell runs
 offscreen on a fixed clock at 1280 × 720 and 60 frames per second, from
 its start menu through song select and Beatucada's Challenge single
-chart, autoplayed. The animation [`readme.avif`](readme.avif) has these
-parts:
+chart, autoplayed, with the dancing hand playing beside the field (on by
+default; it plays a copy of its own and leaves the play's chart alone,
+`docs/plans/dancing-hand.md`). The animation [`readme.avif`](readme.avif)
+has these parts:
 
 1. The menus, pressed through briskly. Enter focuses Singleplayer, Enter
    again opens song select, which shows for 1.8 s. Enter opens the start
@@ -71,7 +73,7 @@ next part on its beat exactly.
 Frames stream to FFmpeg as raw RGBA. Every other frame is kept (30 a
 second) and scaled to 960 × 540 with Lanczos. They are encoded as AV1 in
 an animated AVIF that loops (`libsvtav1 -crf 30 -preset 6`, yuv420p,
-BT.709). The result is about 2.4 MB for 23 seconds. The scenario's
+BT.709). The result is about 2.8 MB for 23 seconds. The scenario's
 `animation` sets the size, the rate, the CRF and the preset.
 
 Choose another scenario or other outputs with:
@@ -124,6 +126,11 @@ Both the still and the animation contain:
   [`Beatucada.ssc`](../../assets/songs/beatucada/Beatucada.ssc).
 - The game's display and its Infinito noteskin, this repository's own
   MIT work.
+- The dancing hand ([`assets/hand/`](../../assets/hand/NOTICE.txt)): its
+  mesh adapted from **Dan Ulrich**'s hand in Blender's Human Base Meshes,
+  with **MZiemys**' skeleton as a reference for its bones, both CC0 1.0;
+  its rig, corrective morphs and calibration are this repository's own MIT
+  work, its motion planned on Beatucada's charts (CC BY 4.0, above).
 
 The animation also contains Beatucada's banner by Jose Varela, CC BY 4.0,
 and song select's banners of the other bundled songs:
@@ -136,8 +143,8 @@ Song select also names the songs' artists and the charts' step artists.
 Neither output contains sound: *Beatucada* by Kurio Prokos is named, not
 heard.
 
-The still combines MIT and CC BY 4.0 material, and the animation also CC
-BY 3.0, as recorded in [`REUSE.toml`](../../REUSE.toml). The bundled
+The still combines MIT, CC BY 4.0 and CC0 material, and the animation also
+CC BY 3.0, as recorded in [`REUSE.toml`](../../REUSE.toml). The bundled
 files' upstream commits, sources and licenses are in each song's
 `PROVENANCE.toml` (for example
 [Beatucada's](../../assets/songs/beatucada/PROVENANCE.toml)), with full

@@ -19,7 +19,13 @@
       "license": "CC0-1.0"
     }
   ],
-  "inherited_terms": "MIT AND CC0-1.0 AND LicenseRef-WAVEFILE AND LicenseRef-MMD-Reference AND LicenseRef-CMU-Mocap AND CC-BY-4.0",
+  "license": "MIT AND CC0-1.0 AND CC-BY-4.0",
+  "references_only": [
+    "WAVEFILE's MikuMikuDance motion (hino)",
+    "a reference Hatsune Miku model",
+    "CMU Graphics Lab Motion Capture Database, CMU60_01 salsa"
+  ],
+  "license_note": "Narrowed 2026-11-06 from the studies' conservatively inherited terms: the maintainer assessed the hand and its calibration as original work that does not meaningfully use the references; none of their data is in these files (NOTICE.txt).",
   "notice": "NOTICE.txt",
   "files": {
     "hand.glb": "518cec7949e2fa0bb8a36233347df06a3c56e267223a52860812ead6269dd230",

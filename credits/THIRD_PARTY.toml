@@ -117,10 +117,10 @@ notice = "tools/danoni-importer/licenses/NotoSansMath-OFL.txt"
 
 [[code]]
 name = "Dancing hand runtime assets"
-what = "Adapted CC0 hand/skeletal references and the retained rig/calibration study. No source dance clips, Miku geometry, audio or reference captures are included. The inherited study notices and commercial-use restrictions remain in force."
+what = "The hand's mesh, adapted from Dan Ulrich's CC0 hand with MZiemys' CC0 bones as references; our rig, corrective morphs and calibration, its motion planned on Beatucada's CC BY 4.0 chart. No recorded dance, motion capture or Miku geometry is included."
 files = ["assets/hand/hand.glb", "assets/hand/model.json"]
-spdx = "MIT AND CC0-1.0 AND LicenseRef-WAVEFILE AND LicenseRef-MMD-Reference AND LicenseRef-CMU-Mocap AND CC-BY-4.0"
-holders = ["Dan Ulrich", "MZiemys", "すごいジャン", "hino (WAVEFILE)", "Carnegie Mellon University Graphics Lab", "MMD reference contributors"]
+spdx = "MIT AND CC0-1.0 AND CC-BY-4.0"
+holders = ["Dan Ulrich", "MZiemys", "すごいジャン", "Timo Kitsune"]
 source = "https://www.blender.org/download/demo-files/"
 commit = "Human Base Meshes v1.4.1; local adaptation 399a1c02"
 license_url = "https://creativecommons.org/publicdomain/zero/1.0/"

@@ -478,8 +478,10 @@ mod preload_tests {
             "#BPMS:0=120;#NOTES:dance-single::Easy:2:0,0,0,0,0:\n1000\n0100\n0010\n0001;",
         )
         .unwrap();
-        let mut settings = ddi_ui::state::settings::Settings::default();
-        settings.dancing_hand = true;
+        let settings = ddi_ui::state::settings::Settings {
+            dancing_hand: true,
+            ..Default::default()
+        };
         let mut config = ddi_session::play::SessionConfig::from_settings(&settings, true, None);
         config.seed = 17;
         let mut p = Preview::default();
