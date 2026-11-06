@@ -156,6 +156,9 @@ struct Surface {
     link: Option<crate::display_link::DisplayLink>,
 }
 
+/// What the shell does last as it quits ([`Shell::on_exit`]).
+pub type OnExit = Box<dyn FnOnce(&Shell)>;
+
 pub struct Shell {
     pub ui: Ui,
     pub dev: Shared,
@@ -195,6 +198,9 @@ pub struct Shell {
     pub error: Option<String>,
     quitting: bool,
     quit_ready: bool,
+    /// What the shell does last as it quits, before the process ends with
+    /// the window still open (`Shell::exit`): the lines printed at exit.
+    pub on_exit: Option<OnExit>,
     /// The theme's screens, when asked for (`--screen select`).
     pub theme: Option<(ThemeEnv, Rc<ddi_theme::Infinito>)>,
     /// Decoded images wait for a frame to show them.
@@ -357,6 +363,7 @@ impl Shell {
             error: None,
             quitting: false,
             quit_ready: false,
+            on_exit: None,
             theme,
             loaded: false,
             play,
@@ -622,6 +629,24 @@ impl Shell {
             self.quitting = true;
             self.sound.borrow_mut().close();
             self.quit_ready = self.songs.as_ref().is_none_or(|s| s.shutdown());
+        }
+    }
+
+    /// The game may end: what quits with it is done.
+    fn may_exit(&self) -> bool {
+        self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained())
+    }
+
+    /// Ends the game: [`Shell::on_exit`], then the process, from inside
+    /// the loop with the window still open for the system to take down
+    /// (`crate::quit`). Without it, the loop ends as winit ends it.
+    fn exit(&mut self, event_loop: &ActiveEventLoop) {
+        match self.on_exit.take() {
+            Some(last) => {
+                last(self);
+                std::process::exit(0);
+            }
+            None => event_loop.exit(),
         }
     }
 
@@ -1264,8 +1289,10 @@ impl ApplicationHandler for Shell {
             self.error = Some(e);
             event_loop.exit();
         }
-        // After the app is up: keys' own times (macOS).
+        // After the app is up: keys' own times (macOS), and ⌘Q and the
+        // Dock's Quit quitting as the start menu's Quit does.
         self.input.monitored = crate::keyboard::monitor::install();
+        crate::quit::route();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -1276,8 +1303,8 @@ impl ApplicationHandler for Shell {
         match event {
             WindowEvent::CloseRequested => {
                 self.request_quit();
-                if self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained()) {
-                    event_loop.exit();
+                if self.may_exit() {
+                    self.exit(event_loop);
                 }
             }
             WindowEvent::Resized(_) => self.resized(),
@@ -1480,8 +1507,11 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.quitting && (self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained())) {
-            event_loop.exit();
+        if crate::quit::asked() {
+            self.request_quit();
+        }
+        if self.quitting && self.may_exit() {
+            self.exit(event_loop);
             return;
         }
         if self
@@ -1512,8 +1542,8 @@ impl ApplicationHandler for Shell {
             if !invalidated.is_empty() {
                 self.sound.borrow_mut().invalidate(&invalidated);
             }
-            if songs.drained() {
-                event_loop.exit();
+            if songs.drained() && self.may_exit() {
+                self.exit(event_loop);
                 return;
             }
             // A library song's preview made ready on its thread.
@@ -1574,8 +1604,8 @@ impl ApplicationHandler for Shell {
         if let Some(limit) = self.quit_after {
             if self.start.elapsed().as_secs_f64() >= limit {
                 self.request_quit();
-                if self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained()) {
-                    event_loop.exit();
+                if self.may_exit() {
+                    self.exit(event_loop);
                 } else {
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
                         Instant::now() + std::time::Duration::from_millis(50),
@@ -2073,6 +2103,7 @@ mod tests {
         shell.run(vec![UiRequest::Quit, UiRequest::Quit]);
         assert!(shell.quitting);
         assert!(shell.quit_ready);
+        assert!(shell.may_exit());
         assert!(shell.sound.borrow().status().1.is_none());
     }
 

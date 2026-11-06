@@ -1149,6 +1149,21 @@ same offset.
   Wayland) adds them, as the web's drop imports.
 - **Clipboard:** arboard 3.7.0 (MIT OR Apache-2.0; bump from 3.6.1).
 - **Links:** `crates/desktop/src/os.rs` as now (`open`, `rundll32`, `xdg-open`).
+- **Quitting** (2026-11-07, `crates/desktop/src/quit.rs`): the shell
+  ends the process itself, from inside the event loop once what quits
+  with the game is done (the importer's shutdown, the lines printed at
+  exit), with its window still open, as AppKit's own `terminate:` ends
+  an app; the system takes the window down with the process. winit
+  closes every window as its loop ends, and on macOS a window closed in
+  its fullscreen Space starts the Space's way out, which the app runs
+  on its run loop: a process ending right after left the window's last
+  frame frozen on screen for a while after it had gone. winit answers
+  `terminate:` by closing the windows too, so the app menu's Quit (⌘Q)
+  and the quit Apple Event (the Dock's Quit, logging out) are pointed
+  at the shell's quit instead. (The day before, a quit first took the
+  window out of fullscreen and waited for AppKit to say it was out: a
+  visible step back to the desktop's window, and half a second, that
+  native apps do not take.)
 - **IME:** done in step 3 (own mode, preedit and commit, the caret area).
   Windows (`WM_IME_*`) and Linux (X11 XIM through ibus or fcitx,
   Wayland's text-input-v3) are checked by hand only (section 6).

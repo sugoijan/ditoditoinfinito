@@ -45,6 +45,7 @@ pub mod play;
 pub mod plays;
 pub mod preview;
 pub mod preview_movie;
+pub mod quit;
 pub mod share;
 pub mod shell;
 pub mod songs;
@@ -571,6 +572,9 @@ pub fn run() {
         }),
         fake.as_deref(),
     );
+    // The lines printed as the game quits; the process ends after them,
+    // its window still open (`Shell::exit`, `quit.rs`).
+    shell.on_exit = Some(Box::new(move |shell: &shell::Shell| report(shell, probe)));
     if let Err(e) = event_loop.run_app(&mut shell) {
         eprintln!("event loop: {e}");
     }
@@ -578,6 +582,21 @@ pub fn run() {
         eprintln!("{e}");
         std::process::exit(1);
     }
+    // The loop ended without the shell's quit.
+    if let Some(last) = shell.on_exit.take() {
+        last(&shell);
+    }
+}
+
+/// What a run did, printed as it quits (the summary `--seconds` runs are
+/// read by), with the audio clock's samples of a timed run.
+fn report(
+    shell: &shell::Shell,
+    probe: Option<(
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        std::thread::JoinHandle<Vec<ddi_platform::ClockSample>>,
+    )>,
+) {
     // A play still running when the window closed.
     if let Some(text) = shell.pacing_text() {
         println!("{text}");
