@@ -308,6 +308,23 @@ fn fields_buttons_and_zones() {
             text: "Voice 2".into()
         })
     );
+    // Enter ends the typing: the caret goes, the field keeps its text.
+    let r = h.key("Enter", "Enter");
+    assert!(r.contains(&UiRequest::StopTextInput), "{r:?}");
+    assert!(h.ui.text_field().is_none());
+    h.run(0.05);
+    assert!(h.texts().iter().any(|t| t == "Voice 2"), "{:?}", h.texts());
+    // So does a press elsewhere, or the focus moving on.
+    h.tap(PointerKind::Mouse, "Field.name");
+    assert!(h.ui.text_field().is_some());
+    let r = h.tap(PointerKind::Mouse, "Item1");
+    assert!(r.contains(&UiRequest::StopTextInput), "{r:?}");
+    assert_eq!(calls.borrow().last(), Some(&PageCall::Button("a".into())));
+    // A controller's Down (the keyboard's arrows edit the text).
+    h.tap(PointerKind::Mouse, "Field.name");
+    h.pad(crate::nav::MenuAction::Down, true);
+    h.pad(crate::nav::MenuAction::Down, false);
+    assert!(h.ui.text_field().is_none());
     // The zone, lit by the shell.
     let plain = h.actor("Zone.z").clone();
     h.ui.broadcast(Message::new(PAGE_TARGET).with("Zone", Param::Str("z".into())));

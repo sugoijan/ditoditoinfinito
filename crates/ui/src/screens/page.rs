@@ -957,6 +957,11 @@ impl PageScreen {
     }
 
     fn activate(&mut self, i: usize, root: &mut Actor, cx: &mut Cx) {
+        if self.typing.is_some()
+            && self.items.get(i) != self.typing.clone().map(Item::Field).as_ref()
+        {
+            self.stop_typing(root, cx);
+        }
         self.focus = Some(i);
         self.gesture_hint = None;
         match self.items.get(i).cloned() {
@@ -989,6 +994,16 @@ impl PageScreen {
         self.rebuild_column(root);
     }
 
+    /// The field being typed into, if any, stops: the focus or a press
+    /// went elsewhere.
+    fn stop_typing(&mut self, root: &mut Actor, cx: &mut Cx) {
+        if let Some(id) = self.typing.take()
+            && let Some(f) = self.fields.get_mut(&id)
+        {
+            f.stop(root, cx);
+        }
+    }
+
     /// What is typed into a field: kept, and told the shell.
     fn typed(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Option<Handled> {
         let Input::Text { name, change, .. } = input else {
@@ -1006,6 +1021,10 @@ impl PageScreen {
             self.typing = None;
         }
         let (_, event) = f.input(input, root, cx, &|_| Vec::new());
+        // Enter ends the typing (the field is no search to go on with).
+        if matches!(change, TextChange::Submit) {
+            f.stop(root, cx);
+        }
         if let Some(FieldEvent::Changed(text) | FieldEvent::Submitted(text)) = event {
             set_value(&mut self.doc.blocks, &id, &text);
             if let Some(doc) = self
@@ -1223,16 +1242,14 @@ impl Screen for PageScreen {
                     cx.enter_chrome();
                     Handled::Yes
                 }
-                MenuAction::Up if on_column => {
+                MenuAction::Up | MenuAction::Left if on_column => {
+                    self.stop_typing(root, cx);
                     self.step(false, root);
                     Handled::Yes
                 }
                 MenuAction::Down | MenuAction::Right if on_column => {
+                    self.stop_typing(root, cx);
                     self.step(true, root);
-                    Handled::Yes
-                }
-                MenuAction::Left if on_column => {
-                    self.step(false, root);
                     Handled::Yes
                 }
                 MenuAction::Start if on_column => {
@@ -1302,6 +1319,12 @@ impl Screen for PageScreen {
                     cx.focus("Column");
                     self.activate(i, root, cx);
                     Handled::Yes
+                }
+                // A tap beside the field typed into ends the typing.
+                None if self.typing.is_some() => {
+                    self.stop_typing(root, cx);
+                    self.rebuild_column(root);
+                    Handled::No
                 }
                 None => Handled::No,
             },
