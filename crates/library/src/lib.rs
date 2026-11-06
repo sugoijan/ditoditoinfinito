@@ -3,7 +3,8 @@
 //! paths and bytes, so the same code serves the web shell, the desktop shell
 //! and `xtask`.
 //!
-//! - [`zip`]: a sans-IO ZIP reader driven by byte-range reads.
+//! - [`zip`]: a sans-IO ZIP reader driven by byte-range reads, and a
+//!   writer of stored entries.
 //! - [`avi`]: an AVI's video stream and its index, for frame-by-frame decoders.
 //! - [`pack`]: finding songs in a file listing and resolving their assets the
 //!   way StepMania does.
@@ -23,8 +24,9 @@
 //!   found among files, read into songs.
 //! - [`edited`]: a stored song's entry after the chart editor saved it.
 //! - [`tags`]: a music file's title and artist, for a new song.
-//! - [`announcer`]: the lines announcers speak, and the announcers found in
-//!   an import.
+//! - [`announcer`]: the lines announcers speak, the announcers found in
+//!   an import, and the announcer studio's drafts.
+//! - [`wav`]: 16-bit PCM WAV files written.
 //! - [`fft`]: a Fourier transform; [`music`]: the music's analysis a
 //!   generative background follows; [`generative`]: those backgrounds'
 //!   looks, as the design study chose them.
@@ -52,5 +54,6 @@ pub mod suggest;
 pub mod swf;
 pub mod tags;
 pub mod video;
+pub mod wav;
 pub mod works;
 pub mod zip;

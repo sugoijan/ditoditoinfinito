@@ -386,6 +386,13 @@ impl Ui {
         self.touch();
     }
 
+    /// Pushes a screen over the current one from outside its events, as
+    /// the screen's own [`Cx::push`] would: the one under it leaves
+    /// first (a shell's screen shown once what it needs has loaded).
+    pub fn push_over(&mut self, screen: impl Screen + 'static) {
+        self.push_screen(Box::new(screen), false);
+    }
+
     /// The current screen's layer: the topmost that is neither an
     /// overlay nor the chrome.
     fn current_screen_mut(&mut self) -> Option<&mut Layer> {

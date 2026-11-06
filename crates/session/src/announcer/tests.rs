@@ -6,8 +6,8 @@ use ddi_platform::{ClockSample, DeviceFingerprint, SoundId};
 /// Plays nothing: a buffer is its length in seconds; the voice's starts
 /// and gains are kept.
 #[derive(Default)]
-struct Fake {
-    voiced: Vec<(f64, f64, f32)>,
+pub(super) struct Fake {
+    pub(super) voiced: Vec<(f64, f64, f32)>,
 }
 
 impl AudioBackend for Fake {

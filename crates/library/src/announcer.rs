@@ -3,7 +3,9 @@
 //! announcers found in an import's files. The layout is StepMania's,
 //! `Announcers/<Name>/<line folder>/`, the sounds directly in the line
 //! folder, names matched without regard to case
-//! (`docs/research/announcers.md`).
+//! (`docs/research/announcers.md`). The announcer studio's drafts are
+//! [`draft`], tidied as [`tidy`] says, with [`examples`] of each line
+//! (`docs/plans/announcer-studio.md`).
 
 use std::collections::BTreeMap;
 
@@ -12,9 +14,11 @@ use serde::{Deserialize, Serialize};
 use crate::pack::{extension, file_name, is_ignored, parent};
 use crate::path::{RelPath, RelPathBuf};
 
-/// The sound files StepMania reads in a line folder
-/// (`GameSoundManager::DoPlayOnceFromDir`).
-pub const AUDIO_EXTENSIONS: [&str; 4] = ["mp3", "wav", "ogg", "oga"];
+/// The sound files read in a line folder: StepMania's
+/// (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which
+/// both shells decode as they do songs' music (StepMania passes them
+/// over; the studio keeps them as recorded, `draft`).
+pub const AUDIO_EXTENSIONS: [&str; 6] = ["mp3", "wav", "ogg", "oga", "opus", "flac"];
 /// An announcer's sound files kept, at most; the rest are left out.
 pub const MAX_FILES: usize = 2000;
 /// An announcer's sound files kept, in bytes, at most.
@@ -24,6 +28,18 @@ pub const MAX_ANNOUNCERS: usize = 50;
 /// The known lines a folder holds to be an announcer (but under an
 /// `Announcers` folder, where one is enough).
 const MIN_LINES: usize = 3;
+
+/// Seconds between the periodic comments (`SecondsBetweenComments`;
+/// `ddi_session::announcer` speaks them, the studio's notes measure takes
+/// against them).
+pub const COMMENT_GAP: f64 = 10.0;
+/// Seconds a combo line waits after the last gated line (5.1's 2 s).
+pub const COMBO_GAP: f64 = 2.0;
+/// `evaluation cheer` this long after the results' line
+/// (`CheerDelaySeconds`).
+pub const CHEER_DELAY: f64 = 2.5;
+/// `here we go` ends this long before the first note.
+pub const GO_BEFORE: f64 = 0.5;
 
 /// A results grade as the lines name it: StepMania's seven tiers and a
 /// failed play (`GradeToOldString`), and Etterna's `aaaaa` and `f`.
@@ -300,6 +316,22 @@ impl Line {
     }
 }
 
+/// A line is kept by its folder's name ([`Line::folder`]; the studio's
+/// drafts).
+impl Serialize for Line {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.folder())
+    }
+}
+
+impl<'de> Deserialize<'de> for Line {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Line, D::Error> {
+        let name = String::deserialize(d)?;
+        Line::parse(&name)
+            .ok_or_else(|| serde::de::Error::custom(format!("no line is named {name:?}")))
+    }
+}
+
 /// Names StepMania and its forks speak (or 3.9 did) that we do not: a
 /// line folder's name, in lower case, to the name it is kept under
 /// (StepMania 5.1's alias table maps the screens' names onto 3.9's,
@@ -543,6 +575,10 @@ pub struct Bundled {
     /// URL's `?v=`, so a new build's sound never comes from an old one's
     /// cache.
     pub hashes: BTreeMap<String, String>,
+    /// What each sound says, by the same paths (its `PROVENANCE.toml`'s
+    /// `[said]`): the announcer studio's examples.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub said: BTreeMap<String, String>,
 }
 
 /// `items` joined, the first `n` of them, then how many more.
@@ -832,6 +868,10 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
     }
     found
 }
+
+pub mod draft;
+pub mod examples;
+pub mod tidy;
 
 #[cfg(test)]
 mod tests;

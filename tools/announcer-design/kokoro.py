@@ -649,6 +649,11 @@ def bundle(path, pack, state):
                 'spdx = "CC-BY-3.0"',
                 'holders = ["テレビ西日本 (TV Nishinippon)"]',
             ]
+    # What each sound says: the announcer studio's examples
+    # (docs/plans/announcer-studio.md, decision 3).
+    lines += ["", "# What each sound says, as the pack file writes it.", "[said]"]
+    said = {rel.split("/", 2)[2]: c["text"] for rel, c in records.items()}
+    lines += [f"{toml_str(rel)} = {toml_str(text)}" for rel, text in sorted(said.items())]
     provenance = dest / "PROVENANCE.toml"
     text = "\n".join(lines) + "\n"
     if not provenance.is_file() or provenance.read_text() != text:

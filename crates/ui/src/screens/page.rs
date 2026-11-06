@@ -22,10 +22,11 @@ use super::{Env, footer, frame, ground, header, left};
 use crate::gesture::Gesture;
 use crate::hit;
 use crate::look::{self, Spec, call, quad};
-use crate::message::Message;
+use crate::message::{Message, Param};
 use crate::nav::{Focusable, MenuAction};
 use crate::request::UiRequest;
-use crate::screen::{Cx, Handled, Input, Screen};
+use crate::screen::{Cx, Handled, Input, Screen, TextChange};
+use crate::widgets::field::{FieldEvent, SearchField};
 
 /// Broadcast when the shell put a new page in the [`PageFeed`].
 pub const PAGE_CHANGED: &str = "Page.Changed";
@@ -59,7 +60,60 @@ pub enum Block {
         body: Vec<Block>,
     },
     Gap,
+    /// Buttons side by side, each asking the shell
+    /// ([`PageCall::Button`]), onto more lines where they do not fit.
+    Actions(Vec<Action>),
+    /// A line that asks the shell when pressed ([`PageCall::Button`]),
+    /// drawn as a link is.
+    Action {
+        id: String,
+        label: String,
+    },
+    /// A labeled field to type into: what is typed goes to the shell as
+    /// it changes ([`PageCall::Field`]).
+    Field {
+        id: String,
+        label: String,
+        value: String,
+        hint: String,
+    },
+    /// Something to heed, in the look's `Gold`.
+    Note(String),
+    /// Blocks on an area of their own, the actor `Zone.<id>`: the shell
+    /// finds it under what is dragged over the page, and lights it
+    /// ([`PAGE_TARGET`]).
+    Zone {
+        id: String,
+        body: Vec<Block>,
+    },
 }
+
+/// A button of [`Block::Actions`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Action {
+    pub id: String,
+    pub label: String,
+    pub primary: bool,
+}
+
+impl Action {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Action {
+        Action {
+            id: id.into(),
+            label: label.into(),
+            primary: false,
+        }
+    }
+
+    pub fn primary(mut self) -> Action {
+        self.primary = true;
+        self
+    }
+}
+
+/// Broadcast with `Zone` (a [`Block::Zone`]'s id, empty for none): the
+/// zone lit, as files are dragged over it.
+pub const PAGE_TARGET: &str = "Page.Target";
 
 /// A page: its title (the header's) and its blocks.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -72,6 +126,11 @@ pub struct PageDoc {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PageCall {
     Button(String),
+    /// A field's text, as typed.
+    Field {
+        id: String,
+        text: String,
+    },
     Leave,
 }
 
@@ -105,12 +164,22 @@ enum RowKind {
         text: String,
         indent: f32,
     },
+    /// A button, `indent` from the column's left, as tall as its row.
     Button {
         item: usize,
         label: String,
         primary: bool,
         indent: f32,
     },
+    /// A field: its label, then its box.
+    Field {
+        item: usize,
+        id: String,
+        label: String,
+        indent: f32,
+    },
+    /// A zone's area, as tall as its row, under its blocks' rows.
+    Zone { id: String, indent: f32 },
 }
 
 /// What a focusable item does.
@@ -119,6 +188,21 @@ enum Item {
     Link(String),
     Button(String),
     Fold(String),
+    Field(String),
+}
+
+/// A field's label's width, and its box's height.
+const FIELD_LABEL: f32 = 120.0;
+const FIELD_H: f32 = 36.0;
+/// A button's height in a row of them, and the gaps around it.
+const ACTION_H: f32 = 32.0;
+const ACTION_GAP: f32 = 8.0;
+/// A zone's padding.
+const ZONE_PAD: f32 = 12.0;
+
+/// A button's width in a row of them (a primary one's label is larger).
+fn action_width(label: &str, primary: bool) -> f32 {
+    look::mono_width(label, if primary { 18.0 } else { 14.0 }) + 32.0
 }
 
 pub struct PageScreen {
@@ -137,6 +221,9 @@ pub struct PageScreen {
     column: [f32; 4],
     rows: Vec<Row>,
     items: Vec<Item>,
+    /// Each item's zone, by its row's index: a focused item lights its
+    /// zone's card as a whole.
+    item_zone: Vec<Option<usize>>,
     focus: Option<usize>,
     /// The link a controller pressed and the browser would not open (it
     /// opens one only from a key or a tap): its row says so.
@@ -145,6 +232,12 @@ pub struct PageScreen {
     /// Dragging the scrollbar's thumb: where it was grabbed (from its
     /// top).
     bar: Option<f32>,
+    /// The fields, by id: what is typed in them, kept across new docs.
+    fields: std::collections::HashMap<String, SearchField>,
+    /// The zone lit ([`PAGE_TARGET`]).
+    target: Option<String>,
+    /// The field being typed into.
+    typing: Option<String>,
 }
 
 const LINE: f32 = 6.0;
@@ -168,10 +261,14 @@ impl PageScreen {
             column: [0.0; 4],
             rows: Vec::new(),
             items: Vec::new(),
+            item_zone: Vec::new(),
             focus: None,
             gesture_hint: None,
             scroll: 0.0,
             bar: None,
+            fields: Default::default(),
+            target: None,
+            typing: None,
         }
     }
 
@@ -208,11 +305,28 @@ impl PageScreen {
         let w = self.column[2];
         let blocks = self.doc.blocks.clone();
         self.lay_blocks(&blocks, 0.0, w, &mut y, &mut rows, &mut items);
+        self.item_zone = vec![None; items.len()];
+        for (z, zone) in rows.iter().enumerate() {
+            if !matches!(zone.kind, RowKind::Zone { .. }) {
+                continue;
+            }
+            for r in &rows {
+                if let RowKind::Item { item, .. }
+                | RowKind::Button { item, .. }
+                | RowKind::Field { item, .. } = r.kind
+                    && r.y >= zone.y
+                    && r.y + r.h <= zone.y + zone.h
+                {
+                    self.item_zone[item] = Some(z);
+                }
+            }
+        }
         self.rows = rows;
         self.items = items;
         if self.focus.is_some_and(|f| f >= self.items.len()) {
             self.focus = None;
         }
+        self.sync_fields();
     }
 
     fn lay_blocks(
@@ -326,8 +440,122 @@ impl PageScreen {
                         self.lay_blocks(body, indent + 16.0, w, y, rows, items);
                     }
                 }
+                Block::Actions(actions) => {
+                    *y += 4.0;
+                    let mut x = indent;
+                    for a in actions {
+                        let bw = action_width(&a.label, a.primary).min(width);
+                        if x > indent && x + bw > w {
+                            x = indent;
+                            *y += ACTION_H + ACTION_GAP;
+                        }
+                        let item = items.len();
+                        items.push(Item::Button(a.id.clone()));
+                        rows.push(Row {
+                            y: *y,
+                            h: ACTION_H,
+                            kind: RowKind::Button {
+                                item,
+                                label: a.label.clone(),
+                                primary: a.primary,
+                                indent: x,
+                            },
+                        });
+                        x += bw + ACTION_GAP;
+                    }
+                    *y += ACTION_H + ACTION_GAP;
+                }
+                Block::Action { id, label } => {
+                    let item = items.len();
+                    items.push(Item::Button(id.clone()));
+                    for l in wrap_lines(label, width, 14.0) {
+                        rows.push(Row {
+                            y: *y,
+                            h: 14.0 + LINE + 4.0,
+                            kind: RowKind::Item {
+                                item,
+                                text: l,
+                                indent,
+                            },
+                        });
+                        *y += 14.0 + LINE + 4.0;
+                    }
+                }
+                Block::Field { id, label, .. } => {
+                    let item = items.len();
+                    items.push(Item::Field(id.clone()));
+                    *y += 4.0;
+                    rows.push(Row {
+                        y: *y,
+                        h: FIELD_H,
+                        kind: RowKind::Field {
+                            item,
+                            id: id.clone(),
+                            label: label.clone(),
+                            indent,
+                        },
+                    });
+                    *y += FIELD_H + 6.0;
+                }
+                Block::Note(s) => {
+                    text(rows, y, s, 13.0, 500, "Gold");
+                    *y += 4.0;
+                }
+                Block::Zone { id, body } => {
+                    *y += 6.0;
+                    let at = rows.len();
+                    let top = *y;
+                    *y += ZONE_PAD - 8.0;
+                    self.lay_blocks(body, indent + ZONE_PAD, w - ZONE_PAD, y, rows, items);
+                    *y += ZONE_PAD;
+                    rows.insert(
+                        at,
+                        Row {
+                            y: top,
+                            h: *y - top,
+                            kind: RowKind::Zone {
+                                id: id.clone(),
+                                indent,
+                            },
+                        },
+                    );
+                    *y += 6.0;
+                }
             }
         }
+    }
+
+    /// The fields the doc has, made or kept, their text the doc's but
+    /// for the one being typed into.
+    fn sync_fields(&mut self) {
+        fn walk<'a>(blocks: &'a [Block], out: &mut Vec<(&'a str, &'a str, &'a str)>) {
+            for b in blocks {
+                match b {
+                    Block::Field {
+                        id, value, hint, ..
+                    } => out.push((id, value, hint)),
+                    Block::Fold { body, .. } | Block::Zone { body, .. } => walk(body, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(&self.doc.blocks, &mut found);
+        let look = self.env.look.clone();
+        let mut fields = std::mem::take(&mut self.fields);
+        for (id, value, hint) in found {
+            let f = fields.entry(id.to_string()).or_insert_with(|| {
+                let mut f = SearchField::new(&format!("Field.{id}"), hint, [0.0; 2], [0.0; 2]);
+                f.look = look.clone();
+                f.max_items = 0;
+                f
+            });
+            f.hint = hint.to_string();
+            if self.typing.as_deref() != Some(id) {
+                f.text = value.to_string();
+            }
+        }
+        self.fields = fields;
     }
 
     fn total(&self) -> f32 {
@@ -440,17 +668,23 @@ impl PageScreen {
                     primary,
                     indent,
                 } => {
-                    // The primary button's label is larger.
+                    // The primary button's label is larger; a row of
+                    // buttons' are as wide as their labels.
                     let size = if *primary { 18.0 } else { 15.0 };
-                    let bw = (look::mono_width(label, size) + 40.0).min(w - indent);
+                    let bw = if r.h < 40.0 {
+                        action_width(label, *primary)
+                    } else {
+                        look::mono_width(label, size) + 40.0
+                    }
+                    .min(w - indent);
                     let mut b = look::component_or(
                         &*env.look,
                         if *primary { "PlayButton" } else { "Button" },
                         "Button",
-                        &Spec::new([bw, 40.0], label),
+                        &Spec::new([bw, r.h], label),
                     );
                     b.name = format!("Item{item}");
-                    call(&mut b, "xy", &[indent + bw / 2.0, r.y + 20.0]);
+                    call(&mut b, "xy", &[indent + bw / 2.0, r.y + r.h / 2.0]);
                     crate::widgets::play(
                         &mut b,
                         if self.focus == Some(*item) {
@@ -461,6 +695,51 @@ impl PageScreen {
                     );
                     b.finish_tweening();
                     c.push(b);
+                }
+                RowKind::Field {
+                    item,
+                    id,
+                    label,
+                    indent,
+                } => {
+                    let mut t = env.text("", label, 14.0, 500, "Secondary");
+                    call(&mut t, "maxwidth", &[FIELD_LABEL - 12.0]);
+                    c.push(left(t, *indent, r.y + r.h / 2.0));
+                    if let Some(f) = self.fields.get(id) {
+                        let fw = (w - indent - FIELD_LABEL).clamp(80.0, 480.0);
+                        let mut built = f.build_at(
+                            &*env.look,
+                            [indent + FIELD_LABEL + fw / 2.0, r.y + r.h / 2.0],
+                            [fw, r.h],
+                        );
+                        if self.focus == Some(*item) {
+                            crate::widgets::play(&mut built, "GainFocus");
+                            built.finish_tweening();
+                        }
+                        let mut slot = frame(&format!("Item{item}"), vec![built]);
+                        slot.name = format!("Item{item}");
+                        c.push(slot);
+                    }
+                }
+                RowKind::Zone { id, indent } => {
+                    let lit = self.target.as_deref() == Some(id.as_str());
+                    let zw = w - indent;
+                    let mut plate = quad(
+                        &format!("Zone.{id}"),
+                        [zw, r.h],
+                        env.color(if lit { "Highlight" } else { "Plate" }),
+                    );
+                    call(&mut plate, "cornerradius", &[8.0]);
+                    call(&mut plate, "xy", &[indent + zw / 2.0, r.y + r.h / 2.0]);
+                    c.insert(0, plate);
+                    if lit {
+                        let mut edge = quad("", [zw, 2.0], env.color("Accent"));
+                        call(&mut edge, "xy", &[indent + zw / 2.0, r.y + 1.0]);
+                        c.insert(1, edge);
+                        let mut low = quad("", [zw, 2.0], env.color("Accent"));
+                        call(&mut low, "xy", &[indent + zw / 2.0, r.y + r.h - 1.0]);
+                        c.insert(1, low);
+                    }
                 }
             }
         }
@@ -488,7 +767,9 @@ impl PageScreen {
         let mut content = frame("Content", c);
         call(&mut content, "y", &[-self.scroll]);
         let mut clip = frame("Column", vec![content]);
-        clip.clip = Some([-4.0, 0.0, w + 4.0, h]);
+        // Wide enough for the active outline around a zone or a button
+        // at the column's edge.
+        clip.clip = Some([-8.0, 0.0, w + 8.0, h]);
         call(&mut clip, "xy", &[x, y]);
         clip
     }
@@ -584,13 +865,26 @@ impl PageScreen {
         }
     }
 
-    /// Scrolls item `i` into view.
+    /// Scrolls item `i` into view, and its zone where the whole fits.
     fn reveal(&mut self, i: usize) {
+        if let Some(zone) = self
+            .item_zone
+            .get(i)
+            .copied()
+            .flatten()
+            .map(|z| &self.rows[z])
+            && zone.h + 48.0 <= self.column[3]
+        {
+            let (top, bottom) = (zone.y, zone.y + zone.h);
+            self.reveal_span(top, bottom);
+        }
         let (mut top, mut bottom) = (f32::MAX, 0.0_f32);
         for r in &self.rows {
             let item = match &r.kind {
-                RowKind::Item { item, .. } | RowKind::Button { item, .. } => *item,
-                RowKind::Text { .. } => continue,
+                RowKind::Item { item, .. }
+                | RowKind::Button { item, .. }
+                | RowKind::Field { item, .. } => *item,
+                RowKind::Text { .. } | RowKind::Zone { .. } => continue,
             };
             if item == i {
                 top = top.min(r.y);
@@ -600,6 +894,11 @@ impl PageScreen {
         if top == f32::MAX {
             return;
         }
+        self.reveal_span(top, bottom);
+    }
+
+    /// Scrolls the column's span `top..bottom` into view.
+    fn reveal_span(&mut self, top: f32, bottom: f32) {
         let h = self.column[3];
         if top - 24.0 < self.scroll {
             self.scroll = top - 24.0;
@@ -613,7 +912,13 @@ impl PageScreen {
     /// Where item `i` starts.
     fn item_y(&self, i: usize) -> Option<f32> {
         self.rows.iter().find_map(|r| match &r.kind {
-            RowKind::Item { item, .. } | RowKind::Button { item, .. } if *item == i => Some(r.y),
+            RowKind::Item { item, .. }
+            | RowKind::Button { item, .. }
+            | RowKind::Field { item, .. }
+                if *item == i =>
+            {
+                Some(r.y)
+            }
             _ => None,
         })
     }
@@ -672,15 +977,57 @@ impl PageScreen {
                 }
                 self.lay_out();
             }
+            Some(Item::Field(id)) => {
+                if let Some(f) = self.fields.get_mut(&id) {
+                    let name = f.name.clone();
+                    f.input(&Input::Activate { name }, root, cx, &|_| Vec::new());
+                    self.typing = Some(id);
+                }
+            }
             None => {}
         }
         self.rebuild_column(root);
     }
 
+    /// What is typed into a field: kept, and told the shell.
+    fn typed(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Option<Handled> {
+        let Input::Text { name, change, .. } = input else {
+            return None;
+        };
+        let (id, f) = self
+            .fields
+            .iter_mut()
+            .find(|(_, f)| f.text_actor() == *name)?;
+        let id = id.clone();
+        if matches!(
+            change,
+            TextChange::Submit | TextChange::Cancel | TextChange::Blurred
+        ) {
+            self.typing = None;
+        }
+        let (_, event) = f.input(input, root, cx, &|_| Vec::new());
+        if let Some(FieldEvent::Changed(text) | FieldEvent::Submitted(text)) = event {
+            set_value(&mut self.doc.blocks, &id, &text);
+            if let Some(doc) = self
+                .shell
+                .clone()
+                .and_then(|s| s(PageCall::Field { id, text }, cx))
+            {
+                self.set_doc(doc, root, cx);
+            }
+        }
+        Some(Handled::Yes)
+    }
+
     fn set_doc(&mut self, doc: PageDoc, root: &mut Actor, _cx: &mut Cx) {
         let title_changed = doc.title != self.doc.title;
+        // The item focused stays so where it is still there.
+        let was = self.focus.and_then(|f| self.items.get(f).cloned());
         self.doc = doc;
         self.lay_out();
+        if let Some(i) = was.and_then(|w| self.items.iter().position(|i| *i == w)) {
+            self.focus = Some(i);
+        }
         self.scroll = self.scroll.clamp(0.0, self.max_scroll());
         // The title in place and the column's contents: the parts keep
         // their motion (the credits arrive as the screen comes in).
@@ -717,6 +1064,7 @@ impl PageScreen {
                 Item::Link(u) => format!("link:{u}"),
                 Item::Button(b) => format!("button:{b}"),
                 Item::Fold(f) => format!("fold:{f}"),
+                Item::Field(f) => format!("field:{f}"),
             })
             .collect();
         st.page_focus = self.focus.map(|f| f as i32).unwrap_or(-1);
@@ -730,10 +1078,33 @@ impl PageScreen {
     }
 }
 
+/// Field `id`'s value in `blocks` set to `text`.
+fn set_value(blocks: &mut [Block], id: &str, text: &str) {
+    for b in blocks {
+        match b {
+            Block::Field { id: i, value, .. } if i == id => *value = text.to_string(),
+            Block::Fold { body, .. } | Block::Zone { body, .. } => set_value(body, id, text),
+            _ => {}
+        }
+    }
+}
+
 impl Screen for PageScreen {
     fn active_element(&self, focused: Option<&str>) -> Option<String> {
         if focused == Some("Column") {
-            self.focus.map(|i| format!("Item{i}"))
+            // An item in a zone lights the zone's card.
+            self.focus.map(|i| {
+                match self
+                    .item_zone
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .map(|z| &self.rows[z].kind)
+                {
+                    Some(RowKind::Zone { id, .. }) => format!("Zone.{id}"),
+                    _ => format!("Item{i}"),
+                }
+            })
         } else if focused == Some("Back") && !self.compact {
             Some("Link.Back".into())
         } else {
@@ -745,8 +1116,11 @@ impl Screen for PageScreen {
         Some(self.env.presentation())
     }
 
-    /// A pointer over the column's items.
+    /// A pointer over the column's items, a text cursor over its fields.
     fn cursor(&self, target: &hit::Target) -> Option<crate::request::Cursor> {
+        if self.fields.values().any(|f| target.within(&f.name)) {
+            return Some(crate::request::Cursor::Text);
+        }
         Self::item_of(target).map(|_| crate::request::Cursor::Pointer)
     }
 
@@ -803,9 +1177,22 @@ impl Screen for PageScreen {
         {
             self.set_doc(doc, root, cx);
         }
+        if m.name == PAGE_TARGET {
+            let zone = match m.get("Zone") {
+                Some(Param::Str(z)) if !z.is_empty() => Some(z.clone()),
+                _ => None,
+            };
+            if zone != self.target {
+                self.target = zone;
+                self.rebuild_column(root);
+            }
+        }
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Some(handled) = self.typed(input, root, cx) {
+            return handled;
+        }
         let on_column = cx.focused().is_none_or(|f| f == "Column");
 
         let page = self.column[3] * 0.85;
@@ -840,8 +1227,12 @@ impl Screen for PageScreen {
                     self.step(false, root);
                     Handled::Yes
                 }
-                MenuAction::Down if on_column => {
+                MenuAction::Down | MenuAction::Right if on_column => {
                     self.step(true, root);
+                    Handled::Yes
+                }
+                MenuAction::Left if on_column => {
+                    self.step(false, root);
                     Handled::Yes
                 }
                 MenuAction::Start if on_column => {

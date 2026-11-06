@@ -184,6 +184,45 @@ pub(crate) fn stop() {
     });
 }
 
+/// What a play opening from song select stops ([`hand_over`]): the
+/// preview, and the intro still speaking (the announcer studio's scenes
+/// on song select, which keep the context).
+pub(crate) fn hush() {
+    stop();
+    STATE.with(|s| {
+        if let Some(a) = s.borrow_mut().audio.as_mut() {
+            a.stop_all();
+        }
+    });
+}
+
+/// Speaks `buffer` at `share` of the music's volume on song select's
+/// context, running or about to (made in the press that showed it):
+/// the announcer studio's scenes. Its length, if it was scheduled.
+pub(crate) fn speak_staged(buffer: &AudioBuffer, share: f32) -> Option<f64> {
+    use ddi_platform::AudioBackend;
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        let a = s.audio.as_mut()?;
+        let at = a.context().current_time() + 0.02;
+        a.play_voice(buffer, at, share).ok()?;
+        Some(buffer.duration())
+    })
+}
+
+/// `channels` at `rate` as a buffer of song select's context (`None`:
+/// none yet).
+pub(crate) fn make_buffer(channels: Vec<Vec<f32>>, rate: u32) -> Option<AudioBuffer> {
+    use ddi_platform::AudioBackend;
+    STATE.with(|s| {
+        s.borrow()
+            .audio
+            .as_ref()?
+            .buffer_from_pcm(channels, f64::from(rate))
+            .ok()
+    })
+}
+
 /// Speaks an announcer's `buffer` now at `share` of the music's volume
 /// `volume`: on song select's context where it runs (its master at the
 /// music's volume), else on the one a play took from it

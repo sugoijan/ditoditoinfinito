@@ -19,17 +19,11 @@ use ddi_library::announcer::{Grade, Kept, Line, Spoken};
 use ddi_library::path::RelPathBuf;
 use ddi_platform::AudioBackend;
 
-/// Seconds between the periodic comments (`SecondsBetweenComments`).
-pub const COMMENT_GAP: f64 = 10.0;
-/// Seconds a combo line waits after the last gated line (5.1's 2 s).
-pub const COMBO_GAP: f64 = 2.0;
+pub mod scene;
+
+pub use ddi_library::announcer::{CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE};
 /// A combo above this broken says `combo stopped` (`ComboStoppedAt`).
 pub const COMBO_STOPPED_AT: u32 = 50;
-/// `evaluation cheer` this long after the results' line
-/// (`CheerDelaySeconds`).
-pub const CHEER_DELAY: f64 = 2.5;
-/// `here we go` ends this long before the first note.
-pub const GO_BEFORE: f64 = 0.5;
 /// A line starts this far ahead of now on the audio clock, so its start
 /// is never in the past by the time it is scheduled.
 const LEAD: f64 = 0.03;
@@ -620,43 +614,65 @@ impl<B> Announcer<B> {
             return;
         }
         let at = now + LEAD;
-        if r.quit {
-            self.say(audio, &[Line::Quit], at);
-            return;
-        }
-        let grade = old_grade(grades, r.grade, r.failed);
-        let mut lines = Vec::new();
-        let first_play = self.prior.is_some_and(|p| !p.played);
-        if let Some(p) = self.prior {
-            if !r.failed && !p.cleared {
-                lines.push(Line::FirstClear);
-            }
-            if p.played && r.score > p.best {
-                lines.push(Line::NewRecord);
-            }
-        }
-        if !r.failed {
-            let w = match r.full_combo {
-                FullCombo::MarvelousFC => Some(1),
-                FullCombo::PerfectFC => Some(2),
-                FullCombo::GreatFC => Some(3),
-                FullCombo::FC if combo_w4 => Some(4),
-                _ => None,
-            };
-            lines.extend(w.map(Line::EvaluationFullCombo));
-        }
-        lines.extend(grade.map(Line::Grade));
-        if first_play {
-            lines.push(Line::NewRecord);
-        }
+        let lines = results_lines(self.prior, r, grades, combo_w4);
         if lines.is_empty() {
             return;
         }
         let spoke = self.say(audio, &lines, at);
-        if spoke && matches!(grade, Some(Grade::Aaaa | Grade::Aaa | Grade::Aa)) {
+        if spoke && cheers(r, grades) {
             self.say(audio, &[Line::Cheer], at + CHEER_DELAY);
         }
     }
+}
+
+/// The results' lines for `r`, in the order [`Announcer::results`] tries
+/// them (the first it has a sound for speaks): a quit's own line alone;
+/// a first clear; a new record after an earlier play; the full combo;
+/// the grade; a first play's record. `prior`: what the history said
+/// before the play (`None`: nothing to tell records from).
+pub fn results_lines(
+    prior: Option<Prior>,
+    r: &Ending,
+    grades: &GradeTable,
+    combo_w4: bool,
+) -> Vec<Line> {
+    if r.quit {
+        return vec![Line::Quit];
+    }
+    let mut lines = Vec::new();
+    if let Some(p) = prior {
+        if !r.failed && !p.cleared {
+            lines.push(Line::FirstClear);
+        }
+        if p.played && r.score > p.best {
+            lines.push(Line::NewRecord);
+        }
+    }
+    if !r.failed {
+        let w = match r.full_combo {
+            FullCombo::MarvelousFC => Some(1),
+            FullCombo::PerfectFC => Some(2),
+            FullCombo::GreatFC => Some(3),
+            FullCombo::FC if combo_w4 => Some(4),
+            _ => None,
+        };
+        lines.extend(w.map(Line::EvaluationFullCombo));
+    }
+    lines.extend(old_grade(grades, r.grade, r.failed).map(Line::Grade));
+    if prior.is_some_and(|p| !p.played) {
+        lines.push(Line::NewRecord);
+    }
+    lines
+}
+
+/// Whether `evaluation cheer` follows the results' line of `r`: AA or
+/// better (never after a quit).
+pub fn cheers(r: &Ending, grades: &GradeTable) -> bool {
+    !r.quit
+        && matches!(
+            old_grade(grades, r.grade, r.failed),
+            Some(Grade::Aaaa | Grade::Aaa | Grade::Aa)
+        )
 }
 
 /// A play's grade as one of StepMania's old seven (and failed `e`), for

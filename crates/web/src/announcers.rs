@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use ddi_library::announcer::{Bundled, Index, Kept, Line, is_bundled};
 use ddi_platform::AudioBackend;
-use ddi_session::announcer::{Bags, SharedVoice};
+use ddi_session::announcer::{Bags, SharedVoice, Voice};
 use wasm_bindgen::JsValue;
 use web_sys::AudioBuffer;
 use web_sys::Blob;
@@ -189,6 +189,16 @@ async fn sound(source: &Source, key: &str, path: &str) -> Result<Vec<u8>, String
     }
 }
 
+/// The bytes of our announcer `pack`'s sound `path` (the announcer
+/// studio's examples).
+pub(crate) async fn bundled_sound(pack: &Bundled, path: &str) -> Result<Vec<u8>, String> {
+    let source = Source::Bundled {
+        path: pack.path.clone(),
+        hashes: pack.hashes.clone(),
+    };
+    sound(&source, &pack.kept.key(), path).await
+}
+
 thread_local! {
     /// The lines' shuffles, for the session of the page.
     static BAGS: RefCell<Bags> = RefCell::new(Bags::new(
@@ -261,11 +271,47 @@ thread_local! {
     static MENU: RefCell<Option<Menu>> = const { RefCell::new(None) };
 }
 
+/// What a staged line did: the line asked for, and what spoke for it
+/// (the line of its chain found) and for how long; `None`: nothing.
+pub(crate) type Told = Rc<dyn Fn(Line, Option<(Line, f64)>)>;
+
+/// The announcer studio's voice while its scene shows song select
+/// (`crate::components::studio_page`): song select's lines are spoken
+/// from it in place of the announcer chosen, at `share` of the music's
+/// volume, and each told to the studio.
+pub(crate) struct Staged {
+    pub(crate) voice: Voice<AudioBuffer>,
+    pub(crate) share: f32,
+    pub(crate) told: Told,
+}
+
+thread_local! {
+    static STAGED: RefCell<Option<Staged>> = const { RefCell::new(None) };
+}
+
+/// The studio's voice speaks song select's lines from now (`None`: the
+/// announcer chosen again).
+pub(crate) fn stage(staged: Option<Staged>) {
+    STAGED.with_borrow_mut(|s| *s = staged);
+}
+
 /// Speaks song select's `line` (`UiRequest::Announce`) where the
 /// announcer chosen has it: its sounds decoded the first time (the line
 /// then spoken once decoded, if that is soon), on song select's sound
-/// (`crate::select_preview::speak`).
+/// (`crate::select_preview::speak`). The studio's voice instead while
+/// it stages song select ([`stage`]).
 pub(crate) fn announce(line: Line) {
+    let staged = STAGED.with_borrow_mut(|s| {
+        let s = s.as_mut()?;
+        let spoke = s.voice.next(line).and_then(|(found, buffer)| {
+            crate::select_preview::speak_staged(buffer, s.share).map(|len| (found, len))
+        });
+        Some((s.told.clone(), spoke))
+    });
+    if let Some((told, spoke)) = staged {
+        told(line, spoke);
+        return;
+    }
     let settings = crate::settings::Settings::load();
     let Some(key) = settings.announcer.clone() else {
         return;

@@ -597,6 +597,16 @@ fn a_pushed_screen_waits_for_the_one_under_it_which_comes_back() {
     h.key("Enter", "Enter");
     h.run(0.25);
     assert_eq!(phases(&h), vec![("under".to_string(), "in")]);
+    // Its push over it, out of any event, as the screen's own: the one
+    // under it leaves first.
+    h.run(0.3);
+    h.ui.push_over(Over);
+    assert_eq!(phases(&h), vec![("under".to_string(), "covering")]);
+    h.run(0.25);
+    assert_eq!(
+        phases(&h),
+        vec![("under".to_string(), "covered"), ("over".to_string(), "in")]
+    );
 }
 
 /// A screen takes input as soon as it comes in; a press while the screen

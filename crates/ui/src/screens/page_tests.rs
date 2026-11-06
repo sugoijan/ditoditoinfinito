@@ -235,3 +235,84 @@ fn the_scrollbar_jumps_and_drags() {
         "{thumb:?} within {bar:?}"
     );
 }
+
+/// The studio's blocks: a field typed into tells the shell, buttons sit
+/// side by side and Right moves along them, a zone is an actor the shell
+/// lights.
+#[test]
+fn fields_buttons_and_zones() {
+    use super::page::{Action, Block, PAGE_TARGET, PageDoc};
+    use crate::message::{Message, Param};
+    let env = env();
+    let state = env.state.clone();
+    let calls: Rc<RefCell<Vec<PageCall>>> = Rc::default();
+    let c = calls.clone();
+    let doc = PageDoc {
+        title: "Studio".into(),
+        blocks: vec![
+            Block::Field {
+                id: "name".into(),
+                label: "Name".into(),
+                value: "Voice".into(),
+                hint: "Its name".into(),
+            },
+            Block::Actions(vec![Action::new("a", "One"), Action::new("b", "Two")]),
+            Block::Zone {
+                id: "z".into(),
+                body: vec![
+                    Block::Text("Inside".into()),
+                    Block::Action {
+                        id: "c".into(),
+                        label: "Three".into(),
+                    },
+                ],
+            },
+            Block::Note("Heed this".into()),
+        ],
+    };
+    let page = PageScreen::new(env, "studio", doc).with_shell(
+        Rc::new(move |call, _cx| {
+            c.borrow_mut().push(call);
+            None
+        }),
+        Rc::default(),
+    );
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(page);
+    h.run(0.3);
+    assert_eq!(
+        state.borrow().page_items,
+        ["field:name", "button:a", "button:b", "button:c"]
+    );
+    let (a, b) = (h.centre("Item1"), h.centre("Item2"));
+    assert!((a[1] - b[1]).abs() < 0.5 && b[0] > a[0], "{a:?} {b:?}");
+    assert!(h.texts().iter().any(|t| t == "Heed this"));
+    assert!(h.texts().iter().any(|t| t == "Voice"));
+    h.key("ArrowDown", "ArrowDown");
+    h.key("ArrowRight", "ArrowRight");
+    assert_eq!(state.borrow().page_focus, 1);
+    h.key("Enter", "Enter");
+    assert_eq!(calls.borrow().last(), Some(&PageCall::Button("a".into())));
+    // A tap on the field types into it; what is typed goes to the shell.
+    let r = h.tap(PointerKind::Mouse, "Field.name");
+    assert!(
+        r.iter()
+            .any(|q| matches!(q, UiRequest::StartTextInput { text, .. } if text == "Voice")),
+        "{r:?}"
+    );
+    h.sync("Voice 2", [7, 7], None);
+    assert_eq!(
+        calls.borrow().last(),
+        Some(&PageCall::Field {
+            id: "name".into(),
+            text: "Voice 2".into()
+        })
+    );
+    // The zone, lit by the shell.
+    let plain = h.actor("Zone.z").clone();
+    h.ui.broadcast(Message::new(PAGE_TARGET).with("Zone", Param::Str("z".into())));
+    h.run(0.05);
+    assert_ne!(format!("{plain:?}"), format!("{:?}", h.actor("Zone.z")));
+    // Lit, it is still found under a drop.
+    assert!(h.ui.visible_bounds("Zone.z").is_some());
+}

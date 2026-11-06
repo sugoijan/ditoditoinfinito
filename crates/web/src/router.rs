@@ -54,6 +54,8 @@ pub(crate) enum Route {
         bias_ms: i64,
     },
     Credits,
+    /// The announcer studio (`docs/plans/announcer-studio.md`).
+    Studio,
     /// The video decoder check; `src=a,b` checks those site files,
     /// `decoder=webcodecs` the browser's decoder and `decoder=both` both,
     /// comparing their frames.
@@ -140,6 +142,7 @@ impl Route {
                 bias_ms: parse_bias(&params),
             },
             "credits" => Route::Credits,
+            "announcer" => Route::Studio,
             "skin-preview" => Route::SkinPreview {
                 params: params
                     .iter()
@@ -229,6 +232,7 @@ impl Route {
                 format!("#/calibrate/run?mode={mode}{auto}{}", bias_param(*bias_ms))
             }
             Route::Credits => "#/credits".into(),
+            Route::Studio => "#/announcer".into(),
             Route::VideoCheck { sources, decoder } => {
                 let mut query = Vec::new();
                 if !sources.is_empty() {
@@ -543,7 +547,9 @@ pub(crate) fn back() {
         Route::Home => Destination::Start,
         Route::Songs | Route::Shared { .. } => Destination::Songs,
         Route::Play { .. } | Route::Edit { .. } => Destination::Play,
-        Route::Options => Destination::Options,
+        // Options opens the studio: a direct launch goes back to Start
+        // as from Options.
+        Route::Options | Route::Studio => Destination::Options,
         Route::Credits => Destination::Credits,
         _ => Destination::Calibration,
     };

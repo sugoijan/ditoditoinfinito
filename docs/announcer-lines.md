@@ -26,8 +26,9 @@ Announcers/
       aa.wav
 ```
 
-- **Sounds:** `.mp3`, `.wav`, `.ogg` and `.oga` (Ogg Vorbis), the formats
-  StepMania reads. Other files are passed over.
+- **Sounds:** `.mp3`, `.wav`, `.ogg` and `.oga` (Ogg Vorbis or Opus),
+  `.opus` and `.flac`. StepMania reads the first four with Vorbis inside,
+  and passes over the rest. Other files are passed over.
 - **Several sounds in one folder** are variants of the line. The game
   takes them in a shuffle, as StepMania 5.1 does: none comes again
   until each has played, over a whole run of the game.
@@ -41,6 +42,11 @@ Announcers/
 - **Folders inside a line folder** are passed over (a copy of the pack
   zipped into itself is common), and so are names no line uses. The
   import's report lists both.
+
+To make one from recordings of your own, the game's announcer studio
+(on the web, Options → Sound → Your own announcer) puts each recording
+on its line, lets you hear it where the game says it and exports the
+pack.
 
 To use one on the web, add it with Add songs (a folder, a `.zip` or a
 `.smzip`) and choose it under Options, Sound. On desktop, put it in the

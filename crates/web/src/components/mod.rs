@@ -5,6 +5,7 @@ pub(crate) mod page_routes;
 pub(crate) mod select_page;
 pub(crate) mod shared_page;
 pub(crate) mod skin_preview;
+pub(crate) mod studio_page;
 pub(crate) mod ui_dev;
 pub(crate) mod ui_test;
 pub(crate) mod video_check;

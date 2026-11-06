@@ -83,6 +83,7 @@ pub mod select;
 pub mod select_dialogs;
 mod select_navigation;
 pub mod start;
+pub mod studio;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

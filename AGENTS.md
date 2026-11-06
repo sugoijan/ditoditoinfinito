@@ -122,9 +122,18 @@ Rust and the browser are implementation details, not advertised features.
   and artist from its tags (`tags.rs`), the lines announcers speak and
   the announcers found among an import's files (`announcer.rs`:
   StepMania's layout and aliases, Etterna's two names and ours; our
-  bundled packs' keys, `bundled:<name>`, and the web's index of them;
-  `docs/plans/announcers.md`; every line, when it speaks and what it
-  falls back to, for pack authors: `docs/announcer-lines.md`), and what the shells and the
+  bundled packs' keys, `bundled:<name>`, and the web's index of them
+  with what each sound says; `docs/plans/announcers.md`; every line,
+  when it speaks and what it falls back to, for pack authors:
+  `docs/announcer-lines.md`; the announcer studio's drafts, takes
+  matched to lines by name, their notes and the export's plan,
+  `announcer/draft.rs`, tidied as our packs are made,
+  `announcer/tidy.rs`, more examples of the lines,
+  `announcer/examples.rs`, text only from `announcer/examples.toml`,
+  which the library's `build.rs` makes a table, the game carrying no
+  TOML parser; `docs/plans/announcer-studio.md`), zips
+  of stored entries written (`zip::write_stored`) and 16-bit WAVs
+  (`wav.rs`), and what the shells and the
   private shared-songs Worker agree on without the web's record types
   (`share.rs`: share ids, `shared:<id>:<n>` song ids, the time left;
   `docs/plans/shared-songs.md`), the music's analysis a generated
@@ -151,7 +160,10 @@ Rust and the browser are implementation details, not advertised features.
   field (mirroring the web's hidden textarea, or editing itself on
   desktop), and a headless harness; the theme's screens
   (`crates/ui/src/screens/`: start menu, song select, results, options, the pages for
-  calibration's menu and the credits, the app's notices as the UI's
+  calibration's menu and the credits (`page.rs`: headings, text,
+  links, buttons, rows of buttons, folds, fields, notes and zones a
+  shell finds under a drop, `Zone.<id>`, lit by `PAGE_TARGET`), the
+  announcer studio's page made from its draft (`studio.rs`), the app's notices as the UI's
   chrome, the play's start prompt, `prompt.rs`: Start never waits for
   what loads behind it, a loading screen after Start until the play is
   ready, a countdown on song select's plays, and this play's options,
@@ -352,7 +364,11 @@ Rust and the browser are implementation details, not advertised features.
   decodes and their shuffles, spoken on the voice's bus; song select's
   intro and comments, which it asks the shells for with
   `UiRequest::Announce`, decoded from `menu`;
-  `docs/plans/announcers.md`); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  `docs/plans/announcers.md`; the announcer studio's scenes,
+  `announcer/scene.rs`: song select's data shaped so each comment has a
+  chart that gets it, and for each results line a play staged on a
+  chart made for it, judged by the engine under the player's ruleset
+  where it gives the line, `docs/plans/announcer-studio.md`, step 3); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
@@ -403,7 +419,12 @@ Rust and the browser are implementation details, not advertised features.
   and the play history in IndexedDB (`ddi-library` version 4; the plays in
   `plays` and `play_summaries`, `crates/web/src/history.rs`,
   `docs/plans/play-history.md`; imported announcers in `announcers`, their
-  sounds in `files`, `crates/web/src/announcers.rs`, ours listed by
+  sounds in `files`, `crates/web/src/announcers.rs`; the announcer studio
+  at `#/announcer`, from Options → Sound, its draft and recordings kept
+  in `files` under `studio/`, `components/studio_page.rs`, each line
+  heard in its scene over the page, the real song select or results
+  with the draft as the voice (our pack of the examples chosen where the
+  line is not recorded yet), `docs/plans/announcer-studio.md`; ours listed by
   `announcers/index.json` and fetched from `announcers/`, a play's decoded
   behind its prompt there, spoken on a bus of their own beside the
   master's, `web/audio.rs`, song select's on its preview's context),

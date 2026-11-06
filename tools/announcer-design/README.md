@@ -172,7 +172,9 @@ auditions and on the same page, where each line's variants play in turn:
   written from the records: the pack file, model, revision, voice,
   versions, CC0 held by its `author`, and what a voice in it learned
   from where that asks for credit (`[[trained_on]]`, from VOICES.md's
-  CC BY column). Then `cargo run -p xtask -- gen-announcers` checks them
+  CC BY column), and what each sound says (`[said]`, the announcer
+  studio's examples; its examples without a sound are in
+  `crates/library/src/announcer/examples.toml`). Then `cargo run -p xtask -- gen-announcers` checks them
   and writes the web's index, and `gen-credits` the credits. The game
   lists them first under Options → Sound → Announcer, Off by default.
 

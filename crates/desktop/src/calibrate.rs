@@ -26,6 +26,7 @@ pub fn menu(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> PageSc
                 None
             }
             PageCall::Button(id) => button(&env, &songs, sound.as_ref(), &feed, &id, cx),
+            PageCall::Field { .. } => None,
         })
     };
     PageScreen::new(env.clone(), "calibration", calibration::stored_doc()).with_shell(shell, feed)

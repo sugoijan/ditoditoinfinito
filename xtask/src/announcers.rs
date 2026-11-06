@@ -39,6 +39,10 @@ pub(crate) struct Provenance {
     /// What its voice learned from, where that asks for credit.
     #[serde(default)]
     pub(crate) trained_on: Vec<TrainedOn>,
+    /// What each sound says, by its path in the folder: every sound's,
+    /// or none (the announcer studio's examples).
+    #[serde(default)]
+    pub(crate) said: BTreeMap<String, String>,
 }
 
 /// What made it: `[kokoro]`.
@@ -135,6 +139,19 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, Announcer)>> 
                 r.nested.len()
             );
         }
+        if !prov.said.is_empty() {
+            let sounds: std::collections::BTreeSet<String> = a
+                .kept()
+                .lines
+                .values()
+                .flatten()
+                .map(ToString::to_string)
+                .collect();
+            let told: std::collections::BTreeSet<String> = prov.said.keys().cloned().collect();
+            if let Some(f) = sounds.symmetric_difference(&told).next() {
+                bail!("{name}: [said] and the sounds differ at {f}");
+            }
+        }
         out.push((name, prov, a));
     }
     Ok(out)
@@ -154,7 +171,7 @@ pub(crate) fn gen_announcers(check: bool) -> Result<()> {
     let index = Index {
         announcers: scan(&root)?
             .into_iter()
-            .map(|(path, _, a)| {
+            .map(|(path, prov, a)| {
                 let kept = kept(&a);
                 let hashes = kept
                     .lines
@@ -168,7 +185,12 @@ pub(crate) fn gen_announcers(check: bool) -> Result<()> {
                         Ok((f.to_string(), ddi_noteskin::report::hash(&bytes)))
                     })
                     .collect::<Result<_>>()?;
-                Ok(Bundled { path, kept, hashes })
+                Ok(Bundled {
+                    path,
+                    kept,
+                    hashes,
+                    said: prov.said,
+                })
             })
             .collect::<Result<_>>()?,
     };
@@ -259,6 +281,7 @@ holders = ["a"]
         let kept = kept(a);
         assert_eq!(kept.key(), "bundled:voice");
         assert_eq!(kept.files, 4);
+        assert!(prov.said.is_empty());
         let ready: Vec<String> = kept.lines["gameplay ready"]
             .iter()
             .map(ToString::to_string)
@@ -289,6 +312,12 @@ holders = ["a"]
                 "licence",
                 "Voice",
                 PROVENANCE.replace("CC0-1.0", "CC-BY-4.0"),
+                LINES.to_vec(),
+            ),
+            (
+                "said",
+                "Voice",
+                format!("{PROVENANCE}\n[said]\n\"gameplay ready/ready.mp3\" = \"Ready?\"\n"),
                 LINES.to_vec(),
             ),
         ] {

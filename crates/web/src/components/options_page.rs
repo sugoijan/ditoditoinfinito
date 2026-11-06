@@ -745,6 +745,7 @@ impl OptionsPlatform for Web {
                 return;
             }
             Leave::Calibrate => Route::Calibrate,
+            Leave::Studio => Route::Studio,
             Leave::Demo { gl } => Route::Play {
                 song: "some-things-must".into(),
                 chart: 2,

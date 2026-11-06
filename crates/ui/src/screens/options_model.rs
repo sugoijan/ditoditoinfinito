@@ -249,6 +249,8 @@ pub enum Act {
     Confirm(Reset),
     /// Calibration (its own screen).
     Calibrate,
+    /// The announcer studio (its own page).
+    Studio,
     /// Autoplay a bundled song (on WebGL2).
     Demo {
         gl: bool,
@@ -863,6 +865,16 @@ impl OptionsModel {
                 |i| i + 1,
             ),
         };
+        let studio = (!desktop).then(|| {
+            actions(
+                "announcer.studio",
+                "Your own announcer",
+                &["Make one…"],
+                "",
+                "Opens the announcer studio: bring recordings of your voice, hear each line where \
+                 the game says it, then use it here or share it.",
+            )
+        });
         let mut rows = vec![row(
             "announcer",
             "Announcer",
@@ -878,6 +890,7 @@ impl OptionsModel {
             },
         )];
         let Some(key) = s.announcer.as_deref() else {
+            rows.extend(studio);
             return rows;
         };
         let percent = (volume_to_slider(s.announcer_volume) * 100.0).round() as usize;
@@ -905,6 +918,7 @@ impl OptionsModel {
                 "Removes the imported announcer from this browser.",
             ));
         }
+        rows.extend(studio);
         rows
     }
 
@@ -1899,6 +1913,7 @@ impl OptionsModel {
                 Some(k) => Act::Confirm(Reset::Noteskin(k)),
                 None => Act::Nothing,
             },
+            ("announcer.studio", _) => Act::Studio,
             ("announcer.remove", _) => match self.settings.announcer.clone() {
                 Some(k) => Act::Confirm(Reset::Announcer(k)),
                 None => Act::Nothing,
@@ -2801,6 +2816,13 @@ mod tests {
         assert!(!has(&m, "announcer.remove"));
         m.reset(&Reset::Songs);
         assert_eq!(m.settings.announcer.as_deref(), Some("bundled:mr. clank"));
+        // The studio opens from here on the web, Off or not.
+        assert!(has(&m, "announcer.studio"));
+        assert_eq!(m.action("announcer.studio", 0), Act::Studio);
+        m.change("announcer", 0);
+        assert!(has(&m, "announcer.studio"));
+        m.world.platform = super::super::data::Platform::Desktop;
+        assert!(!has(&m, "announcer.studio"));
     }
 
     fn find<'a>(d: &'a OptionsData, id: &str) -> &'a OptionDef {

@@ -144,7 +144,7 @@ impl PagePage {
                     cx.request(UiRequest::Navigate(Route::Home.to_hash()));
                     None
                 }
-                PageCall::Button(_) => None,
+                PageCall::Button(_) | PageCall::Field { .. } => None,
             })
         };
         let screen = PageScreen::new(env, name, doc).with_shell(shell, self.feed.clone());

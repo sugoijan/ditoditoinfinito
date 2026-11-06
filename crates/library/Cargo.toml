@@ -29,6 +29,11 @@ serde_json.workspace = true
 # (desktop); the web uses `String.prototype.normalize`.
 unicode-normalization = { workspace = true, optional = true }
 
+# The announcer studio's examples, `src/announcer/examples.toml`, made
+# tables at build time (`build.rs`).
+[build-dependencies]
+toml.workspace = true
+
 [dev-dependencies]
 encoding_rs.workspace = true
 # LZMA streams with and without their end marker for the zip tests.

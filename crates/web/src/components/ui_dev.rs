@@ -545,6 +545,17 @@ pub(crate) fn set_frame_hook(host: &Rc<RefCell<Host>>, hook: Option<FrameHook>) 
 /// Broadcasts message `name` to the host's screens and wakes it, as soon
 /// as the host is free (after the handler that asked returns); nothing
 /// once it is gone.
+/// A point in the window (a drop's `clientX`, `clientY`) on the UI's
+/// screen, in the virtual pixels [`ddi_ui::Ui::visible_bounds`] gives.
+pub(crate) fn virtual_point(host: &Rc<RefCell<Host>>, client: [f64; 2]) -> [f32; 2] {
+    let h = host.borrow();
+    let origin = h.canvas.get_bounding_client_rect();
+    h.ui.viewport().to_virtual([
+        (client[0] - origin.left()) as f32,
+        (client[1] - origin.top()) as f32,
+    ])
+}
+
 pub(crate) fn broadcast_soon(host: Weak<RefCell<Host>>, name: &'static str) {
     broadcast_message_soon(host, Message::new(name));
 }
@@ -1552,7 +1563,7 @@ fn resize(host: &Rc<RefCell<Host>>) {
 
 /// Hands an event to the UI inside the platform's handler; whether it
 /// was consumed.
-fn dispatch(weak: &Weak<RefCell<Host>>, event: UiEvent) -> bool {
+pub(crate) fn dispatch(weak: &Weak<RefCell<Host>>, event: UiEvent) -> bool {
     let Some(rc) = weak.upgrade() else {
         return false;
     };

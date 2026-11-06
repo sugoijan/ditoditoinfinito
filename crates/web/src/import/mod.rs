@@ -1246,7 +1246,7 @@ async fn read_range(blob: &Blob, start: u64, end: u64) -> Result<Vec<u8>, String
 }
 
 /// The entry list of a zip, from its tail and central directory.
-async fn zip_entries(file: &File) -> Result<Vec<ZipEntry>, String> {
+pub(crate) async fn zip_entries(file: &File) -> Result<Vec<ZipEntry>, String> {
     let len = file.size() as u64;
     let tail = read_range(file, len - zip::tail_len(len), len).await?;
     let cd = match zip::locate_central_directory(&tail, len).map_err(|e| e.to_string())? {

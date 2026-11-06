@@ -27,6 +27,8 @@ pub enum Leave {
     Demo {
         gl: bool,
     },
+    /// The announcer studio (the web's, `docs/plans/announcer-studio.md`).
+    Studio,
 }
 
 /// What the platform does for the options.
@@ -182,7 +184,7 @@ fn call_with(
     match act {
         Act::Done => return Some(model.borrow().data()),
         Act::Nothing => {}
-        Act::Calibrate | Act::Demo { .. } => {
+        Act::Calibrate | Act::Demo { .. } | Act::Studio => {
             let volume = model.borrow().settings.volume;
             platform.sample(false, volume, cx);
             if model.borrow().world.sample != Sample::None {
@@ -191,6 +193,7 @@ fn call_with(
             platform.leave(
                 match act {
                     Act::Demo { gl } => Leave::Demo { gl },
+                    Act::Studio => Leave::Studio,
                     _ => Leave::Calibrate,
                 },
                 cx,

@@ -1,0 +1,86 @@
+# More examples of what an announcer might say, for the announcer studio
+# (`examples.rs`, `docs/plans/announcer-studio.md`, decision 3). Text
+# only: they show beside our packs' own sounds (Mr. Clank's, ガキンさん's),
+# which come with what each says, after them. Suggestions only: nothing
+# checks a recording against them.
+#
+# A table for each set of examples, by its key: `en` (English) and `ja`
+# (日本語). In it, a line's folder as the game names it
+# (`docs/announcer-lines.md`; StepMania's aliases too) gives the line's
+# examples, in their order. `{n}` in a folder's name stands for every
+# combo line ("gameplay {n} combo"), and in the examples for the combo
+# in words: "One hundred", "Fifteen hundred"; 百, 千五百.
+#
+# Turned into tables when the library is built (`build.rs`): the game
+# carries no TOML parser. The library's tests check every folder is a
+# line and every set a set.
+
+[en]
+"gameplay {n} combo" = [
+    "{n} and counting!",
+    "{n}! Keep it going!",
+    "{n} combo! Nice!",
+]
+"gameplay full combo" = [
+    "Full combo! You made it!",
+    "Every note, connected!",
+]
+"gameplay full combo w2" = [
+    "What a full combo!",
+    "Full combo, almost perfect!",
+]
+"gameplay full combo w3" = [
+    "Full combo! Nice work!",
+    "You held the combo!",
+]
+"evaluation full combo w1" = [
+    "Flawless! A perfect full combo!",
+    "Perfect from start to finish!",
+]
+"evaluation full combo w2" = [
+    "An excellent full combo!",
+    "Full combo, so close to perfect!",
+]
+"evaluation full combo w3" = [
+    "Full combo! Well done!",
+    "A full combo! Great job!",
+]
+"evaluation full combo w4" = [
+    "Full combo! You hung in there!",
+    "You kept it together! Full combo!",
+]
+
+[ja]
+"gameplay {n} combo" = [
+    "{n}コンボ突破！",
+    "{n}コンボ、その調子！",
+    "{n}まで来た！",
+]
+"gameplay full combo" = [
+    "全部つないだ！",
+    "フルコンボ、おめでとう！",
+]
+"gameplay full combo w2" = [
+    "すごいフルコンボ！",
+    "フルコンボ！あと少しで完璧！",
+]
+"gameplay full combo w3" = [
+    "フルコンボ達成！",
+    "最後までつないだ！",
+]
+"evaluation full combo w1" = [
+    "パーフェクトフルコンボ！",
+    "最初から最後まで完璧！",
+]
+"evaluation full combo w2" = [
+    "素晴らしいフルコンボ！",
+    "完璧まであと一歩のフルコンボ！",
+]
+"evaluation full combo w3" = [
+    "フルコンボ！よく頑張った！",
+    "見事につないだ！",
+]
+"evaluation full combo w4" = [
+    "フルコンボ！粘り勝ち！",
+    "最後までつないだ！フルコンボ！",
+]

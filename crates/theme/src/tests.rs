@@ -1962,6 +1962,63 @@ fn the_menus_move_part_by_part_and_follow_each_other() {
     assert_eq!(h.ui.focused(), Some("Singleplayer"));
 }
 
+/// A page's zone is a card: an item in it lights the whole card, an
+/// item outside one lights itself.
+#[test]
+fn an_item_in_a_zone_lights_its_card() {
+    use ddi_ui::screens::page::{Action, Block, PageDoc, PageScreen, PageShell};
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let doc = PageDoc {
+        title: "Studio".into(),
+        blocks: vec![
+            Block::Actions(vec![Action::new("a", "Outside")]),
+            Block::Zone {
+                id: "card".into(),
+                body: vec![
+                    Block::Subheading("A line".into()),
+                    Block::Action {
+                        id: "b".into(),
+                        label: "An example".into(),
+                    },
+                    Block::Actions(vec![Action::new("c", "Inside")]),
+                ],
+            },
+        ],
+    };
+    let shell: PageShell = Rc::new(|_, _| None);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(PageScreen::new(env.clone(), "studio", doc).with_shell(shell, Rc::default()));
+    h.run(0.5);
+    let ring = |h: &mut Harness| {
+        h.run(0.05);
+        assert_eq!(active_count(h), 1);
+        h.ui.bounds("ActiveOutline").unwrap()
+    };
+    h.key("ArrowDown", "ArrowDown");
+    let item = h.ui.bounds("Item0").unwrap();
+    let r = ring(&mut h);
+    for gap in [
+        item[0] - r[0],
+        item[1] - r[1],
+        r[2] - item[2],
+        r[3] - item[3],
+    ] {
+        assert!((gap - 6.0).abs() < 0.01, "around the button: {gap}");
+    }
+    let [zx0, zy0, zx1, zy1] = h.ui.bounds("Zone.card").unwrap();
+    for item in 1..=2 {
+        h.key("ArrowDown", "ArrowDown");
+        let r = ring(&mut h);
+        for gap in [zx0 - r[0], zy0 - r[1], r[2] - zx1, r[3] - zy1] {
+            assert!(
+                (gap - 6.0).abs() < 0.01,
+                "item {item}: around the card, {gap}"
+            );
+        }
+    }
+}
+
 /// The credits arrive after their page came in (the web reads them
 /// later): the column keeps its motion, the title changes in place.
 #[test]

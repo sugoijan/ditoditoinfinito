@@ -893,6 +893,69 @@ fn crc32_update(crc: u32, bytes: &[u8]) -> u32 {
     })
 }
 
+/// The DOS date every entry [`write_stored`] writes carries: 1980-01-01,
+/// the earliest a zip can say, at midnight (the time is 0).
+const FIXED_DATE: u16 = (1 << 5) | 1;
+
+/// A zip of `files` (`(name, data)`, names `/`-separated, folders made by
+/// the names alone), each stored as it is: sounds barely compress. Every
+/// name is flagged UTF-8 and every entry dated 1980-01-01, so the same
+/// files give the same bytes; Unix permissions 0644, so unzipping makes
+/// files anyone may read. No ZIP64: `None` past 65,535 files or 4 GiB.
+pub fn write_stored<N: AsRef<str>, D: AsRef<[u8]>>(files: &[(N, D)]) -> Option<Vec<u8>> {
+    const VERSION: u16 = 20;
+    const MADE_BY_UNIX: u16 = (3 << 8) | VERSION;
+    const READ_WRITE: u32 = 0o100_644 << 16;
+    let count = u16::try_from(files.len()).ok()?;
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for (name, data) in files {
+        let (name, data) = (name.as_ref().as_bytes(), data.as_ref());
+        let offset = u32::try_from(out.len()).ok()?;
+        let size = u32::try_from(data.len()).ok()?;
+        let name_len = u16::try_from(name.len()).ok()?;
+        let crc = crc32(data);
+        let common = |b: &mut Vec<u8>| {
+            b.extend_from_slice(&VERSION.to_le_bytes());
+            b.extend_from_slice(&FLAG_UTF8.to_le_bytes());
+            b.extend_from_slice(&0u16.to_le_bytes()); // stored
+            b.extend_from_slice(&0u16.to_le_bytes()); // time
+            b.extend_from_slice(&FIXED_DATE.to_le_bytes());
+            b.extend_from_slice(&crc.to_le_bytes());
+            b.extend_from_slice(&size.to_le_bytes());
+            b.extend_from_slice(&size.to_le_bytes());
+            b.extend_from_slice(&name_len.to_le_bytes());
+            b.extend_from_slice(&0u16.to_le_bytes()); // extra
+        };
+        out.extend_from_slice(&SIG_LOCAL.to_le_bytes());
+        common(&mut out);
+        out.extend_from_slice(name);
+        out.extend_from_slice(data);
+        central.extend_from_slice(&SIG_CENTRAL.to_le_bytes());
+        central.extend_from_slice(&MADE_BY_UNIX.to_le_bytes());
+        common(&mut central);
+        central.extend_from_slice(&0u16.to_le_bytes()); // comment
+        central.extend_from_slice(&0u16.to_le_bytes()); // disk
+        central.extend_from_slice(&0u16.to_le_bytes()); // internal attributes
+        central.extend_from_slice(&READ_WRITE.to_le_bytes());
+        central.extend_from_slice(&offset.to_le_bytes());
+        central.extend_from_slice(name);
+    }
+    let cd_offset = u32::try_from(out.len()).ok()?;
+    let cd_size = u32::try_from(central.len()).ok()?;
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&SIG_EOCD.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes()); // this disk
+    out.extend_from_slice(&0u16.to_le_bytes()); // the directory's disk
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&cd_size.to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes()); // comment
+    u32::try_from(out.len()).ok()?;
+    Some(out)
+}
+
 /// IBM PC code page 437, bytes 0x80..=0xFF: the zip spec's default name
 /// encoding when the UTF-8 flag is clear.
 const CP437_HIGH: [char; 128] = [
@@ -1175,6 +1238,31 @@ pub(crate) mod tests {
             crc32(b"The quick brown fox jumps over the lazy dog"),
             0x414F_A339
         );
+    }
+
+    /// What [`write_stored`] writes reads back the same, names in UTF-8
+    /// included, and the same files give the same bytes.
+    #[test]
+    fn a_stored_zip_reads_back() {
+        let files = [
+            (
+                "Announcers/ガキンさん/gameplay ready/a.wav",
+                b"RIFF one".to_vec(),
+            ),
+            ("Announcers/ガキンさん/README.txt", Vec::new()),
+            ("b.mp3", vec![0xFF; 70_000]),
+        ];
+        let zip = write_stored(&files).unwrap();
+        assert_eq!(write_stored(&files).unwrap(), zip);
+        let read = read_all(&zip).unwrap();
+        let got: Vec<(&str, &[u8])> = read
+            .iter()
+            .map(|(e, d)| (e.name.as_str(), d.as_slice()))
+            .collect();
+        let want: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (*n, d.as_slice())).collect();
+        assert_eq!(got, want);
+        assert!(read.iter().all(|(e, _)| e.method == Method::Stored));
+        assert_eq!(write_stored::<&str, &[u8]>(&[]).unwrap().len(), 22);
     }
 
     #[test]

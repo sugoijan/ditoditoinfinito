@@ -511,7 +511,8 @@ impl OptionsPlatform for Desktop {
                     ));
                 }
             }
-            Leave::Demo { .. } => {}
+            // Neither is offered on desktop.
+            Leave::Demo { .. } | Leave::Studio => {}
         }
     }
 

@@ -1,0 +1,328 @@
+use super::*;
+use crate::announcer::find_announcers;
+use crate::announcer::tidy;
+
+const MP3: &[u8] = b"ID3\x04\x00\x00\x00\x00\x00\x00rest";
+const M4A: &[u8] = b"\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00";
+
+fn ogg(kind: &[u8]) -> Vec<u8> {
+    let mut head = b"OggS".to_vec();
+    head.resize(28, 0);
+    head.extend_from_slice(kind);
+    head
+}
+
+#[test]
+fn recordings_are_known_by_their_first_bytes() {
+    let mut wav = b"RIFF\x24\x00\x00\x00WAVEfmt ".to_vec();
+    wav.resize(64, 0);
+    assert_eq!(Format::sniff(&wav), Format::Wav);
+    assert_eq!(Format::sniff(MP3), Format::Mp3);
+    assert_eq!(Format::sniff(&[0xFF, 0xFB, 0x90, 0x64]), Format::Mp3);
+    // ADTS AAC shares the sync, not the layer.
+    assert_eq!(Format::sniff(&[0xFF, 0xF1, 0x50, 0x80]), Format::Other);
+    assert_eq!(Format::sniff(&ogg(b"OpusHead")), Format::Opus);
+    assert_eq!(Format::sniff(&ogg(b"\x01vorbis")), Format::Vorbis);
+    assert_eq!(Format::sniff(b"fLaC\x00\x00"), Format::Flac);
+    assert_eq!(Format::sniff(M4A), Format::Other);
+    assert_eq!(Format::sniff(b""), Format::Other);
+    assert!(Format::Opus.kept(false) && !Format::Opus.kept(true));
+    assert!(Format::Vorbis.kept(true) && !Format::Other.kept(false));
+}
+
+#[test]
+fn files_are_put_on_the_lines_their_names_say() {
+    let cases = [
+        ("New Recording 12.m4a", None),
+        ("Voice Memo.m4a", None),
+        ("gameplay ready.wav", Some(Line::Ready)),
+        ("Gameplay_Ready_2.m4a", Some(Line::Ready)),
+        ("ready take 3.wav", Some(Line::Ready)),
+        ("ready-take3.wav", Some(Line::Ready)),
+        ("here we go normal (2).mp3", Some(Line::HereWeGo)),
+        ("100 combo.wav", Some(Line::Combo(100))),
+        ("1500 combo.wav", Some(Line::Combo(1500))),
+        ("gameplay combo 300.ogg", Some(Line::Combo(300))),
+        ("cheer.wav", Some(Line::Cheer)),
+        ("evaluation aa 2.wav", Some(Line::Grade(Grade::Aa))),
+        // Too short to be told apart, or two lines' ends.
+        ("aa.wav", None),
+        ("full combo w1.wav", None),
+        // A pack added whole: its line folders.
+        ("Mine/gameplay cleared/yay.mp3", Some(Line::Cleared)),
+        (
+            "Announcers/X/Gameplay Combo 200/a 1.wav",
+            Some(Line::Combo(200)),
+        ),
+        ("gameplay failed/ready.wav", Some(Line::Failed)),
+        // A folder named for its line holding takes named anyhow.
+        ("takes/100 combo/1.wav", Some(Line::Combo(100))),
+        ("Recordings/12.wav", None),
+    ];
+    for (path, line) in cases {
+        assert_eq!(match_line(path), line, "{path}");
+    }
+}
+
+fn measure(seconds: f64, start: f64, end: f64) -> Measure {
+    Measure {
+        rate: 48_000,
+        channels: 1,
+        seconds,
+        clipped: false,
+        start,
+        end,
+        gain: 1.0,
+    }
+}
+
+#[test]
+fn takes_are_sorted_moved_and_removed() {
+    let mut d = Draft::default();
+    let a = d.add("gameplay ready.wav", 10, MP3);
+    let b = d.add("New Recording.m4a", 20, M4A);
+    let c = d.add("gameplay 1100 combo/x.mp3", 30, MP3);
+    assert_eq!(
+        d.takes_of(Line::Ready).map(|t| t.id).collect::<Vec<_>>(),
+        [a]
+    );
+    assert_eq!(d.unsorted().map(|t| t.id).collect::<Vec<_>>(), [b]);
+    d.take_mut(b).unwrap().line = Some(Line::Cheer);
+    assert_eq!(d.unsorted().count(), 0);
+    assert_eq!(d.remove(a).map(|t| t.id), Some(a));
+    assert!(d.take(a).is_none());
+    // A combo past 1000 is listed where a take is on it; Etterna's two
+    // only then.
+    let lines = d.lines();
+    assert!(lines.contains(&Line::Combo(1100)));
+    assert!(!lines.contains(&Line::Grade(Grade::Aaaaa)));
+    assert!(!lines.contains(&Line::Grade(Grade::F)));
+    let at = |l| lines.iter().position(|x| *x == l).unwrap();
+    assert!(at(Line::Combo(1000)) < at(Line::Combo(1100)));
+    assert!(at(Line::Combo(1100)) < at(Line::ComboOverflow));
+    assert_ne!(c, b);
+    // Ids are not given twice, even after a removal.
+    assert_eq!(d.add("y.wav", 1, MP3), c + 1);
+}
+
+#[test]
+fn a_take_is_kept_as_it_came_unless_tidied_or_unread_by_the_game() {
+    let mut d = Draft::default();
+    let mp3 = d.add("ready.mp3", 1, MP3);
+    let m4a = d.add("cheer.m4a", 1, M4A);
+    let opus = d.add("cleared.opus", 1, &ogg(b"OpusHead"));
+    let write = |d: &Draft, id| d.write_of(d.take(id).unwrap());
+    assert_eq!(write(&d, mp3), Write::Wav { tidy: true });
+    d.tidy = false;
+    assert_eq!(write(&d, mp3), Write::AsIs);
+    assert_eq!(write(&d, m4a), Write::Wav { tidy: false });
+    assert_eq!(write(&d, opus), Write::AsIs);
+    d.stepmania = true;
+    assert_eq!(write(&d, opus), Write::Wav { tidy: false });
+    d.take_mut(mp3).unwrap().tidy = Some(true);
+    assert_eq!(write(&d, mp3), Write::Wav { tidy: true });
+}
+
+#[test]
+fn notes_tell_of_long_clipped_and_unreadable_takes() {
+    let mut d = Draft::default();
+    let combo = d.add("100 combo.wav", 1, MP3);
+    let comment = d.add("comment good.wav", 1, MP3);
+    let bad = d.add("cheer.wav", 1, MP3);
+    let clipped = d.add("cleared.wav", 1, MP3);
+    // 3 s as recorded, 1.5 s once tidied.
+    d.take_mut(combo).unwrap().sound = Sound::Read(measure(3.0, 1.0, 2.5));
+    d.take_mut(comment).unwrap().sound = Sound::Read(measure(9.0, 0.0, 9.0));
+    d.take_mut(bad).unwrap().sound = Sound::Unreadable("no decoder".into());
+    d.take_mut(clipped).unwrap().sound = Sound::Read(Measure {
+        clipped: true,
+        ..measure(1.0, 0.0, 1.0)
+    });
+    let notes = |d: &Draft, id| d.notes(d.take(id).unwrap());
+    assert!(notes(&d, combo).is_empty());
+    assert!(notes(&d, comment).is_empty());
+    assert_eq!(notes(&d, bad), [Note::Unreadable("no decoder".into())]);
+    assert_eq!(notes(&d, clipped), [Note::Clipped]);
+    d.take_mut(combo).unwrap().tidy = Some(false);
+    assert_eq!(
+        notes(&d, combo),
+        [Note::TooLong {
+            seconds: 3.0,
+            limit: COMBO_GAP
+        }]
+    );
+    // Ready and here we go: the longest of each, and the half second
+    // before the first note.
+    assert_eq!(d.opening(), None);
+    for (name, s) in [
+        ("ready.wav", 1.0),
+        ("ready 2.wav", 1.5),
+        ("here we go normal.wav", 1.25),
+    ] {
+        let id = d.add(name, 1, MP3);
+        d.take_mut(id).unwrap().sound = Sound::Read(measure(s, 0.0, s));
+    }
+    assert_eq!(d.opening(), Some(1.5 + 1.25 + GO_BEFORE));
+}
+
+/// A second of a tone, as the shells hand the studio decoded takes.
+fn tone() -> Vec<f32> {
+    (0..48_000)
+        .map(|i| {
+            let t = f64::from(i) / 48_000.0;
+            let on = (0.2..0.7).contains(&t);
+            if on {
+                (0.2 * (t * 440.0 * std::f64::consts::TAU).sin()) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
+/// The zip an export writes, the shell's part done here: each take's
+/// bytes as they came, or its tone tidied and written as a WAV.
+fn zip_of(d: &Draft, bytes: &BTreeMap<u64, Vec<u8>>) -> Vec<u8> {
+    let export = d.export();
+    let mut files: Vec<(String, Vec<u8>)> = export
+        .entries
+        .iter()
+        .map(|e| {
+            let data = match e.write {
+                Write::AsIs => bytes[&e.take].clone(),
+                Write::Wav { tidy } => {
+                    let t = tone();
+                    let out = if tidy {
+                        tidy::apply(&[&t], 48_000, &tidy::measure(&[&t], 48_000))
+                    } else {
+                        vec![t]
+                    };
+                    crate::wav::write(&out, 48_000)
+                }
+            };
+            (e.path.clone(), data)
+        })
+        .collect();
+    files.push(("README.txt".into(), export.readme.into_bytes()));
+    crate::zip::write_stored(&files).unwrap()
+}
+
+/// What an export writes, read back as an import reads it: the same
+/// lines and sounds, nothing passed over, the same bytes each time.
+#[test]
+fn an_export_imports_as_it_was_made() {
+    let mut d = Draft {
+        name: "ガキン/さん: 2".into(),
+        author: "Someone".into(),
+        license: "CC0".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    let mut bytes = BTreeMap::new();
+    for (source, head) in [
+        ("gameplay ready.mp3", MP3.to_vec()),
+        ("Gameplay_Ready_2.mp3", MP3.to_vec()),
+        ("ready.mp3", MP3.to_vec()),
+        ("100 combo.opus", ogg(b"OpusHead")),
+        ("cheer.m4a", M4A.to_vec()),
+        ("New Recording.m4a", M4A.to_vec()),
+        ("cleared.wav", MP3.to_vec()),
+    ] {
+        let id = d.add(source, head.len() as u64, &head);
+        bytes.insert(id, head);
+    }
+    let cleared = d.takes_of(Line::Cleared).next().unwrap().id;
+    d.take_mut(cleared).unwrap().sound = Sound::Unreadable("no".into());
+    let export = d.export();
+    assert_eq!(export.file_name, "ガキン さん 2.zip");
+    let paths: Vec<&str> = export.entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "Announcers/ガキン さん 2/gameplay ready/gameplay ready.mp3",
+            "Announcers/ガキン さん 2/gameplay ready/Gameplay_Ready_2.mp3",
+            "Announcers/ガキン さん 2/gameplay ready/ready.mp3",
+            "Announcers/ガキン さん 2/gameplay 100 combo/100 combo.opus",
+            "Announcers/ガキン さん 2/evaluation cheer/cheer.wav",
+        ]
+    );
+    assert_eq!(
+        export.readme,
+        "ガキン さん 2\nBy Someone\nLicense: CC0\n\nAn announcer for Dito Dito Infinito, made with its announcer studio.\n"
+    );
+    // Imported again, the README gives the credits back.
+    assert_eq!(
+        readme_credits(&export.readme),
+        (Some("Someone".into()), Some("CC0".into()))
+    );
+    assert_eq!(readme_credits("Name\n\nBy nobody\n"), (None, None));
+    let zip = zip_of(&d, &bytes);
+    assert_eq!(zip_of(&d, &bytes), zip);
+    let read = crate::zip::tests::read_all(&zip).unwrap();
+    let files: Vec<(String, u64)> = read
+        .iter()
+        .map(|(e, data)| (e.name.clone(), data.len() as u64))
+        .collect();
+    let found = find_announcers(&files, "root");
+    assert_eq!(found.announcers.len(), 1);
+    let a = &found.announcers[0];
+    assert_eq!(a.name, "ガキン さん 2");
+    let lines: BTreeMap<Line, usize> = a.lines.iter().map(|(l, f)| (*l, f.len())).collect();
+    assert_eq!(
+        lines,
+        BTreeMap::from([(Line::Ready, 3), (Line::Combo(100), 1), (Line::Cheer, 1)])
+    );
+    assert_eq!(a.report.ignored, 0);
+    assert!(a.report.empty.is_empty() && a.unknown.is_empty());
+    // Tidied, every take is a WAV.
+    d.tidy = true;
+    assert!(d.export().entries.iter().all(|e| e.path.ends_with(".wav")));
+    // Unnamed: a folder all the same.
+    assert_eq!(Draft::default().export().file_name, "Announcer.zip");
+}
+
+#[test]
+fn a_takes_name_is_numbered_where_two_would_share_it() {
+    let mut d = Draft {
+        tidy: false,
+        ..Draft::default()
+    };
+    for source in ["a/ready.mp3", "b/Ready.mp3", "c/ready.mp3"] {
+        let id = d.add(source, 1, MP3);
+        d.take_mut(id).unwrap().line = Some(Line::Ready);
+    }
+    let names: Vec<String> = d
+        .export()
+        .entries
+        .iter()
+        .map(|e| e.path.rsplit('/').next().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["ready.mp3", "Ready 2.mp3", "ready 3.mp3"]);
+}
+
+#[test]
+fn a_draft_is_kept_as_json() {
+    let mut d = Draft::default();
+    let id = d.add("100 combo.wav", 5, MP3);
+    d.take_mut(id).unwrap().sound = Sound::Read(measure(1.0, 0.1, 0.9));
+    d.add("x.m4a", 5, M4A);
+    let json = serde_json::to_string(&d).unwrap();
+    assert!(json.contains("\"gameplay 100 combo\""), "{json}");
+    let back: Draft = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, d);
+    // The next id survives too.
+    let mut back = back;
+    assert_eq!(back.add("y.wav", 1, MP3), 3);
+}
+
+#[test]
+fn the_size_counts_wavs_by_their_length() {
+    let mut d = Draft::default();
+    let id = d.add("ready.mp3", 1000, MP3);
+    d.take_mut(id).unwrap().sound = Sound::Read(measure(2.0, 0.5, 1.5));
+    // Tidied: a second at 48 kHz, mono, 16-bit.
+    assert_eq!(d.size(), (1, 44 + 96_000));
+    d.tidy = false;
+    assert_eq!(d.size(), (1, 1000));
+    assert!(!d.too_big());
+}

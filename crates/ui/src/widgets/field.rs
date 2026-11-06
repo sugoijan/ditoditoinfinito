@@ -110,10 +110,16 @@ impl SearchField {
     }
 
     pub fn build(&self, look: &dyn Look) -> Actor {
-        let [w, h] = self.size;
-        let mut a = look::component(look, "TextField", &Spec::new(self.size, &self.hint));
+        self.build_at(look, self.centre, self.size)
+    }
+
+    /// Its actor at `centre`, `size` rather than its own: a field in a
+    /// column that scrolls, placed as the column lays it out.
+    pub fn build_at(&self, look: &dyn Look, centre: [f32; 2], size: [f32; 2]) -> Actor {
+        let [w, h] = size;
+        let mut a = look::component(look, "TextField", &Spec::new(size, &self.hint));
         a.name = self.name.clone();
-        call(&mut a, "xy", &[self.centre[0], self.centre[1]]);
+        call(&mut a, "xy", &[centre[0], centre[1]]);
         let mut text = look::text_in(
             &look::font(look),
             &self.text_actor(),

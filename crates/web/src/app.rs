@@ -15,6 +15,7 @@ use crate::components::game_canvas::{self, GameCanvas, SongSource};
 use crate::components::options_page::OptionsPage;
 use crate::components::page_routes::{self, PagePage, Which};
 use crate::components::select_page::SelectPage;
+use crate::components::studio_page::StudioPage;
 use crate::components::ui_dev::{self, UiDev};
 use crate::components::ui_test::{self, UiTest};
 use crate::components::video_check::{self, VideoCheck};
@@ -145,7 +146,9 @@ impl App {
             // Drawn on the new device as they are (the section, the row,
             // a dialog open): their host follows the loss itself
             // (`ui_dev::device_lost`).
-            Route::Options | Route::Credits | Route::Calibrate => self.route.to_hash(),
+            Route::Options | Route::Credits | Route::Calibrate | Route::Studio => {
+                self.route.to_hash()
+            }
             // The preview takes new parameters as they come.
             Route::SkinPreview { .. } => "skin-preview".into(),
             _ => self.route.to_hash(),
@@ -296,6 +299,8 @@ impl App {
             )),
             // Options, our theme's screen on the canvas (step 6.3).
             Route::Options => Box::new(mount::<OptionsPage>(root, "main", ())),
+            // The announcer studio, a page of our theme's.
+            Route::Studio => Box::new(mount::<StudioPage>(root, "main", ())),
             Route::VideoCheck { sources, decoder } => Box::new(mount::<VideoCheck>(
                 root,
                 "main",
