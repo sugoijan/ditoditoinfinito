@@ -5,10 +5,14 @@ play renderer. `tools/play-hud-design/approved.json` records the selected
 parameters; sample life, combo, judgment and score format are preview data,
 not gameplay settings. Keep Iosevka: ExtraBold judgments, SemiBold numbers.
 
-The quiet rounded gauge is 22% wide and 8 px high, with jade/mint
-turbulence, coral damage and blue recovery using the same field. Damage
-snaps life immediately, then contracts after 80 ms over 380 ms; recovery
-catches up in 130 ms. Full life blends to Vivid over 240 ms, evolves 2.5
+The quiet rounded gauge is four lanes wide and 8 px high, centered over
+the field, with jade/mint turbulence, coral damage and blue recovery
+using the same field. It fills from the middle out, to both ends at once,
+brightening toward the ends of the fill, and less than life's share below
+full (`life × (0.2 + 0.8 × life)`: half life fills 30%, a loss from full
+shows 1.8 times its size, a tenth still about 3%); the warning and every
+number keep the true life. Damage snaps life immediately,
+then contracts after 80 ms over 380 ms; recovery catches up in 130 ms. Full life blends to Vivid over 240 ms, evolves 2.5
 times faster and cycles its palette in five seconds. The selected 25%
 warning threshold also honors an earlier ruleset danger flag. No gauge
 or score rules change.
@@ -24,6 +28,12 @@ from the bundled Iosevka SemiBold and the existing title masks, and lighter
 score text through glyphon. Presentation time is independent of music
 rate; reset it between sessions. Previews omit the HUD. Preserve judgment
 names/colors, hold outcomes, timing deltas, ghost scores and quit controls.
+
+The study's gauge was 22% of the screen's width, filled left to right.
+Since 2026-11-06 the game's is four lanes wide, Single's field (22% of a
+1280 px screen within a few pixels), so it scales with the notes rather
+than the window, and fills from the middle out, by the curve above
+(`hud::life_rect`, `hud::shown`, `hud.wgsl`'s `life`). The study still shows the earlier gauge.
 
 The score sits below the gauge row to keep long scores clear on narrow
 screens. Lyrics reserve the gauge, score/ghost and watermark bounds; the

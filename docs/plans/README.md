@@ -79,7 +79,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
   2026-11-06; the announcer is Off by default.
 - [Play HUD](play-hud.md) (2026-10-29): done; accepted study ported
   to the shared renderer and checked offscreen. Life trails, Iosevka type,
-  combo tiers and still title watermark.
+  combo tiers and still title watermark. The life gauge four lanes wide
+  over the field and filling from the middle out, on a curve, since
+  2026-11-06.
 
 - [Pump layouts](pump.md) (2026-10-13): done (ticked holds 2026-10-14,
   pump skins 2026-10-16, every bundled skin's own center 2026-10-22).

@@ -46,16 +46,19 @@ fn life(uv: vec2<f32>) -> vec4<f32> {
     let w = p + d * 1.35;
     let folds = noise(w + vec2(-t * .15, t * .37));
     let q = fract((w.x * .18 + w.y * .12 + 1.25 * folds) * 2. - 97. / 360.);
-    let green = clamp(.25 + .5 * uv.x + cos(q * 6.2831853) * .125, 0., 1.);
+    // Life fills from the middle out, to both ends at once: `at` is the
+    // share of life a point stands for, 0 in the middle and 1 at the ends.
+    let at = abs(uv.x - .5) * 2.;
+    let green = clamp(.25 + .5 * at + cos(q * 6.2831853) * .125, 0., 1.);
     var color = vec3(36.,33.,43.) / 255.;
-    if uv.x < g.life.z && uv.x >= max(g.life.x, g.life.y) {
+    if at < g.life.z && at >= max(g.life.x, g.life.y) {
         let red = mix(vec3(138.,25.,44.), vec3(221.,88.,54.), green) / 255.;
         color = mix(color, red, g.life.w);
     }
-    if uv.x < g.life.y && uv.x >= g.life.x {
+    if at < g.life.y && at >= g.life.x {
         color = mix(vec3(21.,82.,158.), vec3(131.,201.,244.), green) / 255.;
     }
-    if uv.x < g.life.x {
+    if at < g.life.x {
         color = mix(vec3(0.,92.,69.), vec3(34.,195.,85.), green) / 255.;
         let vivid = mix(ramp(g.motion.y + .43 * q), ramp(g.motion.y + .43 * (q-1.)), smoothstep(.5,1.,q));
         color = mix(color, vivid, g.motion.z);

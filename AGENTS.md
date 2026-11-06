@@ -214,7 +214,9 @@ Rust and the browser are implementation details, not advertised features.
   `crates/theme/src/infinito.toml` (turned into tables at build time). The
   play HUD is shared by both shells (`crates/render/src/hud.rs`, `hud.wgsl`;
   `docs/plans/play-hud.md`), using the accepted `tools/play-hud-design/approved.json`:
-  quiet jade/mint life turbulence, coral damage and blue recovery trails,
+  a life gauge four lanes wide over the field, filling from the middle out
+  and less than life's share below full (drawing only),
+  with quiet jade/mint turbulence, coral damage and blue recovery trails,
   Vivid at full life, Iosevka judgments and lighter SemiBold numbers,
   transparent combo outline gaps at each hundred and inverted color at 1000,
   and a still gray-outlined title watermark. Its host-time motion resets per

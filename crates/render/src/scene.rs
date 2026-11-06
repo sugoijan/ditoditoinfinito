@@ -1598,15 +1598,45 @@ mod tests {
             assert_eq!(at(780.0, 1688.0, 4.0, place), phone);
         }
         // The life gauge goes with the field, as wide wherever it is; in
-        // the middle where it always was.
+        // the middle where it always was, four lanes wide.
         let gauge = |g: &FieldGeometry| crate::hud::life_rect(g, 4.0);
-        assert!((gauge(&center)[0] - 1280.0 * 0.39).abs() < 1e-3);
+        assert_eq!(gauge(&center)[0], 640.0 - 2.0 * center.arrow);
         for g in [center, left, right] {
             let [x, y, w, _] = gauge(&g);
             assert!((x + w / 2.0 - g.center_x(4.0)).abs() < 1e-3);
             assert_eq!([y, w], [gauge(&center)[1], gauge(&center)[2]]);
         }
         assert!(gauge(&left)[0] + gauge(&left)[2] < gauge(&right)[0]);
+    }
+
+    #[test]
+    fn the_life_gauge_is_four_lanes_wide_over_any_field() {
+        // As the notes scale (by the height here, the width there), never
+        // by the screen's width alone; centered over each layout's field.
+        for (w, h) in [
+            (1280.0, 720.0),
+            (2560.0, 720.0),
+            (1280.0, 1440.0),
+            (780.0, 1688.0),
+        ] {
+            for span in [4.0, 5.0, 8.0, 9.0] {
+                let geo = FieldGeometry::new(w, h, span, false);
+                let [x, _, gw, gh] = crate::hud::life_rect(&geo, span);
+                assert_eq!(gw, 4.0 * geo.arrow, "{w}×{h}, {span} lanes");
+                assert!((x + gw / 2.0 - geo.center_x(span)).abs() < 1e-3);
+                assert_eq!(gh, 8.0 * crate::hud::scale(&geo));
+                assert!(x >= 0.0 && x + gw <= w);
+            }
+        }
+        // A wider window draws the same field, and the same gauge.
+        let (a, b) = (
+            FieldGeometry::new(1280.0, 720.0, 4.0, false),
+            FieldGeometry::new(2560.0, 720.0, 4.0, false),
+        );
+        assert_eq!(
+            crate::hud::life_rect(&a, 4.0)[2],
+            crate::hud::life_rect(&b, 4.0)[2]
+        );
     }
 
     #[test]

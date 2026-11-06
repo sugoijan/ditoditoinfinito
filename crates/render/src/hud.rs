@@ -8,6 +8,21 @@ use crate::scene::{FieldGeometry, RenderOptions, field_span};
 
 const SHADER: &str = include_str!("hud.wgsl");
 
+/// The life gauge's width in lanes: Single's field, which 22% of a
+/// 1280×720 screen was (the study's width) within a few pixels.
+const LIFE_LANES: f32 = 4.0;
+
+/// How much of the gauge a share of life fills: less than its share below
+/// full, so that being short of full looks it (half life fills 30%, a loss
+/// from full shows 1.8 times its size) while low life stays readable (a
+/// tenth still fills about 3%). Drawing only: the warning, the rules and
+/// every number keep the true life.
+fn shown(life: f32) -> f32 {
+    const FIRMNESS: f32 = 0.8;
+    let life = life.clamp(0.0, 1.0);
+    life * (1.0 - FIRMNESS + FIRMNESS * life)
+}
+
 pub(crate) fn scale(geo: &FieldGeometry) -> f32 {
     geo.arrow / 72.0
 }
@@ -15,10 +30,11 @@ pub(crate) fn scale(geo: &FieldGeometry) -> f32 {
 /// Rectangles are left, top, width, height, in target pixels.
 ///
 /// The life gauge is centered over the field, `span` lanes wide (each
-/// player's over theirs, where a side's field is a player's).
+/// player's over theirs, where a side's field is a player's), four lanes
+/// wide whatever the layout: it scales with the notes, never the screen.
 pub(crate) fn life_rect(geo: &FieldGeometry, span: f32) -> [f32; 4] {
     let s = scale(geo);
-    let w = geo.width * 0.22;
+    let w = geo.arrow * LIFE_LANES;
     [geo.center_x(span) - w / 2.0, 22.0 * s, w, 8.0 * s]
 }
 
@@ -335,7 +351,7 @@ impl Hud {
                 96.0 * cs,
             ],
             mark,
-            life: [m.fill, life, m.trail, m.trail_alpha],
+            life: [shown(m.fill), shown(life), shown(m.trail), m.trail_alpha],
             motion: [
                 if opts.reduced_motion {
                     4.0
@@ -416,6 +432,23 @@ mod tests {
             .write()
             .expect("GLSL ES 3.0 HUD");
         }
+    }
+
+    #[test]
+    fn the_gauge_fills_less_than_lifes_share_below_full() {
+        assert_eq!(shown(0.0), 0.0);
+        assert_eq!(shown(1.0), 1.0);
+        assert!((shown(0.5) - 0.3).abs() < 1e-6);
+        assert!((shown(0.1) - 0.028).abs() < 1e-6);
+        // Ordered as life is, so the trails keep their places around it.
+        let mut last = 0.0;
+        for i in 1..=1000 {
+            let s = shown(i as f32 / 1000.0);
+            assert!(s > last && s <= i as f32 / 1000.0);
+            last = s;
+        }
+        // A loss from full shows larger than it is.
+        assert!(1.0 - shown(0.95) > 0.05 * 1.7);
     }
 
     #[test]

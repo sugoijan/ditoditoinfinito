@@ -164,11 +164,33 @@ fn accepted_hud_draws_through_all_color_paths() {
             &frame(0.8, 0),
             opts,
         );
-        let green = pixel(&baseline, 681, 26);
+        // The gauge, four arrows (288 px) wide over the field's middle at
+        // 640, fills from the middle out, less than life's share below
+        // full: 80% fills 67%, 50% fills 30%. x 712 and its mirror, 567,
+        // are half way out, between the two.
+        let green = pixel(&baseline, 712, 26);
         let mut f = frame(0.5, 100);
         let red = draw(&device, &queue, &mut renderer, format, SIZE, &f, opts);
-        let r = pixel(&red, 681, 26);
-        assert!(r[0] > r[1] * 2 && r[0] > r[2] * 2, "red {r:?}");
+        for x in [712, 567] {
+            let r = pixel(&red, x, 26);
+            assert!(r[0] > r[1] * 2 && r[0] > r[2] * 2, "red at {x}: {r:?}");
+        }
+        let r = pixel(&red, 712, 26);
+        // Half the life is the middle 30%, green; the ends past the lost
+        // part are the track.
+        for x in [620, 640, 660] {
+            let p = pixel(&red, x, 26);
+            assert!(p[1] > p[0] && p[1] > p[2], "green at {x}: {p:?}");
+        }
+        for x in [500, 780] {
+            let p = pixel(&red, x, 26);
+            assert!(
+                p.into_iter()
+                    .zip([36, 33, 43])
+                    .all(|(a, b)| a.abs_diff(b) <= 3),
+                "track at {x}: {p:?}"
+            );
+        }
         snapshot(&format!("{index}-damage-100"), SIZE, &red);
         // A white digit's left edge has a real background-colored gap
         // before the colored ring, including on the encoded float path.
@@ -207,8 +229,10 @@ fn accepted_hud_draws_through_all_color_paths() {
             ..RenderOptions::default()
         };
         let blue = draw(&device, &queue, &mut renderer, format, SIZE, &f, opts);
-        let b = pixel(&blue, 681, 26);
-        assert!(b[2] > b[0] * 2, "blue {b:?}");
+        for x in [712, 567] {
+            let b = pixel(&blue, x, 26);
+            assert!(b[2] > b[0] * 2, "blue at {x}: {b:?}");
+        }
         let green_mix = (f32::from(green[1]) - 92.0) / 103.0;
         let red_mix = (f32::from(r[0]) - 138.0) / 83.0;
         assert!(
