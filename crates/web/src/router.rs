@@ -278,6 +278,7 @@ impl Route {
             .unwrap_or_default();
         keep_testing(&hash);
         share_switch(&hash);
+        lang_switch(&hash);
         Route::parse(&hash)
     }
 
@@ -343,6 +344,24 @@ pub(crate) fn keep_testing(hash: &str) {
     }
     if !kept.is_empty() {
         TESTING.with(|t| *t.borrow_mut() = kept.join("&"));
+    }
+}
+
+/// `?lang=TAG` on any address: the UI's language for the session (`ja`,
+/// the pseudo-languages `qps-ploc` and `qps-wide`), whatever the
+/// settings say, until one is chosen in Options; `lang=` alone gives the
+/// choice back to the settings. Pages built after it speak it.
+fn lang_switch(hash: &str) {
+    let Some((_, query)) = hash.trim_start_matches('#').split_once('?') else {
+        return;
+    };
+    for tag in query.split('&').filter_map(|kv| kv.strip_prefix("lang=")) {
+        if tag.is_empty() {
+            ddi_l10n::unforce();
+            ddi_l10n::choose(crate::settings::Settings::load().language.as_deref());
+        } else if !ddi_l10n::force(tag) {
+            web_sys::console::warn_1(&format!("lang={tag}: no such language").into());
+        }
     }
 }
 

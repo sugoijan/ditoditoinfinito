@@ -6,7 +6,7 @@ use ddi_danoni_export::{
     network::NetworkCancel,
     runtime::Installation,
 };
-use ddi_importer_protocol::{Event, Failure, Outcome, Paths};
+use ddi_importer_protocol::{Counts, Event, Failure, Outcome, Paths, Stage};
 use std::{
     collections::BTreeMap,
     fs, io,
@@ -280,57 +280,58 @@ fn wait_origin(
     result
 }
 
-type ProgressView = (String, Option<(u64, u64)>);
+type ProgressView = (Stage, Option<(u64, u64)>);
 
+/// The import's step, a value the app words, and its counts when known.
 fn progress_view(progress: &import_job::Progress) -> ProgressView {
     use ddi_danoni_export::{preparation, prepared_import};
-    let counted = |label: &str, done: usize, total: usize| {
+    let counted = |stage: Stage, done: usize, total: usize| {
         (
-            label.into(),
+            stage,
             (total > 0 && done <= total).then_some((done as u64, total as u64)),
         )
     };
     match progress {
         import_job::Progress::Preparing { detail: Some(p) } => {
             if let Some(p) = &p.preparation {
-                let label = match p.stage {
-                    preparation::Stage::Validate => "Checking extracted charts…",
-                    preparation::Stage::Audio => "Converting music…",
-                    preparation::Stage::Tempo => "Mapping chart timing…",
-                    preparation::Stage::Artwork => "Making song artwork…",
-                    preparation::Stage::Songs => "Preparing songs…",
-                    preparation::Stage::Complete => "Finishing preparation…",
+                let stage = match p.stage {
+                    preparation::Stage::Validate => Stage::CheckingCharts,
+                    preparation::Stage::Audio => Stage::ConvertingMusic,
+                    preparation::Stage::Tempo => Stage::MappingTiming,
+                    preparation::Stage::Artwork => Stage::MakingArtwork,
+                    preparation::Stage::Songs => Stage::PreparingSongs,
+                    preparation::Stage::Complete => Stage::FinishingPreparation,
                 };
-                counted(label, p.completed, p.total)
+                counted(stage, p.completed, p.total)
             } else if p.stage == "writing" {
-                ("Saving prepared songs…".into(), None)
+                (Stage::SavingPrepared, None)
             } else if p.source.as_ref().is_some_and(|s| s.stage == "native") {
-                ("Reading chart data…".into(), None)
+                (Stage::ReadingCharts, None)
             } else {
-                ("Downloading the work…".into(), None)
+                (Stage::Downloading, None)
             }
         }
-        import_job::Progress::Preparing { .. } => ("Opening the work…".into(), None),
+        import_job::Progress::Preparing { .. } => (Stage::OpeningWork, None),
         import_job::Progress::Validating { detail: Some(p) } => {
-            let label = match p.stage {
-                prepared_import::Stage::Receipts => "Checking the import…",
-                prepared_import::Stage::Inventory => "Checking song files…",
-                prepared_import::Stage::Replay => "Verifying converted charts…",
-                prepared_import::Stage::Library => "Adding song details…",
-                prepared_import::Stage::Complete => "Finishing checks…",
+            let stage = match p.stage {
+                prepared_import::Stage::Receipts => Stage::CheckingImport,
+                prepared_import::Stage::Inventory => Stage::CheckingFiles,
+                prepared_import::Stage::Replay => Stage::VerifyingCharts,
+                prepared_import::Stage::Library => Stage::AddingDetails,
+                prepared_import::Stage::Complete => Stage::FinishingChecks,
             };
-            counted(label, p.completed, p.total)
+            counted(stage, p.completed, p.total)
         }
-        import_job::Progress::Validating { .. } => ("Checking prepared songs…".into(), None),
-        import_job::Progress::Planned { .. } => ("Checking existing imports…".into(), None),
+        import_job::Progress::Validating { .. } => (Stage::CheckingPrepared, None),
+        import_job::Progress::Planned { .. } => (Stage::CheckingExisting, None),
         import_job::Progress::Installing { detail: p } => {
-            let label = match p.stage {
-                import_host::Stage::Begin => "Preparing library update…",
-                import_host::Stage::Evidence => "Saving import details…",
-                import_host::Stage::Songs => "Adding songs to your library…",
-                import_host::Stage::ReadyToCommit => "Finishing import…",
+            let stage = match p.stage {
+                import_host::Stage::Begin => Stage::PreparingUpdate,
+                import_host::Stage::Evidence => Stage::SavingDetails,
+                import_host::Stage::Songs => Stage::AddingSongs,
+                import_host::Stage::ReadyToCommit => Stage::FinishingImport,
             };
-            counted(label, p.completed, p.total)
+            counted(stage, p.completed, p.total)
         }
     }
 }
@@ -413,7 +414,7 @@ fn run_import(
                 output
                     .send(Event::Progress {
                         id: Some(id),
-                        stage: current.0.clone(),
+                        stage: current.0,
                         progress: current.1,
                     })
                     .map_err(|e| Error {
@@ -442,47 +443,32 @@ fn run_import(
                     skipped,
                     ..
                 } => Report {
-                    id,
-                    status: Outcome::Installed,
-                    summary: format!(
-                        "DanOni import complete: {added} added, {replaced} replaced, {skipped} skipped."
-                    ),
+                    songs: Some(Counts {
+                        added: added as u64,
+                        replaced: replaced as u64,
+                        skipped: skipped as u64,
+                    }),
                     restore_ids,
-                    details: Vec::new(),
+                    ..Report::new(id, Outcome::Installed)
                 },
                 import_host::Outcome::Unchanged { .. } => Report {
-                    id,
-                    status: Outcome::Unchanged,
-                    summary: "These songs are already in your DanOni library.".into(),
                     restore_ids,
-                    details: Vec::new(),
+                    ..Report::new(id, Outcome::Unchanged)
                 },
                 import_host::Outcome::NeedsRecovery { reason, .. } => Report {
-                    id,
-                    status: Outcome::NeedsRecovery,
-                    summary: "Import needs library recovery.".into(),
-                    restore_ids: Vec::new(),
-                    details: vec![failure("recovery", reason).message],
+                    failure: Some(failure("recovery", reason)),
+                    ..Report::new(id, Outcome::NeedsRecovery)
                 },
             }
         }
-        Err(error) if error.code == "request-cancelled" => Report {
-            id,
-            status: Outcome::Cancelled,
-            summary: "DanOni import cancelled before publication.".into(),
-            restore_ids: Vec::new(),
-            details: Vec::new(),
-        },
+        Err(error) if error.code == "request-cancelled" => Report::new(id, Outcome::Cancelled),
         Err(error) => Report::failed(id, sdk_failure(error)),
     };
     // A post-commit refresh/notification error cannot undo or relabel publication.
     // Client retains the old snapshot unless the entire new stream completes.
     if let Err(error) = snapshot(&store, Some(id), cancel, output) {
         report.restore_ids.clear();
-        report.details.push(format!(
-            "Library refresh failed ({}): {}",
-            error.code, error.message
-        ));
+        report.refresh = Some(error);
     }
     Ok(report)
 }
@@ -583,7 +569,7 @@ mod tests {
         };
         assert_eq!(
             progress_view(&progress),
-            ("Converting music…".into(), Some((2, 5)))
+            (Stage::ConvertingMusic, Some((2, 5)))
         );
     }
     #[test]

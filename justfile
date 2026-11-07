@@ -21,6 +21,12 @@ screenshot scenario="docs/screenshots/readme.json" animation="docs/screenshots/r
     @rm -rf "$PWD/target/scratch/screenshot/home"
     @DDI_HOME="$PWD/target/scratch/screenshot/home" cargo run -p ddi-desktop --no-default-features --example screenshot -- "{{scenario}}" "{{animation}}" "{{still}}"
 
+# The UI's languages: every language has every English message, each
+# well formed, no literal handed to UiText::data; and how much is
+# reviewed (docs/plans/localization.md)
+l10n-check:
+    @cargo run -q -p xtask -- l10n check
+
 # Check the web app for wasm32
 app-check:
     @cargo check -p ddi -p ddi-opus-worker -p ddi-svg-worker --target wasm32-unknown-unknown
@@ -28,10 +34,10 @@ app-check:
 # Check the platform-independent crates natively (the desktop without
 # preparing its DanOni importer: DDI_IMPORTER_TEST_ONLY)
 core-check:
-    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-opus-worker -p ddi-svg-worker -p ddi-desktop -p ddi -p xtask
+    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-l10n -p ddi-opus-worker -p ddi-svg-worker -p ddi-desktop -p ddi -p xtask
 
 # Run all checks
-check: core-check app-check regen-seo reuse-lint
+check: core-check app-check regen-seo reuse-lint l10n-check
 
 # Downloads the wasi-sdk and FFmpeg pinned in video/FFMPEG.toml on first run.
 # Build the web's software video decoder module into target/video/
@@ -72,7 +78,7 @@ test:
     @cargo run -q -p xtask -- gen-songs
     @cargo run -q -p xtask -- gen-noteskins
     @# The desktop's DanOni importer is built but not prepared (no JDK).
-    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ddi -p xtask --features ddi-icon/raster,ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout,ddi-noteskin/raster
+    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-l10n -p ddi-desktop -p ddi -p xtask --features ddi-icon/raster,ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout,ddi-noteskin/raster
 
 # DanOni workspace SDK, desktop probe and pack verifier checks (Python 3 and ffmpeg; no live imports)
 danoni-check *args:

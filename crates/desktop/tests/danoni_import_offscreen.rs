@@ -4,7 +4,7 @@
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::screens::{
     COMPACT, DESIGN, Env,
-    data::{DanoniImportView, ImportView, Platform},
+    data::{DanoniImportView, ImportRunning, ImportView, Platform},
     select::IMPORT_CHANGED,
     select_dialogs::ImportDialog,
 };
@@ -56,13 +56,14 @@ fn url_import_and_progress_draw_at_desktop_and_compact_sizes() {
         for state in ["parameters", "downloading", "converting"] {
             if state != "parameters" {
                 let mut data = view.borrow_mut();
-                data.running = Some(if state == "downloading" {
+                let stage: String = if state == "downloading" {
                     "Downloading the work…".into()
                 } else {
                     "Converting music…".into()
-                });
+                };
+                data.running = Some(ImportRunning::Worded(stage.clone()));
                 data.danoni_cancel = true;
-                data.danoni.stage = data.running.clone();
+                data.danoni.stage = Some(stage);
                 data.danoni.progress = (state == "converting").then_some((2, 5));
                 drop(data);
                 h.ui.broadcast(Message::new(IMPORT_CHANGED));

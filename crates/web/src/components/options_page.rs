@@ -27,7 +27,9 @@ use std::rc::{Rc, Weak};
 use crate::component::{Component, Context, NodeRef};
 use ddi_chart::Layout;
 use ddi_engine::ConnectedPad;
+use ddi_l10n::msg::options as m;
 use ddi_ui::screens::Env as ThemeEnv;
+use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
 use ddi_ui::screens::options_model::{OptionsModel, Reset, Sample, World};
 use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform, SHARES_CHANGED, SharesFeed};
@@ -223,9 +225,10 @@ impl Component for OptionsPage {
             Msg::Announcers(Err(e)) => web_sys::console::warn_1(&e.into()),
             Msg::AnnouncerRemoved(r) => {
                 s.model.borrow_mut().notice = match r {
-                    Ok(()) => "Announcer removed.".into(),
-                    Err(e) => format!("Could not remove the announcer: {e}"),
-                };
+                    Ok(()) => m::notice_announcer_removed(),
+                    Err(e) => m::notice_announcer_not_removed(error_text(&e)),
+                }
+                .into();
                 s.link
                     .send_future(async { Msg::Announcers(crate::announcers::choices().await) });
                 send(s);
@@ -292,10 +295,10 @@ impl Component for OptionsPage {
             Msg::SampleEnded => stop_sample(s),
             Msg::PlaysExported(r) => {
                 s.model.borrow_mut().notice = match r {
-                    Ok(1) => "1 play exported.".into(),
-                    Ok(n) => format!("{n} plays exported."),
-                    Err(e) => format!("Could not export the plays: {e}"),
-                };
+                    Ok(n) => m::notice_exported(n),
+                    Err(e) => m::notice_export_failed(error_text(&e)),
+                }
+                .into();
                 send(s);
             }
             Msg::ImportPlays(file) => {
@@ -305,7 +308,7 @@ impl Component for OptionsPage {
                 {
                     let mut m = s.model.borrow_mut();
                     m.world.importing_plays = true;
-                    m.notice = "Importing plays…".into();
+                    m.notice = ddi_l10n::msg::options::notice_importing().into();
                 }
                 send(s);
                 let link = s.link.clone();
@@ -320,7 +323,7 @@ impl Component for OptionsPage {
             Msg::PlaysImporting(n) => {
                 let mut m = s.model.borrow_mut();
                 if m.world.importing_plays {
-                    m.notice = format!("Importing plays… {n} kept so far.");
+                    m.notice = ddi_l10n::msg::options::notice_importing_kept(n).into();
                     drop(m);
                     send(s);
                 }
@@ -338,12 +341,15 @@ impl Component for OptionsPage {
                 {
                     let mut m = s.model.borrow_mut();
                     m.notice = match (&r, result) {
-                        (_, Err(e)) => format!("Could not remove the imported songs: {e}"),
-                        (Reset::Everything, Ok(())) => {
-                            "Settings reset and imported songs removed.".into()
+                        (_, Err(e)) => {
+                            ddi_l10n::msg::options::notice_songs_not_removed(error_text(&e))
                         }
-                        (_, Ok(())) => "Imported songs removed.".into(),
-                    };
+                        (Reset::Everything, Ok(())) => {
+                            ddi_l10n::msg::options::notice_everything_removed()
+                        }
+                        (_, Ok(())) => ddi_l10n::msg::options::notice_songs_removed(),
+                    }
+                    .into();
                     m.world.imported = 0;
                     m.world.shared = 0;
                 }
@@ -357,20 +363,26 @@ impl Component for OptionsPage {
                 {
                     let mut m = s.model.borrow_mut();
                     match r {
-                        Ok(()) if alone => m.notice = "Play history deleted.".into(),
+                        Ok(()) if alone => {
+                            m.notice = ddi_l10n::msg::options::notice_history_deleted().into()
+                        }
                         Ok(()) => {}
-                        Err(e) => m.notice = format!("Could not delete the play history: {e}"),
+                        Err(e) => {
+                            m.notice =
+                                ddi_l10n::msg::options::notice_history_not_deleted(error_text(&e))
+                                    .into()
+                        }
                     }
                     m.world.plays = crate::history::plays().history().len();
                 }
                 send(s);
             }
             Msg::NoteskinRemoved(r) => {
-                if let Err(e) = r {
-                    s.model.borrow_mut().notice = format!("Could not remove the noteskin: {e}");
-                } else {
-                    s.model.borrow_mut().notice = "Noteskin removed.".into();
+                s.model.borrow_mut().notice = match r {
+                    Err(e) => m::notice_noteskin_not_removed(error_text(&e)),
+                    Ok(_) => m::notice_noteskin_removed(),
                 }
+                .into();
                 s.link
                     .send_future(async { Msg::Noteskins(crate::noteskins::choices().await) });
                 send(s);
@@ -611,9 +623,7 @@ impl OptionsPlatform for Web {
     fn import_plays(&self, cx: &mut Cx) {
         if !cx.in_gesture() || cx.menu_from_pad() {
             self.0.model.borrow_mut().notice =
-                "Choose Import with a key, a click or a tap (the browser opens its file picker \
-                 only then), or drop the file on this page."
-                    .into();
+                ddi_l10n::msg::options::notice_import_gesture().into();
             send(&self.0);
             return;
         }
@@ -631,7 +641,7 @@ impl OptionsPlatform for Web {
                 Ok(v) => v,
                 Err(e) => ddi_ui::screens::data::SharesView {
                     state: ddi_ui::screens::data::SharesState::Failed,
-                    error: e,
+                    error: Some(e),
                     ..Default::default()
                 },
             };
@@ -663,7 +673,7 @@ impl OptionsPlatform for Web {
                 Ok(v) => v,
                 Err(e) => ddi_ui::screens::data::SharesView {
                     state: ddi_ui::screens::data::SharesState::Failed,
-                    error: e,
+                    error: Some(e),
                     ..Default::default()
                 },
             };

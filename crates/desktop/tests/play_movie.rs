@@ -322,7 +322,7 @@ fn play_loaded(
     (
         stats,
         view.movies.shown_any(),
-        view.movies.trouble(),
+        view.movies.trouble().map(|t| t.to_string()),
         pixels,
     )
 }

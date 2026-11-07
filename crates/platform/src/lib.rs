@@ -131,16 +131,24 @@ pub trait InputSource {
 pub struct DeviceFingerprint {
     /// Stable key, e.g. `audio:48000:5:170` or `display:1512x982@2`.
     pub id: String,
-    /// Human-readable description shown in the UI.
-    pub label: String,
+    /// What the device is, for the screens to word ([`DeviceFacts`]).
+    pub facts: DeviceFacts,
 }
 
 impl DeviceFingerprint {
-    pub fn new(id: impl Into<String>, label: impl Into<String>) -> DeviceFingerprint {
+    /// The device `id`, what it is `facts` (a description alone, from
+    /// text: a test's).
+    pub fn new(id: impl Into<String>, facts: impl Into<DeviceFacts>) -> DeviceFingerprint {
         DeviceFingerprint {
             id: id.into(),
-            label: label.into(),
+            facts: facts.into(),
         }
+    }
+
+    /// The device in English, for logs and the play history's record
+    /// ([`DeviceFacts::describe`]; the screens word its facts).
+    pub fn label(&self) -> String {
+        self.facts.describe()
     }
 }
 
@@ -153,6 +161,8 @@ pub struct DeviceProfile {
 
 #[cfg(feature = "decode")]
 pub mod decode;
+pub mod devices;
+pub use devices::{AudioLink, DeviceFacts};
 #[cfg(feature = "decode-all")]
 pub mod decode_all;
 pub mod gamepad;

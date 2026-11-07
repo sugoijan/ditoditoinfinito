@@ -14,6 +14,9 @@ use ddi_engine::{
     Turn,
 };
 
+use ddi_l10n::UiText;
+use ddi_l10n::msg::{mods as mm, results as rm};
+
 use crate::state::history::{Lamp, Replay, ReplayCheck};
 use crate::state::settings::Settings;
 
@@ -47,6 +50,13 @@ pub struct PlayInfo<'a> {
     pub autoplay: bool,
 }
 
+/// The results' marks beside the lamps, the same in every language
+/// (`locales/ja/GLOSSARY.md`, "Never translated").
+pub const REPLAY_MARK: &str = "REPLAY";
+pub const FAILED_MARK: &str = "FAILED";
+pub const AUTOPLAY_MARK: &str = "AUTOPLAY";
+pub const ASSIST_MARK: &str = "ASSIST";
+
 /// The color name of a Fantastic outside ITG FA+'s 15 ms window (Simply
 /// Love's white Fantastic).
 const W1_OUTSIDE_W0: &str = "Judgement.W1White";
@@ -54,11 +64,13 @@ const W1_OUTSIDE_W0: &str = "Judgement.W1White";
 /// The EX score as the ruleset keeps it: its points of the chart's most,
 /// or Simply Love's percentage (ITG FA+).
 pub fn ex_text(score: &ddi_engine::ScoreView) -> Option<String> {
-    match (score.ex, score.max_ex, score.ex_percent) {
-        (Some(ex), Some(max), _) => Some(format!("EX {ex} / {max}")),
-        (_, _, Some(p)) => Some(format!("EX {:.2}%", p * 100.0)),
-        _ => None,
-    }
+    // A readout, as the ruleset names it in every language.
+    let ex = match (score.ex, score.max_ex, score.ex_percent) {
+        (Some(ex), Some(max), _) => format!("EX {ex} / {max}"),
+        (_, _, Some(p)) => format!("EX {:.2}%", p * 100.0),
+        _ => return None,
+    };
+    Some(UiText::data(ex).into())
 }
 
 /// The color names of the tiers, best first.
@@ -104,7 +116,7 @@ pub fn options_line(o: &ddi_engine::player::PlayOptions) -> String {
     };
     let mut parts = vec![speed];
     if o.scroll.reverse {
-        parts.push("reverse".into());
+        parts.push(mm::reverse().into());
     }
     parts.extend(mods_summary(
         &o.transform,
@@ -129,12 +141,14 @@ pub fn score_text(r: &Results) -> String {
 /// clear under DDR A's rules), and "ASSIST" when notes were removed or
 /// simplified.
 pub fn lamp(r: &Results) -> Option<String> {
-    match (Lamp::played(r).label(), r.assist) {
-        (None, false) => None,
-        (None, true) => Some("ASSIST".into()),
-        (Some(fc), true) => Some(format!("{fc} · ASSIST")),
-        (Some(fc), false) => Some(fc.into()),
-    }
+    // The game's marks, the same in every language.
+    let lamp = match (Lamp::played(r).label(), r.assist) {
+        (None, false) => return None,
+        (None, true) => ASSIST_MARK.to_string(),
+        (Some(fc), true) => format!("{fc} · {ASSIST_MARK}"),
+        (Some(fc), false) => fc.to_string(),
+    };
+    Some(UiText::data(lamp).into())
 }
 
 /// The offset to offer from this play's mean error (seconds), when it is
@@ -169,18 +183,18 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                 // FA+: the Fantastics inside the W0 window and the rest.
                 (Some((blue, white)), Judgement::W1) => vec![
                     JudgementCount {
-                        name: blue.clone(),
+                        name: UiText::data(blue).into(),
                         color: TIER_COLORS[0].to_string(),
                         count: r.tally.w0,
                     },
                     JudgementCount {
-                        name: white.clone(),
+                        name: UiText::data(white).into(),
                         color: W1_OUTSIDE_W0.to_string(),
                         count: count.saturating_sub(r.tally.w0),
                     },
                 ],
                 _ => vec![JudgementCount {
-                    name: names.name(*j).to_string(),
+                    name: UiText::data(names.name(*j)).into(),
                     color: TIER_COLORS[j.index()].to_string(),
                     count,
                 }],
@@ -193,18 +207,19 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     // Rules that play only taps (FFR's) have no holds or mines to count.
     if !judge.taps_only {
         stats.push((
-            format!("{} / {}", names.held, names.let_go),
+            // The ruleset's own names for a hold kept and let go.
+            UiText::data(format!("{} / {}", names.held, names.let_go)).into(),
             format!("{} / {}", t.held, t.let_go),
         ));
     }
     if t.checkpoint_hit + t.checkpoint_miss > 0 {
         stats.push((
-            "Ticks hit / missed".into(),
+            rm::ticks().into(),
             format!("{} / {}", t.checkpoint_hit, t.checkpoint_miss),
         ));
     }
     if !judge.taps_only {
-        stats.push(("Mines hit".into(), t.mine_hit.to_string()));
+        stats.push((rm::mines_hit().into(), t.mine_hit.to_string()));
     }
     // Where every stray press counts (FFR's Boo), always.
     let counts_strays = matches!(
@@ -212,19 +227,21 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         EmptyPress::Boo | EmptyPress::BooFromFirstNote
     );
     if t.boo > 0 || counts_strays {
-        stats.push(("Stray presses".into(), t.boo.to_string()));
+        stats.push((rm::stray_presses().into(), t.boo.to_string()));
     }
-    stats.push(("Max combo".into(), r.max_combo.to_string()));
+    stats.push((rm::max_combo().into(), r.max_combo.to_string()));
     stats.extend(flare_stat(r));
     stats.extend(ffr_stats(r));
-    stats.push(("Fast / slow".into(), format!("{} / {}", r.fast, r.slow)));
+    stats.push((rm::fast_slow().into(), format!("{} / {}", r.fast, r.slow)));
     stats.push((
-        "Mean offset".into(),
-        format!(
+        rm::mean_offset().into(),
+        // A readout: the same in every language.
+        UiText::data(format!(
             "{} ms (σ {:.1})",
             super::results::signed(r.mean_delta * 1000.0, 1),
             r.stddev_delta * 1000.0
-        ),
+        ))
+        .into(),
     ));
     let hits = r
         .timeline
@@ -267,10 +284,10 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         .collect();
     let mut notes = Vec::new();
     if p.autoplay {
-        notes.push("Autoplay: this play does not count toward your bests.".to_string());
+        notes.push(rm::note_autoplay().into());
     }
     if p.device_changed {
-        notes.push("An audio device or the display changed during play.".to_string());
+        notes.push(rm::note_device_changed().into());
     }
     notes.extend(fail_note(r, p.ruleset));
     notes.extend(p.video_notes.iter().cloned());
@@ -282,17 +299,24 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         r.cover,
         Some((r.lane_map.as_slice(), p.layout)),
     ));
-    mods.extend(p.ruleset.stepmania.summary());
+    mods.extend(rules_summary(&p.ruleset.stepmania));
     let panel_sets = panel_sets();
     // The main set, whatever the setting says: the others wait for a
     // picker (the tabs went; `Settings::results_panels` stays for it).
     let _ = &p.panels;
     let panel_set = 0;
     ResultsData {
+        // The chart, the ruleset by its name and the autoplay's mark:
+        // data, each as named everywhere.
         line: if p.autoplay {
-            format!("{} · {} · AUTOPLAY", p.chart, p.ruleset.name)
+            format!(
+                "{} · {} · {}",
+                p.chart,
+                UiText::data(&p.ruleset.name),
+                UiText::data(AUTOPLAY_MARK)
+            )
         } else {
-            format!("{} · {}", p.chart, p.ruleset.name)
+            format!("{} · {}", p.chart, UiText::data(&p.ruleset.name))
         },
         mods: mods.join(" · "),
         grade: r.grade.clone(),
@@ -303,11 +327,11 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         // The autoplayer's lamp would mean nothing: it says it played.
         lamp: if p.autoplay {
             Some(
-                if r.assist {
-                    "AUTOPLAY · ASSIST"
+                UiText::data(if r.assist {
+                    format!("{AUTOPLAY_MARK} · {ASSIST_MARK}")
                 } else {
-                    "AUTOPLAY"
-                }
+                    AUTOPLAY_MARK.to_string()
+                })
                 .into(),
             )
         } else {
@@ -340,14 +364,15 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
 pub fn flare_stat(r: &Results) -> Option<(String, String)> {
     let ddr = r.ddr.as_ref()?;
     let rank = ddr.flare?;
-    let rank_text = (rank > 0).then(|| format!("FLARE {}", flare_name(rank)));
+    // The rank as DDR names it; its points in the language's words.
+    let rank_text = (rank > 0).then(|| UiText::data(format!("FLARE {}", flare_name(rank))));
     let value = match (rank_text, ddr.points) {
-        (Some(rank), Some(points)) => format!("{rank} · {points} points"),
-        (Some(rank), None) => rank,
-        (None, Some(points)) => format!("{points} points"),
+        (Some(rank), Some(points)) => format!("{rank} · {}", rm::flare_points(points)),
+        (Some(rank), None) => rank.into(),
+        (None, Some(points)) => rm::flare_points(points).into(),
         (None, None) => return None,
     };
-    Some(("Flare skill".into(), value))
+    Some((rm::flare_skill().into(), value))
 }
 
 /// An FFR play's total score and raw goods, as R^3's results show them
@@ -357,8 +382,8 @@ pub fn ffr_stats(r: &Results) -> Vec<(String, String)> {
         return Vec::new();
     };
     vec![
-        ("Total score".into(), ffr.total.to_string()),
-        ("Raw goods".into(), ffr.raw_goods_text()),
+        (rm::ffr_total_score().into(), ffr.total.to_string()),
+        (rm::ffr_raw_goods().into(), ffr.raw_goods_text()),
     ]
 }
 
@@ -367,19 +392,17 @@ pub fn ffr_stats(r: &Results) -> Vec<(String, String)> {
 /// played on, or not failed, says when the bar emptied.
 pub fn fail_note(r: &Results, ruleset: &Ruleset) -> Option<String> {
     let at = clock(r.gauge_failed_at?);
-    Some(match ruleset.stepmania.fail {
-        FailType::Immediate => return None,
-        FailType::ImmediateContinue => {
-            format!("Failed at {at}: the life bar emptied, and the play went on (fail delayed).")
+    let at = at.as_str();
+    Some(
+        match ruleset.stepmania.fail {
+            FailType::Immediate => return None,
+            FailType::ImmediateContinue => rm::note_fail_delayed(at),
+            FailType::EndOfSong if r.failed => rm::note_fail_at_end(at),
+            FailType::EndOfSong => rm::note_not_failed_at_end(at),
+            FailType::Off => rm::note_not_failed_off(at),
         }
-        FailType::EndOfSong if r.failed => {
-            format!("Failed at the end: the life bar emptied at {at} and was still empty.")
-        }
-        FailType::EndOfSong => {
-            format!("The life bar emptied at {at} and came back: not failed (fail at end).")
-        }
-        FailType::Off => format!("The life bar emptied at {at}: not failed (fail off)."),
-    })
+        .into(),
+    )
 }
 
 /// A song second as `m:ss`, floored: the time as a clock read it then
@@ -394,40 +417,40 @@ fn clock(seconds: f32) -> String {
 pub fn mark_replay(data: &mut ResultsData, kind: super::data::ResultsKind, when: &str) {
     data.kind = kind;
     data.offset = None;
-    data.line = format!("{} · REPLAY", data.line);
+    data.line = format!("{} · {}", data.line, UiText::data(REPLAY_MARK));
     if !when.is_empty() {
-        data.notes.insert(0, format!("{when}."));
+        data.notes.insert(0, when.to_string());
     }
 }
 
 /// The notes under a play's results, in order: why its video was turned
 /// off, a movie's trouble, why the play could not be saved, how a replay
 /// judged differently (`check`) and that a kept play (`replay`) was
-/// judged by an older version.
+/// judged by an older version. `save_error` is what the storage said.
 pub fn results_notes(
     video_off: Option<ddi_platform::video::StopReason>,
-    video_trouble: Option<&str>,
+    video_trouble: Option<&ddi_platform::video::VideoTrouble>,
     save_error: Option<&str>,
     check: Option<&ReplayCheck>,
     replay: Option<&Replay>,
 ) -> Vec<String> {
     let mut notes = Vec::new();
     if let Some(reason) = video_off {
-        let why = match reason {
-            ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
-            ddi_platform::video::StopReason::DecoderBehind => "the decoder could not keep up",
-        };
-        notes.push(format!(
-            "Video was turned off for this song: {why} (Options)."
-        ));
+        notes.push(
+            match reason {
+                ddi_platform::video::StopReason::DroppedFrames => rm::note_video_dropped_frames(),
+                ddi_platform::video::StopReason::DecoderBehind => rm::note_video_decoder_behind(),
+            }
+            .into(),
+        );
     }
-    if let Some(why) = video_trouble {
-        notes.push(format!("{why}; the song background showed."));
+    if let Some(t) = video_trouble {
+        notes.push(super::failures::video_trouble_text(t).into());
     }
     if let Some(e) = save_error {
-        notes.push(format!("This play could not be saved: {e}."));
+        notes.push(rm::note_not_saved(super::errors::error_text(e)).into());
     }
-    notes.extend(check.and_then(ReplayCheck::note));
+    notes.extend(check.map(ReplayCheck::notes).unwrap_or_default());
     notes.extend(replay.and_then(Replay::older_judge_note));
     notes
 }
@@ -442,18 +465,15 @@ pub fn song_offset_saver(id: String) -> super::results::OffsetFn {
     })
 }
 
-/// The layout's lanes, named.
+/// The layout's lanes, named (`data::lane_name`).
 pub fn lanes(layout: &Layout) -> Vec<LaneName> {
     layout
         .lanes
         .iter()
-        .map(|l| LaneName {
+        .enumerate()
+        .map(|(i, l)| LaneName {
             symbol: lane_symbol(&l.glyph).to_string(),
-            label: if l.label.is_empty() {
-                super::capitalized(&l.name)
-            } else {
-                l.label.clone()
-            },
+            label: super::data::lane_name(layout, i).into(),
         })
         .collect()
 }
@@ -469,48 +489,92 @@ pub fn mods_summary(
     cover: ddi_engine::cover::LaneCover,
     lane_map: Option<(&[u8], &Layout)>,
 ) -> Vec<String> {
-    let mut out = Vec::new();
+    let mut out: Vec<UiText> = Vec::new();
     match transform.turn {
         Turn::Off => {}
-        Turn::Mirror => out.push("mirror".into()),
-        Turn::Left => out.push("left".into()),
-        Turn::Right => out.push("right".into()),
+        Turn::Mirror => out.push(mm::mirror()),
+        Turn::Left => out.push(mm::left()),
+        Turn::Right => out.push(mm::right()),
         Turn::Shuffle => out.push(match lane_map.and_then(shuffle_order) {
-            Some(order) => format!("shuffle {order}"),
-            None => "shuffle".into(),
+            Some(order) => mm::shuffle_order(order),
+            None => mm::shuffle(),
         }),
     }
     match appearance {
         Appearance::Visible => {}
-        Appearance::Hidden => out.push("hidden".into()),
-        Appearance::Sudden => out.push("sudden".into()),
-        Appearance::HiddenSudden => out.push("hidden + sudden".into()),
-        Appearance::Stealth => out.push("stealth".into()),
+        Appearance::Hidden => out.push(mm::hidden()),
+        Appearance::Sudden => out.push(mm::sudden()),
+        Appearance::HiddenSudden => out.push(mm::hidden_sudden()),
+        Appearance::Stealth => out.push(mm::stealth()),
     }
     match scroll_action {
         ScrollAction::Normal => {}
-        ScrollAction::Boost => out.push("boost".into()),
-        ScrollAction::Brake => out.push("brake".into()),
-        ScrollAction::Wave => out.push("wave".into()),
+        ScrollAction::Boost => out.push(mm::boost()),
+        ScrollAction::Brake => out.push(mm::brake()),
+        ScrollAction::Wave => out.push(mm::wave()),
     }
     match transform.cut {
         TimingCut::Off => {}
-        TimingCut::Quarters => out.push("quarter notes".into()),
-        TimingCut::Eighths => out.push("quarters and eighths".into()),
+        TimingCut::Quarters => out.push(mm::quarters()),
+        TimingCut::Eighths => out.push(mm::eighths()),
     }
     match transform.at_once {
         AtOnce::Any => {}
-        AtOnce::Two => out.push("up to two at once".into()),
-        AtOnce::One => out.push("no jumps".into()),
+        AtOnce::Two => out.push(mm::up_to_two()),
+        AtOnce::One => out.push(mm::no_jumps()),
     }
     if transform.no_holds {
-        out.push("no holds".into());
+        out.push(mm::no_holds());
     }
     if transform.no_stretch {
-        out.push("no stretch".into());
+        out.push(mm::no_stretch());
     }
-    out.extend(cover.label());
-    out
+    out.extend(cover_label(cover));
+    out.into_iter().map(String::from).collect()
+}
+
+/// The lane cover as the mods line says it ("sudden+ 33%"), when on.
+pub fn cover_label(cover: ddi_engine::cover::LaneCover) -> Option<UiText> {
+    use ddi_engine::cover::CoverMode;
+    let (hidden, sudden) = cover.drawn();
+    let pct = |f: f32| (f * 100.0).round() as u32;
+    match cover.mode {
+        CoverMode::Off => None,
+        CoverMode::Sudden => Some(mm::cover_sudden(pct(sudden))),
+        CoverMode::Hidden => Some(mm::cover_hidden(pct(hidden))),
+        CoverMode::HiddenSudden => Some(mm::cover_both(pct(hidden), pct(sudden))),
+    }
+}
+
+/// StepMania's options that differ from their defaults, as the mods line
+/// says them ("fail off", "life 6", "judge 5"; a DDR gauge by its name):
+/// `StepManiaOptions::summary` in the language.
+pub fn rules_summary(o: &ddi_engine::rules::StepManiaOptions) -> Vec<String> {
+    use ddi_engine::rules::LifeType;
+    let mut out: Vec<UiText> = Vec::new();
+    match o.fail {
+        FailType::Immediate => {}
+        FailType::ImmediateContinue => out.push(mm::fail_delayed()),
+        FailType::EndOfSong => out.push(mm::fail_at_end()),
+        FailType::Off => out.push(mm::fail_off()),
+    }
+    let s = o.sanitized();
+    if s.gauge != ddi_engine::rules::ddr::DdrGauge::Normal {
+        // DDR's gauges by DDR's names.
+        out.push(UiText::data(s.gauge.name()));
+    }
+    if s.life_type == LifeType::Battery {
+        out.push(mm::battery(s.lives));
+    }
+    if s.life != ddi_engine::rules::StepManiaOptions::DEFAULT_LEVEL {
+        out.push(mm::life(s.life));
+    }
+    if s.judge != ddi_engine::rules::StepManiaOptions::DEFAULT_LEVEL {
+        out.push(mm::judge(
+            ddi_engine::rules::StepManiaOptions::judge_name(s.judge).as_str(),
+        ));
+    }
+    out.into_iter().map(String::from).collect()
 }
 
 /// The lanes' symbols after the lane map, a space between pads, or `None`

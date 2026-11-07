@@ -12,9 +12,6 @@ use super::{Editor, export};
 /// the first song folder; the web: the stored songs' pack).
 pub const PACK: &str = "Dito Edits";
 
-/// What the editor says when it opens on a new song.
-pub const STATUS: &str = "A new song: saving keeps it";
-
 /// A new song's names and where it goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewSong {

@@ -84,7 +84,10 @@ pub fn pick(folder: bool) -> Vec<std::path::PathBuf> {
         self::dialog(|| dialog.pick_folder()).into_iter().collect()
     } else {
         // Packs come as zips (folders through the folder picker).
-        let dialog = dialog.add_filter("Zip archives", &["zip", "ZIP", "smzip", "SMZIP"]);
+        let dialog = dialog.add_filter(
+            ddi_l10n::msg::shell::file_zips().as_str(),
+            &["zip", "ZIP", "smzip", "SMZIP"],
+        );
         self::dialog(|| dialog.pick_files()).unwrap_or_default()
     }
 }
@@ -107,7 +110,7 @@ pub fn pick_music() -> Option<std::path::PathBuf> {
         .collect();
     dialog(|| {
         rfd::FileDialog::new()
-            .add_filter("Music", &extensions)
+            .add_filter(ddi_l10n::msg::shell::file_music().as_str(), &extensions)
             .pick_file()
     })
 }

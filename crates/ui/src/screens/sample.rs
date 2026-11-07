@@ -10,8 +10,8 @@ use ddi_chart::Difficulty;
 
 use super::Env;
 use super::data::{
-    Best, ChartEntry, Hit, JudgementCount, LaneName, OptionsData, ResultsData, SelectData,
-    SongEntry, SongOffset, StyleDef, Window,
+    Best, ChartEntry, Hit, JudgementCount, OptionsData, ResultsData, SelectData, SongEntry,
+    SongOffset, StyleDef, Window,
 };
 use super::options::{ChangeFn, OptionsScreen};
 use super::results::{ResultsActions, ResultsScreen};
@@ -333,7 +333,12 @@ pub fn select() -> SelectData {
     SelectData {
         styles,
         songs,
-        mods: vec!["×2.5".into(), "Reverse".into(), "ITG".into()],
+        // A speed, a mod and a ruleset by its name.
+        mods: vec![
+            "×2.5".into(),
+            ddi_l10n::msg::mods::reverse().into(),
+            ddi_l10n::UiText::data(SAMPLE_RULESET).into(),
+        ],
         preferred: Some(Difficulty::Hard),
         ..Default::default()
     }
@@ -351,6 +356,9 @@ fn sample_best(grade: &str, score: &str, lamp: &str, lamp_text: &str) -> Best {
         last_played: 0.0,
     }
 }
+
+/// The ruleset the samples are played by, by its name (data).
+const SAMPLE_RULESET: &str = "ITG";
 
 /// Results' sample: Some Things Must on Hard, an ITG play.
 pub fn results() -> ResultsData {
@@ -414,17 +422,25 @@ pub fn results() -> ResultsData {
             if o < 0.0 { fast += 1 } else { slow += 1 }
         }
     }
+    // Names as the ruleset and the chart give them: data.
+    let data = |s: &str| String::from(ddi_l10n::UiText::data(s));
     let j = |name: &str, color: &str, count: u32| JudgementCount {
-        name: name.into(),
+        name: data(name),
         color: color.into(),
         count,
     };
+    use ddi_l10n::msg::results as rm;
     ResultsData {
-        line: "Hard 13 · Single · ITG rules".into(),
-        mods: "×2.5 · reverse".into(),
+        line: format!(
+            "{} · {} · {}",
+            data("Hard 13"),
+            super::data::style_name("dance-single", "Single"),
+            data(SAMPLE_RULESET)
+        ),
+        mods: format!("×2.5 · {}", ddi_l10n::msg::mods::reverse()),
         grade: "★".into(),
         score: "96.77%".into(),
-        ex: Some("EX 1680 / 1785".into()),
+        ex: Some(data("EX 1680 / 1785")),
         failed: false,
         quit: false,
         lamp: None,
@@ -437,11 +453,11 @@ pub fn results() -> ResultsData {
             j("Miss", "Judgement.Miss", counts[5]),
         ],
         stats: vec![
-            ("Held / Let Go".into(), "13 / 1".into()),
-            ("Mines hit".into(), "0".into()),
-            ("Max combo".into(), "187".into()),
-            ("Fast / slow".into(), format!("{fast} / {slow}")),
-            ("Mean offset".into(), "−2.1 ms (σ 9.8)".into()),
+            (data("Held / Let Go"), "13 / 1".into()),
+            (rm::mines_hit().into(), "0".into()),
+            (rm::max_combo().into(), "187".into()),
+            (rm::fast_slow().into(), format!("{fast} / {slow}")),
+            (rm::mean_offset().into(), data("−2.1 ms (σ 9.8)")),
         ],
         notes: Vec::new(),
         hits,
@@ -456,14 +472,9 @@ pub fn results() -> ResultsData {
             .collect(),
         life,
         danger: Some(0.25),
-        lanes: ["←", "↓", "↑", "→"]
-            .into_iter()
-            .zip(["Left", "Down", "Up", "Right"])
-            .map(|(s, l)| LaneName {
-                symbol: s.into(),
-                label: l.into(),
-            })
-            .collect(),
+        lanes: ddi_chart::Layout::builtin("dance-single")
+            .map(|l| super::play::lanes(&l))
+            .unwrap_or_default(),
         offset: Some(SongOffset {
             played: 0.0,
             current: 0.0,
@@ -471,7 +482,7 @@ pub fn results() -> ResultsData {
         }),
         panel_sets: super::play::panel_sets(),
         panel_set: 0,
-        note: "Sample play: the numbers are illustrative.".into(),
+        note: rm::sample_note().into(),
         song,
         kind: Default::default(),
     }
@@ -604,28 +615,191 @@ pub fn calibration_screen(env: &Env) -> super::page::PageScreen {
     )
 }
 
+/// The announcer studio's draft and view with a recording in each state
+/// the page shows (sorted and not, being read, unreadable, clipped, too
+/// long, tidied each way), the details on, a status and an export made,
+/// and the examples (one of our pack's sounds, then the studio's): the
+/// developer routes, tests.
+pub fn studio() -> (
+    ddi_library::announcer::draft::Draft,
+    super::studio::View,
+    std::collections::BTreeMap<ddi_library::announcer::Line, Vec<super::studio::Example>>,
+) {
+    use ddi_library::announcer::draft::{Draft, Sound};
+    use ddi_library::announcer::examples::Set;
+    use ddi_library::announcer::tidy::Measure;
+    use ddi_library::announcer::{Bundled, Comment, Grade, Kept, Line, MAX_BYTES};
+    const MP3: &[u8] = b"ID3\x04\x00";
+    let read = |seconds: f64, start: f64, end: f64, gain: f32, clipped: bool| {
+        Sound::Read(Measure {
+            rate: 48_000,
+            channels: 1,
+            seconds,
+            clipped,
+            start,
+            end,
+            gain,
+        })
+    };
+    let mut d = Draft::default();
+    let mut take = |source: &str, line: Option<Line>, sound: Sound, tidy: Option<bool>| {
+        let id = d.add(source, 40_000, MP3);
+        let t = d.take_mut(id).expect("added");
+        t.line = line;
+        t.sound = sound;
+        t.tidy = tidy;
+        id
+    };
+    // Cut and made louder; quieter; cut only; nothing to change.
+    let ready = take(
+        "ready.mp3",
+        Some(Line::Ready),
+        read(3.0, 0.4, 2.9, 2.0, false),
+        None,
+    );
+    take(
+        "go.mp3",
+        Some(Line::HereWeGo),
+        read(1.5, 0.0, 1.5, 0.5, false),
+        None,
+    );
+    take(
+        "cheer.mp3",
+        Some(Line::Cheer),
+        read(2.0, 0.3, 2.0, 1.0, false),
+        None,
+    );
+    take(
+        "hot.mp3",
+        Some(Line::CommentHot),
+        read(1.0, 0.0, 1.0, 1.0, false),
+        None,
+    );
+    // As recorded: too long for its moment, and clipped.
+    take(
+        "one hundred.mp3",
+        Some(Line::Combo(100)),
+        read(3.0, 0.0, 3.0, 1.0, true),
+        Some(false),
+    );
+    take(
+        "double a.m4a",
+        Some(Line::Grade(Grade::Aa)),
+        Sound::Unreadable("EncodingError".into()),
+        None,
+    );
+    take(
+        "intro.mp3",
+        Some(Line::SelectMusicIntro),
+        Sound::Unread,
+        None,
+    );
+    take(
+        "hard.mp3",
+        Some(Line::SelectMusic(Comment::Hard)),
+        read(1.2, 0.0, 1.2, 1.0, false),
+        None,
+    );
+    take("New Recording 12.m4a", None, Sound::Unread, None);
+    // Past what the game keeps of an announcer.
+    let big = take(
+        "cleared.mp3",
+        Some(Line::Cleared),
+        Sound::Unread,
+        Some(false),
+    );
+    d.take_mut(big).expect("added").bytes = MAX_BYTES + 1;
+    let view = super::studio::View {
+        examples: Set::English,
+        details: true,
+        playing: Some(format!("take:{ready}")),
+        status: ddi_l10n::msg::studio::status_added(9, 1).into(),
+        ready: Some("Announcer.zip".into()),
+        busy: false,
+    };
+    let mut kept = Kept {
+        name: Set::English.pack().into(),
+        ..Default::default()
+    };
+    kept.lines.insert(
+        "gameplay 100 combo".into(),
+        vec!["gameplay 100 combo/one.mp3".into()],
+    );
+    let ours = Bundled {
+        path: Set::English.pack().into(),
+        kept,
+        hashes: Default::default(),
+        said: [(
+            "gameplay 100 combo/one.mp3".to_string(),
+            "One hundred combo!".to_string(),
+        )]
+        .into(),
+    };
+    let examples = super::studio::examples(Set::English, Some(&ours));
+    (d, view, examples)
+}
+
+/// The announcer studio's page on the [`studio`] sample (its presses do
+/// nothing).
+pub fn studio_screen(env: &Env) -> super::page::PageScreen {
+    let (draft, view, examples) = studio();
+    super::page::PageScreen::new(
+        env.clone(),
+        super::studio::NAME,
+        super::studio::doc(&draft, &view, &examples),
+    )
+}
+
 /// The start prompt for Some Things Must's Hard chart at `step`, over
 /// its background, its play options changed (never saved), the other
 /// choices ignored (the developer routes, tests).
 pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::prompt::PromptScreen {
+    prompt_screen_on(env, step, super::data::Platform::Web)
+}
+
+/// [`prompt_screen`] in `platform`'s wording.
+pub fn prompt_screen_on(
+    env: &Env,
+    step: super::prompt::PromptStep,
+    platform: super::data::Platform,
+) -> super::prompt::PromptScreen {
     use super::prompt::{
-        PromptChoice, PromptInfo, PromptPicture, PromptScreen, PromptState, chart_line,
+        Badge, PromptChart, PromptChoice, PromptInfo, PromptPicture, PromptScreen, PromptState,
+        timing_hint,
     };
     use super::prompt_options::PlayOptions;
+    use crate::state::history::timing::Verdict;
+    // Played at ×3, reversed and mirrored (the mods line says so).
+    let mut played = crate::state::settings::Settings {
+        speed: 3.0,
+        reverse: true,
+        ..Default::default()
+    };
+    played.transform.turn = ddi_engine::Turn::Mirror;
     let info = PromptInfo {
-        title: "Some Things Must (OutFox Edit)".into(),
-        artist: "Sevish".into(),
-        chart: chart_line(ddi_chart::Difficulty::Hard, 13, "Single"),
-        difficulty: "Hard".into(),
-        mods: "×3 · reverse · mirror".into(),
-        badge: super::prompt::Badge::Auto,
         // The sample's setup is not calibrated: the quiet line shows.
-        timing: Some("Timing not calibrated".into()),
+        timing: Some(timing_hint(
+            &Verdict::Inconclusive { plays: 0, hits: 0 },
+            false,
+        )),
+        ..PromptInfo::for_chart(
+            "Some Things Must (OutFox Edit)".into(),
+            "Sevish".into(),
+            Some(PromptChart {
+                layout: "dance-single".into(),
+                difficulty: ddi_chart::Difficulty::Hard,
+                meter: 13,
+                style: "Single".into(),
+            }),
+            &played,
+            Badge::Auto,
+        )
     };
     let state = Rc::new(std::cell::RefCell::new(PromptState {
         info,
         step,
-        notes: vec!["loading the video decoder… 40 %".into()],
+        notes: vec![ddi_l10n::msg::prompt::video_progress(40).into()],
+        platform,
         picture: Some(PromptPicture {
             source: "songs/some-things-must/sevish-bg.png".into(),
             aspect: 16.0 / 9.0,
@@ -678,7 +852,7 @@ pub fn motion_change(env: &Env, system: fn() -> bool) -> ChangeFn {
     use crate::state::settings::{ReducedMotion, Settings};
     let env = env.clone();
     Rc::new(move |_section: &str, o: &super::data::OptionDef| {
-        if o.label != "Reduced motion" {
+        if o.id != "reduced_motion" {
             return;
         }
         let mut settings = Settings::load();
@@ -714,6 +888,82 @@ pub fn start_screen(env: &Env, desktop: bool) -> super::start::StartScreen {
             }
         }),
     )
+}
+
+/// The chart editor on a made-up song, unsaved, for headless tests (the
+/// coverage walk, `l10n_tests.rs`): notes of each kind, a change of each
+/// kind of timing at beat 4 where the cursor is, beats 2 to 4 selected,
+/// a second chart; saving asks first, on `platform`'s wording, or the
+/// song is `new_song`, never saved.
+pub fn editor_screen(
+    env: &Env,
+    platform: super::data::Platform,
+    new_song: bool,
+) -> super::editor::EditorScreen {
+    use crate::state::editor::{Editor, NoteTool, Retime, Segment};
+    use ddi_chart::{SpeedUnit, TICKS_PER_BEAT, Tick};
+    let beat = |b: f64| Tick((b * TICKS_PER_BEAT as f64) as i64);
+    let mut e = Editor::new_song(Some("song.ogg".into()), "Some Things Must");
+    let mut info = e.song_info();
+    info.artist = "Ayaka".into();
+    info.banner = Some("banner.png".into());
+    e.set_song_info(info);
+    for (tool, lane, at) in [
+        (NoteTool::Tap, 0, 0.0),
+        (NoteTool::Mine, 1, 1.0),
+        (NoteTool::Lift, 2, 1.5),
+        (NoteTool::Fake, 3, 2.0),
+    ] {
+        e.set_tool(tool);
+        e.toggle_at(lane, beat(at));
+    }
+    e.set_tool(NoteTool::Tap);
+    e.place_long(1, beat(3.0), beat(4.0));
+    let keep = Retime::KeepBeats;
+    for segment in [
+        Segment::Stop(0.5),
+        Segment::Delay(0.25),
+        Segment::Warp(beat(1.0)),
+        Segment::Speed {
+            ratio: 1.5,
+            delay: 2.0,
+            unit: SpeedUnit::Beats,
+        },
+        Segment::Scroll(2.0),
+        Segment::Fake(beat(0.5)),
+        Segment::TimeSignature(3, 4),
+        Segment::TickCount(4),
+        Segment::Combo(2, 1),
+        // No letters: the walk opens its field, which draws its value as
+        // it is.
+        Segment::Label("2".into()),
+    ] {
+        e.set_segment(beat(4.0), segment, keep);
+    }
+    e.set_segment(beat(8.0), Segment::Bpm(180.0), keep);
+    e.set_segment(
+        beat(8.0),
+        Segment::Speed {
+            ratio: 1.0,
+            delay: 0.5,
+            unit: SpeedUnit::Seconds,
+        },
+        keep,
+    );
+    e.add_chart("dance-double", Difficulty::Edit);
+    e.select_chart(0);
+    // The cursor at the selection's end.
+    e.select(beat(2.0), beat(4.0));
+    let place = super::editor::EditorPlace {
+        platform,
+        save: Some("Songs/Pack/Some Things Must/song.ssc".into()),
+        confirm: (!new_song).then(|| "Songs/Pack/Some Things Must/song.ssc".into()),
+        export: true,
+        listen: true,
+        playtest: true,
+        new_song,
+    };
+    super::editor::EditorScreen::new(env.clone(), e, place)
 }
 
 #[cfg(test)]

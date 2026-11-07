@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_chart::ChartDigest;
-use ddi_ui::state::history::{Plays, Replay};
+use ddi_ui::state::history::{Plays, Refusal, Replay};
 use ddi_ui::state::settings::Settings;
 
 use super::Request;
@@ -28,18 +28,18 @@ pub fn request_with(
     view_results: bool,
     find: &dyn Fn(ChartDigest) -> Option<String>,
 ) -> Request {
-    let refused = |why: String| Request {
+    let refused = |why: Refusal| Request {
         refused: Some(why),
         view_results,
         ..Request::song("", 0, false)
     };
-    let got: Rc<RefCell<Option<Result<_, String>>>> = Rc::default();
+    let got: Rc<RefCell<Option<Result<_, Refusal>>>> = Rc::default();
     let g = got.clone();
     plays.entry(id, move |r| *g.borrow_mut() = Some(r));
     let entry = got
         .borrow_mut()
         .take()
-        .unwrap_or_else(|| Err("The play history did not answer.".into()));
+        .unwrap_or(Err(Refusal::HistorySilent));
     let replay = match entry.and_then(|e| Replay::from_entry(&e)) {
         Ok(r) => r,
         Err(e) => return refused(e),
@@ -47,7 +47,7 @@ pub fn request_with(
     let key = replay.record.chart.clone();
     // Where the record says; else a song with a chart of its content.
     let mut found = None;
-    let mut why = Replay::missing_song();
+    let mut why = Refusal::MissingSong;
     if let Ok(song) = read_chart(&key.song) {
         match replay.chart(&song) {
             Ok(i) => found = Some((key.song.clone(), i, song)),
@@ -71,7 +71,7 @@ pub fn request_with(
             .iter()
             .any(|s| s.key() == skin)
     {
-        return refused(Replay::missing_skin(&skin));
+        return refused(Refusal::MissingSkin(skin));
     }
     Request {
         replay: Some(Rc::new(replay)),

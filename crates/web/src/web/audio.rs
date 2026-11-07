@@ -289,25 +289,21 @@ impl WebAudio {
     /// Identity of the audio output path from what the browser exposes
     /// without any permission: sample rate and the two latencies (output
     /// latency bucketed to 5 ms, so small per-run jitter maps to the same
-    /// device). Call once the context is running; latencies read 0 before.
+    /// device), with what the latency suggests of the connection (the
+    /// screens word it). Call once the context is running; latencies read
+    /// 0 before.
     pub(crate) fn fingerprint(&self) -> ddi_platform::DeviceFingerprint {
         let rate = self.ctx.sample_rate().round() as u32;
         let base_ms = (self.base_latency() * 1000.0).round() as u32;
         let out_ms = (self.output_latency() * 1000.0 / 5.0).round() as u32 * 5;
-        let kind = if out_ms >= 100 {
-            "wireless?"
-        } else if out_ms == 0 && base_ms == 0 {
-            "unknown latency"
-        } else {
-            "wired/built-in?"
-        };
         ddi_platform::DeviceFingerprint::new(
             format!("audio:{rate}:{base_ms}:{out_ms}"),
-            format!(
-                "{} kHz · ~{} ms output latency ({kind})",
-                rate / 1000,
-                out_ms + base_ms
-            ),
+            ddi_platform::DeviceFacts::Audio {
+                name: None,
+                rate,
+                latency_ms: out_ms + base_ms,
+                link: Some(ddi_platform::AudioLink::guess(out_ms, base_ms)),
+            },
         )
     }
 

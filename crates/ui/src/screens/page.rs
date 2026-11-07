@@ -16,6 +16,8 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
+use ddi_l10n::UiText;
+use ddi_l10n::msg::{common, pages as pm};
 
 use super::select_dialogs::wrap_lines;
 use super::{Env, footer, frame, ground, header, left};
@@ -40,7 +42,8 @@ pub enum Block {
     Subheading(String),
     Text(String),
     Muted(String),
-    /// Text kept as it is, line by line (flags, notices).
+    /// Text kept as it is, line by line (flags, notices): data, not ours
+    /// to translate, each line drawn as such.
     Mono(String),
     /// Opens `url` (in the gesture).
     Link {
@@ -115,11 +118,66 @@ impl Action {
 /// zone lit, as files are dragged over it.
 pub const PAGE_TARGET: &str = "Page.Target";
 
-/// A page: its title (the header's) and its blocks.
+/// A page: its title and its blocks.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PageDoc {
-    pub title: String,
+    pub title: PageTitle,
     pub blocks: Vec<Block>,
+}
+
+/// A page's title, as a compact screen shows it beside its back icon and
+/// as the header shows it: in capitals where the language has them,
+/// written so in its message (code never changes case,
+/// `locales/README.md`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PageTitle {
+    pub text: String,
+    /// The header's; none: the text in capitals (a page whose text is not
+    /// a message yet).
+    pub heading: Option<String>,
+}
+
+impl PageTitle {
+    pub fn new(text: impl Into<String>, heading: impl Into<String>) -> PageTitle {
+        PageTitle {
+            text: text.into(),
+            heading: Some(heading.into()),
+        }
+    }
+
+    /// As the header shows it.
+    pub fn heading(&self) -> String {
+        self.heading
+            .clone()
+            .unwrap_or_else(|| self.text.to_uppercase())
+    }
+}
+
+impl From<&str> for PageTitle {
+    fn from(text: &str) -> PageTitle {
+        PageTitle {
+            text: text.into(),
+            heading: None,
+        }
+    }
+}
+
+impl From<String> for PageTitle {
+    fn from(text: String) -> PageTitle {
+        PageTitle {
+            text,
+            heading: None,
+        }
+    }
+}
+
+impl From<UiText> for PageTitle {
+    fn from(text: UiText) -> PageTitle {
+        PageTitle {
+            text: text.into(),
+            heading: None,
+        }
+    }
 }
 
 /// What a page asks of its shell.
@@ -203,6 +261,29 @@ const ZONE_PAD: f32 = 12.0;
 /// A button's width in a row of them (a primary one's label is larger).
 fn action_width(label: &str, primary: bool) -> f32 {
     look::mono_width(label, if primary { 18.0 } else { 14.0 }) + 32.0
+}
+
+/// `text` in lines no wider than `width` at `size`
+/// ([`wrap_lines`]). In a pseudo-language a message («…») or data (‹…›)
+/// keeps its marks on each of its lines, so that a line from its middle
+/// still reads as passed through a message (`l10n_tests.rs`).
+pub(crate) fn wrap_marked(text: &str, width: f32, size: f32) -> Vec<String> {
+    if ddi_l10n::current().status == ddi_l10n::Status::Pseudo {
+        for (open, close) in [('«', '»'), ('‹', '›')] {
+            let Some(inner) = text.strip_prefix(open).and_then(|t| t.strip_suffix(close)) else {
+                continue;
+            };
+            let marks = look::mono_width(&format!("{open}{close}"), size);
+            let lines = wrap_lines(inner, width - marks, size);
+            if lines.len() > 1 {
+                return lines
+                    .into_iter()
+                    .map(|l| format!("{open}{l}{close}"))
+                    .collect();
+            }
+        }
+    }
+    wrap_lines(text, width, size)
 }
 
 pub struct PageScreen {
@@ -345,7 +426,7 @@ impl PageScreen {
                     size: f32,
                     weight: u16,
                     color: &'static str| {
-            for l in wrap_lines(s, width, size) {
+            for l in wrap_marked(s, width, size) {
                 let h = size + LINE;
                 rows.push(Row {
                     y: *y,
@@ -383,8 +464,12 @@ impl PageScreen {
                 }
                 Block::Mono(s) => {
                     for l in s.lines() {
-                        let l = if l.is_empty() { " " } else { l };
-                        text(rows, y, l, 12.0, 400, "Muted");
+                        let l = if l.trim().is_empty() {
+                            " ".into()
+                        } else {
+                            String::from(UiText::data(l))
+                        };
+                        text(rows, y, &l, 12.0, 400, "Muted");
                     }
                     *y += 6.0;
                 }
@@ -392,7 +477,7 @@ impl PageScreen {
                 Block::Link { label, url } => {
                     let item = items.len();
                     items.push(Item::Link(url.clone()));
-                    for l in wrap_lines(label, width, 14.0) {
+                    for l in wrap_marked(label, width, 14.0) {
                         rows.push(Row {
                             y: *y,
                             h: 14.0 + LINE + 4.0,
@@ -468,7 +553,7 @@ impl PageScreen {
                 Block::Action { id, label } => {
                     let item = items.len();
                     items.push(Item::Button(id.clone()));
-                    for l in wrap_lines(label, width, 14.0) {
+                    for l in wrap_marked(label, width, 14.0) {
                         rows.push(Row {
                             y: *y,
                             h: 14.0 + LINE + 4.0,
@@ -575,27 +660,33 @@ impl PageScreen {
         if self.compact {
             children.push(super::back_button(&env, [40.0, 40.0], [32.0, 28.0]));
             children.push(left(
-                env.text("Title", &self.doc.title, 16.0, 700, "Text"),
+                env.text("Title", &self.doc.title.text, 16.0, 700, "Text"),
                 64.0,
                 28.0,
             ));
         } else {
-            children.push(header(&env, cx, w, &self.doc.title.to_uppercase()));
+            children.push(header(&env, cx, w, &self.doc.title.heading()));
+            let (to_move, open, back, activate) = (
+                pm::move_hint(),
+                common::open(),
+                common::back(),
+                pm::activate(),
+            );
             let (f, texts) = footer(
                 &env,
                 [w, h],
                 &[
-                    (&["↑", "↓"], "Move"),
-                    (&["ENTER"], "Open"),
-                    (&["ESC"], "Back"),
+                    (&["↑", "↓"], &to_move),
+                    (&["ENTER"], &open),
+                    (&["ESC"], &back),
                 ],
                 &[
-                    (&[HintAction::Up, HintAction::Down], "Move"),
-                    (&[HintAction::Confirm, HintAction::Start], "Activate"),
-                    (&[HintAction::Back], "Back"),
+                    (&[HintAction::Up, HintAction::Down], &to_move),
+                    (&[HintAction::Confirm, HintAction::Start], &activate),
+                    (&[HintAction::Back], &back),
                 ],
                 "",
-                &[("Link.Back", "Back")],
+                &[("Link.Back", &back)],
                 cx,
             );
             env.state.borrow_mut().hints = texts;
@@ -652,7 +743,7 @@ impl PageScreen {
                 RowKind::Item { item, text, indent } => {
                     let focused = self.focus == Some(*item);
                     let text = if self.gesture_hint == Some(*item) {
-                        format!("{text} · press Enter or tap to open")
+                        pm::press_to_open(text).into()
                     } else {
                         text.clone()
                     };
@@ -1052,9 +1143,9 @@ impl PageScreen {
         // their motion (the credits arrive as the screen comes in).
         if title_changed {
             let title = if self.compact {
-                self.doc.title.clone()
+                self.doc.title.text.clone()
             } else {
-                self.doc.title.to_uppercase()
+                self.doc.title.heading()
             };
             crate::widgets::set_text(root, "Title", &title);
         }

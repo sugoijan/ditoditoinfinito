@@ -132,7 +132,7 @@ impl PreviewMovieHost {
                         .shown_ids()
                         .find_map(|(image, id)| matches!(image, BgImage::Movie(_)).then_some(id));
                     if let Some((_, e)) = deck.failed().first() {
-                        self.state.fail(e.clone());
+                        self.state.fail(e.to_string());
                     } else if let Some(id) = id
                         && shown != self.counted
                     {

@@ -19,7 +19,8 @@
 use crate::web::movie_source::MovieSource;
 use ddi_library::backgrounds::BgSegment;
 use ddi_platform::video::{
-    ExternalFrame, MovieTrack, VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame,
+    ExternalFrame, MovieTrack, VideoBackend, VideoDecoder, VideoError, VideoEvent, VideoFormat,
+    VideoFrame,
 };
 use ddi_render::Renderer;
 use ddi_session::movies::{AHEAD, MovieShell, MovieSlots};
@@ -42,7 +43,7 @@ struct Source {
 pub(crate) struct MovieDecoder {
     backend: Backend,
     /// Why the browser's decoder failed: the deck moves the movie.
-    fallback: Option<String>,
+    fallback: Option<VideoError>,
 }
 
 enum Backend {
@@ -214,7 +215,7 @@ pub(crate) async fn frame_at(
             }
             let status = worker.as_ref().filter(|_| module).map(VideoWorker::status);
             if let Some(ModuleStatus::Failed(e)) = status {
-                return Err(GrabError::Unavailable(e));
+                return Err(GrabError::Unavailable(e.to_string()));
             }
             if let Some(e) = track.error() {
                 return Err(GrabError::Failed(e.to_string()));
@@ -291,10 +292,10 @@ impl Decoders {
         blob: MovieSource,
         name: &str,
         format: &VideoFormat,
-    ) -> Result<WorkerVideo, String> {
-        let worker = self.worker()?;
+    ) -> Result<WorkerVideo, VideoError> {
+        let worker = self.worker().map_err(VideoError::NotLoaded)?;
         match worker.status() {
-            ModuleStatus::Failed(e) => Err(e),
+            ModuleStatus::Failed(e) => Err(e.clone()),
             _ => Ok(worker.open(blob, name, format)),
         }
     }
@@ -303,7 +304,7 @@ impl Decoders {
 impl MovieShell for Decoders {
     type Decoder = MovieDecoder;
 
-    fn open(&mut self, name: &str) -> Option<Result<MovieDecoder, String>> {
+    fn open(&mut self, name: &str) -> Option<Result<MovieDecoder, VideoError>> {
         // Not loaded yet: tried again next frame.
         let source = self.sources.iter().find(|s| s.name == name)?;
         let (blob, format, browser) = (source.blob.clone(), source.format.clone(), source.browser);
@@ -324,7 +325,7 @@ impl MovieShell for Decoders {
 
     /// Moves a movie the browser's decoder failed on to the module, and
     /// its later openings too.
-    fn fall_back(&mut self, name: &str, decoder: &mut MovieDecoder) -> Result<bool, String> {
+    fn fall_back(&mut self, name: &str, decoder: &mut MovieDecoder) -> Result<bool, VideoError> {
         let Some(reason) = decoder.fallback.clone() else {
             return Ok(false);
         };
@@ -551,7 +552,9 @@ impl MovieDeck {
             webcodecs::direct_failed(&e);
             for decoder in self.slots.decoders_mut() {
                 if matches!(decoder.backend, Backend::Browser(_)) {
-                    decoder.fallback.get_or_insert_with(|| e.clone());
+                    decoder
+                        .fallback
+                        .get_or_insert_with(|| VideoError::Decoder(e.clone()));
                 }
             }
         }
@@ -655,7 +658,7 @@ impl MovieDeck {
         // A malformed frame never reaches a texture (it would show green:
         // new textures are zeroed).
         if frame.split().is_none() {
-            self.slots.fail(name, "a malformed frame".into());
+            self.slots.fail(name, VideoError::BadFrame);
             return;
         }
         let Some(id) = self.texture(name, frame.width, frame.height, false, renderer, device)
@@ -691,7 +694,7 @@ impl MovieDeck {
         queue: &wgpu::Queue,
     ) {
         let Some(direct) = external.0.downcast_ref::<DirectFrame>() else {
-            self.slots.fail(name, "a frame of another kind".into());
+            self.slots.fail(name, VideoError::BadFrame);
             return;
         };
         if self

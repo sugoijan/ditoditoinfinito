@@ -43,6 +43,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::rc::{Rc, Weak};
 
+use ddi_l10n::UiText;
+use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::Take;
 use ddi_library::announcer::draft::{Draft, HEAD, Sound, Write, readme_credits};
 use ddi_library::announcer::examples::Set;
@@ -52,6 +54,7 @@ use ddi_platform::storage::{self, Area};
 use ddi_session::announcer::{Announcer, Timing, Voice, scene};
 use ddi_ui::event::{MenuEvent, UiEvent};
 use ddi_ui::message::{Message, Param};
+use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::page::{PAGE_CHANGED, PAGE_TARGET, PageCall, PageFeed, PageScreen, PageShell};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
 use ddi_ui::screens::select::{OpenFn, PlayFn, SelectCall, SelectScreen, ShellFn};
@@ -252,7 +255,7 @@ impl Studio {
     fn new() -> Rc<Studio> {
         let examples = storage::get(Area::Local, EXAMPLES_KEY)
             .and_then(|k| Set::from_key(&k))
-            .unwrap_or_default();
+            .unwrap_or_else(studio::first_set);
         Rc::new(Studio {
             draft: RefCell::new(Draft::default()),
             view: RefCell::new(View {
@@ -488,7 +491,7 @@ impl Studio {
         }
         .await;
         if let Err(e) = read {
-            self.status(format!("The draft could not be read: {e}"));
+            self.status(ms::status_draft_unreadable(error_text(&e)));
         }
         match crate::announcers::bundled().await {
             Ok(ours) => *self.ours.borrow_mut() = ours,
@@ -523,10 +526,7 @@ impl Studio {
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let count = picked.len();
-            this.status(format!(
-                "Adding {count} file{}…",
-                if count == 1 { "" } else { "s" }
-            ));
+            this.status(ms::status_adding(count));
             let mut files: Vec<(String, Blob)> = Vec::new();
             for p in picked {
                 if ddi_library::zip::archive_stem(&p.path).is_some() {
@@ -619,19 +619,10 @@ impl Studio {
             }
             let stored = async { Db::open().await?.write(writes).await }.await;
             this.forget_export();
-            let mut said = format!(
-                "Added {added} recording{}.",
-                if added == 1 { "" } else { "s" }
-            );
-            if passed > 0 {
-                said += &format!(
-                    " {passed} file{} passed over: not sounds.",
-                    if passed == 1 { " was" } else { "s were" }
-                );
-            }
-            if let Err(e) = stored {
-                said += &format!(" They could not be kept in the browser: {e}");
-            }
+            let said = match stored {
+                Ok(_) => ms::status_added(added, passed),
+                Err(e) => ms::status_added_unkept(added, passed, error_text(&e)),
+            };
             this.save();
             this.status(said);
             this.decode_pending();
@@ -647,7 +638,7 @@ impl Studio {
         wasm_bindgen_futures::spawn_local(async move {
             let Some(decoder) = AudioDecoder::offline(RATE) else {
                 this.decoding.set(false);
-                this.status("This browser cannot decode sounds here.");
+                this.status(ms::status_no_decoder());
                 return;
             };
             loop {
@@ -732,7 +723,7 @@ impl Studio {
         let audio = match WebAudio::new() {
             Ok(a) => a,
             Err(e) => {
-                self.view.borrow_mut().status = format!("No sound: {e}");
+                self.view.borrow_mut().status = ms::status_no_sound(error_text(&e)).into();
                 return None;
             }
         };
@@ -808,7 +799,7 @@ impl Studio {
             };
             if let Err(e) = played {
                 this.stop();
-                this.status(format!("It could not be played: {e}"));
+                this.status(ms::status_unplayable(error_text(&e)));
             }
         });
     }
@@ -850,7 +841,7 @@ impl Studio {
             .await;
             if let Err(e) = played {
                 this.stop();
-                this.status(format!("The example could not be played: {e}"));
+                this.status(ms::status_example_unplayable(error_text(&e)));
             }
         });
     }
@@ -886,7 +877,7 @@ impl Studio {
     /// The export made, to save with the next press.
     fn export(self: &Rc<Self>) {
         self.view.borrow_mut().busy = true;
-        self.status("Making the pack…");
+        self.status(ms::status_exporting());
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let made = async {
@@ -907,12 +898,9 @@ impl Studio {
                 Ok((name, blob, n)) => {
                     *this.zip.borrow_mut() = Some((name.clone(), blob));
                     this.view.borrow_mut().ready = Some(name.clone());
-                    this.status(format!(
-                        "{name} is ready, with {n} sound{}: press Save {name}.",
-                        if n == 1 { "" } else { "s" }
-                    ));
+                    this.status(ms::status_exported(&name, n));
                 }
-                Err(e) => this.status(format!("The pack could not be made: {e}")),
+                Err(e) => this.status(ms::status_not_exported(error_text(&e))),
             }
         });
     }
@@ -939,15 +927,16 @@ impl Studio {
         gloo::timers::callback::Timeout::new(60_000, move || files::revoke_object_url(&url))
             .forget();
         self.view.borrow_mut().status = match clicked {
-            Some(()) => format!("{name} saved to your downloads."),
-            None => "The pack could not be saved.".into(),
-        };
+            Some(()) => ms::status_saved(&name),
+            None => ms::status_not_saved(),
+        }
+        .into();
     }
 
     /// The pack stored as an imported announcer, to choose under Options.
     fn use_in_game(self: &Rc<Self>) {
         self.view.borrow_mut().busy = true;
-        self.status("Adding it to the game…");
+        self.status(ms::status_using());
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let stored = async {
@@ -974,10 +963,8 @@ impl Studio {
             .await;
             this.view.borrow_mut().busy = false;
             match stored {
-                Ok(name) => this.status(format!(
-                    "{name} is in the game: choose it under Options, Sound, Announcer."
-                )),
-                Err(e) => this.status(format!("It could not be added: {e}")),
+                Ok(name) => this.status(ms::status_used(name)),
+                Err(e) => this.status(ms::status_not_used(error_text(&e))),
             }
         });
     }
@@ -1133,7 +1120,7 @@ impl Studio {
 
     /// Scene `n` given up before it showed (its example could not be
     /// read): the studio says why.
-    fn drop_scene(&self, n: u64, why: String) {
+    fn drop_scene(&self, n: u64, why: UiText) {
         let Some(sc) = self.scene.borrow_mut().take_if(|s| s.n == n) else {
             return;
         };
@@ -1179,8 +1166,8 @@ impl Studio {
             .with_scene(n, |sc| (sc.line, sc.said))
             .unwrap_or((Line::Ready, Said::Draft));
         let voice = match said {
-            Said::Draft => "Your recording".to_string(),
-            Said::Example(set) => format!("An example by {}", set.pack()),
+            Said::Draft => ms::stage_voice_recording(),
+            Said::Example(set) => ms::stage_voice_example(set.pack()),
         };
         let weak = Rc::downgrade(self);
         let back: BackFn = Rc::new(move |_| {
@@ -1248,9 +1235,12 @@ impl Studio {
         let Some(words) = self.with_scene(n, |sc| sc.words.get(&line).cloned()) else {
             return;
         };
-        let text = words.unwrap_or_else(|| format!("[{}]", studio::name(line)));
+        let text = match words {
+            Some(w) => UiText::data(w),
+            None => ms::stage_said(studio::name(line)),
+        };
         let m = Message::new(stage::SAY)
-            .with("Text", Param::Str(text))
+            .with("Text", Param::Str(text.into()))
             .with("Seconds", Param::Num(seconds));
         self.on_ui(move |ui| ui.broadcast(m));
     }
@@ -1365,8 +1355,8 @@ impl Studio {
         crate::select_preview::set_volume(settings.volume);
         crate::select_preview::gesture();
         let (first, caption) = match &scene.start {
-            Some(c) => ("start", c.clone()),
-            None => ("select", scene.caption.clone()),
+            Some(c) => ("start", c.text()),
+            None => ("select", scene.caption.text()),
         };
         let n = self.begin_scene(line, said, first, scene.choose, &caption, scene.mark, true);
         let this = self.clone();
@@ -1387,7 +1377,7 @@ impl Studio {
             }
             let (voice, lengths, words) = match voiced {
                 Ok(v) => v,
-                Err(e) => return this.drop_scene(n, format!("The example could not be read: {e}")),
+                Err(e) => return this.drop_scene(n, ms::status_example_unreadable(error_text(&e))),
             };
             this.keep(n, &lengths, words);
             let told: crate::announcers::Told = {
@@ -1431,7 +1421,7 @@ impl Studio {
                     // menu.
                     let next = Rc::new(RefCell::new(Some(select)));
                     let weak = Rc::downgrade(&this);
-                    let caption = scene.caption.clone();
+                    let caption = scene.caption.text();
                     let action: start::Action = Rc::new(move |choice, cx| {
                         if choice == start::Choice::Singleplayer
                             && let Some(s) = weak.upgrade()
@@ -1446,7 +1436,7 @@ impl Studio {
                 None => this.show(frame, select, None),
             };
             if !shown {
-                return this.drop_scene(n, "Song select could not be shown.".into());
+                return this.drop_scene(n, ms::status_no_select());
             }
             this.with_scene(n, |sc| sc.marked = scene.start.is_some());
             if scene.start.is_some() {
@@ -1590,8 +1580,8 @@ impl Studio {
             crate::select_preview::gesture();
         }
         let (first, caption, mark) = match &scene.before {
-            Some(b) => ("select", b.caption.clone(), b.mark),
-            None => ("results", scene.caption.clone(), scene.mark),
+            Some(b) => ("select", b.caption.text(), b.mark),
+            None => ("results", scene.caption.text(), scene.mark),
         };
         let n = self.begin_scene(line, said, first, before, &caption, mark, before);
         let this = self.clone();
@@ -1621,7 +1611,7 @@ impl Studio {
             }
             let (voice, lengths, words) = match voiced {
                 Ok(v) => v,
-                Err(e) => return this.drop_scene(n, format!("The example could not be read: {e}")),
+                Err(e) => return this.drop_scene(n, ms::status_example_unreadable(error_text(&e))),
             };
             this.keep(n, &lengths, words);
             let back: ActionFn = {
@@ -1643,7 +1633,7 @@ impl Studio {
             let scene = Rc::new(scene);
             let Some(before) = &scene.before else {
                 if !this.show(frame, results, Some(scene.mark)) {
-                    return this.drop_scene(n, "The results could not be shown.".into());
+                    return this.drop_scene(n, ms::status_no_results());
                 }
                 this.with_scene(n, |sc| sc.marked = true);
                 this.results_said(n, &scene, &audio, voice);
@@ -1679,7 +1669,7 @@ impl Studio {
                 SelectScreen::new(env, before.data.clone(), Some(&before.song), play, options)
                     .with_shell(shell, Rc::default());
             if !this.show(frame, select, Some(before.mark)) {
-                return this.drop_scene(n, "Song select could not be shown.".into());
+                return this.drop_scene(n, ms::status_no_select());
             }
             this.with_scene(n, |sc| sc.marked = true);
             this.after(n, BEFORE_SECONDS, Next::Start);
@@ -1712,7 +1702,7 @@ impl Studio {
             sc.mark = scene.mark;
             sc.timer = None;
         });
-        self.caption_now(n, &scene.caption);
+        self.caption_now(n, &scene.caption.text());
         self.mark(n);
         // Said as the results come in.
         let scene = scene.clone();
@@ -1858,26 +1848,12 @@ impl Studio {
                 }
             }
         }
-        let names: Vec<String> = heard
-            .iter()
-            .filter_map(|f| Line::parse(f))
-            .map(|l| format!("“{}”", studio::name(l)))
-            .collect();
-        self.view.borrow_mut().status = match (names.is_empty(), sc.line) {
-            (true, Line::Cheer) => "Nothing was said in the game: the cheer follows the results' \
-                                    line of a play graded AA or better, and none of those lines \
-                                    is recorded."
-                .into(),
-            (true, _) => "Nothing was said in the game.".into(),
-            (false, _) => match sc.said {
-                Said::Draft => format!("Heard in the game: {}.", names.join(", then ")),
-                Said::Example(set) => format!(
-                    "Heard in the game, an example by {}: {}.",
-                    set.pack(),
-                    names.join(", then ")
-                ),
-            },
+        let lines: Vec<Line> = heard.iter().filter_map(|f| Line::parse(f)).collect();
+        let example = match sc.said {
+            Said::Draft => None,
+            Said::Example(set) => Some(set.pack()),
         };
+        self.view.borrow_mut().status = studio::heard(sc.line, &lines, example).into();
         *self.heard.borrow_mut() = Some((sc.line, heard, sc.said.key()));
         self.send();
     }
@@ -2237,7 +2213,7 @@ impl StudioPage {
                     wasm_bindgen_futures::spawn_local(async move {
                         match entries.collect().await {
                             Ok(picked) => s.add(picked, line),
-                            Err(e) => s.status(format!("The files could not be read: {e}")),
+                            Err(e) => s.status(ms::status_files_unreadable(error_text(&e))),
                         }
                     });
                 },

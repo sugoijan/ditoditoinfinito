@@ -20,6 +20,7 @@ use crate::image::{IMAGE_HEADER_LEN, image_size};
 use crate::manifest::{EntryMeta, ManifestEntry, VideoRef, simfile_names, summarize};
 use crate::pack::{self, MissingTag, SongCandidate};
 use crate::path::{RelPath, RelPathBuf};
+use crate::report::Finding;
 
 /// The most background-change images a song keeps (the web's
 /// `songs::MAX_BG_IMAGES`).
@@ -89,9 +90,9 @@ pub struct Scanned {
     pub dir: RelPathBuf,
     /// What the player should know: a file missing with nothing in its
     /// place, movies the game cannot play.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Finding>,
     /// What is worth saying but changes nothing important.
-    pub notes: Vec<String>,
+    pub notes: Vec<Finding>,
 }
 
 /// The song of `c` among the root's `paths`, read through `files`;
@@ -105,7 +106,7 @@ pub fn scan_song(
     c: &SongCandidate,
     shared: &[RelPathBuf],
     legacy: crate::legacy::Decoder,
-) -> Result<Scanned, String> {
+) -> Result<Scanned, Finding> {
     let bytes = files.read(&c.chart)?;
     let mut reading = read_song(c, &bytes, paths, legacy)?;
     drop(bytes);
@@ -155,8 +156,8 @@ pub struct Reading {
     movies: Vec<(RelPathBuf, RelPathBuf)>,
     /// Whether a background change plays the `#PREVIEWVID` movie too.
     preview_in_backgrounds: bool,
-    warnings: Vec<String>,
-    notes: Vec<String>,
+    warnings: Vec<Finding>,
+    notes: Vec<Finding>,
 }
 
 /// A movie a song's background changes name, and what was found of it.
@@ -225,35 +226,30 @@ pub fn read_song(
     chart: &[u8],
     paths: &[RelPathBuf],
     legacy: crate::legacy::Decoder,
-) -> Result<Reading, String> {
+) -> Result<Reading, Finding> {
     let mut notes = Vec::new();
     let text = pack::decode_text_with(chart, legacy);
-    let mut song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
+    let mut song =
+        parse_simfile(&text, c.format.extension()).map_err(|e| Finding::Other(e.to_string()))?;
     debug_assert!(paths.is_sorted(), "a song's paths are sorted");
     song.resolve_change_names(&song_dir_names(&c.dir, paths_under(paths, &c.dir)));
-    let mut unplayed: Vec<&str> = song
+    let mut unplayed: Vec<String> = song
         .charts
         .iter()
         .filter(|ch| song.layout_of(ch).is_none())
-        .map(|ch| ch.layout.as_str())
+        .map(|ch| ch.layout.clone())
         .collect();
     unplayed.sort_unstable();
     unplayed.dedup();
     if song.playable_charts().next().is_none() {
         return Err(if unplayed.is_empty() {
-            "the simfile has no charts".into()
+            Finding::NoCharts
         } else {
-            format!(
-                "no charts in a layout this game plays; found {}",
-                unplayed.join(", ")
-            )
+            Finding::NoPlayableCharts { layouts: unplayed }
         });
     }
     if !unplayed.is_empty() {
-        notes.push(format!(
-            "charts in layouts this game does not play were left out: {}",
-            unplayed.join(", ")
-        ));
+        notes.push(Finding::LayoutsLeftOut { layouts: unplayed });
     }
     let assets = pack::resolve_assets(&song, &c.dir, paths);
     let mut movies = crate::backgrounds::referenced_movies(&song, &c.dir, paths);
@@ -311,7 +307,7 @@ impl Reading {
         shared: &[RelPathBuf],
         movies: Vec<Movie>,
         naming: Naming,
-    ) -> Result<Built, String> {
+    ) -> Result<Built, Finding> {
         let Reading {
             song,
             text,
@@ -322,34 +318,28 @@ impl Reading {
             mut warnings,
             mut notes,
         } = self;
-        let music = assets
-            .music
-            .clone()
-            .ok_or("no audio file found next to the simfile")?;
+        let music = assets.music.clone().ok_or(Finding::NoMusic)?;
         // A file the simfile names but the folder lacks is only worth a
         // warning when nothing stands in for it: StepMania quietly uses
         // the folder's audio or images instead (`Song::TidyUpData`), and
         // packs often rename files without updating the simfile.
         for (tag, reference) in &assets.missing {
+            let (tag, file) = (*tag, reference.clone());
             // The file that stands in, when one does.
             let used = match tag {
                 MissingTag::Jacket
                 | MissingTag::CdTitle
                 | MissingTag::LyricsPath
                 | MissingTag::PreviewVid => {
-                    notes.push(format!("{tag} names {reference}, which is missing"));
+                    notes.push(Finding::Missing { tag, file });
                     continue;
                 }
                 MissingTag::Preview => {
-                    notes.push(format!(
-                        "{tag} names {reference}, which is missing; the music's sample plays instead"
-                    ));
+                    notes.push(Finding::MissingPreview { tag, file });
                     continue;
                 }
                 MissingTag::ChartMusic(_) => {
-                    notes.push(format!(
-                        "{tag} names {reference}, which is missing; the song's music plays instead"
-                    ));
+                    notes.push(Finding::MissingChartMusic { tag, file });
                     continue;
                 }
                 MissingTag::Music => Some(&music),
@@ -357,16 +347,14 @@ impl Reading {
                 MissingTag::Background => assets.background.as_ref(),
             };
             let Some(used) = used else {
-                warnings.push(format!(
-                    "{tag} names {reference}, which is missing; the song has no {}",
-                    tag.to_string().trim_start_matches('#').to_lowercase()
-                ));
+                warnings.push(Finding::MissingWithout { tag, file });
                 continue;
             };
-            notes.push(format!(
-                "{tag} names {reference}, which is missing; {} is used instead",
-                used.file_name()
-            ));
+            notes.push(Finding::MissingReplaced {
+                tag,
+                file,
+                used: used.file_name().to_string(),
+            });
         }
         let (id, name) = c.identity();
         let (title, artist) = simfile_names(&song, &name);
@@ -413,10 +401,10 @@ impl Reading {
             background.as_ref().map(|(_, p)| p.as_rel_path()),
         );
         if bg_images.len() > MAX_BG_IMAGES {
-            warnings.push(format!(
-                "{} background-change images; only the first {MAX_BG_IMAGES} are kept",
-                bg_images.len()
-            ));
+            warnings.push(Finding::TooManyBackgroundImages {
+                count: bg_images.len(),
+                kept: MAX_BG_IMAGES,
+            });
             bg_images.truncate(MAX_BG_IMAGES);
         }
         let mut bg_videos = Vec::new();
@@ -437,16 +425,14 @@ impl Reading {
                 });
                 if !preview_in_backgrounds {
                     if playable && !kept {
-                        notes.push(format!(
-                            "the preview video {} was not stored (\"also store background videos\" is off)",
-                            m.relative
-                        ));
+                        notes.push(Finding::PreviewVideoNotStored {
+                            file: m.relative.to_string(),
+                        });
                     }
                     if !playable {
-                        notes.push(format!(
-                            "#PREVIEWVID names {}, in a format the game cannot play",
-                            m.relative
-                        ));
+                        notes.push(Finding::PreviewVideoUnplayable {
+                            file: m.relative.to_string(),
+                        });
                     }
                     if kept {
                         videos.push((m.relative.clone(), m.path));
@@ -455,7 +441,7 @@ impl Reading {
                 }
             }
             if !playable {
-                unplayable.push(format!("{} ({})", m.relative, m.format.describe()));
+                unplayable.push((m.relative.to_string(), m.format.clone()));
             } else if !kept {
                 left_out.push(m.relative.clone());
             }
@@ -470,20 +456,12 @@ impl Reading {
         }
         let videos_playing = bg_videos.iter().filter(|v| v.plays()).count();
         if !unplayable.is_empty() {
-            warnings.push(format!(
-                "background videos in a format the game cannot play (the song background shows instead): {}",
-                unplayable.join(", ")
-            ));
+            warnings.push(Finding::VideosUnplayable { videos: unplayable });
         }
         if !left_out.is_empty() {
-            notes.push(format!(
-                "background videos not stored (\"also store background videos\" is off): {}",
-                left_out
-                    .iter()
-                    .map(|p| p.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            notes.push(Finding::VideosNotStored {
+                files: left_out.iter().map(|p| p.to_string()).collect(),
+            });
         }
         let missing = crate::backgrounds::missing_files(&song, &c.dir, paths, &c.pack, shared);
         let unshown = crate::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
@@ -495,10 +473,10 @@ impl Reading {
         let scripts = crate::backgrounds::script_folders(&song, &c.dir, paths);
         let mut script_files = crate::backgrounds::script_files(&c.dir, &scripts, paths);
         if script_files.len() > MAX_SCRIPT_FILES {
-            warnings.push(format!(
-                "{} files in scripted backgrounds; only the first {MAX_SCRIPT_FILES} are kept",
-                script_files.len()
-            ));
+            warnings.push(Finding::TooManyScriptFiles {
+                count: script_files.len(),
+                kept: MAX_SCRIPT_FILES,
+            });
             script_files.truncate(MAX_SCRIPT_FILES);
         }
         let is_script = |name: &str| {
@@ -507,29 +485,19 @@ impl Reading {
         };
         let present: Vec<(String, bool)> =
             present.into_iter().filter(|(n, _)| !is_script(n)).collect();
-        let names = |list: Vec<(String, bool)>| {
-            list.into_iter()
-                .map(|(n, _)| n)
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
+        let names = |list: Vec<(String, bool)>| list.into_iter().map(|(n, _)| n).collect();
         if !present.is_empty() {
-            notes.push(format!(
-                "background changes use animations from shared folders, which are not played (the song background shows instead): {}",
-                names(present)
-            ));
+            notes.push(Finding::SharedAnimations {
+                names: names(present),
+            });
         }
         if !absent.is_empty() {
-            notes.push(format!(
-                "background changes name scripted animations that are missing (they would not be played anyway): {}",
-                names(absent)
-            ));
+            notes.push(Finding::MissingAnimations {
+                names: names(absent),
+            });
         }
         if !missing.is_empty() {
-            warnings.push(format!(
-                "background changes name images or videos that were not found (the song background shows instead, or a random movie from a RandomMovies folder): {}",
-                missing.join(", ")
-            ));
+            warnings.push(Finding::MissingBackgrounds { names: missing });
         }
         let mut entry = summarize(
             EntryMeta {
@@ -629,7 +597,7 @@ pub fn sniff_movie(files: &dyn Reader, path: &RelPath) -> VideoFormat {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RootScan {
     pub songs: Vec<Scanned>,
-    pub failed: Vec<(RelPathBuf, String)>,
+    pub failed: Vec<(RelPathBuf, Finding)>,
 }
 
 /// Every song among `paths` (the root's files, sorted), packs named as
@@ -666,7 +634,7 @@ pub struct Duplicates(std::collections::HashMap<String, RelPathBuf>);
 
 impl Duplicates {
     /// Why `c` is left out (its id was seen), or `None` (first seen now).
-    pub fn check(&mut self, c: &SongCandidate) -> Option<String> {
+    pub fn check(&mut self, c: &SongCandidate) -> Option<Finding> {
         let (id, _) = c.identity();
         let label = if c.dir.is_empty() {
             c.chart.clone()
@@ -674,7 +642,9 @@ impl Duplicates {
             c.dir.clone()
         };
         match self.0.get(&id) {
-            Some(first) => Some(format!("same pack and folder name as {first}")),
+            Some(first) => Some(Finding::SameFolderAs {
+                first: first.to_string(),
+            }),
             None => {
                 self.0.insert(id, label);
                 None
@@ -877,7 +847,11 @@ mod tests {
         assert_eq!(s.entry.charts.len(), 1);
         assert!(s.entry.charts[0].digest.is_some());
         assert_eq!(s.entry.preview_start, 10.0);
-        assert!(s.notes[0].contains("dance-couple"), "{:?}", s.notes);
+        assert!(
+            matches!(&s.notes[0], Finding::LayoutsLeftOut { layouts } if layouts.contains(&"dance-couple".to_string())),
+            "{:?}",
+            s.notes
+        );
         // Song B has no playable chart.
         assert_eq!(scan.failed.len(), 1);
         assert_eq!(scan.failed[0].0, "Pack/Song B");
@@ -897,13 +871,21 @@ mod tests {
         assert_eq!(s.pack, "Mine");
         assert_eq!(s.entry.music, "other.mp3");
         assert!(
-            s.notes.iter().any(|n| n.contains("gone.ogg")),
+            s.notes.iter().any(|n| matches!(n,
+                Finding::MissingReplaced { tag: MissingTag::Music, file, used }
+                    if file == "gone.ogg" && used == "other.mp3")),
             "{:?}",
             s.notes
         );
         // No banner either: a warning.
         assert!(
-            s.warnings.iter().any(|w| w.contains("#BANNER")),
+            s.warnings.iter().any(|w| matches!(
+                w,
+                Finding::MissingWithout {
+                    tag: MissingTag::Banner,
+                    ..
+                }
+            )),
             "{:?}",
             s.warnings
         );
@@ -911,7 +893,7 @@ mod tests {
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
         assert!(scan.songs.is_empty());
-        assert!(scan.failed[0].1.contains("no audio"));
+        assert_eq!(scan.failed[0].1, Finding::NoMusic);
     }
     #[test]
     fn the_second_layers_files_and_scripted_animations_are_kept() {
@@ -976,7 +958,13 @@ mod tests {
         let s = &scan.songs[0];
         assert!(s.entry.preview_video.is_none());
         assert!(
-            s.notes.iter().any(|n| n.contains("#PREVIEWVID")),
+            s.notes.iter().any(|n| matches!(
+                n,
+                Finding::Missing {
+                    tag: MissingTag::PreviewVid,
+                    ..
+                }
+            )),
             "{:?}",
             s.notes
         );
@@ -1026,7 +1014,8 @@ mod tests {
         assert_eq!(e.music_for(0), "easy.ogg");
         assert_eq!(e.music_for(2), "song.ogg");
         assert!(
-            s.notes.iter().any(|n| n.contains("gone.ogg")),
+            s.notes.iter().any(|n| matches!(n,
+                Finding::MissingChartMusic { file, .. } if file.contains("gone.ogg"))),
             "{:?}",
             s.notes
         );
@@ -1076,7 +1065,7 @@ mod tests {
             !scan.songs[0]
                 .warnings
                 .iter()
-                .any(|w| w.contains("not found")),
+                .any(|w| matches!(w, Finding::MissingBackgrounds { .. })),
             "{:?}",
             scan.songs[0].warnings
         );
@@ -1122,7 +1111,9 @@ mod tests {
             ]
         );
         assert!(
-            !s.notes.iter().any(|n| n.contains("not played")),
+            !s.notes
+                .iter()
+                .any(|n| matches!(n, Finding::SharedAnimations { .. })),
             "{:?}",
             s.notes
         );

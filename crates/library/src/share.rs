@@ -126,40 +126,93 @@ pub struct ShareListing {
     pub shares: Vec<ShareSummary>,
 }
 
-/// What both shells say of a share that is gone (a 404 or a 410).
-pub const GONE: &str = "This link doesn't exist or has expired.";
+/// What went wrong reading, making, listing or deleting a share
+/// (`docs/plans/localization.md`, step 4), on either shell: a value the
+/// screens word (`ddi_ui::screens::failures::share_text`). `Display` is
+/// English, for the logs and the terminal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShareError {
+    /// No share has this id (a 404), or it had and it expired (a 410).
+    Gone { expired: bool },
+    /// No upload token is set.
+    NoToken,
+    /// Nothing was chosen to share.
+    Nothing,
+    /// The server refused the upload token (401, 403).
+    TokenRefused,
+    /// Too large to share (413).
+    TooLarge,
+    /// Another answer the server gave: its status, and its body when it
+    /// is short.
+    Status { status: u16, body: Option<String> },
+    /// The connection or the system failed: what was being done (in
+    /// English, for the logs alone) and what the system said.
+    Failed { doing: &'static str, error: String },
+    /// The server's answer did not read: what the reader said.
+    Answer(String),
+    /// A song's chart could not be read for an upload: the song's title.
+    NoChart(String),
+    /// A song or one of its files failed: its name, and why.
+    In {
+        name: String,
+        error: Box<ShareError>,
+    },
+}
 
-/// What both shells say of an upload or a listing without a token.
-pub const NO_TOKEN: &str = "Set the upload token under Options → Sharing first.";
+impl ShareError {
+    /// `error`, which happened to `name` (a song, a file).
+    pub fn of(name: impl Into<String>, error: ShareError) -> ShareError {
+        ShareError::In {
+            name: name.into(),
+            error: Box::new(error),
+        }
+    }
 
-/// The server's refusal of an upload, a listing or a deletion (`status`
-/// not a success), with its `body` when it is short.
-pub fn refusal(status: u16, body: Option<&str>) -> String {
-    match status {
-        401 | 403 => "the upload token was refused".into(),
-        413 => "too large to share (2 GB a share, 512 MB a file, 200 songs)".into(),
-        s => format!(
-            "HTTP {s}{}",
-            body.filter(|b| !b.is_empty() && b.len() < 200)
-                .map(|b| format!(": {b}"))
-                .unwrap_or_default()
-        ),
+    /// The failure itself, under the names it happened to.
+    pub fn root(&self) -> &ShareError {
+        match self {
+            ShareError::In { error, .. } => error.root(),
+            e => e,
+        }
     }
 }
 
-/// The start prompt's quiet line on a shared song coming down, `done` of
-/// `total` bytes (0: not known yet).
-pub fn download_line(done: f64, total: f64) -> String {
-    if total > 0.0 {
-        format!(
-            "downloading the song… {:.1} of {:.1} MB",
-            done / 1e6,
-            total / 1e6
-        )
-    } else if done > 0.0 {
-        format!("downloading the song… {:.1} MB", done / 1e6)
-    } else {
-        "downloading the song…".to_string()
+impl std::fmt::Display for ShareError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShareError::Gone { .. } => f.write_str("This link doesn't exist or has expired."),
+            ShareError::NoToken => {
+                f.write_str("Set the upload token under Options → Sharing first.")
+            }
+            ShareError::Nothing => f.write_str("Nothing to share."),
+            ShareError::TokenRefused => f.write_str("the upload token was refused"),
+            ShareError::TooLarge => {
+                f.write_str("too large to share (2 GB a share, 512 MB a file, 200 songs)")
+            }
+            ShareError::Status { status, body } => match body {
+                Some(b) => write!(f, "HTTP {status}: {b}"),
+                None => write!(f, "HTTP {status}"),
+            },
+            ShareError::Failed { doing, error } => write!(f, "{doing}: {error}"),
+            ShareError::Answer(e) => write!(f, "the server's answer: {e}"),
+            ShareError::NoChart(title) => write!(f, "{title}: its chart could not be read"),
+            ShareError::In { name, error } => write!(f, "{name}: {error}"),
+        }
+    }
+}
+
+/// The server's refusal of an upload, a listing or a deletion (`status`
+/// not a success), with its `body` when it is short.
+pub fn refusal(status: u16, body: Option<&str>) -> ShareError {
+    match status {
+        401 | 403 => ShareError::TokenRefused,
+        413 => ShareError::TooLarge,
+        status => ShareError::Status {
+            status,
+            body: body
+                .filter(|b| !b.is_empty() && b.len() < 200)
+                .map(str::to_string),
+        },
     }
 }
 

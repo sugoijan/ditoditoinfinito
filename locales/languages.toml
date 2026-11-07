@@ -1,0 +1,70 @@
+# The UI's languages (`docs/plans/localization.md`), English first: the
+# source every other language translates.
+#
+# tag           BCP 47 (`en`, `ja`, `en-GB`); its messages in `locales/<tag>/`
+# name          written in itself, as the language picker shows it
+# status        `shipped` (offered to everyone and to the system's choice) or
+#               `preview` (offered to everyone in Options' Language row as
+#               a draft to try; never the system's choice)
+# fallback      where its missing messages come from before English
+#               (a regional variant's parent: `en-GB` falls back to `en`)
+# decimal, group, min_grouping
+#               how numbers in its messages are written: the decimal mark,
+#               the separator between groups of three digits, and the
+#               fewest digits before the first group that gets one
+#               (CLDR's minimumGroupingDigits). Defaults: ".", ",", 1.
+# faces         the font families its script needs beyond the theme's text
+#               face (Iosevka Term: Latin, Latin Extended-A and the theme's
+#               signs), each a [[face]] below; they follow the theme's face
+#               in the font stack while it is the UI's language
+
+[[language]]
+tag = "en"
+name = "English"
+status = "shipped"
+
+[[language]]
+tag = "ja"
+name = "日本語"
+status = "preview"
+faces = ["Noto Sans CJK JP"]
+
+# The faces the languages name, each cut to what its languages' messages
+# and names use beyond the theme's face, plus a base for its script, by
+# `cargo run -p xtask -- l10n fonts` (which `just l10n-check` asks for
+# when a message uses a character none of its language's faces has).
+#
+# family        as font stacks name it
+# base          code points every cut holds (pyftsubset's --unicodes)
+# features      the OpenType features kept (horizontal text only)
+# [[face.file]] one a weight: the CSS weight it is drawn for, its cut in
+#               assets/fonts/ (served as fonts/<file> on the web), and the
+#               upstream file it is cut from, pinned by its SHA-256
+#
+# The weights are the theme's three: 400, 600 (its SemiBold; Noto's
+# Medium, the nearest for CJK, which looks heavier than Latin at the same
+# weight) and 700. CJK is set upright: no italic.
+
+[[face]]
+family = "Noto Sans CJK JP"
+# CJK punctuation, hiragana and katakana with their marks, full-width forms.
+base = "U+3000-303F,U+3041-3096,U+3099-30FF,U+FF01-FF60"
+features = "ccmp,kern,mark"
+
+[[face.file]]
+weight = 400
+file = "NotoSansCJKjp-Regular-ja.otf"
+source = "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+sha256 = "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+
+[[face.file]]
+weight = 600
+file = "NotoSansCJKjp-Medium-ja.otf"
+source = "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Medium.otf"
+sha256 = "dd523e580e3413c480b2d701bf64e534c20f8419e3cfb6a44c2bdcd8d2a6c052"
+
+[[face.file]]
+weight = 700
+file = "NotoSansCJKjp-Bold-ja.otf"
+source = "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf"
+sha256 = "e53dcb0dcb2922e45d01aae1ebd2f382bb81d4229b18b6b883bd170678af1f76"

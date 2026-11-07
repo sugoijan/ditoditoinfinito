@@ -131,7 +131,7 @@ const PUMP_PANELS: [(&str, &str, Glyph); 5] = [
         },
     ),
     ("upleft", "Up-left", Glyph::Arrow { rotation_deg: 45.0 }),
-    ("center", "Centre", Glyph::Center),
+    ("center", "Center", Glyph::Center),
     (
         "upright",
         "Up-right",
@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(double.lane_count(), 10);
         assert_eq!(double.lanes_of_pad(1).collect::<Vec<_>>(), [5, 6, 7, 8, 9]);
         assert_eq!(double.lanes[7].glyph, Glyph::Center);
-        assert_eq!(double.lanes[7].label(), "Centre (pad 2)");
+        assert_eq!(double.lanes[7].label(), "Center (pad 2)");
         // Each panel keeps its keys across the three.
         let half = Layout::pump_halfdouble();
         assert_eq!(half.lanes[0].default_keys, double.lanes[2].default_keys);

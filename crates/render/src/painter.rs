@@ -623,6 +623,8 @@ pub struct Painter {
     text: RunCache,
     raster: Option<Box<dyn RunRasterizer>>,
     fonts_version: u64,
+    /// The UI's language the runs are drawn for ([`Painter::set_language`]).
+    language: String,
     /// Images whose Gaussian filter and mipmaps the next draw prepares.
     unprepared: Vec<TextureId>,
     /// Images the shell draws itself, by source, their bindings (`None`:
@@ -655,6 +657,7 @@ impl Painter {
             text: RunCache::new(PAGE, TEXT_BUDGET),
             raster: None,
             fonts_version: 0,
+            language: String::new(),
             unprepared: Vec::new(),
             externals: Vec::new(),
             instances: Vec::new(),
@@ -690,8 +693,25 @@ impl Painter {
     }
 
     /// What draws the text runs (none: text is not drawn).
-    pub fn set_rasterizer(&mut self, raster: Box<dyn RunRasterizer>) {
+    pub fn set_rasterizer(&mut self, mut raster: Box<dyn RunRasterizer>) {
+        if !self.language.is_empty() {
+            raster.set_language(&self.language);
+        }
         self.raster = Some(raster);
+        self.text.clear();
+    }
+
+    /// The UI's language is `tag` (`ddi_l10n::current().tag`; the shells
+    /// tell it before each frame): on a change the rasterizer is told
+    /// ([`RunRasterizer::set_language`]) and every run is drawn again.
+    pub fn set_language(&mut self, tag: &str) {
+        if self.language == tag {
+            return;
+        }
+        self.language = tag.to_string();
+        if let Some(r) = self.raster.as_mut() {
+            r.set_language(tag);
+        }
         self.text.clear();
     }
 

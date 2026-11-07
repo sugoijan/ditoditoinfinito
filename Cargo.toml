@@ -37,6 +37,7 @@ ddi-desktop = { path = "crates/desktop", default-features = false }
 ddi-session = { path = "crates/session" }
 ddi-shell = { path = "crates/shell" }
 ddi-svg-worker = { path = "crates/svg-worker" }
+ddi-l10n = { path = "crates/l10n" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
 lunita = "0.1"
@@ -77,7 +78,15 @@ lzma-rust2 = { version = "0.23", default-features = false, features = ["std"] }
 ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 encoding_rs = "0.8.42"
 unicode-segmentation = "1.13.3"
+# Where lines may break (UAX #14): the menus' and the lyrics' wrapping.
+unicode-linebreak = "0.1.5"
 unicode-normalization = "0.1.25"
+# The UI's languages (`crates/l10n`, `docs/plans/localization.md`): Fluent's
+# runtime in the game, its parser at build time and in xtask's check.
+fluent-bundle = "0.16.0"
+fluent-syntax = "0.12.0"
+unic-langid = "0.9.6"
+intl_pluralrules = "7.0.2"
 taffy = { version = "0.15.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 symphonia = { version = "0.6.1", default-features = false }
 

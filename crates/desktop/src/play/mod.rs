@@ -57,7 +57,7 @@ pub struct Request {
     pub replay: Option<Rc<ddi_ui::state::history::Replay>>,
     pub view_results: bool,
     /// Why the play asked for cannot be: the prompt says so.
-    pub refused: Option<String>,
+    pub refused: Option<ddi_ui::state::history::Refusal>,
     /// The chart's best play's ghost beside the play (`Settings::ghost`;
     /// lined up by the song offsets when the play starts).
     pub ghost: Option<Rc<ddi_ui::state::history::Ghost>>,

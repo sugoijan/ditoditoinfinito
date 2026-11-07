@@ -201,7 +201,7 @@ impl PreviewMovieHost {
         deck.update(&layers, t, picture.renderer_mut(), device, queue);
         if let Some((_, e)) = deck.failed().first() {
             eprintln!("preview video {name}: {e}");
-            self.state.fail(e.clone());
+            self.state.fail(e.to_string());
             return;
         }
         let shown = deck.stats().shown;

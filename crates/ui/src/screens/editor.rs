@@ -52,6 +52,7 @@ use ddi_actor::{Actor, Kind, Rgba};
 use ddi_chart::{DisplayBpm, Glyph, NoteKind, Quantization, TICKS_PER_BEAT, Tick};
 use ddi_engine::transform::Turn;
 
+use super::data::Platform;
 use super::editor_dialogs::{ActionsDialog, PickFn, SubmitFn, ValueDialog};
 use super::editor_field::{self, FieldPicture, FieldView, Mapping, SkinField};
 use super::options_dialogs::ConfirmDialog;
@@ -67,6 +68,9 @@ use crate::state::editor::{
     ChartInfo, Editor, MEASURE, NoteTool, Retime, Segment, SegmentKind, SongInfo, autosave,
     trim_number,
 };
+use ddi_l10n::UiText;
+use ddi_l10n::msg::common;
+use ddi_l10n::msg::editor as em;
 
 /// Broadcast when a dialog changed the song: the screen draws it again.
 pub const CHANGED: &str = "EditorChanged";
@@ -184,22 +188,27 @@ pub trait EditorHost {
 /// What the shell can do with the song.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EditorPlace {
+    /// Whose wording (`$platform` in the messages): what exporting and
+    /// saving over the song mean there.
+    pub platform: Platform,
     /// Where saving puts the song ("Songs/Pack/Song/song.ssc"); `None`:
     /// it cannot be saved there (a bundled song).
     pub save: Option<String>,
-    /// Saving replaces what the song was read from: what the question
-    /// asked first says (what is replaced, what is kept); `None`: saved
+    /// Saving replaces what the song was read from, and a question is
+    /// asked first, naming the file replaced (desktop: its path; the
+    /// web: empty, the song stored in the browser); `None`: saved
     /// without asking.
     pub confirm: Option<String>,
-    /// What exporting does ("Download", "Save a copy"); `None`: none.
-    pub export: Option<String>,
+    /// A copy can be exported (a download on the web, a file saved
+    /// where the player picks on desktop).
+    pub export: bool,
     /// The music can be listened to.
     pub listen: bool,
     /// Playtests can be started.
     pub playtest: bool,
-    /// What leaving without saving loses besides the changes (a new
-    /// song never saved: the song); `None` once saved.
-    pub discard: Option<String>,
+    /// A new song never saved: leaving without saving drops the song
+    /// too (on desktop its folder); `false` once saved.
+    pub new_song: bool,
 }
 
 /// What the screen shows, for the shells' debug views and tests.
@@ -273,15 +282,6 @@ fn glyph_text(glyph: &Glyph) -> &'static str {
         Glyph::Center => "●",
         _ => "●",
     }
-}
-
-/// "16th", "32nd".
-pub fn snap_name(n: i64) -> String {
-    let suffix = match n % 10 {
-        2 if n % 100 != 12 => "nd",
-        _ => "th",
-    };
-    format!("{n}{suffix}")
 }
 
 /// Song seconds as `m:ss.mmm` (negative before the music).
@@ -600,9 +600,9 @@ impl EditorScreen {
             let e = self.editor.borrow();
             let t = &e.song().title;
             if t.is_empty() {
-                "Edit".to_string()
+                em::title()
             } else {
-                format!("Edit · {t}")
+                em::title_song(UiText::data(t))
             }
         };
         let mut children = vec![
@@ -691,35 +691,47 @@ impl EditorScreen {
     fn footer(&self, cx: &mut Cx) -> (Actor, Vec<String>) {
         let lanes = self.editor.borrow().lanes();
         let lane_keys = format!("1–{}", lanes.min(10) % 10);
+        let (moves, snap, notes, listen, record, play, menu, lane, place, back) = (
+            em::hint_move(),
+            em::hint_snap(),
+            em::hint_notes(),
+            em::hint_listen(),
+            em::hint_record(),
+            em::hint_play(),
+            em::hint_menu(),
+            em::hint_lane(),
+            em::hint_place(),
+            common::back(),
+        );
         let mut hints: Vec<(Vec<&str>, &str)> = vec![
-            (vec!["↑", "↓"], "Move"),
-            (vec!["←", "→"], "Snap"),
-            (vec![lane_keys.as_str()], "Notes"),
+            (vec!["↑", "↓"], &moves),
+            (vec!["←", "→"], &snap),
+            (vec![lane_keys.as_str()], &notes),
         ];
         if !self.geo.compact {
             if self.place.listen {
-                hints.push((vec!["SPACE"], "Listen"));
-                hints.push((vec!["R"], "Record"));
+                hints.push((vec!["SPACE"], &listen));
+                hints.push((vec!["R"], &record));
             }
             if self.place.playtest {
-                hints.push((vec!["P"], "Play"));
+                hints.push((vec!["P"], &play));
             }
         }
-        hints.push((vec!["TAB"], "Menu"));
-        hints.push((vec!["ESC"], "Back"));
+        hints.push((vec!["TAB"], &menu));
+        hints.push((vec!["ESC"], &back));
         let hints: Vec<(&[&str], &str)> = hints.iter().map(|(k, l)| (k.as_slice(), *l)).collect();
         let mut controller: Vec<(&[HintAction], &str)> = vec![
-            (&[HintAction::Up, HintAction::Down], "Move"),
-            (&[HintAction::Left, HintAction::Right], "Snap"),
-            (&[HintAction::Previous, HintAction::Next], "Lane"),
-            (&[HintAction::Confirm], "Place"),
+            (&[HintAction::Up, HintAction::Down], &moves),
+            (&[HintAction::Left, HintAction::Right], &snap),
+            (&[HintAction::Previous, HintAction::Next], &lane),
+            (&[HintAction::Confirm], &place),
         ];
         if self.place.listen {
-            controller.push((&[HintAction::Start], "Listen"));
+            controller.push((&[HintAction::Start], &listen));
         }
         controller.extend([
-            (&[HintAction::More][..], "Menu"),
-            (&[HintAction::Back][..], "Back"),
+            (&[HintAction::More][..], &*menu),
+            (&[HintAction::Back][..], &*back),
         ]);
         footer(&self.env, self.geo.size, &hints, &controller, "", &[], cx)
     }
@@ -874,8 +886,8 @@ impl EditorScreen {
                     c.push(tail);
                 }
                 let badge = match n.kind {
-                    NoteKind::Fake => Some("F"),
-                    NoteKind::Lift => Some("L"),
+                    NoteKind::Fake => Some(em::badge_fake()),
+                    NoteKind::Lift => Some(em::badge_lift()),
                     _ => None,
                 };
                 if let Some(b) = badge {
@@ -885,7 +897,7 @@ impl EditorScreen {
                     call(&mut back, "xy", &at);
                     call(&mut back, "cornerradius", &[3.0]);
                     c.push(back);
-                    let mut t = env.text("", b, size, 700, "Text");
+                    let mut t = env.text("", &b, size, 700, "Text");
                     call(&mut t, "xy", &at);
                     c.push(t);
                 }
@@ -1064,25 +1076,34 @@ impl EditorScreen {
         let mut y = py + if small { 16.0 } else { 24.0 };
         let x = px + 16.0;
         let width = pw - 32.0;
-        let mut push = |c: &mut Vec<Actor>, name: &str, s: &str, weight: u16, color: &str| {
+        // A line at `x`, `w` wide (wrapped past it).
+        let line = |name: &str, s: &str, weight: u16, color: &str, x: f32, w: f32, y: f32| {
             let mut t = env.text(name, s, size, weight, color);
-            super::select_dialogs::wrap(&mut t, width);
-            c.push(left(t, x, y));
+            super::select_dialogs::wrap(&mut t, w);
+            left(t, x, y)
+        };
+        let mut push = |c: &mut Vec<Actor>, name: &str, s: &str, weight: u16, color: &str| {
+            c.push(line(name, s, weight, color, x, width, y));
             y += line_h;
         };
         let artist = if song.artist.is_empty() {
-            "—".to_string()
+            UiText::data("—")
         } else {
-            song.artist.clone()
+            UiText::data(&song.artist)
         };
         push(&mut c, "Panel.Artist", &artist, 400, "Muted");
+        // The chart's style, then its difficulty and level as the file
+        // has them (and its place among the song's charts).
         let chart_line = format!(
-            "{} · {} {} ({}/{})",
-            layout.name,
-            chart.difficulty.name(),
-            chart.meter,
-            e.chart_index() + 1,
-            song.charts.len()
+            "{} · {}",
+            super::data::style_name(&layout.id, &layout.name),
+            UiText::data(format!(
+                "{} {} ({}/{})",
+                chart.difficulty.name(),
+                chart.meter,
+                e.chart_index() + 1,
+                song.charts.len()
+            ))
         );
         push(&mut c, "Panel.Chart", &chart_line, 700, "Text");
         let cursor = e.cursor();
@@ -1090,19 +1111,19 @@ impl EditorScreen {
         push(
             &mut c,
             "Panel.Beat",
-            &format!(
-                "Beat {} · measure {} · {}",
+            &em::panel_beat(
                 trim_number(cursor.beat()),
-                measure,
-                clock(e.cursor_seconds())
+                measure.to_string(),
+                clock(e.cursor_seconds()),
             ),
             400,
             "Text",
         );
+        // The snap, then the note tool: a list of two.
         push(
             &mut c,
             "Panel.Snap",
-            &format!("Snap {} · {}", snap_name(e.snap()), e.tool().name()),
+            &format!("{} · {}", em::panel_snap(e.snap()), e.tool().label()),
             400,
             "Text",
         );
@@ -1110,37 +1131,43 @@ impl EditorScreen {
         if let Some(line) = self.audio_line().filter(|_| !small) {
             push(&mut c, "Button.Audio", &line, 400, "Accent");
         }
-        let bpm = e.timing().bpm_at_beat(cursor.beat());
-        let own = if e.has_own_timing() {
-            " (chart's own timing)"
+        let bpm = trim_number(e.timing().bpm_at_beat(cursor.beat()));
+        let bpm = if e.has_own_timing() {
+            em::panel_bpm_own(bpm)
         } else {
-            ""
+            em::panel_bpm(bpm)
         };
-        push(
-            &mut c,
-            "Panel.Bpm",
-            &format!("{} BPM{own}", trim_number(bpm)),
-            400,
-            "Text",
-        );
+        push(&mut c, "Panel.Bpm", &bpm, 400, "Text");
         for (name, text, color) in self.sound_lines() {
             push(&mut c, name, &text, 400, color);
         }
+        drop(push);
         let at = e.segments_at(cursor);
         if !at.is_empty() {
-            let s: Vec<String> = at.iter().map(Segment::describe).collect();
-            push(
-                &mut c,
+            // "Here:", then the changes at the cursor as a list.
+            let label = em::panel_here();
+            let lw = crate::look::mono_width(&label, size) + size * 0.5;
+            c.push(line("Panel.HereLabel", &label, 400, "Accent", x, lw, y));
+            let s: Vec<String> = at.iter().map(|s| s.describe().into()).collect();
+            c.push(line(
                 "Panel.Here",
-                &format!("Here: {}", s.join(", ")),
+                &s.join(" · "),
                 400,
                 "Accent",
-            );
+                x + lw,
+                (width - lw).max(size),
+                y,
+            ));
+            y += line_h;
         }
+        let mut push = |c: &mut Vec<Actor>, name: &str, s: &str, weight: u16, color: &str| {
+            c.push(line(name, s, weight, color, x, width, y));
+            y += line_h;
+        };
         push(
             &mut c,
             "Panel.Notes",
-            &format!("{} notes", e.note_count()),
+            &em::panel_notes(e.note_count()),
             400,
             "Muted",
         );
@@ -1148,24 +1175,20 @@ impl EditorScreen {
             push(
                 &mut c,
                 "Panel.Selection",
-                &format!(
-                    "Selected beats {}–{}",
-                    trim_number(a.beat()),
-                    trim_number(b.beat())
-                ),
+                &em::panel_selection(trim_number(a.beat()), trim_number(b.beat())),
                 400,
                 "Accent",
             );
         }
         let saved = if e.is_dirty() {
-            "Unsaved changes"
+            em::panel_unsaved()
         } else {
-            "Saved"
+            em::panel_saved()
         };
         push(
             &mut c,
             "Panel.Saved",
-            saved,
+            &saved,
             600,
             if e.is_dirty() { "Accent" } else { "Muted" },
         );
@@ -1173,12 +1196,12 @@ impl EditorScreen {
             push(&mut c, "Panel.Status", &self.status, 400, "Muted");
         }
         // Buttons along the panel's bottom.
-        let mut buttons = vec![("Button.Menu", "Menu")];
+        let mut buttons = vec![("Button.Menu", em::panel_menu())];
         if self.place.save.is_some() {
-            buttons.push(("Button.Save", "Save"));
+            buttons.push(("Button.Save", common::save()));
         }
         if self.place.playtest {
-            buttons.push(("Button.Play", "Play"));
+            buttons.push(("Button.Play", em::panel_play()));
         }
         let n = buttons.len() as f32;
         let bh = if small { 34.0 } else { 40.0 };
@@ -1189,7 +1212,7 @@ impl EditorScreen {
                 &*env.look,
                 "Button",
                 "Button",
-                &Spec::new([bw, bh], *label),
+                &Spec::new([bw, bh], label.as_str()),
             );
             b.name = (*name).into();
             call(
@@ -1205,22 +1228,29 @@ impl EditorScreen {
     /// The panel's line saying how the field is drawn (a tap changes
     /// the view).
     fn view_line(&self) -> String {
-        let mut s = match self.view {
-            FieldView::Edit => "Edit view".to_string(),
+        let mut s: String = match self.view {
+            FieldView::Edit => em::view_edit(),
             FieldView::Play => {
                 let scroll = self.skin.map(|s| s.scroll).unwrap_or_default();
+                // The player's speed as the options write it.
                 let speed = match scroll.speed {
                     ddi_engine::scroll::SpeedMod::XMod(x) => format!("{}x", trim_number(x)),
                     ddi_engine::scroll::SpeedMod::CMod(b) => format!("C{}", trim_number(b)),
                 };
-                let reverse = if scroll.reverse { ", reverse" } else { "" };
-                format!("Play view · {speed}{reverse}")
+                if scroll.reverse {
+                    em::view_play_reverse(speed)
+                } else {
+                    em::view_play(speed)
+                }
             }
-        };
+        }
+        .into();
         if self.plates && self.skin.is_some() {
-            s.push_str(" · compact");
+            // A list: "Play view · 2x · compact".
+            s = format!("{s} · {}", em::view_compact());
         }
         if !self.geo.compact {
+            // Its key.
             s.push_str(" (V)");
         }
         s
@@ -1316,7 +1346,7 @@ impl EditorScreen {
             segments: e
                 .segments_at(e.cursor())
                 .iter()
-                .map(Segment::describe)
+                .map(|s| s.describe().into())
                 .collect(),
             shown: self.shown,
             view: self.view.name().into(),
@@ -1356,7 +1386,7 @@ impl EditorScreen {
             self.passed_to = Some(self.editor.borrow().cursor().0 as f64 - 0.5);
             self.listen_started();
             self.call(EditorCall::Listen { from }, cx);
-            self.say("Listening");
+            self.say(em::status_listening());
         }
     }
 
@@ -1413,7 +1443,7 @@ impl EditorScreen {
 
     fn save(&mut self, cx: &mut Cx) {
         if self.place.save.is_none() {
-            self.say("This song cannot be saved here: export a copy instead");
+            self.say(em::status_cannot_save());
             return;
         }
         let editor = self.editor.clone();
@@ -1431,18 +1461,19 @@ impl EditorScreen {
             }
         });
         match &self.place.confirm {
-            Some(body) => cx.overlay(
-                ConfirmDialog::new(
-                    self.env.clone(),
-                    "Save over the song?",
-                    &format!(
-                        "{body} Charts whose notes changed are new charts for the play history."
+            Some(file) => {
+                let name = file.rsplit(['/', '\\']).next().unwrap_or(file);
+                cx.overlay(
+                    ConfirmDialog::new(
+                        self.env.clone(),
+                        &em::save_over_title(),
+                        &em::save_over_body(self.place.platform.l10n(), file, name),
+                        &common::save(),
+                        save,
                     ),
-                    "Save",
-                    save,
-                ),
-                true,
-            ),
+                    true,
+                )
+            }
             None => save(cx),
         }
     }
@@ -1463,15 +1494,17 @@ impl EditorScreen {
             }
             cx.broadcast(Message::new(LEAVE));
         });
+        let body = if self.place.new_song {
+            em::leave_new_song_body(self.place.platform.l10n())
+        } else {
+            em::leave_body()
+        };
         cx.overlay(
             ConfirmDialog::new(
                 self.env.clone(),
-                "Leave without saving?",
-                self.place
-                    .discard
-                    .as_deref()
-                    .unwrap_or("The changes since the last save are lost."),
-                "Leave",
+                &em::leave_title(),
+                &body,
+                &em::leave(),
                 leave,
             ),
             true,
@@ -1484,49 +1517,55 @@ impl EditorScreen {
         if self.place.listen {
             items.push((
                 "listen",
-                if self.listening { "Stop" } else { "Listen" }.into(),
+                if self.listening {
+                    em::menu_stop()
+                } else {
+                    em::menu_listen()
+                }
+                .into(),
             ));
         }
         if self.place.playtest {
-            items.push(("play", "Play from cursor".into()));
-            items.push(("play-start", "Play from start".into()));
-            items.push(("auto", "Autoplay from cursor".into()));
+            items.push(("play", em::menu_play_cursor().into()));
+            items.push(("play-start", em::menu_play_start().into()));
+            items.push(("auto", em::menu_autoplay_cursor().into()));
         }
         drop(e);
         self.record_items(&mut items);
         self.sound_items(&mut items);
         let e = self.editor.borrow();
-        items.push(("undo", "Undo".into()));
-        items.push(("redo", "Redo".into()));
-        items.push(("tool", format!("Tool: {}", e.tool().name())));
-        items.push(("timing", "Timing here…".into()));
-        items.push(("song", "Song…".into()));
-        items.push(("chart", "Chart…".into()));
+        items.push(("undo", em::menu_undo().into()));
+        items.push(("redo", em::menu_redo().into()));
+        items.push(("tool", em::menu_tool(e.tool().key()).into()));
+        items.push(("timing", em::menu_timing().into()));
+        items.push(("song", em::menu_song().into()));
+        items.push(("chart", em::menu_chart().into()));
         if e.selection().is_some() {
-            items.push(("copy", "Copy".into()));
-            items.push(("cut", "Cut".into()));
-            items.push(("delete", "Delete selection".into()));
-            items.push(("mirror", "Mirror selection".into()));
+            items.push(("copy", common::copy().into()));
+            items.push(("cut", em::menu_cut().into()));
+            items.push(("delete", em::menu_delete_selection().into()));
+            items.push(("mirror", em::menu_mirror_selection().into()));
         } else {
-            items.push(("select-all", "Select all".into()));
+            items.push(("select-all", em::menu_select_all().into()));
         }
         if e.clip().is_some() {
-            items.push(("paste", "Paste".into()));
+            items.push(("paste", em::menu_paste().into()));
         }
         if self.place.save.is_some() {
-            items.push(("save", "Save".into()));
+            items.push(("save", common::save().into()));
         }
-        if let Some(label) = &self.place.export {
-            items.push(("export", format!("{label} (.ssc)")));
+        if self.place.export {
+            let platform = self.place.platform.l10n();
+            items.push(("export", em::menu_export(platform, ".ssc").into()));
             if ddi_chart::formats::sm_write::sm_losses(e.song()).is_empty() {
-                items.push(("export-sm", format!("{label} (.sm)")));
+                items.push(("export-sm", em::menu_export(platform, ".sm").into()));
             }
         }
         items.push((
             "view",
             match self.view {
-                FieldView::Edit => "Play view",
-                FieldView::Play => "Edit view",
+                FieldView::Edit => em::menu_view_play(),
+                FieldView::Play => em::menu_view_edit(),
             }
             .into(),
         ));
@@ -1535,38 +1574,41 @@ impl EditorScreen {
             items.push((
                 "plates",
                 if self.plates {
-                    "Field in the skin"
+                    em::menu_field_skin()
                 } else {
-                    "Compact field"
+                    em::menu_field_compact()
                 }
                 .into(),
             ));
         }
-        items.extend([
-            ("place", "Place / remove note".into()),
-            ("lane-prev", "Previous lane".into()),
-            ("lane-next", "Next lane".into()),
-            ("range-start", "Start range here".into()),
-            ("range-end", "End range here".into()),
-            ("range-clear", "Clear range".into()),
-            ("nudge-back", "Nudge earlier".into()),
-            ("nudge-forward", "Nudge later".into()),
-            ("jump-start", "Jump to start".into()),
-            ("jump-end", "Jump to end".into()),
-            ("measure-back", "Previous measure".into()),
-            ("measure-forward", "Next measure".into()),
-            ("zoom-in", "Zoom in".into()),
-            ("zoom-out", "Zoom out".into()),
-            ("tap-tempo", "Tap tempo…".into()),
-        ]);
-        items.push(("leave", "Leave the editor".into()));
+        items.extend(
+            [
+                ("place", em::menu_place()),
+                ("lane-prev", em::menu_lane_previous()),
+                ("lane-next", em::menu_lane_next()),
+                ("range-start", em::menu_range_start()),
+                ("range-end", em::menu_range_end()),
+                ("range-clear", em::menu_range_clear()),
+                ("nudge-back", em::menu_nudge_earlier()),
+                ("nudge-forward", em::menu_nudge_later()),
+                ("jump-start", em::menu_jump_start()),
+                ("jump-end", em::menu_jump_end()),
+                ("measure-back", em::menu_measure_previous()),
+                ("measure-forward", em::menu_measure_next()),
+                ("zoom-in", em::menu_zoom_in()),
+                ("zoom-out", em::menu_zoom_out()),
+                ("tap-tempo", em::menu_tap_tempo()),
+            ]
+            .map(|(id, label)| (id, label.into())),
+        );
+        items.push(("leave", em::menu_leave().into()));
         drop(e);
         let items = items
             .into_iter()
             .map(|(id, l)| (id.to_string(), l))
             .collect();
         cx.overlay(
-            ActionsDialog::new(self.env.clone(), "Editor", items, pick(ACTION)),
+            ActionsDialog::new(self.env.clone(), &em::menu_title(), items, pick(ACTION)),
             true,
         );
     }
@@ -1599,7 +1641,7 @@ impl EditorScreen {
             "lane-next" => self.controller_lane(1),
             "range-start" => {
                 self.range_anchor = Some(self.editor.borrow().cursor());
-                self.say("Range start set");
+                self.say(em::status_range_start());
             }
             "range-end" => {
                 if let Some(from) = self.range_anchor.take() {
@@ -1634,11 +1676,11 @@ impl EditorScreen {
             "tool" => cx.overlay(
                 ActionsDialog::new(
                     self.env.clone(),
-                    "Note tool",
+                    &em::tool_title(),
                     NoteTool::ALL
                         .iter()
                         .enumerate()
-                        .map(|(i, t)| (format!("tool:{i}"), t.name().into()))
+                        .map(|(i, t)| (format!("tool:{i}"), t.label().into()))
                         .collect(),
                     pick(ACTION),
                 ),
@@ -1670,8 +1712,8 @@ impl EditorScreen {
             FieldView::Play => FieldView::Edit,
         };
         self.say(match self.view {
-            FieldView::Edit => "Edit view: rows evenly by beat",
-            FieldView::Play => "Play view: as play draws it",
+            FieldView::Edit => em::status_view_edit(),
+            FieldView::Play => em::status_view_play(),
         });
     }
 
@@ -1682,9 +1724,9 @@ impl EditorScreen {
         }
         self.plates = !self.plates;
         self.say(if self.plates {
-            "Compact field"
+            em::status_field_compact()
         } else {
-            "Field in the skin"
+            em::status_field_skin()
         });
     }
 
@@ -1692,13 +1734,13 @@ impl EditorScreen {
         self.controller_lane = (i32::from(self.controller_lane) + by)
             .clamp(0, i32::from(self.editor.borrow().lanes().saturating_sub(1)))
             as u8;
-        self.say(format!("Lane {}", self.controller_lane + 1));
+        self.say(em::status_lane(self.controller_lane + 1));
     }
 
     fn controller_place(&mut self) {
         if let Some((lane, from)) = self.controller_anchor.take() {
             self.edit(|e| e.place_long(lane, from, e.cursor()));
-            self.say("Long note placed");
+            self.say(em::status_long_placed());
             return;
         }
         let lane = self
@@ -1720,7 +1762,7 @@ impl EditorScreen {
         drop(e);
         if long && !covered {
             self.controller_anchor = Some((lane, tick));
-            self.say("Head set; move to the tail and confirm. Back cancels.");
+            self.say(em::status_head_set());
         } else {
             self.edit(|e| {
                 e.toggle_at(lane, tick);
@@ -1737,7 +1779,7 @@ impl EditorScreen {
             .unwrap_or(0) as i32;
         let next = tools[(at + by).rem_euclid(tools.len() as i32) as usize];
         self.edit(|e| e.set_tool(next));
-        self.say(format!("Tool: {}", next.name()));
+        self.say(em::status_tool(next.key()));
     }
 
     /// A validated value; numeric callers provide controller controls too.
@@ -1766,42 +1808,41 @@ impl EditorScreen {
         let mut items = Vec::new();
         for kind in SegmentKind::ALL {
             let here = at.iter().find(|s| s.kind() == kind);
-            let value = match (kind, here) {
-                (_, Some(s)) => segment_text(s),
-                (SegmentKind::Bpm, None) => format!(
-                    "{} from before",
-                    trim_number(e.timing().bpm_at_beat(tick.beat()))
-                ),
-                _ => "—".into(),
+            let label = match (kind, here) {
+                (_, Some(s)) => em::timing_item(kind.key(), segment_text(s)),
+                (SegmentKind::Bpm, None) => {
+                    em::timing_bpm_before(trim_number(e.timing().bpm_at_beat(tick.beat())))
+                }
+                _ => em::timing_item(kind.key(), "—"),
             };
-            items.push((
-                format!("seg:{}", kind_id(kind)),
-                format!("{}: {value}", kind.name()),
-            ));
+            items.push((format!("seg:{}", kind.key()), label.into()));
         }
         items.push((
             "offset".into(),
-            format!("Offset: {} s", trim_number(e.timing().offset_seconds)),
+            em::timing_offset(trim_number(e.timing().offset_seconds)).into(),
         ));
         items.push((
             "retime".into(),
             match self.retime.get() {
-                Retime::KeepBeats => "Changes keep notes on their beats".into(),
-                Retime::KeepTimes => "Changes keep notes' times".into(),
-            },
+                Retime::KeepBeats => em::timing_keep_beats(),
+                Retime::KeepTimes => em::timing_keep_times(),
+            }
+            .into(),
         ));
         items.push((
             "own".into(),
             if e.has_own_timing() {
-                "Chart's own timing: on".into()
+                em::timing_own_on()
             } else {
-                "Chart's own timing: off".into()
-            },
+                em::timing_own_off()
+            }
+            .into(),
         ));
-        let note = format!("At beat {}.", trim_number(tick.beat()));
+        let note = em::timing_note(trim_number(tick.beat()));
         drop(e);
         cx.overlay(
-            ActionsDialog::new(self.env.clone(), "Timing", items, pick(TIMING)).with_note(&note),
+            ActionsDialog::new(self.env.clone(), &em::timing_title(), items, pick(TIMING))
+                .with_note(&note),
             true,
         );
     }
@@ -1812,8 +1853,8 @@ impl EditorScreen {
             "offset" => {
                 let value = trim_number(self.editor.borrow().timing().offset_seconds);
                 let dialog = self.value_dialog(
-                    "Offset",
-                    "Seconds; the music's start is at minus the offset (StepMania's sign).",
+                    &em::offset_title(),
+                    &em::offset_note(),
                     &value,
                     move |e, t| {
                         let v = parse_number(t)?;
@@ -1848,7 +1889,7 @@ impl EditorScreen {
             other => {
                 let Some(kind) = other
                     .strip_prefix("seg:")
-                    .and_then(|k| SegmentKind::ALL.into_iter().find(|s| kind_id(*s) == k))
+                    .and_then(|k| SegmentKind::ALL.into_iter().find(|s| s.key() == k))
                 else {
                     return;
                 };
@@ -1866,26 +1907,20 @@ impl EditorScreen {
         };
         let value = current.as_ref().map(segment_text).unwrap_or_default();
         let note = match kind {
-            SegmentKind::Bpm => "Beats a minute from here. Empty takes the change away.",
-            SegmentKind::Stop | SegmentKind::Delay => {
-                "Seconds (a stop pauses after the notes on its row, a delay before). Empty or 0 \
-                 takes it away."
-            }
-            SegmentKind::Warp | SegmentKind::Fake => "Its length in beats. Empty takes it away.",
-            SegmentKind::Speed => {
-                "The scroll speed's ratio, then how long it takes to get there and in what: \
-                 “1.5 2 beats”, “0.5 0.25 s”."
-            }
-            SegmentKind::Scroll => "How fast the notes scroll from here, 1 normal.",
-            SegmentKind::TimeSignature => "As “3/4”.",
-            SegmentKind::TickCount => "Hold ticks a beat, 0 to 48.",
-            SegmentKind::Combo => "Combo a hit adds, and a miss: “2/1”, or one number for both.",
-            SegmentKind::Label => "A name for this place.",
+            SegmentKind::Bpm => em::segment_note_bpm(),
+            SegmentKind::Stop | SegmentKind::Delay => em::segment_note_stop(),
+            SegmentKind::Warp | SegmentKind::Fake => em::segment_note_length(),
+            SegmentKind::Speed => em::segment_note_speed(),
+            SegmentKind::Scroll => em::segment_note_scroll(),
+            SegmentKind::TimeSignature => em::segment_note_time_signature(),
+            SegmentKind::TickCount => em::segment_note_tick_count(),
+            SegmentKind::Combo => em::segment_note_combo(),
+            SegmentKind::Label => em::segment_note_label(),
         };
         let retime = self.retime.clone();
         let dialog = self.value_dialog(
-            &format!("{} at beat {}", kind.name(), trim_number(tick.beat())),
-            note,
+            &em::segment_title(kind.key(), trim_number(tick.beat())),
+            &note,
             &value,
             move |e, t| {
                 if t.is_empty() {
@@ -1896,7 +1931,7 @@ impl EditorScreen {
                 if e.set_segment(tick, segment, retime.get()) {
                     Ok(())
                 } else {
-                    Err("That value cannot be kept in a file.".into())
+                    Err(em::error_not_kept().into())
                 }
             },
         );
@@ -1928,8 +1963,8 @@ impl EditorScreen {
                 };
                 Numbers {
                     fields: vec![
-                        Number::new("Ratio", value(0, 1.0), 0.01, -1e6, 1e6),
-                        Number::new("Duration", value(1, 0.0), 0.01, 0.0, 1e6),
+                        Number::new(|v| em::number_ratio(v), value(0, 1.0), 0.01, -1e6, 1e6),
+                        Number::new(|v| em::number_duration(v), value(1, 0.0), 0.01, 0.0, 1e6),
                     ],
                     format: NumberFormat::Speed,
                     choice: usize::from(parts.get(2) == Some(&"s")),
@@ -1949,10 +1984,10 @@ impl EditorScreen {
                         .and_then(|v: &&str| v.parse().ok())
                         .unwrap_or(default)
                 };
-                let labels = if kind == SegmentKind::TimeSignature {
-                    ["Numerator", "Denominator"]
+                let labels: [super::numbers::Label; 2] = if kind == SegmentKind::TimeSignature {
+                    [|v| em::number_numerator(v), |v| em::number_denominator(v)]
                 } else {
-                    ["Hit", "Miss"]
+                    [|v| em::number_hit(v), |v| em::number_miss(v)]
                 };
                 let min = if kind == SegmentKind::TimeSignature {
                     1.0
@@ -1979,20 +2014,21 @@ impl EditorScreen {
         let mut info = self.editor.borrow().song_info();
         let items = SONG_FIELDS
             .iter()
-            .map(|(id, label, field)| (id.to_string(), field.line(label, &mut info)))
+            .map(|(id, field)| (id.to_string(), field.line(id, &mut info).into()))
             .collect();
         cx.overlay(
-            ActionsDialog::new(self.env.clone(), "Song", items, pick(SONG)),
+            ActionsDialog::new(self.env.clone(), &em::song_title(), items, pick(SONG)),
             true,
         );
     }
 
     fn song_action(&mut self, id: &str, cx: &mut Cx) {
-        let Some(&(_, label, field)) = SONG_FIELDS.iter().find(|(f, ..)| *f == id) else {
+        let Some(&(id, field)) = SONG_FIELDS.iter().find(|(f, _)| *f == id) else {
             return;
         };
         let value = field.value(&mut self.editor.borrow().song_info());
-        let dialog = self.value_dialog(&field.title(label), field.note(), &value, move |e, t| {
+        let title = em::song_field(id);
+        let dialog = self.value_dialog(&title, &field.note(), &value, move |e, t| {
             let mut info = e.song_info();
             field.set(&mut info, t)?;
             e.set_song_info(info);
@@ -2018,8 +2054,8 @@ impl EditorScreen {
                 cx.overlay(
                     dialog.numbers(Numbers {
                         fields: vec![
-                            Number::new("BPM", a, 0.01, 0.01, 1e6),
-                            Number::new("Upper BPM", b, 0.01, 0.01, 1e6),
+                            Number::new(|v| em::number_bpm(v), a, 0.01, 0.01, 1e6),
+                            Number::new(|v| em::number_upper_bpm(v), b, 0.01, 0.01, 1e6),
                         ],
                         format: NumberFormat::DisplayBpm,
                         choice,
@@ -2036,29 +2072,32 @@ impl EditorScreen {
     fn open_chart(&mut self, cx: &mut Cx) {
         let e = self.editor.borrow();
         let info = e.chart_info();
-        let mut items = vec![
+        let mut items: Vec<(String, String)> = vec![
             (
-                "difficulty".to_string(),
-                format!("Difficulty: {}", info.difficulty.name()),
+                "difficulty".into(),
+                em::chart_difficulty(info.difficulty.name()).into(),
             ),
-            ("meter".into(), format!("Meter: {}", info.meter)),
-            ("name".into(), format!("Name: {}", info.name)),
+            (
+                "meter".into(),
+                em::chart_meter(info.meter.to_string()).into(),
+            ),
+            ("name".into(), em::chart_name(&info.name).into()),
             (
                 "description".into(),
-                format!("Description: {}", info.description),
+                em::chart_description(&info.description).into(),
             ),
-            ("credit".into(), format!("Step artist: {}", info.credit)),
+            ("credit".into(), em::chart_credit(&info.credit).into()),
         ];
         let n = e.song().charts.len();
         if n > 1 {
-            items.push(("prev".into(), "Previous chart".into()));
-            items.push(("next".into(), "Next chart".into()));
+            items.push(("prev".into(), em::chart_previous().into()));
+            items.push(("next".into(), em::chart_next().into()));
         }
-        items.push(("add".into(), "Add a chart…".into()));
+        items.push(("add".into(), em::chart_add().into()));
         if n > 1 {
-            items.push(("remove".into(), "Remove this chart…".into()));
+            items.push(("remove".into(), em::chart_remove().into()));
         }
-        let title = format!("Chart {} of {n}", e.chart_index() + 1);
+        let title = em::chart_title(e.chart_index() + 1, n);
         drop(e);
         cx.overlay(
             ActionsDialog::new(self.env.clone(), &title, items, pick(CHART)),
@@ -2096,15 +2135,25 @@ impl EditorScreen {
                     .iter()
                     .filter_map(|id| ddi_chart::Layout::builtin(id))
                     .map(|l| {
+                        // The style, then its lanes: a list of two.
                         (
                             format!("add:{}", l.id),
-                            format!("{} ({} lanes)", l.name, l.lane_count()),
+                            format!(
+                                "{} · {}",
+                                super::data::style_name(&l.id, &l.name),
+                                em::chart_lanes(l.lane_count())
+                            ),
                         )
                     })
                     .collect();
                 cx.overlay(
-                    ActionsDialog::new(self.env.clone(), "Add a chart", items, pick(CHART))
-                        .with_note("An empty Edit chart on the song's timing."),
+                    ActionsDialog::new(
+                        self.env.clone(),
+                        &em::chart_add_title(),
+                        items,
+                        pick(CHART),
+                    )
+                    .with_note(&em::chart_add_note()),
                     true,
                 );
             }
@@ -2113,9 +2162,9 @@ impl EditorScreen {
                 cx.overlay(
                     ConfirmDialog::new(
                         self.env.clone(),
-                        "Remove this chart?",
-                        "Its notes go with it (Undo brings it back until you leave).",
-                        "Remove",
+                        &em::chart_remove_title(),
+                        &em::chart_remove_body(),
+                        &em::chart_remove_yes(),
                         Rc::new(move |cx| {
                             editor.borrow_mut().remove_chart();
                             cx.broadcast(Message::new(CHANGED));
@@ -2128,24 +2177,25 @@ impl EditorScreen {
                 if let Some(layout) = other.strip_prefix("add:") {
                     let layout = layout.to_string();
                     self.edit(|e| e.add_chart(&layout, ddi_chart::Difficulty::Edit));
-                    self.say("Chart added");
+                    self.say(em::status_chart_added());
                     return;
                 }
-                let (title, value, numeric) = match other {
-                    "meter" => ("Meter", info.meter.to_string(), true),
-                    "name" => ("Name", info.name.clone(), false),
-                    "description" => ("Description", info.description.clone(), false),
-                    "credit" => ("Step artist", info.credit.clone(), false),
+                let (value, numeric) = match other {
+                    "meter" => (info.meter.to_string(), true),
+                    "name" => (info.name.clone(), false),
+                    "description" => (info.description.clone(), false),
+                    "credit" => (info.credit.clone(), false),
                     _ => return,
                 };
                 let field = other.to_string();
-                let dialog = self.value_dialog(title, "", &value, move |e, t| {
+                let title = em::chart_field(other);
+                let dialog = self.value_dialog(&title, "", &value, move |e, t| {
                     let mut info = e.chart_info();
                     match field.as_str() {
                         "meter" => {
                             info.meter = t
                                 .parse::<u32>()
-                                .map_err(|_| "A whole number, 0 or more.".to_string())?
+                                .map_err(|_| String::from(em::error_meter()))?
                         }
                         "name" => info.name = t.into(),
                         "description" => info.description = t.into(),
@@ -2215,7 +2265,7 @@ impl EditorScreen {
             (true, "KeyY") => self.edit(Editor::redo),
             (true, "KeyC") => {
                 self.edit(Editor::copy);
-                self.say("Copied");
+                self.say(em::status_copied());
             }
             (true, "KeyX") => self.edit(Editor::cut),
             (true, "KeyV") => self.edit(Editor::paste),
@@ -2389,41 +2439,31 @@ enum SongField {
     DisplayBpm,
 }
 
-/// The song's fields as the Song menu lists them: id, label, kind.
-const SONG_FIELDS: [(&str, &str, SongField); 13] = [
-    ("title", "Title", SongField::Text(|i| &mut i.title)),
-    ("subtitle", "Subtitle", SongField::Text(|i| &mut i.subtitle)),
-    ("artist", "Artist", SongField::Text(|i| &mut i.artist)),
-    (
-        "title_translit",
-        "Title (romanized)",
-        SongField::Text(|i| &mut i.title_translit),
-    ),
+/// The song's fields as the Song menu lists them: id (its key in the
+/// messages, `editor-song-item`), kind.
+const SONG_FIELDS: [(&str, SongField); 13] = [
+    ("title", SongField::Text(|i| &mut i.title)),
+    ("subtitle", SongField::Text(|i| &mut i.subtitle)),
+    ("artist", SongField::Text(|i| &mut i.artist)),
+    ("title_translit", SongField::Text(|i| &mut i.title_translit)),
     (
         "artist_translit",
-        "Artist (romanized)",
         SongField::Text(|i| &mut i.artist_translit),
     ),
-    ("genre", "Genre", SongField::Text(|i| &mut i.genre)),
-    ("credit", "Credit", SongField::Text(|i| &mut i.credit)),
-    ("music", "Music", SongField::File(|i| &mut i.music)),
-    ("banner", "Banner", SongField::File(|i| &mut i.banner)),
-    (
-        "background",
-        "Background",
-        SongField::File(|i| &mut i.background),
-    ),
+    ("genre", SongField::Text(|i| &mut i.genre)),
+    ("credit", SongField::Text(|i| &mut i.credit)),
+    ("music", SongField::File(|i| &mut i.music)),
+    ("banner", SongField::File(|i| &mut i.banner)),
+    ("background", SongField::File(|i| &mut i.background)),
     (
         "preview_start",
-        "Preview from",
         SongField::Seconds(|i| &mut i.preview_start),
     ),
     (
         "preview_length",
-        "Preview length",
         SongField::Seconds(|i| &mut i.preview_length),
     ),
-    ("display_bpm", "Display BPM", SongField::DisplayBpm),
+    ("display_bpm", SongField::DisplayBpm),
 ];
 
 impl SongField {
@@ -2437,31 +2477,21 @@ impl SongField {
         }
     }
 
-    /// Its line in the menu.
-    fn line(self, label: &str, info: &mut SongInfo) -> String {
-        match self {
-            SongField::File(f) => format!("{label}: {}", f(info).as_deref().unwrap_or("—")),
-            SongField::Seconds(_) => format!("{label}: {} s", self.value(info)),
-            _ => format!("{label}: {}", self.value(info)),
-        }
+    /// Its line in the menu (field `id`'s).
+    fn line(self, id: &str, info: &mut SongInfo) -> UiText {
+        let value = match self {
+            SongField::File(f) => f(info).clone().unwrap_or_else(|| "—".into()),
+            _ => self.value(info),
+        };
+        em::song_item(id, value)
     }
 
-    /// Its dialog's title.
-    fn title(self, label: &str) -> String {
+    /// What its dialog says under its title.
+    fn note(self) -> String {
         match self {
-            SongField::File(_) => format!("{label} file"),
-            SongField::Seconds(_) => format!("{label} (seconds)"),
-            _ => label.to_string(),
-        }
-    }
-
-    fn note(self) -> &'static str {
-        match self {
-            SongField::File(_) => "A file in the song's folder, by its name.",
-            SongField::DisplayBpm => {
-                "One number, a range “100-200”, “*” for random, or empty for the chart's own."
-            }
-            _ => "",
+            SongField::File(_) => em::song_file_note().into(),
+            SongField::DisplayBpm => em::song_display_bpm_note().into(),
+            _ => String::new(),
         }
     }
 
@@ -2482,10 +2512,12 @@ fn pick(message: &'static str) -> PickFn {
     Rc::new(move |id, cx| cx.broadcast(Message::new(message).with("Id", Param::Str(id.into()))))
 }
 
-const ACTION: &str = "EditorAction";
-const TIMING: &str = "EditorTiming";
-const SONG: &str = "EditorSong";
-const CHART: &str = "EditorChart";
+/// The menus' picks, each with its item's `Id`: the editor's menu's,
+/// the timing's, the song's and the chart's.
+pub(super) const ACTION: &str = "EditorAction";
+pub(super) const TIMING: &str = "EditorTiming";
+pub(super) const SONG: &str = "EditorSong";
+pub(super) const CHART: &str = "EditorChart";
 /// Leave confirmed.
 const LEAVE: &str = "EditorLeave";
 
@@ -2493,28 +2525,12 @@ fn with_alpha(c: Rgba, a: f32) -> Rgba {
     [c[0], c[1], c[2], c[3] * a]
 }
 
-fn kind_id(k: SegmentKind) -> &'static str {
-    match k {
-        SegmentKind::Bpm => "bpm",
-        SegmentKind::Stop => "stop",
-        SegmentKind::Delay => "delay",
-        SegmentKind::Warp => "warp",
-        SegmentKind::Speed => "speed",
-        SegmentKind::Scroll => "scroll",
-        SegmentKind::Fake => "fake",
-        SegmentKind::TimeSignature => "timesig",
-        SegmentKind::TickCount => "tickcount",
-        SegmentKind::Combo => "combo",
-        SegmentKind::Label => "label",
-    }
-}
-
 fn parse_number(t: &str) -> Result<f64, String> {
     t.trim()
         .parse::<f64>()
         .ok()
         .filter(|v| v.is_finite())
-        .ok_or_else(|| format!("“{t}” is not a number."))
+        .ok_or_else(|| em::error_not_number(t).into())
 }
 
 /// A segment's values as typed ([`parse_segment`] reads them back).
@@ -2545,7 +2561,7 @@ fn parse_segment(kind: SegmentKind, t: &str) -> Result<Segment, String> {
     let whole = |s: &str| {
         s.trim()
             .parse::<u32>()
-            .map_err(|_| format!("“{s}” is not a whole number."))
+            .map_err(|_| String::from(em::error_not_whole(s)))
     };
     let pair = |t: &str| -> Result<(u32, u32), String> {
         match t.split_once('/') {
@@ -2577,7 +2593,9 @@ fn parse_segment(kind: SegmentKind, t: &str) -> Result<Segment, String> {
             Segment::Speed { ratio, delay, unit }
         }
         SegmentKind::TimeSignature => {
-            let (a, b) = t.split_once('/').ok_or_else(|| "As “3/4”.".to_string())?;
+            let (a, b) = t
+                .split_once('/')
+                .ok_or_else(|| String::from(em::error_time_signature()))?;
             Segment::TimeSignature(whole(a)?, whole(b)?)
         }
         SegmentKind::TickCount => Segment::TickCount(whole(t)?),
@@ -2735,10 +2753,10 @@ impl Screen for EditorScreen {
                 }
             }
             let text = self.sound.taps.estimate().map_or_else(
-                || format!("{} taps — tap along to the beat", self.sound.taps.len()),
-                |e| format!("{:.2} BPM ({} taps)", e.bpm, e.taps),
+                || em::tap_count(self.sound.taps.len()),
+                |e| em::tap_estimate(format!("{:.2}", e.bpm), e.taps),
             );
-            cx.broadcast(Message::new("Editor.TapStatus").with("Text", Param::Str(text)));
+            cx.broadcast(Message::new("Editor.TapStatus").with("Text", Param::Str(text.into())));
         }
         let id = match m.get("Id") {
             Some(Param::Str(s)) => s.clone(),
@@ -2756,12 +2774,14 @@ impl Screen for EditorScreen {
                 return;
             }
             SAVED => match (m.get("Revision"), m.get("Error")) {
-                (_, Some(Param::Str(e))) => self.say(format!("Not saved: {e}")),
+                (_, Some(Param::Str(e))) => {
+                    self.say(em::status_not_saved(super::errors::error_text(e)))
+                }
                 (Some(Param::Int(r)), _) => {
                     let r = (*r >= 0).then_some(*r as u64);
                     self.editor.borrow_mut().mark_saved_at(r);
-                    self.place.discard = None;
-                    self.say("Saved");
+                    self.place.new_song = false;
+                    self.say(em::status_saved());
                 }
                 _ => {}
             },
@@ -2804,13 +2824,13 @@ impl Screen for EditorScreen {
                     MenuAction::Down => self.edit(|e| e.move_snaps(1, shift)),
                     MenuAction::Left => {
                         self.edit(|e| e.change_snap(-1));
-                        let s = snap_name(self.editor.borrow().snap());
-                        self.say(format!("Snap {s}"));
+                        let s = self.editor.borrow().snap();
+                        self.say(em::status_snap(s));
                     }
                     MenuAction::Right => {
                         self.edit(|e| e.change_snap(1));
-                        let s = snap_name(self.editor.borrow().snap());
-                        self.say(format!("Snap {s}"));
+                        let s = self.editor.borrow().snap();
+                        self.say(em::status_snap(s));
                     }
                     MenuAction::Start if !cx.menu_from_keyboard() => self.controller_place(),
                     MenuAction::Start | MenuAction::ControllerStart => self.listen(cx),
@@ -2818,10 +2838,10 @@ impl Screen for EditorScreen {
                     MenuAction::Previous => self.controller_lane(-1),
                     MenuAction::Next => self.controller_lane(1),
                     MenuAction::Back if self.controller_anchor.take().is_some() => {
-                        self.say("Long note cancelled")
+                        self.say(em::status_long_canceled())
                     }
                     MenuAction::Back if self.range_anchor.take().is_some() => {
-                        self.say("Range cancelled")
+                        self.say(em::status_range_canceled())
                     }
                     MenuAction::Back => self.back(cx),
                 }

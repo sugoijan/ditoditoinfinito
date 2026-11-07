@@ -119,6 +119,13 @@ fn a_script_that_runs_away_stops_them_all() {
     let why = s.frame(2.0, 4.0, &layers);
     assert!(why.is_some());
     assert!(s.stopped().is_some());
+    // Said in the player's language.
+    ddi_l10n::set_language("en");
+    let note = super::stop_note(why.as_ref().unwrap());
+    assert!(
+        note.starts_with("The song's scripted backgrounds stopped (") && !note.contains("fuel"),
+        "{note}"
+    );
     assert!(s.draws(2.0, &layers).is_empty());
     // Reported once.
     assert_eq!(s.frame(2.1, 4.2, &layers), None);

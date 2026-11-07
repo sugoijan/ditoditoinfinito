@@ -38,6 +38,7 @@ use std::time::Instant;
 
 use ddi_library::manifest::{Manifest, ManifestEntry};
 use ddi_library::pack;
+use ddi_library::report::Finding;
 use ddi_library::scan::{self, Reader};
 use ddi_platform::storage::{self, Area};
 use serde::{Deserialize, Serialize};
@@ -48,8 +49,9 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (12: pump single
-/// and 5 keys converted to each other; 11: generated
+/// The cache's file (in the cache folder) and version (13: what the
+/// scan found kept as values, `ddi_library::report::Finding`; 12: pump
+/// single and 5 keys converted to each other; 11: generated
 /// center-free pump charts; 10: FFR levels
 /// timed as R^3 times them, new digests; 9: the preview video; 8: FFR
 /// levels;
@@ -57,7 +59,7 @@ pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
 /// files named with `,` or `=`; 6: pack covers;
 /// version 5 added generated onigiri-free charts).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 12;
+const CACHE_VERSION: u32 = 13;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {
@@ -227,9 +229,9 @@ pub struct LibSong {
     /// Its files relative to its folder (`ddi_library::scan`).
     pub entry: ManifestEntry,
     #[serde(default)]
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Finding>,
     #[serde(default)]
-    pub notes: Vec<String>,
+    pub notes: Vec<Finding>,
     /// A Dancing☆Onigiri work's song: where the work is (its entry's
     /// chart is the page or the dump's manifest).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -282,7 +284,7 @@ impl LibSong {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Report {
     /// Song folders whose simfile did not read, `(where, why)`.
-    pub failed: Vec<(String, String)>,
+    pub failed: Vec<(String, Finding)>,
     /// Packs left out because an earlier folder holds them.
     pub duplicates: Vec<String>,
     /// Folders that could not be read.
@@ -470,7 +472,7 @@ struct CachedRoot {
     /// Song folders whose simfile did not read, `(dir, why, listing)`:
     /// not read again until their listing changes.
     #[serde(default)]
-    failed: Vec<(String, String, u64)>,
+    failed: Vec<(String, Finding, u64)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -568,7 +570,13 @@ fn scan_root(
             failed: reader
                 .unread
                 .iter()
-                .map(|(name, why)| (root.virtual_path(name).into_string(), why.clone(), 0))
+                .map(|(name, why)| {
+                    (
+                        root.virtual_path(name).into_string(),
+                        Finding::System(why.clone()),
+                        0,
+                    )
+                })
                 .collect(),
         };
         scan_songs(root, &files, &paths, None, None, stale, &mut out, report)?;
@@ -606,7 +614,7 @@ fn scan_root(
         failed: walked
             .unread
             .into_iter()
-            .map(|(p, why)| (root.virtual_path(&p).into_string(), why, 0))
+            .map(|(p, why)| (root.virtual_path(&p).into_string(), Finding::System(why), 0))
             .collect(),
     };
     scan_songs(
@@ -647,7 +655,7 @@ fn scan_songs(
                 .collect()
         })
         .unwrap_or_default();
-    let failed_before: HashMap<&str, (&String, u64)> = cached
+    let failed_before: HashMap<&str, (&Finding, u64)> = cached
         .map(|(c, _)| {
             c.failed
                 .iter()
@@ -726,7 +734,7 @@ fn scan_songs(
             })
             .clone();
     }
-    let failed: Vec<(String, String)> = out
+    let failed: Vec<(String, Finding)> = out
         .failed
         .iter()
         .map(|(d, e, _)| (d.clone(), e.clone()))
@@ -766,7 +774,7 @@ fn scan_works(
                     s.listing == hash && s.song.work.as_ref().is_some_and(|w| w.source == real)
                 })
                 .collect();
-            let failed: Vec<&(String, String, u64)> = c
+            let failed: Vec<&(String, Finding, u64)> = c
                 .failed
                 .iter()
                 .filter(|(at, _, h)| *h == hash && at.starts_with(label.as_str()))
@@ -861,7 +869,7 @@ fn scan_levels(
     // The cache's songs by folder and chart, its failures by file: each
     // level's first.
     let mut reuse: HashMap<(&str, &str), Vec<&CachedSong>> = HashMap::new();
-    let mut failed_before: HashMap<&str, Vec<&(String, String, u64)>> = HashMap::new();
+    let mut failed_before: HashMap<&str, Vec<&(String, Finding, u64)>> = HashMap::new();
     if let Some((cache, _)) = cached {
         for s in cache.songs.iter().filter(|s| s.song.work.is_none()) {
             reuse
@@ -911,7 +919,7 @@ fn scan_levels(
             Ok(b) if b.len() as u64 > ffr::MAX_LEVEL => continue,
             Ok(b) => b,
             Err(e) => {
-                out.failed.push((label, e, hash));
+                out.failed.push((label, Finding::System(e), hash));
                 continue;
             }
         };
@@ -952,7 +960,7 @@ pub fn read_page(
     files: &dyn Reader,
     paths: &[RelPathBuf],
     page: &str,
-) -> Result<Option<ReadWork>, String> {
+) -> Result<Option<ReadWork>, Finding> {
     // A page larger than this holds no work (its dos would be a few
     // hundred kilobytes at most): not read whole.
     let bytes = files.read_at(RelPath::new(page), 0, MAX_PAGE + 1)?;
@@ -980,13 +988,15 @@ pub fn read_dump(
     files: &dyn Reader,
     paths: &[RelPathBuf],
     manifest: &str,
-) -> Result<Option<ReadWork>, String> {
+) -> Result<Option<ReadWork>, Finding> {
     let bytes = files.read_at(RelPath::new(manifest), 0, MAX_PAGE + 1)?;
     if bytes.len() > MAX_PAGE {
         return Ok(None);
     }
     let text = pack::decode_text(&bytes);
-    let Some(plan) = ddi_library::danoni::dump_plan(manifest, &text, paths)? else {
+    let Some(plan) =
+        ddi_library::danoni::dump_plan(manifest, &text, paths).map_err(Finding::Other)?
+    else {
         return Ok(None);
     };
     let effective = plan.effective.clone();
@@ -1023,7 +1033,7 @@ fn parent_of(path: &str) -> &str {
 
 /// Failures named by where they are: the root's path and the folder
 /// within it.
-fn located(root: &Root, failed: &[(String, String)]) -> Vec<(String, String)> {
+fn located(root: &Root, failed: &[(String, Finding)]) -> Vec<(String, Finding)> {
     failed
         .iter()
         .map(|(dir, e)| {

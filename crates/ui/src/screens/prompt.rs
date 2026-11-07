@@ -36,6 +36,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind, Sprite};
+use ddi_l10n::{UiText, msg};
 
 use super::select_dialogs::{wrap, wrap_lines};
 use super::{Env, footer, frame, left, right};
@@ -97,13 +98,11 @@ pub fn timing_hint_for(
 /// blank. The shells go through [`timing_hint_for`].
 pub fn timing_hint(verdict: &crate::state::history::timing::Verdict, calibrated: bool) -> String {
     use crate::state::history::timing::Verdict;
+    use ddi_l10n::msg::prompt;
     match verdict {
-        Verdict::Shift { ms, .. } => format!(
-            "Hits run {:.0} ms {}",
-            ms.abs(),
-            if *ms > 0.0 { "late" } else { "early" }
-        ),
-        Verdict::Inconclusive { .. } if !calibrated => "Timing not calibrated".to_string(),
+        Verdict::Shift { ms, .. } if *ms > 0.0 => prompt::timing_late(ms.abs().round()).into(),
+        Verdict::Shift { ms, .. } => prompt::timing_early(ms.abs().round()).into(),
+        Verdict::Inconclusive { .. } if !calibrated => prompt::timing_not_calibrated().into(),
         _ => String::new(),
     }
 }
@@ -241,6 +240,8 @@ pub struct PromptState {
     pub options: Vec<super::data::OptionDef>,
     pub options_differ: bool,
     pub options_saved: bool,
+    /// Whose wording (the shell's platform: why a play was cut off).
+    pub platform: super::data::Platform,
     pub version: u64,
 }
 
@@ -375,6 +376,7 @@ impl Badge {
         }
     }
 
+    /// Its mark, the same in every language (`locales/ja/GLOSSARY.md`).
     pub fn text(self) -> &'static str {
         match self {
             Badge::None => "",
@@ -411,8 +413,9 @@ impl PromptChart {
 }
 
 impl PromptInfo {
-    /// A song's card: its chart's line and difficulty, the mods, the badge
-    /// (the timing line stays the caller's).
+    /// A song's card: its title and artist (data, as read from its
+    /// files), its chart's line and difficulty, the mods, the badge (the
+    /// timing line stays the caller's).
     pub fn for_chart(
         title: String,
         artist: String,
@@ -423,13 +426,17 @@ impl PromptInfo {
         let options = settings.play_options(None);
         let (chart, difficulty) = chart.map_or_else(Default::default, |c| {
             (
-                chart_line(c.difficulty, c.meter, &c.style),
+                chart_line(
+                    c.difficulty,
+                    c.meter,
+                    &super::data::style_name(&c.layout, &c.style),
+                ),
                 super::data::difficulty_name(c.difficulty).to_string(),
             )
         });
         PromptInfo {
-            title,
-            artist,
+            title: UiText::data(title).into(),
+            artist: UiText::data(artist).into(),
             chart,
             difficulty,
             mods: super::play::options_line(&options),
@@ -450,12 +457,30 @@ impl PromptInfo {
     }
 }
 
-/// "Hard 13 · Single": a chart's difficulty, meter and style.
+/// "Hard 13 · Single": a chart's difficulty and meter (data: difficulty
+/// names are never translated) and its style as shown (the caller's,
+/// `super::data::style_name`).
 pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) -> String {
-    format!(
-        "{} {meter} · {style}",
+    let difficulty = UiText::data(format!(
+        "{} {meter}",
         super::data::difficulty_name(difficulty)
-    )
+    ));
+    format!("{difficulty} · {style}")
+}
+
+/// The quiet line on a shared song's files coming down, `done` of `total`
+/// bytes (0: not known yet), on the prompt and in song select's notices.
+pub fn download_line(done: f64, total: f64) -> String {
+    use ddi_l10n::msg::prompt;
+    // Megabytes, one decimal (the messages show it).
+    let mb = |bytes: f64| (bytes / 1e5).round() / 10.0;
+    if total > 0.0 {
+        prompt::download_progress(mb(done), mb(total)).into()
+    } else if done > 0.0 {
+        prompt::download_done(mb(done)).into()
+    } else {
+        prompt::download().into()
+    }
 }
 
 /// The mods a play will run with, as the settings have them: the speed,
@@ -807,14 +832,20 @@ impl PromptScreen {
             children.push(card);
         }
         if !state.touch && state.step == PromptStep::Ready {
-            let hints: &[(&[&str], &str)] = &[(&["ENTER"], "Start"), (&["ESC"], "Back")];
+            let (start, back, activate) = (
+                msg::prompt::start(),
+                msg::common::back(),
+                msg::prompt::hint_activate(),
+            );
+            let hints: &[(&[&str], &str)] =
+                &[(&["ENTER"], start.as_str()), (&["ESC"], back.as_str())];
             let (f, texts) = footer(
                 &env,
                 screen,
                 hints,
                 &[
-                    (&[HintAction::Confirm, HintAction::Start], "Activate"),
-                    (&[HintAction::Back], "Back"),
+                    (&[HintAction::Confirm, HintAction::Start], activate.as_str()),
+                    (&[HintAction::Back], back.as_str()),
                 ],
                 "",
                 &[],
@@ -876,7 +907,7 @@ impl PromptScreen {
         // The song, on every step (once its name is known; asking for its
         // folder before it is read, the folder's name).
         let title = match &state.step {
-            PromptStep::Access { folder, .. } if i.title.is_empty() => folder.clone(),
+            PromptStep::Access { folder, .. } if i.title.is_empty() => UiText::data(folder).into(),
             _ => i.title.clone(),
         };
         if !title.is_empty() {
@@ -902,7 +933,7 @@ impl PromptScreen {
             line(
                 &mut c,
                 "Badge",
-                i.badge.text(),
+                &UiText::data(i.badge.text()),
                 SMALL,
                 700,
                 "Accent",
@@ -928,19 +959,25 @@ impl PromptScreen {
         if state.step == PromptStep::Ready && !state.options.is_empty() {
             y += 14.0;
             let head = look::tracked(
-                env.text("OptionsHeading", "MODIFIERS", 11.0, 600, "Faint"),
+                env.text(
+                    "OptionsHeading",
+                    &msg::prompt::modifiers(),
+                    11.0,
+                    600,
+                    "Faint",
+                ),
                 120,
             );
             c.push(left(head, 24.0, y + 9.0));
             let save_y = y + 9.0;
             if state.options_differ {
-                let label = "Save as default";
-                let bw = look::mono_width(label, 13.0) + 24.0;
+                let label = msg::prompt::save_as_default();
+                let bw = look::mono_width(&label, 13.0) + 24.0;
                 let mut b = look::component_or(
                     &*env.look,
                     "Button",
                     "Button",
-                    &Spec::new([bw, 26.0], label),
+                    &Spec::new([bw, 26.0], &*label),
                 );
                 b.name = "SaveOptions".into();
                 call(&mut b, "xy", &[w - 24.0 - bw / 2.0, save_y]);
@@ -948,7 +985,13 @@ impl PromptScreen {
                 controls.push("SaveOptions".into());
             } else if state.options_saved {
                 c.push(right(
-                    env.text("OptionsSaved", "Saved as default", 12.0, 400, "Muted"),
+                    env.text(
+                        "OptionsSaved",
+                        &msg::prompt::saved_as_default(),
+                        12.0,
+                        400,
+                        "Muted",
+                    ),
                     w - 24.0,
                     save_y,
                 ));
@@ -1012,33 +1055,32 @@ impl PromptScreen {
         y += 14.0;
         // The step.
         let mut buttons: Vec<(String, String, &str)> = Vec::new();
+        let back = || ("Back".to_string(), msg::common::back().into(), "Button");
         match &state.step {
             // Not a card: the loading screen (`tree`).
             PromptStep::Loading(_) => {}
             PromptStep::Ready => {
-                buttons.push(("Start".into(), "Start".into(), "Prompt.Start"));
-                buttons.push(("Back".into(), "Back".into(), "Button"));
+                buttons.push(("Start".into(), msg::prompt::start().into(), "Prompt.Start"));
+                buttons.push(back());
             }
             PromptStep::Access { folder, refused } => {
-                let text = format!(
-                    "This song plays from the folder “{folder}”, which the browser asks about again."
-                );
+                let text = msg::prompt::access(UiText::data(folder));
                 line(&mut c, "Status", &text, BODY, 400, "Secondary", &mut y);
                 if let Some(r) = refused {
                     line(&mut c, "Refused", r, BODY, 600, "Danger", &mut y);
                 }
                 buttons.push((
                     "Allow".into(),
-                    "Allow reading the folder".into(),
+                    msg::prompt::allow_folder().into(),
                     "PlayButton",
                 ));
-                buttons.push(("Back".into(), "Back".into(), "Button"));
+                buttons.push(back());
             }
             PromptStep::Interrupted => {
                 line(
                     &mut c,
                     "Status",
-                    "Interrupted",
+                    &msg::prompt::interrupted(),
                     BODY + 3.0,
                     700,
                     "Text",
@@ -1047,18 +1089,18 @@ impl PromptScreen {
                 line(
                     &mut c,
                     "Why",
-                    "The tab was hidden or audio was suspended.",
+                    &msg::prompt::interrupted_why(state.platform.l10n()),
                     BODY,
                     400,
                     "Muted",
                     &mut y,
                 );
-                buttons.push(("Retry".into(), "Retry".into(), "PlayButton"));
-                buttons.push(("Back".into(), "Back".into(), "Button"));
+                buttons.push(("Retry".into(), msg::prompt::retry().into(), "PlayButton"));
+                buttons.push(back());
             }
             PromptStep::Error(e) => {
                 line(&mut c, "Status", e, BODY, 600, "Danger", &mut y);
-                buttons.push(("Back".into(), "Back".into(), "Button"));
+                buttons.push(back());
             }
             PromptStep::Card {
                 heading,
@@ -1111,7 +1153,8 @@ impl PromptScreen {
         let timing = (state.step == PromptStep::Ready)
             .then_some(i.timing.as_deref())
             .flatten();
-        let link_w = look::mono_width("Calibrate", 13.0) + 16.0;
+        let calibrate = msg::common::calibrate();
+        let link_w = look::mono_width(&calibrate, 13.0) + 16.0;
         let timing_w = timing.map_or(0.0, |t| {
             if t.is_empty() {
                 0.0
@@ -1142,7 +1185,7 @@ impl PromptScreen {
                 &*env.look,
                 "Link",
                 "Button",
-                &Spec::new([link_w, 26.0], "Calibrate"),
+                &Spec::new([link_w, 26.0], &*calibrate),
             );
             link.name = "Calibrate".into();
             let gap = if link_only { 0.0 } else { 8.0 };
@@ -1578,19 +1621,19 @@ fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Act
 fn loading_label(env: &Env, [w, h]: [f32; 2]) -> Actor {
     let size = env.metric("Prompt.Loading.Size", 15.0);
     let margin = env.metric("Margin", 32.0);
-    let label = "Loading";
+    let label = msg::prompt::loading();
     let dot = look::mono_width(".", size);
-    let x = w - margin - look::mono_width(label, size) - 3.0 * dot;
+    let x = w - margin - look::mono_width(&label, size) - 3.0 * dot;
     let y = h - margin;
     let mut children = vec![left(
-        env.text("LoadingText", label, size, 600, "Muted"),
+        env.text("LoadingText", &label, size, 600, "Muted"),
         x,
         y,
     )];
     for i in 0..3 {
         children.push(left(
             env.text(&format!("LoadingDot{i}"), ".", size, 600, "Muted"),
-            x + look::mono_width(label, size) + dot * i as f32,
+            x + look::mono_width(&label, size) + dot * i as f32,
             y,
         ));
     }
@@ -2456,6 +2499,11 @@ mod tests {
             hits: 500,
         };
         assert_eq!(timing_hint(&fine, false), "");
+        // In the language spoken, the milliseconds as its numbers are.
+        ddi_l10n::set_language("ja");
+        assert_eq!(timing_hint(&late, true), "入力が21 ms遅め");
+        assert_eq!(timing_hint(&none, false), "タイミング未調整");
+        ddi_l10n::set_language("en");
         // On the card: a row with the line and its link, or without, the
         // card the same height either way; no row for a replay.
         let state = controls_state();
@@ -2764,6 +2812,46 @@ mod tests {
         assert_eq!(
             seen.borrow().last().map(|s| &s.0),
             Some(&PromptChoice::Start)
+        );
+    }
+
+    #[test]
+    fn the_download_line_says_megabytes_to_a_tenth() {
+        ddi_l10n::set_language("en");
+        assert_eq!(download_line(0.0, 0.0), "downloading the song…");
+        assert_eq!(
+            download_line(2_130_000.0, 0.0),
+            "downloading the song… 2.1 MB"
+        );
+        assert_eq!(
+            download_line(2_130_000.0, 4_000_000.0),
+            "downloading the song… 2.1 of 4.0 MB"
+        );
+    }
+
+    #[test]
+    fn an_interrupted_play_says_why_in_its_shells_words() {
+        let why = |platform| {
+            let state = SharedPrompt::default();
+            {
+                let mut st = state.borrow_mut();
+                st.platform = platform;
+                st.set_step(PromptStep::Interrupted);
+            }
+            let (h, _) = prompt(&state);
+            h.texts()
+                .into_iter()
+                .find(|t| t.ends_with("changed.") || t.ends_with("suspended."))
+                .unwrap()
+        };
+        assert_eq!(
+            why(super::super::data::Platform::Web),
+            "The tab was hidden or audio was suspended."
+        );
+        // Desktop has no tab: its window, its sound output.
+        assert_eq!(
+            why(super::super::data::Platform::Desktop),
+            "The window was hidden or the sound output changed."
         );
     }
 

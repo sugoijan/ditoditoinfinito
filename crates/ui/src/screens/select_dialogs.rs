@@ -8,6 +8,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
+use ddi_l10n::UiText;
+use ddi_l10n::msg::common;
+use ddi_l10n::msg::select as msg;
 
 use super::data::{ImportView, Notice, PackEntry, Platform, PlayRow, ShareState, ShareView};
 use super::select::NOTICE_LINK;
@@ -20,6 +23,7 @@ use crate::nav::{Focusable, MenuAction};
 use crate::request::UiRequest;
 use crate::request::{EnterKey, InputHints, InputMode};
 use crate::screen::{Cx, Handled, Input, Screen};
+use crate::state::select_view::pack_label;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListModel, ListStyle};
 use crate::widgets::{part, set_text};
@@ -86,42 +90,11 @@ pub(crate) fn button(
 }
 
 /// `text` in lines no wider than `width` at `size` (monospace widths),
-/// broken between words (a word too long for a line is cut).
+/// broken where Unicode allows (`ddi_actor::text::wrap`: between words,
+/// between Japanese characters but never before 。、」 and their kind);
+/// a piece too long for a line (a link, a hash) is cut.
 pub fn wrap_lines(text: &str, width: f32, size: f32) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut line = String::new();
-    for word in text.split(' ') {
-        let candidate = if line.is_empty() {
-            word.to_string()
-        } else {
-            format!("{line} {word}")
-        };
-        if look::mono_width(&candidate, size) <= width || line.is_empty() {
-            line = candidate;
-        } else {
-            out.push(std::mem::take(&mut line));
-            line = word.to_string();
-        }
-        // A word longer than a line (a link, a hash): cut it into lines.
-        while look::mono_width(&line, size) > width && line.chars().count() > 1 {
-            let mut head = String::new();
-            let mut rest = line.chars().peekable();
-            while let Some(c) = rest.peek() {
-                let next = format!("{head}{c}");
-                if look::mono_width(&next, size) > width && !head.is_empty() {
-                    break;
-                }
-                head = next;
-                rest.next();
-            }
-            out.push(head);
-            line = rest.collect();
-        }
-    }
-    if !line.is_empty() || out.is_empty() {
-        out.push(line);
-    }
-    out
+    ddi_actor::text::wrap(text, width, true, &mut |s| look::mono_width(s, size))
 }
 
 /// Text no wider than `w`: cut with "…".
@@ -246,142 +219,88 @@ impl ManageDialog {
     /// The buttons now, `(name, label, kind)`.
     fn buttons(&self) -> Vec<(&'static str, String, &'static str)> {
         if self.busy {
-            return vec![("Cancel", "Close".to_string(), "Button")];
+            return vec![("Cancel", common::close().into(), "Button")];
         }
+        // Desktop hides songs (their folders are only read); the web
+        // removes them from its storage.
+        let platform = self.platform.l10n();
         match self.step {
             Step::Choose => {
                 let mut v = Vec::new();
-                let verb = if self.platform == Platform::Desktop {
-                    "Hide"
-                } else {
-                    "Remove"
-                };
                 if let Manage::Song { .. } = self.what {
-                    v.push(("RemoveSong", format!("{verb} song"), "Button"));
+                    v.push((
+                        "RemoveSong",
+                        msg::manage_remove_song(platform).into(),
+                        "Button",
+                    ));
                 }
                 if self.pack().rereadable {
-                    v.push(("Reread", "Read folder again".to_string(), "Button"));
+                    v.push(("Reread", msg::manage_reread().into(), "Button"));
                 }
                 if self.pack().removable {
-                    v.push(("RemovePack", format!("{verb} pack"), "Button"));
+                    v.push((
+                        "RemovePack",
+                        msg::manage_remove_pack(platform).into(),
+                        "Button",
+                    ));
                 }
-                v.push(("Cancel", "Cancel".to_string(), "Button"));
+                v.push(("Cancel", common::cancel().into(), "Button"));
                 v
             }
             Step::ConfirmPack | Step::ConfirmSong | Step::ConfirmUnreadable => vec![
                 (
                     "Confirm",
-                    if self.platform == Platform::Desktop {
-                        "Hide".to_string()
-                    } else {
-                        "Remove".to_string()
-                    },
+                    msg::manage_confirm(platform).into(),
                     "DangerButton",
                 ),
-                ("Cancel", "Keep".to_string(), "Button"),
+                ("Cancel", msg::manage_keep().into(), "Button"),
             ],
         }
     }
 
+    /// The title and the text under it. Desktop's songs are read from
+    /// their folders: hiding takes them off the list, reading the folder
+    /// again brings them back.
     fn texts(&self) -> (String, String) {
-        let plural = |n: usize| if n == 1 { "song" } else { "songs" };
+        let platform = self.platform.l10n();
         if self.busy {
             let title = match &self.what {
-                Manage::Pack { pack, .. } => pack.name.clone(),
-                Manage::Song { title, .. } => title.clone(),
-                Manage::Unreadable { .. } => "Songs that could not be read".into(),
+                Manage::Pack { pack, .. } => pack_label(&pack.name),
+                Manage::Song { title, .. } => UiText::data(title),
+                Manage::Unreadable { .. } => msg::manage_unreadable_title(),
             };
-            return (
-                title,
-                "An import is running: removing and reading folders again wait until it ends."
-                    .into(),
-            );
+            return (title.into(), msg::manage_busy().into());
         }
-        if self.platform == Platform::Desktop
-            && let Some(t) = self.desktop_texts()
-        {
-            return t;
-        }
-        match (&self.step, &self.what) {
+        let (title, body) = match (&self.step, &self.what) {
             (Step::Choose, Manage::Pack { pack, songs }) => (
-                pack.name.clone(),
-                format!(
-                    "{songs} {} imported into this browser{}.",
-                    plural(*songs),
-                    if pack.rereadable {
-                        ", from a folder it can read again"
-                    } else {
-                        ""
-                    }
-                ),
+                pack_label(&pack.name),
+                if pack.rereadable {
+                    msg::manage_pack_rereadable(platform, *songs)
+                } else {
+                    msg::manage_pack(platform, *songs)
+                },
             ),
-            (Step::Choose, Manage::Song { title, pack, .. }) => {
-                (title.clone(), format!("In the pack “{}”.", pack.name))
-            }
+            (Step::Choose, Manage::Song { title, pack, .. }) => (
+                UiText::data(title),
+                msg::manage_song_pack(pack_label(&pack.name)),
+            ),
             (Step::ConfirmPack, _) => (
-                format!("Remove “{}”?", self.pack().name),
-                format!(
-                    "Its {} {} leave this browser; their plays stay in the history.",
-                    self.songs(),
-                    plural(self.songs())
-                ),
+                msg::manage_confirm_pack_title(platform, pack_label(&self.pack().name)),
+                msg::manage_confirm_pack(platform, self.songs()),
             ),
             (Step::ConfirmSong, Manage::Song { title, .. }) => (
-                format!("Remove “{title}”?"),
-                "It leaves this browser; its plays stay in the history.".to_string(),
+                msg::manage_confirm_song_title(platform, UiText::data(title)),
+                msg::manage_confirm_song(platform),
             ),
             (Step::ConfirmUnreadable, _) => (
-                format!(
-                    "Remove {} stored {} that could not be read?",
-                    self.songs(),
-                    plural(self.songs())
-                ),
-                "Their records no longer read; their files go too. Their plays stay in the history."
-                    .to_string(),
+                msg::manage_confirm_unreadable_title(platform, self.songs()),
+                msg::manage_confirm_unreadable(platform),
             ),
             (Step::ConfirmSong, _) | (Step::Choose, Manage::Unreadable { .. }) => {
-                (String::new(), String::new())
+                return (String::new(), String::new());
             }
-        }
-    }
-
-    /// Desktop's: the songs are read from their folders; hiding takes
-    /// them off the list, reading the folder again brings them back.
-    fn desktop_texts(&self) -> Option<(String, String)> {
-        let plural = |n: usize| if n == 1 { "song" } else { "songs" };
-        Some(match (&self.step, &self.what) {
-            (Step::Choose, Manage::Pack { pack, songs }) => (
-                pack.name.clone(),
-                format!(
-                    "{songs} {}, read from a song folder in place.",
-                    plural(*songs)
-                ),
-            ),
-            (Step::ConfirmPack, _) => (
-                format!("Hide “{}”?", self.pack().name),
-                format!(
-                    "Its {} {} leave the list; nothing in the folder is deleted, and reading it \
-                     again brings them back. Their plays stay in the history.",
-                    self.songs(),
-                    plural(self.songs())
-                ),
-            ),
-            (Step::ConfirmSong, Manage::Song { title, .. }) => (
-                format!("Hide “{title}”?"),
-                "It leaves the list; nothing in the folder is deleted, and reading the folder \
-                 again brings it back. Its plays stay in the history."
-                    .to_string(),
-            ),
-            (Step::ConfirmUnreadable, _) => (
-                format!(
-                    "Forget {} {} that could not be read?",
-                    self.songs(),
-                    plural(self.songs())
-                ),
-                "They leave the list; nothing on disk is deleted.".to_string(),
-            ),
-            _ => return None,
-        })
+        };
+        (title.into(), body.into())
     }
 
     fn call(&self, c: SelectCall, cx: &mut Cx) {
@@ -501,15 +420,9 @@ impl Screen for ManageDialog {
     }
 }
 
-/// The expiries Share… offers: the Worker's word and the label (the
-/// buttons are `Expiry.<word>`).
-pub const EXPIRIES: [(&str, &str); 5] = [
-    ("1h", "1 hour"),
-    ("1d", "1 day"),
-    ("1w", "1 week"),
-    ("1m", "1 month"),
-    ("never", "Forever"),
-];
+/// The expiries Share… offers, by the Worker's word (the buttons are
+/// `Expiry.<word>`, their labels [`expiry_label`]).
+pub const EXPIRIES: [&str; 5] = ["1h", "1d", "1w", "1m", "never"];
 
 /// A button's name for an expiry's word.
 fn expiry_button(word: &str) -> &'static str {
@@ -522,6 +435,17 @@ fn expiry_button(word: &str) -> &'static str {
     }
 }
 
+/// An expiry's button's label.
+fn expiry_label(word: &str) -> UiText {
+    match word {
+        "1h" => msg::share_expiry_hour(),
+        "1d" => msg::share_expiry_day(),
+        "1w" => msg::share_expiry_week(),
+        "1m" => msg::share_expiry_month(),
+        _ => msg::share_expiry_never(),
+    }
+}
+
 /// Share… (`docs/plans/shared-songs.md`): how long the link lives,
 /// then the upload as the shell reports it ([`SHARE_CHANGED`]), then
 /// the link to copy or open.
@@ -529,7 +453,9 @@ pub struct ShareDialog {
     env: Env,
     pack: String,
     songs: Vec<String>,
-    title: String,
+    /// What is shared, by its name (a song's title, a pack's); `None` for
+    /// the share list, titled by how many songs it holds.
+    title: Option<String>,
     view: Rc<RefCell<ShareView>>,
     shell: Option<ShellFn>,
     /// The expiry was chosen: the upload's state shows from now on.
@@ -541,7 +467,7 @@ impl ShareDialog {
         env: Env,
         pack: String,
         songs: Vec<String>,
-        title: String,
+        title: Option<String>,
         view: Rc<RefCell<ShareView>>,
         shell: Option<ShellFn>,
     ) -> ShareDialog {
@@ -570,53 +496,58 @@ impl ShareDialog {
             ShareState::Idle => {
                 let mut v: Vec<_> = EXPIRIES
                     .iter()
-                    .map(|(w, label)| (expiry_button(w), label.to_string(), "Button"))
+                    .map(|w| (expiry_button(w), expiry_label(w).into(), "Button"))
                     .collect();
-                v.push(("Cancel", "Cancel".to_string(), "Button"));
+                v.push(("Cancel", common::cancel().into(), "Button"));
                 v
             }
-            ShareState::Uploading => vec![("Cancel", "Close".to_string(), "Button")],
+            ShareState::Uploading => vec![("Cancel", common::close().into(), "Button")],
             ShareState::Done => vec![
-                ("Copy", "Copy link".to_string(), "Button"),
-                ("Open", "Open".to_string(), "Button"),
-                ("Cancel", "Close".to_string(), "Button"),
+                ("Copy", msg::share_copy_link().into(), "Button"),
+                ("Open", common::open().into(), "Button"),
+                ("Cancel", common::close().into(), "Button"),
             ],
-            ShareState::Failed => vec![("Cancel", "Close".to_string(), "Button")],
+            ShareState::Failed => vec![("Cancel", common::close().into(), "Button")],
         }
     }
 
     /// The title and the lines under it.
     fn texts(&self) -> (String, Vec<String>) {
         let n = self.songs.len();
-        let songs = format!("{n} {}", if n == 1 { "song" } else { "songs" });
         let v = self.view.borrow();
         match self.state() {
             ShareState::Idle => (
-                format!("Share “{}”", self.title),
-                vec![format!(
-                    "Uploads a copy of {songs} of “{}” for anyone with the link to play, \
-                     until the link expires.",
-                    self.pack
-                )],
+                match &self.title {
+                    Some(title) => msg::share_title(UiText::data(title)),
+                    None => msg::share_title_list(n),
+                }
+                .into(),
+                vec![msg::share_intro(n, pack_label(&self.pack)).into()],
             ),
             ShareState::Uploading => (
-                "Uploading…".into(),
-                vec![format!(
-                    "{} of {} songs, {} of {} MB.",
-                    v.done_songs,
-                    v.songs,
-                    (v.done_bytes / 1e6).round() as i64,
-                    (v.bytes / 1e6).round() as i64
-                )],
-            ),
-            ShareState::Done => (
-                "Shared".into(),
+                msg::share_uploading().into(),
                 vec![
-                    "Anyone with this link can play the songs:".into(),
-                    v.link.clone(),
+                    msg::share_progress(
+                        v.done_songs,
+                        v.songs,
+                        (v.done_bytes / 1e6).round() as i64,
+                        (v.bytes / 1e6).round() as i64,
+                    )
+                    .into(),
                 ],
             ),
-            ShareState::Failed => ("The share failed".into(), vec![v.error.clone()]),
+            ShareState::Done => (
+                msg::share_done().into(),
+                vec![msg::share_done_note().into(), UiText::data(&v.link).into()],
+            ),
+            // Why, as the shell found it, in the player's language.
+            ShareState::Failed => (
+                msg::share_failed().into(),
+                v.error
+                    .iter()
+                    .map(|e| super::failures::share_upload_text(e).into())
+                    .collect(),
+            ),
         }
     }
 
@@ -703,7 +634,7 @@ impl Screen for ShareDialog {
                     "Open" => cx.request(UiRequest::OpenUrl(self.view.borrow().link.clone())),
                     name if name.starts_with("Expiry.") && !self.started => {
                         let word = name.trim_start_matches("Expiry.");
-                        if !EXPIRIES.iter().any(|(w, _)| *w == word) {
+                        if !EXPIRIES.contains(&word) {
                             return Handled::No;
                         }
                         // The dialog shows the upload from its start.
@@ -785,15 +716,26 @@ enum ImportTab {
 }
 
 const REPORT_TEXT: f32 = 13.0;
-const OPTIONS: [(&str, &str); 3] = [
-    ("copy", "Store a chosen folder's songs in this browser"),
-    ("videos", "Also store background videos"),
-    ("details", "Details for pack authors"),
-];
+/// The web's import options, by name (`Option.<name>`).
+const OPTIONS: [&str; 3] = ["copy", "videos", "details"];
+
+/// An import option's label.
+fn option_label(name: &str) -> UiText {
+    match name {
+        "copy" => msg::import_option_copy(),
+        "videos" => msg::import_option_videos(),
+        _ => msg::import_option_details(),
+    }
+}
 
 impl ImportDialog {
     pub fn new(env: Env, view: Rc<RefCell<ImportView>>, shell: Option<ShellFn>) -> ImportDialog {
-        let mut url = SearchField::new("DanoniUrlField", "https://…", [0.0; 2], [1.0; 2]);
+        let mut url = SearchField::new(
+            "DanoniUrlField",
+            &msg::import_url_placeholder(),
+            [0.0; 2],
+            [1.0; 2],
+        );
         url.hints = InputHints {
             mode: InputMode::Url,
             enter: EnterKey::Go,
@@ -875,12 +817,15 @@ impl ImportDialog {
         if self.tab == ImportTab::Danoni
             && let Some(origin) = &v.danoni.origin
         {
-            out.push((true, "Allow files from this address?".into()));
-            for text in [
-                origin.origin.as_str(),
-                origin.purpose.as_str(),
-                "Allow once permits this import. Remember also permits future imports from this address. Decline stops this request.",
-            ] {
+            out.push((true, msg::import_origin_heading().into()));
+            // The address (data), what the buttons do.
+            let address: String = if origin.origin.is_empty() {
+                String::new()
+            } else {
+                UiText::data(&origin.origin).into()
+            };
+            let explain = msg::import_origin_explain();
+            for text in [address.as_str(), explain.as_str()] {
                 if !text.is_empty() {
                     out.extend(
                         wrap_lines(text, width, REPORT_TEXT)
@@ -890,9 +835,9 @@ impl ImportDialog {
                 }
             }
         } else if let Some(r) = &v.report {
-            for (title, items) in &r.sections {
-                out.push((true, title.clone()));
-                for item in items {
+            for (title, items) in r.sections() {
+                out.push((true, title));
+                for item in &items {
                     out.extend(
                         wrap_lines(item, width, REPORT_TEXT)
                             .into_iter()
@@ -904,21 +849,22 @@ impl ImportDialog {
         out
     }
 
-    fn options(&self) -> Vec<(&'static str, &'static str, bool)> {
+    /// The options shown: name, label, on.
+    fn options(&self) -> Vec<(&'static str, UiText, bool)> {
         let v = self.view.borrow();
         if v.platform == Platform::Desktop || self.tab != ImportTab::Files {
             return Vec::new();
         }
         OPTIONS
             .iter()
-            .filter(|(n, _)| *n != "copy" || v.folders)
-            .map(|&(n, l)| {
+            .filter(|n| **n != "copy" || v.folders)
+            .map(|&n| {
                 let on = match n {
                     "copy" => v.copy,
                     "videos" => v.videos,
                     _ => v.details,
                 };
-                (n, l, on)
+                (n, option_label(n), on)
             })
             .collect()
     }
@@ -930,21 +876,27 @@ impl ImportDialog {
         let v = self.view.borrow();
         if self.tab == ImportTab::Danoni {
             if v.danoni.origin.is_some() {
-                return ("Your decision is needed to continue.".into(), false);
+                return (msg::import_decision_needed().into(), false);
             }
             if v.running.is_some()
                 && let Some(stage) = &v.danoni.stage
             {
-                let suffix = v
-                    .danoni
-                    .progress
-                    .map(|(done, total)| format!(" · {done} of {total}"));
-                return (format!("{stage}{}", suffix.unwrap_or_default()), false);
+                // The importer's step (a message the shell chose), then
+                // how far.
+                return (
+                    match v.danoni.progress {
+                        Some((done, total)) => {
+                            msg::import_stage_progress(stage, done, total).into()
+                        }
+                        None => stage.clone(),
+                    },
+                    false,
+                );
             }
         }
         match (&v.running, &v.report) {
-            (Some(t), _) => (t.clone(), false),
-            (None, Some(r)) => (r.summary.clone(), r.error),
+            (Some(t), _) => (t.text(), false),
+            (None, Some(r)) => (r.summary(), r.error()),
             (None, None) => (String::new(), false),
         }
     }
@@ -995,7 +947,7 @@ impl ImportDialog {
             return;
         }
         if !(url.starts_with("https://") || url.starts_with("http://")) {
-            self.url_error = Some("Enter a URL beginning with https:// or http://.".into());
+            self.url_error = Some(msg::import_url_invalid().into());
             self.refresh(root, cx);
             return;
         }
@@ -1025,26 +977,17 @@ impl ImportDialog {
         busy: bool,
     ) -> f32 {
         let v = self.view.borrow();
-        let keeps = if v.folders && !v.copy {
-            "A chosen folder's music and backgrounds are read from the folder, the rest is stored in this browser only."
-        } else {
-            "They stay in this browser only."
-        };
+        // A browser keeping a chosen folder reads its music and
+        // backgrounds from there (the web's alone).
+        let linked = v.platform == Platform::Web && v.folders && !v.copy;
+        let platform = v.platform.l10n();
         let compact = self.screen[1] < 480.0;
-        let intro = if compact && v.platform == Platform::Desktop {
-            "Choose a song folder or a pack's ZIP. Folders and ZIPs are read where they are.".into()
-        } else if compact && v.folders && !v.copy {
-            "Choose a folder or ZIP. Linked folders are read in place; other files stay in this browser.".into()
-        } else if compact {
-            "Choose a folder, ZIP or files, or drop them here. Files stay in this browser.".into()
-        } else if v.platform == Platform::Desktop {
-            "Choose a song folder, a Songs folder or a pack's ZIP. StepMania packs (.sm, .ssc, .dwi), Dancing☆Onigiri works and FFR levels (.swf) are supported. Folders and ZIPs are read where they are; Options lists them.".to_string()
-        } else {
-            format!(
-                "StepMania packs (.sm, .ssc, .dwi), Dancing☆Onigiri works and FFR levels (.swf): a folder, a zip or files, or drop them on this page. {keeps}"
-            )
+        let intro = match (compact, linked) {
+            (true, true) => msg::import_intro_compact_linked(),
+            (true, false) => msg::import_intro_compact(platform),
+            (false, true) => msg::import_intro_linked(),
+            (false, false) => msg::import_intro(platform),
         };
-        let desktop = v.platform == Platform::Desktop;
         drop(v);
         let text_size = if self.screen[1] < 480.0 { 12.0 } else { 14.0 };
         for (i, line) in wrap_lines(&intro, w - 48.0, text_size).iter().enumerate() {
@@ -1059,15 +1002,8 @@ impl ImportDialog {
         y += if compact { 20.0 } else { 24.0 };
         let bw = ((w - 58.0) / 2.0).min(260.0);
         for (i, (name, label)) in [
-            ("PickFolder", "Choose folder"),
-            (
-                "PickFiles",
-                if desktop {
-                    "Choose zip"
-                } else {
-                    "Choose zip or files"
-                },
-            ),
+            ("PickFolder", msg::import_choose_folder()),
+            ("PickFiles", msg::import_choose_files(platform)),
         ]
         .into_iter()
         .enumerate()
@@ -1075,7 +1011,7 @@ impl ImportDialog {
             let mut b = button(
                 &self.env,
                 name,
-                label,
+                &label,
                 [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), y],
                 bw,
                 "Button",
@@ -1090,7 +1026,7 @@ impl ImportDialog {
             let mut b = button(
                 &self.env,
                 "NewSong",
-                "New song from a music file",
+                &msg::import_new_song(),
                 [x + 24.0 + bw + 5.0, y],
                 bw * 2.0 + 10.0,
                 "Button",
@@ -1106,7 +1042,7 @@ impl ImportDialog {
             children.push(
                 crate::widgets::controls::Toggle::new(
                     &format!("Option.{name}"),
-                    label,
+                    &label,
                     [x + w / 2.0, y],
                     [w - 48.0, option_height],
                     on,
@@ -1129,8 +1065,8 @@ impl ImportDialog {
         if self.origin_pending() {
             return y + 10.0;
         }
-        let intro = "Paste a Dancing☆Onigiri work's URL.";
-        for (i, line) in wrap_lines(intro, w - 48.0, 14.0).iter().enumerate() {
+        let intro = msg::import_danoni_intro();
+        for (i, line) in wrap_lines(&intro, w - 48.0, 14.0).iter().enumerate() {
             children.push(left(
                 self.env
                     .text(&format!("DanoniIntro{i}"), line, 14.0, 400, "Muted"),
@@ -1154,11 +1090,20 @@ impl ImportDialog {
         if narrow {
             y += 48.0;
         }
-        let retry = self.view.borrow().report.as_ref().is_some_and(|r| r.error);
+        let retry = self
+            .view
+            .borrow()
+            .report
+            .as_ref()
+            .is_some_and(|r| r.error());
         let mut import = button(
             &self.env,
             "ImportDanoni",
-            if retry { "Retry" } else { "Import" },
+            &if retry {
+                msg::import_danoni_retry()
+            } else {
+                msg::import_danoni_import()
+            },
             [x + w - 76.0, y],
             104.0,
             "Button",
@@ -1173,8 +1118,8 @@ impl ImportDialog {
         if narrow {
             y += 30.0;
         }
-        let note = "Files are downloaded and converted for your library.";
-        for (i, line) in wrap_lines(note, w - 48.0, 12.0).iter().enumerate() {
+        let note = msg::import_danoni_note();
+        for (i, line) in wrap_lines(&note, w - 48.0, 12.0).iter().enumerate() {
             children.push(left(
                 self.env
                     .text(&format!("DanoniNote{i}"), line, 12.0, 400, "Muted"),
@@ -1206,14 +1151,16 @@ impl Screen for ImportDialog {
         self.screen = [vp.width, vp.height];
         let w = 760.0_f32.min(self.screen[0] - 32.0);
         let h = (self.screen[1] - if self.screen[1] < 480.0 { 16.0 } else { 80.0 }).min(620.0);
-        let (mut children, [x, y]) = shell(&self.env, self.screen, [w, h], "ADD SONGS");
+        let (mut children, [x, y]) = shell(&self.env, self.screen, [w, h], &msg::import_title());
+        // In the language now (built again on a change of language).
+        self.url.hint = msg::import_url_placeholder().into();
         let busy = self.view.borrow().running.is_some();
         let mut top = y + 58.0;
         if self.urls() {
             let bw = (w - 58.0) / 2.0;
             for (i, (name, label, tab)) in [
-                ("TabFiles", "Folders / ZIPs", ImportTab::Files),
-                ("TabDanoni", "DanOni URL", ImportTab::Danoni),
+                ("TabFiles", msg::import_tab_files(), ImportTab::Files),
+                ("TabDanoni", msg::import_tab_danoni(), ImportTab::Danoni),
             ]
             .into_iter()
             .enumerate()
@@ -1221,7 +1168,7 @@ impl Screen for ImportDialog {
                 let b = button(
                     &self.env,
                     name,
-                    label,
+                    &label,
                     [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), top + 10.0],
                     bw,
                     if tab == self.tab {
@@ -1292,9 +1239,9 @@ impl Screen for ImportDialog {
             bottom -= 50.0;
             let bw = (w - 68.0) / 3.0;
             for (i, (name, label)) in [
-                ("OriginOnce", "Allow once"),
-                ("OriginRemember", "Remember"),
-                ("OriginDecline", "Decline"),
+                ("OriginOnce", msg::import_origin_once()),
+                ("OriginRemember", msg::import_origin_remember()),
+                ("OriginDecline", msg::import_origin_decline()),
             ]
             .into_iter()
             .enumerate()
@@ -1302,7 +1249,7 @@ impl Screen for ImportDialog {
                 children.push(button(
                     &self.env,
                     &self.origin_button(name),
-                    label,
+                    &label,
                     [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), y + h - 96.0],
                     bw,
                     "Button",
@@ -1322,7 +1269,7 @@ impl Screen for ImportDialog {
             children.push(button(
                 &self.env,
                 "CancelDanoni",
-                "Cancel import",
+                &msg::import_cancel(),
                 [x + 94.0, y + h - 36.0],
                 140.0,
                 "Button",
@@ -1331,7 +1278,7 @@ impl Screen for ImportDialog {
         children.push(button(
             &self.env,
             "Close",
-            "Close",
+            &common::close(),
             [x + w - 94.0, y + h - 36.0],
             140.0,
             "Button",
@@ -1527,7 +1474,7 @@ impl Screen for ImportDialog {
                     && self.view.borrow().platform != Platform::Desktop
                     && (!cx.in_gesture() || cx.menu_from_pad())
                 {
-                    self.url_error = Some("Press a keyboard key, click or tap to open the browser's file picker; or drop files here. Back returns to the song list.".into());
+                    self.url_error = Some(msg::import_needs_gesture().into());
                     self.refresh(root, cx);
                     return Handled::Yes;
                 }
@@ -1700,7 +1647,7 @@ impl Screen for NoticesDialog {
         let links = self.links();
         let h = (100.0 + lines.len() as f32 * 18.0 + links.len() as f32 * 48.0 + 40.0)
             .min(self.screen[1] - 16.0);
-        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], "NOTICES");
+        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &msg::notices_title());
         for (i, (line, error)) in lines.iter().enumerate() {
             let mut t = env.text(
                 &format!("Line{i}"),
@@ -1727,7 +1674,7 @@ impl Screen for NoticesDialog {
         children.push(button(
             &env,
             "Close",
-            "Close",
+            &common::close(),
             [x + w - 24.0 - 70.0, y + h - 36.0],
             140.0,
             "Button",
@@ -1829,10 +1776,10 @@ impl PagedRows {
         v: &mut Vec<(&'static str, String, &'static str)>,
     ) {
         if self.first > 0 {
-            v.push(("Newer", "‹ Newer".to_string(), "Button"));
+            v.push(("Newer", msg::page_newer().into(), "Button"));
         }
         if self.first + per_page < len {
-            v.push(("Older", "Older ›".to_string(), "Button"));
+            v.push(("Older", msg::page_older().into(), "Button"));
         }
     }
 
@@ -1937,7 +1884,7 @@ impl PagedRows {
         (len > shown).then(|| {
             let t = env.text(
                 "Page",
-                &format!("{}–{} of {}", self.first + 1, self.first + shown, len),
+                &msg::page_range(self.first + 1, self.first + shown, len),
                 12.0,
                 400,
                 "Faint",
@@ -2012,13 +1959,27 @@ pub struct PlaysDialog {
 }
 
 impl PlaysDialog {
-    /// The plays `rows` of the chart `title` names ("Hard 9"); the best
-    /// chosen first, else the newest.
-    pub fn new(env: Env, title: &str, rows: Vec<PlayRow>, shell: Option<ShellFn>) -> PlaysDialog {
+    /// The plays `rows` of the chart `chart` names ("Hard 9"), a version
+    /// the game made marked by its `version`
+    /// ([`super::data::ChartEntry::version`]); the best chosen first, else
+    /// the newest.
+    pub fn new(
+        env: Env,
+        chart: &str,
+        version: Option<&str>,
+        rows: Vec<PlayRow>,
+        shell: Option<ShellFn>,
+    ) -> PlaysDialog {
         let chosen = rows.iter().position(|r| r.best).unwrap_or(0);
+        // The chart as it names itself (data).
+        let chart = UiText::data(chart);
+        let title = match version {
+            Some(v) => msg::plays_title_version(chart, super::select::version_name(v)),
+            None => msg::plays_title(chart),
+        };
         PlaysDialog {
             env,
-            title: format!("PLAYS · {title}"),
+            title: title.into(),
             rows,
             paged: PagedRows {
                 chosen,
@@ -2038,17 +1999,17 @@ impl PlaysDialog {
     fn buttons(&self) -> Vec<(&'static str, String, &'static str)> {
         let mut v = Vec::new();
         if !self.rows.is_empty() {
-            v.push(("Watch", "Watch".to_string(), "PlayButton"));
-            v.push(("Open", "Results".to_string(), "Button"));
+            v.push(("Watch", msg::plays_watch().into(), "PlayButton"));
+            v.push(("Open", msg::plays_results().into(), "Button"));
             v.push(if self.paged.arming {
-                ("Remove", "Sure? Remove".to_string(), "DangerButton")
+                ("Remove", msg::plays_remove_confirm().into(), "DangerButton")
             } else {
-                ("Remove", "Remove".to_string(), "Button")
+                ("Remove", msg::plays_remove().into(), "Button")
             });
         }
         self.paged
             .page_buttons(self.rows.len(), self.per_page(), &mut v);
-        v.push(("Close", "Close".to_string(), "Button"));
+        v.push(("Close", common::close().into(), "Button"));
         v
     }
 
@@ -2082,31 +2043,43 @@ impl PlaysDialog {
     fn row(&self, i: usize, r: &PlayRow, [x, y, w]: [f32; 3]) -> Vec<Actor> {
         let env = &self.env;
         let chosen = i == self.paged.chosen;
-        let mut first = vec![r.when.clone(), r.ruleset.clone()];
+        // When, by which rules (the history's data), and its marks: a
+        // list of tags.
+        let mut first: Vec<String> = [&r.when, &r.ruleset]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| UiText::data(s).into())
+            .collect();
         if r.autoplay {
-            first.push("AUTOPLAY".into());
+            first.push(msg::plays_autoplay().into());
         }
         if r.best {
-            first.push("★ best".into());
+            first.push(msg::plays_best().into());
         }
         let text = if chosen { "Text" } else { "Secondary" };
         let mut a = env.text("", &first.join(" · "), 13.0, 600, text);
         wrap(&mut a, w - 190.0);
-        let mut b = env.text(
-            "",
-            if r.mods.is_empty() { "—" } else { &r.mods },
-            12.0,
-            400,
-            "Muted",
-        );
+        // The options as played, as the history kept them.
+        let mods: String = if r.mods.is_empty() {
+            "—".into()
+        } else {
+            UiText::data(&r.mods).into()
+        };
+        let mut b = env.text("", &mods, 12.0, 400, "Muted");
         wrap(&mut b, w - 190.0);
+        // The ruleset's readouts.
         let score = if r.pending {
             format!("{} {} …", r.grade, r.score)
         } else {
             format!("{} {}", r.grade, r.score)
         };
-        let c = env.numbers("", score.trim(), 15.0, "Text");
-        let d = look::tracked(env.text("", &r.lamp_text, 11.0, 700, "Gold"), 80);
+        let c = env.numbers("", &UiText::data(score.trim()), 15.0, "Text");
+        let lamp: String = if r.lamp_text.is_empty() {
+            String::new()
+        } else {
+            UiText::data(&r.lamp_text).into()
+        };
+        let d = look::tracked(env.text("", &lamp, 11.0, 700, "Gold"), 80);
         let mut out = self.paged.plate(env, i, [x, y, w]);
         out.extend([
             left(a, x + 14.0, y + 15.0),
@@ -2153,13 +2126,7 @@ impl Screen for PlaysDialog {
         let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &self.title);
         if self.rows.is_empty() {
             children.push(left(
-                env.text(
-                    "Empty",
-                    "No play of this chart is kept yet.",
-                    14.0,
-                    400,
-                    "Muted",
-                ),
+                env.text("Empty", &msg::plays_empty(), 14.0, 400, "Muted"),
                 x + 24.0,
                 y + 76.0,
             ));

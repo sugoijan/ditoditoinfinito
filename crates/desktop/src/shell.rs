@@ -400,7 +400,7 @@ impl Shell {
 
     fn open(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
         let attributes = Window::default_attributes()
-            .with_title("Dito Dito Infinito")
+            .with_title(ddi_l10n::msg::common::game_name().as_str())
             .with_inner_size(LogicalSize::new(1280.0, 720.0));
         #[cfg(target_os = "windows")]
         let attributes = {
@@ -1507,6 +1507,7 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        crate::app_menu::follow_language();
         if crate::quit::asked() {
             self.request_quit();
         }
@@ -1756,6 +1757,9 @@ fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let look = Rc::new(ddi_theme::Infinito::new());
     let env = ThemeEnv::new(look.clone(), fold);
     let settings = ddi_ui::state::settings::Settings::load();
+    // The UI's language: the settings' choice, else the system's.
+    ddi_l10n::set_system_languages(sys_locale::get_locales());
+    ddi_l10n::choose(settings.language.as_deref());
     env.follow_motion(settings.reduced_motion, false);
     env.follow_cursor(&settings);
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
@@ -1778,12 +1782,24 @@ fn screen_height(window: &Window) {
 /// (variable-rate panels change it).
 fn display_fingerprint(window: &Window) -> Option<ddi_platform::DeviceFingerprint> {
     let m = window.current_monitor()?;
-    let name = m.name().unwrap_or_else(|| "display".into());
+    // A monitor the system names not is `display` in its id.
+    let name = m.name();
     let size = m.size();
     let scale = m.scale_factor();
     Some(ddi_platform::DeviceFingerprint::new(
-        format!("display:{name}:{}x{}@{scale}", size.width, size.height),
-        format!("{name} · {}×{} · ×{scale}", size.width, size.height),
+        format!(
+            "display:{}:{}x{}@{scale}",
+            name.as_deref().unwrap_or("display"),
+            size.width,
+            size.height
+        ),
+        ddi_platform::DeviceFacts::Display {
+            name,
+            width: size.width,
+            height: size.height,
+            scale_percent: (scale * 100.0).round() as u32,
+            refresh_hz: None,
+        },
     ))
 }
 

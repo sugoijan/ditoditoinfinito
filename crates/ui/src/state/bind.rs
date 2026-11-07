@@ -18,11 +18,15 @@ use std::collections::HashSet;
 
 use ddi_chart::Layout;
 use ddi_engine::{ControlBindings, MenuInput};
+use ddi_l10n::msg::options as m;
 use ddi_platform::gamepad::Control;
 use ddi_platform::{DeviceId, RawInput};
 
-/// Steps after the lanes, for controllers only.
-pub const PAD_STEPS: [&str; 2] = ["Start", "Back"];
+/// Steps after the lanes, for controllers only: Start and Back, as they
+/// show.
+fn pad_steps() -> [String; 2] {
+    [m::bind_step_start().into(), m::bind_step_back().into()]
+}
 
 /// Seconds a controller's button is held to cancel (a pad without a
 /// Back of its own can always get out).
@@ -137,9 +141,10 @@ pub enum Edge {
 pub struct BindFlow {
     pub device: Option<DeviceId>,
     pub phase: Phase,
-    /// Step names: the layout's lane labels, then [`PAD_STEPS`].
+    /// Step names as they show: the layout's lanes, then a controller's
+    /// Start and Back.
     pub steps: Vec<String>,
-    /// Lanes of the layout (the steps before [`PAD_STEPS`]).
+    /// Lanes of the layout (the steps before Start and Back).
     pub lanes: usize,
     /// Review grid rows: lanes of each pad (two-pad layouts) or each row.
     pub groups: Vec<Vec<usize>>,
@@ -168,11 +173,9 @@ impl BindFlow {
         standard: Vec<String>,
         held: HashSet<String>,
     ) -> BindFlow {
-        let steps: Vec<String> = layout
-            .lanes
-            .iter()
-            .map(|l| l.label().to_string())
-            .chain(PAD_STEPS.iter().map(|s| s.to_string()))
+        let steps: Vec<String> = (0..layout.lanes.len())
+            .map(|i| crate::screens::data::lane_name(layout, i).into())
+            .chain(pad_steps())
             .collect();
         BindFlow {
             phase: if device.is_some() {
@@ -207,31 +210,28 @@ impl BindFlow {
         }
     }
 
-    /// A control as shown ("button 3", "KeyD").
-    pub fn label(&self, control: &str) -> String {
+    /// A control as shown: a controller's by its kind and number, in
+    /// words ("button 3"), a key by its code (data, "KeyD").
+    pub fn label(&self, control: &str) -> ddi_l10n::UiText {
         if self.is_pad() {
-            control
-                .parse::<Control>()
-                .map(|c| c.label())
-                .unwrap_or_else(|_| control.to_string())
+            crate::controller_hints::binding_name(control)
         } else {
-            control.to_string()
+            ddi_l10n::UiText::data(control)
         }
     }
 
     /// What to press now.
     pub fn prompt(&self) -> String {
         match self.phase {
-            Phase::Choose => {
-                "Press any key or controller button on the device you want to bind".into()
-            }
+            Phase::Choose => m::bind_press_any(),
             Phase::Step(step) => match step.checked_sub(self.lanes) {
-                Some(0) => "Press the button for Start (starts a song)".into(),
-                Some(_) => "Press the button for Back (leaves a song)".into(),
-                None => format!("Press {}", self.steps[step]),
+                Some(0) => m::bind_press_start(),
+                Some(_) => m::bind_press_back(),
+                None => m::bind_press_lane(&self.steps[step]),
             },
-            Phase::Review => "Press each one to test it: it lights while held.".into(),
+            Phase::Review => m::bind_press_review(),
         }
+        .into()
     }
 
     /// What step `i` shows: its name, and what was recorded.
@@ -242,8 +242,8 @@ impl BindFlow {
             Phase::Choose => false,
         };
         match (&self.recorded[i], done) {
-            (Some(c), _) => self.label(c),
-            (None, true) => "skipped".into(),
+            (Some(c), _) => self.label(c).into(),
+            (None, true) => m::bind_skipped().into(),
             (None, false) => String::new(),
         }
     }
@@ -303,12 +303,12 @@ impl BindFlow {
             Phase::Choose => return Edge::Changed,
         };
         if let Some(w) = &self.waiting {
-            self.message = Some(format!("Release {} first.", self.label(w)));
+            self.message = Some(m::bind_release_first(self.label(w)).into());
             return Edge::Changed;
         }
         if edge.device == DeviceId::Keyboard && edge.control == "Backspace" {
             // Play treats it as quit before any lane sees it.
-            self.message = Some("Backspace leaves a song; press a different key.".into());
+            self.message = Some(m::bind_backspace().into());
             return Edge::Changed;
         }
         if let Some(i) = self
@@ -316,21 +316,14 @@ impl BindFlow {
             .iter()
             .position(|r| r.as_deref() == Some(edge.control.as_str()))
         {
-            self.message = Some(format!(
-                "{} is already {}. Press a different one.",
-                self.label(&edge.control),
-                self.steps[i]
-            ));
+            self.message = Some(m::bind_already(self.label(&edge.control), &self.steps[i]).into());
             return Edge::Changed;
         }
         if step >= self.lanes
             && let Some(DeviceId::Gamepad(id)) = &self.device
             && self.lane_elsewhere(id, &edge.control)
         {
-            self.message = Some(format!(
-                "{} plays a lane in another style's bindings. Press a different one.",
-                self.label(&edge.control)
-            ));
+            self.message = Some(m::bind_lane_elsewhere(self.label(&edge.control)).into());
             return Edge::Changed;
         }
         self.recorded[step] = Some(edge.control.clone());
@@ -492,10 +485,7 @@ impl BindFlow {
                 if let (Some(a), Some(b)) = (&controls[i], &controls[j])
                     && a.exclusive_with(b)
                 {
-                    out.push(format!(
-                        "{} and {} are opposite ends of one axis: they cannot be pressed together.",
-                        self.steps[i], self.steps[j]
-                    ));
+                    out.push(m::bind_opposite(&self.steps[i], &self.steps[j]).into());
                 }
             }
         }

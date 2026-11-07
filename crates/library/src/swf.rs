@@ -84,10 +84,36 @@ pub fn is_swf(bytes: &[u8]) -> bool {
     matches!(bytes.get(..3), Some(b"FWS" | b"CWS" | b"ZWS"))
 }
 
+/// Why a SWF could not be read (`ddi_ui::screens::import_report` words
+/// it; its English is for logs).
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
+pub enum SwfError {
+    #[error("not a SWF file")]
+    NotSwf,
+    /// Its zlib stream did not inflate (the inflater's status).
+    #[error("the SWF does not inflate: {0}")]
+    Inflate(String),
+    #[error("an LZMA-compressed SWF (ZWS) is not read")]
+    Lzma,
+    #[error("the SWF is cut short")]
+    CutShort,
+    #[error("a string not ended")]
+    StringNotEnded,
+    #[error("the music is too long")]
+    MusicTooLong,
+}
+
+/// The machine's own errors are words for no one but a log.
+impl From<SwfError> for String {
+    fn from(e: SwfError) -> String {
+        e.to_string()
+    }
+}
+
 /// The level in `bytes`.
-pub fn read(bytes: &[u8]) -> Result<Level, String> {
+pub fn read(bytes: &[u8]) -> Result<Level, SwfError> {
     if bytes.len() < 8 || !is_swf(bytes) {
-        return Err("not a SWF file".into());
+        return Err(SwfError::NotSwf);
     }
     let version = bytes[3];
     let declared = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
@@ -97,10 +123,10 @@ pub fn read(bytes: &[u8]) -> Result<Level, String> {
         b'C' => {
             let limit = declared.saturating_sub(8).min(MAX_SIZE);
             inflated = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&bytes[8..], limit)
-                .map_err(|e| format!("the SWF does not inflate: {:?}", e.status))?;
+                .map_err(|e| SwfError::Inflate(format!("{:?}", e.status)))?;
             &inflated
         }
-        _ => return Err("an LZMA-compressed SWF (ZWS) is not read".into()),
+        _ => return Err(SwfError::Lzma),
     };
     let mut r = Bytes::new(body);
     // The frame's rectangle: 5 bits of size, then four fields of it.
@@ -151,7 +177,7 @@ pub fn read(bytes: &[u8]) -> Result<Level, String> {
             _ => {}
         }
         if level.mp3.len() > MAX_SIZE {
-            return Err("the music is too long".into());
+            return Err(SwfError::MusicTooLong);
         }
     }
     level.beatbox = machine.beatbox();
@@ -282,50 +308,47 @@ impl<'a> Bytes<'a> {
         self.at >= self.bytes.len()
     }
 
-    fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8], SwfError> {
         let end = self
             .at
             .checked_add(n)
             .filter(|&e| e <= self.bytes.len())
-            .ok_or("the SWF is cut short")?;
+            .ok_or(SwfError::CutShort)?;
         let out = &self.bytes[self.at..end];
         self.at = end;
         Ok(out)
     }
 
-    fn skip(&mut self, n: usize) -> Result<(), String> {
+    fn skip(&mut self, n: usize) -> Result<(), SwfError> {
         self.take(n).map(|_| ())
     }
 
-    fn peek_u8(&self) -> Result<u8, String> {
-        self.bytes
-            .get(self.at)
-            .copied()
-            .ok_or_else(|| "the SWF is cut short".into())
+    fn peek_u8(&self) -> Result<u8, SwfError> {
+        self.bytes.get(self.at).copied().ok_or(SwfError::CutShort)
     }
 
-    fn u8(&mut self) -> Result<u8, String> {
+    fn u8(&mut self) -> Result<u8, SwfError> {
         Ok(self.take(1)?[0])
     }
 
-    fn u16(&mut self) -> Result<u16, String> {
+    fn u16(&mut self) -> Result<u16, SwfError> {
         let b = self.take(2)?;
         Ok(u16::from_le_bytes([b[0], b[1]]))
     }
 
-    fn u32(&mut self) -> Result<u32, String> {
+    fn u32(&mut self) -> Result<u32, SwfError> {
         let b = self.take(4)?;
         Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     /// A null-terminated string (UTF-8 from SWF 6; older ones' bytes
     /// taken as they come).
-    fn string(&mut self) -> Result<String, String> {
+    fn string(&mut self) -> Result<String, SwfError> {
         let rest = &self.bytes[self.at.min(self.bytes.len())..];
         let end = rest
             .iter()
             .position(|&b| b == 0)
-            .ok_or("a string not ended")?;
+            .ok_or(SwfError::StringNotEnded)?;
         let s = String::from_utf8_lossy(&rest[..end]).into_owned();
         self.at += end + 1;
         Ok(s)

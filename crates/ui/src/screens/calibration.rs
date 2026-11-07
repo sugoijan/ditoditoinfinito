@@ -6,9 +6,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use ddi_l10n::msg::{common, pages as pm};
+
 use super::Env;
 use super::options_dialogs::ConfirmDialog;
-use super::page::{Block, PAGE_CHANGED, PageDoc, PageFeed};
+use super::options_model::device_name;
+use super::page::{Block, PAGE_CHANGED, PageDoc, PageFeed, PageTitle};
 use crate::message::Message;
 use crate::screen::Cx;
 use crate::state::settings::Settings;
@@ -27,8 +30,40 @@ pub enum CalAct {
     Nothing,
 }
 
+/// An offset in seconds as its messages take it: signed milliseconds
+/// ("+12", "-20").
 fn ms(s: f64) -> String {
-    format!("{:+.0} ms", s * 1000.0)
+    format!("{:+.0}", s * 1000.0)
+}
+
+/// What a run came to ([`run_line`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RunEnd {
+    /// A device changed during it: what it measured is of nothing.
+    DeviceChanged,
+    /// It could not measure reliably; `out_of_range`: its clicks seemed
+    /// later than it can measure.
+    Unreliable { out_of_range: bool },
+    /// The offset was right as it is.
+    Right,
+    /// It set the offset to `seconds`.
+    Set { seconds: f64 },
+}
+
+/// The menu's line for a run of test `mode` (`visual`, `audio`,
+/// `combined`: [`MODES`]) that came to `end`
+/// (`ddi_session::calibration::settle`).
+pub fn run_line(mode: &str, end: RunEnd) -> String {
+    match end {
+        RunEnd::DeviceChanged => pm::calibration_run_device_changed(mode),
+        RunEnd::Unreliable {
+            out_of_range: false,
+        } => pm::calibration_run_unreliable(mode),
+        RunEnd::Unreliable { out_of_range: true } => pm::calibration_run_out_of_range(mode),
+        RunEnd::Right => pm::calibration_run_right(mode),
+        RunEnd::Set { seconds } => pm::calibration_run_set(mode, ms(seconds)),
+    }
+    .into()
 }
 
 thread_local! {
@@ -54,110 +89,70 @@ pub fn doc(settings: &Settings, max_ms: f64, last: &[String]) -> PageDoc {
     let s = settings;
     let mut b = Vec::new();
     if !last.is_empty() {
-        b.push(Block::Heading("Last test".into()));
+        b.push(Block::Heading(pm::calibration_last_test().into()));
         for line in last {
             b.push(Block::Text(line.clone()));
         }
     }
     b.extend([
-        Block::Text(
-            "Each test plays a generated chart (100 BPM, three clicks and a rest, a click on \
-             every note) exactly like a song. While you play, the test measures how early or \
-             late your hits are, applies the correction on the fly and keeps measuring until \
-             the remaining error is within noise (95% confidence), then stops. Saving adds the \
-             correction to the setting."
-                .into(),
-        ),
-        Block::Text(
-            "The two offsets are independent, so the guided order is: arrows only (display), \
-             then sound only (audio path), then a check with both that should read close to \
-             zero."
-                .into(),
-        ),
-        Block::Muted(format!(
-            "Offsets beyond ±{max_ms:.0} ms cannot be measured this way (a press that late \
-             cannot be told apart from one on the next note); set those by hand in the options, \
-             then calibrate from there."
-        )),
-        Block::Heading("1. Arrows only".into()),
-        Block::Muted(
-            "Muted. Hit each arrow at the receptor. Measures display lag; saves to the visual \
-             offset (only moves what is drawn)."
-                .into(),
-        ),
+        Block::Text(pm::calibration_about().into()),
+        Block::Text(pm::calibration_order().into()),
+        Block::Muted(pm::calibration_range(max_ms.round()).into()),
+        Block::Heading(pm::calibration_visual().into()),
+        Block::Muted(pm::calibration_visual_about().into()),
         Block::Button {
             id: "run:visual".into(),
-            label: "Start guided calibration".into(),
+            label: pm::calibration_start_guided().into(),
             primary: true,
         },
-        Block::Heading("2. Sound only".into()),
-        Block::Muted(
-            "Arrows hidden; press any arrow key on each click. Measures the audio path; saves \
-             to the audio offset (the judged timeline)."
-                .into(),
-        ),
+        Block::Heading(pm::calibration_audio().into()),
+        Block::Muted(pm::calibration_audio_about().into()),
         Block::Button {
             id: "run:audio".into(),
-            label: "Start".into(),
+            label: pm::calibration_start().into(),
             primary: false,
         },
-        Block::Heading("3. Check: both".into()),
-        Block::Muted(
-            "Play normally. Should read near zero after 1 and 2; a significant remainder can be \
-             saved as a fine-tune to the audio offset."
-                .into(),
-        ),
+        Block::Heading(pm::calibration_combined().into()),
+        Block::Muted(pm::calibration_combined_about().into()),
         Block::Button {
             id: "run:combined".into(),
-            label: "Start".into(),
+            label: pm::calibration_start().into(),
             primary: false,
         },
-        Block::Heading("Offsets".into()),
-        Block::Text(format!(
-            "Defaults, for devices without a profile: audio {}, visual {}.",
-            ms(s.audio_offset),
-            ms(s.visual_offset)
-        )),
+        Block::Heading(pm::calibration_offsets().into()),
+        Block::Text(pm::calibration_defaults(ms(s.audio_offset), ms(s.visual_offset)).into()),
     ]);
     if s.audio_profiles.is_empty() && s.display_profiles.is_empty() {
-        b.push(Block::Muted("No device calibrated yet.".into()));
+        b.push(Block::Muted(pm::calibration_no_device().into()));
     } else {
-        b.push(Block::Muted(
-            "Offsets are kept per audio path and per display; the game picks the matching one \
-             when a song starts."
-                .into(),
-        ));
-        for (kind, list) in [
-            ("Audio", &s.audio_profiles),
-            ("Display", &s.display_profiles),
-        ] {
-            for p in list.iter() {
-                b.push(Block::Text(format!(
-                    "{kind}: {} — {}{}",
-                    p.label,
-                    ms(p.offset),
-                    if p.calibrated { " (calibrated)" } else { "" }
-                )));
-            }
+        b.push(Block::Muted(pm::calibration_per_device().into()));
+        let yes_no = |calibrated: bool| if calibrated { "yes" } else { "no" };
+        for p in &s.audio_profiles {
+            b.push(Block::Text(
+                pm::calibration_audio_device(device_name(p), ms(p.offset), yes_no(p.calibrated))
+                    .into(),
+            ));
+        }
+        for p in &s.display_profiles {
+            b.push(Block::Text(
+                pm::calibration_display_device(device_name(p), ms(p.offset), yes_no(p.calibrated))
+                    .into(),
+            ));
         }
     }
     b.push(Block::Button {
         id: "reset".into(),
-        label: "Reset offsets to 0".into(),
+        label: pm::calibration_reset().into(),
         primary: false,
     });
-    b.push(Block::Muted(
-        "Tip: turn on “Timing error of each hit” in the options to see each hit's offset \
-         during normal play; the debug overlay shows the running mean."
-            .into(),
-    ));
+    b.push(Block::Muted(pm::calibration_tip().into()));
     b.push(Block::Button {
         id: "options".into(),
-        label: "Options".into(),
+        label: pm::calibration_options().into(),
         primary: false,
     });
     PageDoc {
-        title: "Calibration".into(),
+        title: PageTitle::new(pm::calibration_title(), pm::calibration_heading()),
         blocks: b,
     }
 }
@@ -212,11 +207,9 @@ pub fn button(id: &str) -> CalAct {
 /// The confirmation's title, text and button.
 pub fn reset_texts() -> (String, String, String) {
     (
-        "Reset the offsets?".into(),
-        "The default audio and visual offsets and every device's go back to 0 ms; the devices \
-         stay known, as not calibrated."
-            .into(),
-        "Reset".into(),
+        pm::calibration_reset_title().into(),
+        pm::calibration_reset_body().into(),
+        common::reset().into(),
     )
 }
 

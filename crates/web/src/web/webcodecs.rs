@@ -763,7 +763,7 @@ fn fail(inner: &Rc<RefCell<Inner>>, e: String) {
         return;
     }
     s.failed = true;
-    s.events.push(VideoEvent::Error(e));
+    s.events.push(VideoEvent::Error(e.into()));
     s.run = None;
     if let Some(d) = s.decoder.take() {
         let _ = d.close();

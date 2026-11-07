@@ -47,6 +47,18 @@ pub fn start() {
     router::reset_start_focus();
     // Settings and the song list's place, from the browser's storage.
     web::kv::install();
+    // The UI's language: the settings' choice, else the browser's.
+    let languages: Vec<String> = web_sys::window()
+        .map(|w| {
+            w.navigator()
+                .languages()
+                .iter()
+                .filter_map(|v| v.as_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    ddi_l10n::set_system_languages(languages);
+    ddi_l10n::choose(settings::Settings::load().language.as_deref());
     // The app's canvas and device, made once for every route.
     web::screen::boot();
     // The theme's faces, which the first screen waits for (`app::start`).

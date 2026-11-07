@@ -1677,11 +1677,11 @@ pub fn uploads_due(layers: &[Vec<BgSegment>], at: Option<f64>, pending: usize) -
 /// movies `failed` this run nor in the play's `trouble` (`(name, why)`
 /// each). The opening still stands in for it until its first frame only
 /// then ([`shown`]).
-pub fn opening_plays(
+pub fn opening_plays<E>(
     schedule: &[BgSegment],
     off: bool,
-    failed: &[(String, String)],
-    trouble: &[(String, String)],
+    failed: &[(String, E)],
+    trouble: &[(String, E)],
 ) -> bool {
     let Some(BgImage::Movie(name)) = schedule.get(1).map(|s| &s.image) else {
         return false;

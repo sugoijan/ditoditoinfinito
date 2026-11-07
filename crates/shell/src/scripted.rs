@@ -274,7 +274,7 @@ impl<C: StageContent> ScriptView<C> {
         t: f64,
         beat: f64,
         layers: &[Vec<BgSegment>; LAYERS],
-    ) -> Option<String> {
+    ) -> Option<ddi_session::scripted::Failure> {
         self.scripts.as_mut()?.frame(t, beat, layers)
     }
 
@@ -362,7 +362,7 @@ impl<C: StageContent> ScriptView<C> {
 #[derive(Debug, Default)]
 pub struct ScriptFrame {
     /// Why they stopped, in the frame they did.
-    pub stopped: Option<String>,
+    pub stopped: Option<ddi_session::scripted::Failure>,
     /// The sounds they played, for the shell to play now.
     pub sounds: Vec<String>,
     /// Their background and foreground quads drawn.

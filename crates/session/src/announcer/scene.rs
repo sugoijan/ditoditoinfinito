@@ -38,6 +38,7 @@ use ddi_platform::{ClockSample, HostTime};
 use ddi_ui::screens::data::{Best, ChartEntry, ResultsData, SelectData, SongEntry};
 use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::sample;
+use ddi_ui::screens::stage::{Caption, CheerAlso};
 use ddi_ui::state::history::{score_text, score_value};
 
 use super::{Ending, Prior, old_grade};
@@ -57,11 +58,11 @@ pub struct MenuScene {
     pub chart: usize,
     /// The chart is chosen (a comment's scene); the intro's only shows.
     pub choose: bool,
-    /// What happens, in a sentence.
-    pub caption: String,
+    /// What happens (the frame's caption).
+    pub caption: Caption,
     /// The start menu shows first, Singleplayer chosen on it (the
     /// welcome's scene): what happens there.
-    pub start: Option<String>,
+    pub start: Option<Caption>,
     /// What is pointed at as the line is said: song select's spot
     /// (`screen`, `chart`, `chart.level`, `chart.best`).
     pub mark: &'static str,
@@ -92,31 +93,11 @@ fn chart_of(songs: &mut [SongEntry], (song, difficulty): Pick) -> Option<&mut Ch
 /// Unix epoch, as [`ddi_platform::storage::started_ms`]).
 pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
     let (pick, choose, caption, mark) = match line {
-        Line::SelectMusicIntro => (GENERAL, false, "Song select comes in.", "screen"),
-        Line::SelectMusic(Comment::New) => (
-            NEW,
-            true,
-            "A chart never played (no best on it) is chosen.",
-            "chart.best",
-        ),
-        Line::SelectMusic(Comment::Hard) => (
-            HARD,
-            true,
-            "A chart of level 10 or more, played before, is chosen.",
-            "chart.level",
-        ),
-        Line::SelectMusic(Comment::Repeat) => (
-            REPEAT,
-            true,
-            "A chart played earlier this session is chosen.",
-            "chart.best",
-        ),
-        Line::SelectMusic(Comment::General) => (
-            GENERAL,
-            true,
-            "A chart played before, below level 10, is chosen.",
-            "chart",
-        ),
+        Line::SelectMusicIntro => (GENERAL, false, Caption::SongSelect, "screen"),
+        Line::SelectMusic(c @ Comment::New) => (NEW, true, Caption::Chosen(c), "chart.best"),
+        Line::SelectMusic(c @ Comment::Hard) => (HARD, true, Caption::Chosen(c), "chart.level"),
+        Line::SelectMusic(c @ Comment::Repeat) => (REPEAT, true, Caption::Chosen(c), "chart.best"),
+        Line::SelectMusic(c @ Comment::General) => (GENERAL, true, Caption::Chosen(c), "chart"),
         _ => return None,
     };
     let mut songs = sample::bundled();
@@ -142,7 +123,7 @@ pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
     let mut scene = select_on(songs, pick, caption, mark)?;
     scene.choose = choose;
     if line == Line::SelectMusicIntro {
-        scene.start = Some("The start menu: Singleplayer is chosen.".into());
+        scene.start = Some(Caption::Start);
     }
     Some(scene)
 }
@@ -151,7 +132,7 @@ pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
 fn select_on(
     mut songs: Vec<SongEntry>,
     pick: Pick,
-    caption: &str,
+    caption: Caption,
     mark: &'static str,
 ) -> Option<MenuScene> {
     let chart = chart_of(&mut songs, pick)?.index;
@@ -175,7 +156,7 @@ fn select_on(
         song: pick.0.into(),
         chart,
         choose: true,
-        caption: caption.into(),
+        caption,
         start: None,
         mark,
     })
@@ -196,8 +177,8 @@ pub struct ResultsScene {
     pub grades: GradeTable,
     pub combo_w4: bool,
     pub data: ResultsData,
-    /// What happens, in a sentence.
-    pub caption: String,
+    /// What happens (the frame's caption).
+    pub caption: Caption,
     /// Song select first, showing the chart's best before the play (a
     /// record's scene, a first clear's), the chart chosen on it.
     pub before: Option<MenuScene>,
@@ -572,12 +553,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 miss: Some(steps / 4),
             };
             let r = stage.play(rules, presses, Some(steps * 2 / 5));
-            (
-                r,
-                known(),
-                stage.rules(None)?,
-                "The player quits partway through the song.".to_string(),
-            )
+            (r, known(), stage.rules(None)?, Caption::Quit)
         }
         Line::FirstClear => {
             let r = stage.play(rules, level(0.2), None);
@@ -591,12 +567,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 best: score_value(&scaled(&r.score, FAILED_BEFORE)),
             };
             before = Some((FAILED_BEFORE, true));
-            (
-                r,
-                prior,
-                stage.rules(None)?,
-                "After the play: the chart is cleared for the first time.".to_string(),
-            )
+            (r, prior, stage.rules(None)?, Caption::FirstClear)
         }
         Line::NewRecord => {
             let r = stage.play(rules, level(0.12), None);
@@ -610,10 +581,9 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             };
             before = Some((BEST_BEFORE, false));
             mark = "score";
-            let caption = format!(
-                "After the play: {}, better than ever on this chart.",
-                score_text(&r.score)
-            );
+            let caption = Caption::NewRecord {
+                score: score_text(&r.score),
+            };
             (r, prior, stage.rules(None)?, caption)
         }
         Line::EvaluationFullCombo(n) => {
@@ -627,12 +597,9 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 return None;
             }
             mark = "lamp";
-            let caption = match n {
-                1 => format!("A full combo: every note {}.", names.name(j).trim()),
-                _ => format!(
-                    "A full combo: every note {} or better.",
-                    names.name(j).trim()
-                ),
+            let caption = Caption::FullCombo {
+                judgment: names.name(j).trim().to_string(),
+                best: n == 1,
             };
             (r, known(), stage.rules(None)?, caption)
         }
@@ -653,17 +620,14 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 return None;
             }
             mark = "failed";
-            (
-                r,
-                known(),
-                stage.rules(fail)?,
-                "The life runs out: the song is failed.".to_string(),
-            )
+            (r, known(), stage.rules(fail)?, Caption::Failed)
         }
         Line::Grade(Grade::Aaaaa) => return None,
         Line::Grade(g) => {
             let (r, rules) = graded(&stage, &rules.grades, g)?;
-            let caption = format!("A play graded {}.", r.grade);
+            let caption = Caption::Graded {
+                grade: r.grade.clone(),
+            };
             (r, known(), rules, caption)
         }
         Line::Cheer => {
@@ -675,26 +639,23 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 .find(|g| Line::Grade(*g).chain().into_iter().any(has));
             let (r, rules) = graded(&stage, &rules.grades, said.unwrap_or(Grade::Aa))?;
             let best = score_value(&scaled(&r.score, BEST_BEFORE));
-            let (prior, what) = match said {
-                Some(_) => (known(), String::new()),
-                None if has(Line::NewRecord) => (
-                    Prior { best, ..known() },
-                    ", a better score than ever".to_string(),
-                ),
+            let (prior, also) = match said {
+                Some(_) => (known(), CheerAlso::Nothing),
+                None if has(Line::NewRecord) => (Prior { best, ..known() }, CheerAlso::NewRecord),
                 None if has(Line::FirstClear) => (
                     Prior {
                         played: true,
                         cleared: false,
                         best,
                     },
-                    ", cleared for the first time".to_string(),
+                    CheerAlso::FirstClear,
                 ),
-                None => (known(), String::new()),
+                None => (known(), CheerAlso::Nothing),
             };
-            let caption = format!(
-                "A play graded {}{what}: the cheer follows its line.",
-                r.grade
-            );
+            let caption = Caption::Cheer {
+                grade: r.grade.clone(),
+                also,
+            };
             (r, prior, rules, caption)
         }
         _ => return None,
@@ -710,7 +671,11 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         ruleset: &rules,
         layout: &layout,
         song: entry,
-        chart: ddi_ui::screens::prompt::chart_line(RESULTS_CHART, meter, &layout.name),
+        chart: ddi_ui::screens::prompt::chart_line(
+            RESULTS_CHART,
+            meter,
+            &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
+        ),
         mods: Vec::new(),
         device_changed: false,
         video_notes: Vec::new(),
@@ -741,14 +706,13 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 last_played: 0.0,
             });
             let caption = if failed {
-                "Before the play: this chart was only ever failed.".to_string()
+                Caption::BeforeFailed
             } else {
-                format!(
-                    "Before the play: this chart's best is {}.",
-                    score_text(&view)
-                )
+                Caption::BeforeBest {
+                    score: score_text(&view),
+                }
             };
-            select_on(songs, (RESULTS_SONG, RESULTS_CHART), &caption, "chart.best")
+            select_on(songs, (RESULTS_SONG, RESULTS_CHART), caption, "chart.best")
         }
     };
     Some(ResultsScene {

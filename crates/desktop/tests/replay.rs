@@ -283,7 +283,11 @@ fn plays_that_cannot_be_replayed_are_refused() {
     // Not kept.
     let r = replays::request_with(&plays, "000000000000001-deadbeef", false, &|_| None);
     assert!(
-        r.refused.as_deref().unwrap().contains("no longer kept"),
+        r.refused
+            .as_ref()
+            .unwrap()
+            .text()
+            .contains("no longer kept"),
         "{r:?}"
     );
     // Kept, as it is: watched.
@@ -306,8 +310,9 @@ fn plays_that_cannot_be_replayed_are_refused() {
     let r = replays::request_with(&p, &i, false, &|_| None);
     assert!(
         r.refused
-            .as_deref()
+            .as_ref()
             .unwrap()
+            .text()
             .contains("changed since the play"),
         "{r:?}"
     );
@@ -320,8 +325,9 @@ fn plays_that_cannot_be_replayed_are_refused() {
     let r = replays::request_with(&p, &i, false, &|_| None);
     assert!(
         r.refused
-            .as_deref()
+            .as_ref()
             .unwrap()
+            .text()
             .contains("no longer in the library"),
         "{r:?}"
     );
@@ -329,14 +335,18 @@ fn plays_that_cannot_be_replayed_are_refused() {
     let (p, i) = rewrite(&|v| v["settings"] = serde_json::json!({ "noteskin": "dance/gone-skin" }));
     let r = replays::request_with(&p, &i, false, &|_| None);
     assert!(
-        r.refused.as_deref().unwrap().contains("dance/gone-skin"),
+        r.refused
+            .as_ref()
+            .unwrap()
+            .text()
+            .contains("dance/gone-skin"),
         "{r:?}"
     );
     // Judged by a newer judge.
     let (p, i) = rewrite(&|v| v["judge_version"] = 99.into());
     let r = replays::request_with(&p, &i, false, &|_| None);
     assert!(
-        r.refused.as_deref().unwrap().contains("newer version"),
+        r.refused.as_ref().unwrap().text().contains("newer version"),
         "{r:?}"
     );
 }

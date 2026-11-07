@@ -171,6 +171,13 @@ fn call_with(
                     platform.announce(&key, volume, share, cx);
                 }
             }
+            if id == "language" {
+                // The screens speak it from here: each built again, these
+                // rows with them (the data below is made in it).
+                ddi_l10n::unforce();
+                ddi_l10n::choose(model.borrow().settings.language.as_deref());
+                cx.rebuild_screens();
+            }
             platform.changed(&id, &model.borrow());
             return Some(model.borrow().data());
         }
@@ -233,7 +240,7 @@ fn call_with(
                 BindDialog::new(
                     env.clone(),
                     flow,
-                    &layout.name,
+                    &super::data::style_name(&layout.id, &layout.name),
                     Rc::new(move |bound, cx| {
                         m.borrow_mut().bound(bound);
                         send(&m, &f, cx);
@@ -243,13 +250,7 @@ fn call_with(
             );
         }
         Act::AddKey(lane) => {
-            let name = model
-                .borrow()
-                .bind_layout
-                .lanes
-                .get(lane)
-                .map(|l| l.label().to_string())
-                .unwrap_or_default();
+            let name = super::data::lane_name(&model.borrow().bind_layout, lane);
             let (controls, standard) = {
                 let m = model.borrow();
                 (m.settings.controls.clone(), standard_pads(&m))
@@ -271,12 +272,7 @@ fn call_with(
         Act::AddButton { id, lane } => {
             let (name, controls, standard) = {
                 let m = model.borrow();
-                let name = m
-                    .bind_layout
-                    .lanes
-                    .get(lane)
-                    .map(|l| l.label().to_string())
-                    .unwrap_or_default();
+                let name = super::data::lane_name(&m.bind_layout, lane);
                 (name, m.settings.controls.clone(), standard_pads(&m))
             };
             let (m, f, pad) = (model.clone(), feed.clone(), id.clone());
@@ -347,7 +343,10 @@ fn call_with(
             // The history: its export offered first.
             let dialog = if history {
                 let p = platform.clone();
-                dialog.with_extra("Export first", Rc::new(move |_cx| p.export()))
+                dialog.with_extra(
+                    &ddi_l10n::msg::options::confirm_history_export(),
+                    Rc::new(move |_cx| p.export()),
+                )
             } else {
                 dialog
             };

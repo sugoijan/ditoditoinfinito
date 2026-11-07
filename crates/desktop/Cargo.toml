@@ -32,6 +32,9 @@ ddi-session.workspace = true
 # What both shells do between the settings and the renderer.
 ddi-shell.workspace = true
 ddi-ui.workspace = true
+ddi-l10n = { workspace = true, features = ["embed-faces"] }
+# The system's languages, for the UI's (`ddi_l10n::set_system_languages`).
+sys-locale = "0.3.2"
 ddi-theme.workspace = true
 serde_json.workspace = true
 wgpu = { workspace = true, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }

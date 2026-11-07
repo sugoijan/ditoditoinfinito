@@ -12,6 +12,7 @@ use ddi_chart::Song;
 use ddi_library::backgrounds::BgImage;
 use ddi_library::path::RelPath;
 use ddi_library::scan::parse_simfile;
+use ddi_ui::screens::failures::LoadFailure;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::Blob;
@@ -440,14 +441,21 @@ async fn song_file_bytes(
     record: Option<&ImportedSong>,
     file: &str,
 ) -> Result<Vec<u8>, LoadError> {
+    let unread = |error: String| LoadFailure::File {
+        file: file.to_string(),
+        error,
+    };
     if let Some(url) = crate::share::file_url(&entry.id, file) {
         // A shared song's file comes down the link: counted for the
         // prompt's line (`crate::share::download_line`).
-        Ok(fetch_bytes_counted(&url, file).await?)
+        Ok(fetch_bytes_counted(&url, file).await.map_err(unread)?)
     } else if is_imported_id(&entry.id) {
-        Ok(blob_bytes(&imported_file(entry, record, file).await?).await?)
+        let blob = imported_file(entry, record, file).await?;
+        Ok(blob_bytes(&blob).await.map_err(unread)?)
     } else {
-        Ok(fetch_bytes(&format!("songs/{}/{file}", entry.id)).await?)
+        Ok(fetch_bytes(&format!("songs/{}/{file}", entry.id))
+            .await
+            .map_err(unread)?)
     }
 }
 
@@ -499,31 +507,37 @@ pub(crate) struct Link {
 /// Why a song could not load.
 #[derive(Clone, Debug)]
 pub(crate) enum LoadError {
-    Failed(String),
+    /// Why, as the prompt says it (`LoadFailure::text`).
+    Failed(LoadFailure),
     /// Its files are in a kept folder the browser asks again before
     /// reading (after a restart): ask from a click ([`crate::web::folders::access`]).
-    NeedsAccess {
-        handle: JsValue,
-        name: String,
-    },
+    NeedsAccess { handle: JsValue, name: String },
 }
 
 impl From<String> for LoadError {
+    /// What the browser said, of no kind of ours.
     fn from(e: String) -> LoadError {
-        LoadError::Failed(e)
+        LoadError::Failed(LoadFailure::Other(e))
     }
 }
 
 impl From<&str> for LoadError {
     fn from(e: &str) -> LoadError {
-        LoadError::Failed(e.to_string())
+        LoadError::Failed(LoadFailure::Other(e.to_string()))
+    }
+}
+
+impl From<LoadFailure> for LoadError {
+    fn from(e: LoadFailure) -> LoadError {
+        LoadError::Failed(e)
     }
 }
 
 impl LoadError {
+    /// In English, for the logs and what keeps errors as text.
     pub(crate) fn message(&self) -> String {
         match self {
-            LoadError::Failed(e) => e.clone(),
+            LoadError::Failed(e) => e.to_string(),
             LoadError::NeedsAccess { name, .. } => {
                 format!("reading the folder “{name}” needs your permission")
             }
@@ -533,12 +547,17 @@ impl LoadError {
 
 /// An imported song's stored record.
 pub(crate) async fn imported_record(db: &Db, id: &str) -> Result<ImportedSong, String> {
+    stored_record(db, id).await.map_err(|e| e.to_string())
+}
+
+/// [`imported_record`], why not as a value.
+async fn stored_record(db: &Db, id: &str) -> Result<ImportedSong, LoadFailure> {
     let json = db
         .get(idb::SONGS, id)
         .await?
         .and_then(|v| v.as_string())
-        .ok_or_else(|| format!("unknown song `{id}`"))?;
-    serde_json::from_str(&json).map_err(|e| format!("stored song `{id}`: {e}"))
+        .ok_or(LoadFailure::NoSong)?;
+    serde_json::from_str(&json).map_err(|e| LoadFailure::Other(format!("stored song `{id}`: {e}")))
 }
 
 /// One of an imported song's files: copied into the browser, or read from
@@ -552,10 +571,7 @@ pub(crate) async fn song_file(
     let Some(link) = song.links.get(file) else {
         return Ok(imported_blob(db, &song.entry.id, file).await?);
     };
-    let key = song
-        .folder
-        .as_ref()
-        .ok_or("the folder this song plays from is unknown; import it again")?;
+    let key = song.folder.as_ref().ok_or(LoadFailure::FolderUnknown)?;
     linked_file(db, key, link).await
 }
 
@@ -564,18 +580,16 @@ async fn linked_file(db: &Db, key: &str, link: &Link) -> Result<Blob, LoadError>
     let handle = db
         .get(idb::FILES, key)
         .await?
-        .ok_or("the folder this song plays from is no longer kept; import it again")?;
+        .ok_or(LoadFailure::FolderGone)?;
     let name = crate::web::folders::name(&handle);
     if !crate::web::folders::granted(&handle).await {
         return Err(LoadError::NeedsAccess { handle, name });
     }
     let found = crate::web::folders::file(&handle, &link.path)
         .await
-        .ok_or_else(|| {
-            format!(
-                "{} is no longer in the folder “{name}”; re-read the folder or import the song again",
-                link.path
-            )
+        .ok_or_else(|| LoadFailure::NotInFolder {
+            file: link.path.clone(),
+            folder: name.clone(),
         })?;
     match &link.entry {
         None => Ok(found.into()),
@@ -589,11 +603,13 @@ pub(crate) fn file_key(id: &str, file: impl AsRef<str>) -> String {
     format!("{id}/{file}")
 }
 
-async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
+async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, LoadFailure> {
     db.get(idb::FILES, &file_key(id, file))
         .await?
         .and_then(|v| v.dyn_into::<Blob>().ok())
-        .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
+        .ok_or_else(|| LoadFailure::Missing {
+            file: file.to_string(),
+        })
 }
 
 /// Background-change images a song shows at most, its own and shared ones
@@ -779,11 +795,10 @@ async fn find_song(id: &str) -> Result<Found, LoadError> {
     // A share's song: the share as loaded, or read again by the id in
     // the song's (a play opened at its own address).
     if let Some((share, n)) = crate::share::parse_song_id(id) {
-        let share = crate::share::load(share).await.map_err(|e| e.message())?;
-        let song = share
-            .songs
-            .get(n)
-            .ok_or_else(|| format!("the shared songs have no song {n}"))?;
+        let share = crate::share::load(share)
+            .await
+            .map_err(LoadFailure::Share)?;
+        let song = share.songs.get(n).ok_or(LoadFailure::NoSong)?;
         return Ok(Found {
             entry: song.record.entry.clone(),
             origin: Origin::Shared,
@@ -794,7 +809,7 @@ async fn find_song(id: &str) -> Result<Found, LoadError> {
     // blocked by another tab).
     if is_imported_id(id) {
         let db = Db::open().await?;
-        let song = imported_record(&db, id).await?;
+        let song = stored_record(&db, id).await?;
         Ok(Found {
             entry: song.entry.clone(),
             origin: Origin::Imported(song.pack.clone()),
@@ -806,7 +821,7 @@ async fn find_song(id: &str) -> Result<Found, LoadError> {
             .songs
             .into_iter()
             .find(|e| e.id == id)
-            .ok_or_else(|| format!("unknown song `{id}`"))?;
+            .ok_or(LoadFailure::NoSong)?;
         Ok(Found {
             entry,
             origin: Origin::Bundled,
@@ -835,8 +850,13 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
             };
             // An FFR level: its `beatBox` and its music's start as stored.
             if ddi_library::ffr::is_level_chart(&entry.chart) {
-                let song = ddi_library::ffr::stored_chart_song(&chart, &entry.title)
-                    .map_err(|e| format!("{}: {e}", entry.chart))?;
+                let song =
+                    ddi_library::ffr::stored_chart_song(&chart, &entry.title).map_err(|error| {
+                        LoadFailure::Chart {
+                            file: entry.chart.to_string(),
+                            error,
+                        }
+                    })?;
                 fill_digests(found, &song).await;
                 return Ok(song);
             }
@@ -846,16 +866,18 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
     };
     let ext = entry.chart.as_str().rsplit('.').next().unwrap_or("sm");
     let song = if ext == ddi_library::danoni::STORED_EXT {
-        load_work_song(&chart_text).await
+        load_work_song(&chart_text).await?
     } else {
         parse_simfile(&chart_text, ext)
             .map(|mut song| {
                 song.resolve_change_names(&entry.change_names());
                 song
             })
-            .map_err(|e| e.to_string())
-    }
-    .map_err(|e| format!("{}: {e}", entry.chart))?;
+            .map_err(|e| LoadFailure::Chart {
+                file: entry.chart.to_string(),
+                error: e.to_string(),
+            })?
+    };
     fill_digests(found, &song).await;
     Ok(song)
 }
@@ -1027,8 +1049,8 @@ pub(crate) type SharedFound = (Vec<(String, String)>, Vec<(String, String)>);
 
 /// The song a stored Dancing☆Onigiri work file describes, with the work's
 /// fields read from where they are stored once for all its songs.
-async fn load_work_song(text: &str) -> Result<Song, String> {
-    let stored = ddi_library::danoni::StoredWork::parse(text)?;
+async fn load_work_song(text: &str) -> Result<Song, LoadFailure> {
+    let stored = ddi_library::danoni::StoredWork::parse(text).map_err(LoadFailure::Work)?;
     let shared = match &stored.work {
         Some(key) => {
             let db = Db::open().await?;
@@ -1036,12 +1058,12 @@ async fn load_work_song(text: &str) -> Result<Song, String> {
                 .get(idb::FILES, key)
                 .await?
                 .and_then(|v| v.dyn_into::<Blob>().ok())
-                .ok_or("the work is no longer stored; import it again")?;
+                .ok_or(LoadFailure::WorkGone)?;
             Some(String::from_utf8_lossy(&blob_bytes(&blob).await?).into_owned())
         }
         None => None,
     };
-    stored.song(shared.as_deref())
+    stored.song(shared.as_deref()).map_err(LoadFailure::Work)
 }
 
 #[derive(Deserialize)]

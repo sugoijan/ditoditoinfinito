@@ -56,14 +56,20 @@ pub(crate) fn screen_info() -> ScreenInfo {
 /// Fingerprint for the current screen. The id is the screen's logical size
 /// and scale only: the refresh rate is informative but not an identity,
 /// since variable-rate panels (ProMotion) change it with the content, so it
-/// goes into the label.
+/// goes into the facts the screens word.
 pub(crate) fn fingerprint(measured_hz: f64) -> DeviceFingerprint {
     let s = screen_info();
     let hz = snap_refresh_rate(measured_hz);
     let dpr = (s.dpr * 100.0).round() / 100.0;
     DeviceFingerprint::new(
         display_id(s.width, s.height, dpr),
-        format!("{}×{} ({dpr}×), ~{hz} Hz", s.width, s.height),
+        ddi_platform::DeviceFacts::Display {
+            name: None,
+            width: s.width,
+            height: s.height,
+            scale_percent: (dpr * 100.0).round() as u32,
+            refresh_hz: Some(hz.round() as u32),
+        },
     )
 }
 

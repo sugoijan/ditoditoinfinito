@@ -38,8 +38,6 @@ pub const CANCEL_DOUBLE_TAP: f64 = 0.5;
 pub const CANCEL_HOLD: f64 = 0.7;
 /// How long the hint stays after a single tap.
 pub const CANCEL_HINT: f64 = 1.5;
-/// The hint when the quit button was touched (no Esc key on a phone).
-pub const TOUCH_CANCEL_HINT: &str = "hold or double-tap the quit button";
 /// The control the touch lanes' quit button sends.
 pub const TOUCH_CANCEL_CONTROL: &str = "cancel";
 /// How long a play's quit button stays after the pointer moved over the
@@ -869,7 +867,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 if raw.pressed {
                     self.view.restarting = false;
                     self.view.cancel_hint = match raw.device {
-                        DeviceId::Touch => TOUCH_CANCEL_HINT,
+                        // No Esc key on a phone.
+                        DeviceId::Touch => ddi_ui::controller_hints::quit_button_hint(),
                         DeviceId::Gamepad(_) => ddi_ui::controller_hints::quit_hint(
                             &raw,
                             &self.known_pads,
@@ -1293,11 +1292,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         {
             return None;
         }
-        match raw.control.as_str() {
-            "KeyR" => Some("hold or double-tap R to restart"),
-            "Backslash" => Some("hold or double-tap \\ to restart"),
-            _ => None,
-        }
+        let key = match raw.control.as_str() {
+            "KeyR" => "R",
+            "Backslash" => "\\",
+            _ => return None,
+        };
+        Some(ddi_ui::controller_hints::restart_hint(key))
     }
 
     /// Escape/Backspace, a pad's Back control, or the touch quit button.

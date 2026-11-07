@@ -11,6 +11,8 @@
     <!-- The loader's art: the title, the menu's rain and the bar on the game's clock (tools/title-design/boot_title.py writes the data). -->
     <link data-trunk rel="inline" href="boot-art-data.js" type="js" />
     <link data-trunk rel="inline" href="../target/boot/boot-art.js" type="js" />
+    <!-- The rest of each language's loader lines beside the page, fetched for the language it speaks (xtask minify-boot writes them, named by their contents). -->
+    <link data-trunk rel="copy-dir" href="../target/boot/lines" data-target-path="boot" />
     <link data-trunk rel="rust" href="../crates/app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
     <!-- The Ogg Opus fallback decoder, a worker fetched only when the browser cannot decode Opus (PLAN.md decision 9); `xtask stage-opus` names its files by their hash. -->
     <link data-trunk rel="rust" href="../crates/opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd" />
@@ -33,6 +35,9 @@
     <link data-trunk rel="copy-file" href="../assets/fonts/IosevkaTerm-Italic-latin.ttf" data-target-path="fonts" />
     <link data-trunk rel="copy-file" href="../assets/fonts/IosevkaTerm-SemiBold-latin.ttf" data-target-path="fonts" />
     <link data-trunk rel="copy-file" href="../assets/fonts/IosevkaTerm-Bold-latin.ttf" data-target-path="fonts" />
+    <link data-trunk rel="copy-file" href="../assets/fonts/NotoSansCJKjp-Regular-ja.otf" data-target-path="fonts" />
+    <link data-trunk rel="copy-file" href="../assets/fonts/NotoSansCJKjp-Medium-ja.otf" data-target-path="fonts" />
+    <link data-trunk rel="copy-file" href="../assets/fonts/NotoSansCJKjp-Bold-ja.otf" data-target-path="fonts" />
     <!-- The theme's faces, fetched beside the game: its first screen waits for them (`web::text::load_theme_fonts`). -->
     <link rel="preload" href="fonts/IosevkaTerm-Regular-latin.ttf" as="font" type="font/ttf" crossorigin />
     <link rel="preload" href="fonts/IosevkaTerm-Italic-latin.ttf" as="font" type="font/ttf" crossorigin />
@@ -43,10 +48,10 @@
   <body>
     <link data-trunk rel="inline" href="../target/seo/seo-body.html" type="html" />
     <div id="boot-shell" class="boot-shell is-loading">
-      <!-- The title where the start menu's lands, its rain and the bar, on the game's clock (boot-art.js). -->
-      <canvas id="boot-canvas" class="boot-canvas" aria-label="Dito Dito Infinito, loading"></canvas>
+      <!-- The title where the start menu's lands, its rain and the bar, on the game's clock (boot-art.js). The boot script writes the loader's text in the game's language (locales/<tag>/boot.ftl). -->
+      <canvas id="boot-canvas" class="boot-canvas"></canvas>
       <div id="boot-blocked" class="boot-blocked hidden" role="alert">
-        <div class="boot-blocked-title">This browser cannot run Dito Dito Infinito.</div>
+        <div class="boot-blocked-title" id="boot-blocked-title"></div>
         <div class="boot-blocked-message" id="boot-blocked-message"></div>
         <div class="boot-blocked-hint" id="boot-blocked-hint"></div>
       </div>

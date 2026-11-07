@@ -158,7 +158,7 @@ fn plays_kept_already_or_twice_in_the_file_are_left() {
     assert!(
         report
             .notice()
-            .starts_with("0 plays imported; 3 plays already kept.")
+            .starts_with("0 plays imported · 3 plays already kept")
     );
 }
 
@@ -221,14 +221,14 @@ fn lines_that_are_not_plays_are_counted_and_named() {
     assert_eq!(report.problems[0].0, 1);
     assert_eq!(report.problems[3].0, 4);
     assert!(
-        report.problems[3].1.contains("base64"),
+        report.problems[3].1.to_string().contains("base64"),
         "{:?}",
         report.problems
     );
     assert!(b.history().is_empty());
     // Each named on its own.
     let why = |l: &str| match read_line(l) {
-        Err(Refused::Invalid(w)) => w,
+        Err(Refused::Invalid(w)) => w.to_string(),
         other => panic!("{l}: {other:?}"),
     };
     assert!(why(&bad[6]).contains("id"));
@@ -287,10 +287,7 @@ fn a_line_too_long_is_skipped_without_being_kept() {
     reader.finish();
     assert_eq!(reader.ready(), 2);
     assert_eq!(reader.report().invalid, 1);
-    assert_eq!(
-        reader.report().problems,
-        vec![(2, "longer than 4 MB".into())]
-    );
+    assert_eq!(reader.report().problems, vec![(2, LineProblem::TooLong)]);
     // A file that is one long line, without its end.
     let mut reader = PlayImport::new(Vec::new());
     for part in long.chunks(1 << 20) {
@@ -311,7 +308,8 @@ fn byte_order_marks_line_breaks_and_blank_lines_are_read_through() {
     let (_, b) = plays();
     let report = import(&b, &file, 3);
     assert_eq!((report.imported, report.invalid), (2, 1));
-    assert_eq!(report.problems[0].1, "not UTF-8 text");
+    assert_eq!(report.problems[0].1, LineProblem::NotUtf8);
+    assert_eq!(report.problems[0].1.to_string(), "not UTF-8 text");
     // An empty file imports nothing.
     assert_eq!(import(&b, b"", 1).imported, 0);
 }
@@ -432,7 +430,9 @@ fn a_file_with_too_many_plays_is_cut() {
     let r = reader.report();
     assert!(r.cut && reader.is_full());
     assert_eq!(r.invalid, MAX_PLAYS);
-    assert!(r.notice().contains(&format!("first {MAX_PLAYS}")));
+    // The count as English writes it (200,000).
+    assert!(r.notice().contains("only the first 200,000 plays read"));
+    assert_eq!(MAX_PLAYS, 200_000);
 }
 
 #[test]

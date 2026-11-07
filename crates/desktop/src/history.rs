@@ -132,13 +132,15 @@ pub fn open() -> Option<(Rc<Plays>, Rework)> {
 /// with a chart of one of `digests` (the bundled songs first, then the
 /// library's).
 pub fn read_chart(id: &str, digests: &[ChartDigest]) -> Result<Song, String> {
-    crate::play::load::read_chart(id).or_else(|e| {
-        digests
-            .iter()
-            .find_map(|d| crate::library::find_by_digest(*d))
-            .ok_or(e)
-            .and_then(|other| crate::play::load::read_chart(&other))
-    })
+    crate::play::load::read_chart(id)
+        .or_else(|e| {
+            digests
+                .iter()
+                .find_map(|d| crate::library::find_by_digest(*d))
+                .ok_or(e)
+                .and_then(|other| crate::play::load::read_chart(&other))
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// Stale plays worked out again on desktop

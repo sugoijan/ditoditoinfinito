@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use ddi_library::ffr::{self, LevelCandidate};
 use ddi_library::path::RelPathBuf;
+use ddi_library::report::{Finding, ImportStep};
 
 use super::{ImportReport, Source, mime_type, read_blob, source, write_song};
 use crate::songs::ImportedSong;
@@ -34,13 +35,17 @@ pub(super) async fn import_levels(
     candidates: &[LevelCandidate],
     folder: Option<&str>,
     report: &mut ImportReport,
-    progress: &crate::component::Callback<String>,
+    progress: &crate::component::Callback<ImportStep>,
 ) -> LevelsOutcome {
     let mut out = LevelsOutcome::default();
     let n = candidates.len();
     for (i, c) in candidates.iter().enumerate() {
         let label = c.path.to_string();
-        progress.emit(format!("reading level {}/{n}: {}", i + 1, c.title));
+        progress.emit(ImportStep::ReadingLevel {
+            index: i + 1,
+            total: n,
+            title: c.title.clone(),
+        });
         match import_level(db, sources, c, folder).await {
             Ok(None) => {}
             Ok(Some(title)) => {
@@ -66,7 +71,7 @@ async fn import_level(
     sources: &HashMap<String, Source>,
     c: &LevelCandidate,
     folder: Option<&str>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, Finding> {
     let src = source(sources, &c.path)?;
     if super::source_size(src) > ffr::MAX_LEVEL {
         return Ok(None);
@@ -87,7 +92,7 @@ async fn import_level(
             let blob = read_blob(source(sources, path)?, mime_type(&name)).await?;
             (name, blob)
         }
-        (None, None) => return Err("no audio file beside the beatBox".into()),
+        (None, None) => return Err(Finding::LevelWithoutMusic),
     };
     let entry = ffr::entry(c, &level.song, ffr::STORED_CHART, &music_name);
     let title = entry.title.clone();

@@ -174,6 +174,10 @@ pub struct Settings {
     /// Presentation only, keyed like controller bindings; absent means Auto.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub controller_styles: std::collections::BTreeMap<String, crate::controller_hints::Style>,
+    /// The UI's language, a BCP 47 tag (`ja`); none: the system's
+    /// (`ddi_l10n::choose`, `docs/plans/localization.md`).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub language: Option<String>,
     /// Reduced motion in the menus (no slides, the art held still): as the
     /// system says, or always, or never.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -401,7 +405,14 @@ pub const MAX_SONG_OFFSET: f64 = 1.0;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OffsetProfile {
     pub id: String,
+    /// The device in English as its fingerprint described it (what older
+    /// builds read, and what the screens show where nothing else says).
     pub label: String,
+    /// What the device is, as its fingerprint said when last seen (the
+    /// screens word it); `None` in a profile kept before, whose id says
+    /// it where it can ([`ddi_platform::DeviceFacts::from_id`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facts: Option<ddi_platform::DeviceFacts>,
     /// Seconds.
     pub offset: f64,
     /// Whether a calibration run produced this value (as opposed to a copied
@@ -454,6 +465,7 @@ impl Default for Settings {
             mine_sound: true,
             announcer: None,
             announcer_volume: 1.0,
+            language: None,
             reduced_motion: ReducedMotion::Auto,
             cursor_style: CursorStyle::default(),
             cursor_size: 28.0,
@@ -919,7 +931,8 @@ impl Settings {
             None => {
                 profiles.push(OffsetProfile {
                     id: fp.id.clone(),
-                    label: fp.label.clone(),
+                    label: fp.label(),
+                    facts: Some(fp.facts.clone()),
                     offset: initial,
                     calibrated: false,
                     last_seen: now,
@@ -928,7 +941,8 @@ impl Settings {
             }
         };
         let p = &mut profiles[idx];
-        p.label = fp.label.clone();
+        p.label = fp.label();
+        p.facts = Some(fp.facts.clone());
         p.last_seen = now;
         p
     }
@@ -1077,6 +1091,7 @@ mod tests {
         let p = |id: &str| OffsetProfile {
             id: id.into(),
             label: id.into(),
+            facts: None,
             offset: 0.01,
             calibrated: true,
             last_seen: 0.0,

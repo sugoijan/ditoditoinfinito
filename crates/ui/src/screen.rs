@@ -311,6 +311,8 @@ pub(crate) enum Op {
     SetText(String),
     EndText,
     EnterChrome,
+    /// Every screen built again ([`Cx::rebuild_screens`]).
+    RebuildAll,
     SetControls {
         controls: ddi_engine::ControlBindings,
         styles: std::collections::BTreeMap<String, crate::controller_hints::Style>,
@@ -506,6 +508,13 @@ impl Cx {
     }
 
     /// Broadcasts a message to every screen shown, once this call returns.
+    /// Builds every screen again as it is, without a transition, once
+    /// this call is over: what they say changed (the UI's language,
+    /// `ddi_l10n::choose`).
+    pub fn rebuild_screens(&mut self) {
+        self.ops.push(Op::RebuildAll);
+    }
+
     pub fn broadcast(&mut self, message: Message) {
         self.ops.push(Op::Broadcast(message));
     }

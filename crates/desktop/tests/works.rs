@@ -86,7 +86,10 @@ fn local_works() {
     };
     let (songs, report) = ddi_desktop::library::scan_folders(&[PathBuf::from(dir)]);
     for (at, why) in &report.failed {
-        eprintln!("not read: {at}: {why}");
+        eprintln!(
+            "not read: {at}: {}",
+            ddi_ui::screens::import_report::finding_text(why)
+        );
     }
     let works: Vec<&LibSong> = songs.iter().filter(|s| s.work.is_some()).collect();
     eprintln!("{} songs of works", works.len());

@@ -31,6 +31,7 @@ use super::{EditorScreen, quad, with_alpha};
 use crate::look::call;
 use crate::screen::Cx;
 use crate::state::editor::audio::{Analysis, BANDS};
+use ddi_l10n::msg::editor as em;
 
 /// The texture source the shell shows the picture as.
 pub const SOURCE: &str = "editor-audio";
@@ -46,6 +47,8 @@ pub enum AudioMode {
 }
 
 impl AudioMode {
+    /// Its name for the debug views and tests, and its key in the
+    /// messages that select on it (`editor-panel-audio`).
     pub fn name(self) -> &'static str {
         match self {
             AudioMode::Both => "both",
@@ -59,14 +62,6 @@ impl AudioMode {
             AudioMode::Both => AudioMode::Wave,
             AudioMode::Wave => AudioMode::Spectrogram,
             AudioMode::Spectrogram => AudioMode::Both,
-        }
-    }
-
-    fn says(self) -> &'static str {
-        match self {
-            AudioMode::Both => "waveform and spectrogram",
-            AudioMode::Wave => "waveform",
-            AudioMode::Spectrogram => "spectrogram",
         }
     }
 }
@@ -211,7 +206,7 @@ impl EditorScreen {
     /// G: shown or hidden; Shift G: the next of what it shows (shown).
     pub(super) fn toggle_audio(&mut self, next: bool) {
         if self.audio.analysis.is_none() && !self.audio.coming {
-            self.say("No music to show");
+            self.say(em::status_no_music());
             return;
         }
         let on = self.audio_on(self.geo.compact);
@@ -222,27 +217,31 @@ impl EditorScreen {
             self.audio.wanted = Some(!on);
         }
         let s = if self.audio.wanted == Some(false) {
-            "Audio view hidden".to_string()
+            em::status_audio_hidden()
         } else {
-            format!("Audio view: {}", self.audio.mode.says())
+            em::status_audio(self.audio.mode.name())
         };
         self.say(s);
     }
 
-    /// The panel's line for the view (`None` where there is no music).
+    /// The panel's line for the view (`None` where there is no music),
+    /// with its key where there is room.
     pub(super) fn audio_line(&self) -> Option<String> {
         if self.audio.analysis.is_none() && !self.audio.coming {
             return None;
         }
-        let what = if !self.audio_on(self.geo.compact) {
-            "hidden"
+        let line = if !self.audio_on(self.geo.compact) {
+            em::panel_audio_hidden()
         } else if self.audio.analysis.is_none() {
-            "reading the music…"
+            em::panel_audio_reading()
         } else {
-            self.audio.mode.says()
+            em::panel_audio(self.audio.mode.name())
         };
-        let key = if self.geo.compact { "" } else { " (G)" };
-        Some(format!("Audio: {what}{key}"))
+        Some(if self.geo.compact {
+            line.into()
+        } else {
+            format!("{line} (G)")
+        })
     }
 
     /// The menu's items for the view.
@@ -254,23 +253,18 @@ impl EditorScreen {
         items.push((
             "audio",
             if on {
-                "Hide the audio view (G)".into()
+                em::menu_audio_hide()
             } else {
-                "Show the audio view (G)".into()
-            },
+                em::menu_audio_show()
+            }
+            .into(),
         ));
-        items.push((
-            "audio-mode",
-            format!(
-                "Audio view: {} (Shift G)",
-                (if on {
-                    self.audio.mode.next()
-                } else {
-                    self.audio.mode
-                })
-                .says()
-            ),
-        ));
+        let mode = if on {
+            self.audio.mode.next()
+        } else {
+            self.audio.mode
+        };
+        items.push(("audio-mode", em::menu_audio_mode(mode.name()).into()));
     }
 
     /// The menu's action `id`, if it is the view's.

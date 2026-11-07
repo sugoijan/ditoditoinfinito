@@ -453,12 +453,12 @@ impl Audio {
         let bucket = (latency / 5.0).round() as u32 * 5;
         Some(DeviceFingerprint::new(
             format!("audio:{}:{}:{}:{bucket}", live.host, live.device, live.rate),
-            format!(
-                "{} · {} kHz · ~{} ms output latency",
-                live.device,
-                f64::from(live.rate) / 1000.0,
-                latency.round()
-            ),
+            ddi_platform::DeviceFacts::Audio {
+                name: Some(live.device.clone()),
+                rate: live.rate,
+                latency_ms: latency.round().max(0.0) as u32,
+                link: None,
+            },
         ))
     }
 

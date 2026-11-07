@@ -80,7 +80,7 @@ pub(crate) struct GameLoop {
     sound_buffers: std::collections::HashMap<String, web_sys::AudioBuffer>,
     sounds_due: Vec<String>,
     sounds_played: usize,
-    scripts_stopped: Option<String>,
+    scripts_stopped: Option<ddi_session::scripted::Failure>,
     scripts_drawn: (usize, usize),
     /// The chart's lyrics, if it has any and they are shown.
     lyrics: Option<LyricTrack>,
@@ -352,7 +352,7 @@ impl GameLoop {
     }
 
     /// What kept movies from playing this play, for the results.
-    pub(crate) fn video_trouble(&self) -> Option<String> {
+    pub(crate) fn video_trouble(&self) -> Option<ddi_platform::video::VideoTrouble> {
         self.movies.trouble()
     }
 
@@ -547,8 +547,8 @@ impl GameLoop {
     }
 
     /// Why the song's scripts stopped during the play, if they did.
-    pub(crate) fn scripts_stopped(&self) -> Option<&str> {
-        self.scripts_stopped.as_deref()
+    pub(crate) fn scripts_stopped(&self) -> Option<&ddi_session::scripted::Failure> {
+        self.scripts_stopped.as_ref()
     }
 
     /// A content of the song's layers decoded.
@@ -1237,8 +1237,8 @@ impl GameLoop {
             (
                 "stopped",
                 self.scripts_stopped
-                    .as_deref()
-                    .map_or(wasm_bindgen::JsValue::NULL, |s| s.into()),
+                    .as_ref()
+                    .map_or(wasm_bindgen::JsValue::NULL, |s| s.to_string().into()),
             ),
             ("fuel", (self.scripts.frame_fuel() as f64).into()),
             ("back", (self.scripts_drawn.0 as u32).into()),
@@ -1500,7 +1500,8 @@ impl GameLoop {
         if let Some(d) = self.session.as_ref().and_then(|s| s.devices.as_ref()) {
             text.push_str(&format!(
                 "\naudio: {} · display: {}",
-                d.audio.label, d.display.label
+                d.audio.label(),
+                d.display.label()
             ));
         }
         if let Some(el) = &self.debug_el {

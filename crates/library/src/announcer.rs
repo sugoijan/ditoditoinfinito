@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::pack::{extension, file_name, is_ignored, parent};
 use crate::path::{RelPath, RelPathBuf};
+use crate::report::{AnnouncerSummary, Finding};
 
 /// The sound files read in a line folder: StepMania's
 /// (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which
@@ -581,31 +582,23 @@ pub struct Bundled {
     pub said: BTreeMap<String, String>,
 }
 
-/// `items` joined, the first `n` of them, then how many more.
-fn some_of(items: &[String], n: usize) -> String {
-    let mut text = items[..items.len().min(n)].join(", ");
-    if items.len() > n {
-        text += &format!(" and {} more", items.len() - n);
-    }
-    text
+/// The first `n` of `items` (the report names a few and counts the
+/// rest).
+fn first(items: &[String], n: usize) -> Vec<String> {
+    items[..items.len().min(n)].to_vec()
 }
 
-/// "1 sound", "3 sounds".
-fn count(n: usize, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
-}
-
-/// What an import says of an announcer.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// What an import says of an announcer (`ddi_ui::screens::import_report`
+/// words it).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Said {
-    /// What it speaks: "19 lines (7 in play, 8 on the results, 4 on song
-    /// select), 69 sounds, 2.1 MB".
-    pub summary: String,
+    /// What it speaks: its lines, where, its sounds and their size.
+    pub summary: AnnouncerSummary,
     /// What it lost: sounds past the caps.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Finding>,
     /// What makes no difference: files passed over, empty folders,
     /// nested copies, names no line uses.
-    pub details: Vec<String>,
+    pub details: Vec<Finding>,
 }
 
 impl Announcer {
@@ -631,69 +624,53 @@ impl Announcer {
     /// What an import says of it.
     pub fn said(&self) -> Said {
         let by = |s: Spoken| self.lines.keys().filter(|l| l.spoken() == s).count();
-        let places: Vec<String> = [
-            (by(Spoken::Play), "in play"),
-            (by(Spoken::Results), "on the results"),
-            (by(Spoken::Menu), "on song select"),
-        ]
-        .into_iter()
-        .filter(|(n, _)| *n > 0)
-        .map(|(n, place)| format!("{n} {place}"))
-        .collect();
-        let sounds: usize = self.lines.values().map(Vec::len).sum();
-        let summary = format!(
-            "{} ({}), {}, {:.1} MB",
-            count(self.lines.len(), "line", "lines"),
-            places.join(", "),
-            count(sounds, "sound", "sounds"),
-            self.report.line_bytes as f64 / 1e6
-        );
+        let summary = AnnouncerSummary {
+            lines: self.lines.len(),
+            in_play: by(Spoken::Play),
+            on_results: by(Spoken::Results),
+            on_select: by(Spoken::Menu),
+            sounds: self.lines.values().map(Vec::len).sum(),
+            bytes: self.report.line_bytes,
+        };
         let r = &self.report;
         let mut warnings = Vec::new();
         if r.left_out > 0 {
-            warnings.push(format!(
-                "{} left out past {MAX_FILES} sounds or {} MB",
-                count(r.left_out, "sound", "sounds"),
-                MAX_BYTES >> 20
-            ));
+            warnings.push(Finding::AnnouncerSoundsLeftOut {
+                count: r.left_out,
+                max_files: MAX_FILES,
+                max_megabytes: MAX_BYTES >> 20,
+            });
         }
         let mut details = Vec::new();
         if !self.unused.is_empty() {
             let names: Vec<String> = self.unused.keys().cloned().collect();
-            details.push(format!(
-                "{} of lines no longer spoken: {}",
-                count(names.len(), "folder", "folders"),
-                some_of(&names, 6)
-            ));
+            details.push(Finding::AnnouncerOldFolders {
+                count: names.len(),
+                names: first(&names, 6),
+            });
         }
         if !self.unknown.is_empty() {
             let names: Vec<String> = self.unknown.keys().cloned().collect();
-            details.push(format!(
-                "{} no line uses: {}",
-                count(names.len(), "folder", "folders"),
-                some_of(&names, 6)
-            ));
+            details.push(Finding::AnnouncerUnknownFolders {
+                count: names.len(),
+                names: first(&names, 6),
+            });
         }
         if !r.empty.is_empty() {
-            details.push(format!(
-                "{} without a sound: {}",
-                count(r.empty.len(), "folder", "folders"),
-                some_of(&r.empty, 6)
-            ));
+            details.push(Finding::AnnouncerEmptyFolders {
+                count: r.empty.len(),
+                names: first(&r.empty, 6),
+            });
         }
         if !r.nested.is_empty() {
             let copies: Vec<String> = r.nested.iter().map(|n| n.to_string()).collect();
-            details.push(format!(
-                "{} inside its line folders passed over: {}",
-                count(copies.len(), "copy", "copies"),
-                some_of(&copies, 3)
-            ));
+            details.push(Finding::AnnouncerNestedCopies {
+                count: copies.len(),
+                names: first(&copies, 3),
+            });
         }
         if r.ignored > 0 {
-            details.push(format!(
-                "{} passed over (not sounds, or not in a line's folder)",
-                count(r.ignored, "other file", "other files")
-            ));
+            details.push(Finding::AnnouncerOtherFiles { count: r.ignored });
         }
         Said {
             summary,

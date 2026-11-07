@@ -9,6 +9,7 @@ repository.workspace = true
 description = "DitoDitoInfinito: render crate"
 
 [dependencies]
+ddi-l10n.workspace = true
 ddi-character.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
@@ -19,6 +20,9 @@ ddi-lua.workspace = true
 wgpu = { workspace = true, features = ["wgsl"] }
 naga = { workspace = true, features = ["wgsl-in", "glsl-out"] }
 glyphon.workspace = true
+# A stack's families' coverage, per grapheme (`cosmic`).
+ttf-parser.workspace = true
+unicode-segmentation.workspace = true
 bytemuck.workspace = true
 
 [dev-dependencies]

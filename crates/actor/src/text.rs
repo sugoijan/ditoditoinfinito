@@ -50,7 +50,8 @@ pub struct TextStyle {
     pub weight: u16,
     pub italic: bool,
     /// Extra space between letters, thousandths of an em (CSS's
-    /// `letter-spacing`): our extension for the theme's small capitals.
+    /// `letter-spacing`): our extension for the theme's small capitals,
+    /// for scripts with capitals ([`TextStyle::for_text`]).
     pub tracking: i16,
 }
 
@@ -67,6 +68,22 @@ impl TextStyle {
 
     pub fn size(&self) -> f32 {
         self.size_64 as f32 / 64.0
+    }
+
+    /// The style `text` is set in: its letters spaced ([`TextStyle::tracking`],
+    /// the small capitals) only where it has no letter of a script without
+    /// capitals; Japanese, Korean and their kind are drawn as written
+    /// (`docs/plans/localization.md`, "Text and fonts").
+    pub fn for_text(&self, text: &str) -> std::borrow::Cow<'_, TextStyle> {
+        let uncased = |c: char| c.is_alphabetic() && !c.is_uppercase() && !c.is_lowercase();
+        if self.tracking != 0 && text.chars().any(uncased) {
+            std::borrow::Cow::Owned(TextStyle {
+                tracking: 0,
+                ..self.clone()
+            })
+        } else {
+            std::borrow::Cow::Borrowed(self)
+        }
     }
 
     /// The height of a line: our own metric, since a font's box covers
@@ -99,6 +116,62 @@ pub trait TextMeasure {
     fn measure(&mut self, text: &str, style: &TextStyle) -> RunMetrics;
 }
 
+/// `text` in lines no wider than `width`, `measure` giving a run's
+/// advance: broken where Unicode's line breaking allows it (UAX #14:
+/// after spaces and hyphens; between CJK characters, but never before
+/// 。、」ー, small kana and their kind, nor after 「（), and at every line
+/// break written in it. A piece no line holds (a link, a hash, a German
+/// compound) is cut between graphemes with `cut`, else kept whole and
+/// wider than `width`. Spaces at a line's end are dropped.
+pub fn wrap(
+    text: &str,
+    width: f32,
+    cut: bool,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> Vec<String> {
+    use unicode_linebreak::BreakOpportunity;
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let mut out = Vec::new();
+    let mut line = String::new();
+    let mut start = 0;
+    for (at, opportunity) in unicode_linebreak::linebreaks(text) {
+        let piece = &text[start..at];
+        start = at;
+        let candidate = format!("{line}{piece}");
+        if line.trim_end().is_empty() || measure(candidate.trim_end()) <= width {
+            line = candidate;
+        } else {
+            out.push(line.trim_end().to_string());
+            line = piece.to_string();
+        }
+        while cut && measure(line.trim_end()) > width {
+            // The longest start that fits, a grapheme at least.
+            let mut end = 0;
+            for (i, g) in line.grapheme_indices(true) {
+                let next = i + g.len();
+                if end > 0 && measure(line[..next].trim_end()) > width {
+                    break;
+                }
+                end = next;
+            }
+            if line[end..].trim_end().is_empty() {
+                break;
+            }
+            out.push(line[..end].trim_end().to_string());
+            line = line[end..].to_string();
+        }
+        if opportunity == BreakOpportunity::Mandatory {
+            out.push(line.trim_end().to_string());
+            line.clear();
+        }
+    }
+    if out.is_empty() {
+        out.push(String::new());
+    }
+    out
+}
+
 /// A measurer for tests: every character is `0.5 × size` wide, ink fills
 /// the advance from the baseline up to the size, the baseline sits at
 /// 0.8 of the line height.
@@ -127,6 +200,67 @@ mod tests {
         assert_eq!(s.size_64, 1153);
         assert_eq!(TextStyle::new("sans-serif", 18.0).size(), 18.0);
         assert_eq!(TextStyle::new("sans-serif", 16.0).line_height(), 20.0);
+    }
+
+    /// Lines at most `cols` columns, a CJK character two, as
+    /// `look::mono_width` counts them.
+    fn lines(text: &str, cols: f32, cut: bool) -> Vec<String> {
+        wrap(text, cols, cut, &mut |s| {
+            s.chars()
+                .map(|c| if (c as u32) >= 0x2E80 { 2.0 } else { 1.0 })
+                .sum()
+        })
+    }
+
+    #[test]
+    fn lines_break_between_words_and_at_written_breaks() {
+        assert_eq!(lines("one two three", 8.0, true), ["one two", "three"]);
+        assert_eq!(lines("one\n\ntwo", 80.0, true), ["one", "", "two"]);
+        assert_eq!(lines("", 8.0, true), [""]);
+        // After a hyphen too; a no-break space never.
+        assert_eq!(lines("well-known", 6.0, true), ["well-", "known"]);
+        assert_eq!(lines("10\u{a0}ms left", 6.0, false), ["10\u{a0}ms", "left"]);
+    }
+
+    #[test]
+    fn a_piece_too_long_is_cut_or_kept() {
+        assert_eq!(lines("abcdefghij", 4.0, true), ["abcd", "efgh", "ij"]);
+        assert_eq!(lines("abcdefghij xy", 4.0, false), ["abcdefghij", "xy"]);
+        // By grapheme: an accent stays on its letter.
+        assert_eq!(
+            lines("e\u{301}e\u{301}e\u{301}", 2.0, true),
+            ["e\u{301}"; 3]
+        );
+    }
+
+    #[test]
+    fn japanese_breaks_between_characters_but_not_before_closing_marks() {
+        // 6 columns: three characters a line; 。 takes い down with it.
+        assert_eq!(
+            lines("曲を選んでください。", 6.0, true),
+            ["曲を選", "んでく", "ださ", "い。"]
+        );
+        // Never 。、」, ー or small kana first, nor 「 last (where nothing
+        // has to be cut: a piece wider than a line is cut anywhere).
+        for l in (4..12).flat_map(|w| lines("「ジャッジ」を、ラーメンで。", w as f32 * 2.0, false))
+        {
+            let first = l.chars().next().unwrap();
+            assert!(!"。、」ーッャ".contains(first), "{l:?}");
+            assert!(!l.ends_with('「'), "{l:?}");
+        }
+    }
+
+    #[test]
+    fn only_scripts_with_capitals_are_spaced() {
+        let style = TextStyle {
+            tracking: 80,
+            ..TextStyle::new("sans-serif", 12.0)
+        };
+        assert_eq!(style.for_text("OPTIONS").tracking, 80);
+        assert_eq!(style.for_text("ОПЦИИ 2").tracking, 80);
+        assert_eq!(style.for_text("1:05").tracking, 80);
+        assert_eq!(style.for_text("オプション").tracking, 0);
+        assert_eq!(style.for_text("BPM 曲").tracking, 0);
     }
 
     #[test]

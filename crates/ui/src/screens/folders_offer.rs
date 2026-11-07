@@ -7,8 +7,11 @@
 use std::rc::Rc;
 
 use ddi_actor::Actor;
+use ddi_l10n::UiText;
+use ddi_l10n::msg::pages as pm;
 
-use super::select_dialogs::{button, dialog_root, shell, wrap, wrap_lines};
+use super::page::wrap_marked;
+use super::select_dialogs::{button, dialog_root, shell, wrap};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
@@ -36,31 +39,22 @@ impl FoldersOfferDialog {
     }
 
     fn lines(&self, w: f32) -> Vec<(String, &'static str)> {
-        let mut lines: Vec<(String, &'static str)> = wrap_lines(
-            "Song folders of other dance games are on this computer. The game can read them \
-             where they are: nothing is copied or changed.",
-            w,
-            14.0,
-        )
-        .into_iter()
-        .map(|l| (l, "Text"))
-        .collect();
+        let mut lines: Vec<(String, &'static str)> = wrap_marked(&pm::offer_found(), w, 14.0)
+            .into_iter()
+            .map(|l| (l, "Text"))
+            .collect();
         lines.push((String::new(), "Muted"));
         for f in self.folders.iter().take(SHOWN) {
-            lines.push((f.clone(), "Muted"));
+            lines.push((UiText::data(f).into(), "Muted"));
         }
         if self.folders.len() > SHOWN {
-            lines.push((format!("and {} more", self.folders.len() - SHOWN), "Muted"));
+            lines.push((pm::offer_more(self.folders.len() - SHOWN).into(), "Muted"));
         }
         lines.push((String::new(), "Muted"));
         lines.extend(
-            wrap_lines(
-                "Options lists the song folders: add or remove them there at any time.",
-                w,
-                14.0,
-            )
-            .into_iter()
-            .map(|l| (l, "Muted")),
+            wrap_marked(&pm::offer_where(), w, 14.0)
+                .into_iter()
+                .map(|l| (l, "Muted")),
         );
         lines
     }
@@ -82,7 +76,7 @@ impl Screen for FoldersOfferDialog {
         let w = 600.0_f32.min(screen[0] - 32.0);
         let lines = self.lines(w - 48.0);
         let h = (140.0 + lines.len() as f32 * 18.0).min(screen[1] - 32.0);
-        let (mut c, [x, y]) = shell(&env, screen, [w, h], "Add the songs you have?");
+        let (mut c, [x, y]) = shell(&env, screen, [w, h], &pm::offer_title());
         for (i, (line, color)) in lines.iter().enumerate() {
             let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, color);
             wrap(&mut b, w - 48.0);
@@ -93,7 +87,7 @@ impl Screen for FoldersOfferDialog {
         c.push(button(
             &env,
             "Decline",
-            "No thanks",
+            &pm::offer_decline(),
             [x + w - 24.0 - bw * 1.5 - 10.0, by],
             bw,
             "Button",
@@ -101,11 +95,7 @@ impl Screen for FoldersOfferDialog {
         c.push(button(
             &env,
             "Add",
-            if self.folders.len() == 1 {
-                "Add it"
-            } else {
-                "Add them"
-            },
+            &pm::offer_add(self.folders.len()),
             [x + w - 24.0 - bw / 2.0, by],
             bw,
             "PlayButton",

@@ -7,3 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "DitoDitoInfinito: StepMania's actor model (tweens, effects, sprite states, commands, models)"
+
+[dependencies]
+# Text's lines (`text::wrap`, UAX #14) and cuts (`Text::ellipsis`), by
+# grapheme.
+unicode-linebreak.workspace = true
+unicode-segmentation.workspace = true

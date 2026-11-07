@@ -13,10 +13,10 @@
 //   {type: "recycle", buffer} (a frame's buffer given back, transferred:
 //   the next frame is copied into it instead of a new one).
 // Worker → page: {type: "loading", loaded, total}, {type: "ready", ms,
-//   version}, {type: "failed", message} (the module), {type: "opened", id,
+//   version}, {type: "failed", message, kind} (the module), {type: "opened", id,
 //   width, height, duration, codec}, {type: "frame", id, gen, pts, width,
 //   height, colorspace, full_range, decode_ms, planes} (planes transferred),
-//   {type: "eof", id, gen, last}, {type: "error", id, message},
+//   {type: "eof", id, gen, last}, {type: "error", id, message, kind, …},
 //   {type: "probed", id, width, height, full_range, planes} (Y planes of
 //   the sampled frames, transferred).
 // Messages are handled one at a time, in order; frames are decoded only on
@@ -370,7 +370,8 @@ function load() {
       const start = performance.now();
       const describe = await fetch(new URL("ddivideo.json", base), { cache: "no-cache" });
       if (!describe.ok) {
-        throw new Error(describe.status === 404 ? "the video decoder is not included in this build" : "loading the video decoder failed (HTTP " + describe.status + ")");
+        if (describe.status === 404) throw Object.assign(new Error("the video decoder is not included in this build"), { kind: "missing" });
+        throw new Error("loading the video decoder failed (HTTP " + describe.status + ")");
       }
       const info = await describe.json();
       const response = await fetch(new URL("ddivideo.wasm?v=" + String(info.sha256).slice(0, 16), base));
@@ -423,10 +424,11 @@ async function ensureInstance() {
 // `open` starts a fresh instance.
 function crashed(error, id) {
   const cause = error.cause || error;
-  const message = "the video decoder crashed: " + (cause && cause.message ? cause.message : String(cause));
+  const detail = cause && cause.message ? cause.message : String(cause);
+  const message = "the video decoder crashed: " + detail;
   console.warn("[video]", cause);
-  for (const open of videos.keys()) post({ type: "error", id: open, message });
-  if (id !== undefined && !videos.has(id)) post({ type: "error", id, message });
+  for (const open of videos.keys()) post({ type: "error", id: open, message, kind: "crashed", detail });
+  if (id !== undefined && !videos.has(id)) post({ type: "error", id, message, kind: "crashed", detail });
   videos.clear();
   files.clear();
   fds.clear();
@@ -456,8 +458,9 @@ async function ready(id) {
     await ensureInstance();
     return true;
   } catch (e) {
-    post({ type: "failed", message: e.message || String(e) });
-    if (id !== undefined) post({ type: "error", id, message: e.message || String(e) });
+    const kind = e.kind || "load";
+    post({ type: "failed", message: e.message || String(e), kind });
+    if (id !== undefined) post({ type: "error", id, message: e.message || String(e), kind });
     return false;
   }
 }
@@ -485,7 +488,7 @@ async function open({ id, blob, url, size, name }) {
   const source = sourceOf({ blob, url, size });
   const ptr = openFile(fileName, source);
   if (!ptr) {
-    post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
+    post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)", kind: "unknown" });
     return;
   }
   // The header and the index are read: the rest comes down in order.
@@ -525,7 +528,7 @@ function want({ id, n, gen }) {
     }
     if (pts < 0) {
       if (++video.bad > MAX_BAD_FRAMES) {
-        post({ type: "error", id, message: "the movie does not decode (" + MAX_BAD_FRAMES + " broken frames in a row)" });
+        post({ type: "error", id, message: "the movie does not decode (" + MAX_BAD_FRAMES + " broken frames in a row)", kind: "broken", count: MAX_BAD_FRAMES });
         close({ id });
         return;
       }
@@ -574,7 +577,7 @@ function seek({ id, t, gen }) {
   video.bad = 0;
   video.ended = false;
   if (exports.ddi_seek(video.ptr, t) !== 0) {
-    post({ type: "error", id, message: "the movie could not be read again after seeking" });
+    post({ type: "error", id, message: "the movie could not be read again after seeking", kind: "unseekable" });
     close({ id });
   }
 }
@@ -595,7 +598,7 @@ async function probe({ id, blob, url, size, name }) {
   const fileName = "probe-" + id + extensionOf(name);
   const ptr = openFile(fileName, sourceOf({ blob, url, size }));
   if (!ptr) {
-    post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
+    post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)", kind: "unknown" });
     return;
   }
   const duration = exports.ddi_duration(ptr);

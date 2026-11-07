@@ -240,7 +240,7 @@ pub struct ResolvedAssets {
 
 /// The tag of a reference [`ResolvedAssets::missing`] lists, shown as the
 /// simfile writes it (`#MUSIC (chart n)` for a chart's own `#MUSIC`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MissingTag {
     Music,
     Banner,

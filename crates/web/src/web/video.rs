@@ -16,8 +16,8 @@ use std::rc::Rc;
 
 pub(crate) use ddi_platform::video::Picture;
 use ddi_platform::video::{
-    PlanePool, VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame, VideoInfo,
-    YuvMatrix,
+    PlanePool, VideoBackend, VideoDecoder, VideoError, VideoEvent, VideoFormat, VideoFrame,
+    VideoInfo, YuvMatrix,
 };
 use js_sys::{ArrayBuffer, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -61,7 +61,7 @@ pub(crate) enum ModuleStatus {
     Ready {
         load_ms: f64,
     },
-    Failed(String),
+    Failed(VideoError),
 }
 
 struct Movie {
@@ -140,10 +140,15 @@ impl VideoWorker {
                 } else {
                     format!("the video worker stopped: {detail}")
                 };
+                let stopped = VideoError::Crashed(if detail.is_empty() {
+                    "the video worker stopped".to_string()
+                } else {
+                    detail
+                });
                 let mut shared = shared.borrow_mut();
-                shared.status = ModuleStatus::Failed(message.clone());
+                shared.status = ModuleStatus::Failed(stopped.clone());
                 for movie in shared.movies.values_mut() {
-                    movie.events.push(VideoEvent::Error(message.clone()));
+                    movie.events.push(VideoEvent::Error(stopped.clone()));
                 }
                 for probe in shared.probes.values_mut() {
                     probe.get_or_insert_with(|| Err(message.clone()));
@@ -341,6 +346,22 @@ fn text(msg: &JsValue, key: &str) -> String {
     field(msg, key).as_string().unwrap_or_default()
 }
 
+/// Why the worker says a movie (or the module) cannot play, by the
+/// `kind` it gives (`missing`, `load`, `unknown`, `broken`,
+/// `unseekable`, `crashed`); the rest in the decoder's own words.
+fn video_error(msg: &JsValue) -> VideoError {
+    let message = text(msg, "message");
+    match text(msg, "kind").as_str() {
+        "missing" => VideoError::NotIncluded,
+        "load" => VideoError::NotLoaded(message),
+        "unknown" => VideoError::UnknownFormat,
+        "broken" => VideoError::Broken(number(msg, "count") as u32),
+        "unseekable" => VideoError::Unseekable,
+        "crashed" => VideoError::Crashed(text(msg, "detail")),
+        _ => VideoError::Decoder(message),
+    }
+}
+
 /// Applies one message from the worker; a frame's buffer, once its planes
 /// are copied out, to give back.
 fn receive(shared: &mut Shared, msg: &JsValue) -> Option<ArrayBuffer> {
@@ -357,7 +378,7 @@ fn receive(shared: &mut Shared, msg: &JsValue) -> Option<ArrayBuffer> {
                 load_ms: number(msg, "ms"),
             }
         }
-        "failed" => shared.status = ModuleStatus::Failed(text(msg, "message")),
+        "failed" => shared.status = ModuleStatus::Failed(video_error(msg)),
         _ => {}
     }
     // Frames of a movie closed or sought away from still give their
@@ -414,7 +435,7 @@ fn receive(shared: &mut Shared, msg: &JsValue) -> Option<ArrayBuffer> {
         "eof" if current => VideoEvent::End {
             last_pts: field(msg, "last").as_f64(),
         },
-        "error" => VideoEvent::Error(text(msg, "message")),
+        "error" => VideoEvent::Error(video_error(msg)),
         _ => return buffer,
     };
     movie.events.push(event);

@@ -550,7 +550,8 @@ async fn keep_batch(batch: Vec<Imported>) -> Kept {
 /// A kept play as stored (its replay); `done` hears it, or why not.
 pub(crate) fn entry(
     id: &str,
-    done: impl FnOnce(Result<ddi_platform::history::PlayEntry, String>) + 'static,
+    done: impl FnOnce(Result<ddi_platform::history::PlayEntry, ddi_ui::state::history::Refusal>)
+    + 'static,
 ) {
     plays().entry(id, done);
 }

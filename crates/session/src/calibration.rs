@@ -61,26 +61,26 @@ impl CalMode {
         }
     }
 
-    pub fn title(self) -> &'static str {
+    /// The test's name, as its start prompt titles it.
+    pub fn title(self) -> String {
+        use ddi_l10n::msg::pages as m;
         match self {
-            CalMode::Combined => "Calibration check: sound and arrows",
-            CalMode::Audio => "Calibration 2/3: sound only",
-            CalMode::Visual => "Calibration 1/3: arrows only (muted)",
+            CalMode::Combined => m::calibration_run_combined_title(),
+            CalMode::Audio => m::calibration_run_audio_title(),
+            CalMode::Visual => m::calibration_run_visual_title(),
         }
+        .into()
     }
 
-    pub fn hint(self) -> &'static str {
+    /// What to do in it, under the title.
+    pub fn hint(self) -> String {
+        use ddi_l10n::msg::pages as m;
         match self {
-            CalMode::Combined => {
-                "play normally; the test adjusts itself and stops once it converges"
-            }
-            CalMode::Audio => {
-                "press ANY arrow key on each click; the test adjusts itself and stops once it converges"
-            }
-            CalMode::Visual => {
-                "hit each arrow as it reaches the receptor; the test adjusts itself and stops once it converges"
-            }
+            CalMode::Combined => m::calibration_run_combined_hint(),
+            CalMode::Audio => m::calibration_run_audio_hint(),
+            CalMode::Visual => m::calibration_run_visual_hint(),
         }
+        .into()
     }
 
     /// The step that follows in the guided flow.
@@ -272,7 +272,8 @@ pub fn report(o: &Outcome, mode: CalMode, refresh_hz: f64) -> Report {
 /// What a run came to, settled (`docs/plans/quiet-calibration.md`): a
 /// meaningful correction added to the offset in effect
 /// ([`CalMode::apply`]), nothing otherwise, and a line for calibration's
-/// menu saying so plainly (`ddi_ui::screens::calibration::note_last_run`).
+/// menu saying so plainly (`ddi_ui::screens::calibration::note_last_run`,
+/// its message `run_line`'s).
 pub struct Settled {
     /// The correction was added (the settings changed: save them).
     pub applied: bool,
@@ -289,42 +290,30 @@ pub fn settle(
     devices: Option<&ddi_platform::DeviceProfile>,
     device_changed: bool,
 ) -> Settled {
-    let test = match mode {
-        CalMode::Visual => "The arrows-only test",
-        CalMode::Audio => "The sound-only test",
-        CalMode::Combined => "The check with both",
-    };
+    use ddi_ui::screens::calibration::{RunEnd, run_line};
     let r = report(o, mode, 60.0);
-    let target = mode.target();
     if device_changed {
         return Settled {
             applied: false,
-            line: format!(
-                "{test}: a device changed during it, so nothing was saved. Run it again."
-            ),
+            line: run_line(mode.id(), RunEnd::DeviceChanged),
         };
     }
     let unusable = o.out_of_range || o.unreliable() || o.hits < MIN_RESIDUAL as u32;
     if unusable {
-        let mut line = format!(
-            "{test} could not measure reliably, so nothing changed. Run it again, hitting every \
-             note with a steady rhythm."
-        );
-        if o.out_of_range {
-            line.push_str(
-                " If the clicks really sound that late, set the audio offset by hand in the \
-                 options first.",
-            );
-        }
         return Settled {
             applied: false,
-            line,
+            line: run_line(
+                mode.id(),
+                RunEnd::Unreliable {
+                    out_of_range: o.out_of_range,
+                },
+            ),
         };
     }
     if !r.meaningful {
         return Settled {
             applied: false,
-            line: format!("{test} found the {target} right as it is."),
+            line: run_line(mode.id(), RunEnd::Right),
         };
     }
     mode.apply(settings, devices, o.total());
@@ -340,7 +329,7 @@ pub fn settle(
     };
     Settled {
         applied: true,
-        line: format!("{test} set the {target} to {:+.0} ms.", now * 1000.0),
+        line: run_line(mode.id(), RunEnd::Set { seconds: now }),
     }
 }
 

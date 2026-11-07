@@ -1,0 +1,9646 @@
+# Reviews of the ja messages (docs/plans/localization.md), each
+# against hashes of the English and the translation reviewed. Written
+# by `cargo run -p xtask -- l10n review`; a message not here, or here
+# with other hashes, is unverified.
+
+[boot-blocked]
+source = "b8b0570eaed6d522"
+text = "cd0a1a1dd16db0a8"
+by = "agent"
+date = "2026-11-07"
+
+[boot-crashed]
+source = "fef6e62d057d2625"
+text = "7919a5356eb8c5e3"
+by = "agent"
+date = "2026-11-07"
+
+[boot-init-failed]
+source = "08dcc2911ec7c754"
+text = "27b8f3eb60894ba4"
+by = "agent"
+date = "2026-11-07"
+
+[boot-loading]
+source = "3f8e844b32e8b60e"
+text = "44a9d9adbda389e0"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-audio]
+source = "4dd749c6e8e20829"
+text = "e67264ebb3830e5e"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-fetch]
+source = "1dcabe3341345633"
+text = "e29ac6aa1b8741e0"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-pointer]
+source = "594e39a18f921bd4"
+text = "367b417dbdae67a8"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-raf]
+source = "789d478ef711c98e"
+text = "f9ff94b60f81ff73"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-textdecoder]
+source = "baeef47c5de49010"
+text = "c62236b6cfdceed2"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-wasm]
+source = "50e6f5f3d850cfe3"
+text = "d8d33ad8667aedd0"
+by = "agent"
+date = "2026-11-07"
+
+[boot-no-wasm-simd]
+source = "c7cb43ab4140fa6c"
+text = "4105ce4f9f852087"
+by = "agent"
+date = "2026-11-07"
+
+[boot-reload]
+source = "56c5c1ccdbe2b608"
+text = "907ec229196a07f8"
+by = "agent"
+date = "2026-11-07"
+
+[boot-reloading]
+source = "438fe3132a9464fa"
+text = "3ac58ef45793f4c8"
+by = "agent"
+date = "2026-11-07"
+
+[boot-start-failed]
+source = "fc907a417b03b1a8"
+text = "e527fb5370521a96"
+by = "agent"
+date = "2026-11-07"
+
+[boot-update]
+source = "e045de63aa0f0fc0"
+text = "9b2a9a2b8906b185"
+by = "agent"
+date = "2026-11-07"
+
+[boot-update-simd]
+source = "927b1bed5a0d73d1"
+text = "856b44358bb6b5ce"
+by = "agent"
+date = "2026-11-07"
+
+[common-back]
+source = "f18b99355efa0266"
+text = "cbc2a9a9a4d5cf82"
+by = "agent"
+date = "2026-11-07"
+
+[common-calibrate]
+source = "a2c6a8e7290ee7e2"
+text = "d297627d6dfe24bb"
+by = "agent"
+date = "2026-11-07"
+
+[common-cancel]
+source = "bc82f2d83e431178"
+text = "b5840629d5f0e341"
+by = "agent"
+date = "2026-11-07"
+
+[common-close]
+source = "460e12f1eb10748a"
+text = "c148560afe577cde"
+by = "agent"
+date = "2026-11-07"
+
+[common-copy]
+source = "10fc80c7b6fc3fba"
+text = "1b42e098017b802f"
+by = "agent"
+date = "2026-11-07"
+
+[common-game-name]
+source = "9747b207e6bd9653"
+text = "9747b207e6bd9653"
+by = "agent"
+date = "2026-11-07"
+
+[common-hint-choose]
+source = "4b9ce700ca77e466"
+text = "02dd74d7ff29d7ab"
+by = "agent"
+date = "2026-11-07"
+
+[common-hint-move]
+source = "de93dc2bf2b85b06"
+text = "06b1f0fbceed04ad"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-center]
+source = "a950e7d0b4488557"
+text = "04b3f70070f7a45a"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-down]
+source = "fef397e745da9a6d"
+text = "03f4b675c758bbf6"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-down-left]
+source = "516d57c7090230b7"
+text = "deef0abcdb210050"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-down-right]
+source = "bb3fbf41be4fdfcb"
+text = "9e734609ff166ef6"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-giko]
+source = "d77f91b6956f2c39"
+text = "f9ee0a2a60337a6e"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-iyo]
+source = "94682ad2d99d3bd3"
+text = "2d69d25dae2c2a3c"
+by = "agent"
+date = "2026-11-08"
+
+[common-lane-left]
+source = "8578785aa3e8c667"
+text = "5440f240672f2948"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-on-pad]
+source = "18295656a2dd497b"
+text = "15a01439216398e1"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-onigiri]
+source = "a7665dbd379ef0ef"
+text = "114d792cf0d88816"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-right]
+source = "ec5d65b289523e93"
+text = "18457799aa8c6738"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-up]
+source = "ee4229c4c2257963"
+text = "d60aa758a2d1ea08"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-up-left]
+source = "3cfcf27f5e8243b3"
+text = "bc0dc83d6dbd2052"
+by = "agent"
+date = "2026-11-07"
+
+[common-lane-up-right]
+source = "a18d4003774bc075"
+text = "f439ee9d77b31152"
+by = "agent"
+date = "2026-11-07"
+
+[common-more]
+source = "86924177c9225e7a"
+text = "578d7655e3eba52d"
+by = "agent"
+date = "2026-11-07"
+
+[common-off]
+source = "56f6390f7d705d02"
+text = "9be15bf3bad5bfb3"
+by = "agent"
+date = "2026-11-07"
+
+[common-on]
+source = "ef87919a6c7ec452"
+text = "ff9d45c90a023e17"
+by = "agent"
+date = "2026-11-07"
+
+[common-open]
+source = "fa31edd14044ae00"
+text = "a56a620be72610a1"
+by = "agent"
+date = "2026-11-07"
+
+[common-reset]
+source = "29399e81d6e3c68a"
+text = "23bdc26796671cc2"
+by = "agent"
+date = "2026-11-07"
+
+[common-save]
+source = "c67ed3344de00022"
+text = "f9ef58d5d7df27b5"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-dance-double]
+source = "d6299e31c18856a4"
+text = "703d618b5cbe6d2a"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-dance-single]
+source = "37a16c3283532262"
+text = "a873990e07f16991"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-dance-solo]
+source = "03a2fa80a92ec300"
+text = "000b41d37e64f62a"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-danoni]
+source = "8e2f4fd8bfd98b1c"
+text = "3ccecb5a2c2064d7"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-lanes]
+source = "d59c3eeda079e930"
+text = "aee73ee075d3de67"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-pump-double]
+source = "9f7193c0cfcceaa5"
+text = "0c8a47de1757ac91"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-pump-halfdouble]
+source = "3b03b5134062391a"
+text = "5e1576c3ef59682e"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-pump-single]
+source = "1d6be3966a4290c5"
+text = "ab038eefa871c598"
+by = "agent"
+date = "2026-11-07"
+
+[common-style-techno-single8]
+source = "fc51d011f5b4a0f6"
+text = "ffe693d9b634b11e"
+by = "agent"
+date = "2026-11-08"
+
+[danoni-after-import]
+source = "0799ca94158327d7"
+text = "2e83c4e2b193771c"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-bundle-damaged]
+source = "a4b691ea8e5b2fb4"
+text = "e033e9692aa71bc6"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-busy]
+source = "24a0ee11559ef97c"
+text = "dcd48238d59bd7ea"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-cancelled]
+source = "25d54d04584fd081"
+text = "a56ca2965afd22c9"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-cancelled-early]
+source = "f584010c3e963188"
+text = "050a553565487f94"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-catalog-incomplete]
+source = "53e106f6a767d030"
+text = "943709b0592f3d7b"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-catalog-rejected]
+source = "410c57ad07a0ad4d"
+text = "49963492aabdb6cc"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-catalog-unopened]
+source = "0a313a42ca4f637e"
+text = "c1cbe59cf4f067d1"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-catalog-unopened-because]
+source = "1058e520d2e851dd"
+text = "837ee7ccffc1e3c2"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-client-stopped]
+source = "9f4b53463e01f0de"
+text = "3068345863744081"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-connection-lost]
+source = "21ef4c4fa1860a91"
+text = "54ecec66557f0123"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-details]
+source = "0e1858ec6b04070e"
+text = "d6e3b6c8ae92e4a1"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-done]
+source = "109db2116354ddad"
+text = "876bb389eda0c397"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-exited]
+source = "e65e5a74db540a70"
+text = "e697dc0973d6486a"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-failed]
+source = "4346ea97d10358f0"
+text = "cf61f592ec71b478"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-importer-stopped]
+source = "eb434e645289444f"
+text = "e24182ec991e04a7"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-incompatible]
+source = "371c1938c2decb66"
+text = "766cdefe50bb1da6"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-lost-result]
+source = "53d2ea3bc9d3f266"
+text = "e38034e8e90137df"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-needs-recovery]
+source = "502598feef19ca95"
+text = "9109f7b8cc3b18ea"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-no-cache-folder]
+source = "1710416bcb75d02d"
+text = "08b863d24227aaf1"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-no-data-folder]
+source = "76db63e3001609d5"
+text = "e9a4586b710a5aff"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-no-exit]
+source = "58120d103996ff18"
+text = "9f5f491dae46dd5e"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-not-remembered]
+source = "c0fe022cf61cfce1"
+text = "e2dd4ad5aca49964"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-not-stopped]
+source = "0aed7e9a2d6789ea"
+text = "dbc89eddcb3ee3d9"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-protocol]
+source = "1937a0c45ab9e414"
+text = "f316239c7598bac5"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-refresh-failed]
+source = "4b5000510f484834"
+text = "cfcce9ab8679789b"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-adding-details]
+source = "5e090b18f7878a0d"
+text = "208911c4effa67dc"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-adding-songs]
+source = "8d80077f78e6f8e7"
+text = "00d902fbd2f9209f"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-cancelling]
+source = "18d25e1ce83138c3"
+text = "bd8aea1205404174"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-checking-charts]
+source = "9772b68b01d319ae"
+text = "ae3e8c729f1804e9"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-checking-existing]
+source = "05af90246cbe9068"
+text = "3177437e44955448"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-checking-files]
+source = "aee61bff835bc20b"
+text = "5ea292eac82c495b"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-checking-import]
+source = "99da0a05aab30e69"
+text = "21fa0a1cc4c0125a"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-checking-prepared]
+source = "84626ccd58700f88"
+text = "ac449e8f36aa9428"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-converting-music]
+source = "03cb76668b05f7a0"
+text = "f96fd9e4b0ff6097"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-downloading]
+source = "819bb09510f20f25"
+text = "abdf6ce80855064d"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-finishing]
+source = "7de8a3f0913610b1"
+text = "d1f35c0c125febce"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-finishing-checks]
+source = "fa00e25abdf4259e"
+text = "a9f41b07499d3d77"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-finishing-import]
+source = "fbc6c87a3f1e0aea"
+text = "7a6a2632e141648f"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-finishing-preparation]
+source = "8df659b113b4c240"
+text = "10e43e076cb939e9"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-making-artwork]
+source = "5639c40977a45729"
+text = "ab35c70fde889942"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-mapping-timing]
+source = "439f29f77014ff16"
+text = "f6cd75ffdb83e9f7"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-opening-catalog]
+source = "d16074e1fcbacf75"
+text = "1ed1c336c46e8a73"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-opening-work]
+source = "0100fc91f01aaa7b"
+text = "6bf802a34159b17f"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-preparing]
+source = "c8004b805f0889fd"
+text = "623128ace0ce4c0d"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-preparing-songs]
+source = "329b9c5c46c03200"
+text = "4719c1b37e56bb6f"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-preparing-update]
+source = "a47f7c58cc55bed3"
+text = "dc27e3cd5c3ee6e5"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-reading-charts]
+source = "23815cc22037b5bf"
+text = "3e3e61ce59b42476"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-saving-details]
+source = "b393a923118aa77b"
+text = "96ee0a102060e6d8"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-saving-prepared]
+source = "0afb1a7f85a53714"
+text = "990bc5d681d9cf2e"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-stage-verifying-charts]
+source = "2b0e6b63e13856e4"
+text = "8c2bf439ec0db1ef"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-start-failed]
+source = "2ee4b05cdaa08267"
+text = "7ffb27af6bdb8765"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-storage-failed]
+source = "1d684ff1c4d43057"
+text = "84cc746cb8dba105"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-storage-not-folder]
+source = "e8ec62a409aaa0f7"
+text = "93f402daabfb71e9"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-timed-out]
+source = "caca089e2149d973"
+text = "565404af0d64049a"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-unavailable]
+source = "efaf3789905da4c1"
+text = "898330bd33a248c5"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-unchanged]
+source = "fa15194a4ee7c7e6"
+text = "28541535fa562714"
+by = "agent"
+date = "2026-11-07"
+
+[danoni-url-invalid]
+source = "875fe7b0af1e2666"
+text = "df29826db228bf8e"
+by = "agent"
+date = "2026-11-07"
+
+[devices-audio]
+source = "2c97734ba5cd97ec"
+text = "794f6ce0440e3393"
+by = "agent"
+date = "2026-11-07"
+
+[devices-audio-named]
+source = "4cee728e8fd4fabd"
+text = "abbf3c5f1e568cbe"
+by = "agent"
+date = "2026-11-07"
+
+[devices-axis]
+source = "191776922bc19cf0"
+text = "161332343c48bea8"
+by = "agent"
+date = "2026-11-07"
+
+[devices-button]
+source = "1d55e40df2e2da13"
+text = "f528854afed66fe2"
+by = "agent"
+date = "2026-11-07"
+
+[devices-display]
+source = "d7c90e67c39e85de"
+text = "367d6c7f900e4b8e"
+by = "agent"
+date = "2026-11-07"
+
+[devices-display-named]
+source = "4fd783dd7a1dd0c2"
+text = "4fd783dd7a1dd0c2"
+by = "agent"
+date = "2026-11-07"
+
+[devices-display-refresh]
+source = "91d9c8588e5d20a4"
+text = "951bf31823e6e341"
+by = "agent"
+date = "2026-11-07"
+
+[devices-face-east]
+source = "a2a08aab8c676cdc"
+text = "f64d804fc43ec835"
+by = "agent"
+date = "2026-11-07"
+
+[devices-face-north]
+source = "4da079a1eb6f8adc"
+text = "7c2972cf50ca591c"
+by = "agent"
+date = "2026-11-07"
+
+[devices-face-south]
+source = "b68e07bbab467f80"
+text = "3a95bf0c3a4460bf"
+by = "agent"
+date = "2026-11-07"
+
+[devices-face-west]
+source = "ad5e2ebfeddd5bec"
+text = "e4a9df239226d01a"
+by = "agent"
+date = "2026-11-07"
+
+[devices-hat]
+source = "ebf2b670232d241d"
+text = "1a07e41c365bc997"
+by = "agent"
+date = "2026-11-07"
+
+[devices-list]
+source = "23688e2d75efa9e6"
+text = "d92bbc2d344385d8"
+by = "agent"
+date = "2026-11-07"
+
+[editor-badge-fake]
+source = "3e7601331afb2901"
+text = "3e7601331afb2901"
+by = "agent"
+date = "2026-11-07"
+
+[editor-badge-lift]
+source = "04d39148f33b6d53"
+text = "04d39148f33b6d53"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-add]
+source = "506fc3871eb55174"
+text = "00a8ef8bb02bccb3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-add-note]
+source = "7deafa34bf031cfe"
+text = "682a5ac79ed263d9"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-add-title]
+source = "b09abc8f968745e3"
+text = "1b9d0a455ce61ae6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-credit]
+source = "f3be1bf6cbffe254"
+text = "09691fa23f896e9b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-description]
+source = "2e10be24079e17c3"
+text = "4474a9c8eccdcda2"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-difficulty]
+source = "222f50e217cee204"
+text = "53bfb0ad3ee08433"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-field]
+source = "004c6902e30d9166"
+text = "a98333fc48756477"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-lanes]
+source = "b6a4791db09df3a3"
+text = "797365dd70b425f6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-meter]
+source = "76f7dedb31f86e94"
+text = "86addd9a57c5557a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-name]
+source = "799fc7a05f76a362"
+text = "1cbb7e12fc63ca71"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-next]
+source = "c44d0d1a32f16cb3"
+text = "bc5e8ee44c779fa4"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-previous]
+source = "7f3e0352c517c04f"
+text = "9588c0283bec4fb8"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-remove]
+source = "543874ad000419e1"
+text = "92ff9829ed297a16"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-remove-body]
+source = "27746245dacd9166"
+text = "5de41c6d0e5218d8"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-remove-title]
+source = "a90e2ab7c186f06d"
+text = "498647fe48007be0"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-remove-yes]
+source = "22e396639d40a01b"
+text = "a6fe061913421559"
+by = "agent"
+date = "2026-11-07"
+
+[editor-chart-title]
+source = "78df98567fe61e3f"
+text = "ea9a693519835aac"
+by = "agent"
+date = "2026-11-07"
+
+[editor-error-meter]
+source = "769f6bde9e5ad8d9"
+text = "294cc9534905317f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-error-not-kept]
+source = "17e32cdc86789663"
+text = "4acc468688c35d9e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-error-not-number]
+source = "6e5269a7b37c0103"
+text = "24b893e80fade6bc"
+by = "agent"
+date = "2026-11-07"
+
+[editor-error-not-whole]
+source = "cbdd2d1d4daed572"
+text = "fbdd03721edd3a96"
+by = "agent"
+date = "2026-11-07"
+
+[editor-error-time-signature]
+source = "5891e6a3b386ca8a"
+text = "ba2c1f55282f293c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-lane]
+source = "a5de0ecc0bedf3b6"
+text = "be5b256b436c1e23"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-listen]
+source = "9f6cdc8bbd115044"
+text = "fe18fd243895d6dd"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-menu]
+source = "d2b45def251dea50"
+text = "fcc1c0ccd8063c2a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-move]
+source = "02dfc6d8ff424e7c"
+text = "f77a0b64576d522b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-notes]
+source = "dc041ddd3d31f85c"
+text = "ad12ba2942e54ab1"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-place]
+source = "48ae787a48d4f234"
+text = "722eda053ab6c638"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-play]
+source = "364f8cdc581d5352"
+text = "8139480069fd561a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-record]
+source = "12194fca269bba14"
+text = "90eaa5f59a2f2360"
+by = "agent"
+date = "2026-11-07"
+
+[editor-hint-snap]
+source = "cfbb861fe9bfefa2"
+text = "f1b36d3ceb8eac5c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-leave]
+source = "e4635e5c9691440e"
+text = "fba3103c0098c2e1"
+by = "agent"
+date = "2026-11-07"
+
+[editor-leave-body]
+source = "ca2f6c355bbff37a"
+text = "b1d0e50812af0c55"
+by = "agent"
+date = "2026-11-07"
+
+[editor-leave-new-song-body]
+source = "8c27b237e8e21897"
+text = "fabd02b1c7c7deb3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-leave-title]
+source = "3947bb207c8ecdaa"
+text = "f4338259de67e583"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-bpm]
+source = "bb80743b556b2ef6"
+text = "bb80743b556b2ef6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-combo]
+source = "51bd95dafefdec95"
+text = "d5f6a3b257c427ec"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-delay]
+source = "47f9397cea50a5b5"
+text = "9da22cced09cf851"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-fake]
+source = "a3a1ff2509476394"
+text = "8f1a29ff9f2b319d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-label]
+source = "dcd681e4af8d567a"
+text = "c6a6ed71b6e33c08"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-scroll]
+source = "d21d7cfcccd79d90"
+text = "6884eb6150873afd"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-speed-beats]
+source = "1fe3a7cfde81ce50"
+text = "8b62d3b4a37fd222"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-speed-seconds]
+source = "d8dc37b189f5d4d5"
+text = "82eebddd0cc7af60"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-stop]
+source = "11a0ee97be07daf3"
+text = "7299e72b8a565935"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-ticks]
+source = "c7673f9ad35cc12d"
+text = "f4e3ef560c54f128"
+by = "agent"
+date = "2026-11-07"
+
+[editor-marker-warp]
+source = "58f934777c95ef3a"
+text = "362cd17188ef89c6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-apply-tapped]
+source = "38f3660e2ef7ec7d"
+text = "991de90453bd8299"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-apply-tapped-offset]
+source = "766674529f214308"
+text = "0ba5a3ae952a6848"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-audio-hide]
+source = "20e8ffc97a17b663"
+text = "cc4f654cfdfc3547"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-audio-mode]
+source = "314eefcb05673283"
+text = "c5394a8affc234b9"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-audio-show]
+source = "d0a889e9bcdd3b9d"
+text = "1ede2defa90c9950"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-autoplay-cursor]
+source = "06e0cc1201ac35bf"
+text = "5358d8f9ab5bd549"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-chart]
+source = "69807378fe92d5c2"
+text = "ebc8bf0d94400c77"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-clap-off]
+source = "59da8e61fa603a98"
+text = "498674c14a68f713"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-clap-on]
+source = "3692cc69a46fd20e"
+text = "797891633ca206b5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-cut]
+source = "4a297f72f772ccda"
+text = "ed8abe7327fd4e9e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-delete-selection]
+source = "598fb17ba67c0aa9"
+text = "5b17873d036aafaf"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-export]
+source = "7e05206d5bf62eb1"
+text = "fa445a4eca7c9b97"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-field-compact]
+source = "97cfd322515d5c23"
+text = "0fae44c543255fa8"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-field-skin]
+source = "ba69ce85da4a5b3b"
+text = "6ddcce838e517faa"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-jump-end]
+source = "e0a4dcbf57ca489c"
+text = "67882dbbd5f51477"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-jump-start]
+source = "349f72a154076018"
+text = "704987391da8fa95"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-lane-next]
+source = "92437d3959a9311b"
+text = "227a49ed997d841e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-lane-previous]
+source = "e21d263a52f963df"
+text = "d808020e23220d4a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-leave]
+source = "9936f46d125d8856"
+text = "bfdcefb70d716380"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-listen]
+source = "b16f92c7dd045ae6"
+text = "f92956bd6a13a6b3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-measure-next]
+source = "a231c839daed87f3"
+text = "9dde6bdde2c803d3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-measure-previous]
+source = "5b9d069a5a3b65e7"
+text = "177d548da035aa97"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-metronome-off]
+source = "a3cb200f7596709d"
+text = "0129a73b0ec69f0f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-metronome-on]
+source = "c809052d69e5702d"
+text = "fbc75d9b1a94d7f1"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-mirror-selection]
+source = "67c1431db3801d91"
+text = "eb0b98041701fd0d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-nudge-earlier]
+source = "42416dc0c2b9e397"
+text = "f910142e143ff25c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-nudge-later]
+source = "6e8c2dc87a135f0f"
+text = "0bdb05ae1a1b970e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-paste]
+source = "be67145d453f12e6"
+text = "e3f274e6995b01b2"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-place]
+source = "46108b2f928bf627"
+text = "86916bb14032b36f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-play-cursor]
+source = "4d33728101ea23e7"
+text = "cc3ab8ffc1626303"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-play-start]
+source = "ec439c9982ea7cbd"
+text = "59e0b2a5fbf689b2"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-range-clear]
+source = "1304edddedda74ff"
+text = "42cfcc9047c9e03a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-range-end]
+source = "aef2fdce8d3f4e87"
+text = "42dbe3ea3afed90f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-range-start]
+source = "3378baf9e3f9b3bb"
+text = "8e6d52d1634da699"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-record-add-cursor]
+source = "c04f4f5e84698c89"
+text = "29d26f78aec592b2"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-record-add-selection]
+source = "5071cba8183bcf1c"
+text = "8ba1df9fab4b70c5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-record-cursor]
+source = "b8de12405c037542"
+text = "dc0828a97287911a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-record-selection]
+source = "f2bd2b768670adcf"
+text = "b87104f87315bb13"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-redo]
+source = "87bfbc52b96c6c54"
+text = "88dd45409caab657"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-select-all]
+source = "5234f65bce52fdb5"
+text = "173fc442b1417702"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-song]
+source = "1bbed3225bc6eeb6"
+text = "d77d7a4952e5047e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-stop]
+source = "c325bf24b3decf78"
+text = "3973273ca6ba13e8"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-tap-tempo]
+source = "20e8951666e00b89"
+text = "6dc1769a1080700d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-timing]
+source = "8b4188702221b6fe"
+text = "0148c71d69455c18"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-title]
+source = "88e49724305fdee9"
+text = "cc63e2638ea2271c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-tool]
+source = "fec0b4116a0baceb"
+text = "89f0b6387ebdf69d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-undo]
+source = "8b385a0f653e3e8c"
+text = "faf4eec6f762e5f4"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-view-edit]
+source = "36916af9eabcaa8f"
+text = "5605a7c4ffd8ad8c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-view-play]
+source = "5db4fb898cc18a2b"
+text = "d1b2aed003c2d424"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-zoom-in]
+source = "647c2b78a111fda5"
+text = "52eb6c8f75f38d94"
+by = "agent"
+date = "2026-11-07"
+
+[editor-menu-zoom-out]
+source = "3a89a8cb9ef1f619"
+text = "f81d769bb9db0cf5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-next-page]
+source = "6bdbc0952856874d"
+text = "c02a26cd7eae9abb"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-apply]
+source = "1e5a6dad4f2f7c94"
+text = "ca551bb39a40008a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-automatic]
+source = "83451330cadc3fcc"
+text = "f68a2cd8eeb6c999"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-beats]
+source = "620fad351595c6b0"
+text = "5cec18a62328eac7"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-bpm]
+source = "362b40a25b6dda7f"
+text = "d520ea6533c97272"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-bpm-range]
+source = "35cb82e8fe6ea2f9"
+text = "14772fb6747b1122"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-denominator]
+source = "54e5f080d3afeb5b"
+text = "1fedc91189313341"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-duration]
+source = "eb568a9776d86e49"
+text = "e161b5dced73c7da"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-hit]
+source = "3532bf894223c3ab"
+text = "d0d6bb64a9bbb93c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-miss]
+source = "246f549311349949"
+text = "0be98a3e448d9d37"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-numerator]
+source = "f0cb1cc7cf49c0af"
+text = "b481604c7d18b5f6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-random]
+source = "c3eebd05180fdd68"
+text = "226bc47b16a7d83b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-ratio]
+source = "c13d52cd759dfd9f"
+text = "244c371bae6908c3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-remove]
+source = "2bceae9ae2f16762"
+text = "a379c3259fc47e50"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-reset]
+source = "86e55d5ddbf1f5fd"
+text = "8e56275424631e3c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-seconds]
+source = "05d161b75bb614c4"
+text = "f56f1ebaa0fe2be5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-single-bpm]
+source = "8e0aef2bd7b971cb"
+text = "d486df7423271b79"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-step-coarse]
+source = "a6df5afbba616ae8"
+text = "998db52d6a8dd561"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-step-fine]
+source = "a184cad75d60ac3b"
+text = "670b1af3b39117dc"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-type-value]
+source = "087e3e6af9fbb709"
+text = "42fbd8d7a7fa969b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-upper-bpm]
+source = "b25980382101d5de"
+text = "7cd2207b94837f3d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-number-value]
+source = "95cb06ad829715c7"
+text = "8d8c0901908fc0ec"
+by = "agent"
+date = "2026-11-07"
+
+[editor-offset-note]
+source = "077ae3847a13ee1d"
+text = "cf2937f7066aef27"
+by = "agent"
+date = "2026-11-07"
+
+[editor-offset-title]
+source = "bd49c7b37be62cc7"
+text = "230ff28a0928fa87"
+by = "agent"
+date = "2026-11-07"
+
+[editor-ok]
+source = "c2b8aab946bb6588"
+text = "c2b8aab946bb6588"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-audio]
+source = "49dfc490b1966191"
+text = "9b5acef1bc297560"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-audio-hidden]
+source = "d53ce4d92b7ba774"
+text = "6350939c31d83d12"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-audio-reading]
+source = "2c5120fe70dab06a"
+text = "44c74119802d3d7c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-beat]
+source = "4d4bf6f41a9d53f8"
+text = "2a9b8c45095c593c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-bpm]
+source = "85710b9773f242a4"
+text = "85710b9773f242a4"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-bpm-own]
+source = "2bfae91e26213952"
+text = "774cd9024b637efe"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-clap-off]
+source = "2e4d8448b46c00d2"
+text = "877d0d88870c675e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-clap-on]
+source = "242cbdf799fa8592"
+text = "4c71d7b91c515736"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-here]
+source = "deef46b72a0a6cc3"
+text = "eb50e75c78318219"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-menu]
+source = "e6c31877f46b3291"
+text = "285d50788a06e9cb"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-metronome-off]
+source = "6a1e069b2a4b96e0"
+text = "82af89e644310685"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-metronome-on]
+source = "4f9ad985b3c904e8"
+text = "ef7bf5ed6e23854d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-notes]
+source = "1e0c0a5f35474317"
+text = "c454d7678a3afa39"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-play]
+source = "e76c787dc5717603"
+text = "aa211c5cc548f3b5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-saved]
+source = "3e0c54dd4498bdc9"
+text = "8c7f5d4c5c0c7717"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-selection]
+source = "fda033b572d0ce35"
+text = "cfc44583d22e4f96"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-snap]
+source = "9801fc014710a082"
+text = "715f112317cc199c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-tapped]
+source = "03fd79935d51ffb6"
+text = "972f5e73eb3b629e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-tapped-offset]
+source = "db0ca17b0a0f0d08"
+text = "2453a9389cc84ac9"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-tapping]
+source = "f4f29f5af0d154bc"
+text = "e779e86cb8f63483"
+by = "agent"
+date = "2026-11-07"
+
+[editor-panel-unsaved]
+source = "d7e9811808517008"
+text = "b98a88dec5ea0def"
+by = "agent"
+date = "2026-11-07"
+
+[editor-previous-page]
+source = "f7279ad50f2b38ad"
+text = "535d51a8f0ccf493"
+by = "agent"
+date = "2026-11-07"
+
+[editor-recorded]
+source = "474f55c397c5343c"
+text = "e40abbbd84acb1a6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-recorded-early]
+source = "f8918aea2baa1239"
+text = "d9ccb311a20c8430"
+by = "agent"
+date = "2026-11-07"
+
+[editor-recorded-late]
+source = "cb41f481e7d1e37d"
+text = "f769c160148ae971"
+by = "agent"
+date = "2026-11-07"
+
+[editor-recorded-on-grid]
+source = "1f6d8dd547ba3879"
+text = "dfbc55bf35415a29"
+by = "agent"
+date = "2026-11-07"
+
+[editor-save-over-body]
+source = "dea79f5f7cc708b5"
+text = "9a752f0fb92d544b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-save-over-title]
+source = "990e3c8f8042681b"
+text = "af2fd6f1ca4f2b5e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-bpm]
+source = "28a1169be8c19d80"
+text = "f31dc060b05524ba"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-combo]
+source = "6fd9d40d40285e20"
+text = "c750e2a8550fceec"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-label]
+source = "7b1df337b33fb8df"
+text = "cc13b065fb3116a6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-length]
+source = "21bad1355cdf6499"
+text = "f57f31e5c0fa3097"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-scroll]
+source = "6a2ee2bbd4043a87"
+text = "2454609f613423e3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-speed]
+source = "d6bbc740e3bbd837"
+text = "579223a82e4b6dda"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-stop]
+source = "0f525ea8b62eddd8"
+text = "ced2e0d97ac37980"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-tick-count]
+source = "14e21c6264f76295"
+text = "4015e39b104f9d14"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-note-time-signature]
+source = "bbc1eea0b0112dc2"
+text = "d1ef2d01a03eb154"
+by = "agent"
+date = "2026-11-07"
+
+[editor-segment-title]
+source = "30e942edd18a160f"
+text = "2754a0fa069ce31d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-song-display-bpm-note]
+source = "719f4cb39eb63138"
+text = "529acc3efb1ecf7f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-song-field]
+source = "327b87fc2a6cac84"
+text = "780b7af2e5c7c20d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-song-file-note]
+source = "231a285559d82b7d"
+text = "0b3de1b8d7be0234"
+by = "agent"
+date = "2026-11-07"
+
+[editor-song-item]
+source = "b92fb46254ba571e"
+text = "5f10bedd0b094ecd"
+by = "agent"
+date = "2026-11-07"
+
+[editor-song-title]
+source = "1cd6c39a951cd0fb"
+text = "eb84bee6bc710ca5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-audio]
+source = "aae85d19e2e8ef22"
+text = "993c151195f45b60"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-audio-hidden]
+source = "f7fd320fcfce9897"
+text = "c8062c624d5c7768"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-cannot-save]
+source = "b15da9eb6f795b62"
+text = "a14f58b2e4aeb7a5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-chart-added]
+source = "1d267fc5180c510a"
+text = "d1e5fdfebfc965da"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-clap-off]
+source = "400071f6d1cadd6f"
+text = "25dd273055f2a70d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-clap-on]
+source = "e3a570f69c2eaadd"
+text = "2d8f8cf7205f1995"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-copied]
+source = "26bfafb4bf07ea2d"
+text = "13b98873097086ce"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-field-compact]
+source = "49215f77b37c3b66"
+text = "6a3917b58ee84f0d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-field-skin]
+source = "e67b4810cb5abd4c"
+text = "c458d11dae7e741f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-head-set]
+source = "07eec83aad59fee3"
+text = "9d5ec41076b967ba"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-lane]
+source = "dbadadd4757c7469"
+text = "0ef6fdf19414a30a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-listening]
+source = "1cf97c80109adae7"
+text = "01bb780eff684247"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-long-canceled]
+source = "bd5d6b00ead9b512"
+text = "323405092c01c10b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-long-placed]
+source = "5b4760ef28ab1102"
+text = "338ae10fb62c1cb3"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-metronome-off]
+source = "b9e797219aea86d2"
+text = "558e95acb6fc3acb"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-metronome-on]
+source = "6e389ddb81989ea2"
+text = "a7a9bd3493f0c317"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-new-song]
+source = "2a7072d6081adda6"
+text = "8dd285b40a1563a5"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-no-music]
+source = "b185cc5bece0a470"
+text = "fc3f668b918014cd"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-not-saved]
+source = "fcd95299155303e2"
+text = "c8c49a55a8c9a3ed"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-range-canceled]
+source = "6510c004df480568"
+text = "9fd7d6cc5ad8b0dd"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-range-start]
+source = "f1cf0febc8f13c3a"
+text = "d0ed558e65740792"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-recording]
+source = "0eb5702cd33c180a"
+text = "86c7b4c893f3780a"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-recording-add]
+source = "32650bf576568887"
+text = "40034901f0497d7b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-recovered]
+source = "d21cff289a85966e"
+text = "66b25e7ed8069318"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-saved]
+source = "806fd92e2766ec83"
+text = "75225b02fd571839"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-snap]
+source = "7c08cf224b9fd960"
+text = "b39d044bea21de96"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-tap-first]
+source = "3044386fa759f4aa"
+text = "a990511ee3d0e5cc"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-tapped]
+source = "ff86466c5392cc96"
+text = "eab19c2a7502594e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-tapped-offset]
+source = "c3d82a24cb2d758d"
+text = "ad07c594da3faf28"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-tempo-not-kept]
+source = "456aff575b82a03d"
+text = "b809c6f9fed04704"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-tool]
+source = "6d91a08925e35d00"
+text = "e1fef2fbd4860e76"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-view-edit]
+source = "aed52cc478b824ef"
+text = "cc280100838fbd67"
+by = "agent"
+date = "2026-11-07"
+
+[editor-status-view-play]
+source = "47ab4dc52648ce82"
+text = "ef36111c696a4c6d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-apply]
+source = "b29a4419d6b8e6bf"
+text = "3c0677bff009211e"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-apply-offset]
+source = "73a65c99568bfb5b"
+text = "635ecedef183c0c9"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-count]
+source = "514db45d9f6a911d"
+text = "72fe48eeb4169864"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-estimate]
+source = "b5e5253259cb0299"
+text = "695fb1a422601c79"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-reset]
+source = "66e8b0daf3a4cf18"
+text = "1250dd0a1f9194cf"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-start]
+source = "51b9f7f96bbbe72b"
+text = "f9c22eded0afddc9"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-tap]
+source = "83db1750b3c3f26a"
+text = "20028c87f18d496b"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tap-title]
+source = "74aa7f205becc062"
+text = "32ba3e40f9eab970"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-bpm-before]
+source = "c2536aa008fb06dd"
+text = "572766d384fb75ee"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-item]
+source = "794cc3341c90a7b9"
+text = "6da2069c88968c1f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-keep-beats]
+source = "a44787b022c1168f"
+text = "84a4c82c956eb7ee"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-keep-times]
+source = "7d6c13de2170740f"
+text = "8edf2846ae280e08"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-note]
+source = "b1f2fed893582a4c"
+text = "344b4400029ade82"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-offset]
+source = "d7096ab47c417be1"
+text = "89f3d49789483d6d"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-own-off]
+source = "5abee0397454c00c"
+text = "c851221de261dbc2"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-own-on]
+source = "cf000c92a161977c"
+text = "1f07d00f8c1a71ae"
+by = "agent"
+date = "2026-11-07"
+
+[editor-timing-title]
+source = "d14841151a960a15"
+text = "d3f6a7a6d225beaf"
+by = "agent"
+date = "2026-11-07"
+
+[editor-title]
+source = "457a3dfe38264c6c"
+text = "231afc9d27862218"
+by = "agent"
+date = "2026-11-07"
+
+[editor-title-song]
+source = "6aa4b6964b259e4f"
+text = "8f10ac3ecd9dbe93"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-fake]
+source = "ef4c5b70692d2c23"
+text = "c53e39e0f0ccb634"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-hold]
+source = "335bc4db9bd6906f"
+text = "eb6c4f03b54e8e05"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-lift]
+source = "21088fb55fa09377"
+text = "c4b5d3e17be184bf"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-mine]
+source = "5a1aa2fba1b0bdab"
+text = "9571f3d068039280"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-roll]
+source = "977436044661f17b"
+text = "95fb9e7deb4e7b4c"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-tap]
+source = "3c79e339181ccac3"
+text = "010fc3922ae4c5c6"
+by = "agent"
+date = "2026-11-07"
+
+[editor-tool-title]
+source = "a8ec8701e21f5e83"
+text = "3abed837a9466a90"
+by = "agent"
+date = "2026-11-07"
+
+[editor-view-compact]
+source = "20a28d9cbedf5370"
+text = "661db635d3745f4f"
+by = "agent"
+date = "2026-11-07"
+
+[editor-view-edit]
+source = "ddd9b9612891b097"
+text = "0d6047474f532b94"
+by = "agent"
+date = "2026-11-07"
+
+[editor-view-play]
+source = "0f0986bdcb231585"
+text = "32fa94bce8f04112"
+by = "agent"
+date = "2026-11-07"
+
+[editor-view-play-reverse]
+source = "18a817432e932e94"
+text = "ad52fc3d6d62feb7"
+by = "agent"
+date = "2026-11-07"
+
+[errors-denied]
+source = "5c5851b7bf34f182"
+text = "4826fe6bd5ab031c"
+by = "agent"
+date = "2026-11-07"
+
+[errors-full]
+source = "59299cd8175e2e4e"
+text = "cd6fa8513c4d937f"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-log-out-of-range]
+source = "5d84c76a91c1df64"
+text = "120b5d5e74d8d6e6"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-log-unreadable]
+source = "0d6b51950eae3d98"
+text = "ffec5aa9f203fe10"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-newer-judge]
+source = "7a49bb768da79a26"
+text = "36c40855fd1b57b8"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-newer-log]
+source = "2484163e397828da"
+text = "8b7ea67285fd20af"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-newer-record]
+source = "da01c6772f44e356"
+text = "01cebda36826c0b1"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-newer-timing]
+source = "a7a45a2013b6e33c"
+text = "4fa42eb9bb5893d9"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-not-a-play]
+source = "17d62a03aceae744"
+text = "aa221db0e00dd588"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-not-a-play-id]
+source = "d0cb2f20c06ef9b8"
+text = "866f726fc1df122f"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-not-utf8]
+source = "179c3a6695479b76"
+text = "5e6b2a8fe4196b12"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-record-no-song]
+source = "968f1488c3bd3935"
+text = "894facc1bd11530a"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-record-no-version]
+source = "e5f30d6c9d9b51d1"
+text = "a9559cc95f73ce70"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-record-not-json]
+source = "90a7931c81fec453"
+text = "b6833cbee7cf0ee2"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-record-out-of-range]
+source = "d04acfadc56abed5"
+text = "5529d9083c747452"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-record-unreadable]
+source = "8a08b4a30cd82d62"
+text = "1ed4aeb1e12710f0"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-record-version-zero]
+source = "2ca62e1ea0fcf143"
+text = "ae6d89d63bc2cd5a"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-timing-unreadable]
+source = "83ecb5fd730ff096"
+text = "db03a6eb2ca9556e"
+by = "agent"
+date = "2026-11-07"
+
+[errors-history-too-long]
+source = "099b320a828e2436"
+text = "54d37163f39d6fc0"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-audio]
+source = "a1c8f97056c9e859"
+text = "b8335d3044476c13"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-chart]
+source = "6c4f6393b5b5b07a"
+text = "04f873c59f0e381d"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-file]
+source = "4264da6fc6d9991a"
+text = "2ba6eb93919825ac"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-folder-gone]
+source = "cbaecf7b3a9dbc8d"
+text = "ebfc4ff1631ebc87"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-folder-unknown]
+source = "52e9dfb3ccfc5468"
+text = "59044a4a35f33581"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-missing]
+source = "be6ccffa8d8352b7"
+text = "6cc4c83ed39a5bf4"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-music]
+source = "27038ef6503961d4"
+text = "58bae95760274d60"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-no-song]
+source = "71a0edb4bcfb484f"
+text = "79d250efbe9431bb"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-not-in-folder]
+source = "7978880e805b27ce"
+text = "14a6805d254434fe"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-share]
+source = "80ff54681a7e92be"
+text = "92c7ec24375eeedc"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-work]
+source = "efe258be67629e15"
+text = "b4be9899df9daac3"
+by = "agent"
+date = "2026-11-07"
+
+[errors-load-work-gone]
+source = "f4f313ae767ef6ce"
+text = "486bcae116b6a152"
+by = "agent"
+date = "2026-11-07"
+
+[errors-network]
+source = "18567a52de9f267a"
+text = "bc71e7e2b604f95a"
+by = "agent"
+date = "2026-11-07"
+
+[errors-not-found]
+source = "cd1a7f448f6edfaf"
+text = "096644417e2777fc"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-answer]
+source = "fc3acc279058bd79"
+text = "de9657b921ac1bd4"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-gone]
+source = "5466709d8094a7af"
+text = "7d484850fbe46d98"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-in]
+source = "660e46c2d9ac7fc6"
+text = "ee873319d9cc9bc7"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-link-gone]
+source = "7e7ba83cad43b429"
+text = "75858b118c8b42e2"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-no-chart]
+source = "a49372202962fecf"
+text = "8d23cc6f6ab1b9c8"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-no-token]
+source = "8b03ceac83b9adac"
+text = "dbc3f6e914d16083"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-not-loaded]
+source = "8331e2b86427e027"
+text = "de1928373b3e1ce2"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-not-shared]
+source = "b15f22372beb8e2c"
+text = "34214b14e454f0b7"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-nothing]
+source = "d2f6e9ccf0290434"
+text = "215ef05af5a20ff7"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-status]
+source = "d9c835f9dfc7027d"
+text = "45121a579b4e152f"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-status-body]
+source = "d31dc4ee93fc4b86"
+text = "45affd9a70bcd69d"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-token-refused]
+source = "84f73946885b2ebe"
+text = "4974ccd102ff30a1"
+by = "agent"
+date = "2026-11-07"
+
+[errors-share-too-large]
+source = "a0e546836cbc2265"
+text = "9973bf384bf11111"
+by = "agent"
+date = "2026-11-07"
+
+[errors-shared-page-hint]
+source = "4849400b3ae8374e"
+text = "70ffac60a40345a7"
+by = "agent"
+date = "2026-11-07"
+
+[errors-shared-page-home]
+source = "225275edaaa26782"
+text = "93f0c201b2e892f3"
+by = "agent"
+date = "2026-11-07"
+
+[errors-shared-page-title]
+source = "1bbc6d8b7086edfb"
+text = "aaf37d7929386020"
+by = "agent"
+date = "2026-11-07"
+
+[errors-timeout]
+source = "30d974cc0d75486b"
+text = "40dde08dcc5cb298"
+by = "agent"
+date = "2026-11-07"
+
+[errors-unreadable]
+source = "dc34ff32ebd7bccf"
+text = "d284b9cf596266e0"
+by = "agent"
+date = "2026-11-07"
+
+[errors-unsupported]
+source = "aa2c57c2a4b82528"
+text = "cfc7c7e1a56602c3"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-bad-frame]
+source = "7bf78ad10af4824a"
+text = "2fee535e3f18e74b"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-broken]
+source = "99ba128d56e10b14"
+text = "10b4b3c1be4747b5"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-crashed]
+source = "d71f2d7fd2903288"
+text = "9ffe1515c0bbb6f0"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-not-included]
+source = "154a4f78fa99f5a2"
+text = "5408d75485b96292"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-not-loaded]
+source = "4920864dfecaed17"
+text = "4b07227206ebb149"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-too-large]
+source = "3a1fba53f5e95ef0"
+text = "9819566b0e2f19f9"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-unknown-format]
+source = "62d977d10d3b85e8"
+text = "8e385ecb64e1dbaf"
+by = "agent"
+date = "2026-11-07"
+
+[errors-video-unseekable]
+source = "d9f68ff352f3bd81"
+text = "5f40ecfe0f3b4ef8"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-empty-folders]
+source = "940c072512a9ead3"
+text = "5e4e75dd3884a101"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-nested-copies]
+source = "69174d6b5940630b"
+text = "b1f35ba4eca740eb"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-old-folders]
+source = "8776e33bc90d0ceb"
+text = "b9c43825df52991f"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-other-files]
+source = "c6bb8b903722ba87"
+text = "9fd66d44235e9087"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-sounds-left-out]
+source = "4ba834094556837a"
+text = "8033933e44b31c7e"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-summary]
+source = "5057b9129678c40e"
+text = "7fa64031d8a41c56"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-unknown-folders]
+source = "97deee03172a7a8d"
+text = "f93050fbcd5ab860"
+by = "agent"
+date = "2026-11-07"
+
+[import-announcer-without-lines]
+source = "11fe01e792e413c3"
+text = "a1f8e099c7379998"
+by = "agent"
+date = "2026-11-07"
+
+[import-capture-without-layers]
+source = "717e8fb821d525ea"
+text = "a4c71e7349ca6531"
+by = "agent"
+date = "2026-11-07"
+
+[import-divided-dos]
+source = "4da002c804f327b3"
+text = "403cd7071d11b83e"
+by = "agent"
+date = "2026-11-07"
+
+[import-dos-missing]
+source = "a9ea0410a77db7bf"
+text = "55a7218c47fbed88"
+by = "agent"
+date = "2026-11-07"
+
+[import-dos-not-read]
+source = "4f933ed6996e3863"
+text = "7a7d4fa025971c5c"
+by = "agent"
+date = "2026-11-07"
+
+[import-dos-script]
+source = "a7ef42d5b593422a"
+text = "0f9d0e66c84de79e"
+by = "agent"
+date = "2026-11-07"
+
+[import-encrypted]
+source = "340b66ada9bc02b6"
+text = "c1c82536e881dfba"
+by = "agent"
+date = "2026-11-07"
+
+[import-file-failed]
+source = "a34c19e92e557582"
+text = "f61db1d9d61afc1b"
+by = "agent"
+date = "2026-11-07"
+
+[import-file-missing]
+source = "dbe4a3746af5778d"
+text = "e2b7e6fc72ca9609"
+by = "agent"
+date = "2026-11-07"
+
+[import-layer-images-missing]
+source = "54529a5342c4b441"
+text = "667eebae6efff0d6"
+by = "agent"
+date = "2026-11-07"
+
+[import-layouts-left-out]
+source = "31eb96b2412a0b06"
+text = "77128f5b45394ca7"
+by = "agent"
+date = "2026-11-07"
+
+[import-level-without-mp3]
+source = "63cdd1d612e5cc37"
+text = "8cb898b2e2a9dbac"
+by = "agent"
+date = "2026-11-07"
+
+[import-level-without-music]
+source = "6175061ab841d88e"
+text = "1a4a9c283364f558"
+by = "agent"
+date = "2026-11-07"
+
+[import-line]
+source = "885b31d7b3e727a2"
+text = "9bc74a2df79fbde3"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing]
+source = "ce61fa01cf4e3295"
+text = "d047ccc1c2635ad8"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-animations]
+source = "f0d2e08c065ae060"
+text = "f7b702e10ece3430"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-background]
+source = "e688ed2fa7087ab0"
+text = "111cd72a581da019"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-backgrounds]
+source = "80a450bd10017b37"
+text = "08d008b6ded1af86"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-banner]
+source = "b0886dea7d86a004"
+text = "1b584dd6cf2e7374"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-chart-music]
+source = "f4d6d8ae6c13634f"
+text = "18fe858860bd5e2c"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-preview]
+source = "6b702e1a0408be70"
+text = "9ac33ffac219a60e"
+by = "agent"
+date = "2026-11-07"
+
+[import-missing-replaced]
+source = "4277a0df96756d7f"
+text = "2a1ef046d0f246c2"
+by = "agent"
+date = "2026-11-07"
+
+[import-music-not-captured]
+source = "2faecd3d6cd3eb3d"
+text = "4f4a7e401c725831"
+by = "agent"
+date = "2026-11-07"
+
+[import-music-script-empty]
+source = "21c4da94434131e2"
+text = "81207933ba17259c"
+by = "agent"
+date = "2026-11-07"
+
+[import-music-without-simfile]
+source = "080a4d6733622c60"
+text = "81ea4dbf237792df"
+by = "agent"
+date = "2026-11-07"
+
+[import-no-charts]
+source = "acb978c280083fb3"
+text = "4136a16ecc77f797"
+by = "agent"
+date = "2026-11-07"
+
+[import-no-music]
+source = "b0706ab4b4340260"
+text = "211716e8e6886fb5"
+by = "agent"
+date = "2026-11-07"
+
+[import-no-playable-charts]
+source = "82ba2e1e9e6162dd"
+text = "dba1d7265fc69b73"
+by = "agent"
+date = "2026-11-07"
+
+[import-no-simfiles]
+source = "721e3f16f8fe0629"
+text = "d244d8c3329ce656"
+by = "agent"
+date = "2026-11-07"
+
+[import-nothing-found]
+source = "b2180d9dc56460a4"
+text = "bb47590945624025"
+by = "agent"
+date = "2026-11-07"
+
+[import-pack-banner-failed]
+source = "a21d4c2da984e1f1"
+text = "9b5745f74c58e91d"
+by = "agent"
+date = "2026-11-07"
+
+[import-pack-banners-failed]
+source = "db5e413b13481329"
+text = "2f4066db44995992"
+by = "agent"
+date = "2026-11-07"
+
+[import-preview-video-not-stored]
+source = "a22aedb11da38138"
+text = "aaa1da94f38f3345"
+by = "agent"
+date = "2026-11-07"
+
+[import-preview-video-unplayable]
+source = "454783eeb32d732b"
+text = "bd60432ab5910e24"
+by = "agent"
+date = "2026-11-07"
+
+[import-removing-gone-failed]
+source = "d695938ba12720b0"
+text = "0ad062cf0ef074a5"
+by = "agent"
+date = "2026-11-07"
+
+[import-same-announcer-name]
+source = "79ab459e5b8f0de4"
+text = "489fbc96db3f61a5"
+by = "agent"
+date = "2026-11-07"
+
+[import-same-file]
+source = "56581cc1ac3f6074"
+text = "6593b4b6c9965e1e"
+by = "agent"
+date = "2026-11-07"
+
+[import-same-folder]
+source = "94ea2672b6670b64"
+text = "e92f95cc6f67e4c3"
+by = "agent"
+date = "2026-11-07"
+
+[import-same-skin-name]
+source = "2029552b922d98f2"
+text = "fc1e67f65e729d95"
+by = "agent"
+date = "2026-11-07"
+
+[import-section-announcers]
+source = "4c263e146d1f4d1e"
+text = "39f0622f3bb06a2b"
+by = "agent"
+date = "2026-11-07"
+
+[import-section-details]
+source = "884cdc7dd9b3f7fc"
+text = "2b88256da9c08953"
+by = "agent"
+date = "2026-11-07"
+
+[import-section-noteskins]
+source = "1d19c130d1048ce0"
+text = "e4277a8e9f943f71"
+by = "agent"
+date = "2026-11-07"
+
+[import-section-problems]
+source = "96f3b25a06482d3a"
+text = "0b98afaf24146fe7"
+by = "agent"
+date = "2026-11-07"
+
+[import-section-skipped]
+source = "478644ea6af55e0f"
+text = "e8402c2f6a2bdb8f"
+by = "agent"
+date = "2026-11-07"
+
+[import-shared-animations]
+source = "2bb7e0bb37140cb0"
+text = "b83e8d48d4a2b9ab"
+by = "agent"
+date = "2026-11-07"
+
+[import-shared-videos-failed]
+source = "a6429aad2511909b"
+text = "f3cb45f6a3d8300f"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-common]
+source = "6194ee7a6f0dbd58"
+text = "0e7d1314a44b73d8"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-file-too-large]
+source = "8c83a6d88ec7d8dc"
+text = "26a11e5ab1b3ec01"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-files]
+source = "0c6d4326602c1db6"
+text = "7d7ec39a0fc76987"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-legacy]
+source = "2ac368b123532eb0"
+text = "094b4dfe634fb83b"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-legacy-partly]
+source = "836d4cae94452026"
+text = "9e0f288b743d80e9"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-legacy-partly-why]
+source = "96e7a638622a8252"
+text = "c1549f8a718c6955"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-lua]
+source = "c178d65447fa84bd"
+text = "bed3415c11c29948"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-lua-partly]
+source = "723e532eb5bf2b2b"
+text = "21e847e7e7ab897a"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-lua-partly-why]
+source = "099e2098374d1be5"
+text = "ef13c784037d7dca"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-lua-stopped]
+source = "be4898ce00e4f2a6"
+text = "87d4a22ef57ac0d4"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-no-lanes]
+source = "a4f1556ab12870df"
+text = "cdcd46ca50593502"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-pump]
+source = "b8694e4b7fb8c29d"
+text = "534bfd6b94d52628"
+by = "agent"
+date = "2026-11-07"
+
+[import-skin-texts-too-large]
+source = "11af18f056189f3a"
+text = "1203b5da5d2b5427"
+by = "agent"
+date = "2026-11-07"
+
+[import-skins-other-games]
+source = "35aed78034430aea"
+text = "f1b890ff4909cf4e"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-announcer]
+source = "be52b365d038270d"
+text = "e0c2b491c0ba3ef3"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-level]
+source = "2270f982b7c41f0c"
+text = "f93b0e846d8b281c"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-reading-files]
+source = "11a9b477d29a9eae"
+text = "3fd4f78344715263"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-reading-zip]
+source = "9a5101977f9356bc"
+text = "400a2ecc5afe1221"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-shared-images]
+source = "8360a76a4dc0f246"
+text = "19464fdd119ebc24"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-shared-videos]
+source = "ba3c18c77dd08480"
+text = "9af54ea55e4612fa"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-skin]
+source = "fb5f6ded68d74773"
+text = "dfff30d8d105801b"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-skin-lua]
+source = "6834d968d0877fb5"
+text = "291120467c5181c9"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-song]
+source = "b1e16b3d7fd5d0b9"
+text = "3ac4ab5aaace4b13"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-stills]
+source = "bc0705ef7e68737a"
+text = "437afda35e9595e6"
+by = "agent"
+date = "2026-11-07"
+
+[import-step-work]
+source = "694592bb36ef30a3"
+text = "bd5e7ff8de389af4"
+by = "agent"
+date = "2026-11-07"
+
+[import-still-failed]
+source = "1bd9b4988a421087"
+text = "b1e5dbc80eff5a16"
+by = "agent"
+date = "2026-11-07"
+
+[import-still-later]
+source = "5682df85627d19e7"
+text = "4554d208a6ea90b5"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-announcers]
+source = "289047c87454dfbf"
+text = "a0be5caaffda961b"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-details]
+source = "2f130b2f5a9b9438"
+text = "67ece3ac6e3964b4"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-noteskins]
+source = "62e52d688ffe68c3"
+text = "1ef0f46ada5cf226"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-removed]
+source = "a866027c4157ece8"
+text = "7623f3751018519d"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-shared-images]
+source = "ea33b137aa1f7298"
+text = "28d5eadb7db28e8b"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-shared-skipped]
+source = "bfee77d4ac86e8ca"
+text = "0b827f4be6054014"
+by = "agent"
+date = "2026-11-08"
+
+[import-summary-shared-videos]
+source = "d7cbccfef917b92c"
+text = "eedfa972bacb1c32"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-skipped]
+source = "b0d11b79f66ce6f6"
+text = "59800783bc7591fa"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-songs]
+source = "a41bbc6793500f1a"
+text = "9c9dacac373b1c6f"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-videos]
+source = "7e7367e4a9ead97e"
+text = "e54a6ef7b7c3d447"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-videos-left-out]
+source = "6163b03db89410e5"
+text = "27df7a4f3753d8ee"
+by = "agent"
+date = "2026-11-07"
+
+[import-summary-warnings]
+source = "4dcc9d0a414cfe2f"
+text = "344b432af49c1ad9"
+by = "agent"
+date = "2026-11-07"
+
+[import-swf-cut-short]
+source = "4c4921b65e89fd23"
+text = "d222672a1cfe8cd9"
+by = "agent"
+date = "2026-11-07"
+
+[import-swf-inflate]
+source = "13324b002465e1c3"
+text = "4f7e18654f5a063b"
+by = "agent"
+date = "2026-11-07"
+
+[import-swf-lzma]
+source = "fa63ca71e7f79c60"
+text = "f2b09e635a96981e"
+by = "agent"
+date = "2026-11-07"
+
+[import-swf-music-too-long]
+source = "d30151e2da5621a6"
+text = "b1a762f36ef79fb8"
+by = "agent"
+date = "2026-11-07"
+
+[import-swf-not-swf]
+source = "9bc07fb0db62603d"
+text = "d5200278b1b8626a"
+by = "agent"
+date = "2026-11-07"
+
+[import-swf-string]
+source = "c78778facbb825f7"
+text = "adc1d07c286a724e"
+by = "agent"
+date = "2026-11-07"
+
+[import-tag-chart-music]
+source = "4bd3c39115971aa6"
+text = "8295e496595774cb"
+by = "agent"
+date = "2026-11-07"
+
+[import-tidying-failed]
+source = "2036c16ee8db6fa7"
+text = "34837d9c991c653c"
+by = "agent"
+date = "2026-11-07"
+
+[import-too-many-announcers]
+source = "b64938c9c671aea2"
+text = "177ea4370b6f8efd"
+by = "agent"
+date = "2026-11-07"
+
+[import-too-many-bg-images]
+source = "f218b214b376d6a3"
+text = "604e4a966f231268"
+by = "agent"
+date = "2026-11-07"
+
+[import-too-many-layer-images]
+source = "5c9933f21a96c24c"
+text = "961c7432dd9730d2"
+by = "agent"
+date = "2026-11-07"
+
+[import-too-many-script-files]
+source = "5b1812812d965848"
+text = "89bd4b53fb794ba7"
+by = "agent"
+date = "2026-11-07"
+
+[import-too-many-skin-files]
+source = "362cfc0efd54db3b"
+text = "02109d07c0c502fe"
+by = "agent"
+date = "2026-11-07"
+
+[import-too-many-skins]
+source = "c29244fbb93c626e"
+text = "2c4dd0a3705b0a25"
+by = "agent"
+date = "2026-11-07"
+
+[import-truncated]
+source = "fa24b5573b1b0095"
+text = "2824310c222292cb"
+by = "agent"
+date = "2026-11-07"
+
+[import-video-format]
+source = "659af1a840ad0b0f"
+text = "471ed9064052ecd0"
+by = "agent"
+date = "2026-11-07"
+
+[import-video-format-unknown]
+source = "555b16d752f27757"
+text = "31e007b78b34c301"
+by = "agent"
+date = "2026-11-08"
+
+[import-video-item]
+source = "8dd04bf157024f19"
+text = "3c0e842106c52bfb"
+by = "agent"
+date = "2026-11-07"
+
+[import-video-mpeg-ps]
+source = "40da26ec642b0da7"
+text = "a3de23f85d604266"
+by = "agent"
+date = "2026-11-07"
+
+[import-video-mpeg-ts]
+source = "75568798abbd0b8c"
+text = "12e18c4ad4fda2fd"
+by = "agent"
+date = "2026-11-07"
+
+[import-video-mpeg-video]
+source = "cc8a4384bf06ab8f"
+text = "fc1a9d8e8bcf22aa"
+by = "agent"
+date = "2026-11-07"
+
+[import-videos-not-stored]
+source = "09e72ef5e3a79016"
+text = "6f862e836292d707"
+by = "agent"
+date = "2026-11-07"
+
+[import-videos-unplayable]
+source = "62af3c30c18ed98a"
+text = "7fa6856414e00c9e"
+by = "agent"
+date = "2026-11-07"
+
+[import-work-music-missing]
+source = "44a4a0313cce106e"
+text = "5b71575566c1c126"
+by = "agent"
+date = "2026-11-07"
+
+[import-work-without-music]
+source = "06922aeec33b9816"
+text = "f1c8bfc2fd8f9da6"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-corrupt]
+source = "406ed9343deef086"
+text = "7d5dd9041abc6721"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-crc]
+source = "b188fcf42edc45c7"
+text = "c7e043f93a03d1d3"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-decode]
+source = "f28dd1b657471d7b"
+text = "8c89f12ee70f9d74"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-encrypted]
+source = "9b72e435d53a586b"
+text = "1fd46be51a7163c7"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-inflate]
+source = "e6131f8e92d0f890"
+text = "30cd080edbc0de8a"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-method]
+source = "795a06e5ed922c68"
+text = "81f3006a2525e85d"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-multi-disk]
+source = "19cfd507acbe229f"
+text = "04a0665e6355e43a"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-not-a-zip]
+source = "6c5f7740ddc654bb"
+text = "4196e0c2ea99b882"
+by = "agent"
+date = "2026-11-07"
+
+[import-zip-size]
+source = "a62590f64ed07cde"
+text = "c85c90819f462d7d"
+by = "agent"
+date = "2026-11-07"
+
+[mods-battery]
+source = "76ccf3942ac76132"
+text = "004f3d9f33a7b7f7"
+by = "agent"
+date = "2026-11-08"
+
+[mods-boost]
+source = "6d5a736c828f80ee"
+text = "e644e5e4860a9053"
+by = "agent"
+date = "2026-11-07"
+
+[mods-brake]
+source = "60818b0904605bbe"
+text = "9a403a7dc9916ca7"
+by = "agent"
+date = "2026-11-07"
+
+[mods-cover-both]
+source = "c29756e5a8f64b1b"
+text = "5f59f6b85a402394"
+by = "agent"
+date = "2026-11-07"
+
+[mods-cover-hidden]
+source = "6e512c2b0db0ca13"
+text = "af1097f53baeda01"
+by = "agent"
+date = "2026-11-07"
+
+[mods-cover-sudden]
+source = "08c22d6c20ea232d"
+text = "ce16e50a6cc9c76e"
+by = "agent"
+date = "2026-11-07"
+
+[mods-eighths]
+source = "b57f3de3980829c6"
+text = "56ed25fe1964c9be"
+by = "agent"
+date = "2026-11-07"
+
+[mods-fail-at-end]
+source = "931f841a2459e824"
+text = "872f38c9fe6ad054"
+by = "agent"
+date = "2026-11-07"
+
+[mods-fail-delayed]
+source = "ebc489c3c71eab13"
+text = "4deaebc1ea4dc748"
+by = "agent"
+date = "2026-11-07"
+
+[mods-fail-off]
+source = "8fe7d576afd854e9"
+text = "2becb3a86c55f275"
+by = "agent"
+date = "2026-11-07"
+
+[mods-hidden]
+source = "53e886b4c1382eac"
+text = "8d907cc576b5dc6e"
+by = "agent"
+date = "2026-11-07"
+
+[mods-hidden-sudden]
+source = "6cf31b6b9a44b452"
+text = "74d78c0fb962c2f9"
+by = "agent"
+date = "2026-11-07"
+
+[mods-judge]
+source = "6d9ab6c6f40e3f90"
+text = "dbea3651bcba03ed"
+by = "agent"
+date = "2026-11-07"
+
+[mods-left]
+source = "fdbab1f1bc986de6"
+text = "b8d3400c72d33286"
+by = "agent"
+date = "2026-11-07"
+
+[mods-life]
+source = "856448547a5d861e"
+text = "22422422f7ed0a47"
+by = "agent"
+date = "2026-11-07"
+
+[mods-mirror]
+source = "0c3c8c95158bd386"
+text = "042f05a910825655"
+by = "agent"
+date = "2026-11-07"
+
+[mods-no-holds]
+source = "5a3e760b62677585"
+text = "b5b39ae8ec13f25c"
+by = "agent"
+date = "2026-11-07"
+
+[mods-no-jumps]
+source = "7de0c5fc78d7cfd3"
+text = "a64c50d8ac6194f3"
+by = "agent"
+date = "2026-11-07"
+
+[mods-no-stretch]
+source = "6ba9921bd807bbab"
+text = "1a96135d02a60ad4"
+by = "agent"
+date = "2026-11-07"
+
+[mods-quarters]
+source = "51bb4f0736245210"
+text = "d40dc74fb9bfcdbd"
+by = "agent"
+date = "2026-11-07"
+
+[mods-reverse]
+source = "f00a04f7e875a352"
+text = "2c9d1996081614c4"
+by = "agent"
+date = "2026-11-07"
+
+[mods-right]
+source = "1cd8b73717d0e09e"
+text = "b4ac43c0b2536e6a"
+by = "agent"
+date = "2026-11-07"
+
+[mods-shuffle]
+source = "9a4b94cc4baf6ae6"
+text = "111fd9bee2f9620f"
+by = "agent"
+date = "2026-11-07"
+
+[mods-shuffle-order]
+source = "96cd5fe2738c1c9d"
+text = "2199e8949d9174be"
+by = "agent"
+date = "2026-11-07"
+
+[mods-stealth]
+source = "0658072800ff4166"
+text = "260efc9fcad59dfa"
+by = "agent"
+date = "2026-11-07"
+
+[mods-sudden]
+source = "3799e713d9caee1e"
+text = "140eade854a84a23"
+by = "agent"
+date = "2026-11-07"
+
+[mods-up-to-two]
+source = "2ed19c307b6fb6a2"
+text = "01a486736195e7b4"
+by = "agent"
+date = "2026-11-07"
+
+[mods-wave]
+source = "d81c007b3eb31af6"
+text = "87a64986b7267e78"
+by = "agent"
+date = "2026-11-07"
+
+[notices-bind-controller]
+source = "9cad7f9a70b1cbd7"
+text = "d7261a72bf94a4a1"
+by = "agent"
+date = "2026-11-07"
+
+[notices-controller-unbound]
+source = "f6373845bc8edb50"
+text = "698fe609a2c14fd0"
+by = "agent"
+date = "2026-11-07"
+
+[notices-imported-unavailable]
+source = "25c6f75989f0e0e1"
+text = "040ca810e8f8a4f1"
+by = "agent"
+date = "2026-11-07"
+
+[notices-keep-songs]
+source = "f4933d98be4aa615"
+text = "2aaa21937bd561ea"
+by = "agent"
+date = "2026-11-07"
+
+[notices-new-song-failed]
+source = "f7e81c2128a510c2"
+text = "dae6a8ed6a0382bb"
+by = "agent"
+date = "2026-11-07"
+
+[notices-only-zips]
+source = "b2e73ffd3420ff88"
+text = "9754f33669c4b565"
+by = "agent"
+date = "2026-11-07"
+
+[notices-remove-unreadable]
+source = "066af1517dcbb082"
+text = "bd47753de62b998d"
+by = "agent"
+date = "2026-11-07"
+
+[notices-size-gb]
+source = "e72c2358893600bd"
+text = "e72c2358893600bd"
+by = "agent"
+date = "2026-11-07"
+
+[notices-size-mb]
+source = "4775d72804d1486c"
+text = "4775d72804d1486c"
+by = "agent"
+date = "2026-11-07"
+
+[notices-storage]
+source = "45e94a72f74c70a8"
+text = "a2b9579846924399"
+by = "agent"
+date = "2026-11-07"
+
+[notices-unreadable]
+source = "b9d270ec84bb138c"
+text = "4e1f1ac6f8557dea"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer]
+source = "d8ca4101a34bb177"
+text = "6cf52f109a5bef05"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-description]
+source = "5d53934a78cd0037"
+text = "a4e570325d01be99"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-remove]
+source = "c6219de796657168"
+text = "7e2ae691468de43f"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-remove-button]
+source = "d275abc00d309a16"
+text = "1b947e3915332ffc"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-remove-description]
+source = "9a9e7ed0e0498257"
+text = "35874df32ba22cd7"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-studio]
+source = "1d3577d3e72e28c9"
+text = "24fec787a235e62a"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-studio-button]
+source = "39b5114868b350ae"
+text = "45330074cd95f027"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-studio-description]
+source = "a1ff45a0a7429941"
+text = "3e7f1d5a1e801263"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-volume]
+source = "c228c128454f53ee"
+text = "b4f5ce3fcd61c23c"
+by = "agent"
+date = "2026-11-07"
+
+[options-announcer-volume-description]
+source = "980ae86d1be19f50"
+text = "a597e37bce21e86f"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance]
+source = "5c8b0b1b42a89409"
+text = "c5a6dae51a3a1dfd"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance-both]
+source = "18923184bd1c7738"
+text = "6422e7b699bf9065"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance-description]
+source = "7487d32443d5a318"
+text = "e097a9ffbc368326"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance-hidden]
+source = "dd7642f71e389f6e"
+text = "13312e22560dddf4"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance-normal]
+source = "caea2fb57bcde6dc"
+text = "16a75f93308a5597"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance-stealth]
+source = "697886968ab33420"
+text = "4ce8dfd20eb13d64"
+by = "agent"
+date = "2026-11-07"
+
+[options-appearance-sudden]
+source = "dee392aa448b1dd8"
+text = "d659f8e3dc619789"
+by = "agent"
+date = "2026-11-07"
+
+[options-assist-clap]
+source = "d052ee0426ad099c"
+text = "505802361bd0243f"
+by = "agent"
+date = "2026-11-07"
+
+[options-assist-clap-description]
+source = "ecd4f183b491bc56"
+text = "6a4a35e26576949e"
+by = "agent"
+date = "2026-11-07"
+
+[options-at-once]
+source = "591afd85241d2978"
+text = "2680bb83d777a3bf"
+by = "agent"
+date = "2026-11-07"
+
+[options-at-once-any]
+source = "f22360e7ed1efe9f"
+text = "39fdda5c8b98e69d"
+by = "agent"
+date = "2026-11-07"
+
+[options-at-once-description]
+source = "454022c7438bd139"
+text = "c22b323deed735ca"
+by = "agent"
+date = "2026-11-07"
+
+[options-at-once-one]
+source = "da99da73409dcdc7"
+text = "06d765b7e7aed228"
+by = "agent"
+date = "2026-11-07"
+
+[options-at-once-two]
+source = "3ac0ed75b2858a8d"
+text = "b54357422b23867e"
+by = "agent"
+date = "2026-11-07"
+
+[options-audio-offset]
+source = "2324367d81369695"
+text = "2147260ff0234c54"
+by = "agent"
+date = "2026-11-07"
+
+[options-audio-offset-description]
+source = "840c694f1df5310f"
+text = "5c3a4fec614f366b"
+by = "agent"
+date = "2026-11-07"
+
+[options-background-frame]
+source = "755e80cdcde5f8c4"
+text = "bdde088033ac7814"
+by = "agent"
+date = "2026-11-07"
+
+[options-background-frame-auto]
+source = "43f2bb37f2481860"
+text = "3c2f43e980b9e4a5"
+by = "agent"
+date = "2026-11-07"
+
+[options-background-frame-description]
+source = "96d17be3bec7a7d6"
+text = "df0ea2fbab071a2d"
+by = "agent"
+date = "2026-11-07"
+
+[options-background-frame-screen]
+source = "83705f819f1480c1"
+text = "c0f27dc3d8a2f91e"
+by = "agent"
+date = "2026-11-07"
+
+[options-bg-brightness]
+source = "3513154100e783f1"
+text = "6decf0d144ccffea"
+by = "agent"
+date = "2026-11-07"
+
+[options-bg-brightness-description]
+source = "2e4f5adcf75ef260"
+text = "e9b5c26b08ab3185"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-already]
+source = "8338679c8fcec275"
+text = "49570a5c0ca7677c"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-any]
+source = "23428820bf328ba5"
+text = "7d982ce830d1366c"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-any-button]
+source = "2904328a4b1e9ad1"
+text = "026863ea17fcf70a"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-any-description]
+source = "7d31fc55d32d3f1b"
+text = "2c1143344a328fa0"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-backspace]
+source = "2d054035f240ba92"
+text = "066e7c00f2183629"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-capture]
+source = "9de7086378552635"
+text = "3a274a5989145d14"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-capturing]
+source = "801dccaca546c542"
+text = "30714b599e4498be"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-choose-capture]
+source = "88c843cd565d0ccc"
+text = "31e2eadadec9f9a1"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-help]
+source = "c57014cfc65c45c4"
+text = "e1bd854755b243a1"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-help-capturing]
+source = "36a3961a88ee5cb5"
+text = "2011e3afcf266c17"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-help-review-keys]
+source = "66d201d862d5f6e9"
+text = "e650a1c3b51d762f"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-help-review-pad]
+source = "f810e82e1c3b7602"
+text = "cc95c11c29dc292b"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-lane-elsewhere]
+source = "b0c00d0d4bedfa7f"
+text = "6e2d85ea9673bd54"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-layout]
+source = "5d373a8f8c67139c"
+text = "b2b523412848dd63"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-layout-description]
+source = "e27729abf8ee63e8"
+text = "f82a6f7e937dd42d"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-layout-description-pads]
+source = "9d79211ef64bcff1"
+text = "ebd4f82815dbc849"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-opposite]
+source = "affb94f6a493b3ea"
+text = "cdbc269c8d135e6e"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-pads-appear]
+source = "564a16c4a36bd422"
+text = "08e1c58470a78775"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-press-any]
+source = "7b73aed0c77126c3"
+text = "eaed98114c759f07"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-press-back]
+source = "33cf80f00498f73d"
+text = "6e7e63845e3e6e51"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-press-lane]
+source = "e084dd573a494e0a"
+text = "db96d6778c28bfc5"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-press-review]
+source = "331dcf64203f31f7"
+text = "df6a87ab0b686925"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-press-start]
+source = "cf9196c62150c4e4"
+text = "68af9d2b08a3fb9d"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-redo]
+source = "65856b38f1702433"
+text = "08bcad9b5972e88c"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-release-first]
+source = "78ebdff6df292841"
+text = "2387e16b016ade74"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-review-pad]
+source = "02467443994197ff"
+text = "e9e969cc7fa4ea9b"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-skip]
+source = "2386982685dbe9b1"
+text = "0e48e80ca02eb314"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-skip-help]
+source = "4be62929c23a8920"
+text = "3249954138fd9fda"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-skipped]
+source = "356530ea5cccb015"
+text = "539b464318cd8ff9"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-step-back]
+source = "8f12d10140ec2186"
+text = "8f12d10140ec2186"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-step-optional]
+source = "2bde0f15a970fb5b"
+text = "9db86e54fca6f8b1"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-step-start]
+source = "70d7b09db0119c36"
+text = "70d7b09db0119c36"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-title]
+source = "f1001607793f9319"
+text = "e038e34162d59f8a"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-title-keyboard]
+source = "cdc30f6da286758c"
+text = "97d1ea227da31d71"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-title-pad]
+source = "7dadb526a9f848cb"
+text = "be5fb3cc56da969f"
+by = "agent"
+date = "2026-11-07"
+
+[options-bind-waiting]
+source = "dc8eb92b2185ff4a"
+text = "c474fa4a37017a53"
+by = "agent"
+date = "2026-11-07"
+
+[options-bindings-defaults]
+source = "7b73b2922aa0d9a6"
+text = "e3c5014e67368292"
+by = "agent"
+date = "2026-11-07"
+
+[options-bindings-saved]
+source = "623a753a20e92d0c"
+text = "9e8530c8205de174"
+by = "agent"
+date = "2026-11-07"
+
+[options-calibration]
+source = "cc1dfb484ec05d2b"
+text = "ec44615e15906122"
+by = "agent"
+date = "2026-11-07"
+
+[options-calibration-description]
+source = "e714dfe67e42ad71"
+text = "8302ac6b7b6211af"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-announcer]
+source = "9f5dbc8ea1f6c12b"
+text = "e0ae5ddeaeb9ba65"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-announcer-body]
+source = "08ac04428e599ef8"
+text = "72193b701c2313a9"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-announcer-button]
+source = "64a899d109b0844e"
+text = "088ce33c53c4d114"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-everything]
+source = "2540cba9100c60a0"
+text = "e5c1693b9e07b2a3"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-everything-body]
+source = "bad86ebca230157f"
+text = "c89578ac44d69eec"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-everything-button]
+source = "2330bdad3fd45bbe"
+text = "ee3806e3e1071abf"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-folders]
+source = "a3b5dc689652a0d2"
+text = "6d3a2b5db956c5ce"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-folders-body]
+source = "d606d44be0047f31"
+text = "6bf1b492953cfdfc"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-folders-button]
+source = "52f8b5b2517c73f9"
+text = "47978051e154813c"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-history]
+source = "59acef5ba8cf13e1"
+text = "bfddd1e2b4489953"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-history-body]
+source = "b6a9baec4fbe32b5"
+text = "4020fe105827ec14"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-history-button]
+source = "dc63b8e4214b4cda"
+text = "184ff7d3e2cd3b53"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-history-export]
+source = "bc44222fb7a03b1f"
+text = "6798ea23c15b559d"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-noteskin]
+source = "0d7548686be3c30b"
+text = "660468790c9f8f0f"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-noteskin-body]
+source = "c3361685deae6730"
+text = "6674d85dc013b5c6"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-noteskin-button]
+source = "8cc8c9907eece746"
+text = "e68be68f6ffbd90c"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-pump-noteskin-body]
+source = "0a9dfa1ec09f85fc"
+text = "6097758004193990"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-settings]
+source = "45bb2d84811291b4"
+text = "10a2f653dfbcc892"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-settings-body]
+source = "f60436179353d3d2"
+text = "da0ef29bea6c2900"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-settings-button]
+source = "b4defd524c2b8769"
+text = "8e2cac766f48637f"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-songs]
+source = "33f75c989828f8bf"
+text = "088e1fbd55fb29c6"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-songs-body]
+source = "1e3084348b40d9e9"
+text = "4f89a79985b1284a"
+by = "agent"
+date = "2026-11-07"
+
+[options-confirm-songs-button]
+source = "402e4c9a22e755a3"
+text = "a93bd84ce0de8a21"
+by = "agent"
+date = "2026-11-07"
+
+[options-convert-five-keys]
+source = "973d2da9b0b962ce"
+text = "b3ad888084247888"
+by = "agent"
+date = "2026-11-07"
+
+[options-convert-five-keys-description]
+source = "f028cb5b99d0b033"
+text = "e2676ea58a0e4a0e"
+by = "agent"
+date = "2026-11-07"
+
+[options-convert-pump-single]
+source = "afff58fde932de3c"
+text = "45e2c6f6b5fd881e"
+by = "agent"
+date = "2026-11-07"
+
+[options-convert-pump-single-description]
+source = "f7f50957138defe3"
+text = "e655f07a37444fd0"
+by = "agent"
+date = "2026-11-07"
+
+[options-cover-hidden-description]
+source = "55df2c8879538e01"
+text = "de704fc130ae116d"
+by = "agent"
+date = "2026-11-07"
+
+[options-cover-hidden-height]
+source = "ad2ebb4bc423d6db"
+text = "0594ae1501b542eb"
+by = "agent"
+date = "2026-11-07"
+
+[options-cover-sudden-description]
+source = "c9a2ed8d32e59661"
+text = "4dd38b34b123a304"
+by = "agent"
+date = "2026-11-07"
+
+[options-cover-sudden-height]
+source = "658e191d2410d217"
+text = "d7861b015a678374"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor]
+source = "775f96e2f00797e9"
+text = "6fb70ced6a62adb4"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor-description]
+source = "09a3508267c8caff"
+text = "89104865e216800e"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor-infinito]
+source = "e2090e855bbf1667"
+text = "e8121d75ce53cfd2"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor-pointer]
+source = "b15815a63b343cad"
+text = "efc1c4e7fbe5d6f6"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor-size]
+source = "c14e87d7f11a39f0"
+text = "6c9f02d01e3427d0"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor-size-description]
+source = "67559d600d6e6af2"
+text = "e4bafd14a4355b56"
+by = "agent"
+date = "2026-11-07"
+
+[options-cursor-system]
+source = "62b87ed727f12530"
+text = "919ab5e71b51e985"
+by = "agent"
+date = "2026-11-07"
+
+[options-cut]
+source = "14deaf38a654ced2"
+text = "1d7767cc94af6daf"
+by = "agent"
+date = "2026-11-07"
+
+[options-cut-all]
+source = "96cc66279740006e"
+text = "c71c7e64d90c46e1"
+by = "agent"
+date = "2026-11-07"
+
+[options-cut-description]
+source = "21d2088229b08a68"
+text = "12407617643dc935"
+by = "agent"
+date = "2026-11-07"
+
+[options-cut-eighths]
+source = "04e7f635bb44360e"
+text = "ea8d722f233324d6"
+by = "agent"
+date = "2026-11-07"
+
+[options-cut-quarters]
+source = "6fb7f19a9ca59cce"
+text = "8cb84dfd803ef155"
+by = "agent"
+date = "2026-11-07"
+
+[options-dancing-hand]
+source = "1406b40f7e83c986"
+text = "840f47afcf2e98d3"
+by = "agent"
+date = "2026-11-07"
+
+[options-dancing-hand-description]
+source = "84039a36c8f332d2"
+text = "fa718277a5ff9915"
+by = "agent"
+date = "2026-11-08"
+
+[options-danoni-excessive]
+source = "299cf283a2e10667"
+text = "299cf283a2e10667"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-excessive-chart]
+source = "2667d13f3d312ed4"
+text = "946aff7664a9b2dc"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-excessive-description]
+source = "2237f0a1aada17e7"
+text = "00fd411807735929"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-gauge]
+source = "5c0579ef0532d3d7"
+text = "3fa728ed90388d28"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-gauge-border]
+source = "e3da25c34f4efc27"
+text = "37c8002ec42b9c63"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-gauge-description]
+source = "528d00ca145375d0"
+text = "084a3484e1b22ab4"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-gauge-first]
+source = "c2518df563787de0"
+text = "0211346df7a28902"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-range]
+source = "c854bd3b757f69e4"
+text = "fcb2411303839e58"
+by = "agent"
+date = "2026-11-07"
+
+[options-danoni-range-description]
+source = "88d9102dfcd9c0ae"
+text = "8941396efcffe36c"
+by = "agent"
+date = "2026-11-08"
+
+[options-db]
+source = "73ee96bbc368d101"
+text = "73ee96bbc368d101"
+by = "agent"
+date = "2026-11-07"
+
+[options-ddr-gauge]
+source = "d40e28310a724472"
+text = "5f120d9b729009df"
+by = "agent"
+date = "2026-11-07"
+
+[options-ddr-gauge-description]
+source = "e68f97e1db96ebb3"
+text = "57708690955e9e92"
+by = "agent"
+date = "2026-11-07"
+
+[options-ddr-gauge-normal]
+source = "c0c3008d570e0b66"
+text = "da04081c9f3534e4"
+by = "agent"
+date = "2026-11-07"
+
+[options-debug]
+source = "8faab74c3e041923"
+text = "7f471dc6f9fb73cd"
+by = "agent"
+date = "2026-11-07"
+
+[options-debug-description]
+source = "c87b0d6a018ef1f0"
+text = "4467a68cb2659128"
+by = "agent"
+date = "2026-11-07"
+
+[options-demo]
+source = "130115034bbb4c94"
+text = "62a09d2d3ece1b00"
+by = "agent"
+date = "2026-11-07"
+
+[options-demo-description]
+source = "50552b7d6b667e16"
+text = "9af65d85da75e905"
+by = "agent"
+date = "2026-11-07"
+
+[options-demo-play]
+source = "4d0b96fe9c15f42b"
+text = "cea1c873c8f39a3b"
+by = "agent"
+date = "2026-11-07"
+
+[options-demo-webgl2]
+source = "1438c77486b1121a"
+text = "1ead2cd69ebf4e6e"
+by = "agent"
+date = "2026-11-07"
+
+[options-fail]
+source = "26293f68228f7b79"
+text = "d40442a6b321c033"
+by = "agent"
+date = "2026-11-07"
+
+[options-fail-at-end]
+source = "d98019b485602421"
+text = "6d20e00f7c2a86de"
+by = "agent"
+date = "2026-11-07"
+
+[options-fail-delayed]
+source = "c33da415617ca192"
+text = "1c13b36a170bce31"
+by = "agent"
+date = "2026-11-07"
+
+[options-fail-description]
+source = "0a4d419c8bdc5c6f"
+text = "13f59863393a162c"
+by = "agent"
+date = "2026-11-07"
+
+[options-fail-immediate]
+source = "4c828b39a102c716"
+text = "9db3b884fdd7fbe1"
+by = "agent"
+date = "2026-11-07"
+
+[options-fast-pad-poll]
+source = "712e47a15b117b9a"
+text = "fdf0555d028d9776"
+by = "agent"
+date = "2026-11-07"
+
+[options-fast-pad-poll-description]
+source = "da71dcf8f6bec77e"
+text = "a74226e98ae04803"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-filter]
+source = "917f8f7aee64c63c"
+text = "2fc5ecd337872b61"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-filter-description]
+source = "1b5e008dd8097b28"
+text = "7e90b53c2cf89cb9"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place]
+source = "f12fac9e9581cf54"
+text = "70a0fd20b8733f4a"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place-center]
+source = "4db843b3ec461ec0"
+text = "f3bd6dbb6d0ff005"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place-description]
+source = "35e9c53ed1517ece"
+text = "3ced92f1aebc407d"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place-left]
+source = "31b3a2322079f9e8"
+text = "7bd050e389eb12e1"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place-near-left]
+source = "1b9098920bbb9327"
+text = "eabd839dbaa4caec"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place-near-right]
+source = "a51fa9705ec20e11"
+text = "91e4e0592580f670"
+by = "agent"
+date = "2026-11-07"
+
+[options-field-place-right]
+source = "16086f72c840ecb8"
+text = "7e4a49317192531f"
+by = "agent"
+date = "2026-11-07"
+
+[options-folder-description]
+source = "9851978a4ddfb226"
+text = "a10d81359ce3d10c"
+by = "agent"
+date = "2026-11-07"
+
+[options-folder-remove]
+source = "00107ac14a11b768"
+text = "bdbfa3cb28e5ebbe"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders]
+source = "d8cc5e9cf3d8107e"
+text = "aac55d9338b7b039"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-add]
+source = "a3b04452f2cd9e09"
+text = "f772f400d12f18c7"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-description]
+source = "a06f96f95b31b009"
+text = "588f936d5d888851"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-duplicates]
+source = "80357365a726a15a"
+text = "0441f6933bc5cb5e"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-failed]
+source = "a5bc666c96d33f7c"
+text = "3014a72b1408cf48"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-missing]
+source = "48497d626d07c1ca"
+text = "f1d11ae5b959b4c7"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-rescan]
+source = "02cb907e64385f91"
+text = "13d52c79dacfc896"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-songs]
+source = "e1e3d1888e0cf0a0"
+text = "77cd5e899fb4119b"
+by = "agent"
+date = "2026-11-07"
+
+[options-folders-songs-reading]
+source = "f106c75ea8605297"
+text = "1b474a07201a0050"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-background]
+source = "99fbb9117f5ee8f6"
+text = "3df03fadd6509d48"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-background-bars]
+source = "6a31e620dc75fefd"
+text = "365109b45cb1875f"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-background-description]
+source = "8ef72ab77de756a6"
+text = "f87c533d1cdddac1"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-background-field]
+source = "c0e3e34357e2ee7c"
+text = "36aa96b0d9997783"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-background-kaleidoscope]
+source = "80b1a981154040be"
+text = "81f7fb5299264029"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-background-rain]
+source = "f52a27fad6d652a2"
+text = "675e43eb91838779"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-over-pictures]
+source = "b0a79ed6c9d3e007"
+text = "d4a3bc7a479d9941"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-over-pictures-description]
+source = "30808822427c3f4d"
+text = "15a44e6bf89858ab"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette]
+source = "549bcfec6d84eacf"
+text = "d3e6c0177c90a044"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette-description]
+source = "1359bdcd8361b95f"
+text = "72409dd57215a6cd"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette-dusk]
+source = "bb78006d3fabdf75"
+text = "59922a2d34f9bb15"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette-ember]
+source = "2ed08842f0186a6d"
+text = "9234198dd52f4809"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette-ink]
+source = "e2c4d9444176c1f1"
+text = "b5fb8966c23acf1d"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette-mono]
+source = "8a02d419ac8303a5"
+text = "52be5ded78a76aa9"
+by = "agent"
+date = "2026-11-07"
+
+[options-generated-palette-moss]
+source = "6e293ead03aee777"
+text = "33b90a0035c01074"
+by = "agent"
+date = "2026-11-07"
+
+[options-ghost]
+source = "b66c13e55a7dd5ab"
+text = "8f176181d6c6c696"
+by = "agent"
+date = "2026-11-07"
+
+[options-ghost-description]
+source = "20e2eab40739e749"
+text = "f8722ce858977056"
+by = "agent"
+date = "2026-11-07"
+
+[options-graphics]
+source = "e51f7aca6fa209d7"
+text = "75bcb34d9b5170f0"
+by = "agent"
+date = "2026-11-07"
+
+[options-graphics-auto]
+source = "9197c9ea52ba229f"
+text = "c26c288649858adc"
+by = "agent"
+date = "2026-11-07"
+
+[options-graphics-description]
+source = "9328edce0514c81a"
+text = "a4f8949d50d94645"
+by = "agent"
+date = "2026-11-07"
+
+[options-graphics-webgl2]
+source = "756a67b364ae2e77"
+text = "756a67b364ae2e77"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-frame-height]
+source = "300da05da27f2183"
+text = "445f46a44a075661"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-frame-height-description]
+source = "9ca10ecea5d63da8"
+text = "c645868c749bc26c"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-frame-width]
+source = "9dd0163e167b1d61"
+text = "8543bd8df656c5e0"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-frame-width-description]
+source = "5b6635a6e7ba2bd3"
+text = "67a59854c3234770"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout]
+source = "250f8ee4949d335d"
+text = "89e67de0db6ad971"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-center-left]
+source = "db02aaa5d7f9adb5"
+text = "acfdeb1c0ab73064"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-center-right]
+source = "30172750ea1a5b57"
+text = "7694ff4e2992d260"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-description]
+source = "ac49cf85624fb631"
+text = "f04771df1682185f"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-follow]
+source = "505d64eb8cf53484"
+text = "cbed5788c1a53c35"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-left-right]
+source = "c89553e49553f643"
+text = "7167fde18ad1c88c"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-near-left-right]
+source = "77412ee9eb43c67e"
+text = "6dda142b365983eb"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-near-right-left]
+source = "81300fca97eb1e98"
+text = "34300290f285d15b"
+by = "agent"
+date = "2026-11-07"
+
+[options-hand-layout-right-left]
+source = "c791d4a60e7cf323"
+text = "cf74eaf1b4c895e8"
+by = "agent"
+date = "2026-11-07"
+
+[options-header]
+source = "7631cf6ac7b147c4"
+text = "9df2cb06cea49202"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-backgrounds]
+source = "2e490dd248fa8898"
+text = "9be2b927b56f0d50"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-controllers]
+source = "a2e5c83ab0c31744"
+text = "382e10408f94fc0c"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-convert]
+source = "fbc89fec92fa782c"
+text = "79d5ba4748a05889"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-danoni]
+source = "4727687d1263a301"
+text = "1c612764062ea16e"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-diagnostics]
+source = "d348aeaeaae6da78"
+text = "1dcfec9e55854261"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-keyboard]
+source = "a0cbffb2965906ac"
+text = "815af97978f9a990"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-known-devices]
+source = "5e7fd13c66623621"
+text = "296cc697fa0fc623"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-menus]
+source = "54b19d4aeeadc8ac"
+text = "a319b2d11ee8a609"
+by = "agent"
+date = "2026-11-07"
+
+[options-heading-simplify]
+source = "5ffad8f95579d844"
+text = "6aae8496e08e85d7"
+by = "agent"
+date = "2026-11-07"
+
+[options-hint-change]
+source = "e7b621e9ed45bcc9"
+text = "81db0bdf89660310"
+by = "agent"
+date = "2026-11-07"
+
+[options-hint-option]
+source = "d1b399a3860ef74f"
+text = "4ab877b586a4229e"
+by = "agent"
+date = "2026-11-07"
+
+[options-hint-preview]
+source = "cb0799a623db1e57"
+text = "1220576e4dcad418"
+by = "agent"
+date = "2026-11-07"
+
+[options-hint-section]
+source = "e059ad339b2dda83"
+text = "bc638dfe45ce2013"
+by = "agent"
+date = "2026-11-07"
+
+[options-history]
+source = "177821302faee4eb"
+text = "df5ab76df6e05625"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-description]
+source = "40ce22295bf33449"
+text = "24e0c88537432345"
+by = "agent"
+date = "2026-11-08"
+
+[options-history-export]
+source = "fab303de7645a410"
+text = "7504dd6aec7d9ae5"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-file-kind]
+source = "a750b090e19cde19"
+text = "d398612ad72087cb"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-import]
+source = "62a5a3c0708543d6"
+text = "abcef8aa6bdf026a"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-importing]
+source = "be2e5d20d77e53db"
+text = "6678bb77a1b56942"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-none]
+source = "d8e52c2b022f146c"
+text = "4ea200c995632de4"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-plays]
+source = "c72a0b6738f16954"
+text = "9433d273b14d3121"
+by = "agent"
+date = "2026-11-07"
+
+[options-history-reset]
+source = "2058b7c8b6564e36"
+text = "edac03918e1623ae"
+by = "agent"
+date = "2026-11-07"
+
+[options-holds]
+source = "35d5fef93316a493"
+text = "796225dad958fd6c"
+by = "agent"
+date = "2026-11-07"
+
+[options-holds-by-game]
+source = "846b7124da0415b7"
+text = "d5d640755d058ec1"
+by = "agent"
+date = "2026-11-07"
+
+[options-holds-dance]
+source = "49f498f7516ccad0"
+text = "710d921c5a7472a8"
+by = "agent"
+date = "2026-11-07"
+
+[options-holds-description]
+source = "770fcfb03eb98df4"
+text = "afb6b6a32cd3ce4c"
+by = "agent"
+date = "2026-11-07"
+
+[options-holds-ticked]
+source = "c30a6bda42d087ee"
+text = "b5e15a492c218247"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-cut]
+source = "4d23ff01a101389e"
+text = "18aef3190c46be21"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-duplicates]
+source = "63f043a2234e9478"
+text = "d65c985c033adfc2"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-imported]
+source = "160c4f68420574c6"
+text = "6f1145f0422c85cb"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-invalid]
+source = "bdf86c09907a3997"
+text = "ba3f0f4fb159121a"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-newer]
+source = "1b8deff59d694d73"
+text = "4a4910bd98f1bb39"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-not-kept]
+source = "8746107b64fc6d04"
+text = "5eaa45cdc25798fa"
+by = "agent"
+date = "2026-11-07"
+
+[options-import-problem]
+source = "04532efadca798db"
+text = "eff280e1d472a351"
+by = "agent"
+date = "2026-11-07"
+
+[options-judge-difficulty]
+source = "820e1bc281b9db0c"
+text = "b7ed963a9b3e27d1"
+by = "agent"
+date = "2026-11-07"
+
+[options-judge-difficulty-description]
+source = "2b65b4186931d82a"
+text = "1c49ed9ee06a83f0"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-add]
+source = "3f52084bf4813d3a"
+text = "0d9e4b84c3a49b84"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-clear]
+source = "f15cf6f46e31742d"
+text = "884de35b52797e2c"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-description]
+source = "54f5360e7667d31a"
+text = "051f1825e3e5ed1b"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-is-start]
+source = "8fc330e01e4e5d3e"
+text = "425f48ac6423f519"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-on-pad]
+source = "7097a6a0b697eee4"
+text = "55bc777f1bd9f330"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-prompt]
+source = "8ad54c0e125ea5af"
+text = "ca5a515fc3844b26"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-prompt-pad]
+source = "c91609c816ad010d"
+text = "6452f620bfaf34cc"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-title]
+source = "b7562a514e19d65c"
+text = "b2e1cbb80950412d"
+by = "agent"
+date = "2026-11-07"
+
+[options-key-title-pad]
+source = "2f49afc27b680f43"
+text = "2022ef51afcfd0de"
+by = "agent"
+date = "2026-11-07"
+
+[options-keyboard]
+source = "eaa72f10858c1ec7"
+text = "8f32ae48f63f68c1"
+by = "agent"
+date = "2026-11-07"
+
+[options-keyboard-bind]
+source = "1f433043cb01cef7"
+text = "209315a0cd5eeeba"
+by = "agent"
+date = "2026-11-07"
+
+[options-keyboard-description]
+source = "846d60b58a31476e"
+text = "74bdb48cb5504901"
+by = "agent"
+date = "2026-11-07"
+
+[options-keyboard-reset]
+source = "663800a87a086f2d"
+text = "ecdc145e4acc58ba"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover]
+source = "74d67b042301bd78"
+text = "ad77a91fb426b48a"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover-both]
+source = "2c8b55cd3d35ba0e"
+text = "f25a655eba0cee23"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover-description-keys]
+source = "3c612eaf834faabb"
+text = "b6261ffaec3e5610"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover-description-pad]
+source = "bd234c362d89f2b1"
+text = "bab784e16f924ec3"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover-description-unbound]
+source = "5718d39a75870460"
+text = "1c97173845dafee8"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover-hidden]
+source = "f8ab351f8f96b9d5"
+text = "82d15ac9281ec60f"
+by = "agent"
+date = "2026-11-07"
+
+[options-lane-cover-sudden]
+source = "b8752cbffba24fbf"
+text = "e01e2a654c434ea8"
+by = "agent"
+date = "2026-11-07"
+
+[options-language]
+source = "c2bbf5411b2a2665"
+text = "9bdff995fe7fd7a4"
+by = "agent"
+date = "2026-11-07"
+
+[options-language-description]
+source = "5627cc3105b1c9e9"
+text = "62a239909ad7090c"
+by = "agent"
+date = "2026-11-07"
+
+[options-language-system]
+source = "277a02abdc476dbc"
+text = "2730d2531872f3ff"
+by = "agent"
+date = "2026-11-07"
+
+[options-life-difficulty]
+source = "0383651e52dd0da8"
+text = "4bc187473fee9229"
+by = "agent"
+date = "2026-11-07"
+
+[options-life-difficulty-description]
+source = "8803f0159e7c80de"
+text = "04b35b36807c5939"
+by = "agent"
+date = "2026-11-07"
+
+[options-life-type]
+source = "d3cf816f91712a90"
+text = "b1696d9df28b2563"
+by = "agent"
+date = "2026-11-07"
+
+[options-life-type-bar]
+source = "b22c988b4b4df453"
+text = "fa618bf1133fd856"
+by = "agent"
+date = "2026-11-07"
+
+[options-life-type-battery]
+source = "e6c27ebd5c6785d3"
+text = "6c8a5bcb85554f73"
+by = "agent"
+date = "2026-11-07"
+
+[options-life-type-description]
+source = "5483049c13bc7111"
+text = "010e840d463f1098"
+by = "agent"
+date = "2026-11-07"
+
+[options-lives]
+source = "8903dd50f6ac3a8e"
+text = "fd6005ef1d174e7d"
+by = "agent"
+date = "2026-11-07"
+
+[options-lives-description]
+source = "afe4467132600088"
+text = "80862dee9e75999f"
+by = "agent"
+date = "2026-11-07"
+
+[options-lyrics]
+source = "84af59f97f84accd"
+text = "53be942e8950e57f"
+by = "agent"
+date = "2026-11-07"
+
+[options-lyrics-description]
+source = "72fc829dab75742e"
+text = "359a2a14b0445f5c"
+by = "agent"
+date = "2026-11-07"
+
+[options-mine-sound]
+source = "38777c7b02e667de"
+text = "34ff818dd4cb5a81"
+by = "agent"
+date = "2026-11-07"
+
+[options-mine-sound-description]
+source = "62c2a178d71b2f5a"
+text = "eb0192fc5feb02e6"
+by = "agent"
+date = "2026-11-07"
+
+[options-more-preview-layout]
+source = "0bd27ca51601b174"
+text = "d182d860a9281807"
+by = "agent"
+date = "2026-11-07"
+
+[options-more-title]
+source = "0346b4b330ad333f"
+text = "b75d71a0fb443cfd"
+by = "agent"
+date = "2026-11-07"
+
+[options-ms]
+source = "7b55e2b1ab137113"
+text = "7b55e2b1ab137113"
+by = "agent"
+date = "2026-11-07"
+
+[options-muted]
+source = "a6afc2bb4e643fb7"
+text = "21588f7fa23b2740"
+by = "agent"
+date = "2026-11-07"
+
+[options-no-holds]
+source = "47750e4435b33890"
+text = "28a64836558bda79"
+by = "agent"
+date = "2026-11-07"
+
+[options-no-holds-description]
+source = "1374925989fa79e8"
+text = "ca0fcd5cdbf948b0"
+by = "agent"
+date = "2026-11-07"
+
+[options-no-stretch]
+source = "d5023fb96f50b076"
+text = "f7271fe311a7c099"
+by = "agent"
+date = "2026-11-07"
+
+[options-no-stretch-description]
+source = "13f3fa39d582d008"
+text = "32f37c9b61f21c07"
+by = "agent"
+date = "2026-11-07"
+
+[options-noteskin]
+source = "21cb8afdfbeaf8d4"
+text = "1e4b6093313d1319"
+by = "agent"
+date = "2026-11-07"
+
+[options-noteskin-description]
+source = "5736cc1b9890cea3"
+text = "5995a0138d6f1975"
+by = "agent"
+date = "2026-11-07"
+
+[options-noteskin-lua-off]
+source = "36dd920eae57ebb6"
+text = "2d97a745b45a7c72"
+by = "agent"
+date = "2026-11-07"
+
+[options-noteskin-remove]
+source = "7de80fb4f25f4682"
+text = "97c6409055dbcf5b"
+by = "agent"
+date = "2026-11-07"
+
+[options-noteskin-remove-button]
+source = "7fea5621037dc650"
+text = "dfb20a53bbbb4966"
+by = "agent"
+date = "2026-11-07"
+
+[options-noteskin-remove-description]
+source = "1c05a7982d0f2313"
+text = "e27a6ae03636ed6f"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-added]
+source = "d3ff1aec805423aa"
+text = "63ad4a38c9685e40"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-announcer-not-removed]
+source = "6b4d5a65d90ed538"
+text = "b74df32b9deaf9c3"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-announcer-removed]
+source = "75fa3379e5e63a27"
+text = "5b9ac3bcd57d8b66"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-everything-removed]
+source = "bc80c6349585808b"
+text = "643b4a834af82b08"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-everything-reset]
+source = "9dc93e34974acc0f"
+text = "8fff6ffc8e62c0b4"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-export-failed]
+source = "50dea536035a59c0"
+text = "186a4e0590d50699"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-exported]
+source = "97036e8916333f28"
+text = "98163f975a46436a"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-exported-to]
+source = "47304325858b9140"
+text = "cd0fd0c1e6d28f22"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-history-deleted]
+source = "fd7cde7182549855"
+text = "85f9bbb2acdcb693"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-history-not-deleted]
+source = "d2d4844bcddd62f4"
+text = "277e181b18c93a4e"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-import-busy]
+source = "492234537a650b3d"
+text = "846f40529f52f50e"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-import-gesture]
+source = "005386fe93719874"
+text = "c04539f717aec6d7"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-importing]
+source = "3fef0f8c091965e7"
+text = "7bd3279132702a86"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-importing-kept]
+source = "606afc3863b0c9d8"
+text = "b998796be819df30"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-keyboard-bound]
+source = "c4fbcd311ab7498a"
+text = "78991ace45e1bf23"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-keys-default]
+source = "d34f0688e5d05750"
+text = "35165134e7b16e39"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-moved]
+source = "c533a6feca03aad1"
+text = "cf49fb5c20c37ce7"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-noteskin-not-removed]
+source = "ffa54f56957f5068"
+text = "5eb26ad8c198e8d5"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-noteskin-removed]
+source = "3f8d325eb2ea09cd"
+text = "78426f812fde2b74"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-pad-bound]
+source = "a71f669a970af004"
+text = "c1ece02018a3b0a6"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-pad-forgotten]
+source = "10ee9d404c8f8968"
+text = "eaf1651039784d06"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-settings-reset]
+source = "acad764da39739f7"
+text = "88522c285fa14e81"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-songs-not-removed]
+source = "3e599208aa912d86"
+text = "a03bfc46a4ce7b9d"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-songs-removed]
+source = "eeecbc4396395f79"
+text = "967e6528338f9420"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-token-cleared]
+source = "8f08fae08da769e1"
+text = "2f51ab32b099b506"
+by = "agent"
+date = "2026-11-07"
+
+[options-notice-token-set]
+source = "2f184ac59c6332b1"
+text = "0b93aba0bd7191a0"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-back]
+source = "d6244e88ead8ffd7"
+text = "d6244e88ead8ffd7"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-bind]
+source = "16058d3b0b8b239f"
+text = "2322a256cd246ef2"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-clear]
+source = "48a76c363771d863"
+text = "1a5bf2d6bd2f3376"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-connected]
+source = "2543be95e2bbf85b"
+text = "98ed04986c4a4642"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-defaults]
+source = "df77eaedfc3c44c0"
+text = "c0f811f1ac86ab44"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-description]
+source = "b4bc906a2163e0a7"
+text = "0bf6fb081bc663d4"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-forget]
+source = "b0d2386dc1f0a81f"
+text = "0061fcb7ab319430"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-lane-add]
+source = "a1c8f4971edf5a9c"
+text = "d2b72cd6a555bd74"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-lane-clear]
+source = "720bdeca8d9822a4"
+text = "397fb66426d74797"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-lane-description]
+source = "e762dbc7309ef447"
+text = "34f59dfd8a25e3bf"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-lane-shared-description]
+source = "24785a50722b2c36"
+text = "77994899337c4afa"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-not-bound]
+source = "2b1ba85c42a713cc"
+text = "3b6fe418f90e2389"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-not-connected]
+source = "9b73f6e68096fc6a"
+text = "8e10f808a8c9c078"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-nothing-bound]
+source = "dcfd70c422e1f8ce"
+text = "53d1fab8ce4099a0"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-one-pad]
+source = "e3a098c0b82ede3b"
+text = "b7d16f9065b601eb"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-one-pad-each]
+source = "c228c9676b57e0ce"
+text = "cc5cf0c4ab030dad"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-start]
+source = "c7ed13227eb777e3"
+text = "c7ed13227eb777e3"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-start-back-description]
+source = "10cd33dc7fdfdc9c"
+text = "213ecd682da31188"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-style]
+source = "a4eeae56b07f1848"
+text = "4177f461be92604d"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-style-auto]
+source = "a0e1bbad9bc34e27"
+text = "444bfdbce8eea56c"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-style-auto-detected]
+source = "16480122d56fb73f"
+text = "115db6b6d1cdf912"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-style-description]
+source = "98972856374432c5"
+text = "402456c583904e27"
+by = "agent"
+date = "2026-11-07"
+
+[options-pad-style-generic]
+source = "6d2f596d76ad17db"
+text = "cdfb98466149e7e8"
+by = "agent"
+date = "2026-11-07"
+
+[options-pads-none]
+source = "54fa65a8f19fa6bd"
+text = "adcbd5eb37713c31"
+by = "agent"
+date = "2026-11-07"
+
+[options-pads-none-description]
+source = "592c0220f44e5e46"
+text = "acbecb9159854b86"
+by = "agent"
+date = "2026-11-07"
+
+[options-pads-none-note]
+source = "2a64906782136464"
+text = "bcc54b59c0f3bf0b"
+by = "agent"
+date = "2026-11-07"
+
+[options-percent]
+source = "ae1343e052b13726"
+text = "ae1343e052b13726"
+by = "agent"
+date = "2026-11-07"
+
+[options-preview-caption]
+source = "3b4663f01a5d0766"
+text = "296474cb735cab0d"
+by = "agent"
+date = "2026-11-07"
+
+[options-preview-layout]
+source = "121753cbc3c6e43d"
+text = "bcf3a280f4dca471"
+by = "agent"
+date = "2026-11-07"
+
+[options-preview-on]
+source = "d13fff7a58119dc6"
+text = "224312383cea1f64"
+by = "agent"
+date = "2026-11-07"
+
+[options-preview-on-description]
+source = "841375194536193f"
+text = "3c291b48986890d2"
+by = "agent"
+date = "2026-11-07"
+
+[options-preview-reverse]
+source = "d1dd98f00ca89dde"
+text = "ef7b3f9b92d141e0"
+by = "agent"
+date = "2026-11-07"
+
+[options-preview-standing-hand]
+source = "5e496445c912ef89"
+text = "0f2894b3f3c8f534"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-audio]
+source = "cb1fff87c4f01817"
+text = "bfb1f1989f0767b1"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-calibrated]
+source = "2a1daa2ecc3cd147"
+text = "b2cac4dddc05c012"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-default]
+source = "2aab8fdf9ead0ac7"
+text = "609f255aff7b8ea7"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-description]
+source = "02fba912973abba0"
+text = "4ea65e8216ebf8dd"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-display]
+source = "978695f244520667"
+text = "d9b6793ebc03808e"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-forget]
+source = "cb6bef055bfab92f"
+text = "f0df3441d7de3960"
+by = "agent"
+date = "2026-11-07"
+
+[options-profile-forget-description]
+source = "56629e42378637fd"
+text = "f572f7d98f692fd3"
+by = "agent"
+date = "2026-11-08"
+
+[options-pump-noteskin]
+source = "f77e7343ac1b7f5b"
+text = "d4e7273332a95fb5"
+by = "agent"
+date = "2026-11-07"
+
+[options-pump-noteskin-description]
+source = "606b20bb76038501"
+text = "d4f858c4384df609"
+by = "agent"
+date = "2026-11-07"
+
+[options-pump-noteskin-remove]
+source = "35783225a24c31af"
+text = "3d2d04b3a8eaf3b4"
+by = "agent"
+date = "2026-11-07"
+
+[options-pump-noteskin-remove-button]
+source = "15cc5f447ed4fdf7"
+text = "405c9d70c866f80d"
+by = "agent"
+date = "2026-11-07"
+
+[options-pump-noteskin-remove-description]
+source = "0d5af3d9c24087b6"
+text = "dbbf8f227ca6e7f8"
+by = "agent"
+date = "2026-11-07"
+
+[options-pump-noteskin-same]
+source = "de83e32552d61e6f"
+text = "3478919b55eedcc9"
+by = "agent"
+date = "2026-11-07"
+
+[options-px]
+source = "c9570d665601b7a7"
+text = "c9570d665601b7a7"
+by = "agent"
+date = "2026-11-07"
+
+[options-random-movies]
+source = "fd32366f3920cb24"
+text = "d5e77c26da382b8f"
+by = "agent"
+date = "2026-11-07"
+
+[options-random-movies-description]
+source = "7b09d3bc0f4a27e5"
+text = "296e94378483b71e"
+by = "agent"
+date = "2026-11-07"
+
+[options-receptor-snap]
+source = "e21fd109bfca0e6c"
+text = "31047b3f8a06bee3"
+by = "agent"
+date = "2026-11-07"
+
+[options-receptor-snap-description]
+source = "c6e4a6219c684070"
+text = "b6259cf6ca170411"
+by = "agent"
+date = "2026-11-07"
+
+[options-reduced-motion]
+source = "cc1fd1981e76abfc"
+text = "44bbdd860fc49e65"
+by = "agent"
+date = "2026-11-07"
+
+[options-reduced-motion-description]
+source = "e4669cfd5e3d1a39"
+text = "55b12e1e7c355a2b"
+by = "agent"
+date = "2026-11-07"
+
+[options-reduced-motion-system]
+source = "1ca9d41bcb36ecbc"
+text = "0ab9662d21437167"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-everything]
+source = "cf8379323ca0b1d9"
+text = "3e94f4878de515f4"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-everything-button]
+source = "164b90b67c76de3e"
+text = "3a64285eb016c916"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-everything-description]
+source = "0ec8453fdd594ea2"
+text = "9b1b55ae7778fd47"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-folders]
+source = "9be68526f89af9ac"
+text = "70d4e4860164162f"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-folders-button]
+source = "6940135933a732e6"
+text = "28a2a0583db44d8f"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-folders-count]
+source = "56464a8583b83ab9"
+text = "94fa260ad7117971"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-folders-description]
+source = "6759d688ea225765"
+text = "f2ccd8a54194cb49"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-folders-none]
+source = "c2e170b53e567def"
+text = "cb064a6925c98e7a"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-importing]
+source = "ab0e1f1e538244c9"
+text = "bd1afa3f616d6f84"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-settings]
+source = "4dc5341fb20f26b1"
+text = "8276c418cfd784fa"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-settings-button]
+source = "995555444da0b61a"
+text = "96b49ae7cfac8a32"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-settings-description]
+source = "3f071548ac9995a8"
+text = "f09c1873db2229cc"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-songs]
+source = "4f4efaaeddbf00ab"
+text = "ccda9cd481979821"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-songs-button]
+source = "b353d9e8bb71eb94"
+text = "f172fed1fbb593e2"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-songs-count]
+source = "ffad2ead5dc185af"
+text = "acc29521b69b6273"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-songs-description]
+source = "7bc484e899b875f0"
+text = "fc3f3060faa792aa"
+by = "agent"
+date = "2026-11-07"
+
+[options-reset-songs-none]
+source = "c49e66c42d98aa90"
+text = "9b0562227a1fd6c9"
+by = "agent"
+date = "2026-11-07"
+
+[options-reverse]
+source = "aee930edf0cadd6b"
+text = "4fd9c0d56b0d20e7"
+by = "agent"
+date = "2026-11-07"
+
+[options-reverse-description]
+source = "add03894752b0b02"
+text = "72ec029c5264e11c"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset]
+source = "fcb6dbd0e53c7d67"
+text = "20dd2206c1ed86f0"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-approximate]
+source = "3bed7f236585a049"
+text = "4d50bb23a3196d69"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-description]
+source = "4f628823a9f7e32c"
+text = "cc15d62b0b9c4764"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-mode]
+source = "9106503cae414062"
+text = "ed2752bcb0ce005c"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-mode-danoni]
+source = "4cd67abfa166e4ba"
+text = "4cd67abfa166e4ba"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-mode-description]
+source = "84eb1233864fb935"
+text = "0c93c07bf332fc68"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-mode-game]
+source = "3bd9701166007d3d"
+text = "f098dcc6f870b4b4"
+by = "agent"
+date = "2026-11-07"
+
+[options-ruleset-mode-ruleset]
+source = "1c84064d59ae02ee"
+text = "cb30ab1a60cf8a64"
+by = "agent"
+date = "2026-11-07"
+
+[options-sample]
+source = "2dbfa97eb8ed72c1"
+text = "5888129bf179f43b"
+by = "agent"
+date = "2026-11-07"
+
+[options-sample-description]
+source = "074146700f38346a"
+text = "4515cd5fba7260a4"
+by = "agent"
+date = "2026-11-07"
+
+[options-sample-play]
+source = "ceb08a7f68a56f09"
+text = "309074022b57f373"
+by = "agent"
+date = "2026-11-07"
+
+[options-sample-stop]
+source = "343c5065760cfe7a"
+text = "7e991cb98c84f3cd"
+by = "agent"
+date = "2026-11-07"
+
+[options-saved]
+source = "e84b51c4c91b7e14"
+text = "d16fbf0c2c56e0cd"
+by = "agent"
+date = "2026-11-07"
+
+[options-scroll-action]
+source = "1dbaf106afa44868"
+text = "945c76cb38d8d736"
+by = "agent"
+date = "2026-11-07"
+
+[options-scroll-action-boost]
+source = "43141a62a6224e5c"
+text = "ca0d6f1f4c7a9501"
+by = "agent"
+date = "2026-11-07"
+
+[options-scroll-action-brake]
+source = "d6242c6cef31dba4"
+text = "ced1ea6f812d03f9"
+by = "agent"
+date = "2026-11-07"
+
+[options-scroll-action-description]
+source = "e27fd91859325ca4"
+text = "98a69ef69708a8d8"
+by = "agent"
+date = "2026-11-07"
+
+[options-scroll-action-normal]
+source = "50c0ab0e759045f0"
+text = "db89cd1a781c32e3"
+by = "agent"
+date = "2026-11-07"
+
+[options-scroll-action-wave]
+source = "96e08dd5e5956374"
+text = "3c3ec91d7e1942e2"
+by = "agent"
+date = "2026-11-07"
+
+[options-seconds]
+source = "937927cc050bda16"
+text = "2a41d6b045d79181"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-arrows]
+source = "78e8db040125ec07"
+text = "9fde5b13b17516e7"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-controls]
+source = "2516b16517fddb3f"
+text = "6bbf9e9197d8fa3e"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-data]
+source = "105183b83ec86aef"
+text = "ca43badda7be41ba"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-display]
+source = "36b6bdc515c5f9e1"
+text = "3698c38b21b7f979"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-notes]
+source = "498cc662c01e2e39"
+text = "a2c0c2cc04102244"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-rules]
+source = "40cdfbf5e0b0aa49"
+text = "cf25e743670e8d48"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-scroll]
+source = "213ddaa5bb53dbc9"
+text = "7b14cf6f911f77fe"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-sharing]
+source = "7101dadef0760ce9"
+text = "719e2118c9cc3881"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-songs]
+source = "34bcb9333bcb8231"
+text = "aaa0b85a20d3da18"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-sound]
+source = "9d630fc0e54c1149"
+text = "30931cb74a7cddcb"
+by = "agent"
+date = "2026-11-07"
+
+[options-section-timing]
+source = "32943afbb1b168df"
+text = "7cdece50d5cd67a9"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-about]
+source = "69025d05be14108a"
+text = "ed88b5599799a7a7"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-about-description]
+source = "4002e56935b2e756"
+text = "79c550d2dba23b87"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-about-note]
+source = "b1bd2e8ad30fb811"
+text = "27a7fe688c8bc9cc"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-list]
+source = "805c8a2f645cc629"
+text = "296c03add5700d24"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-server]
+source = "8dd8c24821ab989d"
+text = "a211fd649e0b4300"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-server-description]
+source = "93b5042ce4c2eefa"
+text = "aca9b1511c2c61e6"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-shares]
+source = "b31f78ada0ed7407"
+text = "b0b3e7ca7c434e51"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-shares-description]
+source = "0a5bd87a259d386d"
+text = "481b2469081ea723"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-shares-no-token]
+source = "c077fe4b904849bd"
+text = "058d508adee925db"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-shares-note]
+source = "8d5d3e1051b97a70"
+text = "bfa0b2585e8fd4d7"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-token]
+source = "5d48f3a77a2ed550"
+text = "df15215feddb2a09"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-token-change]
+source = "705a42c042c84261"
+text = "7bb562950476cc8a"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-token-clear]
+source = "6afa71a1dfaf5ce5"
+text = "7ba078a6ccd88b74"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-token-description]
+source = "65e28f9f8da43709"
+text = "b3abb33f360376b7"
+by = "agent"
+date = "2026-11-08"
+
+[options-share-token-is-set]
+source = "d87704633c08e7fc"
+text = "b7546783410ab851"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-token-not-set]
+source = "94f22ad04c30f0fc"
+text = "d2996a673b04f41f"
+by = "agent"
+date = "2026-11-07"
+
+[options-share-token-set]
+source = "42f117b41f65308b"
+text = "288c5082c8c3ff0b"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-copy]
+source = "c748bd91b2e3f70a"
+text = "dfd5216f36432ae7"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-delete]
+source = "391d62c74bd9402e"
+text = "9adbd15191a11117"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-delete-sure]
+source = "ebf922fe5f8fd94a"
+text = "4b9501403835d9a9"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-expired]
+source = "44c8635561ad6c5e"
+text = "e0ab07014e844fb3"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-expires-days]
+source = "5361b8a9f3c611c5"
+text = "72d11cc9a949d66b"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-expires-hours]
+source = "6e4bcdac8d89bb2e"
+text = "0440db19aa488dee"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-expires-minutes]
+source = "02de5e05caf67cb6"
+text = "e530e0d4d87a6622"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-failed]
+source = "e6ea0832d8eac665"
+text = "89e81bb0f50f0219"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-loading]
+source = "31c4b65ef71d09f1"
+text = "4ce70400f026adfd"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-never-expires]
+source = "4c654848f265b40b"
+text = "dfb07f0e75aaf9a8"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-none]
+source = "de87135defbb1b72"
+text = "68a3859a65a2d42e"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-others]
+source = "c7a98e992830cfee"
+text = "3f4c05f964318058"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-songs]
+source = "6fcaecfcc0a9b04b"
+text = "2a643339c73442ae"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-title-all]
+source = "604cb64fcf450a42"
+text = "20b02ad707d69fef"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-title-mine]
+source = "a031c6c51e1ef875"
+text = "7536d2c09042af04"
+by = "agent"
+date = "2026-11-07"
+
+[options-shares-unfinished]
+source = "bf56b747667e9d97"
+text = "f24a4be13288654a"
+by = "agent"
+date = "2026-11-07"
+
+[options-show-deltas]
+source = "74e45ec8f7484693"
+text = "b07f289ed5fbe75c"
+by = "agent"
+date = "2026-11-07"
+
+[options-show-deltas-description]
+source = "6e1d015a8c07c125"
+text = "759d6a8f9b254e02"
+by = "agent"
+date = "2026-11-07"
+
+[options-simplify-center]
+source = "1d643147ddd7674d"
+text = "3f72ca1c8e37c393"
+by = "agent"
+date = "2026-11-07"
+
+[options-simplify-center-all]
+source = "15b3da093229df99"
+text = "f03e51e7efdc9762"
+by = "agent"
+date = "2026-11-07"
+
+[options-simplify-center-description]
+source = "138efe1f23144ebf"
+text = "456f21d5f42efe7f"
+by = "agent"
+date = "2026-11-07"
+
+[options-simplify-center-missing]
+source = "f2a163b7799d845a"
+text = "a4ed603601bc5129"
+by = "agent"
+date = "2026-11-07"
+
+[options-simplify-onigiri]
+source = "3d05f7f2897c9c25"
+text = "5753c3b28a9f14c7"
+by = "agent"
+date = "2026-11-07"
+
+[options-simplify-onigiri-description]
+source = "8c8e452fae698abf"
+text = "6085cf18b71b41bf"
+by = "agent"
+date = "2026-11-08"
+
+[options-size-b]
+source = "136ce34b3f67c0d0"
+text = "136ce34b3f67c0d0"
+by = "agent"
+date = "2026-11-07"
+
+[options-size-gb]
+source = "73239c7b57f8da6a"
+text = "73239c7b57f8da6a"
+by = "agent"
+date = "2026-11-07"
+
+[options-size-kb]
+source = "55ec81f7e1714832"
+text = "55ec81f7e1714832"
+by = "agent"
+date = "2026-11-07"
+
+[options-size-mb]
+source = "d87e10c51bd01a56"
+text = "d87e10c51bd01a56"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed]
+source = "f2750fe334fde05f"
+text = "6671ca2c2256f551"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed-description]
+source = "d1c76614242fa3e7"
+text = "b5cea991cc9481cc"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed-source]
+source = "9d9b9ea345592a14"
+text = "30a235047f56998b"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed-source-chart]
+source = "2bfdd589f1a7d4b0"
+text = "85137271efabeee0"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed-source-description]
+source = "f181b355e1e03607"
+text = "cd6466e73dbb80d0"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed-source-mine]
+source = "536b167471ad9781"
+text = "ba527cb9e5ad29b8"
+by = "agent"
+date = "2026-11-07"
+
+[options-speed-value]
+source = "96335a2788220a65"
+text = "96335a2788220a65"
+by = "agent"
+date = "2026-11-07"
+
+[options-start-countdown]
+source = "8a6c9811160269ba"
+text = "2e3c767b59975892"
+by = "agent"
+date = "2026-11-07"
+
+[options-start-countdown-description]
+source = "a7ccf04e535995c5"
+text = "728a180fa1e0e28c"
+by = "agent"
+date = "2026-11-07"
+
+[options-title]
+source = "9f9d7be6f02196fb"
+text = "7c1ae40328ce6021"
+by = "agent"
+date = "2026-11-07"
+
+[options-token-body]
+source = "31c0af299f787b28"
+text = "a2c3207c5ba6b478"
+by = "agent"
+date = "2026-11-07"
+
+[options-token-placeholder]
+source = "7a8dbe61e021040b"
+text = "64af008c5c169545"
+by = "agent"
+date = "2026-11-07"
+
+[options-token-title]
+source = "0d334422ff737bfb"
+text = "30f29f43dae95604"
+by = "agent"
+date = "2026-11-07"
+
+[options-turn]
+source = "941294a8bbcfac87"
+text = "0f60e6b9fc36e433"
+by = "agent"
+date = "2026-11-07"
+
+[options-turn-description]
+source = "7b82c34927caefb9"
+text = "8c68862736ff8c24"
+by = "agent"
+date = "2026-11-07"
+
+[options-turn-left]
+source = "a768b2dde1cd5a4d"
+text = "3a27240cc0fb75d7"
+by = "agent"
+date = "2026-11-07"
+
+[options-turn-mirror]
+source = "d3742ce3cdfe2bb1"
+text = "47f84476322729ac"
+by = "agent"
+date = "2026-11-07"
+
+[options-turn-right]
+source = "79d0e488a731e3c1"
+text = "f3d4c691126609d9"
+by = "agent"
+date = "2026-11-07"
+
+[options-turn-shuffle]
+source = "0b260d75d5312491"
+text = "4833fdf00c55a338"
+by = "agent"
+date = "2026-11-07"
+
+[options-video]
+source = "72e470aff48ed518"
+text = "ebe4e14a281d4d7a"
+by = "agent"
+date = "2026-11-07"
+
+[options-video-auto]
+source = "daf725c241a12f4d"
+text = "8125de1a4beb4522"
+by = "agent"
+date = "2026-11-07"
+
+[options-video-description]
+source = "b3417162c75067a0"
+text = "e58e187c9c5163af"
+by = "agent"
+date = "2026-11-07"
+
+[options-visual-offset]
+source = "3de7d5337602649d"
+text = "e9e24f326e0d453f"
+by = "agent"
+date = "2026-11-07"
+
+[options-visual-offset-description]
+source = "160672d6f7e5d030"
+text = "11e86d21a3c4b39c"
+by = "agent"
+date = "2026-11-07"
+
+[options-volume]
+source = "21c422f599062984"
+text = "3c8ae5f1c5547a04"
+by = "agent"
+date = "2026-11-07"
+
+[options-volume-description]
+source = "d40b05741c605e60"
+text = "c135759befb788bc"
+by = "agent"
+date = "2026-11-07"
+
+[pages-activate]
+source = "011e63f897d15359"
+text = "d2fc71ec05cd5414"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-about]
+source = "f1c5735f54c3ed77"
+text = "47b9573269eda3b3"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-audio]
+source = "1d639cc0a1d22785"
+text = "2e467e7b85a9d490"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-audio-about]
+source = "1ae2df83e940cc65"
+text = "8cc2137a560d64e6"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-audio-device]
+source = "3c252df1641bfceb"
+text = "0c554f27617444a2"
+by = "agent"
+date = "2026-11-08"
+
+[pages-calibration-combined]
+source = "29f6b261ceb901bb"
+text = "bc147293c0bcad81"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-combined-about]
+source = "d0327c746ba0b3d3"
+text = "4b1680d1ade38eb6"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-defaults]
+source = "f8f6ccfa241818aa"
+text = "465d93f8d99d5e5b"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-display-device]
+source = "dd741d96d44f2eb7"
+text = "dc12c43f8b0e9424"
+by = "agent"
+date = "2026-11-08"
+
+[pages-calibration-heading]
+source = "633d81c105afdaae"
+text = "5430813231685f67"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-last-test]
+source = "5086b9367c56a4d7"
+text = "397e04da7ba3e610"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-no-device]
+source = "0dd0d258c4308d2e"
+text = "7ddaa37d60089944"
+by = "agent"
+date = "2026-11-08"
+
+[pages-calibration-offsets]
+source = "c8519cb51a6f01ac"
+text = "83def4349cef5cf7"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-options]
+source = "ed3d3f48f6bc2bec"
+text = "7cd628858252f3fa"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-order]
+source = "36660befa3ad45db"
+text = "46b4a1d2936d1185"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-per-device]
+source = "d419d9ea407d580d"
+text = "f4ef77e452506781"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-range]
+source = "97f094f53b168338"
+text = "fe6c32e2d98466cd"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-reset]
+source = "f40b105fa9184601"
+text = "fc0fa5e73763d78a"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-reset-body]
+source = "6c244b0ba68f5de6"
+text = "7a78bf24e6dcdc7c"
+by = "agent"
+date = "2026-11-08"
+
+[pages-calibration-reset-title]
+source = "01a2aed8e76f3349"
+text = "0f0a89fb6e776548"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-audio-hint]
+source = "f0f32c4d0b583268"
+text = "e465ae566b60f1d5"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-audio-title]
+source = "0152aa046d5606e8"
+text = "30de45088d77102b"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-combined-hint]
+source = "fce3739c6ce2e84a"
+text = "67d01ceac57c0812"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-combined-title]
+source = "ba57f7461793bd10"
+text = "5731482de3b0c83d"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-device-changed]
+source = "ce7907b3780d746e"
+text = "cad848c001bd40e5"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-out-of-range]
+source = "27956b19d457fcf8"
+text = "024105747e6b4381"
+by = "agent"
+date = "2026-11-08"
+
+[pages-calibration-run-right]
+source = "445fe514db4604e0"
+text = "f4d488671aeb4b08"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-set]
+source = "fbcfe58a0487eeea"
+text = "ee1b900669e32ff6"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-unreliable]
+source = "96d910c5abbdc966"
+text = "7574ca619c1abf32"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-visual-hint]
+source = "054153cdcd11badd"
+text = "04e5b9311b1169c3"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-run-visual-title]
+source = "42cd543b3f8c3b44"
+text = "a3ca7e8e4db2b265"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-start]
+source = "f1a1bcf29986355c"
+text = "5942f34555735495"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-start-guided]
+source = "bdcbeac5c0d07edb"
+text = "b6d1fe05950a3428"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-tip]
+source = "724a3ff898fbd875"
+text = "f9b68ea2f9745dec"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-title]
+source = "c5e68384167f717a"
+text = "f678914e4e1ae783"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-visual]
+source = "b7ba57a824f8d06d"
+text = "20c819c389a7d036"
+by = "agent"
+date = "2026-11-07"
+
+[pages-calibration-visual-about]
+source = "8f76f6b3d452bbee"
+text = "0802e8361805819c"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-about]
+source = "3815a189352c9ff7"
+text = "dd7ee9c9991ef1b9"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-announcers]
+source = "7ea1a203141805b8"
+text = "00aa13e4f93d54e9"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-chart-authors]
+source = "6ee1a7e75c50ea7d"
+text = "b24fb79f9ec63891"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-code]
+source = "89b71206e8fbba5a"
+text = "ea828ba367a3b75a"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-commit-folder]
+source = "13d55f593fb74969"
+text = "11e275b7053a5d60"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-commit-folder-retrieved]
+source = "3d1f25530448ea70"
+text = "0da674e48ce9fa51"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-configure]
+source = "a01c78094c9091a5"
+text = "30e22b98b319ac5d"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-fonts]
+source = "0b0e2dc59c21159a"
+text = "40126966895cad38"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-heading]
+source = "c453db07c28fecae"
+text = "b445a09fbaff2b8c"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-holders-commit]
+source = "de7b2a3f604cda55"
+text = "0f8fabc0421442fe"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-learned-from]
+source = "5860d682118a30a6"
+text = "0f7d57fa23f491fa"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-loading]
+source = "33e9834a9d85ed62"
+text = "23fa6275eee95c3e"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-model]
+source = "0a4aadf2f455a2f1"
+text = "ac11e2a5453b6019"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-modifications]
+source = "785a4690226fe499"
+text = "a1f78db34db9bdea"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-modified]
+source = "a93d4f80bd0ec512"
+text = "80b582dab7334b01"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-no-modifications]
+source = "3b220cee9285988e"
+text = "379d0a3768022f14"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-not-included]
+source = "99730e8bc699af66"
+text = "d211d6b9210af838"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-noteskins]
+source = "64115e97aefc9ada"
+text = "6527ab516bc21dbf"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-notice]
+source = "9b1960df375c2df4"
+text = "2e32a46b5bfc4a3f"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-revision]
+source = "d5fcc39571216bdd"
+text = "9572b82bb18b9f72"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-revision-made]
+source = "5d095ef646e9fe48"
+text = "228a65404af4d519"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust]
+source = "d2d5ebe365369307"
+text = "998eb0da42e91fbf"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-about]
+source = "2b6ef400592ded50"
+text = "a5110d5772f09546"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-crate]
+source = "1992ff61566f31e4"
+text = "46cbffb4cca63cb5"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-crate-chosen]
+source = "dd719975779722c0"
+text = "5cf0024fa9579688"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-crates]
+source = "17b0126e456b7aaf"
+text = "08a3f82d0bfb94de"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-notice]
+source = "9135f3099e4e9095"
+text = "9135f3099e4e9095"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-notice-for]
+source = "b47d8d4491037870"
+text = "3382c797b0e0bc04"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-notice-more]
+source = "5833dfb0b7201d78"
+text = "60bde8f6b511ce5f"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-rust-notices]
+source = "793d223b95087e0e"
+text = "d89a4fb00cb7d511"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-songs]
+source = "8e32463a17d3e726"
+text = "d0fea6c083e23043"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-source]
+source = "30ecf4679d565c19"
+text = "e185fbda81a3f4a7"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-source-link]
+source = "38851cecfe5e823b"
+text = "e269dd68a6342418"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-title]
+source = "9f1aecb38b3b10aa"
+text = "743fc16efdf4a440"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-unreadable]
+source = "a66559bb10365909"
+text = "259100a3285934c3"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video]
+source = "ac24f3307155f9aa"
+text = "681567c7d5d92df9"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video-about]
+source = "7b88969624bf270d"
+text = "8741b68a68bb5f0b"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video-licenses]
+source = "ca113c2990db7191"
+text = "27fb6ab919a699f6"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video-licenses-where]
+source = "6767bc7b811bd3d9"
+text = "6cd36aececfbc3a8"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video-release]
+source = "be87b07d01cd5ae9"
+text = "bbc5fa4cd7456ed5"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video-source]
+source = "c3e1f56aedee9c80"
+text = "3e2c753c91d94f68"
+by = "agent"
+date = "2026-11-07"
+
+[pages-credits-video-tag]
+source = "77f4435bfc4325fb"
+text = "80b66cf3b7e2e5d5"
+by = "agent"
+date = "2026-11-07"
+
+[pages-move-hint]
+source = "d208ce487e3bfe85"
+text = "57df118302422f9e"
+by = "agent"
+date = "2026-11-07"
+
+[pages-offer-add]
+source = "887228bfa9728e9a"
+text = "737d8297eaf05fc3"
+by = "agent"
+date = "2026-11-07"
+
+[pages-offer-decline]
+source = "ce04e47d633bae10"
+text = "d2d05c0486e1e758"
+by = "agent"
+date = "2026-11-07"
+
+[pages-offer-found]
+source = "81a4616c289827c5"
+text = "158e967a49d5f54a"
+by = "agent"
+date = "2026-11-07"
+
+[pages-offer-more]
+source = "b580397953ac8e58"
+text = "f24e94a7a6786f7f"
+by = "agent"
+date = "2026-11-07"
+
+[pages-offer-title]
+source = "5a26ec5d2c58dc52"
+text = "44221958a9f8ba50"
+by = "agent"
+date = "2026-11-07"
+
+[pages-offer-where]
+source = "71d0964ae707ecb5"
+text = "d3ae38550211950e"
+by = "agent"
+date = "2026-11-07"
+
+[pages-press-to-open]
+source = "3bfcee28ea16944c"
+text = "bcb0a0868b53ba1e"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-access]
+source = "e6a82623c766819a"
+text = "91054c09762cd6ec"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-access-refused]
+source = "6d7a0f73d990c4b7"
+text = "8273362146a5bb24"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-allow-folder]
+source = "90ad03eb77be0075"
+text = "ff1d755fd27059d7"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-chart-style]
+source = "da2c9049c3d432b3"
+text = "1b4292b935958484"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-controller-pad]
+source = "895fc9ef034f5de5"
+text = "e58368f22cdbb6dd"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-download]
+source = "d8fa3ef564ab15a5"
+text = "6e6d8b28715e646a"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-download-done]
+source = "3872e528087411da"
+text = "d3f401b974a45025"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-download-progress]
+source = "d4bccc6dcad18ce3"
+text = "8b3cfa12f11135f0"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-hint-activate]
+source = "a7ce00e7ca4d3969"
+text = "e342c1e72941e864"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-interrupted]
+source = "63194b5ab388ef8d"
+text = "21248987084df073"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-interrupted-why]
+source = "84765c918e067d6a"
+text = "666d6080dac1c41c"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-loading]
+source = "4cabaf0e2108a659"
+text = "e5ed0e608bcd3501"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-modifiers]
+source = "918301714ac6449d"
+text = "02329461f296b8f3"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-needs-gesture]
+source = "7c68ab80c1ba82b6"
+text = "62c63c73cc057b38"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-no-chart]
+source = "73d215b70589b397"
+text = "e8d1bf4710dc9dff"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-play-quit]
+source = "aeac75d3504afe93"
+text = "83de18354e740865"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-play-quit-button]
+source = "c5840e0347b44f79"
+text = "aea0d76a88ae652a"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-play-quit-this]
+source = "22239a28e9bc6a34"
+text = "d354b7b073319075"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-play-restart]
+source = "fdb9c66fc869f6d7"
+text = "21966874aa4774fb"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-replay-refused]
+source = "cb637e1ad9840a22"
+text = "8db2ddb765af063d"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-results-refused]
+source = "f3c3fc3e63b310e9"
+text = "ef5e864ae9a04e86"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-retry]
+source = "6b2a255343290f89"
+text = "dbabc42c9a5a7e17"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-save-as-default]
+source = "6e04c3aca0c2ad2b"
+text = "2ba50b96ad7963bb"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-saved-as-default]
+source = "f5b1a84d9088d04d"
+text = "ddd85c3704d51c6e"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-share-reading]
+source = "974ac62733c7540b"
+text = "a1ebc48f88eed395"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-song-failed]
+source = "7128804722cc1932"
+text = "29b7dc35cc71abb7"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-start]
+source = "f0c9270befe059c9"
+text = "d9363d88aeda76ae"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-timing-early]
+source = "827cf80b084cae51"
+text = "e2699a08ac57da5c"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-timing-late]
+source = "bfd3aa5abc68e6e9"
+text = "7fb94b2f8fffdc44"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-timing-not-calibrated]
+source = "e29d840cd66d9d39"
+text = "e0fe77532ed74f91"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-unbound]
+source = "ea3cd5278d14eb39"
+text = "34513a98cc8c2bd6"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-video-failed]
+source = "30cd590361bcafb9"
+text = "0fd5f06dfbaa363b"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-video-loading]
+source = "ecb33759468f7561"
+text = "61708d7440b1c84c"
+by = "agent"
+date = "2026-11-07"
+
+[prompt-video-progress]
+source = "1917d9c02da0aa32"
+text = "dc71483d8ba3c0a5"
+by = "agent"
+date = "2026-11-07"
+
+[results-activate]
+source = "0c75250c8327a5b7"
+text = "85920431b09d2bc2"
+by = "agent"
+date = "2026-11-07"
+
+[results-beat]
+source = "81d1de21717c3f10"
+text = "8121f1313e153fe0"
+by = "agent"
+date = "2026-11-07"
+
+[results-beat-other]
+source = "779d829360debfa2"
+text = "a90fb8d04e440634"
+by = "agent"
+date = "2026-11-07"
+
+[results-beats-none]
+source = "915bb3da6ef638a7"
+text = "3ff6a300d3cdb048"
+by = "agent"
+date = "2026-11-07"
+
+[results-beats-not-kept]
+source = "c65293b90df4e0bc"
+text = "0838937ff9bce4e7"
+by = "agent"
+date = "2026-11-07"
+
+[results-beats-note]
+source = "aebda8b4184b23a5"
+text = "7cb5b5f0ce0a7d98"
+by = "agent"
+date = "2026-11-07"
+
+[results-fast-slow]
+source = "25422c114490f407"
+text = "c044464c1ef31167"
+by = "agent"
+date = "2026-11-07"
+
+[results-ffr-raw-goods]
+source = "178d0e2d910c2961"
+text = "178d0e2d910c2961"
+by = "agent"
+date = "2026-11-07"
+
+[results-ffr-total-score]
+source = "b93216ade8f22299"
+text = "3e78fc6b7391484d"
+by = "agent"
+date = "2026-11-07"
+
+[results-flare-points]
+source = "a0d90a257b1bf02e"
+text = "f22cf5633826597d"
+by = "agent"
+date = "2026-11-07"
+
+[results-flare-skill]
+source = "a861851154232386"
+text = "4dd71df23e205fa6"
+by = "agent"
+date = "2026-11-07"
+
+[results-life-drop]
+source = "c4fead11111111ae"
+text = "9061ac6fe7d1953e"
+by = "agent"
+date = "2026-11-07"
+
+[results-life-no-drop]
+source = "abd7f91eea0f6297"
+text = "2421d808b37ab36f"
+by = "agent"
+date = "2026-11-07"
+
+[results-max-combo]
+source = "eb36ed245d15cd4a"
+text = "c0e4c38a2e66d0fb"
+by = "agent"
+date = "2026-11-07"
+
+[results-mean-offset]
+source = "1690120538ad3d68"
+text = "cb6a2ecea0d71715"
+by = "agent"
+date = "2026-11-07"
+
+[results-mines-hit]
+source = "e9126e0ad681bd2a"
+text = "7979220e7f34b22c"
+by = "agent"
+date = "2026-11-07"
+
+[results-more-offset-down]
+source = "d3a42e6bcd8f20b9"
+text = "c984ef6354875ebb"
+by = "agent"
+date = "2026-11-07"
+
+[results-more-offset-up]
+source = "5312f5b9694997f3"
+text = "f81966193b9f6b23"
+by = "agent"
+date = "2026-11-07"
+
+[results-more-reset-offset]
+source = "15712243677d7854"
+text = "57a78d85995e6d67"
+by = "agent"
+date = "2026-11-07"
+
+[results-more-title]
+source = "62c5f7d5bf608de3"
+text = "fe47f651692cdc51"
+by = "agent"
+date = "2026-11-07"
+
+[results-more-use-mean]
+source = "ae088c416b84a86f"
+text = "69562109fbbd24b4"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-autoplay]
+source = "67ce5205826b0f0e"
+text = "ba98ccc48dcd8bf8"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-device-changed]
+source = "8c621ff6b5764b07"
+text = "3e045e8f65ad9c2a"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-fail-at-end]
+source = "9ad49c1ff8d58121"
+text = "93bc19461552eafc"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-fail-delayed]
+source = "de76f16fe4d8b310"
+text = "09529e1b826ea91c"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-not-failed-at-end]
+source = "e6ae5750994fe9ae"
+text = "7326c4e9ca8b0ce2"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-not-failed-off]
+source = "7b22deb2426976cf"
+text = "c0de599dcf75e906"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-not-saved]
+source = "74a97231006bc2cb"
+text = "46af42936f6aeb11"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-scripts-busy]
+source = "2dd39abc44407f17"
+text = "eaf38f2eb715748d"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-scripts-failed]
+source = "fde497f8f7735266"
+text = "7e27c57248fecb1a"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-scripts-memory]
+source = "40bdb323193cb02f"
+text = "bd2005620b27f585"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-scripts-slow]
+source = "df03aacf51e0c173"
+text = "dc6ba67f3202653b"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-scripts-string]
+source = "9593d886b09f8587"
+text = "359343592b73ff9e"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-sound-dropped]
+source = "196fac78dd4a506b"
+text = "b65009ae2c9275f7"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-video-decoder-behind]
+source = "a5345a70ade8ea60"
+text = "841c8c3f25f5b20b"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-video-dropped-frames]
+source = "2b1aae497223a6dd"
+text = "52dc95c2d987c52d"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-video-trouble]
+source = "9173160b7c846e5c"
+text = "f1fed56f04e8e50b"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-videos-trouble]
+source = "015c5e073f931c45"
+text = "772a7c13ba130e8b"
+by = "agent"
+date = "2026-11-07"
+
+[results-note-videos-trouble-first]
+source = "04cafb04bf982526"
+text = "45171e123084f465"
+by = "agent"
+date = "2026-11-07"
+
+[results-offset]
+source = "5e9c59e129f6a9e7"
+text = "2237d163ec007e67"
+by = "agent"
+date = "2026-11-07"
+
+[results-offset-value]
+source = "5b5b6faa6c50777a"
+text = "5b5b6faa6c50777a"
+by = "agent"
+date = "2026-11-07"
+
+[results-offsets-misses]
+source = "ebdcfc015821f4e0"
+text = "3ad2bcba7a81613a"
+by = "agent"
+date = "2026-11-07"
+
+[results-offsets-range]
+source = "09a19dffb6922803"
+text = "29d33cab6d6dc1eb"
+by = "agent"
+date = "2026-11-07"
+
+[results-panel-beats]
+source = "144681cb60a5314e"
+text = "e4f2d3f7433cddd1"
+by = "agent"
+date = "2026-11-07"
+
+[results-panel-lanes]
+source = "920b1a2904474d7a"
+text = "d5cf950e3edbe11c"
+by = "agent"
+date = "2026-11-07"
+
+[results-panel-lanes-any]
+source = "9d25a58734f84c90"
+text = "6bf7f65b14abc75d"
+by = "agent"
+date = "2026-11-07"
+
+[results-panel-life]
+source = "6cf838e915c7af5e"
+text = "de94fca5ce94c539"
+by = "agent"
+date = "2026-11-07"
+
+[results-panel-offsets]
+source = "eddee53cdceedd26"
+text = "0f73b3b46a0c5c20"
+by = "agent"
+date = "2026-11-07"
+
+[results-panel-timing]
+source = "85bb1dacc16f7b9e"
+text = "1df111c4834b43fe"
+by = "agent"
+date = "2026-11-07"
+
+[results-played-at]
+source = "ea2c0e0f45cf7f2d"
+text = "a454370cd39397cd"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-chart-changed]
+source = "cf17d71ae04251b8"
+text = "8c7dbc4fcc10525e"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-differs-inputs]
+source = "8e28c80aecfaa288"
+text = "7e2d685c91358913"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-differs-score]
+source = "32e49dc35448f4d7"
+text = "ffc1b178505f4796"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-differs-timing]
+source = "9bdb501f2c2c5892"
+text = "2f430b90e53d9a43"
+by = "agent"
+date = "2026-11-08"
+
+[results-replay-gone]
+source = "af15fbbbb0efdf06"
+text = "0c9ce252c532211d"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-history-silent]
+source = "29b373bf708821e6"
+text = "b551d0d1365ecbf6"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-history-unreadable]
+source = "c5af74cf861093e7"
+text = "d45d8b2389a848da"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-log-unreadable]
+source = "417748f2bf6142e4"
+text = "af4e1f960cd623a6"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-missing-skin]
+source = "13fcc5f88c60e39a"
+text = "37a1dff57a3c27a0"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-missing-song]
+source = "32a0d1377aefc596"
+text = "b5adf49e0023cc41"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-newer-judge]
+source = "2ff3cd06d13bb9a2"
+text = "971690cfc3348d90"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-newer-record]
+source = "900f7d3b6e56aa21"
+text = "0e0f9ac759544e4a"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-not-compared]
+source = "ccbe719a310e96ba"
+text = "d4a9e1a0a59493f2"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-older-judge]
+source = "c331cebd065cca67"
+text = "2ceddcb851ad8770"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-record-broken]
+source = "03477df613b1690f"
+text = "977c3fd87422f478"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-record-unreadable]
+source = "c77efe3e2a3259bb"
+text = "5f588b1ef95d687a"
+by = "agent"
+date = "2026-11-07"
+
+[results-replay-song-unreadable]
+source = "235542ea4c6f7f34"
+text = "24c82715e879def0"
+by = "agent"
+date = "2026-11-07"
+
+[results-retry]
+source = "584097e496cdd3f3"
+text = "e4dca8074382dd31"
+by = "agent"
+date = "2026-11-07"
+
+[results-sample-note]
+source = "7b87822189bc41b7"
+text = "f2c58cfd06186797"
+by = "agent"
+date = "2026-11-07"
+
+[results-song-list]
+source = "beb99871d5f1a2a0"
+text = "ca58c495b1dd1590"
+by = "agent"
+date = "2026-11-07"
+
+[results-song-offset]
+source = "414dece8a049e9a8"
+text = "2c7308f6304c327a"
+by = "agent"
+date = "2026-11-07"
+
+[results-stray-presses]
+source = "8a53677d2e4e063e"
+text = "de19c2516df8fc23"
+by = "agent"
+date = "2026-11-07"
+
+[results-ticks]
+source = "2caf7c8cefc79120"
+text = "abcfb0f0c5b486d5"
+by = "agent"
+date = "2026-11-07"
+
+[results-timing-early]
+source = "64a666fc9536417a"
+text = "d9480848eb62ac25"
+by = "agent"
+date = "2026-11-07"
+
+[results-timing-late]
+source = "29cdf612704487e5"
+text = "d26addcf1730e02a"
+by = "agent"
+date = "2026-11-07"
+
+[results-timing-note]
+source = "55232c8efae1ad06"
+text = "79cdf53f29295e5b"
+by = "agent"
+date = "2026-11-07"
+
+[results-title]
+source = "cca781ca70eb39df"
+text = "33367f4c6bb0e30d"
+by = "agent"
+date = "2026-11-07"
+
+[results-use-mean]
+source = "eb97220be62ff4d3"
+text = "d6a446b24e48ff14"
+by = "agent"
+date = "2026-11-07"
+
+[results-watch-again]
+source = "aafe9a4402bd9d16"
+text = "7969b313b9220c5e"
+by = "agent"
+date = "2026-11-07"
+
+[results-watch-replay]
+source = "e75e92d164024004"
+text = "ec6241597e07f2b2"
+by = "agent"
+date = "2026-11-07"
+
+[select-assist-mark]
+source = "e9f1f219139652a7"
+text = "e9f1f219139652a7"
+by = "agent"
+date = "2026-11-07"
+
+[select-autoplay-chart]
+source = "45af7f901f77d03c"
+text = "e4d1bf5718556d98"
+by = "agent"
+date = "2026-11-08"
+
+[select-chart-notes]
+source = "f5ad0be5005f87ec"
+text = "27d327096e45d918"
+by = "agent"
+date = "2026-11-07"
+
+[select-chart-notes-by]
+source = "2b4b6ee4a41d2a06"
+text = "caa87e7c952450f6"
+by = "agent"
+date = "2026-11-07"
+
+[select-gesture-link]
+source = "6c0294f868038366"
+text = "9c8a74c64c262f5c"
+by = "agent"
+date = "2026-11-07"
+
+[select-gesture-search]
+source = "00b64c9dff3ee385"
+text = "41cd7c646c3562a6"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-activate]
+source = "3e3ccffd97bd534b"
+text = "b31cdd536e2d0afe"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-chart]
+source = "f0011bbfccdd4daf"
+text = "8282d3043eedd512"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-choose]
+source = "8ca416498f34c75b"
+text = "61ce7de7945c6682"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-edit]
+source = "32f11657de2e2b89"
+text = "6ef1f4aedbbbc8d5"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-go-to]
+source = "7124da7ffa12078c"
+text = "2a31364ade1bd909"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-manage]
+source = "15e9405792a6b30b"
+text = "c777e0d25bb27d5f"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-navigate]
+source = "84d4f3e8555da87b"
+text = "024e2d7a3c9f491e"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-open-close]
+source = "28455d3ffa6b553b"
+text = "7867fe932f03ec50"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-play]
+source = "45dc03c4d1b23db5"
+text = "949bb2acbce6073f"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-plays]
+source = "df9668e3871c8ae3"
+text = "35f5292ef0072c10"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-search]
+source = "b6e3de5f13b351e9"
+text = "7d0e903409a57c70"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-song]
+source = "b96bd4fa37b30403"
+text = "2de1726fb05a9a6d"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-start-menu]
+source = "2257c02d7f9ffcba"
+text = "4498620884f9b83b"
+by = "agent"
+date = "2026-11-07"
+
+[select-hint-style]
+source = "7dc9028221d07cc3"
+text = "fb429ce5c61428f6"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-cancel]
+source = "5f7fd26ad28fbea6"
+text = "03c0bf918a11c472"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-choose-files]
+source = "90f29237e9d6d006"
+text = "3a0eeab1a8d555b2"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-choose-folder]
+source = "6d2841420180a71c"
+text = "fe33284927fa447a"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-danoni-import]
+source = "d39b98c94d7438a7"
+text = "5c4d874ab2b3983d"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-danoni-intro]
+source = "7d5802b1c7def070"
+text = "374f99cafb5ce788"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-danoni-note]
+source = "f84dd05882c86751"
+text = "3c13df8c55895e02"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-danoni-retry]
+source = "3ef3b70a61ff333b"
+text = "b1677ec07bf55cab"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-decision-needed]
+source = "03a61eee749c4787"
+text = "b8345f7c1d1e7de0"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-intro]
+source = "8657ec626f5f2935"
+text = "7dc82011a8d260e0"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-intro-compact]
+source = "c9aedd1bf4449555"
+text = "05af11a1d00a20b4"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-intro-compact-linked]
+source = "4328ea84ca15756d"
+text = "33027fd07cd1fd19"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-intro-linked]
+source = "5dac0aff9fe6fa38"
+text = "b616bbf1f0b9b064"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-needs-gesture]
+source = "e9dc56d14f9d6ac5"
+text = "01e4ba3b857ff435"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-new-song]
+source = "8027fcfe5b1ad308"
+text = "8c2f57f078f4cf7e"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-option-copy]
+source = "eb7de53ea1bbb05b"
+text = "b5664abc1276e365"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-option-details]
+source = "e8469d38f96fa571"
+text = "281a05e3424672df"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-option-videos]
+source = "a6a1a884dd35df17"
+text = "3285c191d2476b1a"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-origin-decline]
+source = "2307e6d15697b7bc"
+text = "36d0e564bbbf5686"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-origin-explain]
+source = "eb4bb921d4298745"
+text = "bd0a2e2bcb22496a"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-origin-heading]
+source = "81ba3ea0c2e66359"
+text = "a4ababd5404660bc"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-origin-once]
+source = "93dadc22d962ef67"
+text = "68e3b5ee1e8bda9b"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-origin-remember]
+source = "7d319f0297f0b6c4"
+text = "999745c8799902d6"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-stage-progress]
+source = "b004ccbefccbee6b"
+text = "d763b0683401028d"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-tab-danoni]
+source = "dd4bf113b5d4b550"
+text = "dd4bf113b5d4b550"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-tab-files]
+source = "66a6b38b1d1505ae"
+text = "d856462ad2fa8af2"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-title]
+source = "887bb40e2659585c"
+text = "550bea695b894a46"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-url-invalid]
+source = "c91d7ba465c32359"
+text = "b6eaca02531b1a63"
+by = "agent"
+date = "2026-11-07"
+
+[select-import-url-placeholder]
+source = "b0d36273c6a09f03"
+text = "b0d36273c6a09f03"
+by = "agent"
+date = "2026-11-07"
+
+[select-info-length]
+source = "3a5c461b13e4ae20"
+text = "fb4e2722b0a6eeea"
+by = "agent"
+date = "2026-11-07"
+
+[select-info-line]
+source = "63ee54b466800e57"
+text = "63ee54b466800e57"
+by = "agent"
+date = "2026-11-07"
+
+[select-info-offset]
+source = "bbc1bde0d73f0db9"
+text = "2119191f0766e56b"
+by = "agent"
+date = "2026-11-07"
+
+[select-info-pack]
+source = "242419896437f4da"
+text = "be938e6a33b8f1a3"
+by = "agent"
+date = "2026-11-07"
+
+[select-link-add]
+source = "8bb0643870056f91"
+text = "47de35eb909c8e89"
+by = "agent"
+date = "2026-11-07"
+
+[select-link-manage]
+source = "5cfdf027d94b930e"
+text = "a2cd8f7a63322636"
+by = "agent"
+date = "2026-11-07"
+
+[select-link-options]
+source = "cfc342a78a98a96a"
+text = "2e5f7603e9f9dcfc"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-busy]
+source = "1646dd6698bdbd64"
+text = "9febdff82bd71753"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm]
+source = "a012908e13c8cebd"
+text = "5e5ed4ed679c8687"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm-pack]
+source = "afe3c1ecb0548ad8"
+text = "73a06b49c4db2d8d"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm-pack-title]
+source = "6f4e6f0e5aae1c2e"
+text = "0b61c26181ca3aa3"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm-song]
+source = "3e8295c15c555ccb"
+text = "92bd24536ad1bfb8"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm-song-title]
+source = "0297b463738f9942"
+text = "6e6b5cd089224195"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm-unreadable]
+source = "d592bb15e0c5e5dc"
+text = "ba0087e5371b11fe"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-confirm-unreadable-title]
+source = "fffb37ba2d7ae062"
+text = "92935f8010c45300"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-keep]
+source = "530d1a09f1656f15"
+text = "2eae97a9f0245d6c"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-pack]
+source = "a30eec01190e06ba"
+text = "99b4faa3407485fe"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-pack-rereadable]
+source = "9b4bffe67caa08cc"
+text = "a3219cedb96f1231"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-remove-pack]
+source = "6c371310de68a93b"
+text = "b3c73afc937050a7"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-remove-song]
+source = "c8edde493b8b5e73"
+text = "78062c3561c98f91"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-reread]
+source = "13c4a25d710723ec"
+text = "58ce8972b16f414c"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-song-pack]
+source = "0d299195a552757f"
+text = "ed09c1223a111320"
+by = "agent"
+date = "2026-11-07"
+
+[select-manage-unreadable-title]
+source = "79fcfdd5c9205bcb"
+text = "4234a0eb39b67749"
+by = "agent"
+date = "2026-11-07"
+
+[select-matches]
+source = "940534e3c3fa0b26"
+text = "bfb780840d57f3f6"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-add-songs]
+source = "eda18f467596aea6"
+text = "6f87bc8ce7d536f8"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-clear-search]
+source = "d5449a1cdd330676"
+text = "222754e336e25f50"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-edit]
+source = "130a18f4a8417b7d"
+text = "01caf3f4b2437217"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-history]
+source = "8429891181f0bd37"
+text = "ca9f60ed7d85edae"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-manage]
+source = "9e22f6e67d2e2a22"
+text = "d9efd4ff1e9398fd"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-next-chart]
+source = "97b0728f1c5a5b18"
+text = "14bfce0de6b9a3f7"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-options]
+source = "f2ee8c259f0e1edf"
+text = "e73b26762e8579dd"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-previous-chart]
+source = "933b5f76ee81334c"
+text = "44efb2575db1de0b"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-search]
+source = "b10953fb12845e01"
+text = "45adcf3e8caab828"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-share-add]
+source = "f12e56d5d9d6e579"
+text = "f853549e56d8f0fa"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-share-clear]
+source = "559594d441146247"
+text = "5050292913bb8641"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-share-list]
+source = "d67fadf4c7f36dc0"
+text = "4e7e49d3a7b1cc1a"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-share-pack]
+source = "832e8730ff1c2cf7"
+text = "4f55a72186890b93"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-share-remove]
+source = "2792f70e24efc5de"
+text = "b389b6206a6db856"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-share-song]
+source = "8c319cd9fdd1eee6"
+text = "ce7a949277666f31"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-style]
+source = "56bf73199bf6d838"
+text = "6890d5eefd7e571c"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-suggestions]
+source = "75222b68ceac2d51"
+text = "b9dd2c518e4d5384"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-title]
+source = "f5c22bc19399a1e5"
+text = "bbcd645a45e2bbab"
+by = "agent"
+date = "2026-11-07"
+
+[select-more-watch-best]
+source = "2cfe15a7f3a404a2"
+text = "d1c02b967194bf04"
+by = "agent"
+date = "2026-11-07"
+
+[select-no-charts]
+source = "1982bcba5a963d8b"
+text = "3df07bb712f86531"
+by = "agent"
+date = "2026-11-07"
+
+[select-no-charts-hint]
+source = "aae4454bf4237671"
+text = "fbd0c241ad75a89d"
+by = "agent"
+date = "2026-11-07"
+
+[select-notices-title]
+source = "4a5efb0ae44fd1f4"
+text = "3d4c6f35533addd9"
+by = "agent"
+date = "2026-11-07"
+
+[select-pack-bundled]
+source = "3f62db5e4491ab69"
+text = "559560e3fbc3f1a5"
+by = "agent"
+date = "2026-11-07"
+
+[select-pack-songs]
+source = "382c1be35e006e94"
+text = "7235664ce3f53b4f"
+by = "agent"
+date = "2026-11-07"
+
+[select-pack-songs-found]
+source = "7fa1ea0c714daf17"
+text = "060e1e2f282e785c"
+by = "agent"
+date = "2026-11-07"
+
+[select-page-newer]
+source = "9f8db5ddb1d74594"
+text = "07fb5e0d1350ba92"
+by = "agent"
+date = "2026-11-07"
+
+[select-page-older]
+source = "20214ed201cecc15"
+text = "1fb8e8e5a0d80051"
+by = "agent"
+date = "2026-11-07"
+
+[select-page-range]
+source = "9ecfb5fdc4f6ffa1"
+text = "9230b746d879bf5b"
+by = "agent"
+date = "2026-11-07"
+
+[select-play-button]
+source = "73ab9158e8c7ca78"
+text = "57cad853947b5358"
+by = "agent"
+date = "2026-11-07"
+
+[select-play-chart]
+source = "75b8d6892f96135a"
+text = "d2eb60ff238e577a"
+by = "agent"
+date = "2026-11-07"
+
+[select-play-no-charts]
+source = "1ff4496df11a5de3"
+text = "208b6147faacb78d"
+by = "agent"
+date = "2026-11-07"
+
+[select-playing-with]
+source = "c9011511c734df64"
+text = "83dfa8ee840cc582"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-autoplay]
+source = "bb8b32c8e9c8b479"
+text = "bb8b32c8e9c8b479"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-best]
+source = "f2e66a9ead1e5028"
+text = "a6ce7d214dc869f9"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-empty]
+source = "eca7d374af5b7d84"
+text = "9fe5b65f71ffdfc2"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-remove]
+source = "96291ff86bc939b3"
+text = "d3681add86fb0e51"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-remove-confirm]
+source = "5ea73c378159520a"
+text = "a177a0c46b0da8e0"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-results]
+source = "c18142832d46ab35"
+text = "f055af8d23c2726f"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-title]
+source = "6f9dd96bda3506d9"
+text = "c252287b94a7ef98"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-title-version]
+source = "85af6f15cd5db5e1"
+text = "77aca81580390bcc"
+by = "agent"
+date = "2026-11-07"
+
+[select-plays-watch]
+source = "381b0cec8a4507cd"
+text = "bf4857e1c9022f7c"
+by = "agent"
+date = "2026-11-07"
+
+[select-row-no-charts]
+source = "799c3c2f5aaeecb2"
+text = "cc09615d96e18d6c"
+by = "agent"
+date = "2026-11-07"
+
+[select-search-placeholder]
+source = "bde34ef6613e4cfa"
+text = "e3fbd8382159c30d"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-copy-link]
+source = "d25ca6cee99be232"
+text = "d21753960a908e5f"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-default-pack]
+source = "c057c3103e0ff22f"
+text = "820cb3024b0cd9ec"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-done]
+source = "ddbb32b0d795ee32"
+text = "3b93a9307b50665a"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-done-note]
+source = "ad4e658a8c95d1a5"
+text = "dca08156e2e8100c"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-expiry-day]
+source = "973490f7843b7b8c"
+text = "3ce8781366933ae4"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-expiry-hour]
+source = "e712c2bf8935eff8"
+text = "3783e90f304d62d1"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-expiry-month]
+source = "57aac88b6bc8e12c"
+text = "6481093063216bfb"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-expiry-never]
+source = "09bef28621a19d52"
+text = "d62aeccd00264184"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-expiry-week]
+source = "8e3150bf44677bb0"
+text = "a01240018a062cd8"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-failed]
+source = "2965a22378dd72ad"
+text = "da689cf77e688028"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-intro]
+source = "fdc72bdcf5cfc69a"
+text = "9c8bbede2d62680e"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-list-note]
+source = "1a2be1206acdc633"
+text = "a0a8a2c9c6f29845"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-progress]
+source = "68b13569dde0299d"
+text = "12ebbc51211d2927"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-title]
+source = "77666097ac093d11"
+text = "985813f563edf825"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-title-list]
+source = "486134449bea502b"
+text = "331cf8ffacc3d721"
+by = "agent"
+date = "2026-11-07"
+
+[select-share-uploading]
+source = "05ec4d272df984ab"
+text = "89b70017c8e11864"
+by = "agent"
+date = "2026-11-07"
+
+[select-shared-note]
+source = "4aff51e48af6c8f1"
+text = "0d7d215f900e90e1"
+by = "agent"
+date = "2026-11-07"
+
+[select-shared-note-expires]
+source = "52994db14ca25471"
+text = "2f4e4131143fdb43"
+by = "agent"
+date = "2026-11-07"
+
+[select-style-button]
+source = "33fa85748772e490"
+text = "6c98d005215dbef1"
+by = "agent"
+date = "2026-11-07"
+
+[select-suggest-artist]
+source = "a939c523fdcc3698"
+text = "efa5052fd93a4936"
+by = "agent"
+date = "2026-11-07"
+
+[select-suggest-pack]
+source = "97a4b9ad7e486030"
+text = "d37d27ca68fceb3d"
+by = "agent"
+date = "2026-11-07"
+
+[select-suggest-title]
+source = "13595cb895babbc0"
+text = "bd66440e8b539c73"
+by = "agent"
+date = "2026-11-07"
+
+[select-suggestions-title]
+source = "bd2732f54b9a2c32"
+text = "b6dfa5804ac666fd"
+by = "agent"
+date = "2026-11-07"
+
+[select-title]
+source = "ced0afbb3d2021e4"
+text = "052c75935c9fbe92"
+by = "agent"
+date = "2026-11-07"
+
+[select-title-shared]
+source = "d057bd046ac66e0a"
+text = "82796d7e4a3e1c5d"
+by = "agent"
+date = "2026-11-07"
+
+[select-typing-note]
+source = "7c583f09f9d2f1a5"
+text = "7d28b94ea147f105"
+by = "agent"
+date = "2026-11-07"
+
+[select-version-from-five-keys]
+source = "08b053d73f563c0b"
+text = "ae6f986ccf27535f"
+by = "agent"
+date = "2026-11-07"
+
+[select-version-from-pump-single]
+source = "7b6a1477adf2da56"
+text = "c317f3b4fb154106"
+by = "agent"
+date = "2026-11-07"
+
+[select-version-without-center]
+source = "553b780a5e525af7"
+text = "233ccae826cfa1dd"
+by = "agent"
+date = "2026-11-07"
+
+[select-version-without-onigiri]
+source = "ee63d2462c909eef"
+text = "0f8addd5f7695e81"
+by = "agent"
+date = "2026-11-07"
+
+[shell-drop]
+source = "fe6763705847b3ae"
+text = "f9019a531c7bd202"
+by = "agent"
+date = "2026-11-07"
+
+[shell-entry-comment]
+source = "6e59708601ffb1c5"
+text = "f44d5f3c11c61cfa"
+by = "agent"
+date = "2026-11-07"
+
+[shell-entry-keywords]
+source = "87dd7682976b4934"
+text = "fa71fe1346b8f5ea"
+by = "agent"
+date = "2026-11-07"
+
+[shell-entry-kind]
+source = "00cbb5a2caf28757"
+text = "6b98d1be1d5b8807"
+by = "agent"
+date = "2026-11-07"
+
+[shell-file-music]
+source = "5fa7782cc2acd608"
+text = "0399af684a6b4e82"
+by = "agent"
+date = "2026-11-07"
+
+[shell-file-simfile]
+source = "cd8b28db627fc03c"
+text = "dd187661f68bc339"
+by = "agent"
+date = "2026-11-07"
+
+[shell-file-zips]
+source = "9d2de91b82762b48"
+text = "4cc2537a94a2a6ff"
+by = "agent"
+date = "2026-11-07"
+
+[shell-home]
+source = "570e9ee1eb54f99b"
+text = "6cf6132adf168b20"
+by = "agent"
+date = "2026-11-07"
+
+[shell-menu-about]
+source = "883ee97f5ceaa614"
+text = "57b96d2482251d0e"
+by = "agent"
+date = "2026-11-07"
+
+[shell-menu-hide]
+source = "fcd90eb7789022c6"
+text = "56bb9cf8b587f6df"
+by = "agent"
+date = "2026-11-07"
+
+[shell-menu-hide-others]
+source = "720d9ff4e8146c16"
+text = "8075e889ef286b16"
+by = "agent"
+date = "2026-11-07"
+
+[shell-menu-quit]
+source = "e9d7d53ba97c5490"
+text = "614c06b695d34f74"
+by = "agent"
+date = "2026-11-07"
+
+[shell-menu-services]
+source = "012b8eca5a3e5093"
+text = "284436baa48c9230"
+by = "agent"
+date = "2026-11-07"
+
+[shell-menu-show-all]
+source = "fe19aae74101061c"
+text = "4b9feada4b23c56b"
+by = "agent"
+date = "2026-11-07"
+
+[shell-no-gpu]
+source = "19c5c6f870fda2b4"
+text = "c20561f7a2c18656"
+by = "agent"
+date = "2026-11-07"
+
+[shell-no-gpu-title]
+source = "5385ab3d0268fd30"
+text = "65f61dec3307de29"
+by = "agent"
+date = "2026-11-07"
+
+[shell-not-found]
+source = "ed4b985b9acd6a5d"
+text = "d7b4a3c4a9d05b5d"
+by = "agent"
+date = "2026-11-07"
+
+[shell-song-list-failed]
+source = "884d832185b6d0db"
+text = "1cb3e666d3c5807b"
+by = "agent"
+date = "2026-11-07"
+
+[start-credits]
+source = "244225d0af7814bd"
+text = "3c722c0ba95c675f"
+by = "agent"
+date = "2026-11-07"
+
+[start-multiplayer]
+source = "1eeec4893e849736"
+text = "b34573180fea9380"
+by = "agent"
+date = "2026-11-07"
+
+[start-options]
+source = "16a7f0dbc7e9f18d"
+text = "7e1c3a443c00de87"
+by = "agent"
+date = "2026-11-07"
+
+[start-quit]
+source = "c1ee4b45fe32d381"
+text = "2e8def00d27a6d20"
+by = "agent"
+date = "2026-11-07"
+
+[start-singleplayer]
+source = "ef36b9d8f9fe2949"
+text = "9a5298cc75def353"
+by = "agent"
+date = "2026-11-07"
+
+[studio-add-recording]
+source = "dbb956cee0876c38"
+text = "dbb956cee0876c38"
+by = "agent"
+date = "2026-11-07"
+
+[studio-advanced]
+source = "3a0c01e57536ff2b"
+text = "10577d820f905df6"
+by = "agent"
+date = "2026-11-07"
+
+[studio-author]
+source = "9414bfd46eb426d3"
+text = "5ec282126d5139fa"
+by = "agent"
+date = "2026-11-07"
+
+[studio-author-hint]
+source = "aa39e688d977f67c"
+text = "3e49a730d7d3863f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-before-best]
+source = "aace62b98548c9ba"
+text = "9b66bda20d6e7e3b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-before-failed]
+source = "a43a598fcbe2689f"
+text = "aac50f2ccb92ec3a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-cheer]
+source = "d5dfe714ced5be0a"
+text = "2f74ce3ff98a9c1b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-cheer-first-clear]
+source = "568bd8ee3d7d2084"
+text = "6f30bf60ad117491"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-cheer-record]
+source = "da9500ff13945820"
+text = "9b269f5782ea4a84"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-failed]
+source = "e696ce9e95e3f5cd"
+text = "5a7d5c45b9dbcba2"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-first-clear]
+source = "e6ead8c11383081d"
+text = "790afb94d249d328"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-full-combo]
+source = "4f6d53183305483e"
+text = "3448ee672cd544b7"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-full-combo-best]
+source = "fb9dd0445ba162c2"
+text = "12c0cbd7ef61e084"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-graded]
+source = "d7a67f15559e32be"
+text = "62ed749f7b3f1066"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-new-record]
+source = "b4f3aa3fb7382245"
+text = "07ba9b18757ab76c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-quit]
+source = "7ba735d7dc109bae"
+text = "23fbd5090d813aae"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-select-general]
+source = "f20d0f5bc428f5d8"
+text = "1d61bc247a3fcee2"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-select-hard]
+source = "5aab30bbb27e482d"
+text = "70aee7e22787813b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-select-intro]
+source = "1ebc1ec9a8df828a"
+text = "ecf66e118657bc62"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-select-new]
+source = "e8a54fc0e1fe0083"
+text = "22c4d9a3da6a939f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-select-repeat]
+source = "11227f1563b77004"
+text = "f302ad792f1c06df"
+by = "agent"
+date = "2026-11-07"
+
+[studio-caption-start]
+source = "fbf94b9bc609b195"
+text = "be42a06fc3dd1981"
+by = "agent"
+date = "2026-11-07"
+
+[studio-details]
+source = "a3bee139a86bc883"
+text = "d953bb2cb8a9f6a9"
+by = "agent"
+date = "2026-11-07"
+
+[studio-details-description]
+source = "cc2c5a3c561c12d2"
+text = "e51308344ab76c4e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-example]
+source = "eea31bacfbf2a5d9"
+text = "eb931388372e81fb"
+by = "agent"
+date = "2026-11-07"
+
+[studio-examples]
+source = "f3fd5c38f29e23d7"
+text = "befac6b1aa123918"
+by = "agent"
+date = "2026-11-07"
+
+[studio-examples-fold]
+source = "4f3296af6dffce7b"
+text = "6c43b2608dc0ec8f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-export]
+source = "ba2033c28e6f01e5"
+text = "b633cd1be1c43f80"
+by = "agent"
+date = "2026-11-07"
+
+[studio-hear-example]
+source = "c1f2d77484bd3081"
+text = "cfc37649bce07ba8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-hear-recorded]
+source = "c18f8ccd0c73f49d"
+text = "d5076df26d2ef42c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-import-description]
+source = "eff736ce3cf27288"
+text = "29b492a51d94c76d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-import-folder]
+source = "9b2768463087b832"
+text = "3db96707847fe491"
+by = "agent"
+date = "2026-11-07"
+
+[studio-import-zip]
+source = "99e79453e8545a51"
+text = "9fbbc621e3894d1c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-intro]
+source = "2088cda15f80aab6"
+text = "a9aaa0374789db03"
+by = "agent"
+date = "2026-11-07"
+
+[studio-license]
+source = "20f3ac1166eb26cd"
+text = "9f0416cd4e60c985"
+by = "agent"
+date = "2026-11-07"
+
+[studio-license-hint]
+source = "92efcd85c62fde16"
+text = "ad5f74518d3dea59"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-cheer]
+source = "e18bc912bf208baa"
+text = "719b97f1db7742d4"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-cleared]
+source = "1a769ed81efe367e"
+text = "86d6b71a5b2e091d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-combo]
+source = "e2724f8391aba4d0"
+text = "14f73d8152d79ca3"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-combo-overflow]
+source = "0ec9dafcdb6e2802"
+text = "f122cea59abcf92e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-combo-stopped]
+source = "fcce2172eda5cdf7"
+text = "e848a068608a8300"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-comment-danger]
+source = "797b8f73dbbe2ff5"
+text = "92271eb41a9598f9"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-comment-good]
+source = "1d03b60fe558cf82"
+text = "6bb22675d4f4a7bb"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-comment-hot]
+source = "03e88f42a3819d23"
+text = "64ab74091d7d9e13"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-comment-oni]
+source = "302db1d99a88958c"
+text = "4213520ebc33f964"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-failed]
+source = "1660eb9aa765f8b6"
+text = "21958d47ef843975"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-first-clear]
+source = "bb451f069d1860f7"
+text = "c497a5fabf3ff01b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-folder]
+source = "d2e3d3d39b7594b4"
+text = "1ff75231f88b4241"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-full-combo]
+source = "c9a796401cab15b1"
+text = "a3602e159039f8af"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-full-combo-w1]
+source = "566dc730f7d325e0"
+text = "c40d41364bd4d616"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-full-combo-w2]
+source = "dcf8adb5dd6b18e5"
+text = "cf3e7ea1a4c3742f"
+by = "agent"
+date = "2026-11-08"
+
+[studio-line-full-combo-w3]
+source = "142ad46fd0115950"
+text = "d9104f802505c4b7"
+by = "agent"
+date = "2026-11-08"
+
+[studio-line-grade]
+source = "5397fa4d8e114df9"
+text = "344eb7c68e33bc9f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-grade-failed]
+source = "74652722057250e0"
+text = "f56815bf719a622d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-here-we-go]
+source = "fd8ca9d2eaae29f6"
+text = "51a5cc705bbced48"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-last-life]
+source = "9b30eb88190492cd"
+text = "a03e7b9f8fec1089"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-life-lost]
+source = "b28d5f8811be2b55"
+text = "bf06bc1dc8b61985"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-new-record]
+source = "3a5ec388d8f670b3"
+text = "b119d977cb82bb6d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-quit]
+source = "b90b5447536bf64e"
+text = "a82d563528f3112f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-ready]
+source = "31f157f9547a3f7e"
+text = "65cc4e42a6a48937"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-restart]
+source = "06117218b898799e"
+text = "c3ab5b538b248627"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-select-general]
+source = "519eacf7e6d0d931"
+text = "b5f56fa9b572130e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-select-hard]
+source = "051077e8bbe66458"
+text = "f15a4a8de02f9935"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-select-intro]
+source = "11023d958d242224"
+text = "c83aad33613e6b3c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-select-new]
+source = "f078783b0173ea4a"
+text = "7b4a1a014927420b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-line-select-repeat]
+source = "762bbe8713f62961"
+text = "77adbb69bb17ad40"
+by = "agent"
+date = "2026-11-07"
+
+[studio-missing-instead]
+source = "d9860aa461d1a51d"
+text = "639d7657cfe0540a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-missing-next-line]
+source = "0e5524699437e987"
+text = "119f80598a1b52fb"
+by = "agent"
+date = "2026-11-07"
+
+[studio-missing-silent]
+source = "aeb2c92607448a21"
+text = "a592c4e878d6fccf"
+by = "agent"
+date = "2026-11-07"
+
+[studio-name]
+source = "adbe7d43e3b2246d"
+text = "eb356294b2d40c93"
+by = "agent"
+date = "2026-11-07"
+
+[studio-name-hint]
+source = "fe4d7fea75f482fb"
+text = "a9329b1e8d08bf9a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-note-clipped]
+source = "299eec396b0c6e3c"
+text = "782dd75ca3e09b4a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-note-too-long]
+source = "af7714d15f3b91e2"
+text = "4e0813adb7f4ad2f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-note-unreadable]
+source = "1279796c1ff42ac1"
+text = "269dc08986b45f51"
+by = "agent"
+date = "2026-11-07"
+
+[studio-opening-long]
+source = "cba41d95dc7daa98"
+text = "763c7318d5b35b77"
+by = "agent"
+date = "2026-11-07"
+
+[studio-picker-line-play]
+source = "b449185c8ac9b014"
+text = "eb109eb331bdbca9"
+by = "agent"
+date = "2026-11-07"
+
+[studio-picker-line-results]
+source = "7d71b60d318aea2a"
+text = "75a19f4da3aaaef6"
+by = "agent"
+date = "2026-11-07"
+
+[studio-picker-line-select]
+source = "7bbdd4d2bfc291a3"
+text = "efa69414b37e532b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-picker-note]
+source = "3b1c13c15d9bf10f"
+text = "7347386fcc3a3cc8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-picker-title]
+source = "bc696b42d5546fc5"
+text = "48c400a27e235bc9"
+by = "agent"
+date = "2026-11-07"
+
+[studio-picker-unsorted]
+source = "927419bddc9c8542"
+text = "1916df32dee5bed5"
+by = "agent"
+date = "2026-11-07"
+
+[studio-save]
+source = "e1d0124ce8859c0d"
+text = "119ebcd016629117"
+by = "agent"
+date = "2026-11-07"
+
+[studio-section-play]
+source = "e4c708f5fd0c4506"
+text = "872186d60a823d5e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-section-results]
+source = "1dbaa5ce3b0220c1"
+text = "244b40a6be0c89c5"
+by = "agent"
+date = "2026-11-07"
+
+[studio-section-select]
+source = "187823be1559f324"
+text = "4049634092d52e8c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stage-back]
+source = "74c52d50b94e4a1a"
+text = "31c708c49784e99f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stage-kicker]
+source = "e59c66157843524b"
+text = "1115c18436ab19fa"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stage-line]
+source = "7cfb53f631edabb5"
+text = "187238bcf0b94e01"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stage-said]
+source = "802d3cce5eeda6a3"
+text = "05e291d40c71c60f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stage-voice-example]
+source = "68669dbc2782885e"
+text = "6cd94e704ac8530d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stage-voice-recording]
+source = "1dae055ffdddd222"
+text = "a5d13c1cf2d5865d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-added]
+source = "6e55f78463482380"
+text = "67aa20c212fc365f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-added-unkept]
+source = "b042cc6c19af9449"
+text = "952a240ffc298e46"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-adding]
+source = "c7af35e9942557d6"
+text = "a2b0295d9d1b7699"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-draft-unreadable]
+source = "0e24f6bf4916acf6"
+text = "864d31fc6f7a0edc"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-example-unplayable]
+source = "64a674b4ba6d1ee1"
+text = "f711e975825a62a9"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-example-unreadable]
+source = "4db24663401b0efc"
+text = "9dad3e7e5bf7149d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-exported]
+source = "1c9b8f3ffd4b897a"
+text = "b812584c379e0cb8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-exporting]
+source = "8572aea369f1bb09"
+text = "45926d6b60d08f8e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-files-unreadable]
+source = "b7d68e7429bbad16"
+text = "244a88c9f55dd766"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-heard]
+source = "e165040f8814ee95"
+text = "6e271092190b2680"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-heard-example]
+source = "afeb66daca84a2e5"
+text = "52fa838894591195"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-heard-example-two]
+source = "23ae20bbee8cdd19"
+text = "3ab28e57c5f59677"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-heard-nothing]
+source = "f1be6cbfb22d8b0d"
+text = "0acff684885fe3bf"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-heard-nothing-cheer]
+source = "9b1c3bbafc563de3"
+text = "a8c37c4a3f2bdf3f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-heard-two]
+source = "11fb8932b260c363"
+text = "fbb931630d5e1a90"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-no-decoder]
+source = "da6ade7be4c86737"
+text = "9a78dfed9310d57a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-no-results]
+source = "4f31eca6c574f85b"
+text = "43ed4a7bec0cdd74"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-no-select]
+source = "ee64a0cf515cffbd"
+text = "92357bfe44fca54b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-no-sound]
+source = "3a4d147ad3603a3b"
+text = "55c4b44deffb9342"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-not-exported]
+source = "5cd8c81259c7ed97"
+text = "a14a7883611c43fd"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-not-saved]
+source = "3ed091d5e32a680f"
+text = "d244d9fd3dbe8e6f"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-not-used]
+source = "32713dca454987c5"
+text = "0956cf1737577975"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-saved]
+source = "9711aa36f24b461f"
+text = "f37f11e8ee5b570d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-unplayable]
+source = "195b83ec4d441d1a"
+text = "57bdd42ba4ed3ef4"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-used]
+source = "31977f1bd7350d72"
+text = "bf5bee16d630db00"
+by = "agent"
+date = "2026-11-07"
+
+[studio-status-using]
+source = "ceee055d545e058c"
+text = "458b208c6817eddb"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stepmania]
+source = "b2cb0413e7d925c5"
+text = "f26e8d79ca0e63d1"
+by = "agent"
+date = "2026-11-07"
+
+[studio-stepmania-description]
+source = "c640e4e05fa9ad72"
+text = "8917d22d515d5f6c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-take]
+source = "4775381da55e9fdb"
+text = "777d8c5eaf44e7a2"
+by = "agent"
+date = "2026-11-07"
+
+[studio-take-move]
+source = "5ff3f00c97d27045"
+text = "3afadc64393b2360"
+by = "agent"
+date = "2026-11-07"
+
+[studio-take-reading]
+source = "8b43dbacdfde262e"
+text = "1bb7f30da2e5607a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-take-remove]
+source = "6939416f4968ac99"
+text = "5f0f6860c11d8a97"
+by = "agent"
+date = "2026-11-07"
+
+[studio-take-unplayable]
+source = "9ef61c51849842c8"
+text = "77a7306f9d6344a8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-take-which-line]
+source = "c6525385ccc0ed12"
+text = "c6525385ccc0ed12"
+by = "agent"
+date = "2026-11-07"
+
+[studio-tidied]
+source = "f3702411a8ae12a4"
+text = "a045918d05b13ba9"
+by = "agent"
+date = "2026-11-07"
+
+[studio-tidied-as-recorded]
+source = "1251618717d61aa2"
+text = "04737034408b6eca"
+by = "agent"
+date = "2026-11-07"
+
+[studio-tidied-nothing]
+source = "aa539caa1411952c"
+text = "62f77274653a58c6"
+by = "agent"
+date = "2026-11-07"
+
+[studio-tidy]
+source = "94615d9bfc6bd5b9"
+text = "2eaf00cf70655ef1"
+by = "agent"
+date = "2026-11-07"
+
+[studio-tidy-description]
+source = "85e0cb8fa1c4c619"
+text = "f3719fecfaadf637"
+by = "agent"
+date = "2026-11-07"
+
+[studio-title]
+source = "929f7d971b440a9a"
+text = "22aed8f24c72f8f2"
+by = "agent"
+date = "2026-11-07"
+
+[studio-too-big]
+source = "636855436e3c156d"
+text = "e45a94c256104db8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-unsorted]
+source = "ef2d2362814ca019"
+text = "800537d394fcfe28"
+by = "agent"
+date = "2026-11-07"
+
+[studio-unsorted-help]
+source = "8d7ea0b40111c2fb"
+text = "0bed5e269e0e81f3"
+by = "agent"
+date = "2026-11-07"
+
+[studio-use-in-game]
+source = "d0f4f3a50288741e"
+text = "c7904c9d245bae09"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-cheer]
+source = "f55ca514c51cd888"
+text = "b61706cf116743ef"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-cleared]
+source = "016734d330cc7bb8"
+text = "e0e7235bafd7bb65"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-combo]
+source = "4857b4a06d669c42"
+text = "3e40b5dcc80bc99c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-combo-overflow]
+source = "8ac54aad07a07d7e"
+text = "08dd38745ebe5439"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-combo-past-1000]
+source = "0df62f90a54fbb9c"
+text = "b38cb061f90df23e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-combo-stopped]
+source = "568c40185754ed00"
+text = "d49e62feeb32cbf8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-comment-danger]
+source = "39cd8ce37f75be45"
+text = "bd48d3aefbe1cc51"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-comment-good]
+source = "36e516d657c5911c"
+text = "cd2ae1ff3b11ed66"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-comment-hot]
+source = "597f5dac35159731"
+text = "665b07cfdf97ecac"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-comment-oni]
+source = "787d7b368c1ed1c5"
+text = "40f3a7408bf0ff9a"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-evaluation-full-combo]
+source = "35b4ad03c152a8f1"
+text = "69b9831478426f99"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-evaluation-full-combo-w1]
+source = "e0809f71473ec3d6"
+text = "683fbd5ba2f55dc5"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-evaluation-full-combo-w2]
+source = "04005805b4255950"
+text = "d7a7ffb7f023ab1a"
+by = "agent"
+date = "2026-11-08"
+
+[studio-when-evaluation-full-combo-w3]
+source = "d415dbb0f56f822c"
+text = "bb453a67a1a062dc"
+by = "agent"
+date = "2026-11-08"
+
+[studio-when-failed]
+source = "f28bd5ab69c936e0"
+text = "6c31b14714eef347"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-first-clear]
+source = "df5282526b29f8b5"
+text = "f582294a6614f6d1"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-full-combo]
+source = "243f800c23c6fc68"
+text = "813114108bb8b7db"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-full-combo-w1]
+source = "043c4279d1d01d0e"
+text = "03e14b6da0538b82"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-full-combo-w2]
+source = "e8659522de66028a"
+text = "e1f76c6183c0d923"
+by = "agent"
+date = "2026-11-08"
+
+[studio-when-full-combo-w3]
+source = "3cd0a382b88d92a4"
+text = "32c37a0395f7f21d"
+by = "agent"
+date = "2026-11-08"
+
+[studio-when-grade-a]
+source = "854b203b7bbf20f2"
+text = "1355cfc1bdeaf16b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-aa]
+source = "ab1c170280e36dfa"
+text = "303bb5ee61bd6555"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-aaa]
+source = "ef27c5687175ba30"
+text = "a4ad1de694f9b46b"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-aaaa]
+source = "052d5fdf5e918d59"
+text = "ac0a734b70751a25"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-aaaaa]
+source = "d51cd40f3da19181"
+text = "41dabd53e6363ecb"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-b]
+source = "8df8579aa78f24bc"
+text = "c28fa7befd572ef5"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-c]
+source = "0721f6034cb34392"
+text = "333d19b8b5a529ab"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-d]
+source = "c85de1276186d1b6"
+text = "61fc3b006c15c43c"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-grade-failed]
+source = "77909edf959104cd"
+text = "3c853b71499e31ae"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-here-we-go]
+source = "b0eb5aa0dcfc6ee5"
+text = "1b85f788196451c4"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-last-life]
+source = "6ad59d903d2cddd7"
+text = "d2afa4ec82c02978"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-life-lost]
+source = "cc53e5433d0badaf"
+text = "00e2b73f4c04f326"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-new-record]
+source = "5f268e80dd2625ac"
+text = "188369b2e78d6285"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-quit]
+source = "3c5a3331e19b7e47"
+text = "dce353995a2494f4"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-ready]
+source = "a382d8fce60efb82"
+text = "029a60a26031268e"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-restart]
+source = "abb8f58dcf1739d3"
+text = "9a7bf03cfe1f1e73"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-select-general]
+source = "7eefe4c9bac841bb"
+text = "03a9cfc985135949"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-select-hard]
+source = "5d44398fbb6d4849"
+text = "611a9723e8d656b8"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-select-intro]
+source = "a20445fda68ff88d"
+text = "e40c3601b06639c2"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-select-new]
+source = "f87b193649766ed1"
+text = "8755be7f4b993c4d"
+by = "agent"
+date = "2026-11-07"
+
+[studio-when-select-repeat]
+source = "679dadcb30ed1698"
+text = "68c87ea086182c98"
+by = "agent"
+date = "2026-11-07"

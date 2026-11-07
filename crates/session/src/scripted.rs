@@ -30,7 +30,7 @@
 use ddi_actor::{Actor, Clocks};
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_library::path::RelPathBuf;
-use ddi_lua::Failure;
+pub use ddi_lua::Failure;
 use ddi_noteskin::bganimation::{self, Animation};
 use ddi_noteskin::build::{Built, Images, Textures};
 use ddi_noteskin::lua::{Env, FrameBudget, LoadBudget, LuaSkin, Pause, Position};
@@ -122,9 +122,20 @@ impl FileKind {
     }
 }
 
-/// The results' note for scripts that stopped during a play.
-pub fn stop_note(why: &str) -> String {
-    format!("The song's scripted backgrounds stopped ({why}); the song background showed.")
+/// The results' note for scripts that stopped during a play, why in the
+/// player's language (the scripts' own error as they said it).
+pub fn stop_note(why: &Failure) -> String {
+    use ddi_l10n::msg::results as m;
+    match why {
+        Failure::Compile(e) | Failure::Error(e) => {
+            m::note_scripts_failed(ddi_l10n::UiText::data(e))
+        }
+        Failure::Deadline => m::note_scripts_slow(),
+        Failure::Fuel => m::note_scripts_busy(),
+        Failure::Limit(ddi_lua::LimitError::Memory) => m::note_scripts_memory(),
+        Failure::Limit(ddi_lua::LimitError::StringLength) => m::note_scripts_string(),
+    }
+    .into()
 }
 
 /// The shape of StepMania's screen the scripts are told under a
@@ -241,7 +252,7 @@ pub struct Scripts {
     last: Option<f64>,
     /// Seconds of play, for effects on the timer clock.
     timer: f64,
-    stopped: Option<String>,
+    stopped: Option<Failure>,
     notes: Vec<String>,
     /// StepMania's danger: wanted now ([`Scripts::set_danger`]), and as
     /// last told to the scripts.
@@ -455,8 +466,8 @@ impl Scripts {
     }
 
     /// Why the scripts stopped, if they did: nothing is drawn after.
-    pub fn stopped(&self) -> Option<&str> {
-        self.stopped.as_deref()
+    pub fn stopped(&self) -> Option<&Failure> {
+        self.stopped.as_ref()
     }
 
     /// What the scripts noted while loading (classes not drawn here,
@@ -525,7 +536,7 @@ impl Scripts {
         t: f64,
         beat: f64,
         layers: &[Vec<BgSegment>; LAYERS],
-    ) -> Option<String> {
+    ) -> Option<Failure> {
         if self.stopped.is_some() {
             return None;
         }
@@ -549,9 +560,8 @@ impl Scripts {
         match stepped {
             Ok(()) => None,
             Err(f) => {
-                let why = f.to_string();
-                self.stopped = Some(why.clone());
-                Some(why)
+                self.stopped = Some(f.clone());
+                Some(f)
             }
         }
     }

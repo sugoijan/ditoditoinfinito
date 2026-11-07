@@ -62,7 +62,7 @@ struct Readied {
     images: Option<Receiver<(BgImage, Rgba)>>,
     view: Option<View>,
     /// The song could not be read: why.
-    error: Option<String>,
+    error: Option<ddi_ui::screens::failures::LoadFailure>,
     /// The play's sound, opened while the prompt is up so the play
     /// starts on a running output (its clock, its latency and its
     /// device known), and when it was opened.
@@ -291,7 +291,7 @@ fn first_info(request: &Request) -> PromptInfo {
         request.auto,
     );
     if let Some(mode) = request.calibration {
-        return PromptInfo::for_test(mode.title().into(), mode.hint().into(), badge);
+        return PromptInfo::for_test(mode.title(), mode.hint(), badge);
     }
     let entry = crate::library::song(&request.song)
         .map(|s| s.entry)
@@ -524,9 +524,12 @@ impl Host {
                 countdown,
                 // Start at once: what the play needs loads behind it.
                 step: match &r.refused {
-                    Some(why) => PromptStep::Error(format!("This replay cannot be watched. {why}")),
+                    Some(why) => {
+                        PromptStep::Error(ddi_l10n::msg::prompt::replay_refused(why.text()).into())
+                    }
                     None => PromptStep::Ready,
                 },
+                platform: ddi_ui::screens::data::Platform::Desktop,
                 ..PromptState::default()
             }));
             let mut readied = Readied {
@@ -822,7 +825,7 @@ impl Host {
                 Err(e) => {
                     r.prompt
                         .borrow_mut()
-                        .set_step(PromptStep::Error(format!("The song failed to load: {e}")));
+                        .set_step(PromptStep::Error(e.sentence().into()));
                     r.error = Some(e);
                 }
             }
@@ -1211,7 +1214,11 @@ impl Host {
             }
             Err(e) => {
                 self.in_play.set(false);
-                r.prompt.borrow_mut().set_step(PromptStep::Error(e));
+                r.prompt.borrow_mut().set_step(PromptStep::Error(
+                    ddi_ui::screens::failures::LoadFailure::Other(e)
+                        .sentence()
+                        .into(),
+                ));
                 self.push_prompt(ui, env, &mut r);
                 Stage::Prompt(r)
             }
@@ -1439,10 +1446,7 @@ impl Host {
         let mut notes = Vec::new();
         let xruns = play.xruns();
         if xruns > 0 {
-            notes.push(format!(
-                "The sound dropped out {xruns} time{} during this play: its timing may be off.",
-                if xruns == 1 { "" } else { "s" }
-            ));
+            notes.push(ddi_l10n::msg::results::note_sound_dropped(xruns).into());
         }
         if let Some(why) = r.view.as_ref().and_then(|v| v.scripts_stopped()) {
             notes.push(ddi_session::scripted::stop_note(why));
@@ -1453,7 +1457,7 @@ impl Host {
             .as_ref()
             .map_or((None, None), |v| (v.movies.off(), v.movies.trouble()));
         #[cfg(not(feature = "video"))]
-        let (video_off, video_trouble) = (None, None::<String>);
+        let (video_off, video_trouble) = (None, None::<ddi_platform::video::VideoTrouble>);
         // A replay: its results against the log judged at once and the
         // play's kept ones (`Replay::check`); not one the viewer quit,
         // which has nothing to compare.
@@ -1469,10 +1473,10 @@ impl Host {
                     if check.matches {
                         "the play's results".to_string()
                     } else {
-                        format!("differs: {}", check.problems.join("; "))
+                        format!("differs: {}", check.summary())
                     }
                 ));
-                if let Some(note) = check.note() {
+                for note in check.notes() {
                     eprintln!("{note}");
                 }
                 check
@@ -1483,7 +1487,7 @@ impl Host {
         };
         notes.extend(ddi_ui::screens::play::results_notes(
             video_off,
-            video_trouble.as_deref(),
+            video_trouble.as_ref(),
             save_error.as_deref(),
             check.as_ref(),
             replay.as_deref(),
@@ -1562,16 +1566,18 @@ impl Host {
         let Some(rp) = r.request.replay.clone() else {
             return Stage::Idle;
         };
-        let read = super::load::read_chart(&r.request.song).and_then(|song| {
-            let results = rp.results(&song)?;
-            Ok((song, results))
-        });
+        let read = super::load::read_chart(&r.request.song)
+            .map_err(ddi_ui::state::history::Refusal::Song)
+            .and_then(|song| {
+                let results = rp.results(&song)?;
+                Ok((song, results))
+            });
         let (song, results) = match read {
             Ok(x) => x,
             Err(e) => {
-                r.prompt.borrow_mut().set_step(PromptStep::Error(format!(
-                    "This play's results cannot be shown. {e}"
-                )));
+                r.prompt.borrow_mut().set_step(PromptStep::Error(
+                    ddi_l10n::msg::prompt::results_refused(e.text()).into(),
+                ));
                 self.push_prompt(ui, env, &mut r);
                 return Stage::Prompt(Box::new(r));
             }
@@ -1620,7 +1626,11 @@ impl Host {
             ruleset: &rules,
             layout: &layout,
             song: song_entry,
-            chart: chart_line(c.difficulty, c.meter, &layout.name),
+            chart: chart_line(
+                c.difficulty,
+                c.meter,
+                &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
+            ),
             mods: Vec::new(),
             device_changed: false,
             video_notes: rp.older_judge_note().into_iter().collect(),

@@ -18,6 +18,7 @@ ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-lua.workspace = true
 ddi-ui.workspace = true
+ddi-l10n.workspace = true
 # The play session, shared with desktop (step 7.1).
 ddi-session.workspace = true
 # What both shells do between the settings and the renderer.

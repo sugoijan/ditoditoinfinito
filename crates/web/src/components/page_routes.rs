@@ -30,8 +30,8 @@ pub(crate) enum Which {
     Calibration,
     Credits,
     /// A shared link that does not exist or expired (`crate::share`):
-    /// its message, and the way to the start menu.
-    SharedGone(String),
+    /// why, and the way to the start menu.
+    SharedGone(ddi_library::share::ShareError),
 }
 
 #[derive(Clone, PartialEq)]
@@ -126,7 +126,7 @@ impl PagePage {
             Which::Start => ("start", PageDoc::default()),
             Which::Calibration => ("calibration", calibration::stored_doc()),
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
-            Which::SharedGone(message) => ("shared", shared_gone_doc(message)),
+            Which::SharedGone(why) => ("shared", shared_gone_doc(why)),
         };
         let shell: PageShell = {
             let env = env.clone();
@@ -208,20 +208,17 @@ fn send(feed: &PageFeed, host: &Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>
 
 /// The page for a shared link that is gone: its one line and a button
 /// to the start menu.
-fn shared_gone_doc(message: &str) -> PageDoc {
+fn shared_gone_doc(why: &ddi_library::share::ShareError) -> PageDoc {
+    use ddi_l10n::msg::errors as m;
     use ddi_ui::screens::page::Block;
     PageDoc {
-        title: "Shared songs".into(),
+        title: m::shared_page_title().into(),
         blocks: vec![
-            Block::Text(message.to_string()),
-            Block::Muted(
-                "A shared link plays its songs from where they were shared, for as long as \
-                 whoever shared them chose. Ask them for a new one."
-                    .into(),
-            ),
+            Block::Text(ddi_ui::screens::failures::share_load_text(why).into()),
+            Block::Muted(m::shared_page_hint().into()),
             Block::Button {
                 id: "home".into(),
-                label: "Start menu".into(),
+                label: m::shared_page_home().into(),
                 primary: true,
             },
         ],

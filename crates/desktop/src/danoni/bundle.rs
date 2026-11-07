@@ -1,5 +1,6 @@
 //! Executable-relative, content-bound importer resources. No operator paths or
 //! hashes are supplied at runtime; the application carries its bundle identity.
+use super::report::Problem;
 use ddi_library::path::RelPath;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -31,8 +32,10 @@ struct Artifact {
     sha256: String,
 }
 
-pub(super) fn locate() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+/// The packaged importer's executable, checked against this build; what
+/// is wrong with it otherwise (its words technical, shown as data).
+pub(super) fn locate() -> Result<PathBuf, Problem> {
+    let exe = std::env::current_exe().map_err(|e| Problem::Bundle(e.to_string()))?;
     // Beside the executable, or in a macOS app's resources.
     let candidates: Vec<_> = crate::paths::package_dirs(&exe)
         .into_iter()
@@ -42,11 +45,10 @@ pub(super) fn locate() -> Result<PathBuf, String> {
         .iter()
         .find(|p| fs::symlink_metadata(p).is_ok())
         .or(candidates.first())
-        .ok_or("Cannot locate application directory")?;
-    directory(base)?;
-    let root = base.join(ID);
-    verify(&root, ID, MANIFEST_SHA256)
-        .map_err(|e| format!("The packaged DanOni importer is missing or damaged: {e}. Reinstall the complete application package."))
+        .ok_or_else(|| Problem::Bundle("Cannot locate application directory".into()))?;
+    directory(base)
+        .and_then(|()| verify(&base.join(ID), ID, MANIFEST_SHA256))
+        .map_err(Problem::Bundle)
 }
 fn directory(path: &Path) -> Result<(), String> {
     if !fs::symlink_metadata(path)

@@ -23,6 +23,8 @@
 //! - [`swf`]: an FFR level's chart and music from its SWF; [`ffr`]: levels
 //!   found among files, read into songs.
 //! - [`edited`]: a stored song's entry after the chart editor saved it.
+//! - [`report`]: what an import reports (why things were left out, what
+//!   imported songs lack, what runs), as values the screens word.
 //! - [`tags`]: a music file's title and artist, for a new song.
 //! - [`announcer`]: the lines announcers speak, the announcers found in
 //!   an import, and the announcer studio's drafts.
@@ -47,6 +49,7 @@ pub mod manifest;
 pub mod music;
 pub mod pack;
 pub mod path;
+pub mod report;
 pub mod scan;
 pub mod search;
 pub mod share;

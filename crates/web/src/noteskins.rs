@@ -22,6 +22,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use ddi_chart::Layout;
+use ddi_library::report::{SkinDrawn, SkinFiles, SkinSummary};
 use ddi_noteskin::build::{MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, TextureKey};
 use ddi_noteskin::lua::Env;
 use ddi_noteskin::report::{ImageCost, ImageReport, Outcome};
@@ -340,39 +341,38 @@ fn pickable(stored: &[StoredSkin]) -> Vec<(String, String)> {
     }))
 }
 
-/// What each element of a skin is, in a line for the import report: how
-/// many of a column's elements are the skin's own and why the rest are
-/// the built-in skin's, as its Lua builds them when it has Lua, else as
-/// they resolve without it. A dance skin is probed on dance single's
-/// Down, a pump skin on Pump single's UpLeft; `common` is said to be the
-/// shared files.
-pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> String {
+/// What each element of a skin is, for the import report's line
+/// (`ddi_ui::screens::import_report` words it): how many of a column's
+/// elements are the skin's own and why the rest are the built-in skin's,
+/// as its Lua builds them when it has Lua, else as they resolve without
+/// it. A dance skin is probed on dance single's Down, a pump skin on Pump
+/// single's UpLeft; `common` is said to be the shared files.
+pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> SkinSummary {
     use ddi_noteskin::Button;
+    let pump = game == "pump";
+    let summary = |drawn| SkinSummary { pump, drawn };
     if game == "common" {
-        return "StepMania's shared files (common), which the other skins fall back on".to_string();
+        return SkinSummary {
+            pump: false,
+            drawn: SkinDrawn::Common,
+        };
     }
     let skin = match Skin::load(folders, game, name) {
         Ok(s) => s,
-        Err(e) => return e.to_string(),
+        Err(e) => return summary(SkinDrawn::Failed(e.to_string())),
     };
-    let pump = game == "pump";
     let (layout, button) = if pump {
         (Layout::pump_single(), Button::UpLeft)
     } else {
         (Layout::dance_single(), Button::Down)
     };
-    let line = if skin.legacy {
+    summary(if skin.legacy {
         legacy_summary(&skin, button)
     } else if !skin.has_lua() && !pump {
-        native_summary(&skin, button)
+        SkinDrawn::Files(native_summary(&skin, button))
     } else {
         lua_summary(folders, &skin, game, name, &layout, button).await
-    };
-    if pump {
-        format!("a pump skin, on Pump single: {line}")
-    } else {
-        line
-    }
+    })
 }
 
 /// [`summary`]'s line from the skin's Lua (a pump skin's always runs:
@@ -384,7 +384,7 @@ async fn lua_summary(
     name: &str,
     layout: &Layout,
     button: ddi_noteskin::Button,
-) -> String {
+) -> SkinDrawn {
     let probe = ProbeSizes::probe();
     let env = Env {
         game: game.to_string(),
@@ -407,28 +407,25 @@ async fn lua_summary(
         Ok(Some(play)) => {
             let total = ddi_noteskin::load::ENGINE_ELEMENTS.len();
             let own = play.own_elements(1);
-            let mut line = format!("its Lua ran: {own} of {total} elements are its own");
-            if own < total {
-                // Why the first few are not (text, an unsupported actor).
-                let prefix = format!("{}: ", button.name());
-                let why: Vec<&str> = play
-                    .notes
+            // Why the first few are not (text, an unsupported actor).
+            let prefix = format!("{}: ", button.name());
+            let why: Vec<String> = if own < total {
+                play.notes
                     .iter()
                     .filter_map(|n| n.strip_prefix(prefix.as_str()))
                     .take(3)
-                    .collect();
-                line.push_str(&format!("; {} drawn built in", total - own));
-                if !why.is_empty() {
-                    line.push_str(&format!(" ({})", why.join("; ")));
-                }
-            }
-            line
+                    .map(str::to_string)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            SkinDrawn::Lua { own, total, why }
         }
-        Ok(None) => "a layout's lanes it cannot draw".to_string(),
-        Err(e) => format!(
-            "its Lua stopped ({e}); it is drawn without it: {}",
-            native_summary(skin, button)
-        ),
+        Ok(None) => SkinDrawn::NoLanes,
+        Err(e) => SkinDrawn::LuaStopped {
+            error: e.to_string(),
+            without: native_summary(skin, button),
+        },
     }
 }
 
@@ -436,7 +433,7 @@ async fn lua_summary(
 /// A skin in StepMania 3.9's format, built natively: how many of the
 /// elements the engine asks for are its own, and why the first few are
 /// not.
-fn legacy_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
+fn legacy_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> SkinDrawn {
     use ddi_noteskin::build::{Built, Textures, build};
     use ddi_noteskin::load::ENGINE_ELEMENTS;
     let probe = ProbeSizes::probe();
@@ -459,21 +456,15 @@ fn legacy_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
             Built::BuiltIn => why.extend(el.notes.into_iter().take(1)),
         }
     }
-    let mut line = format!(
-        "made for StepMania 3.9 or OpenITG: {own} of {} elements are its own",
-        elements.len()
-    );
-    if own < elements.len() {
-        line.push_str(&format!("; {} drawn built in", elements.len() - own));
-        if !why.is_empty() {
-            why.truncate(3);
-            line.push_str(&format!(" ({})", why.join("; ")));
-        }
+    why.truncate(3);
+    SkinDrawn::Legacy {
+        own,
+        total: elements.len(),
+        why,
     }
-    line
 }
 
-fn native_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
+fn native_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> SkinFiles {
     use ddi_noteskin::load::ENGINE_ELEMENTS;
     use ddi_noteskin::{Resolved, Source};
     let (mut own, mut lua, mut other, mut builtin) = (0, 0, 0, 0);
@@ -496,22 +487,13 @@ fn native_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
             _ => other += 1,
         }
     }
-    let mut parts = vec![format!(
-        "{own} of {} elements are its own images and models",
-        ENGINE_ELEMENTS.len()
-    )];
-    if lua > 0 {
-        parts.push(format!("{lua} are Lua (drawn built in)"));
+    SkinFiles {
+        total: ENGINE_ELEMENTS.len(),
+        own,
+        lua,
+        builtin,
+        other,
     }
-    if builtin > 0 {
-        parts.push(format!(
-            "{builtin} come from StepMania's own skins (drawn built in)"
-        ));
-    }
-    if other > 0 {
-        parts.push(format!("{other} cannot be drawn"));
-    }
-    parts.join("; ")
 }
 
 /// The page's turn between slices of a skin's Lua.

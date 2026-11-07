@@ -704,6 +704,18 @@ impl Ui {
         self.touch();
     }
 
+    /// The fonts changed (a face finished loading, as the web's do): every
+    /// run is measured again before the next draw, with what it is drawn
+    /// in now rather than what stood in for it.
+    pub fn forget_metrics(&mut self) {
+        for id in self.layer_ids() {
+            if let Some(layer) = self.layer_mut(id) {
+                layer.root.forget_metrics();
+            }
+        }
+        self.touch();
+    }
+
     /// Whether the plain focus ring is drawn (a theme draws its own).
     pub fn set_focus_ring(&mut self, draw: bool) {
         self.draw_ring = draw;
@@ -1263,6 +1275,7 @@ impl Ui {
             }
             layer.root.measure(measure);
             if let Some(presentation) = layer.screen.presentation() {
+                presentation.look.place_measured(&mut layer.root, measure);
                 let target = (Some(layer.id) == active_layer)
                     .then(|| layer.screen.active_element(layer.focused.as_deref()))
                     .flatten();
@@ -1882,6 +1895,7 @@ impl Ui {
                     }
                 }
                 Op::SetControls { controls, styles } => self.set_controls(controls, styles),
+                Op::RebuildAll => self.rebuild_all(),
                 Op::BeginText { name, text, hints } => {
                     self.begin_text(id, name, &text, hints, gesture)
                 }
@@ -1903,6 +1917,30 @@ impl Ui {
                     }
                 }
             }
+        }
+    }
+
+    /// Every screen built again as it is, without a transition (what the
+    /// screens say changed: the UI's language), its focus kept.
+    pub fn rebuild_all(&mut self) {
+        for id in self.layer_ids() {
+            let mut cx = self.cx(id, false);
+            let Some(layer) = self.layer_mut(id) else {
+                continue;
+            };
+            if matches!(layer.phase, Phase::Leaving(_)) {
+                continue;
+            }
+            layer.root = layer.screen.build(&mut cx);
+            if let Some(a) = layer
+                .focused
+                .as_deref()
+                .and_then(|n| hit::find_mut(&mut layer.root, n))
+            {
+                a.play("GainFocus", &mut Problems::default());
+            }
+            layer.root.finish_tweening();
+            self.apply(id, cx);
         }
     }
 

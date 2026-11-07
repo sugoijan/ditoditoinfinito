@@ -7,7 +7,7 @@ use super::{
     Backend, DecoderStatus, Event, Frame, Machine, MovieFile, Msg, codec::Order, media::Media,
 };
 use ddi_library::h264::{ExactSeek, Offer};
-use ddi_platform::video::VideoInfo;
+use ddi_platform::video::{VideoError, VideoInfo};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
@@ -225,7 +225,7 @@ impl Hub {
                             },
                         );
                         if self.backend.strict() {
-                            machine.post(id, None, Event::Error(why));
+                            machine.post(id, None, Event::Error(why.into()));
                             None
                         } else {
                             Some(Msg::Open { id, path, name })
@@ -302,18 +302,14 @@ impl Hub {
 
     pub fn crashed(&mut self, m: &mut Machine, why: &str) {
         for (id, _) in self.movies.drain() {
-            m.post(
-                id,
-                None,
-                Event::Error(format!("the video host failed: {why}")),
-            );
+            m.post(id, None, Event::Error(VideoError::Crashed(why.to_string())));
         }
     }
 
     fn fallback(&mut self, m: &mut Machine, id: u32, why: String) {
         let v = self.movies.remove(&id).unwrap();
         if self.backend.strict() {
-            m.post(id, Some(v.epoch), Event::Error(why));
+            m.post(id, Some(v.epoch), Event::Error(why.into()));
             return;
         }
         m.decoder_status(

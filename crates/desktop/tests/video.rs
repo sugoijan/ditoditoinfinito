@@ -232,7 +232,12 @@ fn clips_decode_as_ffmpeg_decodes_them() {
     let mut j = host.open(junk.into(), "junk.avi", &format());
     let events = until(&mut j, |e| matches!(e, VideoEvent::Error(_)));
     assert!(
-        matches!(events.last(), Some(VideoEvent::Error(m)) if m.contains("cannot open")),
+        matches!(
+            events.last(),
+            Some(VideoEvent::Error(
+                ddi_platform::video::VideoError::UnknownFormat
+            ))
+        ),
         "{events:?}"
     );
     let r = video::check(&mut host, path, None);

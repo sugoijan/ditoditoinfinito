@@ -616,7 +616,7 @@ fn the_dialogs_in_the_theme() {
         h.run(0.3);
         let view = Rc::new(RefCell::new(ImportView {
             folders: true,
-            report: Some(ImportReportView {
+            report: Some(ImportReportView::Worded {
                 summary: "Imported 3 songs.".into(),
                 error: false,
                 sections: vec![("Not imported".into(), vec!["A/B: no chart".into()])],
@@ -978,7 +978,7 @@ fn import_toggles_and_report_rows_in_the_theme() {
     h.run(0.3);
     let view = Rc::new(RefCell::new(ImportView {
         folders: true,
-        report: Some(ImportReportView {
+        report: Some(ImportReportView::Worded {
             summary: "Imported 3 songs.".into(),
             error: false,
             sections: vec![(
@@ -2177,4 +2177,37 @@ fn song_selects_spots_are_its_parts() {
     assert!(best[2] <= level[0], "the best before the level");
     let screen = ring("screen");
     assert!(screen[3] <= 64.0, "{screen:?}");
+}
+
+/// Song select's length and pack stay where the design puts them after
+/// a short BPM and move right as far as a wide one (a range) needs, the
+/// pack's room narrowed as much, and come back.
+#[test]
+fn the_length_follows_a_wide_bpm() {
+    let theme = Infinito::new();
+    let mut info = theme
+        .component("SongInfo", &Spec::new([560.0, 280.0], ""))
+        .unwrap();
+    let mut m = ddi_actor::text::FixedMeasure;
+    let mut place = |info: &mut Actor, bpm: &str| {
+        ddi_ui::widgets::set_text(info, "Bpm", bpm);
+        info.measure(&mut m);
+        theme.place_measured(info, &mut m);
+        let after = ddi_ui::hit::find_mut(info, "AfterBpm").unwrap();
+        let shift = after.current().pos[0];
+        let label = ddi_ui::hit::find_mut(after, "LengthLabel").unwrap().current().pos[0];
+        let pack = match &ddi_ui::hit::find_mut(after, "Pack").unwrap().kind {
+            Kind::Text(t) => t.max_width,
+            _ => unreachable!(),
+        };
+        (shift, label + shift, pack)
+    };
+    let (shift, label, room) = place(&mut info, "150");
+    assert_eq!((shift, label), (0.0, INFO_LENGTH_X));
+    // 7 characters at half an em of 20 px: 70 px from 32, then the gap.
+    let (shift, label, narrower) = place(&mut info, "100–200");
+    assert_eq!(label, INFO_BPM_X + 70.0 + INFO_GAP);
+    assert_eq!(narrower, room - shift);
+    let (shift, label, back) = place(&mut info, "150");
+    assert_eq!((shift, label, back), (0.0, INFO_LENGTH_X, room));
 }

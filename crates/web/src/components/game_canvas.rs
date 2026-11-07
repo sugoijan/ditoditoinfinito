@@ -54,11 +54,13 @@ use crate::web::gamepad::{Gamepads, PadNews};
 use crate::web::gfx::{BackendPreference, SurfaceMode};
 use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
+use ddi_ui::screens::failures::LoadFailure;
 use ddi_ui::screens::prompt::{
     Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep,
     SharedPrompt,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
+use ddi_ui::state::history::Refusal;
 
 /// How long after the results' Retry a start is not taken (ms).
 const PROMPT_GUARD_MS: f64 = 500.0;
@@ -230,10 +232,10 @@ pub(crate) enum Msg {
     /// The skins one can choose, for the options' skin row.
     PromptSkins(Result<crate::noteskins::Choices, String>),
     /// The chart's best play, read for its ghost (`Settings::ghost`).
-    GhostLoaded(Result<ddi_platform::history::PlayEntry, String>),
+    GhostLoaded(Result<ddi_platform::history::PlayEntry, Refusal>),
     /// A replay's skin looked for once its song was read (its folder
     /// waited for access): why it cannot be drawn, if it cannot.
-    ReplaySkin(Option<String>),
+    ReplaySkin(Option<Refusal>),
 }
 
 #[derive(Clone, PartialEq)]
@@ -280,7 +282,7 @@ pub(crate) struct GameCanvas {
     _lost: crate::web::screen::Listener,
     debug: NodeRef,
     gfx: Status<&'static str>,
-    song: Status<Rc<Loaded>>,
+    song: Status<Rc<Loaded>, LoadFailure>,
     /// A linked song whose folder needs the permission asked again: the
     /// handle, the folder's name, and why the last ask failed.
     access: Option<(JsValue, String, Option<String>)>,
@@ -398,7 +400,7 @@ pub(crate) struct GameCanvas {
     begun: u32,
     /// A replay (`crate::replay`): what it replays; why it cannot be.
     replay: Option<Rc<crate::replay::ReplayProp>>,
-    refused: Option<String>,
+    refused: Option<Refusal>,
     /// A replay's results compared with the play's.
     replay_check: Option<ddi_ui::state::history::ReplayCheck>,
     /// The chart's best play's ghost, once read (`Settings::ghost`).
@@ -537,10 +539,10 @@ impl PromptShell {
     }
 }
 
-enum Status<T> {
+enum Status<T, E = String> {
     Pending,
     Ready(T),
-    Failed(String),
+    Failed(E),
 }
 
 enum Stage {
@@ -560,12 +562,12 @@ enum Stage {
         /// Why the automatic setting turned the background videos off.
         video_stopped: Option<ddi_platform::video::StopReason>,
         /// What kept background videos from playing.
-        video_trouble: Option<String>,
+        video_trouble: Option<ddi_platform::video::VideoTrouble>,
     },
     Aborted,
     /// Tab hidden or audio context suspended mid-play.
     Interrupted,
-    Error(String),
+    Error(LoadFailure),
 }
 
 impl Component for GameCanvas {
@@ -596,8 +598,8 @@ impl Component for GameCanvas {
                 let skin = noteskin_ready(&Settings::load(), &song, 0, 0.0);
                 let loaded = Loaded {
                     song,
-                    title: mode.title().into(),
-                    subtitle: mode.hint().into(),
+                    title: mode.title(),
+                    subtitle: mode.hint(),
                     music_bytes: None,
                     bg_images: Vec::new(),
                     bg_videos: Vec::new(),
@@ -926,9 +928,7 @@ impl GameCanvas {
                     (self.kept(), &ctx.props().source)
                     && r.chart(&song.song) != Ok(*chart)
                 {
-                    self.refused = Some(r.chart(&song.song).err().unwrap_or_else(|| {
-                        "This chart changed since the play: its replay would be wrong.".into()
-                    }));
+                    self.refused = Some(r.chart(&song.song).err().unwrap_or(Refusal::ChartChanged));
                 }
                 // The options' skin row is the chart's layout's.
                 if let (Some(o), SongSource::Song { chart, .. }) =
@@ -1100,15 +1100,17 @@ impl GameCanvas {
                     .try_borrow()
                     .ok()
                     .and_then(|g| g.as_ref()?.video_status());
+                use ddi_l10n::msg::prompt;
                 let line = status.and_then(|s| match s {
-                    ModuleStatus::Idle => Some("loading the video decoder…".to_string()),
-                    ModuleStatus::Loading { loaded, total } if total > 0.0 => Some(format!(
-                        "loading the video decoder… {:.0} %",
-                        (loaded / total * 100.0).min(100.0)
-                    )),
-                    ModuleStatus::Loading { .. } => Some("loading the video decoder…".to_string()),
+                    ModuleStatus::Idle => Some(prompt::video_loading().into()),
+                    ModuleStatus::Loading { loaded, total } if total > 0.0 => Some(
+                        prompt::video_progress((loaded / total * 100.0).min(100.0).round()).into(),
+                    ),
+                    ModuleStatus::Loading { .. } => Some(prompt::video_loading().into()),
                     ModuleStatus::Ready { .. } => None,
-                    ModuleStatus::Failed(e) => Some(format!("background videos cannot play: {e}")),
+                    ModuleStatus::Failed(e) => {
+                        Some(prompt::video_failed(ddi_ui::screens::failures::video_text(&e)).into())
+                    }
                 });
                 // A shared song's files coming down: the line moves too.
                 let download = crate::share::download_line();
@@ -1122,8 +1124,8 @@ impl GameCanvas {
                 self.access = Some((handle, name, None));
                 true
             }
-            Msg::SongLoaded(Err(e)) => {
-                self.song = Status::Failed(e.message());
+            Msg::SongLoaded(Err(LoadError::Failed(e))) => {
+                self.song = Status::Failed(e);
                 // No prompt comes: the shell shows the page as it is.
                 crate::boot::ready();
                 true
@@ -1131,7 +1133,7 @@ impl GameCanvas {
             Msg::Access(granted) => {
                 if !granted {
                     if let Some((_, _, refused)) = self.access.as_mut() {
-                        *refused = Some("Reading the folder was not allowed.".into());
+                        *refused = Some(ddi_l10n::msg::prompt::access_refused().into());
                     }
                     return true;
                 }
@@ -1291,7 +1293,7 @@ impl GameCanvas {
             }
             Msg::Decoded(Err(e)) => {
                 self.shell.pad_ctx.borrow_mut().take();
-                self.stage = Stage::Error(e);
+                self.stage = Stage::Error(LoadFailure::Music(e));
                 true
             }
             Msg::Session(SessionEvent::Finished {
@@ -1561,7 +1563,7 @@ impl GameCanvas {
                 return false;
             }
             Err(e) => {
-                self.stage = Stage::Error(e);
+                self.stage = Stage::Error(LoadFailure::Audio(e));
                 return true;
             }
         };
@@ -2131,7 +2133,7 @@ impl GameCanvas {
                 }
                 self.stage = Stage::Playing;
             }
-            Err(e) => self.stage = Stage::Error(e),
+            Err(e) => self.stage = Stage::Error(LoadFailure::Other(e)),
         }
     }
 }
@@ -2175,7 +2177,7 @@ impl GameCanvas {
         let step = self.prompt_step(ctx);
         let mut notes = Vec::new();
         if self.needs_gesture {
-            notes.push("This browser needs a tap, click or key press to start the audio.".into());
+            notes.push(ddi_l10n::msg::prompt::needs_gesture().into());
         }
         if matches!(self.stage, Stage::Idle)
             && let Some(line) = &self.video_line
@@ -2242,11 +2244,12 @@ impl GameCanvas {
                 refused: refused.clone(),
             };
         }
+        use ddi_l10n::msg::prompt;
         if let Some(why) = &self.refused {
-            return PromptStep::Error(format!("This replay cannot be watched. {why}"));
+            return PromptStep::Error(prompt::replay_refused(why.text()).into());
         }
         match (&self.song, &self.stage) {
-            (Status::Failed(e), _) => PromptStep::Error(format!("The song failed to load: {e}")),
+            (Status::Failed(e), _) => PromptStep::Error(e.sentence().into()),
             // A chart the address names that this game does not play (a
             // style it leaves out, a chart past the song's): said at once.
             (Status::Ready(song), _)
@@ -2259,13 +2262,13 @@ impl GameCanvas {
                         .and_then(|c| song.song.layout_of(c))
                         .is_none() =>
             {
-                PromptStep::Error(match song.song.charts.get(*chart) {
-                    Some(c) => format!(
-                        "This chart is for {}, a style this game does not play.",
-                        c.layout
-                    ),
-                    None => format!("This song has no chart {chart}."),
-                })
+                PromptStep::Error(
+                    match song.song.charts.get(*chart) {
+                        Some(c) => prompt::chart_style(&c.layout),
+                        None => prompt::no_chart(*chart),
+                    }
+                    .into(),
+                )
             }
             // Start pressed: the loading screen until the play begins.
             (_, Stage::Idle) if self.held_start.is_some() || self.start_on_predecode => {
@@ -2273,7 +2276,7 @@ impl GameCanvas {
             }
             (_, Stage::Decoding | Stage::Waiting { .. }) => PromptStep::Loading("loading…".into()),
             (_, Stage::Interrupted) => PromptStep::Interrupted,
-            (_, Stage::Error(e)) => PromptStep::Error(e.clone()),
+            (_, Stage::Error(e)) => PromptStep::Error(e.sentence().into()),
             (
                 _,
                 Stage::Finished {
@@ -2366,7 +2369,7 @@ impl GameCanvas {
             // Its name comes once it is read (`SongLoaded`).
             _ => PromptInfo {
                 title: match &props.source {
-                    SongSource::Calibration(mode) => mode.title().into(),
+                    SongSource::Calibration(mode) => mode.title(),
                     SongSource::Song { .. } => String::new(),
                 },
                 ..PromptInfo::default()
@@ -2746,7 +2749,11 @@ impl GameCanvas {
         let bpm_text = entry.as_ref().map(|e| e.bpm.clone()).unwrap_or_default();
         let played = song.song.charts.get(chart);
         let chart_line = match played {
-            Some(c) => ddi_ui::screens::prompt::chart_line(c.difficulty, c.meter, &layout.name),
+            Some(c) => ddi_ui::screens::prompt::chart_line(
+                c.difficulty,
+                c.meter,
+                &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
+            ),
             None => layout.name.clone(),
         };
         let song_entry = SongEntry {
@@ -2775,7 +2782,7 @@ impl GameCanvas {
             .and_then(|g| g.scripts_stopped().map(ddi_session::scripted::stop_note));
         let mut video_notes = ddi_ui::screens::play::results_notes(
             *video_stopped,
-            video_trouble.as_deref(),
+            video_trouble.as_ref(),
             save_error,
             self.replay_check.as_ref(),
             self.kept(),
@@ -3074,61 +3081,83 @@ fn results_card(
     if !mods.is_empty() {
         push(mods, "Muted");
     }
+    use ddi_l10n::UiText;
+    use ddi_l10n::msg::results as rm;
     if r.failed {
-        push("FAILED".into(), "Danger");
+        push(
+            UiText::data(ddi_ui::screens::play::FAILED_MARK).into(),
+            "Danger",
+        );
     }
     if device_changed {
-        push(
-            "an audio device or the display changed during play".into(),
-            "Muted",
-        );
+        push(rm::note_device_changed().into(), "Muted");
     }
     if let Some(lamp) = ddi_ui::screens::play::lamp(r) {
         push(lamp, "Accent");
     }
     let t = &r.tally;
+    // The ruleset's own names for its tiers and holds: data.
     let tiers: Vec<String> = (0..6)
         .filter_map(|i| {
-            let name = names.map_or_else(|| format!("tier {}", i + 1), |n| n.tiers[i].clone());
-            (!name.is_empty()).then(|| format!("{name} {}", t.taps[i]))
+            let name = names.map_or_else(|| format!("{}", i + 1), |n| n.tiers[i].clone());
+            (!name.is_empty()).then(|| format!("{} {}", UiText::data(name), t.taps[i]))
         })
         .collect();
     push(tiers.join(" · "), "Secondary");
-    let held = names.map_or_else(
-        || "held / let go".into(),
-        |n| format!("{} / {}", n.held, n.let_go),
-    );
-    push(format!("{held} {} / {}", t.held, t.let_go), "Secondary");
-    if t.checkpoint_hit + t.checkpoint_miss > 0 {
+    if let Some(n) = names {
         push(
             format!(
-                "hold ticks hit / missed {} / {}",
-                t.checkpoint_hit, t.checkpoint_miss
+                "{} {} / {}",
+                UiText::data(format!("{} / {}", n.held, n.let_go)),
+                t.held,
+                t.let_go
             ),
             "Secondary",
         );
     }
-    let mut more = format!("mines hit {} · max combo {}", t.mine_hit, r.max_combo);
+    if t.checkpoint_hit + t.checkpoint_miss > 0 {
+        push(
+            format!(
+                "{} {} / {}",
+                rm::ticks(),
+                t.checkpoint_hit,
+                t.checkpoint_miss
+            ),
+            "Secondary",
+        );
+    }
+    let mut more = format!(
+        "{} {} · {} {}",
+        rm::mines_hit(),
+        t.mine_hit,
+        rm::max_combo(),
+        r.max_combo
+    );
     if t.boo > 0 {
-        more.push_str(&format!(" · stray presses {}", t.boo));
+        more.push_str(&format!(" · {} {}", rm::stray_presses(), t.boo));
     }
     push(more, "Secondary");
     push(
         format!(
-            "fast / slow {} / {} · mean offset {:+.1} ms (σ {:.1})",
+            "{} {} / {} · {} {}",
+            rm::fast_slow(),
             r.fast,
             r.slow,
-            r.mean_delta * 1000.0,
-            r.stddev_delta * 1000.0
+            rm::mean_offset(),
+            UiText::data(format!(
+                "{:+.1} ms (σ {:.1})",
+                r.mean_delta * 1000.0,
+                r.stddev_delta * 1000.0
+            ))
         ),
         "Secondary",
     );
     PromptStep::Card {
-        heading: format!("{} {}", r.grade, score_text(r)),
+        heading: UiText::data(format!("{} {}", r.grade, score_text(r))).into(),
         lines,
         actions: vec![
-            ("again".into(), "Retry".into()),
-            ("songs".into(), "Song list".into()),
+            ("again".into(), rm::retry().into()),
+            ("songs".into(), rm::song_list().into()),
         ],
     }
 }

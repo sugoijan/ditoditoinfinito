@@ -10,6 +10,8 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use ddi_l10n::UiText;
+use ddi_l10n::msg::studio as m;
 use ddi_library::announcer::draft::{Draft, Note, Sound, Take, Write};
 use ddi_library::announcer::examples::{self, Set};
 use ddi_library::announcer::{Bundled, Comment, Grade, Line, Spoken};
@@ -96,125 +98,107 @@ fn grade_letters(g: Grade) -> &'static str {
 }
 
 /// A line's plain name.
-pub fn name(line: Line) -> String {
+pub fn name(line: Line) -> UiText {
     match line {
-        Line::Ready => "Ready".into(),
-        Line::HereWeGo => "Here we go".into(),
-        Line::Restart => "Restart".into(),
-        Line::CommentHot => "Doing great".into(),
-        Line::CommentGood => "Doing fine".into(),
-        Line::CommentDanger => "In danger".into(),
-        Line::CommentOni => "On lives".into(),
-        Line::Combo(n) => format!("{n} combo"),
-        Line::ComboOverflow => "More combo".into(),
-        Line::ComboStopped => "Combo broken".into(),
-        Line::FullCombo => "Full combo".into(),
-        Line::FullComboW(1) => "Full combo, all perfect".into(),
-        Line::FullComboW(2) => "Full combo, nearly perfect".into(),
-        Line::FullComboW(_) => "Full combo, all good".into(),
-        Line::LastLife => "Last life".into(),
-        Line::LifeLost => "Life lost".into(),
-        Line::Cleared => "Cleared".into(),
-        Line::Failed => "Failed".into(),
-        Line::Quit => "Quit".into(),
-        Line::FirstClear => "First clear".into(),
-        Line::NewRecord => "New record".into(),
-        Line::EvaluationFullCombo(1) => "Full combo, all perfect".into(),
-        Line::EvaluationFullCombo(2) => "Full combo, nearly perfect".into(),
-        Line::EvaluationFullCombo(3) => "Full combo, all good".into(),
-        Line::EvaluationFullCombo(_) => "Full combo".into(),
-        Line::Grade(g @ (Grade::E | Grade::F)) => format!("Failed play ({})", grade_letters(g)),
-        Line::Grade(g) => format!("Grade {}", grade_letters(g)),
-        Line::Cheer => "Cheer".into(),
-        Line::SelectMusicIntro => "Song select".into(),
-        Line::SelectMusic(Comment::New) => "A new chart".into(),
-        Line::SelectMusic(Comment::Repeat) => "Played again".into(),
-        Line::SelectMusic(Comment::Hard) => "A hard chart".into(),
-        Line::SelectMusic(Comment::General) => "Any other chart".into(),
+        Line::Ready => m::line_ready(),
+        Line::HereWeGo => m::line_here_we_go(),
+        Line::Restart => m::line_restart(),
+        Line::CommentHot => m::line_comment_hot(),
+        Line::CommentGood => m::line_comment_good(),
+        Line::CommentDanger => m::line_comment_danger(),
+        Line::CommentOni => m::line_comment_oni(),
+        Line::Combo(n) => m::line_combo(n.to_string()),
+        Line::ComboOverflow => m::line_combo_overflow(),
+        Line::ComboStopped => m::line_combo_stopped(),
+        Line::FullCombo => m::line_full_combo(),
+        Line::FullComboW(1) | Line::EvaluationFullCombo(1) => m::line_full_combo_w1(),
+        Line::FullComboW(2) | Line::EvaluationFullCombo(2) => m::line_full_combo_w2(),
+        Line::FullComboW(_) | Line::EvaluationFullCombo(3) => m::line_full_combo_w3(),
+        Line::LastLife => m::line_last_life(),
+        Line::LifeLost => m::line_life_lost(),
+        Line::Cleared => m::line_cleared(),
+        Line::Failed => m::line_failed(),
+        Line::Quit => m::line_quit(),
+        Line::FirstClear => m::line_first_clear(),
+        Line::NewRecord => m::line_new_record(),
+        Line::EvaluationFullCombo(_) => m::line_full_combo(),
+        Line::Grade(g @ (Grade::E | Grade::F)) => m::line_grade_failed(grade_letters(g)),
+        Line::Grade(g) => m::line_grade(grade_letters(g)),
+        Line::Cheer => m::line_cheer(),
+        Line::SelectMusicIntro => m::line_select_intro(),
+        Line::SelectMusic(Comment::New) => m::line_select_new(),
+        Line::SelectMusic(Comment::Repeat) => m::line_select_repeat(),
+        Line::SelectMusic(Comment::Hard) => m::line_select_hard(),
+        Line::SelectMusic(Comment::General) => m::line_select_general(),
     }
 }
 
 /// When a line speaks, in a sentence.
-pub fn when(line: Line) -> String {
-    let grade = |place: &str| format!("On the results, for the {place} grade.");
+pub fn when(line: Line) -> UiText {
     match line {
-        Line::Ready => "As a song starts.".into(),
-        Line::HereWeGo => "Just before the first note: it ends half a second before it.".into(),
-        Line::Restart => "As a song starts again at once (R held, or pressed twice).".into(),
-        Line::CommentHot => "Every 10 seconds while the life is full.".into(),
-        Line::CommentGood => "Every 10 seconds otherwise.".into(),
-        Line::CommentDanger => "Every 10 seconds while the life is about to run out.".into(),
-        Line::CommentOni => "Every 10 seconds on a life gauge of lives (a battery).".into(),
-        Line::Combo(n) if n > 1000 => format!("{n} notes in a row (in place of More combo)."),
-        Line::Combo(n) => format!("{n} notes in a row."),
-        Line::ComboOverflow => "Each hundred notes in a row past 1000.".into(),
-        Line::ComboStopped => "When more than 50 notes in a row end with a miss.".into(),
-        Line::FullCombo => "As the last note is hit with no note missed.".into(),
-        Line::FullComboW(1) => "As the last note is hit, every note at the best judgment.".into(),
-        Line::FullComboW(2) => {
-            "As the last note is hit, every note at the second judgment or better.".into()
-        }
-        Line::FullComboW(_) => {
-            "As the last note is hit, every note at the third judgment or better.".into()
-        }
-        Line::LastLife => "When one life is left on a gauge of lives.".into(),
-        Line::LifeLost => "When a life is lost on a gauge of lives.".into(),
-        Line::Cleared => "As the last note is judged.".into(),
-        Line::Failed => "When the life runs out.".into(),
-        Line::Quit => "On the results of a song the player quit.".into(),
-        Line::FirstClear => "On the results, the first time a chart is cleared.".into(),
-        Line::NewRecord => "On the results, for a new best on a chart played before.".into(),
-        Line::EvaluationFullCombo(1) => {
-            "On the results of a full combo with every note at the best judgment.".into()
-        }
-        Line::EvaluationFullCombo(2) => {
-            "On the results of a full combo with every note at the second judgment or better."
-                .into()
-        }
-        Line::EvaluationFullCombo(3) => {
-            "On the results of a full combo with every note at the third judgment or better.".into()
-        }
-        Line::EvaluationFullCombo(_) => "On the results of any other full combo.".into(),
-        Line::Grade(Grade::Aaaaa) => "Never: no rules give this grade.".into(),
-        Line::Grade(Grade::Aaaa) => grade("best"),
-        Line::Grade(Grade::Aaa) => grade("second best"),
-        Line::Grade(Grade::Aa) => grade("third best"),
-        Line::Grade(Grade::A) => grade("fourth"),
-        Line::Grade(Grade::B) => grade("fifth"),
-        Line::Grade(Grade::C) => grade("sixth"),
-        Line::Grade(Grade::D) => grade("lowest passing"),
-        Line::Grade(_) => "On the results of a failed song.".into(),
-        Line::Cheer => {
-            "2.5 seconds after the results' line, for the third best grade or better.".into()
-        }
-        Line::SelectMusicIntro => "Each time the song list shows, after a song too.".into(),
-        Line::SelectMusic(Comment::New) => {
-            "When a chart is chosen that was never played under these rules.".into()
-        }
-        Line::SelectMusic(Comment::Repeat) => {
-            "When a chart is chosen that was played earlier this session.".into()
-        }
-        Line::SelectMusic(Comment::Hard) => "When a chart of level 10 or more is chosen.".into(),
-        Line::SelectMusic(Comment::General) => "When any other chart is chosen.".into(),
+        Line::Ready => m::when_ready(),
+        Line::HereWeGo => m::when_here_we_go(),
+        Line::Restart => m::when_restart(),
+        Line::CommentHot => m::when_comment_hot(),
+        Line::CommentGood => m::when_comment_good(),
+        Line::CommentDanger => m::when_comment_danger(),
+        Line::CommentOni => m::when_comment_oni(),
+        Line::Combo(n) if n > 1000 => m::when_combo_past_1000(n),
+        Line::Combo(n) => m::when_combo(n),
+        Line::ComboOverflow => m::when_combo_overflow(),
+        Line::ComboStopped => m::when_combo_stopped(),
+        Line::FullCombo => m::when_full_combo(),
+        Line::FullComboW(1) => m::when_full_combo_w1(),
+        Line::FullComboW(2) => m::when_full_combo_w2(),
+        Line::FullComboW(_) => m::when_full_combo_w3(),
+        Line::LastLife => m::when_last_life(),
+        Line::LifeLost => m::when_life_lost(),
+        Line::Cleared => m::when_cleared(),
+        Line::Failed => m::when_failed(),
+        Line::Quit => m::when_quit(),
+        Line::FirstClear => m::when_first_clear(),
+        Line::NewRecord => m::when_new_record(),
+        Line::EvaluationFullCombo(1) => m::when_evaluation_full_combo_w1(),
+        Line::EvaluationFullCombo(2) => m::when_evaluation_full_combo_w2(),
+        Line::EvaluationFullCombo(3) => m::when_evaluation_full_combo_w3(),
+        Line::EvaluationFullCombo(_) => m::when_evaluation_full_combo(),
+        Line::Grade(Grade::Aaaaa) => m::when_grade_aaaaa(),
+        Line::Grade(Grade::Aaaa) => m::when_grade_aaaa(),
+        Line::Grade(Grade::Aaa) => m::when_grade_aaa(),
+        Line::Grade(Grade::Aa) => m::when_grade_aa(),
+        Line::Grade(Grade::A) => m::when_grade_a(),
+        Line::Grade(Grade::B) => m::when_grade_b(),
+        Line::Grade(Grade::C) => m::when_grade_c(),
+        Line::Grade(Grade::D) => m::when_grade_d(),
+        Line::Grade(_) => m::when_grade_failed(),
+        Line::Cheer => m::when_cheer(),
+        Line::SelectMusicIntro => m::when_select_intro(),
+        Line::SelectMusic(Comment::New) => m::when_select_new(),
+        Line::SelectMusic(Comment::Repeat) => m::when_select_repeat(),
+        Line::SelectMusic(Comment::Hard) => m::when_select_hard(),
+        Line::SelectMusic(Comment::General) => m::when_select_general(),
     }
 }
 
 /// What speaks where the draft has nothing on `line`.
-pub fn without(line: Line, draft: &Draft) -> String {
+pub fn without(line: Line, draft: &Draft) -> UiText {
     if let Some(other) = line
         .chain()
         .into_iter()
         .skip(1)
         .find(|l| draft.takes_of(*l).next().is_some())
     {
-        return format!("Nothing yet: “{}” is said instead.", name(other));
+        return m::missing_instead(name(other));
     }
     match line {
-        Line::FirstClear | Line::NewRecord | Line::EvaluationFullCombo(_) => {
-            "Nothing yet: the results' next line is said instead.".into()
-        }
-        _ => "Nothing yet: the game says nothing then.".into(),
+        Line::FirstClear | Line::NewRecord | Line::EvaluationFullCombo(_) => m::missing_next_line(),
+        _ => m::missing_silent(),
     }
+}
+
+/// Seconds as the studio writes them, one decimal, for a message.
+pub fn seconds(s: f64) -> String {
+    format!("{s:.1}")
 }
 
 /// A take's line on the page: its name, its length and what tidying does.
@@ -225,47 +209,44 @@ fn take_label(draft: &Draft, t: &Take, playing: bool) -> String {
     }
     let icon = if playing { "■" } else { "▶" };
     match (&t.sound, draft.seconds(t)) {
-        (Sound::Read(_), Some(s)) => format!("{icon} {name} · {s:.1} s"),
-        (Sound::Unreadable(_), _) => format!("{name} · cannot be played"),
-        _ => format!("{icon} {name} · reading…"),
+        (Sound::Read(_), Some(s)) => format!("{icon} {}", m::take(&name, seconds(s))),
+        (Sound::Unreadable(_), _) => m::take_unplayable(&name).into(),
+        _ => format!("{icon} {}", m::take_reading(&name)),
     }
 }
 
 /// What a note says.
-fn note_text(note: &Note) -> String {
+fn note_text(note: &Note) -> UiText {
     match note {
-        Note::Unreadable(why) => format!("This file cannot be played here ({why})."),
-        Note::Clipped => "It was recorded too loud: it crackles where it peaks.".into(),
-        Note::TooLong { seconds, limit } => {
-            format!("At {seconds:.1} s it runs past what comes next in the game ({limit:.1} s).")
-        }
+        Note::Unreadable(why) => m::note_unreadable(super::errors::error_text(why)),
+        Note::Clipped => m::note_clipped(),
+        Note::TooLong { seconds: s, limit } => m::note_too_long(seconds(*s), seconds(*limit)),
     }
 }
 
 /// What tidying did to a take, where it did something.
-fn tidied(draft: &Draft, t: &Take) -> Option<String> {
-    let m = t.measure()?;
+fn tidied(draft: &Draft, t: &Take) -> Option<UiText> {
+    let measure = t.measure()?;
     if !draft.tidies(t) {
-        return Some("As recorded".into());
+        return Some(m::tidied_as_recorded());
     }
-    let cut = m.seconds - m.tidied_seconds();
-    let db = m.gain_db();
-    let mut said = Vec::new();
-    if cut >= 0.05 {
-        said.push(format!("{cut:.1} s of silence cut"));
-    }
-    if db.abs() >= 1.0 {
-        said.push(format!(
-            "{} by {:.0} dB",
-            if db > 0.0 { "louder" } else { "quieter" },
-            db.abs()
-        ));
-    }
-    Some(if said.is_empty() {
-        "Tidy: nothing to change".into()
-    } else {
-        format!("Tidied: {}", said.join(", "))
-    })
+    let cut = measure.seconds - measure.tidied_seconds();
+    let db = measure.gain_db();
+    let cut = (cut >= 0.05).then_some(cut);
+    let louder = (db.abs() >= 1.0).then_some(db > 0.0);
+    let change = match (cut, louder) {
+        (None, None) => return Some(m::tidied_nothing()),
+        (Some(_), None) => "cut",
+        (None, Some(true)) => "louder",
+        (None, Some(false)) => "quieter",
+        (Some(_), Some(true)) => "cut-louder",
+        (Some(_), Some(false)) => "cut-quieter",
+    };
+    Some(m::tidied(
+        change,
+        seconds(cut.unwrap_or(0.0)),
+        db.abs().round(),
+    ))
 }
 
 /// A take's blocks: the button to hear it, what can be done with it,
@@ -278,17 +259,21 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
     )];
     actions.push(Action::new(
         format!("move:{}", t.id),
-        if sorted { "Move…" } else { "Which line?" },
+        if sorted {
+            m::take_move()
+        } else {
+            m::take_which_line()
+        },
     ));
-    actions.push(Action::new(format!("remove:{}", t.id), "Remove"));
+    actions.push(Action::new(format!("remove:{}", t.id), m::take_remove()));
     out.push(Block::Actions(actions));
     if view.details
         && let Some(s) = tidied(draft, t)
     {
-        out.push(Block::Muted(s));
+        out.push(Block::Muted(s.into()));
     }
     for n in draft.notes(t) {
-        out.push(Block::Note(note_text(&n)));
+        out.push(Block::Note(note_text(&n).into()));
     }
 }
 
@@ -300,9 +285,12 @@ fn line_zone(
     examples: &BTreeMap<Line, Vec<Example>>,
 ) -> Block {
     let folder = line.folder();
-    let mut body = vec![Block::Subheading(name(line)), Block::Muted(when(line))];
+    let mut body = vec![
+        Block::Subheading(name(line).into()),
+        Block::Muted(when(line).into()),
+    ];
     if view.details {
-        body.push(Block::Muted(format!("Folder: {folder}")));
+        body.push(Block::Muted(m::line_folder(&folder).into()));
     }
     if let Some(ex) = examples.get(&line).filter(|e| !e.is_empty()) {
         let items = ex
@@ -318,21 +306,21 @@ fn line_zone(
                     };
                     Block::Action {
                         id,
-                        label: format!("{icon} “{}”", e.text),
+                        label: format!("{icon} {}", m::example(&e.text)),
                     }
                 }
-                None => Block::Text(format!("“{}”", e.text)),
+                None => Block::Text(m::example(&e.text).into()),
             })
             .collect();
         body.push(Block::Fold {
             id: format!("examples:{folder}"),
-            label: format!("Examples ({})", ex.len()),
+            label: m::examples_fold(ex.len()).into(),
             body: items,
         });
     }
     let takes: Vec<&Take> = draft.takes_of(line).collect();
     if takes.is_empty() {
-        body.push(Block::Muted(without(line, draft)));
+        body.push(Block::Muted(without(line, draft).into()));
     }
     for t in takes {
         take_blocks(draft, view, t, true, &mut body);
@@ -341,17 +329,14 @@ fn line_zone(
         && let Some(s) = draft.opening()
         && s > ddi_library::announcer::draft::OPENING_ROOM
     {
-        body.push(Block::Note(format!(
-            "Ready and here we go take {s:.1} s together: a song whose first note comes sooner \
-             says only here we go."
-        )));
+        body.push(Block::Note(m::opening_long(seconds(s)).into()));
     }
-    let mut actions = vec![Action::new(format!("add:{folder}"), "Add recording…")];
+    let mut actions = vec![Action::new(format!("add:{folder}"), m::add_recording())];
     if hearable(line) {
         let label = if recorded(line, draft) {
-            "Hear it in the game"
+            m::hear_recorded()
         } else {
-            "Hear an example in the game"
+            m::hear_example()
         };
         actions.push(Action::new(format!("hear:{folder}"), label));
     }
@@ -374,13 +359,33 @@ pub fn recorded(line: Line, draft: &Draft) -> bool {
         .any(|l| draft.takes_of(l).next().is_some())
 }
 
-/// A switch of Advanced: its button, then what it does.
-fn switch(id: &str, label: &str, on: bool, does: &str) -> [Block; 2] {
+/// What the studio says after a scene of `line`: the lines heard in it,
+/// in order (a scene says two at most: song select's welcome and a
+/// comment, a results line and the cheer), said by the draft or by our
+/// pack `example` (its name).
+pub fn heard(line: Line, heard: &[Line], example: Option<&str>) -> UiText {
+    match (heard, example) {
+        ([], _) if line == Line::Cheer => m::status_heard_nothing_cheer(),
+        ([], _) => m::status_heard_nothing(),
+        ([one], None) => m::status_heard(name(*one)),
+        ([one], Some(pack)) => m::status_heard_example(pack, name(*one)),
+        ([first, .., then], None) => m::status_heard_two(name(*first), name(*then)),
+        ([first, .., then], Some(pack)) => {
+            m::status_heard_example_two(pack, name(*first), name(*then))
+        }
+    }
+}
+
+/// A switch's state, as its message selects it.
+fn state(on: bool) -> &'static str {
+    if on { "on" } else { "off" }
+}
+
+/// A switch of Advanced: its button (its name and state), then what it
+/// does.
+fn switch(id: &str, label: UiText, does: UiText) -> [Block; 2] {
     [
-        Block::Actions(vec![Action::new(
-            id,
-            format!("{label}: {}", if on { "on" } else { "off" }),
-        )]),
+        Block::Actions(vec![Action::new(id, label)]),
         Block::Muted(does.into()),
     ]
 }
@@ -388,28 +393,21 @@ fn switch(id: &str, label: &str, on: bool, does: &str) -> [Block; 2] {
 /// The studio's page.
 pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) -> PageDoc {
     let mut b = vec![
-        Block::Text(
-            "Drop each recording of your voice on its line below, or add it with the line's \
-             Add recording button. Then use your announcer in the game, or export it to share."
-                .into(),
-        ),
+        Block::Text(m::intro().into()),
         Block::Field {
             id: "name".into(),
-            label: "Name".into(),
+            label: m::name().into(),
             value: draft.name.clone(),
-            hint: "Your announcer's name".into(),
+            hint: m::name_hint().into(),
         },
     ];
-    let mut actions = vec![Action::new(
-        "examples",
-        format!("Examples: {}", view.examples.name()),
-    )];
+    let mut actions = vec![Action::new("examples", m::examples(view.examples.name()))];
     let has = draft.takes.iter().any(|t| t.line.is_some());
     if has && !view.busy {
-        actions.push(Action::new("use", "Use in the game"));
+        actions.push(Action::new("use", m::use_in_game()));
         match &view.ready {
-            Some(zip) => actions.push(Action::new("save", format!("Save {zip}")).primary()),
-            None => actions.push(Action::new("export", "Export…")),
+            Some(zip) => actions.push(Action::new("save", m::save(zip)).primary()),
+            None => actions.push(Action::new("export", m::export())),
         }
     }
     b.push(Block::Actions(actions));
@@ -417,69 +415,58 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
         b.push(Block::Muted(view.status.clone()));
     }
     if draft.too_big() {
-        b.push(Block::Note(format!(
-            "The pack is past what the game keeps of an announcer ({} sounds, {} MB): the last \
-             ones would be left out.",
-            ddi_library::announcer::MAX_FILES,
-            ddi_library::announcer::MAX_BYTES >> 20
-        )));
+        b.push(Block::Note(
+            m::too_big(
+                ddi_library::announcer::MAX_FILES,
+                ddi_library::announcer::MAX_BYTES >> 20,
+            )
+            .into(),
+        ));
     }
     let mut advanced = vec![
         Block::Field {
             id: "author".into(),
-            label: "By".into(),
+            label: m::author().into(),
             value: draft.author.clone(),
-            hint: "Who made it".into(),
+            hint: m::author_hint().into(),
         },
         Block::Field {
             id: "license".into(),
-            label: "License".into(),
+            label: m::license().into(),
             value: draft.license.clone(),
-            hint: "How others may use it".into(),
+            hint: m::license_hint().into(),
         },
         Block::Actions(vec![
-            Action::new("import-files", "Import a pack from a zip…"),
-            Action::new("import-folder", "Import a pack folder…"),
+            Action::new("import-files", m::import_zip()),
+            Action::new("import-folder", m::import_folder()),
         ]),
-        Block::Muted(
-            "An announcer pack made before, here or for StepMania: its recordings go on their \
-             lines."
-                .into(),
-        ),
+        Block::Muted(m::import_description().into()),
     ];
     advanced.extend(switch(
         "tidy",
-        "Tidy recordings",
-        draft.tidy,
-        "Cuts the silence before and after each recording and evens its loudness with our \
-         announcers'.",
+        m::tidy(state(draft.tidy)),
+        m::tidy_description(),
     ));
     advanced.extend(switch(
         "stepmania",
-        "Also for StepMania",
-        draft.stepmania,
-        "Writes only the sound formats StepMania reads (MP3, WAV and Ogg Vorbis), others as WAV.",
+        m::stepmania(state(draft.stepmania)),
+        m::stepmania_description(),
     ));
     advanced.extend(switch(
         "details",
-        "Details",
-        view.details,
-        "Shows each line's folder and what tidying did to each recording.",
+        m::details(state(view.details)),
+        m::details_description(),
     ));
     b.push(Block::Fold {
         id: "advanced".into(),
-        label: "Advanced".into(),
+        label: m::advanced().into(),
         body: advanced,
     });
     let unsorted: Vec<&Take> = draft.unsorted().collect();
     if !unsorted.is_empty() {
         let mut body = vec![
-            Block::Heading(format!("Not sorted yet ({})", unsorted.len())),
-            Block::Muted(
-                "Press Which line? to hear a recording and choose its line, or drop it on its \
-                 line below."
-                    .into(),
-            ),
+            Block::Heading(m::unsorted(unsorted.len()).into()),
+            Block::Muted(m::unsorted_help().into()),
         ];
         for t in unsorted {
             take_blocks(draft, view, t, false, &mut body);
@@ -491,9 +478,9 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
     }
     let lines = draft.lines();
     for (spoken, heading) in [
-        (Spoken::Menu, "On the song select screen"),
-        (Spoken::Play, "During gameplay"),
-        (Spoken::Results, "On the results screen"),
+        (Spoken::Menu, m::section_select()),
+        (Spoken::Play, m::section_play()),
+        (Spoken::Results, m::section_results()),
     ] {
         b.push(Block::Heading(heading.into()));
         for &line in lines.iter().filter(|l| l.spoken() == spoken) {
@@ -501,7 +488,7 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
         }
     }
     PageDoc {
-        title: "Announcer studio".into(),
+        title: m::title().into(),
         blocks: b,
     }
 }
@@ -567,6 +554,13 @@ pub fn act(id: &str) -> Option<Act> {
     })
 }
 
+/// The examples the studio shows where none were chosen: the UI's
+/// language's (`docs/plans/localization.md`), else English.
+pub fn first_set() -> Set {
+    let tag = ddi_l10n::current().tag;
+    Set::from_key(tag.split('-').next().unwrap_or(tag)).unwrap_or_default()
+}
+
 /// The next example set after `set`.
 pub fn next_set(set: Set) -> Set {
     let i = Set::ALL.iter().position(|s| *s == set).unwrap_or(0);
@@ -589,10 +583,17 @@ pub fn set_field(draft: &mut Draft, id: &str, text: &str) -> bool {
 /// it unsorted.
 pub type LineFn = Rc<dyn Fn(u64, Option<Line>, &mut Cx)>;
 
-/// The dialog choosing take `take`'s line: every line in the game's
-/// order (by name, its place said), and "Not sorted yet" for one that
-/// is on a line.
-pub fn line_picker(env: Env, draft: &Draft, take: u64, on_pick: LineFn) -> Option<ActionsDialog> {
+/// What the line picker of take `take` shows: its title, its choices
+/// (each line's folder and label: every line in the game's order, by
+/// name, its place said, and "Not sorted yet" first for one that is on a
+/// line) and its note.
+pub struct Picker {
+    pub title: UiText,
+    pub items: Vec<(String, String)>,
+    pub note: UiText,
+}
+
+pub fn picker(draft: &Draft, take: u64) -> Option<Picker> {
     let t = draft.take(take)?;
     // In the page's order: song select's, play's, the results'.
     let mut lines = draft.lines();
@@ -604,24 +605,31 @@ pub fn line_picker(env: Env, draft: &Draft, take: u64, on_pick: LineFn) -> Optio
     let mut items: Vec<(String, String)> = lines
         .into_iter()
         .map(|l| {
-            let place = match l.spoken() {
-                Spoken::Menu => "Song select screen",
-                Spoken::Play => "Gameplay",
-                Spoken::Results => "Results screen",
+            let label = match l.spoken() {
+                Spoken::Menu => m::picker_line_select(name(l)),
+                Spoken::Play => m::picker_line_play(name(l)),
+                Spoken::Results => m::picker_line_results(name(l)),
             };
-            (l.folder(), format!("{} · {place}", name(l)))
+            (l.folder(), label.into())
         })
         .collect();
     if t.line.is_some() {
-        items.insert(0, ("unsorted".into(), "Not sorted yet".into()));
+        items.insert(0, ("unsorted".into(), m::picker_unsorted().into()));
     }
+    Some(Picker {
+        title: m::picker_title(),
+        items,
+        note: m::picker_note(t.file_name()),
+    })
+}
+
+/// The dialog choosing take `take`'s line ([`picker`]).
+pub fn line_picker(env: Env, draft: &Draft, take: u64, on_pick: LineFn) -> Option<ActionsDialog> {
+    let p = picker(draft, take)?;
     let pick: super::editor_dialogs::PickFn = Rc::new(move |id: &str, cx: &mut Cx| {
         on_pick(take, Line::parse(id), cx);
     });
-    Some(
-        ActionsDialog::new(env, "Which line is it?", items, pick)
-            .with_note(&format!("{} plays as you choose.", t.file_name())),
-    )
+    Some(ActionsDialog::new(env, &p.title, p.items, pick).with_note(&p.note))
 }
 
 /// Whether a press of `id` needs the press itself: a picker, a sound,
@@ -828,6 +836,72 @@ mod tests {
         d.add("gameplay ready.mp3", 1, MP3);
         assert!(without(Line::Restart, &d).contains("“Ready”"));
         assert!(without(Line::FirstClear, &d).contains("next line"));
+    }
+
+    #[test]
+    fn the_page_says_each_take_and_its_tidying() {
+        ddi_l10n::set_language("en");
+        let (d, view, ex) = crate::screens::sample::studio();
+        let text = format!("{:?}", doc(&d, &view, &ex).blocks);
+        for s in [
+            "■ ready.mp3 · 2.5 s",
+            "Tidied: 0.5 s of silence cut, louder by 6 dB",
+            "Tidied: quieter by 6 dB",
+            "Tidied: 0.3 s of silence cut",
+            "Tidy: nothing to change",
+            "As recorded",
+            "double a.m4a · cannot be played",
+            "▶ intro.mp3 · reading…",
+            "This file cannot be played here (the data could not be read (EncodingError)).",
+            "It was recorded too loud: it crackles where it peaks.",
+            "At 3.0 s it runs past what comes next in the game (2.0 s).",
+            "Ready and here we go take 4.5 s together",
+            "Tidy recordings: on",
+            "Also for StepMania: off",
+            "Details: on",
+            "Save Announcer.zip",
+            "Not sorted yet (1)",
+            "Folder: gameplay ready",
+            "▶ “One hundred combo!”",
+            "Nothing yet: “Ready” is said instead.",
+            "Added 9 recordings. 1 file was passed over: not sounds.",
+            "(2,000 sounds, 128 MB)",
+        ] {
+            assert!(text.contains(s), "{s} in {text}");
+        }
+        let p = picker(&d, d.takes[0].id).unwrap();
+        assert_eq!(p.items[0].1, "Not sorted yet");
+        assert!(
+            p.items
+                .contains(&("gameplay ready".to_string(), "Ready · Gameplay".to_string()))
+        );
+        assert_eq!(&*p.note, "ready.mp3 plays as you choose.");
+    }
+
+    #[test]
+    fn after_a_scene_the_studio_says_what_was_heard() {
+        ddi_l10n::set_language("en");
+        let aa = Line::Grade(Grade::Aa);
+        assert_eq!(
+            &*heard(aa, &[aa, Line::Cheer], None),
+            "Heard in the game: “Grade AA”, then “Cheer”."
+        );
+        assert_eq!(
+            &*heard(
+                Line::SelectMusicIntro,
+                &[Line::SelectMusicIntro],
+                Some("Mr. Clank")
+            ),
+            "Heard in the game, an example by Mr. Clank: “Song select”."
+        );
+        assert_eq!(&*heard(aa, &[], None), "Nothing was said in the game.");
+        assert!(heard(Line::Cheer, &[], None).contains("none of those lines is recorded"));
+        ddi_l10n::set_language("ja");
+        assert_eq!(
+            &*heard(aa, &[aa, Line::Cheer], None),
+            "ゲーム内で「評価AA」、続いて「声援」を再生しました。"
+        );
+        ddi_l10n::set_language("en");
     }
 
     #[test]

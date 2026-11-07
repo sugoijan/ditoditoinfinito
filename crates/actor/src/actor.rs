@@ -495,8 +495,13 @@ impl Text {
         self.cut = None;
         let room = self.max_width / ELLIPSIS_SQUEEZE;
         if self.ellipsis && self.max_width > 0.0 && m.advance > room {
-            // The longest start that fits with "…", by halves.
-            let ends: Vec<usize> = self.text.char_indices().map(|(i, _)| i).skip(1).collect();
+            // The longest start that fits with "…", by halves, cut
+            // between graphemes (an accent stays on its letter).
+            let ends: Vec<usize> =
+                unicode_segmentation::UnicodeSegmentation::grapheme_indices(&*self.text, true)
+                    .map(|(i, _)| i)
+                    .skip(1)
+                    .collect();
             let (mut lo, mut hi) = (0usize, ends.len());
             let mut best: Option<(String, RunMetrics)> = None;
             while lo < hi {
@@ -4211,6 +4216,18 @@ mod tests {
         let mut corner = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
         run(&mut corner, "diffusealpha,0;diffuselowerright,1,1,1,1");
         assert_eq!(draw_all(&mut corner).len(), 1);
+    }
+
+    #[test]
+    fn an_ellipsis_cuts_between_graphemes() {
+        use crate::text::FixedMeasure;
+        // Five "é" written as e and a combining accent: 10 pixels a
+        // character; room for four characters with the "…".
+        let mut t = Text::new("e\u{301}".repeat(5), TextStyle::new("sans-serif", 20.0));
+        t.max_width = 40.0 * ELLIPSIS_SQUEEZE;
+        t.ellipsis = true;
+        t.measure(&mut FixedMeasure);
+        assert_eq!(&**t.shown(), "e\u{301}…");
     }
 
     #[test]

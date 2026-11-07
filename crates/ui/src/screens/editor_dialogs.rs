@@ -14,6 +14,7 @@ use crate::request::{EnterKey, InputHints, InputMode};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::set_text;
+use ddi_l10n::msg::editor as em;
 
 /// What picking an action does (its id).
 pub type PickFn = Rc<dyn Fn(&str, &mut Cx)>;
@@ -103,9 +104,12 @@ impl Screen for ActionsDialog {
             .skip(start)
             .take(self.per_page)
             .map(|(id, label)| (Self::name(id), label.clone()))
-            .chain((self.page > 0).then(|| ("PreviousPage".into(), "Previous page".into())))
-            .chain((end < self.items.len()).then(|| ("NextPage".into(), "Next page".into())))
-            .chain(std::iter::once(("Close".to_string(), "Close".to_string())));
+            .chain((self.page > 0).then(|| ("PreviousPage".into(), em::previous_page().into())))
+            .chain((end < self.items.len()).then(|| ("NextPage".into(), em::next_page().into())))
+            .chain(std::iter::once((
+                "Close".to_string(),
+                ddi_l10n::msg::common::close().into(),
+            )));
         for (i, (name, label)) in ids.enumerate() {
             let (col, row) = (i / rows, i % rows);
             let cx_ = x + 24.0 + col as f32 * (col_w + 10.0) + col_w / 2.0;
@@ -274,7 +278,7 @@ impl Screen for ValueDialog {
         c.push(button(
             &env,
             "Cancel",
-            "Cancel",
+            &ddi_l10n::msg::common::cancel(),
             [x + w - 24.0 - bw * 1.5 - 10.0, by],
             bw,
             "Button",
@@ -282,7 +286,7 @@ impl Screen for ValueDialog {
         c.push(button(
             &env,
             "Ok",
-            "OK",
+            &em::ok(),
             [x + w - 24.0 - bw / 2.0, by],
             bw,
             "Button",

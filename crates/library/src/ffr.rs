@@ -32,6 +32,7 @@ use ddi_chart::formats::ffr::{LevelInfo, Value, parse_beatbox_text, song_from_be
 use crate::manifest::{EntryMeta, ManifestEntry, summarize};
 use crate::pack::{self, AUDIO_EXTENSIONS};
 use crate::path::{RelPath, RelPathBuf};
+use crate::report::Finding;
 
 /// The largest file read as a possible level, bytes (a level is its
 /// music: a few megabytes).
@@ -178,7 +179,7 @@ fn stored(beatbox: &Value, music_frame: i64) -> String {
 /// Candidate `c` read from its bytes: `Ok(None)` when it is not a level
 /// (a SWF without a `beatBox`, a text that is not one), an error when it
 /// is one that cannot be played (no notes, no music).
-pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>, String> {
+pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>, Finding> {
     let (beatbox, mp3, music_frame) = if is_swf_name(&c.path) {
         if !crate::swf::is_swf(bytes) {
             return Ok(None);
@@ -189,7 +190,7 @@ pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>,
             return Ok(None);
         };
         if level.mp3.is_empty() {
-            return Err("the level has no MP3 music".into());
+            return Err(Finding::LevelWithoutMp3);
         }
         (beatbox, Some(level.mp3), music_frame)
     } else {
@@ -205,10 +206,10 @@ pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>,
             {
                 return Ok(None);
             }
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(Finding::Other(e.to_string())),
         };
         if c.music.is_none() {
-            return Err("no audio file beside the beatBox".into());
+            return Err(Finding::LevelWithoutMusic);
         }
         (beatbox, None, 0)
     };
@@ -217,7 +218,7 @@ pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>,
         music_frame,
         ..LevelInfo::default()
     };
-    let song = song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())?;
+    let song = song_from_beatbox(&beatbox, &info).map_err(|e| Finding::Other(e.to_string()))?;
     Ok(Some(LevelSong {
         song,
         mp3,

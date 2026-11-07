@@ -60,7 +60,7 @@ impl Component for SharedPage {
                     &parent,
                     "main",
                     page_routes::Props {
-                        which: Which::SharedGone(e.message()),
+                        which: Which::SharedGone(e),
                     },
                 ));
             }

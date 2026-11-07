@@ -17,7 +17,6 @@
 //! `ChartLadder.Row`, …; their parts are listed in
 //! `ddi_ui::screens`).
 
-#[cfg(test)]
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 #[cfg(test)]
@@ -48,7 +47,11 @@ mod tables {
 /// Our theme.
 pub struct Infinito {
     keycap_material: std::cell::Cell<KeycapMaterial>,
+    /// The text face's stack, as the tunables write it.
     text_font: Arc<str>,
+    /// That stack with the language's faces, and the language it is for
+    /// ([`Infinito::text_font`]).
+    text_stack: RefCell<(&'static str, Arc<str>)>,
     numbers_font: Arc<str>,
     numbers_weight: u16,
     colors: BTreeMap<String, Rgba>,
@@ -73,6 +76,7 @@ impl Infinito {
         Infinito {
             keycap_material: std::cell::Cell::new(KeycapMaterial::DeepGraySatin),
             text_font: tables::TEXT_FONT.into(),
+            text_stack: RefCell::new(("", tables::TEXT_FONT.into())),
             numbers_font: tables::NUMBERS_FONT.into(),
             numbers_weight: tables::NUMBERS_WEIGHT,
             colors: tables::COLORS
@@ -128,9 +132,21 @@ impl Infinito {
         self.metrics.get(name).copied().unwrap_or(0.0)
     }
 
+    /// The text face's stack in the UI's language: the language's faces
+    /// after the text face (`ddi_l10n::font_stack`), so screens built
+    /// after a change of language draw its script in its faces.
+    fn text_font(&self) -> Arc<str> {
+        let tag = ddi_l10n::current().tag;
+        let mut stack = self.text_stack.borrow_mut();
+        if stack.0 != tag {
+            *stack = (tag, ddi_l10n::font_stack(&self.text_font).into());
+        }
+        stack.1.clone()
+    }
+
     /// Text in the text face.
     fn text(&self, name: &str, s: &str, size: f32, weight: u16, color: &str) -> Actor {
-        text_weighted(&self.text_font, weight, name, s, size, self.c(color))
+        text_weighted(&self.text_font(), weight, name, s, size, self.c(color))
     }
 
     /// Numbers in the numbers face.
@@ -297,6 +313,52 @@ fn max_width(a: &mut Actor, w: f32) {
     if let Kind::Text(t) = &mut a.kind {
         t.max_width = w.max(1.0);
         t.ellipsis = true;
+    }
+}
+
+/// Song select's stat line (wide layout): where the BPM's value starts,
+/// where the design puts the length's label, and the least gap between
+/// them.
+const INFO_BPM_X: f32 = 32.0;
+const INFO_LENGTH_X: f32 = 108.0;
+const INFO_GAP: f32 = 12.0;
+
+/// Moves song select's length and pack (`AfterBpm`) right as far as its
+/// BPM, measured, needs past the design's room (a range, "100–200", in
+/// the numbers' face), and narrows the pack's room as much, so the pack
+/// stays clear of the song's offset at the right.
+fn place_after_bpm(root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeasure) {
+    let Some(path) = ddi_ui::hit::find(root, "AfterBpm") else {
+        return;
+    };
+    let Some((_, parent)) = path.split_last() else {
+        return;
+    };
+    let Some(info) = ddi_ui::hit::actor_at_mut(root, parent) else {
+        return;
+    };
+    let advance = info.children().iter().find(|a| a.name == "Bpm").and_then(|a| match &a.kind {
+        Kind::Text(t) => t.metrics().map(|m| m.advance),
+        _ => None,
+    });
+    let Some(advance) = advance else {
+        return;
+    };
+    let Some(after) = info.children_mut().get_mut(path[path.len() - 1]) else {
+        return;
+    };
+    let shift = (INFO_BPM_X + advance + INFO_GAP - INFO_LENGTH_X).max(0.0);
+    let was = after.current().pos[0];
+    if (was - shift).abs() < 0.01 {
+        return;
+    }
+    call(after, "x", &[shift]);
+    if let Some(pack) = ddi_ui::hit::find_mut(after, "Pack")
+        && let Kind::Text(t) = &mut pack.kind
+    {
+        t.max_width = (t.max_width + was - shift).max(1.0);
+        pack.forget_metrics();
+        pack.measure(measure);
     }
 }
 
@@ -712,6 +774,18 @@ impl Infinito {
             let mut credit = at_right(self.text("Credit", "", 12.0, 400, "Muted"), w, ay + 2.0);
             max_width(&mut credit, w * 0.48);
             let sy = ay + 10.2 + 12.0 + 12.0;
+            // The labels in the language now (BPM is never translated);
+            // a value where the design puts it, or after a longer label.
+            let length_label = ddi_l10n::msg::select::info_length();
+            let pack_label = ddi_l10n::msg::select::info_pack();
+            let after = |label: &str, x: f32, at: f32| {
+                // As wide as drawn: tracked by 0.08 em a letter.
+                let lw = mono_width(label, 12.0) + label.chars().count() as f32 * 12.0 * 0.08;
+                x + (at - x).max(lw + 8.0)
+            };
+            let length_x = after(&length_label, INFO_LENGTH_X, 160.0);
+            let pack_label_x = (length_x + 76.0).max(236.0);
+            let pack_x = after(&pack_label, pack_label_x, pack_label_x + 38.0);
             c.extend([
                 title,
                 sub,
@@ -721,23 +795,34 @@ impl Infinito {
                     0.0,
                     sy + 2.0,
                 ),
-                at_left(self.num("Bpm", "", 20.0, "Text"), 32.0, sy),
-                at_left(
-                    tracked(self.text("LengthLabel", "LENGTH", 12.0, 400, "Muted"), 80),
-                    108.0,
-                    sy + 2.0,
+                at_left(self.num("Bpm", "", 20.0, "Text"), INFO_BPM_X, sy),
+                // Moved right as far as a wide BPM needs ("100–200"),
+                // once it is measured (`place_after_bpm`).
+                frame(
+                    "AfterBpm",
+                    vec![
+                        at_left(
+                            tracked(
+                                self.text("LengthLabel", &length_label, 12.0, 400, "Muted"),
+                                80,
+                            ),
+                            INFO_LENGTH_X,
+                            sy + 2.0,
+                        ),
+                        at_left(self.num("Length", "", 20.0, "Text"), length_x, sy),
+                        at_left(
+                            tracked(self.text("PackLabel", &pack_label, 12.0, 400, "Muted"), 80),
+                            pack_label_x,
+                            sy + 2.0,
+                        ),
+                        {
+                            let mut p =
+                                at_left(self.text("Pack", "", 14.0, 600, "Text"), pack_x, sy + 1.0);
+                            max_width(&mut p, w - pack_x - 120.0);
+                            p
+                        },
+                    ],
                 ),
-                at_left(self.num("Length", "", 20.0, "Text"), 160.0, sy),
-                at_left(
-                    tracked(self.text("PackLabel", "PACK", 12.0, 400, "Muted"), 80),
-                    236.0,
-                    sy + 2.0,
-                ),
-                {
-                    let mut p = at_left(self.text("Pack", "", 14.0, 600, "Text"), 274.0, sy + 1.0);
-                    max_width(&mut p, w - 274.0 - 120.0);
-                    p
-                },
                 // The song's own offset, when set.
                 at_right(self.text("Offset", "", 13.0, 600, "Accent"), w, sy + 1.0),
                 credit,
@@ -1257,6 +1342,10 @@ impl Look for Infinito {
         }
     }
 
+    fn place_measured(&self, root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeasure) {
+        place_after_bpm(root, measure);
+    }
+
     fn animate_component(
         &self,
         name: &str,
@@ -1550,13 +1639,13 @@ impl Look for Infinito {
     }
 
     fn font(&self) -> Option<Arc<str>> {
-        Some(self.text_font.clone())
+        Some(self.text_font())
     }
 
     fn font_for(&self, role: &str) -> Option<Arc<str>> {
         match role {
             "Numbers" => Some(self.numbers_font.clone()),
-            _ => Some(self.text_font.clone()),
+            _ => Some(self.text_font()),
         }
     }
 

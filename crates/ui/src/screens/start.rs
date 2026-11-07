@@ -95,18 +95,15 @@ impl StartScreen {
             .metric("TitleMenu.RowHeight", 52.0)
             .max(44.0 / css_scale);
         let gap = env.metric("TitleMenu.Gap", 12.0);
+        use ddi_l10n::msg::start;
         let mut entries = vec![
-            ("Singleplayer", "Singleplayer", "TitleMenu.Primary"),
-            (
-                "Multiplayer",
-                "Multiplayer · Coming soon",
-                "TitleMenu.Disabled",
-            ),
-            ("Options", "Options", "TitleMenu.Choice"),
-            ("Credits", "Credits", "TitleMenu.Choice"),
+            ("Singleplayer", start::singleplayer(), "TitleMenu.Primary"),
+            ("Multiplayer", start::multiplayer(), "TitleMenu.Disabled"),
+            ("Options", start::options(), "TitleMenu.Choice"),
+            ("Credits", start::credits(), "TitleMenu.Choice"),
         ];
         if self.desktop {
-            entries.push(("Quit", "Quit", "TitleMenu.Choice"));
+            entries.push(("Quit", start::quit(), "TitleMenu.Choice"));
         }
         let menu_height = entries.len() as f32 * (row + gap) - gap;
         let title_height = env
@@ -140,7 +137,7 @@ impl StartScreen {
                 env.metric("TitleMenu.TitleWidth", 520.0).min(w - 32.0),
                 title_height,
             ],
-            "Dito Dito Infinito",
+            ddi_l10n::msg::common::game_name(),
         );
         let mut title = env
             .look
@@ -165,7 +162,7 @@ impl StartScreen {
             choices.push(env.component(
                 component,
                 "Button",
-                &Spec::new([width, row], *label),
+                &Spec::new([width, row], label.as_str()),
                 id,
                 [w / 2.0, top + header + row / 2.0 + i as f32 * (row + gap)],
             ));
@@ -196,6 +193,7 @@ impl StartScreen {
     }
 
     fn publish(&self, hints: &crate::controller_hints::Hints) {
+        use ddi_l10n::msg::common as msg;
         let mut st = self.env.state.borrow_mut();
         st.screen = "start".into();
         st.compact = self.size[0] < super::DESIGN[0] || self.size[1] < 480.0;
@@ -208,14 +206,17 @@ impl StartScreen {
                     .join(" ")
             };
             vec![
-                format!(
-                    "{} Move",
-                    label(hints.actions(&[ddi_engine::MenuInput::Up, ddi_engine::MenuInput::Down]))
-                ),
-                format!("{} Choose", label(hints.activate())),
+                msg::hint_move(label(
+                    hints.actions(&[ddi_engine::MenuInput::Up, ddi_engine::MenuInput::Down]),
+                ))
+                .into(),
+                msg::hint_choose(label(hints.activate())).into(),
             ]
         } else {
-            vec!["↑↓ Move".into(), "ENTER Choose".into()]
+            vec![
+                msg::hint_move("↑↓").into(),
+                msg::hint_choose("ENTER").into(),
+            ]
         };
         st.page_items = self.focusables().into_iter().map(|f| f.name).collect();
     }

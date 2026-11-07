@@ -36,11 +36,13 @@ pub use ddi_engine::JUDGE_VERSION;
 pub use ddi_engine::history::{LogError, LoggedInput, PlayLog, PlayTiming, replay};
 pub use ddi_engine::rules::RulesetKey;
 pub use import::{
-    ImportReport, Imported, MAX_LINE, MAX_PLAYS, MAX_PROBLEMS, PlayImport, Refused, read_line,
+    ImportReport, Imported, LinePart, LineProblem, MAX_LINE, MAX_PLAYS, MAX_PROBLEMS, PlayImport,
+    Refused, read_line,
 };
 pub use plays::{Plays, Reworked, export_lines, rework_entries};
 pub use replay::{
-    Ghost, GhostDelta, GhostRun, Replay, ReplayCheck, Replaying, local_time, play_rows, plays_list,
+    Ghost, GhostDelta, GhostRun, Refusal, Replay, ReplayCheck, ReplayProblem, Replaying,
+    local_time, play_rows, plays_list,
 };
 pub use reworker::{FOCUS_STEP_MS, PASS_STEP_MS, REWORK_BATCH, ReworkStep, Reworker};
 

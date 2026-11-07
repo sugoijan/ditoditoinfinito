@@ -3,6 +3,46 @@
 // initializer hooks. Minified by `xtask minify-boot` in release builds into
 // target/boot/, which index.html inlines (AGENTS.md, "Deployment").
 (() => {
+  // The page's lines (locales/<tag>/boot.ftl), put in by xtask
+  // minify-boot: the shipped languages' tags, English's lines, each
+  // language's first lines (those read as the page opens) and the file
+  // with the rest of its lines (named by its contents). Every language's
+  // lines in the page would not fit its first round trip.
+  const BOOT = __DDI_BOOT_LINES__;
+  // The language the game will speak, chosen as it chooses it
+  // (ddi_l10n::choose): the address's ?lang=, else the settings', else
+  // the first of the browser's that a shipped language speaks (the same
+  // tag, else the language without its region, else any of it), else
+  // English.
+  const lang = (() => {
+    const tags = Object.keys(BOOT.first);
+    const known = (tag) => tags.find((t) => t.toLowerCase() == String(tag).toLowerCase());
+    let forced = "";
+    for (const m of location.hash.matchAll(/[?&]lang=([^&]*)/g)) forced = m[1];
+    if (known(forced)) return known(forced);
+    try {
+      const saved = JSON.parse(localStorage.getItem("ddi.settings.v1") || "{}").language;
+      if (saved && known(saved)) return known(saved);
+    } catch (e) {}
+    const alias = { tl: "fil", iw: "he", in: "id", no: "nb" };
+    const base = (tag) => tag.split("-")[0].toLowerCase();
+    for (let tag of navigator.languages || [navigator.language || ""]) {
+      tag = String(tag).split(/[.@]/)[0].replace(/_/g, "-").toLowerCase();
+      const b = alias[base(tag)] || base(tag);
+      tag = b + tag.slice(base(tag).length);
+      const found =
+        BOOT.shipped.find((t) => t.toLowerCase() == tag) ||
+        BOOT.shipped.find((t) => t.toLowerCase() == b) ||
+        BOOT.shipped.find((t) => base(t) == b);
+      if (found) return found;
+    }
+    return "en";
+  })();
+  // The language's lines: its first ones, the rest once fetched (below),
+  // English's until then and should the fetch fail.
+  const lines = Object.assign({}, BOOT.first[lang]);
+  const L = (key) => lines[key] || BOOT.en[key];
+  document.documentElement.lang = lang;
   const state = {
     progress: 0,
     blocked: null,
@@ -14,6 +54,7 @@
     shell: null,
     canvas: null,
     blocked: null,
+    blockedTitle: null,
     blockedMessage: null,
     blockedHint: null,
   };
@@ -71,7 +112,11 @@
     }
     dom.shell = shell;
     dom.canvas = document.getElementById("boot-canvas");
+    if (dom.canvas) {
+      dom.canvas.setAttribute("aria-label", L("loading"));
+    }
     dom.blocked = document.getElementById("boot-blocked");
+    dom.blockedTitle = document.getElementById("boot-blocked-title");
     dom.blockedMessage = document.getElementById("boot-blocked-message");
     dom.blockedHint = document.getElementById("boot-blocked-hint");
     dom.ready = true;
@@ -110,11 +155,19 @@
     }
     if (state.blocked && root.blocked) {
       root.blocked.classList.remove("hidden");
-      if (root.blockedMessage) {
-        root.blockedMessage.textContent = state.blocked.message;
+      // The heading says the browser cannot run the game: for what it
+      // lacks, not for a crash or a failed download.
+      if (root.blockedTitle) {
+        root.blockedTitle.textContent = L("blocked");
+        root.blockedTitle.hidden = !state.blocked.code.startsWith("no-");
       }
+      if (root.blockedMessage) {
+        root.blockedMessage.textContent = L(state.blocked.message) || "";
+      }
+      // What the browser or the game said (untranslated), else a hint.
       if (root.blockedHint) {
-        root.blockedHint.textContent = state.blocked.hint || "";
+        root.blockedHint.textContent =
+          state.blocked.detail || (state.blocked.hint && L(state.blocked.hint)) || "";
       }
     }
   };
@@ -170,12 +223,10 @@
   const setStartProgress = (ratio) => {
     setProgress(share + clamp01(ratio) * (1 - share));
   };
-  const fail = (code, message, hint) => {
-    state.blocked = {
-      code: code || "blocked",
-      message: message || "This browser cannot run the game.",
-      hint: hint || "",
-    };
+  // The box shows: `code` what for, `message` and `hint` the keys of its
+  // lines, `detail` what the browser said, shown in place of the hint.
+  const fail = (code, message, hint, detail) => {
+    state.blocked = { code: code || "blocked", message, hint, detail };
     applyState();
     if (art()) {
       art().stop();
@@ -230,9 +281,11 @@
     window.setTimeout(clearCrashReloads, CRASH_COUNTER_RESET_MS);
     return fill;
   };
-  const showCrashOverlay = (message, hint) => {
+  // `message` and `hint` the keys of its lines, `detail` the error's
+  // own words.
+  const showCrashOverlay = (message, hint, detail) => {
     state.ready = false;
-    state.blocked = { code: "crashed", message, hint: hint || "" };
+    state.blocked = { code: "crashed", message, hint, detail };
     const root = resolveDom();
     if (root && root.shell) {
       // applyState never removes is-ready, and is-ready keeps the
@@ -251,10 +304,7 @@
     }
     state.crashed = true;
     window.__DDI_CRASHED = true;
-    const summary =
-      typeof message === "string" && message
-        ? message
-        : "The game hit an unexpected error.";
+    const detail = typeof message === "string" && message ? message : null;
     const now = Date.now();
     let reloads = readCrashReloads();
     if (!reloads || now - reloads.firstTs > CRASH_WINDOW_MS) {
@@ -263,13 +313,10 @@
     if (reloads.count < CRASH_MAX_RELOADS) {
       reloads.count += 1;
       writeCrashReloads(reloads);
-      showCrashOverlay("Something went wrong — reloading…", summary);
+      showCrashOverlay("reloading", "crashed", detail);
       window.setTimeout(() => window.location.reload(), 300);
     } else {
-      showCrashOverlay(
-        "Something went wrong. Reload the page to continue.",
-        summary
-      );
+      showCrashOverlay("reload", "crashed", detail);
     }
   };
   // Catches raw wasm traps (RuntimeError: unreachable / index out of
@@ -284,7 +331,7 @@
         message
       );
     if (isTrap) {
-      crash(message || "WebAssembly runtime error");
+      crash(message);
     }
   });
   window.addEventListener("unhandledrejection", (event) => {
@@ -311,71 +358,49 @@
     ready,
     crash,
   };
+  // The rest of the language's lines, asked for at once (a small file):
+  // in long before a box is likely to show, which says them as they come.
+  if (BOOT.files[lang] && typeof window.fetch === "function") {
+    fetch(BOOT.files[lang])
+      .then((response) => (response.ok ? response.json() : {}))
+      .then((rest) => {
+        Object.assign(lines, rest);
+        applyState();
+      }, () => {});
+  }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", applyState, { once: true });
   } else {
     applyState();
   }
+  // What the browser lacks, its code the key of its line, and the hint's
+  // key.
+  const lacks = (code, hint) => ({ ok: false, code, hint });
   const checkCompatibility = () => {
     if (typeof WebAssembly !== "object") {
-      return {
-        ok: false,
-        code: "no-wasm",
-        message: "Your browser doesn't support WebAssembly.",
-        hint: "Try an up-to-date browser.",
-      };
+      return lacks("no-wasm", "update");
     }
     // The game is built with wasm SIMD (.cargo/config.toml): a v128 const.
     if (!WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]))) {
-      return {
-        ok: false,
-        code: "no-wasm-simd",
-        message: "Your browser doesn't support WebAssembly SIMD.",
-        hint: "Try an up-to-date browser (Safari 16.4 or later).",
-      };
+      return lacks("no-wasm-simd", "update-simd");
     }
     if (typeof window.fetch !== "function" || typeof Promise !== "function") {
-      return {
-        ok: false,
-        code: "no-fetch",
-        message: "Required web APIs are missing.",
-        hint: "Try an up-to-date browser.",
-      };
+      return lacks("no-fetch", "update");
     }
     if (typeof window.TextDecoder !== "function") {
-      return {
-        ok: false,
-        code: "no-textdecoder",
-        message: "TextDecoder is required for the game.",
-        hint: "Try an up-to-date browser.",
-      };
+      return lacks("no-textdecoder", "update");
     }
     if (typeof window.requestAnimationFrame !== "function") {
-      return {
-        ok: false,
-        code: "no-raf",
-        message: "requestAnimationFrame is required for rendering.",
-        hint: "Try an up-to-date browser.",
-      };
+      return lacks("no-raf", "update");
     }
     if (typeof window.PointerEvent !== "function") {
-      return {
-        ok: false,
-        code: "no-pointer",
-        message: "Pointer Events are required for input.",
-        hint: "Try a different browser or update it.",
-      };
+      return lacks("no-pointer", "update");
     }
     if (
       typeof window.AudioContext !== "function" &&
       typeof window.webkitAudioContext !== "function"
     ) {
-      return {
-        ok: false,
-        code: "no-audio",
-        message: "Web Audio is required — this game is played by sound.",
-        hint: "Try an up-to-date browser.",
-      };
+      return lacks("no-audio", "update");
     }
     return { ok: true };
   };
@@ -408,7 +433,7 @@
       onStart: () => {
         const compat = checkCompatibility();
         if (!compat.ok) {
-          fail(compat.code, compat.message, compat.hint);
+          fail(compat.code, compat.code, compat.hint);
           throw new Error(compat.code || "incompatible");
         }
         setProgress(0);
@@ -440,14 +465,10 @@
       onSuccess: () => {},
       onFailure: (error) => {
         const detail =
-          error && typeof error.message === "string"
+          error && typeof error.message === "string" && error.message
             ? error.message
-            : "Initialization failed.";
-        fail(
-          "init-failed",
-          "Something went wrong while starting the game.",
-          detail
-        );
+            : null;
+        fail("init-failed", "start-failed", "init-failed", detail);
       },
     };
   };

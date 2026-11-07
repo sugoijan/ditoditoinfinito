@@ -139,16 +139,16 @@ impl EditPage {
             listen,
         });
         let debug = crate::editor::debug(&host.listen);
-        let status = if std::mem::take(&mut self.recovered) {
-            "Unsaved changes recovered from the last time; leave without saving to drop them"
+        let status: String = if std::mem::take(&mut self.recovered) {
+            ddi_l10n::msg::editor::status_recovered().into()
         } else if crate::editor::fresh(&id) {
-            ddi_ui::state::editor::new_song::STATUS
+            ddi_l10n::msg::editor::status_new_song().into()
         } else {
-            ""
+            String::new()
         };
         let screen = EditorScreen::shared(theme.env().clone(), editor, crate::editor::place(&id))
             .with_host(host)
-            .with_status(status);
+            .with_status(&status);
         let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(screen);
         match ui_dev::start_ui(&el, ui, Some(theme), Some(debug)) {

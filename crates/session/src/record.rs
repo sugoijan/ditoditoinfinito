@@ -66,11 +66,11 @@ pub fn play_record(p: &Played, results: &Results, facts: &PlayFacts) -> Option<P
         visual_source: source(devices.and_then(|d| settings.display_profile(&d.display.id))),
         audio: devices.map(|d| Device {
             id: d.audio.id.clone(),
-            label: d.audio.label.clone(),
+            label: d.audio.label(),
         }),
         display: devices.map(|d| Device {
             id: d.display.id.clone(),
-            label: d.display.label.clone(),
+            label: d.display.label(),
         }),
         output_latency: facts.output_latency,
         sample_rate: facts.sample_rate,

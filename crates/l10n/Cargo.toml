@@ -1,0 +1,29 @@
+[package]
+name = "ddi-l10n"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the UI's languages (Fluent messages as typed functions)"
+build = "build.rs"
+
+[dependencies]
+fluent-bundle.workspace = true
+unic-langid.workspace = true
+
+[dev-dependencies]
+# What a message writes out, to check its variables (tests).
+fluent-syntax.workspace = true
+
+[build-dependencies]
+fluent-syntax.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[features]
+default = []
+# The languages' faces in the binary (`Face::bytes`): desktop's, which
+# draws text with bundled faces; the web fetches them instead.
+embed-faces = []

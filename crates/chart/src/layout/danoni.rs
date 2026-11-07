@@ -223,7 +223,7 @@ fn glyph_word(glyph: &Glyph) -> String {
             let step = (rotation_deg / 45.0).round() as i64;
             WORDS[step.rem_euclid(8) as usize].to_string()
         }
-        Glyph::Center => "Centre".into(),
+        Glyph::Center => "Center".into(),
         Glyph::Onigiri => "Onigiri".into(),
         Glyph::Giko => "Giko".into(),
         Glyph::Iyo => "Iyo".into(),

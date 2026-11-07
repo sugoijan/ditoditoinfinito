@@ -293,7 +293,7 @@ impl EditorHost for Host {
                     .unwrap_or_else(|| export::file_stem(&editor.song().title));
                 let Some(path) = crate::os::dialog(|| {
                     rfd::FileDialog::new()
-                        .add_filter("Simfile", &[ext])
+                        .add_filter(ddi_l10n::msg::shell::file_simfile().as_str(), &[ext])
                         .set_file_name(format!("{stem}.{ext}"))
                         .save_file()
                 }) else {
@@ -401,7 +401,7 @@ pub fn screen(
     // Unsaved changes from before (a crash, the window closed) come back.
     let recovered = autosaved(id);
     let status = recovered.as_ref().map_or(String::new(), |_| {
-        "Unsaved changes recovered from the last time; leave without saving to drop them".into()
+        ddi_l10n::msg::editor::status_recovered().into()
     });
     let editor = match recovered {
         Some(a) => Editor::recover(a),
@@ -422,28 +422,18 @@ pub fn open(
 ) -> EditorScreen {
     let target = target(id);
     let place = EditorPlace {
+        platform: ddi_ui::screens::data::Platform::Desktop,
         save: target.as_ref().map(|t| t.file.display().to_string()),
+        // The file replaced (its question says the old one is kept beside
+        // it as `<name>.old`).
         confirm: target
             .as_ref()
             .filter(|t| t.overwrites && fresh.is_none())
-            .map(|t| {
-                let name = t
-                    .file
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                format!(
-                    "{} is replaced; the file as it was is kept beside it as {name}.old (at the \
-                 first save each time the editor is opened).",
-                    t.file.display()
-                )
-            }),
-        export: Some("Save a copy".into()),
+            .map(|t| t.file.display().to_string()),
+        export: true,
         listen: true,
         playtest: true,
-        discard: fresh
-            .as_ref()
-            .map(|_| "The new song is not kept: its folder is removed.".into()),
+        new_song: fresh.is_some(),
     };
     let host = Host {
         songs: songs.clone(),

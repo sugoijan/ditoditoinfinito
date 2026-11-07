@@ -1,4 +1,5 @@
 //! Controller-editable numeric forms. The caller's validator remains authoritative.
+//! The chart editor's alone: their texts are its messages (`editor-number-*`).
 use std::rc::Rc;
 
 use ddi_actor::Actor;
@@ -8,10 +9,16 @@ use super::select_dialogs::{button, fitted_dialog, shell, wrap};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
+use ddi_l10n::UiText;
+use ddi_l10n::msg::editor as em;
+
+/// A number's label with its value, as its button shows it (a message:
+/// "Ratio: 1.5").
+pub type Label = fn(&str) -> UiText;
 
 #[derive(Clone)]
 pub struct Number {
-    pub label: &'static str,
+    pub label: Label,
     pub value: f64,
     pub step: f64,
     pub min: f64,
@@ -19,7 +26,7 @@ pub struct Number {
 }
 
 impl Number {
-    pub fn new(label: &'static str, value: f64, step: f64, min: f64, max: f64) -> Self {
+    pub fn new(label: Label, value: f64, step: f64, min: f64, max: f64) -> Self {
         Self {
             label,
             value,
@@ -48,18 +55,23 @@ pub struct Numbers {
 impl Numbers {
     pub fn scalar(value: f64, step: f64, min: f64, max: f64) -> Self {
         Self {
-            fields: vec![Number::new("Value", value, step, min, max)],
+            fields: vec![Number::new(|v| em::number_value(v), value, step, min, max)],
             format: Format::Scalar,
             choice: 0,
             remove: false,
         }
     }
 
-    fn choices(&self) -> &'static [&'static str] {
+    fn choices(&self) -> Vec<UiText> {
         match self.format {
-            Format::Speed => &["Beats", "Seconds"],
-            Format::DisplayBpm => &["Automatic", "Random", "Single BPM", "BPM range"],
-            _ => &[],
+            Format::Speed => vec![em::number_beats(), em::number_seconds()],
+            Format::DisplayBpm => vec![
+                em::number_automatic(),
+                em::number_random(),
+                em::number_single_bpm(),
+                em::number_bpm_range(),
+            ],
+            _ => Vec::new(),
         }
     }
 
@@ -157,7 +169,8 @@ impl Screen for NumberDialog {
         let h = 224.0 + n as f32 * 40.0;
         let (mut c, [x, y]) = shell(&self.env, screen, [w, h], &self.title);
         for (i, number) in self.numbers.fields.iter().enumerate() {
-            let label = format!("‹  {}: {}  ›", number.label, number.value);
+            // Its value between the arrows that change it.
+            let label = format!("‹  {}  ›", (number.label)(&number.value.to_string()));
             c.push(button(
                 &self.env,
                 &format!("Number{i}"),
@@ -167,11 +180,11 @@ impl Screen for NumberDialog {
                 "Button",
             ));
         }
-        if !self.numbers.choices().is_empty() {
+        if let Some(choice) = self.numbers.choices().get(self.numbers.choice) {
             c.push(button(
                 &self.env,
                 "Units",
-                self.numbers.choices()[self.numbers.choice],
+                choice,
                 [x + w / 2.0, y + 70.0 + (n - 1) as f32 * 40.0],
                 w - 48.0,
                 "Button",
@@ -277,23 +290,26 @@ impl Screen for NumberDialog {
 }
 
 impl NumberDialog {
-    fn actions(&self) -> Vec<(&'static str, &'static str)> {
+    fn actions(&self) -> Vec<(&'static str, UiText)> {
         let mut actions = vec![
             (
                 "Step",
                 if self.coarse {
-                    "Step: coarse ×10"
+                    em::number_step_coarse()
                 } else {
-                    "Step: fine"
+                    em::number_step_fine()
                 },
             ),
-            ("Type", "Type value…"),
-            ("Reset", "Reset changes"),
+            ("Type", em::number_type_value()),
+            ("Reset", em::number_reset()),
         ];
         if self.numbers.remove {
-            actions.push(("Remove", "Remove"));
+            actions.push(("Remove", em::number_remove()));
         }
-        actions.extend([("Ok", "Apply"), ("Cancel", "Back")]);
+        actions.extend([
+            ("Ok", em::number_apply()),
+            ("Cancel", ddi_l10n::msg::common::back()),
+        ]);
         actions
     }
 }

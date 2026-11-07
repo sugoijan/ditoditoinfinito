@@ -330,10 +330,11 @@ impl App {
             )),
             Route::NotFound(p) => {
                 let main = element(root, "main", "shell");
-                element(&main, "p", "").set_text_content(Some(&format!("no route `{p}`")));
+                element(&main, "p", "")
+                    .set_text_content(Some(&ddi_l10n::msg::shell::not_found(p.as_str())));
                 let a = element(&main, "a", "");
                 let _ = a.set_attribute("href", &Route::Home.to_hash());
-                a.set_text_content(Some("← home"));
+                a.set_text_content(Some(&ddi_l10n::msg::shell::home()));
                 Box::new(Plain(main))
             }
         }

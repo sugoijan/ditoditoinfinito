@@ -19,6 +19,8 @@ use std::rc::Rc;
 use crate::component::Callback;
 use ddi_library::image::{IMAGE_HEADER_LEN, image_size};
 use ddi_library::pack::{self, LOOSE_PACK, SongCandidate};
+pub(crate) use ddi_library::report::ImportReport;
+use ddi_library::report::{Finding, ImportFailure, ImportStep};
 use ddi_library::scan::{self, Movie, Naming};
 use ddi_library::zip::{self, Locate, Method, ZipEntry};
 use wasm_bindgen_futures::spawn_local;
@@ -29,65 +31,19 @@ use crate::web::files::{PickedFile, blob_bytes, bytes_blob};
 use crate::web::idb::{self, Db, Write};
 use crate::web::js_err;
 
-/// What an import did, for the panel under the pickers.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ImportReport {
-    /// Titles of the songs stored.
-    pub(crate) imported: Vec<String>,
-    /// (song folder or file, reason) for everything left out: simfiles
-    /// that could not be imported, folders with music but no simfile.
-    pub(crate) skipped: Vec<(String, String)>,
-    /// (song folder, problem) for songs imported with something missing.
-    pub(crate) warnings: Vec<(String, String)>,
-    /// (song folder, detail) for inconsistencies that make no difference
-    /// in play (a renamed file that a stand-in replaces, background videos):
-    /// shown to pack authors who ask for details.
-    pub(crate) notes: Vec<(String, String)>,
-    /// Images stored from shared background folders (`RandomMovies`,
-    /// `SongMovies`).
-    pub(crate) shared_images: usize,
-    /// Movies from shared background folders kept (copied or linked).
-    pub(crate) shared_videos: usize,
-    /// Other files in shared folders, left out (scripted animations and
-    /// anything that is neither an image nor a movie).
-    pub(crate) shared_skipped: usize,
-    /// Background-change movies of the imported songs that will play.
-    pub(crate) videos: usize,
-    /// Movies left out because songs were copied without "also store
-    /// background videos" (songs and shared folders).
-    pub(crate) videos_left_out: usize,
-    /// Songs removed because their folder is gone from a re-read folder.
-    pub(crate) removed: usize,
-    /// (noteskin, what of it draws) for the noteskins imported.
-    pub(crate) noteskins: Vec<(String, String)>,
-    /// (announcer, what it speaks) for the announcers imported.
-    pub(crate) announcers: Vec<(String, String)>,
-    /// Set when the import could not run at all.
-    pub(crate) error: Option<String>,
-}
-
-impl ImportReport {
-    pub(crate) fn failed(e: String) -> ImportReport {
-        ImportReport {
-            error: Some(e),
-            ..ImportReport::default()
-        }
-    }
-}
-
 /// Import state shared by every song list instance: an import keeps running
 /// when the list unmounts (the player opens a song meanwhile), and the next
 /// list must show its progress and result.
 #[derive(Default)]
 struct Shared {
-    /// Progress text while an import runs.
-    running: Option<String>,
+    /// What an import does now, while it runs.
+    running: Option<ImportStep>,
     report: Option<ImportReport>,
     /// Incremented when an import finishes (and when the stills it queued
     /// are taken).
     generation: u64,
     /// The opening stills' progress, taken after the import.
-    stills: Option<String>,
+    stills: Option<ImportStep>,
     watcher: Option<Callback<()>>,
 }
 
@@ -106,9 +62,9 @@ fn notify(update: impl FnOnce(&mut Shared)) {
     }
 }
 
-/// Progress text while an import runs, the last report, and the number of
-/// finished imports (to tell when the library needs reloading).
-pub(crate) fn status() -> (Option<String>, Option<ImportReport>, u64) {
+/// What an import does while it runs, the last report, and the number
+/// of finished imports (to tell when the library needs reloading).
+pub(crate) fn status() -> (Option<ImportStep>, Option<ImportReport>, u64) {
     SHARED.with(|s| {
         let s = s.borrow();
         (s.running.clone(), s.report.clone(), s.generation)
@@ -120,9 +76,10 @@ pub(crate) fn watch(watcher: Option<Callback<()>>) {
     SHARED.with(|s| s.borrow_mut().watcher = watcher);
 }
 
-/// Shows an error in the import panel without importing.
+/// Shows an error in the import panel without importing (the system's
+/// words).
 pub(crate) fn report_error(e: String) {
-    notify(|s| s.report = Some(ImportReport::failed(e)));
+    notify(|s| s.report = Some(ImportReport::failed(ImportFailure::System(e))));
 }
 
 /// Starts importing unless an import is already running.
@@ -155,11 +112,11 @@ fn start_with(files: Vec<PickedFile>, origin: Option<Origin>) -> bool {
         return false;
     }
     notify(|s| {
-        s.running = Some("reading files…".into());
+        s.running = Some(ImportStep::ReadingFiles);
         s.report = None;
     });
     spawn_local(async move {
-        let progress = Callback::from(|text: String| notify(|s| s.running = Some(text)));
+        let progress = Callback::from(|step: ImportStep| notify(|s| s.running = Some(step)));
         let report = run(files, progress, origin).await;
         notify(|s| {
             s.running = None;
@@ -263,12 +220,14 @@ pub(crate) async fn zip_entry_blob(archive: &File, name: &str) -> Result<Blob, S
         archive_path: archive.name(),
         entry,
     };
-    read_blob(&source, mime_type(name)).await
+    read_blob(&source, mime_type(name))
+        .await
+        .map_err(|f| ddi_ui::screens::import_report::finding_text(&f).into())
 }
 
 async fn run(
     files: Vec<PickedFile>,
-    progress: Callback<String>,
+    progress: Callback<ImportStep>,
     origin: Option<Origin>,
 ) -> ImportReport {
     let rescan = origin.as_ref().is_some_and(|o| o.rescan);
@@ -287,17 +246,19 @@ async fn run(
             sources.insert(f.path, Source::File(f.file));
             continue;
         }
-        progress.emit(format!("reading {}…", f.path));
+        progress.emit(ImportStep::ReadingZip {
+            path: f.path.clone(),
+        });
         // `Packs/Foo.zip` → `Packs/Foo/<entry>`: the zip acts as a folder.
         let root = zip::archive_stem(&f.path).unwrap_or(&f.path).to_string();
-        match zip_entries(&f.file).await {
+        match zip_directory(&f.file).await {
             Ok(entries) => {
                 for entry in entries.into_iter().filter(|e| !e.is_dir) {
                     let path = format!("{root}/{}", entry.name);
                     // Not read, as on desktop: said so, not listed (an
                     // earlier entry of the name stays).
                     if entry.encrypted {
-                        report.skipped.push((path, "encrypted; not read".into()));
+                        report.skipped.push((path, Finding::Encrypted));
                         continue;
                     }
                     sources.insert(
@@ -353,14 +314,14 @@ async fn run(
     {
         report_music_without_simfile(&mut report, &paths, &HashSet::new());
         if report.skipped.is_empty() {
-            report.error = Some(NOTHING_FOUND.into());
+            report.error = Some(ImportFailure::NothingFound);
         }
         return report;
     }
     let db = match Db::open().await {
         Ok(db) => db,
         Err(e) => {
-            report.error = Some(e);
+            report.error = Some(ImportFailure::System(e));
             return report;
         }
     };
@@ -396,10 +357,9 @@ async fn run(
         report.skipped.extend(failed);
     }
     if !images.is_empty() {
-        progress.emit(format!(
-            "storing {} shared background images…",
-            images.len()
-        ));
+        progress.emit(ImportStep::StoringSharedImages {
+            count: images.len(),
+        });
         let (stored, failed) = store_shared(&db, &images, &sources).await;
         report.shared_images = stored;
         report.skipped.extend(failed);
@@ -420,7 +380,11 @@ async fn run(
         } else {
             c.dir.to_string()
         };
-        progress.emit(format!("importing {}/{n}: {name}", i + 1));
+        progress.emit(ImportStep::ImportingSong {
+            index: i + 1,
+            total: n,
+            name: name.to_string(),
+        });
         if let Some(why) = seen.check(c) {
             report.skipped.push((label, why));
             continue;
@@ -484,7 +448,7 @@ async fn run(
             Ok(n) => report.removed = n,
             Err(e) => report
                 .skipped
-                .push(("removing songs gone from the folder".into(), e)),
+                .push((String::new(), Finding::RemovingGoneFailed { error: e })),
         }
     }
     // Once every song is written: shared records nothing refers to any more
@@ -492,7 +456,9 @@ async fn run(
     if (works.found || !report.imported.is_empty() || rescan)
         && let Err(e) = crate::songs::drop_unused_shared(&db).await
     {
-        report.skipped.push(("stored works and folders".into(), e));
+        report
+            .skipped
+            .push((String::new(), Finding::TidyingFailed { error: e }));
     }
     if candidates.is_empty()
         && shared_files.is_empty()
@@ -502,7 +468,7 @@ async fn run(
         && report.noteskins.is_empty()
         && report.announcers.is_empty()
     {
-        report.error = Some(NOTHING_FOUND.into());
+        report.error = Some(ImportFailure::NothingFound);
     }
     report
 }
@@ -531,24 +497,22 @@ fn take_stills() {
             done += 1;
             let left = STILLS.with(|q| q.borrow().len());
             notify(|s| {
-                s.stills = Some(format!(
-                    "taking pictures from the songs' videos… {done} of {}",
-                    done + left
-                ))
+                s.stills = Some(ImportStep::TakingStills {
+                    done,
+                    total: done + left,
+                })
             });
             let note = match crate::stills::fill(&id, &mut taker).await {
-                crate::stills::Filled::Failed { movie, reason } => Some(format!(
-                    "the background video {movie} could not be decoded for the song's picture ({reason}); its background image shows instead"
-                )),
-                crate::stills::Filled::Later(reason) => Some(format!(
-                    "the song's picture could not be taken from its background video now ({reason}); it is taken when the song is first played"
-                )),
+                crate::stills::Filled::Failed { movie, reason } => {
+                    Some(Finding::StillFailed { movie, reason })
+                }
+                crate::stills::Filled::Later(reason) => Some(Finding::StillLater { reason }),
                 _ => None,
             };
             if let Some(note) = note {
                 notify(|s| {
                     if let Some(r) = s.report.as_mut() {
-                        r.notes.push((label.clone(), note));
+                        r.notes.push((label.clone(), note.clone()));
                     }
                 });
             }
@@ -563,19 +527,8 @@ fn take_stills() {
 }
 
 /// The opening stills' progress while they are taken after an import.
-pub(crate) fn stills_status() -> Option<String> {
+pub(crate) fn stills_status() -> Option<ImportStep> {
     SHARED.with(|s| s.borrow().stills.clone())
-}
-
-const NOTHING_FOUND: &str = "No .sm, .ssc or .dwi files, Dancing☆Onigiri works, FFR levels, noteskins or announcers were found in what was picked.";
-
-/// "1 noteskin", "3 noteskins".
-fn plural_skins(n: usize) -> String {
-    if n == 1 {
-        "1 noteskin".into()
-    } else {
-        format!("{n} noteskins")
-    }
 }
 
 /// A file's size in the import (a zip entry's uncompressed).
@@ -595,7 +548,7 @@ async fn store_noteskins(
     sources: &HashMap<String, Source>,
     paths: &[String],
     report: &mut ImportReport,
-    progress: &Callback<String>,
+    progress: &Callback<ImportStep>,
 ) {
     use crate::noteskins::{
         MAX_FILES, MAX_SKINS, MAX_TEXT, MAX_TEXTS, StoredSkin, kept_file, store,
@@ -608,12 +561,15 @@ async fn store_noteskins(
         .map(|f| f.game.as_str())
         .collect();
     if !other.is_empty() {
-        let mut games: Vec<&str> = other.clone();
+        let mut games: Vec<String> = other.iter().map(|g| g.to_string()).collect();
         games.sort();
         games.dedup();
         report.skipped.push((
-            plural_skins(other.len()),
-            format!("for other games ({}), not dance or pump", games.join(", ")),
+            String::new(),
+            Finding::SkinsForOtherGames {
+                count: other.len(),
+                games,
+            },
         ));
     }
     // Dance and pump skins, and the shared `common` ones.
@@ -623,20 +579,24 @@ async fn store_noteskins(
         .collect();
     if kept.len() > MAX_SKINS {
         report.warnings.push((
-            plural_skins(kept.len()),
-            format!("only the first {MAX_SKINS} were imported"),
+            String::new(),
+            Finding::TooManySkins {
+                count: kept.len(),
+                kept: MAX_SKINS,
+            },
         ));
     }
     for found in kept.into_iter().take(MAX_SKINS) {
         let key = crate::noteskins::skin_key(&found.game, &found.name);
         if imported.iter().any(|s| s.key() == key) {
-            report.skipped.push((
-                found.dir.clone(),
-                "another noteskin of this import has the same name".into(),
-            ));
+            report
+                .skipped
+                .push((found.dir.clone(), Finding::SameSkinName));
             continue;
         }
-        progress.emit(format!("storing the noteskin {}…", found.name));
+        progress.emit(ImportStep::StoringSkin {
+            name: found.name.clone(),
+        });
         let prefix = format!("{}/", found.dir);
         let files: Vec<String> = paths
             .iter()
@@ -647,7 +607,10 @@ async fn store_noteskins(
         if kept > MAX_FILES {
             report.warnings.push((
                 found.dir.clone(),
-                format!("{kept} images and scripts; only the first {MAX_FILES} were kept"),
+                Finding::TooManySkinFiles {
+                    count: kept,
+                    kept: MAX_FILES,
+                },
             ));
         }
         let mut texts = Vec::new();
@@ -660,17 +623,17 @@ async fn store_noteskins(
             };
             let mut is_text = crate::noteskins::kept_text(f);
             if is_text && source_size(source) > MAX_TEXT {
-                report
-                    .warnings
-                    .push((found.dir.clone(), format!("{f} is too large; left out")));
+                report.warnings.push((
+                    found.dir.clone(),
+                    Finding::SkinFileTooLarge { file: f.clone() },
+                ));
             } else if is_text && text_bytes + source_size(source) > MAX_TEXTS {
                 if text_bytes <= MAX_TEXTS {
                     report.warnings.push((
                         found.dir.clone(),
-                        format!(
-                            "its texts pass {} MB; the rest were left out",
-                            MAX_TEXTS >> 20
-                        ),
+                        Finding::SkinTextsTooLarge {
+                            megabytes: MAX_TEXTS >> 20,
+                        },
                     ));
                 }
                 text_bytes = MAX_TEXTS + 1;
@@ -681,9 +644,7 @@ async fn store_noteskins(
                     Ok(bytes) => {
                         texts.push((f.clone(), String::from_utf8_lossy(&bytes).into_owned()))
                     }
-                    Err(e) => report
-                        .warnings
-                        .push((found.dir.clone(), format!("{f}: {e}"))),
+                    Err(e) => report.warnings.push((found.dir.clone(), file_failed(f, e))),
                 }
             }
             // The texts always; the rest up to the limit.
@@ -693,9 +654,7 @@ async fn store_noteskins(
                         blobs.push((f.clone(), blob));
                         stored.push(f.clone());
                     }
-                    Err(e) => report
-                        .warnings
-                        .push((found.dir.clone(), format!("{f}: {e}"))),
+                    Err(e) => report.warnings.push((found.dir.clone(), file_failed(f, e))),
                 }
             }
         }
@@ -717,9 +676,9 @@ async fn store_noteskins(
                     crate::noteskins::forget_stops(&skin.key());
                     imported.push(skin);
                 }
-                Err(e) => report.skipped.push((found.dir.clone(), e)),
+                Err(e) => report.skipped.push((found.dir.clone(), e.into())),
             },
-            Err(e) => report.skipped.push((found.dir.clone(), e)),
+            Err(e) => report.skipped.push((found.dir.clone(), e.into())),
         }
     }
     // What draws, with every skin in the library as fallbacks (older
@@ -740,7 +699,9 @@ async fn store_noteskins(
         .collect();
     for skin in imported {
         if skin.game != "common" {
-            progress.emit(format!("running the noteskin {}'s Lua…", skin.name));
+            progress.emit(ImportStep::RunningSkinLua {
+                name: skin.name.clone(),
+            });
         }
         let line = crate::noteskins::summary(&folders, &skin.game, &skin.name).await;
         report.noteskins.push((skin.name, line));
@@ -755,14 +716,16 @@ async fn store_announcers(
     found: &ddi_library::announcer::Found,
     sources: &HashMap<String, Source>,
     report: &mut ImportReport,
-    progress: &Callback<String>,
+    progress: &Callback<ImportStep>,
 ) {
     use ddi_library::announcer::MAX_ANNOUNCERS;
     if found.left_out > 0 {
-        let n = found.announcers.len() + found.left_out;
         report.warnings.push((
-            format!("{n} announcers"),
-            format!("only the first {MAX_ANNOUNCERS} were imported"),
+            String::new(),
+            Finding::TooManyAnnouncers {
+                count: found.announcers.len() + found.left_out,
+                kept: MAX_ANNOUNCERS,
+            },
         ));
     }
     let mut keys = HashSet::new();
@@ -774,20 +737,16 @@ async fn store_announcers(
         };
         let mut kept = a.kept();
         if kept.lines.is_empty() {
-            report.skipped.push((
-                label,
-                "an announcer with none of the lines the game speaks".into(),
-            ));
+            report.skipped.push((label, Finding::AnnouncerWithoutLines));
             continue;
         }
         if !keys.insert(kept.key()) {
-            report.skipped.push((
-                label,
-                "another announcer of this import has the same name".into(),
-            ));
+            report.skipped.push((label, Finding::SameAnnouncerName));
             continue;
         }
-        progress.emit(format!("storing the announcer {}…", a.name));
+        progress.emit(ImportStep::StoringAnnouncer {
+            name: a.name.clone(),
+        });
         let mut sounds = Vec::new();
         let mut bytes = 0;
         for files in kept.lines.values_mut() {
@@ -803,7 +762,7 @@ async fn store_announcers(
                         sounds.push((f.to_string(), blob));
                         stored.push(f);
                     }
-                    Err(e) => report.warnings.push((label.clone(), format!("{f}: {e}"))),
+                    Err(e) => report.warnings.push((label.clone(), file_failed(&f, e))),
                 }
             }
             *files = stored;
@@ -815,12 +774,12 @@ async fn store_announcers(
         let writes = match crate::announcers::store(&kept, sounds) {
             Ok(writes) => writes,
             Err(e) => {
-                report.skipped.push((label, e));
+                report.skipped.push((label, e.into()));
                 continue;
             }
         };
         if let Err(e) = db.write(writes).await {
-            report.skipped.push((label, e));
+            report.skipped.push((label, e.into()));
             continue;
         }
         report.announcers.push((a.name.clone(), said.summary));
@@ -850,10 +809,9 @@ fn report_music_without_simfile(
         }
         report.skipped.push((
             dir.to_string(),
-            format!(
-                "has music ({}) but no .sm, .ssc or .dwi simfile",
-                music.file_name()
-            ),
+            Finding::MusicWithoutSimfile {
+                music: music.file_name().to_string(),
+            },
         ));
     }
 }
@@ -879,8 +837,8 @@ struct Imported {
     /// The song may have an opening movie, whose still is taken once the
     /// songs are stored (`crate::stills`).
     still: bool,
-    warnings: Vec<String>,
-    notes: Vec<String>,
+    warnings: Vec<Finding>,
+    notes: Vec<Finding>,
     /// Background-change movies that will play.
     videos: usize,
     /// Movies left out (copied without "also store background videos").
@@ -890,7 +848,7 @@ struct Imported {
 /// Imports one song: the library's import core (`ddi_library::scan`, as
 /// desktop lists songs) on the files read here from `Blob`s, then its
 /// files copied into storage or linked in their kept folder.
-async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<Imported, String> {
+async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<Imported, Finding> {
     let Inputs {
         sources,
         paths,
@@ -1043,8 +1001,8 @@ async fn keep_shared_movies(
     sources: &HashMap<String, Source>,
     linked: Option<&Origin>,
     keep_videos: bool,
-    progress: &Callback<String>,
-) -> (usize, Vec<(String, String)>) {
+    progress: &Callback<ImportStep>,
+) -> (usize, Vec<(String, Finding)>) {
     let mut links = Vec::new();
     let mut copies = Vec::new();
     for movie in movies {
@@ -1074,14 +1032,13 @@ async fn keep_shared_movies(
         let n = links.len();
         match db.write(links).await {
             Ok(()) => kept += n,
-            Err(e) => failed.push(("shared background videos".into(), e)),
+            Err(e) => failed.push((String::new(), Finding::SharedVideosFailed { error: e })),
         }
     }
     if !copies.is_empty() {
-        progress.emit(format!(
-            "storing {} shared background videos…",
-            copies.len()
-        ));
+        progress.emit(ImportStep::StoringSharedVideos {
+            count: copies.len(),
+        });
         let (stored, more) = store_shared(db, &copies, sources).await;
         kept += stored;
         failed.extend(more);
@@ -1100,9 +1057,9 @@ async fn store_shared(
     db: &Db,
     images: &[&(String, String)],
     sources: &HashMap<String, Source>,
-) -> (usize, Vec<(String, String)>) {
+) -> (usize, Vec<(String, Finding)>) {
     let mut stored = 0;
-    let mut failed: Vec<(String, String)> = Vec::new();
+    let mut failed: Vec<(String, Finding)> = Vec::new();
     let mut batch: Vec<(String, Write)> = Vec::new();
     let mut batch_bytes = 0.0;
     for (i, (shared, path)) in images.iter().enumerate() {
@@ -1126,7 +1083,7 @@ async fn store_shared(
             let n = writes.len();
             match db.write(writes).await {
                 Ok(()) => stored += n,
-                Err(e) => failed.extend(paths.into_iter().map(|p| (p, e.clone()))),
+                Err(e) => failed.extend(paths.into_iter().map(|p| (p, e.clone().into()))),
             }
             batch_bytes = 0.0;
         }
@@ -1196,13 +1153,15 @@ async fn store_pack_art(
             }),
             Err(e) => report
                 .warnings
-                .push((path.to_string(), format!("pack banner: {e}"))),
+                .push((path.to_string(), Finding::PackBannerFailed(Box::new(e)))),
         }
     }
     if !writes.is_empty()
         && let Err(e) = db.write(writes).await
     {
-        report.warnings.push(("pack banners".into(), e));
+        report
+            .warnings
+            .push((String::new(), Finding::PackBannersFailed { error: e }));
     }
 }
 
@@ -1214,11 +1173,22 @@ fn is_image(path: &str) -> bool {
     })
 }
 
-fn source(sources: &HashMap<String, Source>, path: impl AsRef<str>) -> Result<&Source, String> {
+fn source(sources: &HashMap<String, Source>, path: impl AsRef<str>) -> Result<&Source, Finding> {
     let path = path.as_ref();
-    sources
-        .get(path)
-        .ok_or_else(|| format!("{path} is missing"))
+    sources.get(path).ok_or_else(|| Finding::FileMissing {
+        file: path.to_string(),
+    })
+}
+
+/// A file of the import that failed to read, and why.
+fn file_failed(file: impl AsRef<str>, e: Finding) -> Finding {
+    match e {
+        Finding::System(error) => Finding::FileFailed {
+            file: file.as_ref().to_string(),
+            error,
+        },
+        other => other,
+    }
 }
 
 fn is_zip(path: &str) -> bool {
@@ -1247,17 +1217,24 @@ async fn read_range(blob: &Blob, start: u64, end: u64) -> Result<Vec<u8>, String
 
 /// The entry list of a zip, from its tail and central directory.
 pub(crate) async fn zip_entries(file: &File) -> Result<Vec<ZipEntry>, String> {
+    zip_directory(file)
+        .await
+        .map_err(|f| ddi_ui::screens::import_report::finding_text(&f).into())
+}
+
+/// [`zip_entries`], why not as a value.
+async fn zip_directory(file: &File) -> Result<Vec<ZipEntry>, Finding> {
     let len = file.size() as u64;
     let tail = read_range(file, len - zip::tail_len(len), len).await?;
-    let cd = match zip::locate_central_directory(&tail, len).map_err(|e| e.to_string())? {
+    let cd = match zip::locate_central_directory(&tail, len)? {
         Locate::Found(cd) => cd,
         Locate::NeedZip64Record { offset, len } => {
             let record = read_range(file, offset, offset + len).await?;
-            zip::parse_zip64_end_record(&record).map_err(|e| e.to_string())?
+            zip::parse_zip64_end_record(&record)?
         }
     };
     let bytes = read_range(file, cd.offset, cd.offset + cd.size).await?;
-    let mut entries = zip::parse_central_directory(&bytes, &cd).map_err(|e| e.to_string())?;
+    let mut entries = zip::parse_central_directory(&bytes, &cd)?;
     // Legacy names may be UTF-8 or Shift-JIS rather than CP437, decided
     // for the whole archive.
     let legacy: Vec<(usize, Vec<u8>)> = entries
@@ -1286,23 +1263,23 @@ pub(crate) fn legacy_text(code_page: ddi_library::legacy::Legacy, bytes: &[u8]) 
 }
 
 /// Start of an entry's data, after its local header.
-async fn zip_data_start(archive: &File, entry: &ZipEntry) -> Result<u64, String> {
+async fn zip_data_start(archive: &File, entry: &ZipEntry) -> Result<u64, Finding> {
     let at = entry.local_header_offset;
     let header = read_range(archive, at, at + zip::LOCAL_HEADER_LEN).await?;
-    zip::local_data_offset(&header, entry).map_err(|e| e.to_string())
+    Ok(zip::local_data_offset(&header, entry)?)
 }
 
 /// The first `len` bytes of a file (all of it if shorter). Of a compressed
 /// zip entry only the start of the stream is decompressed (a movie is tens
 /// of megabytes), the whole entry when that was not enough.
-async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
+async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, Finding> {
     match source {
-        Source::File(f) => read_range(f, 0, len.min(f.size() as u64)).await,
+        Source::File(f) => Ok(read_range(f, 0, len.min(f.size() as u64)).await?),
         Source::Zip { archive, entry, .. }
             if entry.method == Method::Stored && !entry.encrypted =>
         {
             let start = zip_data_start(archive, entry).await?;
-            read_range(archive, start, start + len.min(entry.compressed_size)).await
+            Ok(read_range(archive, start, start + len.min(entry.compressed_size)).await?)
         }
         Source::Zip { archive, entry, .. }
             if !matches!(entry.method, Method::Stored | Method::Other(_)) && !entry.encrypted =>
@@ -1328,20 +1305,21 @@ async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
 
 /// `len` bytes of a file from `start`: for a file or a stored zip entry
 /// (a compressed one would have to be decompressed up to there).
-async fn read_at(source: &Source, start: u64, len: u64) -> Result<Vec<u8>, String> {
+async fn read_at(source: &Source, start: u64, len: u64) -> Result<Vec<u8>, Finding> {
     match source {
         Source::File(f) => {
             let size = f.size() as u64;
-            read_range(f, start.min(size), start.saturating_add(len).min(size)).await
+            Ok(read_range(f, start.min(size), start.saturating_add(len).min(size)).await?)
         }
         Source::Zip { archive, entry, .. }
             if entry.method == Method::Stored && !entry.encrypted =>
         {
             let data = zip_data_start(archive, entry).await?;
             let end = start.saturating_add(len).min(entry.compressed_size);
-            read_range(archive, data + start.min(end), data + end).await
+            Ok(read_range(archive, data + start.min(end), data + end).await?)
         }
-        Source::Zip { .. } => Err("a compressed zip entry".into()),
+        // Never asked of one (only the index of a movie read in place).
+        Source::Zip { .. } => Err(Finding::Other("a compressed zip entry".into())),
     }
 }
 
@@ -1363,13 +1341,13 @@ async fn sniff_movie(source: &Source) -> ddi_platform::video::VideoFormat {
     format
 }
 
-async fn read_bytes(source: &Source) -> Result<Vec<u8>, String> {
+async fn read_bytes(source: &Source) -> Result<Vec<u8>, Finding> {
     match source {
-        Source::File(f) => blob_bytes(f).await,
+        Source::File(f) => Ok(blob_bytes(f).await?),
         Source::Zip { archive, entry, .. } => {
             let start = zip_data_start(archive, entry).await?;
             let data = read_range(archive, start, start + entry.compressed_size).await?;
-            zip::extract(entry, &data).map_err(|e| e.to_string())
+            Ok(zip::extract(entry, &data)?)
         }
     }
 }
@@ -1409,7 +1387,7 @@ async fn write_song(
     files: Vec<(String, Blob)>,
     extra: Option<Write>,
     record: String,
-) -> Result<(), String> {
+) -> Result<(), Finding> {
     let mut writes = vec![Write::DeletePrefix {
         store: idb::FILES,
         prefix: file_key(id, ""),
@@ -1425,10 +1403,10 @@ async fn write_song(
         key: id.to_string(),
         value: record.into(),
     });
-    db.write(writes).await
+    Ok(db.write(writes).await?)
 }
 
-async fn read_blob(source: &Source, mime: &str) -> Result<Blob, String> {
+async fn read_blob(source: &Source, mime: &str) -> Result<Blob, Finding> {
     match source {
         Source::File(f) => Ok(f.clone().into()),
         Source::Zip { archive, entry, .. }
@@ -1439,13 +1417,15 @@ async fn read_blob(source: &Source, mime: &str) -> Result<Blob, String> {
             // `slice` clamps silently; a cut-off archive must not store a
             // cut-off song.
             if end > archive.size() as u64 {
-                return Err(format!("{} is cut off (truncated zip)", entry.name));
+                return Err(Finding::Truncated {
+                    file: entry.name.clone(),
+                });
             }
-            archive
+            Ok(archive
                 .slice_with_f64_and_f64_and_content_type(start as f64, end as f64, mime)
-                .map_err(|e| js_err("Blob.slice", e))
+                .map_err(|e| js_err("Blob.slice", e))?)
         }
-        Source::Zip { .. } => bytes_blob(&read_bytes(source).await?, mime),
+        Source::Zip { .. } => Ok(bytes_blob(&read_bytes(source).await?, mime)?),
     }
 }
 

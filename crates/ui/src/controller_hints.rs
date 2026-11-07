@@ -4,6 +4,7 @@
 //! input is dispatched here.
 use crate::keycaps::Keycap;
 use ddi_engine::{ConnectedPad, ControlBindings, MenuInput, PadUse};
+use ddi_l10n::UiText;
 use ddi_platform::{DeviceId, RawInput, gamepad::Control};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -127,8 +128,60 @@ pub fn detect(pad: &ConnectedPad) -> (Family, &'static str) {
 pub enum Glyph {
     Button(u16),
     Dpad(u8),
-    Raw(String),
+    /// A control of a pad without the standard mapping, by its kind,
+    /// number and direction (named in words, [`control_name`]).
+    Raw(Control),
+    /// A binding that is no control's, as stored.
+    Unknown(String),
 }
+
+/// A control by its kind, number and direction, in words ("button 3",
+/// "axis 1 −", "hat 0 up"): a raw pad's, whose legends the game knows
+/// not.
+pub fn control_name(control: &Control) -> UiText {
+    use ddi_l10n::msg::devices as d;
+    use ddi_platform::gamepad::HatDir;
+    match *control {
+        Control::Button(n) => d::button(n.to_string()),
+        Control::Axis { index, positive } => {
+            d::axis(index.to_string(), if positive { "plus" } else { "minus" })
+        }
+        Control::Hat { index, dir } => d::hat(
+            index.to_string(),
+            match dir {
+                HatDir::Up => "up",
+                HatDir::Right => "right",
+                HatDir::Down => "down",
+                HatDir::Left => "left",
+            },
+        ),
+    }
+}
+
+/// A pad's binding as stored (`button:3`), named by its kind and number
+/// ([`control_name`]); one that is no control's as it is stored (data).
+pub fn binding_name(control: &str) -> UiText {
+    control
+        .parse::<Control>()
+        .map_or_else(|_| UiText::data(control), |c| control_name(&c))
+}
+
+/// Controls' names as a list (a lane's), joined as the language joins
+/// one: the first and the rest, the rest joined so in turn. `None` for
+/// none.
+pub fn control_list(names: impl IntoIterator<Item = UiText>) -> Option<UiText> {
+    let names: Vec<UiText> = names.into_iter().collect();
+    names
+        .into_iter()
+        .rev()
+        .reduce(|rest, first| ddi_l10n::msg::devices::list(first, rest))
+}
+/// What a cap is named by: what the controller prints, or words.
+enum Naming {
+    Printed(String),
+    Words(UiText),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cap {
     pub family: Family,
@@ -146,8 +199,8 @@ impl Cap {
                 15 => Glyph::Dpad(8),
                 _ => Glyph::Button(n),
             },
-            Ok(c) => Glyph::Raw(c.label()),
-            Err(_) => Glyph::Raw(control.into()),
+            Ok(c) => Glyph::Raw(c),
+            Err(_) => Glyph::Unknown(control.into()),
         };
         Self {
             family,
@@ -155,15 +208,70 @@ impl Cap {
             side: None,
         }
     }
+
+    /// The control as the screens name it: its legend as the controller
+    /// prints it (`A`, `LB`, `Cross`, an arrow: data), else in words (a
+    /// generic pad's face buttons by their places, a raw control by its
+    /// number: messages).
+    pub fn name(&self) -> UiText {
+        match self.naming() {
+            Naming::Printed(s) => UiText::data(s),
+            Naming::Words(t) => t,
+        }
+    }
+
+    /// As [`Self::name`], plain: a cap's legend, or the text beside it.
     pub fn label(&self) -> String {
+        match self.naming() {
+            Naming::Printed(s) => s,
+            Naming::Words(t) => t.into(),
+        }
+    }
+
+    /// Whether the control is a standard pad's (a face, shoulder or
+    /// menu button, a D-pad direction), named after its cap; a raw one
+    /// is named by its number.
+    pub fn standard(&self) -> bool {
+        matches!(self.glyph, Glyph::Button(_) | Glyph::Dpad(_))
+    }
+
+    /// A raw button's number, which its round cap prints.
+    pub fn raw_button(&self) -> Option<u16> {
+        match self.glyph {
+            Glyph::Raw(Control::Button(n)) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// A raw control drawn as a dot with its name beside the cap (an
+    /// axis's or a hat's direction, a binding that is no control's).
+    pub fn named_beside(&self) -> bool {
+        matches!(&self.glyph, Glyph::Raw(_) | Glyph::Unknown(_)) && self.raw_button().is_none()
+    }
+
+    fn naming(&self) -> Naming {
         match &self.glyph {
-            Glyph::Raw(s) => s.clone(),
-            Glyph::Dpad(mask) => [(1, "↑"), (2, "↓"), (4, "←"), (8, "→")]
-                .into_iter()
-                .filter(|(bit, _)| mask & bit != 0)
-                .map(|(_, s)| s)
-                .collect(),
+            Glyph::Raw(c) => Naming::Words(control_name(c)),
+            Glyph::Unknown(s) => Naming::Printed(s.clone()),
+            Glyph::Dpad(mask) => Naming::Printed(
+                [(1, "↑"), (2, "↓"), (4, "←"), (8, "→")]
+                    .into_iter()
+                    .filter(|(bit, _)| mask & bit != 0)
+                    .map(|(_, s)| s)
+                    .collect(),
+            ),
             Glyph::Button(n) => {
+                use ddi_l10n::msg::devices as d;
+                // A generic pad's face buttons, by their places.
+                if self.family == Family::Generic {
+                    match n {
+                        0 => return Naming::Words(d::face_south()),
+                        1 => return Naming::Words(d::face_east()),
+                        2 => return Naming::Words(d::face_west()),
+                        3 => return Naming::Words(d::face_north()),
+                        _ => {}
+                    }
+                }
                 let labels = match self.family {
                     Family::Xbox => [
                         "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu", "LS", "RS",
@@ -175,15 +283,18 @@ impl Cap {
                     Family::Nintendo => [
                         "B", "A", "Y", "X", "L", "R", "ZL", "ZR", "−", "+", "LS", "RS",
                     ],
+                    // The face buttons (words) are named above.
                     Family::Generic => [
-                        "South", "East", "West", "North", "LB", "RB", "LT", "RT", "SELECT",
-                        "START", "LS", "RS",
+                        "", "", "", "", "LB", "RB", "LT", "RT", "SELECT", "START", "LS", "RS",
                     ],
                 };
                 if self.family == Family::DualSense && *n == 8 {
-                    "Create".into()
+                    Naming::Printed("Create".into())
                 } else {
-                    labels.get(*n as usize).copied().unwrap_or("button").into()
+                    match labels.get(*n as usize) {
+                        Some(label) => Naming::Printed(label.to_string()),
+                        None => Naming::Words(control_name(&Control::Button(*n))),
+                    }
                 }
             }
         }
@@ -370,18 +481,16 @@ impl Hints {
     }
 
     /// The controller's effective Start binding, which cover controls
-    /// actually use.
-    pub fn cover_instruction(&self) -> Option<String> {
+    /// actually use, as its button is named (Options' lane cover row
+    /// says how it moves the cover).
+    pub fn cover_start(&self) -> Option<UiText> {
         let p = self.pad()?;
         let b = self.controls.pad(&p.id, p.standard)?;
         let c = b.start.as_ref()?;
         if b.back.as_ref() == Some(c) {
             return None;
         }
-        let label = Cap::control(p, family(&self.styles, p), c).label();
-        Some(format!(
-            "In play, hold {label} and press an up- or down-arrow lane binding to move it; tap {label} to hide or show it."
-        ))
+        Some(Cap::control(p, family(&self.styles, p), c).name())
     }
 
     /// The upcoming play's actual assignment under `controls`, including
@@ -453,65 +562,57 @@ fn family(styles: &BTreeMap<String, Style>, p: &ConnectedPad) -> Family {
     presentation(p, styles.get(&p.id).copied().unwrap_or_default())
 }
 
+/// A hint the play shows, kept for the run: the play's view and the
+/// renderer's options hold it as `&'static str` (both `Copy`, the
+/// renderer's shared with SkinCraft), so each text is made once, in the
+/// language spoken, and kept; a few dozen at most (a standard pad's
+/// controls in each style, the restart's keys, a language or two).
+fn kept(text: ddi_l10n::UiText) -> &'static str {
+    thread_local! {
+        static KEPT: std::cell::RefCell<std::collections::HashSet<&'static str>> =
+            Default::default();
+    }
+    KEPT.with_borrow_mut(|kept| {
+        if let Some(s) = kept.get(text.as_str()) {
+            return *s;
+        }
+        let s: &'static str = Box::leak(String::from(text).into_boxed_str());
+        kept.insert(s);
+        s
+    })
+}
+
 /// Quit is shown after the actual cancel control was pressed (`raw`, among
-/// `pads` drawn in `styles`). Unknown/raw identities use a truthful
+/// `pads` drawn in `styles`), named as its cap is (a standard pad's
+/// control in its style). Unknown/raw identities use a truthful
 /// reference to that same control, never guessed Back.
 pub fn quit_hint(
     raw: &RawInput,
     pads: &[ConnectedPad],
     styles: &BTreeMap<String, Style>,
 ) -> &'static str {
-    let Some(p) = pads
+    use ddi_l10n::msg::prompt;
+    let named = pads
         .iter()
         .find(|p| p.index == raw.slot && raw.device == DeviceId::Gamepad(p.id.clone()))
-    else {
-        return "hold or double-tap this control to quit";
-    };
-    let cap = Cap::control(p, family(styles, p), &raw.control);
-    match cap.label().as_str() {
-        "A" => "hold or double-tap A to quit",
-        "B" => "hold or double-tap B to quit",
-        "X" => "hold or double-tap X to quit",
-        "Y" => "hold or double-tap Y to quit",
-        "LB" => "hold or double-tap LB to quit",
-        "RB" => "hold or double-tap RB to quit",
-        "LT" => "hold or double-tap LT to quit",
-        "RT" => "hold or double-tap RT to quit",
-        "View" => "hold or double-tap View to quit",
-        "Menu" => "hold or double-tap Menu to quit",
-        "LS" => "hold or double-tap LS to quit",
-        "RS" => "hold or double-tap RS to quit",
-        "Cross" => "hold or double-tap Cross to quit",
-        "Circle" => "hold or double-tap Circle to quit",
-        "Square" => "hold or double-tap Square to quit",
-        "Triangle" => "hold or double-tap Triangle to quit",
-        "L1" => "hold or double-tap L1 to quit",
-        "R1" => "hold or double-tap R1 to quit",
-        "L2" => "hold or double-tap L2 to quit",
-        "R2" => "hold or double-tap R2 to quit",
-        "Share" => "hold or double-tap Share to quit",
-        "Create" => "hold or double-tap Create to quit",
-        "Options" => "hold or double-tap Options to quit",
-        "L3" => "hold or double-tap L3 to quit",
-        "R3" => "hold or double-tap R3 to quit",
-        "L" => "hold or double-tap L to quit",
-        "R" => "hold or double-tap R to quit",
-        "ZL" => "hold or double-tap ZL to quit",
-        "ZR" => "hold or double-tap ZR to quit",
-        "−" => "hold or double-tap − to quit",
-        "+" => "hold or double-tap + to quit",
-        "South" => "hold or double-tap South to quit",
-        "East" => "hold or double-tap East to quit",
-        "West" => "hold or double-tap West to quit",
-        "North" => "hold or double-tap North to quit",
-        "SELECT" => "hold or double-tap SELECT to quit",
-        "START" => "hold or double-tap START to quit",
-        "↑" => "hold or double-tap ↑ to quit",
-        "↓" => "hold or double-tap ↓ to quit",
-        "←" => "hold or double-tap ← to quit",
-        "→" => "hold or double-tap → to quit",
-        _ => "hold or double-tap this control to quit",
-    }
+        .map(|p| Cap::control(p, family(styles, p), &raw.control))
+        .filter(Cap::standard)
+        .map(|cap| cap.name());
+    kept(match named {
+        Some(control) => prompt::play_quit(control),
+        None => prompt::play_quit_this(),
+    })
+}
+
+/// The hint after the touch screen's quit button was pressed.
+pub fn quit_button_hint() -> &'static str {
+    kept(ddi_l10n::msg::prompt::play_quit_button())
+}
+
+/// The restart's hint, after its key (`R`, `\`, as its cap prints it) was
+/// pressed.
+pub fn restart_hint(key: &str) -> &'static str {
+    kept(ddi_l10n::msg::prompt::play_restart(key))
 }
 
 #[cfg(test)]
@@ -551,6 +652,113 @@ mod tests {
             quit_hint(&raw("Other", "button:1"), &pads, &styles),
             "hold or double-tap this control to quit"
         );
+    }
+
+    #[test]
+    fn the_plays_hints_speak_the_language_and_are_made_once() {
+        let raw = RawInput {
+            device: DeviceId::Gamepad("Xbox Wireless Controller".into()),
+            slot: 0,
+            control: "button:1".into(),
+            pressed: true,
+            host_time: ddi_platform::HostTime(0.0),
+        };
+        let pads = [pad("Xbox Wireless Controller", true)];
+        let styles = BTreeMap::new();
+        ddi_l10n::set_language("en");
+        assert_eq!(quit_button_hint(), "hold or double-tap the quit button");
+        assert_eq!(restart_hint("\\"), "hold or double-tap \\ to restart");
+        let first = quit_hint(&raw, &pads, &styles);
+        assert!(std::ptr::eq(first, quit_hint(&raw, &pads, &styles)));
+        ddi_l10n::set_language("ja");
+        assert_eq!(
+            quit_hint(&raw, &pads, &styles),
+            "Bを長押しまたは2回押しで終了"
+        );
+        assert_eq!(restart_hint("R"), "Rを長押しまたは2回押しでリスタート");
+        // A generic pad's face button by its place, in the language; a
+        // raw pad's control unnamed.
+        let generic = [
+            pad("Wireless Controller", true),
+            ConnectedPad {
+                index: 1,
+                ..pad("Raw adapter", false)
+            },
+        ];
+        let press = |id: &str, slot: u32| RawInput {
+            device: DeviceId::Gamepad(id.into()),
+            slot,
+            ..raw.clone()
+        };
+        assert_eq!(
+            quit_hint(&press("Wireless Controller", 0), &generic, &styles),
+            "右ボタンを長押しまたは2回押しで終了"
+        );
+        assert_eq!(
+            quit_hint(&press("Raw adapter", 1), &generic, &styles),
+            "このボタンを長押しまたは2回押しで終了"
+        );
+        ddi_l10n::set_language("en");
+        assert_eq!(
+            quit_hint(&press("Wireless Controller", 0), &generic, &styles),
+            "hold or double-tap East to quit"
+        );
+    }
+
+    #[test]
+    fn controls_are_named_in_words_in_the_language() {
+        let raw = pad("Raw adapter", false);
+        let name = |control: &str| Cap::control(&raw, Family::Xbox, control).label();
+        let generic = |n: u16| {
+            Cap {
+                family: Family::Generic,
+                glyph: Glyph::Button(n),
+                side: None,
+            }
+            .label()
+        };
+        ddi_l10n::set_language("en");
+        assert_eq!(name("button:3"), "button 3");
+        assert_eq!(name("axis:1-"), "axis 1 −");
+        assert_eq!(name("axis:1+"), "axis 1 +");
+        assert_eq!(name("hat:0:up"), "hat 0 up");
+        assert_eq!(name("hat:0:left"), "hat 0 left");
+        // A binding that is no control's, as stored.
+        assert_eq!(name("pedal"), "pedal");
+        assert_eq!(binding_name("button:1000").as_str(), "button 1000");
+        assert_eq!(
+            (0..4).map(generic).collect::<Vec<_>>(),
+            ["South", "East", "West", "North"]
+        );
+        // What a generic pad prints, as it prints it.
+        assert_eq!(generic(8), "SELECT");
+        let list =
+            |names: &[&str]| control_list(names.iter().map(|c| binding_name(c))).map(String::from);
+        assert_eq!(list(&[]), None);
+        assert_eq!(list(&["button:1"]).as_deref(), Some("button 1"));
+        assert_eq!(
+            list(&["button:1", "axis:0+", "hat:2:down"]).as_deref(),
+            Some("button 1, axis 0 +, hat 2 down")
+        );
+        ddi_l10n::set_language("ja");
+        assert_eq!(name("button:3"), "ボタン3");
+        assert_eq!(name("axis:1-"), "軸1 −");
+        assert_eq!(name("hat:0:up"), "ハット0の上");
+        assert_eq!(generic(0), "下ボタン");
+        assert_eq!(
+            list(&["button:1", "axis:0+"]).as_deref(),
+            Some("ボタン1、軸0 +")
+        );
+        ddi_l10n::set_language("en");
+        // The round cap prints a raw button's number; another raw
+        // control is a dot with its name beside it.
+        let cap = |control: &str| Cap::control(&raw, Family::Xbox, control);
+        assert_eq!(cap("button:7").raw_button(), Some(7));
+        assert!(!cap("button:7").named_beside());
+        assert!(cap("axis:2-").named_beside() && cap("pedal").named_beside());
+        let standard = Cap::control(&pad("Xbox", true), Family::Xbox, "button:0");
+        assert!(standard.standard() && !standard.named_beside());
+        assert_eq!(standard.raw_button(), None);
     }
 
     #[test]

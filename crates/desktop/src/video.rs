@@ -55,8 +55,8 @@ use std::time::{Duration, Instant};
 
 pub use ddi_platform::video::Picture;
 use ddi_platform::video::{
-    PROBE_SECONDS, PROBE_SHARES, PlanePool, VideoBackend, VideoDecoder, VideoEvent, VideoFormat,
-    VideoFrame, VideoInfo, YuvMatrix,
+    PROBE_SECONDS, PROBE_SHARES, PlanePool, VideoBackend, VideoDecoder, VideoError, VideoEvent,
+    VideoFormat, VideoFrame, VideoInfo, YuvMatrix,
 };
 use ddi_video_protocol::{Reply, Request};
 
@@ -355,7 +355,7 @@ enum Event {
     Opened(VideoInfo),
     Frame(Frame),
     End { last_pts: Option<f64> },
-    Error(String),
+    Error(VideoError),
 }
 
 impl Event {
@@ -766,7 +766,7 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
     match next(&mut v, &mut events) {
         Some(VideoEvent::Opened(info)) => r.info = Some(info),
         Some(VideoEvent::Error(e)) => {
-            r.failures.push(e);
+            r.failures.push(e.to_string());
             r.status = Some(host.status());
             r.decoder = v.decoder_status();
             return r;
@@ -829,7 +829,7 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
                 }
                 Some(VideoEvent::End { .. }) => break 'decode,
                 Some(VideoEvent::Error(e)) => {
-                    r.failures.push(e);
+                    r.failures.push(e.to_string());
                     break 'decode;
                 }
                 Some(VideoEvent::Opened(_)) => {}
@@ -1176,7 +1176,7 @@ impl Machine {
                 },
             );
             if self.backend.strict() {
-                self.post(*id, None, Event::Error(why));
+                self.post(*id, None, Event::Error(why.into()));
                 return;
             }
         }
@@ -1211,17 +1211,15 @@ impl Machine {
 
     /// Starts the helper (its sandbox entered and checked, its `Hello`
     /// answered).
-    fn start(&mut self) -> Result<(), String> {
+    fn start(&mut self) -> Result<(), VideoError> {
         if self.running.is_some() {
             return Ok(());
         }
-        let path = self
-            .helper_path
-            .clone()
-            .ok_or_else(|| NOT_INCLUDED.to_string())?;
+        let path = self.helper_path.clone().ok_or(VideoError::NotIncluded)?;
         self.shared().status = HelperStatus::Loading;
         let start = Instant::now();
-        let helper = helper::Helper::spawn(&path, self.deadline, self.threads)?;
+        let helper = helper::Helper::spawn(&path, self.deadline, self.threads)
+            .map_err(VideoError::NotLoaded)?;
         let ready = HelperStatus::Ready {
             start_ms: start.elapsed().as_secs_f64() * 1e3,
             decoder: helper.info.decoder.clone(),
@@ -1259,7 +1257,7 @@ impl Machine {
                 true
             }
             Err(e) => {
-                self.shared().status = HelperStatus::Failed(e.clone());
+                self.shared().status = HelperStatus::Failed(e.to_string());
                 if let Some(id) = id {
                     self.post(id, None, Event::Error(e));
                 }
@@ -1276,12 +1274,12 @@ impl Machine {
         eprintln!("[video] {message}");
         let open: Vec<u32> = self.videos.keys().copied().collect();
         for v in &open {
-            self.post(*v, None, Event::Error(message.clone()));
+            self.post(*v, None, Event::Error(VideoError::Crashed(cause.into())));
         }
         if let Some(id) = id
             && !open.contains(&id)
         {
-            self.post(id, None, Event::Error(message.clone()));
+            self.post(id, None, Event::Error(VideoError::Crashed(cause.into())));
             if let Some(probe) = self.shared().probes.get_mut(&id) {
                 probe.get_or_insert_with(|| Err(message.clone()));
             }
@@ -1348,13 +1346,8 @@ impl Machine {
             ..
         }) = self.open_file(id, &path, name)?
         else {
-            self.post(
-                id,
-                None,
-                Event::Error(format!(
-                    "cannot open {name} (not a movie the decoder knows)"
-                )),
-            );
+            eprintln!("[video] cannot open {name} (not a movie the decoder knows)");
+            self.post(id, None, Event::Error(VideoError::UnknownFormat));
             return Ok(());
         };
         self.videos.insert(
@@ -1414,13 +1407,7 @@ impl Machine {
                     let video = self.videos.get_mut(&id).expect("video");
                     video.bad += 1;
                     if video.bad > MAX_BAD_FRAMES {
-                        self.post(
-                            id,
-                            None,
-                            Event::Error(format!(
-                                "the movie does not decode ({MAX_BAD_FRAMES} broken frames in a row)"
-                            )),
-                        );
+                        self.post(id, None, Event::Error(VideoError::Broken(MAX_BAD_FRAMES)));
                         self.close(id)?;
                         return Ok(());
                     }
@@ -1508,11 +1495,7 @@ impl Machine {
             other => return Err(unexpected(other)),
         };
         if !ok {
-            self.post(
-                id,
-                None,
-                Event::Error("the movie could not be read again after seeking".into()),
-            );
+            self.post(id, None, Event::Error(VideoError::Unseekable));
             self.close(id)?;
         }
         Ok(())

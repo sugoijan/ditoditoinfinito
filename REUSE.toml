@@ -211,6 +211,11 @@ path = ["assets/fonts/IosevkaCustom-*.ttf", "assets/fonts/IosevkaTerm-*.ttf"]
 SPDX-FileCopyrightText = "2015-2026 Renzhi Li (aka. Belleve Invis) <belleve@typeof.net>"
 SPDX-License-Identifier = "OFL-1.1"
 
+[[annotations]]
+path = ["assets/fonts/NotoSansCJKjp-*-ja.otf"]
+SPDX-FileCopyrightText = "2014-2021 Adobe (http://www.adobe.com/)"
+SPDX-License-Identifier = "OFL-1.1"
+
 # --- Bundled demo songs (OutFox Serenity, pinned commit in each PROVENANCE.toml) ---
 
 [[annotations]]

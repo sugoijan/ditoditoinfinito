@@ -18,6 +18,72 @@ pub fn difficulty_name(d: Difficulty) -> &'static str {
     d.name()
 }
 
+/// A style's name as the screens show it (`common-style-*`): a layout of
+/// ours by its message, a Dancing☆Onigiri mode by its keys, a generic
+/// layout by its lanes, any other by its own name (`own`, data).
+pub fn style_name(id: &str, own: &str) -> ddi_l10n::UiText {
+    use ddi_l10n::msg::common as m;
+    match id {
+        "dance-single" => m::style_dance_single(),
+        "dance-solo" => m::style_dance_solo(),
+        "dance-double" => m::style_dance_double(),
+        "techno-single8" => m::style_techno_single8(),
+        "pump-single" => m::style_pump_single(),
+        "pump-halfdouble" => m::style_pump_halfdouble(),
+        "pump-double" => m::style_pump_double(),
+        _ => {
+            if let Some(mode) = id.strip_prefix("danoni-") {
+                m::style_danoni(mode)
+            } else if let Some(n) = id
+                .strip_prefix("generic-")
+                .and_then(|n| n.parse::<u32>().ok())
+            {
+                m::style_lanes(n)
+            } else {
+                ddi_l10n::UiText::data(own)
+            }
+        }
+    }
+}
+
+/// Lane `i` of `layout`'s name as the screens show it (`common-lane-*`):
+/// its arrow's direction or its panel; a Dancing☆Onigiri lane's place
+/// before it ("2 · Down-left"); a glyph of a work's own by its name (data).
+pub fn lane_name(layout: &ddi_chart::Layout, i: usize) -> ddi_l10n::UiText {
+    use ddi_chart::Glyph;
+    use ddi_l10n::msg::common as m;
+    let Some(lane) = layout.lanes.get(i) else {
+        return ddi_l10n::UiText::data("");
+    };
+    let name = match &lane.glyph {
+        Glyph::Arrow { rotation_deg } => {
+            match ((rotation_deg / 45.0).round() as i64).rem_euclid(8) {
+                0 => m::lane_left(),
+                1 => m::lane_up_left(),
+                2 => m::lane_up(),
+                3 => m::lane_up_right(),
+                4 => m::lane_right(),
+                5 => m::lane_down_right(),
+                6 => m::lane_down(),
+                _ => m::lane_down_left(),
+            }
+        }
+        Glyph::Center => m::lane_center(),
+        Glyph::Onigiri => m::lane_onigiri(),
+        Glyph::Giko => m::lane_giko(),
+        Glyph::Iyo => m::lane_iyo(),
+        Glyph::Custom(name) => ddi_l10n::UiText::data(name),
+    };
+    if layout.id.starts_with("danoni-") {
+        // Its place and its name, a label rather than a sentence.
+        ddi_l10n::UiText::data(format!("{} · {name}", i + 1))
+    } else if layout.pads() > 1 {
+        m::lane_on_pad(&*name, u32::from(lane.pad) + 1)
+    } else {
+        name
+    }
+}
+
 /// A style (a chart layout: `dance-single`, shown as "Single").
 #[derive(Clone, Debug, PartialEq)]
 pub struct StyleDef {
@@ -182,6 +248,17 @@ pub enum Platform {
     Desktop,
 }
 
+impl Platform {
+    /// Its name as messages select on it (`$platform`: `web`, `desktop`;
+    /// `docs/plans/localization.md`, "Message files").
+    pub fn l10n(self) -> &'static str {
+        match self {
+            Platform::Web => "web",
+            Platform::Desktop => "desktop",
+        }
+    }
+}
+
 /// The import dialog's state: the options, what runs, the last report.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImportView {
@@ -202,10 +279,37 @@ pub struct ImportView {
     pub danoni_cancel: bool,
     /// Parameters and progress for a desktop URL import.
     pub danoni: DanoniImportView,
-    /// What runs now ("reading 120 files…").
-    pub running: Option<String>,
+    /// What runs now ("reading files…").
+    pub running: Option<ImportRunning>,
     /// The last import's report.
     pub report: Option<ImportReportView>,
+}
+
+/// What an import runs now, as the import dialog's status line says it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportRunning {
+    /// An import of files at this step, worded by
+    /// [`super::import_report`].
+    Files(ddi_library::report::ImportStep),
+    /// Worded by its importer (desktop's URL import), in messages of
+    /// its own.
+    Worded(String),
+}
+
+impl From<ddi_library::report::ImportStep> for ImportRunning {
+    fn from(step: ddi_library::report::ImportStep) -> ImportRunning {
+        ImportRunning::Files(step)
+    }
+}
+
+impl ImportRunning {
+    /// The status line.
+    pub fn text(&self) -> String {
+        match self {
+            ImportRunning::Files(step) => super::import_report::step_text(step).into(),
+            ImportRunning::Worded(text) => text.clone(),
+        }
+    }
 }
 
 /// The parameters and live state of a desktop DanOni URL import.
@@ -215,7 +319,8 @@ pub struct DanoniImportView {
     pub url: String,
     /// Use files already cached, without network access.
     pub offline: bool,
-    /// A short stage such as “Downloading music”.
+    /// The step under way, as the shell says it in the language now
+    /// (“Converting music…”).
     pub stage: Option<String>,
     /// Completed and total items in the current stage, when known.
     pub progress: Option<(u64, u64)>,
@@ -227,20 +332,64 @@ pub struct DanoniImportView {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DanoniOriginRequest {
     pub request_id: u64,
+    /// The address asked for (data).
     pub origin: String,
-    /// Why these files are needed, in user-facing terms.
-    pub purpose: String,
 }
 
-/// An import's report, as the dialog shows it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ImportReportView {
-    /// "Imported 12 songs; 2 warnings."
-    pub summary: String,
+/// An import's report, as the dialog shows it: a summary line ("3 songs
+/// imported · 2 warnings"), whether nothing was imported, and titled
+/// lists ("Not imported", …), each line "what: why".
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportReportView {
+    /// An import of files: what it found, worded by
+    /// [`super::import_report`]; the details for pack authors when asked
+    /// for.
+    Files {
+        report: ddi_library::report::ImportReport,
+        details: bool,
+    },
+    /// Worded by its importer (desktop's URL import), in messages of
+    /// its own.
+    Worded {
+        summary: String,
+        error: bool,
+        sections: Vec<(String, Vec<String>)>,
+    },
+}
+
+impl ImportReportView {
+    /// The summary line (a line of tags, or why nothing was imported).
+    pub fn summary(&self) -> String {
+        match self {
+            ImportReportView::Files { report, details } => {
+                super::import_report::summary(report, *details)
+            }
+            ImportReportView::Worded { summary, .. } => summary.clone(),
+        }
+    }
+
     /// Nothing was imported.
-    pub error: bool,
-    /// Titled lists ("Not imported", …), each line "what: why".
-    pub sections: Vec<(String, Vec<String>)>,
+    pub fn error(&self) -> bool {
+        match self {
+            ImportReportView::Files { report, .. } => super::import_report::failed(report),
+            ImportReportView::Worded { error, .. } => *error,
+        }
+    }
+
+    /// The titled lists, each line whole.
+    pub fn sections(&self) -> Vec<(String, Vec<String>)> {
+        match self {
+            ImportReportView::Files { report, details } => {
+                super::import_report::sections(report, *details)
+                    .into_iter()
+                    .map(|(title, lines)| {
+                        (title.into(), lines.into_iter().map(String::from).collect())
+                    })
+                    .collect()
+            }
+            ImportReportView::Worded { sections, .. } => sections.clone(),
+        }
+    }
 }
 
 /// A song as song select shows it.
@@ -388,8 +537,8 @@ pub struct ShareView {
     pub bytes: f64,
     /// The link, once the share is readable.
     pub link: String,
-    /// Why it failed.
-    pub error: String,
+    /// Why it failed (worded by the dialog, in the player's language).
+    pub error: Option<ddi_library::share::ShareError>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -411,7 +560,8 @@ pub struct SharesView {
     pub admin: bool,
     /// Each share with the link to it.
     pub shares: Vec<ShareRow>,
-    pub error: String,
+    /// Why they could not be read.
+    pub error: Option<ddi_library::share::ShareError>,
 }
 
 impl SharesView {
@@ -431,7 +581,7 @@ impl SharesView {
                     summary,
                 })
                 .collect(),
-            error: String::new(),
+            error: None,
         }
     }
 }
@@ -496,18 +646,19 @@ pub struct BeatGroup {
 }
 
 /// A place in the beat as the results name it ("4th", "32nd").
-pub fn beat_name(q: Quantization) -> &'static str {
-    match q {
-        Quantization::N4 => "4th",
-        Quantization::N8 => "8th",
-        Quantization::N12 => "12th",
-        Quantization::N16 => "16th",
-        Quantization::N24 => "24th",
-        Quantization::N32 => "32nd",
-        Quantization::N48 => "48th",
-        Quantization::N64 => "64th",
-        Quantization::N192 => "192nd",
-    }
+pub fn beat_name(q: Quantization) -> String {
+    let n: u32 = match q {
+        Quantization::N4 => 4,
+        Quantization::N8 => 8,
+        Quantization::N12 => 12,
+        Quantization::N16 => 16,
+        Quantization::N24 => 24,
+        Quantization::N32 => 32,
+        Quantization::N48 => 48,
+        Quantization::N64 => 64,
+        Quantization::N192 => 192,
+    };
+    ddi_l10n::msg::results::beat(n).into()
 }
 
 /// The places in the beat in rhythmic order.
@@ -691,7 +842,7 @@ impl ResultsData {
                 sd,
             }
         };
-        let mut out: Vec<BeatGroup> = kept.iter().map(|&q| group(beat_name(q), &[q])).collect();
+        let mut out: Vec<BeatGroup> = kept.iter().map(|&q| group(&beat_name(q), &[q])).collect();
         let rest: Vec<Quantization> = counts
             .iter()
             .map(|c| c.0)
@@ -699,8 +850,8 @@ impl ResultsData {
             .collect();
         match rest.as_slice() {
             [] => {}
-            [one] => out.push(group(beat_name(*one), &[*one])),
-            _ => out.push(group("Other", &rest)),
+            [one] => out.push(group(&beat_name(*one), &[*one])),
+            _ => out.push(group(&ddi_l10n::msg::results::beat_other(), &rest)),
         }
         out
     }
@@ -784,6 +935,9 @@ impl OptionDef {
 /// A section of options.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OptionSection {
+    /// What the shell and the tests know it by, whatever the language
+    /// (its English name: `Display`).
+    pub id: String,
     pub name: String,
     pub options: Vec<OptionDef>,
 }

@@ -51,6 +51,10 @@ pub trait RunRasterizer {
     fn fonts_version(&self) -> u64 {
         0
     }
+    /// The UI's language is `tag` (BCP 47): the system's faces chosen for
+    /// its script (unified Han characters in its forms) and, on the web,
+    /// its faces loaded. The painter draws every run again after.
+    fn set_language(&mut self, _tag: &str) {}
 }
 
 /// What the cache asks of whoever draws runs and keeps the pages.
@@ -82,6 +86,24 @@ impl RunKey {
             style: style.clone(),
             scale_64: scale_64(scale),
         }
+    }
+}
+
+/// The style `text` is set in: its letters spaced only in scripts with
+/// capitals (`TextStyle::for_text`), its stack's language faces only where
+/// they have every wide character it writes (`ddi_l10n::stack_for`).
+pub fn set_in<'a>(style: &'a TextStyle, text: &str) -> std::borrow::Cow<'a, TextStyle> {
+    let style = style.for_text(text);
+    let family = match ddi_l10n::stack_for(&style.family, text) {
+        std::borrow::Cow::Owned(f) => Some(f),
+        std::borrow::Cow::Borrowed(_) => None,
+    };
+    match family {
+        Some(family) => std::borrow::Cow::Owned(TextStyle {
+            family: family.into(),
+            ..style.into_owned()
+        }),
+        None => style,
     }
 }
 
@@ -207,6 +229,7 @@ impl RunCache {
         scale: f32,
         measure: &mut dyn FnMut(&str, &TextStyle, f32) -> RunMetrics,
     ) -> RunMetrics {
+        let style = &*set_in(style, text);
         let key = RunKey::new(text, style, scale);
         if let Some(run) = self.runs.get(&key) {
             return run.placed.metrics;
@@ -232,6 +255,7 @@ impl RunCache {
         sink: &mut dyn PageSink,
     ) -> Option<Placed> {
         let frame = self.frame;
+        let style = &*set_in(style, text);
         let key = RunKey::new(text, style, scale);
         if let Some(run) = self.runs.get_mut(&key) {
             run.last_used = frame;
@@ -496,6 +520,22 @@ mod tests {
 
     fn s(t: &str) -> Arc<str> {
         t.into()
+    }
+
+    #[test]
+    fn a_run_is_set_in_the_faces_that_have_it() {
+        let style = TextStyle {
+            tracking: 80,
+            ..TextStyle::new("Iosevka Term, Noto Sans CJK JP, sans-serif", 12.0)
+        };
+        assert_eq!(*set_in(&style, "OPTIONS"), style);
+        let ja = set_in(&style, "言語");
+        assert_eq!(
+            (&*ja.family, ja.tracking),
+            ("Iosevka Term, Noto Sans CJK JP, sans-serif", 0)
+        );
+        let title = set_in(&style, "鬱");
+        assert_eq!(&*title.family, "Iosevka Term, sans-serif");
     }
 
     #[test]

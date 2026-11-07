@@ -7,7 +7,9 @@ name: Desktop release
 # a draft release for the maintainer to publish. Run by hand from any
 # branch, it builds and keeps the archives as the run's artifacts only.
 # docs/plans/packaging.md has the layouts and what is left (notarization,
-# Intel Macs, Windows' video helper).
+# Intel Macs, Windows' video helper). A release needs every language of
+# the UI complete (`xtask l10n check`); its notes list each one's review
+# states (docs/plans/localization.md).
 on:
   push:
     tags: ['v*']
@@ -100,6 +102,17 @@ jobs:
           cargo run --locked -p xtask -- gen-songs
           cargo run --locked -p xtask -- gen-noteskins
           cargo run --locked -p xtask -- gen-credits
+      # Fails on a language missing a message (none ships incomplete);
+      # each language's review states go in the release's notes.
+      - name: The UI's languages, complete
+        if: runner.os == 'Linux'
+        run: cargo run --locked -p xtask -- l10n notes > "$RUNNER_TEMP/languages.md"
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/languages.md
+          if-no-files-found: error
       - name: Build the game (desktop profile, default features)
         run: cargo build --locked -p ddi --profile desktop
       - name: Package and check it
@@ -123,6 +136,10 @@ jobs:
           pattern: desktop-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes
       - name: Attach the archives to a draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -131,6 +148,6 @@ jobs:
           cd dist
           sha256sum -- * > SHA256SUMS.txt
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "Dito Dito Infinito ${GITHUB_REF_NAME#v}"
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --notes-file ../notes/languages.md --title "Dito Dito Infinito ${GITHUB_REF_NAME#v}"
           fi
           gh release upload --clobber "$GITHUB_REF_NAME" ./*

@@ -131,6 +131,17 @@ pub trait Look {
         false
     }
 
+    /// Moves parts whose place depends on text measured just now (a
+    /// value wider than the room its design gives it), each frame after
+    /// the screen's text is measured and before it is drawn. A run whose
+    /// room it changes it measures again with `measure`.
+    fn place_measured(
+        &self,
+        _root: &mut Actor,
+        _measure: &mut dyn ddi_actor::text::TextMeasure,
+    ) {
+    }
+
     /// Update a single active-element decoration. `None` clears it on a
     /// covered layer. Return true when the current decoration wants frames.
     fn active_element(&self, _root: &mut Actor, _target: Option<&str>, _seconds: f64) -> bool {

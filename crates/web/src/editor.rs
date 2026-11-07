@@ -153,16 +153,15 @@ pub(crate) fn place(id: &str) -> EditorPlace {
     let imported = crate::songs::is_imported_id(id);
     let fresh = fresh(id);
     EditorPlace {
+        platform: ddi_ui::screens::data::Platform::Web,
         save: imported.then(|| "this browser's copy of the song".into()),
-        confirm: (imported && !fresh).then(|| {
-            "The song stored in this browser is replaced (the files it was imported from are \
-             not changed)."
-                .into()
-        }),
-        export: Some("Download".into()),
+        // The song stored in this browser is replaced (its question says
+        // so): no file.
+        confirm: (imported && !fresh).then(String::new),
+        export: true,
         listen: true,
         playtest: true,
-        discard: fresh.then(|| "The new song is not kept.".into()),
+        new_song: fresh,
     }
 }
 

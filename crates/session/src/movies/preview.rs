@@ -422,7 +422,7 @@ mod tests {
     impl MovieShell for Shell {
         type Decoder = Decoder;
 
-        fn open(&mut self, name: &str) -> Option<Result<Decoder, String>> {
+        fn open(&mut self, name: &str) -> Option<Result<Decoder, ddi_platform::video::VideoError>> {
             self.opened.push(name.to_string());
             Some(Ok(Decoder {
                 next: 0.0,

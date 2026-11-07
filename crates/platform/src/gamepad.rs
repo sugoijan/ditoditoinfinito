@@ -84,7 +84,8 @@ impl HatDir {
     }
 }
 
-/// A digital control on a gamepad.
+/// A digital control on a gamepad: its kind, number and direction (the
+/// screens name it in the player's language, `ddi_ui::controller_hints`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Control {
     Button(u16),
@@ -112,17 +113,6 @@ impl Control {
                 a == b && da.opposite() == *db
             }
             _ => false,
-        }
-    }
-
-    /// Short human-readable name, e.g. "button 3", "axis 1 −", "hat 9 up".
-    pub fn label(&self) -> String {
-        match self {
-            Control::Button(n) => format!("button {n}"),
-            Control::Axis { index, positive } => {
-                format!("axis {index} {}", if *positive { "+" } else { "−" })
-            }
-            Control::Hat { index, dir } => format!("hat {index} {}", dir.name()),
         }
     }
 }

@@ -343,7 +343,118 @@ pub enum VideoEvent {
         last_pts: Option<f64>,
     },
     /// The movie cannot be played (no decoder, unreadable file, crash).
-    Error(String),
+    Error(VideoError),
+}
+
+/// Why a movie cannot play (`docs/plans/localization.md`, step 4): a
+/// value the screens word (`ddi_ui::screens::failures::video_text`), the
+/// decoder's or the system's own words kept as they came. `Display` is
+/// English, for the logs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VideoError {
+    /// This build has no video decoder (desktop's helper or the web's
+    /// module was left out).
+    NotIncluded,
+    /// The decoder could not be loaded or started: what the system said.
+    NotLoaded(String),
+    /// The decoder crashed or stopped: what was known of it.
+    Crashed(String),
+    /// The file is not a movie the decoder knows.
+    UnknownFormat,
+    /// The movie does not decode: this many broken frames in a row.
+    Broken(u32),
+    /// The movie could not be read again after seeking.
+    Unseekable,
+    /// Its frames are larger than the GPU's textures.
+    TooLarge { width: u32, height: u32, limit: u32 },
+    /// A frame came that the game cannot draw (malformed, or of another
+    /// kind than the movie's).
+    BadFrame,
+    /// The movie's file could not be read: what the system said.
+    File(String),
+    /// What the decoder said, in its own words (FFmpeg's, the browser's,
+    /// the system's decoder's).
+    Decoder(String),
+}
+
+impl std::fmt::Display for VideoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VideoError::NotIncluded => {
+                f.write_str("the video decoder is not included in this build")
+            }
+            VideoError::NotLoaded(e) => write!(f, "the video decoder could not be loaded: {e}"),
+            VideoError::Crashed(e) => write!(f, "the video decoder crashed: {e}"),
+            VideoError::UnknownFormat => f.write_str("not a movie the decoder knows"),
+            VideoError::Broken(n) => {
+                write!(f, "the movie does not decode ({n} broken frames in a row)")
+            }
+            VideoError::Unseekable => {
+                f.write_str("the movie could not be read again after seeking")
+            }
+            VideoError::TooLarge {
+                width,
+                height,
+                limit,
+            } => write!(f, "{width}×{height} exceeds the GPU's {limit} px limit"),
+            VideoError::BadFrame => f.write_str("a malformed frame"),
+            VideoError::File(e) | VideoError::Decoder(e) => f.write_str(e),
+        }
+    }
+}
+
+impl From<String> for VideoError {
+    /// A decoder's own words.
+    fn from(e: String) -> VideoError {
+        VideoError::Decoder(e)
+    }
+}
+
+impl From<&str> for VideoError {
+    fn from(e: &str) -> VideoError {
+        VideoError::Decoder(e.to_string())
+    }
+}
+
+/// What kept a play's movies from playing, for the results' note: the
+/// first that failed and why, and how many failed in all.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VideoTrouble {
+    /// The first movie that failed (its name as the song names it).
+    pub name: String,
+    /// Why it failed.
+    pub why: VideoError,
+    /// Movies that failed, at least 1.
+    pub count: usize,
+    /// Every one failed for the same reason.
+    pub same: bool,
+}
+
+impl VideoTrouble {
+    /// The trouble of `failed`, `(name, why)` in the order they failed.
+    pub fn of(failed: &[(String, VideoError)]) -> Option<VideoTrouble> {
+        let ((name, first), rest) = failed.split_first()?;
+        Some(VideoTrouble {
+            name: name.clone(),
+            why: first.clone(),
+            count: failed.len(),
+            same: rest.iter().all(|(_, e)| e == first),
+        })
+    }
+}
+
+impl std::fmt::Display for VideoTrouble {
+    /// The English line, for the logs.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (name, why, n) = (&self.name, &self.why, self.count);
+        if n == 1 {
+            write!(f, "the video {name} could not play: {why}")
+        } else if self.same {
+            write!(f, "{n} videos could not play: {why}")
+        } else {
+            write!(f, "{n} videos could not play; {name}: {why}")
+        }
+    }
 }
 
 /// One open movie. Frames are decoded only as asked for, so the caller sets
@@ -430,19 +541,6 @@ impl MovieStats {
     }
 }
 
-/// What kept a play's movies from playing, `(name, why)` in the order
-/// they failed, in a line for the results.
-pub fn trouble_line(trouble: &[(String, String)]) -> Option<String> {
-    let ((name, first), rest) = trouble.split_first()?;
-    Some(if rest.is_empty() {
-        format!("the video {name} could not play: {first}")
-    } else if rest.iter().all(|(_, e)| e == first) {
-        format!("{} videos could not play: {first}", rest.len() + 1)
-    } else {
-        format!("{} videos could not play; {name}: {first}", rest.len() + 1)
-    })
-}
-
 /// Plane buffers kept for a movie's next frames, so a playing movie
 /// allocates none per frame (a 640×480 frame is 460 KB; at 30 frames a
 /// second the garbage made collections pause the web page).
@@ -522,7 +620,7 @@ pub struct MovieTrack {
     /// within the budget: laps play from here.
     all_frames: Option<Vec<VideoFrame>>,
     info: Option<VideoInfo>,
-    error: Option<String>,
+    error: Option<VideoError>,
     pub stats: MovieStats,
     events: Vec<VideoEvent>,
 }
@@ -571,8 +669,8 @@ impl MovieTrack {
     }
 
     /// Why the movie cannot play, once the decoder said so.
-    pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+    pub fn error(&self) -> Option<&VideoError> {
+        self.error.as_ref()
     }
 
     /// Where `position` (before looping) is in the file, and on which lap.
@@ -1473,7 +1571,7 @@ mod tests {
         let mut track = MovieTrack::new(true, 3, None);
         track.start(&mut d, 0.0);
         assert_eq!(track.update(&mut d, 0.0), None);
-        assert_eq!(track.error(), Some("broken"));
+        assert_eq!(track.error(), Some(&VideoError::Decoder("broken".into())));
     }
 
     #[test]

@@ -8,7 +8,9 @@
 //! loops and stops where the web's does.
 
 use ddi_library::backgrounds::BgSegment;
-use ddi_platform::video::{VideoBackend, VideoCodec, VideoContainer, VideoFormat, VideoFrame};
+use ddi_platform::video::{
+    VideoBackend, VideoCodec, VideoContainer, VideoError, VideoFormat, VideoFrame,
+};
 use ddi_render::Renderer;
 use ddi_session::movies::{MovieShell, MovieSlots};
 
@@ -47,11 +49,11 @@ impl Decoders {
 impl MovieShell for Decoders {
     type Decoder = DesktopVideo;
 
-    fn open(&mut self, name: &str) -> Option<Result<DesktopVideo, String>> {
+    fn open(&mut self, name: &str) -> Option<Result<DesktopVideo, VideoError>> {
         let (_, path) = self.sources.iter().find(|(n, _)| n == name)?;
         let path = match path.clone() {
             Ok(p) => p,
-            Err(e) => return Some(Err(e)),
+            Err(e) => return Some(Err(VideoError::File(e))),
         };
         let format = VideoFormat {
             container: VideoContainer::Unknown,
@@ -225,7 +227,7 @@ impl Movies {
         queue: &wgpu::Queue,
     ) {
         if frame.external.is_none() && frame.split().is_none() {
-            self.slots.fail(name, "a malformed frame".into());
+            self.slots.fail(name, VideoError::BadFrame);
             return;
         }
         let Some(id) = self.texture(name, frame.width, frame.height, renderer, device) else {

@@ -20,6 +20,7 @@ use ddi_chart::formats::danoni::{self, Dos, DosFlags, source};
 use crate::danoni::{self as work, DumpPlan, SharedWork, WorkSource};
 use crate::manifest::{EntryMeta, ManifestEntry, summarize};
 use crate::pack;
+use crate::report::Finding;
 
 /// The back and mask images a song keeps, at most
 /// (`docs/plans/overlays.md`; the largest work at hand shows 99).
@@ -60,7 +61,7 @@ pub fn read_page<S: AsRef<str>>(
     html: &str,
     charset: Option<&str>,
     paths: &[S],
-) -> Result<Option<Page>, String> {
+) -> Result<Option<Page>, Finding> {
     let Some(found) = source::scan_html(html) else {
         return Ok(None);
     };
@@ -69,12 +70,12 @@ pub fn read_page<S: AsRef<str>>(
         dos.merge(inline, found.flags);
     }
     if found.divided {
-        return Err("splits its charts over several dos files, which is not supported yet".into());
+        return Err(Finding::DividedDos);
     }
     let external = match &found.external {
         Some(name) => {
             let path = work::external_path(page, name, paths)
-                .ok_or_else(|| format!("its dos file {name} is missing"))?;
+                .ok_or_else(|| Finding::DosMissing { file: name.clone() })?;
             let charset = found
                 .external_charset
                 .clone()
@@ -94,13 +95,13 @@ pub fn read_page<S: AsRef<str>>(
 impl Page {
     /// The work, with the external dos file's text (decoded in its
     /// charset) when the page names one.
-    pub fn finish(self, external: Option<&str>) -> Result<Work, String> {
+    pub fn finish(self, external: Option<&str>) -> Result<Work, Finding> {
         let mut dos = self.dos;
         if let Some((path, _)) = &self.external {
-            let text = external.ok_or_else(|| format!("{path} was not read"))?;
+            let text = external.ok_or_else(|| Finding::DosNotRead { file: path.clone() })?;
             let name = pack::file_name(path);
-            let dos_text = source::external_dos_text(text).ok_or_else(|| {
-                format!("{name} builds its dos with a script, which an import never runs")
+            let dos_text = source::external_dos_text(text).ok_or_else(|| Finding::DosScript {
+                file: name.to_string(),
             })?;
             dos.merge(&dos_text, self.flags);
         }
@@ -112,9 +113,9 @@ impl Page {
 }
 
 /// A dump's work from its plan and its `effective-dos.json`.
-pub fn dump_work(plan: DumpPlan, effective_json: &str) -> Result<Work, String> {
+pub fn dump_work(plan: DumpPlan, effective_json: &str) -> Result<Work, Finding> {
     Ok(Work {
-        dos: work::dump_dos(effective_json)?,
+        dos: work::dump_dos(effective_json).map_err(Finding::Other)?,
         music: WorkMusic::Dump(
             plan.music
                 .into_iter()
@@ -148,9 +149,9 @@ pub struct WorkSong {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorkPlan {
     pub songs: Vec<WorkSong>,
-    /// `(label, line)` for the report.
-    pub warnings: Vec<(String, String)>,
-    pub skipped: Vec<(String, String)>,
+    /// `(label, finding)` for the report.
+    pub warnings: Vec<(String, Finding)>,
+    pub skipped: Vec<(String, Finding)>,
     /// The music files its songs use (their folders are not "music
     /// without a simfile").
     pub music: Vec<String>,
@@ -172,7 +173,7 @@ pub fn plan<S: AsRef<str>>(
     let import = match danoni::import(&w.dos) {
         Ok(i) => i,
         Err(e) => {
-            out.skipped.push((label.to_string(), e));
+            out.skipped.push((label.to_string(), Finding::Other(e)));
             return out;
         }
     };
@@ -180,7 +181,7 @@ pub fn plan<S: AsRef<str>>(
         import
             .warnings
             .iter()
-            .map(|x| (label.to_string(), x.clone())),
+            .map(|x| (label.to_string(), Finding::Other(x.clone()))),
     );
     let pack = pack_name(label, fallback_pack);
     // A song's id comes from its pack and a name like a song folder's:
@@ -208,8 +209,8 @@ pub fn plan<S: AsRef<str>>(
                     (p, encoded)
                 })
                 .ok_or_else(|| match &song.music {
-                    Some(url) => format!("music {url} was not found"),
-                    None => "the work names no music".to_string(),
+                    Some(url) => Finding::WorkMusicMissing { url: url.clone() },
+                    None => Finding::WorkWithoutMusic,
                 }),
             WorkMusic::Dump(by_chart) => {
                 let found = import
@@ -243,26 +244,21 @@ pub fn plan<S: AsRef<str>>(
                 if !missing.is_empty() {
                     let more = missing.len().saturating_sub(12);
                     missing.truncate(12);
-                    let more = if more > 0 {
-                        format!(" and {more} more")
-                    } else {
-                        String::new()
-                    };
                     out.warnings.push((
                         song_label.clone(),
-                        format!(
-                            "back and mask images not found (or not drawn, like SVG): {}{more}",
-                            missing.join(", ")
-                        ),
+                        Finding::LayerImagesMissing {
+                            names: missing.into_iter().map(|m| m.to_string()).collect(),
+                            more,
+                        },
                     ));
                 }
                 if found.len() > MAX_LAYER_IMAGES {
                     out.warnings.push((
                         song_label.clone(),
-                        format!(
-                            "{} back and mask images; only the first {MAX_LAYER_IMAGES} are kept",
-                            found.len()
-                        ),
+                        Finding::TooManyLayerImages {
+                            count: found.len(),
+                            kept: MAX_LAYER_IMAGES,
+                        },
                     ));
                     found.truncate(MAX_LAYER_IMAGES);
                 }
@@ -273,10 +269,8 @@ pub fn plan<S: AsRef<str>>(
                     (e.kind == danoni::SPRITE_BACK || e.kind == danoni::SPRITE_MASK)
                         && e.fields.get(2).is_some_and(|s| work::is_layer_image(s))
                 }) {
-                    out.warnings.push((
-                        song_label.clone(),
-                        "a capture holds no back and mask images".into(),
-                    ));
+                    out.warnings
+                        .push((song_label.clone(), Finding::CaptureWithoutLayers));
                 }
                 Vec::new()
             }
@@ -284,12 +278,16 @@ pub fn plan<S: AsRef<str>>(
         out.warnings.extend(
             ddi_engine::sprites::import_notes(song)
                 .into_iter()
-                .map(|n| (song_label.clone(), n)),
+                .map(|n| (song_label.clone(), Finding::Other(n))),
         );
         let id = pack::song_id(&pack, &format!("{ident}#{music_no}"));
         if let Some(first) = seen.get(&id) {
-            out.skipped
-                .push((song_label, format!("same pack and file name as {first}")));
+            out.skipped.push((
+                song_label,
+                Finding::SameFileAs {
+                    first: first.clone(),
+                },
+            ));
             continue;
         }
         seen.insert(id.clone(), label.to_string());
@@ -309,11 +307,9 @@ pub fn plan<S: AsRef<str>>(
     if !uncaptured.is_empty() {
         out.skipped.push((
             label.to_string(),
-            format!(
-                "{} song(s) of the work have no captured music: {}",
-                uncaptured.len(),
-                uncaptured.join(", ")
-            ),
+            Finding::MusicNotCaptured {
+                titles: uncaptured.into_iter().map(str::to_string).collect(),
+            },
         ));
     }
     out
@@ -489,7 +485,8 @@ mod tests {
             ("Pack/music/song.ogg", false)
         );
         assert_eq!(s.layers, [("../img/a.png".into(), "Pack/img/a.png".into())]);
-        assert!(p.warnings.iter().any(|(_, w)| w.contains("gone.png")));
+        assert!(p.warnings.iter().any(|(_, w)| matches!(w,
+            Finding::LayerImagesMissing { names, .. } if names.iter().any(|n| n.contains("gone.png")))));
         // The external dos's notes are the song's too.
         assert_eq!(s.song.charts[0].notes.len(), 3);
         let e = entry(s, "chart.danoni", "music.ogg");

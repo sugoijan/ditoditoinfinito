@@ -201,6 +201,30 @@ def generated_icons(target, variant='release'):
     return ROOT / 'target/icons' / target / variant
 
 
+def languages():
+    """What the packages write for the shipped languages (`xtask l10n
+    package`, docs/plans/localization.md): their tags, which Info.plist
+    declares, so that macOS's panels and its per-app language setting
+    offer the languages the game picks from the system's, and the
+    desktop entry's text in each (`locales/<tag>/shell.ftl`)."""
+    return json.loads(run(['cargo', 'run', '-q', '-p', 'xtask', '--', 'l10n', 'package'],
+                          dict(os.environ), capture=True))
+
+
+def desktop_entry(destination):
+    """The Linux desktop entry: the template's keys, then the text in
+    each shipped language, English's as the plain key and the others' as
+    `Key[ll_CC]`."""
+    lines = (HERE / f'linux/{BUNDLE_ID}.desktop').read_text().splitlines()
+    for tag, keys in languages()['entry'].items():
+        suffix = '' if tag == 'en' else f"[{tag.replace('-', '_')}]"
+        for key, value in keys.items():
+            if '\n' in value or '\\' in value:
+                raise ValueError(f'{key}[{tag}] needs escaping: {value!r}')
+            lines.append(f'{key}{suffix}={value}')
+    destination.write_text('\n'.join(lines) + '\n')
+
+
 def is_macho(path):
     with path.open('rb') as file:
         return file.read(4) in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe')
@@ -242,7 +266,8 @@ def macos_app(source, app):
         plist = plistlib.load(file)
     short = re.match(r'\d+(\.\d+){0,2}', version()).group(0)
     plist.update(CFBundleShortVersionString=short, CFBundleVersion=short,
-                 LSMinimumSystemVersion=minimum_macos(executables))
+                 LSMinimumSystemVersion=minimum_macos(executables),
+                 CFBundleLocalizations=languages()['languages'])
     with (contents / 'Info.plist').open('wb') as file:
         plistlib.dump(plist, file)
     (contents / 'PkgInfo').write_text('APPL????')
@@ -326,7 +351,7 @@ def dist(app, out_dir, without_video_helper=False, check=True):
             share = plain / 'share'
             (share / 'applications').mkdir(parents=True)
             (share / 'icons/hicolor/scalable/apps').mkdir(parents=True)
-            shutil.copy2(HERE / f'linux/{BUNDLE_ID}.desktop', share / 'applications')
+            desktop_entry(share / f'applications/{BUNDLE_ID}.desktop')
             shutil.copy2(generated_icons('linux', metadata.get('iconVariant', 'release')) / 'icon.svg',
                          share / f'icons/hicolor/scalable/apps/{BUNDLE_ID}.svg')
             script = plain / 'install-desktop-entry.sh'

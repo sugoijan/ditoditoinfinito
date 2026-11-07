@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use ddi_library::danoni::{self as work, StoredWork, WorkSource};
 use ddi_library::pack;
+use ddi_library::report::{Finding, ImportStep};
 use ddi_library::works::{self, Work, WorkSong};
 use wasm_bindgen::JsCast;
 use web_sys::Blob;
@@ -39,7 +40,7 @@ pub(super) async fn import_works(
     paths: &[String],
     fallback_pack: &str,
     report: &mut ImportReport,
-    progress: &crate::component::Callback<String>,
+    progress: &crate::component::Callback<ImportStep>,
     origin: Option<&super::Origin>,
 ) -> WorksOutcome {
     let folder = origin.map(|o| o.folder.as_str());
@@ -63,7 +64,9 @@ pub(super) async fn import_works(
             }
         };
         out.found = true;
-        progress.emit(format!("importing {label}…"));
+        progress.emit(ImportStep::ImportingWork {
+            label: label.clone(),
+        });
         let plan = works::plan(&ws, &label, &w, paths, fallback_pack, &mut seen);
         report.warnings.extend(plan.warnings);
         report.skipped.extend(plan.skipped);
@@ -75,7 +78,7 @@ pub(super) async fn import_works(
         let shared = match works::shared(&w).stored() {
             Ok((key, json)) => (free_work_key(db, key, &json).await, json),
             Err(e) => {
-                report.skipped.push((label, e));
+                report.skipped.push((label, Finding::System(e)));
                 continue;
             }
         };
@@ -130,7 +133,7 @@ async fn read_page(
     sources: &HashMap<String, Source>,
     paths: &[String],
     page: &str,
-) -> Result<Option<Work>, String> {
+) -> Result<Option<Work>, Finding> {
     let bytes = read_bytes(source(sources, page)?).await?;
     let charset = work::declared_charset(&bytes);
     let html = decode_with(&bytes, charset.as_deref());
@@ -153,9 +156,9 @@ async fn read_dump(
     sources: &HashMap<String, Source>,
     paths: &[String],
     manifest: &str,
-) -> Result<Option<Work>, String> {
+) -> Result<Option<Work>, Finding> {
     let text = pack::decode_text(&read_bytes(source(sources, manifest)?).await?);
-    let Some(plan) = work::dump_plan(manifest, &text, paths)? else {
+    let Some(plan) = work::dump_plan(manifest, &text, paths).map_err(Finding::Other)? else {
         return Ok(None);
     };
     let eff = pack::decode_text(&read_bytes(source(sources, &plan.effective)?).await?);
@@ -171,7 +174,7 @@ async fn store_song(
     shared: Option<&(String, String)>,
     folder: Option<&str>,
     link: bool,
-) -> Result<String, String> {
+) -> Result<String, Finding> {
     let (id, pack, dir, music, encoded, layers) = (
         s.id.as_str(),
         s.pack.as_str(),
@@ -198,7 +201,7 @@ async fn store_song(
         (None, ext)
     } else if encoded {
         let js = pack::decode_text(&read_bytes(source(sources, music)?).await?);
-        let bytes = work::decode_music(&js).ok_or("its music script holds no audio")?;
+        let bytes = work::decode_music(&js).ok_or(Finding::MusicScriptEmpty)?;
         let (ext, mime) = works::sniff_audio(&bytes);
         (Some(bytes_blob(&bytes, mime)?), ext.to_string())
     } else {
@@ -262,7 +265,10 @@ async fn store_song(
     Ok(title)
 }
 
-async fn read_head_bytes(sources: &HashMap<String, Source>, path: &str) -> Result<Vec<u8>, String> {
+async fn read_head_bytes(
+    sources: &HashMap<String, Source>,
+    path: &str,
+) -> Result<Vec<u8>, Finding> {
     super::read_head(source(sources, path)?, 16).await
 }
 

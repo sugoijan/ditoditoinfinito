@@ -12,6 +12,7 @@ mod boot_check;
 mod boot_minify;
 mod credits;
 mod icons;
+mod l10n;
 mod noteskins;
 mod rust_credits;
 mod songs;
@@ -38,6 +39,12 @@ enum Commands {
         /// Also export unmasked macOS foreground/background SVGs for Icon Composer.
         #[arg(long)]
         layers: bool,
+    },
+    /// The UI's languages (locales/): check them, report a language's
+    /// messages, record reviews (docs/plans/localization.md).
+    L10n {
+        #[command(subcommand)]
+        action: l10n::Action,
     },
     /// Regenerate the SEO metadata fragments and sitemap from site/seo/metadata.toml.
     #[command(name = "regen-seo")]
@@ -577,6 +584,7 @@ fn main() -> Result<()> {
             out,
             layers,
         } => icons::generate(target, variant, out, layers),
+        Commands::L10n { action } => l10n::run(action),
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),

@@ -20,6 +20,7 @@
 //!   [`clock`]: the host clock everything stamps against; [`preview`]:
 //!   song select's previews.
 
+pub mod app_menu;
 pub mod audio;
 pub mod calibrate;
 pub mod clock;
@@ -315,6 +316,17 @@ pub fn run() {
     // No sound device at all: plays run on the host clock.
     if args.iter().any(|a| a == "--silent") {
         audio::set_headless(true);
+    }
+    // `--lang TAG`: the UI's language for this run (`ja`, the
+    // pseudo-languages `qps-ploc` and `qps-wide`), whatever the settings
+    // say, until one is chosen in Options.
+    if let Some(i) = args.iter().position(|a| a == "--lang") {
+        let tag = args.get(i + 1).map(String::as_str).unwrap_or_default();
+        if !ddi_l10n::force(tag) {
+            let tags: Vec<&str> = ddi_l10n::all().map(|l| l.tag).collect();
+            eprintln!("--lang takes one of {}", tags.join(", "));
+            std::process::exit(2);
+        }
     }
     let screen = match args.iter().position(|a| a == "--screen") {
         Some(i) => args.get(i + 1).cloned().unwrap_or_default(),

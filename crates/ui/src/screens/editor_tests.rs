@@ -50,12 +50,13 @@ fn env() -> Env {
 
 fn place() -> EditorPlace {
     EditorPlace {
+        platform: Platform::Web,
         save: Some("Songs/Pack/Song/song.ssc".into()),
-        confirm: Some("song.ssc is replaced.".into()),
-        export: Some("Download".into()),
+        confirm: Some("Songs/Pack/Song/song.ssc".into()),
+        export: true,
         listen: true,
         playtest: true,
-        discard: None,
+        new_song: false,
     }
 }
 
@@ -725,7 +726,7 @@ fn leaving_a_new_song_unsaved_says_it_is_not_kept() {
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
     let place = EditorPlace {
         confirm: None,
-        discard: Some("The new song is not kept.".into()),
+        new_song: true,
         ..place()
     };
     let e = crate::state::editor::new_song::NewSong::plan("tune.ogg", b"", |_| false).editor();

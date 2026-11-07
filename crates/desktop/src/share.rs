@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use ddi_library::path::RelPathBuf;
-use ddi_library::share::{self as contract, ShareDoc, ShareFileDoc, ShareSongDoc};
+use ddi_library::share::{self as contract, ShareDoc, ShareError, ShareFileDoc, ShareSongDoc};
 use ddi_ui::screens::data::{ShareState, ShareView};
 
 use crate::library::LibSong;
@@ -79,9 +79,9 @@ pub fn download() -> Option<Download> {
 pub fn download_line() -> Option<String> {
     let d = download()?;
     Some(if d.songs > 0 && d.bytes == 0 {
-        format!("reading the share… {} of {} songs", d.songs_done, d.songs)
+        ddi_l10n::msg::prompt::share_reading(d.songs_done, d.songs).into()
     } else {
-        contract::download_line(d.bytes_done as f64, d.bytes as f64)
+        ddi_ui::screens::prompt::download_line(d.bytes_done as f64, d.bytes as f64)
     })
 }
 
@@ -111,23 +111,38 @@ fn agent() -> ureq::Agent {
     ureq::Agent::new_with_config(config)
 }
 
-fn http_err(what: &str, e: ureq::Error) -> String {
-    format!("{what}: {e}")
+fn http_err(doing: &'static str, e: ureq::Error) -> ShareError {
+    ShareError::Failed {
+        doing,
+        error: e.to_string(),
+    }
+}
+
+/// A shared song whose share is not the one loaded (never one song
+/// select lists).
+fn not_loaded() -> ShareError {
+    ShareError::Failed {
+        doing: "playing a shared song",
+        error: "the share of this song is not loaded".into(),
+    }
 }
 
 /// Where share `id`'s files go.
-fn share_root(id: &str) -> Result<PathBuf, String> {
+fn share_root(id: &str) -> Result<PathBuf, ShareError> {
     Ok(crate::paths::cache_dir()
-        .ok_or("no cache folder")?
+        .ok_or_else(|| ShareError::Failed {
+            doing: "finding the cache folder",
+            error: "no cache folder".into(),
+        })?
         .join("shares")
         .join(id))
 }
 
 /// The share `id` from the server: `404` and `410` worded as the web
 /// says them.
-pub fn fetch(id: &str) -> Result<ShareDoc, String> {
+pub fn fetch(id: &str) -> Result<ShareDoc, ShareError> {
     if !contract::valid_id(id) {
-        return Err(contract::GONE.into());
+        return Err(ShareError::Gone { expired: false });
     }
     let url = format!("{}/s/{id}", base());
     let mut resp = agent()
@@ -135,23 +150,26 @@ pub fn fetch(id: &str) -> Result<ShareDoc, String> {
         .call()
         .map_err(|e| http_err("reading the share", e))?;
     match resp.status().as_u16() {
-        404 | 410 => return Err(contract::GONE.into()),
+        s @ (404 | 410) => return Err(ShareError::Gone { expired: s == 410 }),
         200 => {}
-        s => return Err(format!("reading the share: HTTP {s}")),
+        status => return Err(ShareError::Status { status, body: None }),
     }
     let text = resp
         .body_mut()
         .with_config()
         .limit(64 * 1024 * 1024)
         .read_to_string()
-        .map_err(|e| format!("reading the share: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("the share: {e}"))
+        .map_err(|e| ShareError::Failed {
+            doing: "reading the share",
+            error: e.to_string(),
+        })?;
+    serde_json::from_str(&text).map_err(|e| ShareError::Answer(e.to_string()))
 }
 
 /// Reads share `id` and brings its songs' charts, music and pictures
 /// into the cache; the songs as the library lists them. `progress` is
 /// called as it goes ([`download`] says where it is).
-pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, String> {
+pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
     let doc = fetch(id)?;
     let root = share_root(id)?;
     let mut songs = Vec::new();
@@ -212,19 +230,19 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, String> {
 
 /// Everything else of shared song `id` (what its background changes
 /// play) into the cache, before its play loads.
-pub fn ensure_all(id: &str) -> Result<(), String> {
+pub fn ensure_all(id: &str) -> Result<(), ShareError> {
     let Some((share, n)) = contract::parse_song_id(id) else {
         return Ok(());
     };
     let (doc, root) = {
-        let c = CURRENT.lock().map_err(|_| "the share's lock")?;
+        let c = CURRENT.lock().map_err(|_| not_loaded())?;
         let c = c
             .as_ref()
             .filter(|c| c.id == share)
-            .ok_or("the share of this song is not loaded")?;
+            .ok_or_else(not_loaded)?;
         (c.doc.clone(), c.root.clone())
     };
-    let song = doc.songs.get(n).ok_or("no such song in the share")?;
+    let song = doc.songs.get(n).ok_or_else(not_loaded)?;
     let Some((entry, _)) = contract::record_entry(&song.record) else {
         return Ok(());
     };
@@ -251,12 +269,15 @@ fn ensure_file(
     stored: &str,
     named: &str,
     dir: &Path,
-) -> Result<(), String> {
+) -> Result<(), ShareError> {
     let rel = RelPathBuf::from(named);
     let rel = rel.normalize().unwrap_or(rel);
-    let target = rel
-        .to_path(dir)
-        .ok_or_else(|| format!("{named}: a path that leaves its folder"))?;
+    let target = rel.to_path(dir).ok_or_else(|| {
+        ShareError::of(
+            named,
+            ShareError::Answer("a path that leaves its folder".into()),
+        )
+    })?;
     let listed = doc
         .songs
         .get(n)
@@ -275,12 +296,23 @@ fn ensure_file(
     let mut resp = agent()
         .get(&url)
         .call()
-        .map_err(|e| http_err(&format!("fetching {named}"), e))?;
+        .map_err(|e| ShareError::of(named, http_err("fetching a file", e)))?;
     if resp.status().as_u16() != 200 {
-        return Err(format!("fetching {named}: HTTP {}", resp.status().as_u16()));
+        return Err(ShareError::of(
+            named,
+            contract::refusal(resp.status().as_u16(), None),
+        ));
     }
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ShareError::of(
+                parent.display().to_string(),
+                ShareError::Failed {
+                    doing: "making a folder",
+                    error: e.to_string(),
+                },
+            )
+        })?;
     }
     let tmp = target.with_extension(format!(
         "{}.{}.tmp",
@@ -325,7 +357,13 @@ fn ensure_file(
     });
     if let Err(e) = written {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!("writing {named}: {e}"));
+        return Err(ShareError::of(
+            named,
+            ShareError::Failed {
+                doing: "writing a file",
+                error: e.to_string(),
+            },
+        ));
     }
     Ok(())
 }
@@ -354,12 +392,12 @@ pub fn upload(
     expires: &str,
     token: &str,
     progress: &mut dyn FnMut(&ShareView),
-) -> Result<String, String> {
+) -> Result<String, ShareError> {
     if token.trim().is_empty() {
-        return Err(contract::NO_TOKEN.into());
+        return Err(ShareError::NoToken);
     }
     if ids.is_empty() {
-        return Err("Nothing to share.".into());
+        return Err(ShareError::Nothing);
     }
     let mut view = ShareView {
         state: ShareState::Uploading,
@@ -373,7 +411,7 @@ pub fn upload(
     let mut songs = Vec::new();
     let mut sources: Vec<Vec<(String, Source)>> = Vec::new();
     for id in ids {
-        let (files, entry) = Files::of(id).ok_or_else(|| format!("no song {id}"))?;
+        let (files, entry) = Files::of(id).ok_or_else(|| ShareError::NoChart(id.clone()))?;
         let song_pack = crate::library::song(id).map(|s| s.pack).unwrap_or_default();
         let mut listed = Vec::new();
         let mut these = Vec::new();
@@ -392,7 +430,7 @@ pub fn upload(
             these.push((stored, source));
         }
         if !these.iter().any(|(s, _)| *s == entry.chart.as_str()) {
-            return Err(format!("{}: its chart could not be read", entry.title));
+            return Err(ShareError::NoChart(entry.title.clone()));
         }
         songs.push(ShareSongDoc {
             record: contract::record_of(&entry, &song_pack, now_ms, bytes),
@@ -408,14 +446,20 @@ pub fn upload(
         songs,
         pack_art: serde_json::Value::Bool(false),
     };
-    let mut make = serde_json::to_value(&doc).map_err(|e| e.to_string())?;
+    let mut make = serde_json::to_value(&doc).map_err(|e| ShareError::Failed {
+        doing: "making the share",
+        error: e.to_string(),
+    })?;
     if let Some(o) = make.as_object_mut() {
         o.insert("expires".into(), expires.into());
     }
     let agent = agent();
     let base = base();
     let auth = format!("Bearer {token}");
-    let body = serde_json::to_vec(&make).map_err(|e| e.to_string())?;
+    let body = serde_json::to_vec(&make).map_err(|e| ShareError::Failed {
+        doing: "making the share",
+        error: e.to_string(),
+    })?;
     let mut resp = agent
         .post(format!("{base}/s"))
         .header("Authorization", &auth)
@@ -433,13 +477,13 @@ pub fn upload(
         &resp
             .body_mut()
             .read_to_string()
-            .map_err(|e| format!("the share's id: {e}"))?,
+            .map_err(|e| ShareError::Answer(e.to_string()))?,
     )
-    .map_err(|e| format!("the share's id: {e}"))?;
+    .map_err(|e| ShareError::Answer(e.to_string()))?;
     let id = created
         .get("id")
         .and_then(|v| v.as_str())
-        .ok_or("the share's id")?
+        .ok_or_else(|| ShareError::Answer("no share id".into()))?
         .to_string();
     for (n, files) in sources.into_iter().enumerate() {
         for (stored, source) in files {
@@ -452,18 +496,26 @@ pub fn upload(
                 .header("Content-Length", &len.to_string());
             let sent = match source {
                 Source::File(path, _) => {
-                    let mut file =
-                        std::fs::File::open(&path).map_err(|e| format!("{stored}: {e}"))?;
+                    let mut file = std::fs::File::open(&path).map_err(|e| {
+                        ShareError::of(
+                            stored.clone(),
+                            ShareError::Failed {
+                                doing: "reading a file",
+                                error: e.to_string(),
+                            },
+                        )
+                    })?;
                     req.send(ureq::SendBody::from_reader(&mut file))
                 }
                 Source::Bytes(b) => req.send(b.as_slice()),
             };
-            let mut resp = sent.map_err(|e| http_err(&stored, e))?;
+            let mut resp =
+                sent.map_err(|e| ShareError::of(stored.clone(), http_err("sending a file", e)))?;
             let status = resp.status().as_u16();
             if status != 200 {
-                return Err(format!(
-                    "{stored}: {}",
-                    contract::refusal(status, resp.body_mut().read_to_string().ok().as_deref())
+                return Err(ShareError::of(
+                    stored,
+                    contract::refusal(status, resp.body_mut().read_to_string().ok().as_deref()),
                 ));
             }
             view.done_bytes += len as f64;
@@ -503,9 +555,9 @@ fn source_of(files: &Files, named: &str) -> Option<Source> {
 }
 
 /// The shares the token may see (`GET <base>/s`), each with its link.
-pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
+pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, ShareError> {
     if token.trim().is_empty() {
-        return Err(contract::NO_TOKEN.into());
+        return Err(ShareError::NoToken);
     }
     let mut resp = agent()
         .get(format!("{}/s", base()))
@@ -524,16 +576,19 @@ pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
         .with_config()
         .limit(64 * 1024 * 1024)
         .read_to_string()
-        .map_err(|e| format!("reading the shares: {e}"))?;
+        .map_err(|e| ShareError::Failed {
+            doing: "reading the shares",
+            error: e.to_string(),
+        })?;
     let listing: contract::ShareListing =
-        serde_json::from_str(&text).map_err(|e| format!("the shares: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| ShareError::Answer(e.to_string()))?;
     Ok(ddi_ui::screens::data::SharesView::from_listing(
         listing, link_of,
     ))
 }
 
 /// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).
-pub fn delete(token: &str, id: &str) -> Result<(), String> {
+pub fn delete(token: &str, id: &str) -> Result<(), ShareError> {
     let mut resp = agent()
         .delete(format!("{}/s/{id}", base()))
         .header("Authorization", &format!("Bearer {token}"))

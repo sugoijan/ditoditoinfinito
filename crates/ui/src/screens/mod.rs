@@ -62,7 +62,12 @@ pub mod data;
 pub mod editor;
 pub mod editor_dialogs;
 pub mod editor_field;
+pub mod errors;
+pub mod failures;
 pub mod folders_offer;
+pub mod import_report;
+#[cfg(test)]
+mod l10n_tests;
 pub mod numbers;
 pub mod options;
 pub mod options_dialogs;
@@ -379,7 +384,7 @@ pub fn play(root: &mut Actor, owner: &str, command: &str) {
 /// sprites) over the screen's `title`.
 pub fn header(env: &Env, cx: &mut crate::Cx, width: f32, title: &str) -> Actor {
     let h = env.metric("Header.Height", 64.0);
-    let spec = Spec::new([width, h], title).with_items(["Dito Dito Infinito"]);
+    let spec = Spec::new([width, h], title).with_items([ddi_l10n::msg::common::game_name()]);
     let mut a = env.component("Screen.Header", "Panel", &spec, "Header", [0.0, 0.0]);
     if let Some(source) = env.look.image("Screen.Header")
         && let Some(mark) = crate::widgets::part(&mut a, "Wordmark")
@@ -834,14 +839,6 @@ pub fn essential_images(env: &Env, vp: ddi_actor::screen::VirtualScreen) -> Vec<
     v
 }
 
-/// `s` with its first letter capitalized ("audio" → "Audio").
-pub(crate) fn capitalized(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().chain(c).collect())
-        .unwrap_or_default()
-}
-
 /// A screen over song select leaves (`cancel`: backing out).
 pub fn leave(env: &Env, cx: &mut crate::Cx, cancel: bool) {
     let mut st = env.state.borrow_mut();
@@ -1025,10 +1022,13 @@ pub(crate) fn unhold_entrances(a: &mut Actor, reveal: &str) {
 
 /// A visible route to the same contextual actions as a controller's West button.
 pub(crate) fn more_button(env: &Env, centre: [f32; 2]) -> Actor {
+    let label = ddi_l10n::msg::common::more();
+    // As wide as its label needs, 64 at least (its place is its center).
+    let w = (look::mono_width(&label, 15.0) + 24.0).max(64.0);
     env.component(
         "Button",
         "Button",
-        &Spec::new([64.0, 40.0], "More"),
+        &Spec::new([w, 40.0], label.as_str()),
         "More",
         centre,
     )

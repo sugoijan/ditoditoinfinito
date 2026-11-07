@@ -76,25 +76,7 @@ pub(crate) struct SharedFile {
     pub(crate) url: String,
 }
 
-/// Why a share could not be read.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ShareError {
-    /// No share has this id (404).
-    Missing,
-    /// It had, and expired (410).
-    Expired,
-    Other(String),
-}
-
-impl ShareError {
-    /// What the page says: one line for a link that is gone either way.
-    pub(crate) fn message(&self) -> String {
-        match self {
-            ShareError::Missing | ShareError::Expired => ddi_library::share::GONE.into(),
-            ShareError::Other(e) => format!("The shared songs could not be loaded: {e}"),
-        }
-    }
-}
+pub(crate) use ddi_library::share::ShareError;
 
 thread_local! {
     static CURRENT: RefCell<Option<Rc<Share>>> = const { RefCell::new(None) };
@@ -138,7 +120,7 @@ pub(crate) fn file_size(song_id: &str, path: &str) -> Option<u64> {
 /// opening still).
 pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
     if !valid_id(id) {
-        return Err(ShareError::Missing);
+        return Err(ShareError::Gone { expired: false });
     }
     if let Some(s) = current().filter(|s| s.id == id) {
         return Ok(s);
@@ -148,15 +130,21 @@ pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
     let resp = gloo::net::http::Request::get(&url)
         .send()
         .await
-        .map_err(|e| ShareError::Other(format!("GET {url}: {e}")))?;
+        .map_err(|e| ShareError::Failed {
+            doing: "reading the share",
+            error: e.to_string(),
+        })?;
     let result = match resp.status() {
-        404 => Err(ShareError::Missing),
-        410 => Err(ShareError::Expired),
-        s if !resp.ok() => Err(ShareError::Other(format!("GET {url}: HTTP {s}"))),
+        404 => Err(ShareError::Gone { expired: false }),
+        410 => Err(ShareError::Gone { expired: true }),
+        status if !resp.ok() => Err(ShareError::Status { status, body: None }),
         _ => resp
             .text()
             .await
-            .map_err(|e| ShareError::Other(e.to_string()))
+            .map_err(|e| ShareError::Failed {
+                doing: "reading the share",
+                error: e.to_string(),
+            })
             .and_then(|t| from_json(id, &t)),
     };
     match &result {
@@ -168,9 +156,9 @@ pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
         Err(e) => publish(
             id,
             match e {
-                ShareError::Missing => "missing",
-                ShareError::Expired => "expired",
-                ShareError::Other(_) => "failed",
+                ShareError::Gone { expired: false } => "missing",
+                ShareError::Gone { expired: true } => "expired",
+                _ => "failed",
             },
             None,
         ),
@@ -181,7 +169,7 @@ pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
 /// A share from the Worker's JSON, its songs made this share's.
 pub(crate) fn from_json(id: &str, text: &str) -> Result<Rc<Share>, ShareError> {
     let mut share: Share =
-        serde_json::from_str(text).map_err(|e| ShareError::Other(format!("the share: {e}")))?;
+        serde_json::from_str(text).map_err(|e| ShareError::Answer(e.to_string()))?;
     share.id = id.to_string();
     for (n, song) in share.songs.iter_mut().enumerate() {
         let r = &mut song.record;
@@ -197,9 +185,10 @@ pub(crate) fn from_json(id: &str, text: &str) -> Result<Rc<Share>, ShareError> {
 }
 
 impl Share {
-    /// How long it has left, in a few words; `None`: forever.
+    /// How long it has left, as song select says it; `None`: forever.
     pub(crate) fn expires_in(&self, now_secs: f64) -> Option<String> {
-        ddi_library::share::expires_in(self.expires_at, now_secs)
+        self.expires_at
+            .map(|at| ddi_ui::screens::options_dialogs::expires_in(Some(at), now_secs).into())
     }
 }
 
@@ -228,7 +217,7 @@ fn publish(id: &str, state: &str, share: Option<&Share>) {
         let now = js_sys::Date::now() / 1000.0;
         set(
             "expiresIn",
-            s.expires_in(now)
+            ddi_library::share::expires_in(s.expires_at, now)
                 .map_or(wasm_bindgen::JsValue::NULL, |t| t.into()),
         );
     }
@@ -279,7 +268,7 @@ pub(crate) async fn upload(
     expires: String,
     token: String,
     progress: Progress,
-) -> Result<String, String> {
+) -> Result<String, ShareError> {
     let mut view = ShareView {
         state: ShareState::Uploading,
         songs: ids.len(),
@@ -298,11 +287,19 @@ pub(crate) async fn upload(
         }
         Err(e) => {
             view.state = ShareState::Failed;
-            view.error = e.clone();
+            view.error = Some(e.clone());
         }
     }
     tell(&view);
     result
+}
+
+/// What failed while `doing` (for the logs), the browser's words kept.
+fn failed<E: std::fmt::Display>(doing: &'static str) -> impl FnOnce(E) -> ShareError {
+    move |e| ShareError::Failed {
+        doing,
+        error: e.to_string(),
+    }
 }
 
 async fn upload_inner(
@@ -312,24 +309,28 @@ async fn upload_inner(
     token: &str,
     view: &mut ShareView,
     tell: &dyn Fn(&ShareView),
-) -> Result<String, String> {
+) -> Result<String, ShareError> {
     if token.is_empty() {
-        return Err(ddi_library::share::NO_TOKEN.into());
+        return Err(ShareError::NoToken);
     }
     if ids.is_empty() {
-        return Err("Nothing to share.".into());
+        return Err(ShareError::Nothing);
     }
-    let db = Db::open().await?;
+    let reading = "reading the library";
+    let db = Db::open().await.map_err(failed(reading))?;
     // Every song's record and files first: the sizes go in the request
     // that makes the share.
     let mut songs = Vec::new();
     let mut blobs: Vec<Vec<(String, web_sys::Blob)>> = Vec::new();
     for id in ids {
-        let record = crate::songs::imported_record(&db, id).await?;
+        let record = crate::songs::imported_record(&db, id)
+            .await
+            .map_err(|_| ShareError::NoChart(id.clone()))?;
         let prefix = crate::songs::file_key(id, "");
         let mut paths: Vec<String> = db
             .keys_with_prefix(idb::FILES, &prefix)
-            .await?
+            .await
+            .map_err(failed(reading))?
             .into_iter()
             .filter_map(|k| k.strip_prefix(&prefix).map(String::from))
             // The opening still is this library's, not the song's.
@@ -345,7 +346,12 @@ async fn upload_inner(
         for path in paths {
             let blob = crate::songs::song_file(&db, &record, &path)
                 .await
-                .map_err(|e| format!("{}: {}", record.entry.title, e.message()))?;
+                .map_err(|e| {
+                    ShareError::of(
+                        record.entry.title.clone(),
+                        ShareError::of(path.clone(), failed(reading)(e.message())),
+                    )
+                })?;
             let bytes = blob.size();
             view.bytes += bytes;
             files.push(NewFile {
@@ -360,7 +366,8 @@ async fn upload_inner(
     let art_key = crate::songs::pack_art_key(pack);
     let art = db
         .get(idb::FILES, &art_key)
-        .await?
+        .await
+        .map_err(failed(reading))?
         .and_then(|v| v.dyn_into::<web_sys::Blob>().ok());
     if let Some(a) = &art {
         view.bytes += a.size();
@@ -376,21 +383,21 @@ async fn upload_inner(
     let created: Created = gloo::net::http::Request::post(&format!("{base}/s"))
         .header("Authorization", &format!("Bearer {token}"))
         .json(&new)
-        .map_err(|e| e.to_string())?
+        .map_err(failed("making the share"))?
         .send()
         .await
-        .map_err(|e| format!("making the share: {e}"))
+        .map_err(failed("making the share"))
         .and_then(checked)?
         .json()
         .await
-        .map_err(|e| format!("the share's id: {e}"))?;
+        .map_err(|e| ShareError::Answer(e.to_string()))?;
     let id = created.id;
     for (n, files) in blobs.into_iter().enumerate() {
         for (path, blob) in files {
             let url = ddi_library::share::file_url(&base, &id, n, &path);
             put(&url, token, &blob)
                 .await
-                .map_err(|e| format!("{path}: {e}"))?;
+                .map_err(|e| ShareError::of(path.clone(), e))?;
             view.done_bytes += blob.size();
             tell(view);
         }
@@ -406,26 +413,26 @@ async fn upload_inner(
         .header("Authorization", &format!("Bearer {token}"))
         .send()
         .await
-        .map_err(|e| format!("finishing the share: {e}"))
+        .map_err(failed("finishing the share"))
         .and_then(checked)?;
     Ok(link(&id))
 }
 
 /// One file's bytes to the Worker.
-async fn put(url: &str, token: &str, blob: &web_sys::Blob) -> Result<(), String> {
+async fn put(url: &str, token: &str, blob: &web_sys::Blob) -> Result<(), ShareError> {
     gloo::net::http::Request::put(url)
         .header("Authorization", &format!("Bearer {token}"))
         .body(blob)
-        .map_err(|e| e.to_string())?
+        .map_err(failed("sending a file"))?
         .send()
         .await
-        .map_err(|e| e.to_string())
+        .map_err(failed("sending a file"))
         .and_then(checked)
         .map(|_| ())
 }
 
 /// A response that is not a success, as an error.
-fn checked(r: gloo::net::http::Response) -> Result<gloo::net::http::Response, String> {
+fn checked(r: gloo::net::http::Response) -> Result<gloo::net::http::Response, ShareError> {
     if r.ok() {
         Ok(r)
     } else {
@@ -434,30 +441,32 @@ fn checked(r: gloo::net::http::Response) -> Result<gloo::net::http::Response, St
 }
 
 /// The shares the token may see (`GET <base>/s`), each with its link.
-pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, String> {
+pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, ShareError> {
     if token.is_empty() {
-        return Err(ddi_library::share::NO_TOKEN.into());
+        return Err(ShareError::NoToken);
     }
     let resp = gloo::net::http::Request::get(&format!("{}/s", base()))
         .header("Authorization", &format!("Bearer {token}"))
         .send()
         .await
-        .map_err(|e| format!("reading the shares: {e}"))
+        .map_err(failed("reading the shares"))
         .and_then(checked)?;
-    let listing: ddi_library::share::ShareListing =
-        resp.json().await.map_err(|e| format!("the shares: {e}"))?;
+    let listing: ddi_library::share::ShareListing = resp
+        .json()
+        .await
+        .map_err(|e| ShareError::Answer(e.to_string()))?;
     Ok(ddi_ui::screens::data::SharesView::from_listing(
         listing, link,
     ))
 }
 
 /// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).
-pub(crate) async fn delete(token: &str, id: &str) -> Result<(), String> {
+pub(crate) async fn delete(token: &str, id: &str) -> Result<(), ShareError> {
     gloo::net::http::Request::delete(&format!("{}/s/{id}", base()))
         .header("Authorization", &format!("Bearer {token}"))
         .send()
         .await
-        .map_err(|e| format!("deleting the share: {e}"))
+        .map_err(failed("deleting the share"))
         .and_then(checked)
         .map(|_| ())
 }
@@ -492,7 +501,7 @@ pub(crate) fn download_line() -> Option<String> {
         }
         let done: f64 = d.iter().map(|(_, b, _)| b).sum();
         let total: f64 = d.iter().map(|(_, _, t)| t).sum();
-        Some(ddi_library::share::download_line(done, total))
+        Some(ddi_ui::screens::prompt::download_line(done, total))
     })
 }
 
@@ -532,7 +541,12 @@ fn publish_upload(v: &ShareView) {
     set("doneBytes", v.done_bytes.into());
     set("bytes", v.bytes.into());
     set("link", v.link.as_str().into());
-    set("error", v.error.as_str().into());
+    set(
+        "error",
+        v.error
+            .as_ref()
+            .map_or(wasm_bindgen::JsValue::NULL, |e| e.to_string().into()),
+    );
     let _ = js_sys::Reflect::set(&w, &"__DDI_SHARE_UPLOAD".into(), &o);
 }
 

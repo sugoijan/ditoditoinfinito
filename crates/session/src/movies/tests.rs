@@ -86,15 +86,15 @@ impl VideoDecoder for FakeDecoder {
 struct FakeShell {
     log: Rc<RefCell<Log>>,
     /// Movies that cannot open, and why.
-    broken: Vec<(String, String)>,
+    broken: Vec<(String, VideoError)>,
     /// Answers to [`MovieShell::fall_back`], taken one per call.
-    fall_backs: Vec<Result<bool, String>>,
+    fall_backs: Vec<Result<bool, VideoError>>,
 }
 
 impl MovieShell for FakeShell {
     type Decoder = FakeDecoder;
 
-    fn open(&mut self, name: &str) -> Option<Result<FakeDecoder, String>> {
+    fn open(&mut self, name: &str) -> Option<Result<FakeDecoder, VideoError>> {
         if name == "missing" {
             return None;
         }
@@ -112,7 +112,7 @@ impl MovieShell for FakeShell {
         }))
     }
 
-    fn fall_back(&mut self, _name: &str, _decoder: &mut FakeDecoder) -> Result<bool, String> {
+    fn fall_back(&mut self, _name: &str, _decoder: &mut FakeDecoder) -> Result<bool, VideoError> {
         if self.fall_backs.is_empty() {
             Ok(false)
         } else {
@@ -241,7 +241,7 @@ fn a_movie_that_cannot_open_fails_once() {
     assert_eq!(slots.failed().len(), 1);
     assert_eq!(slots.shell().log.borrow().warnings.len(), 1);
     assert_eq!(
-        slots.trouble().as_deref(),
+        slots.trouble().map(|t| t.to_string()).as_deref(),
         Some("the video b could not play: no such file")
     );
     assert!(!slots.opening_plays(&layers[0]));
@@ -336,7 +336,7 @@ fn a_shell_s_fall_back_starts_the_track_again_or_fails_it() {
     slots.shell_mut().fall_backs = vec![Err("no module".into())];
     run(&mut slots, &layers, 1.0);
     assert!(slots.opened().is_empty(), "a failed movie closes");
-    assert_eq!(slots.failed()[0].1, "no module");
+    assert_eq!(slots.failed()[0].1, VideoError::Decoder("no module".into()));
 }
 
 #[test]

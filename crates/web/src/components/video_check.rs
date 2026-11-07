@@ -604,7 +604,7 @@ async fn next_frame(
             match event {
                 VideoEvent::Frame(f) => return Ok(Some(f)),
                 VideoEvent::End { .. } => return Ok(None),
-                VideoEvent::Error(e) => return Err(e),
+                VideoEvent::Error(e) => return Err(e.to_string()),
                 VideoEvent::Opened(_) => {}
             }
         }
@@ -792,7 +792,7 @@ async fn check_file(
                 VideoEvent::End { .. } => break 'decode,
                 VideoEvent::Error(e) => {
                     check.state = "failed".into();
-                    check.error = Some(e);
+                    check.error = Some(e.to_string());
                     report(check);
                     return frames;
                 }

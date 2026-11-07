@@ -9,9 +9,11 @@
 
 use std::collections::BTreeMap;
 
+use ddi_l10n::UiText;
+use ddi_l10n::msg::pages as pm;
 use serde::Deserialize;
 
-use super::page::{Block, PageDoc};
+use super::page::{Block, PageDoc, PageTitle};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Credits {
@@ -187,21 +189,26 @@ fn short(commit: &str) -> &str {
         .map_or(commit, |(i, _)| &commit[..i])
 }
 
+/// What is not ours to translate (a title, an author, a license's name,
+/// a notice), as the page shows it.
+fn data(text: impl AsRef<str>) -> String {
+    UiText::data(text).into()
+}
+
 fn source(url: &str, path: &str, commit: &str, retrieved: &str) -> Vec<Block> {
     vec![
         Block::Link {
-            label: format!("Source: {url}"),
+            label: pm::credits_source(url).into(),
             url: url.into(),
         },
-        Block::Muted(format!(
-            "commit {}, folder “{path}”{}",
-            short(commit),
+        Block::Muted(
             if retrieved.is_empty() {
-                String::new()
+                pm::credits_commit_folder(short(commit), path)
             } else {
-                format!(", retrieved {retrieved}")
+                pm::credits_commit_folder_retrieved(short(commit), path, retrieved)
             }
-        )),
+            .into(),
+        ),
     ]
 }
 
@@ -209,7 +216,7 @@ fn parts(parts: &[PartCredit]) -> Vec<Block> {
     parts
         .iter()
         .map(|p| Block::Link {
-            label: format!("{}: {} — {}", p.part, p.holders.join(", "), p.spdx),
+            label: data(format!("{}: {} — {}", p.part, p.holders.join(", "), p.spdx)),
             url: p.url.clone(),
         })
         .collect()
@@ -218,35 +225,34 @@ fn parts(parts: &[PartCredit]) -> Vec<Block> {
 fn excluded_and_modified(excluded: &[String], modifications: &[String]) -> Vec<Block> {
     let mut v = Vec::new();
     if !excluded.is_empty() {
-        v.push(Block::Muted(format!(
-            "not included: {}",
-            excluded.join("; ")
-        )));
+        v.push(Block::Muted(
+            pm::credits_not_included(excluded.join("; ")).into(),
+        ));
     }
-    v.push(Block::Muted(if modifications.is_empty() {
-        "modifications: none".into()
-    } else {
-        format!("modifications: {}", modifications.join("; "))
-    }));
+    v.push(Block::Muted(
+        if modifications.is_empty() {
+            pm::credits_no_modifications()
+        } else {
+            pm::credits_modifications(modifications.join("; "))
+        }
+        .into(),
+    ));
     v
 }
 
 /// The page: what the Yew credits showed, in the same order.
 pub fn doc(c: &Credits) -> PageDoc {
-    let mut b = vec![Block::Text(
-        "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs, noteskins and \
-         fonts, the video decoder and the code from other projects are third-party works used \
-         under their own licences, credited here as those licences require. Our announcers \
-         are CC0, credited with what made them."
-            .into(),
-    )];
+    let mut b = vec![Block::Text(pm::credits_about().into())];
     b.push(Block::Link {
-        label: format!("Source: {SOURCE}"),
+        label: pm::credits_source(SOURCE).into(),
         url: SOURCE.into(),
     });
-    b.push(Block::Heading("Songs".into()));
+    b.push(Block::Heading(pm::credits_songs().into()));
     for s in &c.songs {
-        b.push(Block::Subheading(format!("{} — {}", s.title, s.artist)));
+        b.push(Block::Subheading(data(format!(
+            "{} — {}",
+            s.title, s.artist
+        ))));
         b.extend(source(
             &s.source_url,
             &s.source_path,
@@ -260,14 +266,19 @@ pub fn doc(c: &Credits) -> PageDoc {
                 .iter()
                 .map(|(a, charts)| format!("{a} ({})", charts.join(", ")))
                 .collect();
-            b.push(Block::Text(format!("chart authors: {}", authors.join(" "))));
+            b.push(Block::Text(
+                pm::credits_chart_authors(authors.join(" ")).into(),
+            ));
         }
         b.extend(excluded_and_modified(&s.excluded, &s.modifications));
     }
     if !c.noteskins.is_empty() {
-        b.push(Block::Heading("Noteskins".into()));
+        b.push(Block::Heading(pm::credits_noteskins().into()));
         for k in &c.noteskins {
-            b.push(Block::Subheading(format!("{} — {}", k.name, k.author)));
+            b.push(Block::Subheading(data(format!(
+                "{} — {}",
+                k.name, k.author
+            ))));
             b.extend(source(
                 &k.source_url,
                 &k.source_path,
@@ -279,166 +290,147 @@ pub fn doc(c: &Credits) -> PageDoc {
         }
     }
     if !c.announcers.is_empty() {
-        b.push(Block::Heading("Announcers".into()));
+        b.push(Block::Heading(pm::credits_announcers().into()));
         for a in &c.announcers {
-            b.push(Block::Subheading(format!("{} — {}", a.name, a.author)));
-            b.push(Block::Text(format!("{}: {}", a.language, a.made_with)));
+            b.push(Block::Subheading(data(format!(
+                "{} — {}",
+                a.name, a.author
+            ))));
+            b.push(Block::Text(data(format!(
+                "{}: {}",
+                a.language, a.made_with
+            ))));
             b.push(Block::Link {
-                label: format!("Model: {}", a.model_url),
+                label: pm::credits_model(&a.model_url).into(),
                 url: a.model_url.clone(),
             });
-            b.push(Block::Muted(format!(
-                "revision {}{}",
-                short(&a.revision),
+            b.push(Block::Muted(
                 if a.made.is_empty() {
-                    String::new()
+                    pm::credits_revision(short(&a.revision))
                 } else {
-                    format!(", made {}", a.made)
+                    pm::credits_revision_made(short(&a.revision), &a.made)
                 }
-            )));
+                .into(),
+            ));
             b.extend(parts(&a.parts));
             for t in &a.trained_on {
                 b.push(Block::Link {
-                    label: format!(
-                        "its voice ({}) learned from {}: {} — {}",
-                        t.voice,
-                        t.what,
+                    label: pm::credits_learned_from(
+                        &t.voice,
+                        &t.what,
                         t.holders.join(", "),
-                        t.spdx
-                    ),
+                        &t.spdx,
+                    )
+                    .into(),
                     url: t.url.clone(),
                 });
             }
         }
     }
-    b.push(Block::Heading("Fonts".into()));
+    b.push(Block::Heading(pm::credits_fonts().into()));
     for f in &c.fonts {
-        b.push(Block::Text(format!(
+        b.push(Block::Text(data(format!(
             "{}: {} — {}",
             f.file, f.holders, f.spdx
-        )));
+        ))));
         b.push(Block::Link {
-            label: "source".into(),
+            label: pm::credits_source_link().into(),
             url: f.source.clone(),
         });
         if !f.modified.is_empty() {
-            b.push(Block::Muted(format!("modified: {}", f.modified)));
+            b.push(Block::Muted(pm::credits_modified(&f.modified).into()));
         }
     }
     let v = &c.video;
     let tarball = v.tarball.rsplit('/').next().unwrap_or(&v.tarball);
-    b.push(Block::Heading("Video decoder".into()));
-    let desktop = c.platform == super::data::Platform::Desktop;
-    b.push(Block::Text(if desktop {
-        format!(
-            "Background videos play through a separate module, run in a sandbox of its own \
-             when a song needs it. It uses code of {} {} licensed under the {}; its source, \
-             unmodified, comes with the module (SHA-256 {}). It is built by video/build.sh in \
-             this game's repository with the flags below and linked with the game's own code \
-             (MIT).",
-            v.name, v.version, v.spdx, v.tarball_sha256
-        )
-    } else {
-        format!(
-            "Background videos the browser cannot decode play through a separate module, \
-             fetched only when a song needs it. It uses code of {} {} licensed under the {}; \
-             its source, unmodified, is served next to the module (SHA-256 {}). It is built by \
-             video/build.sh in this game's repository with the flags below and linked with the \
-             game's own code (MIT).",
-            v.name, v.version, v.spdx, v.tarball_sha256
-        )
-    }));
+    let platform = c.platform.l10n();
+    b.push(Block::Heading(pm::credits_video().into()));
+    b.push(Block::Text(
+        pm::credits_video_about(platform, &v.name, &v.version, &v.spdx, &v.tarball_sha256).into(),
+    ));
     b.push(Block::Link {
-        label: format!("{} {}", v.name, v.version),
+        label: data(format!("{} {}", v.name, v.version)),
         url: v.homepage.clone(),
     });
     b.push(Block::Link {
-        label: format!("Its source: {tarball}"),
+        label: pm::credits_video_source(tarball).into(),
         url: v.tarball.clone(),
     });
     b.push(Block::Link {
-        label: "The release at FFmpeg".into(),
+        label: pm::credits_video_release().into(),
         url: v.tarball_url.clone(),
     });
     b.push(Block::Link {
-        label: "The tag".into(),
+        label: pm::credits_video_tag().into(),
         url: v.source_url.clone(),
     });
     for comp in &v.components {
         b.push(Block::Link {
-            label: format!("{} — {}", comp.name, comp.spdx),
+            label: data(format!("{} — {}", comp.name, comp.spdx)),
             url: comp.url.clone(),
         });
     }
     b.push(Block::Link {
-        label: "Licence texts".into(),
+        label: pm::credits_video_licenses().into(),
         url: v.notices.clone(),
     });
-    b.push(Block::Muted(if desktop {
-        "(next to the module, in builds that include it)".into()
-    } else {
-        "(served with the module, in builds that include it)".into()
-    }));
+    b.push(Block::Muted(
+        pm::credits_video_licenses_where(platform).into(),
+    ));
     b.push(Block::Fold {
         id: "configure".into(),
-        label: "Configure flags".into(),
+        label: pm::credits_configure().into(),
         body: vec![Block::Mono(v.configure.join("\n"))],
     });
     if !c.code.is_empty() {
-        b.push(Block::Heading("Code from other projects".into()));
+        b.push(Block::Heading(pm::credits_code().into()));
         for (i, k) in c.code.iter().enumerate() {
-            b.push(Block::Subheading(k.name.clone()));
-            b.push(Block::Text(k.what.clone()));
-            b.push(Block::Muted(format!(
-                "{} · commit {}",
-                k.holders.join("; "),
-                short(&k.commit)
-            )));
+            b.push(Block::Subheading(data(&k.name)));
+            b.push(Block::Text(data(&k.what)));
+            b.push(Block::Muted(
+                pm::credits_holders_commit(k.holders.join("; "), short(&k.commit)).into(),
+            ));
             b.push(Block::Link {
-                label: "source".into(),
+                label: pm::credits_source_link().into(),
                 url: k.source.clone(),
             });
             b.push(Block::Link {
-                label: k.license.clone(),
+                label: data(&k.license),
                 url: k.license_url.clone(),
             });
             b.push(Block::Fold {
                 id: format!("notice{i}"),
-                label: "Notice".into(),
+                label: pm::credits_notice().into(),
                 body: vec![Block::Mono(k.notice.clone())],
             });
         }
     }
     if let Some(r) = &c.rust {
-        b.extend(rust(r, desktop));
+        b.extend(rust(r, platform));
     }
     b.push(Block::Gap);
     PageDoc {
-        title: "Credits".into(),
+        title: title(),
         blocks: b,
     }
 }
 
+/// The page's title.
+fn title() -> PageTitle {
+    PageTitle::new(pm::credits_title(), pm::credits_heading())
+}
+
 /// The Rust libraries: what they are, then the list and the notices,
-/// folded (a few hundred lines unfolded).
-fn rust(r: &RustCredits, desktop: bool) -> Vec<Block> {
+/// folded (a few hundred lines unfolded); `platform`: whose build
+/// ([`super::data::Platform::l10n`]).
+fn rust(r: &RustCredits, platform: &str) -> Vec<Block> {
     let mut b = vec![
-        Block::Heading("Rust libraries".into()),
-        Block::Text(format!(
-            "The game is built on {} open-source Rust libraries in {}. Their licences ask \
-             for these notices; where a library offers a choice of licences, the one it is \
-             used under is named.",
-            r.crates.len(),
-            if desktop {
-                "the desktop app"
-            } else {
-                "the web app (with its Opus decoder)"
-            }
-        )),
+        Block::Heading(pm::credits_rust().into()),
+        Block::Text(pm::credits_rust_about(platform, r.crates.len()).into()),
     ];
     b.push(Block::Fold {
         id: "rust-crates".into(),
-        label: format!("The libraries ({})", r.crates.len()),
+        label: pm::credits_rust_crates(r.crates.len()).into(),
         body: r
             .crates
             .iter()
@@ -449,43 +441,45 @@ fn rust(r: &RustCredits, desktop: bool) -> Vec<Block> {
                     .map(|i| (i + 1).to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                Block::Muted(if k.chosen == k.license {
-                    format!(
-                        "{} {} — {} (notice {notices})",
-                        k.name, k.version, k.license
-                    )
-                } else {
-                    format!(
-                        "{} {} — {}, used under {} (notice {notices})",
-                        k.name, k.version, k.license, k.chosen
-                    )
-                })
+                Block::Muted(
+                    if k.chosen == k.license {
+                        pm::credits_rust_crate(&k.name, &k.version, &k.license, notices)
+                    } else {
+                        pm::credits_rust_crate_chosen(
+                            &k.name, &k.version, &k.license, &k.chosen, notices,
+                        )
+                    }
+                    .into(),
+                )
             })
             .collect(),
     });
     b.push(Block::Fold {
         id: "rust-notices".into(),
-        label: format!("Their licence notices ({})", r.notices.len()),
+        label: pm::credits_rust_notices(r.notices.len()).into(),
         body: r
             .notices
             .iter()
             .enumerate()
             .map(|(i, n)| {
                 // A fold's label is one line: a few names, the rest inside.
-                let who = match n.crates.as_slice() {
-                    [a] => a.clone(),
-                    [a, b] => format!("{a}, {b}"),
-                    [a, b, rest @ ..] => format!("{a}, {b} and {} more", rest.len()),
-                    [] => String::new(),
+                let number = (i + 1).to_string();
+                let label = match n.crates.as_slice() {
+                    [a, b, rest @ ..] if !rest.is_empty() => {
+                        pm::credits_rust_notice_more(&number, &n.license, a, b, rest.len())
+                    }
+                    names => pm::credits_rust_notice(&number, &n.license, names.join(", ")),
                 };
                 let mut body = Vec::new();
                 if n.crates.len() > 2 {
-                    body.push(Block::Muted(format!("for {}", n.crates.join(", "))));
+                    body.push(Block::Muted(
+                        pm::credits_rust_notice_for(n.crates.join(", ")).into(),
+                    ));
                 }
                 body.push(Block::Mono(n.text.clone()));
                 Block::Fold {
                     id: format!("rust-notice{i}"),
-                    label: format!("{}. {} — {who}", i + 1, n.license),
+                    label: label.into(),
                     body,
                 }
             })
@@ -497,10 +491,10 @@ fn rust(r: &RustCredits, desktop: bool) -> Vec<Block> {
 /// While the file loads, or when it could not be read.
 pub fn waiting(error: Option<&str>) -> PageDoc {
     PageDoc {
-        title: "Credits".into(),
+        title: title(),
         blocks: vec![match error {
-            None => Block::Muted("loading…".into()),
-            Some(e) => Block::Text(format!("The credits could not be read: {e}")),
+            None => Block::Muted(pm::credits_loading().into()),
+            Some(e) => Block::Text(pm::credits_unreadable(super::errors::error_text(e)).into()),
         }],
     }
 }
@@ -521,7 +515,7 @@ mod rust_tests {
         let at = d
             .blocks
             .iter()
-            .position(|b| *b == Block::Heading("Rust libraries".into()))
+            .position(|b| *b == Block::Heading(pm::credits_rust().into()))
             .expect("the section");
         let folds: Vec<&str> = d.blocks[at..]
             .iter()
@@ -550,9 +544,9 @@ mod rust_tests {
     fn announcers_credit_what_their_voices_learned_from() {
         let d = doc(&sample());
         let at = |b: &Block| d.blocks.iter().position(|x| x == b).expect("the block");
-        let heading = at(&Block::Heading("Announcers".into()));
-        assert!(heading > at(&Block::Heading("Noteskins".into())));
-        assert!(heading < at(&Block::Heading("Fonts".into())));
+        let heading = at(&Block::Heading(pm::credits_announcers().into()));
+        assert!(heading > at(&Block::Heading(pm::credits_noteskins().into())));
+        assert!(heading < at(&Block::Heading(pm::credits_fonts().into())));
         assert_eq!(
             d.blocks[heading + 1],
             Block::Subheading("ガキンさん — すごいジャン".into())

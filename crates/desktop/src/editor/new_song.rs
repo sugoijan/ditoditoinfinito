@@ -107,7 +107,7 @@ pub fn pick(env: &Env, songs: &Rc<Songs>) -> Option<Result<EditorScreen, String>
             songs,
             &m.id,
             m.editor,
-            ddi_ui::state::editor::new_song::STATUS,
+            &ddi_l10n::msg::editor::status_new_song(),
             Some(m.dir),
         )
     }))

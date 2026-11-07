@@ -18,9 +18,10 @@ use ddi_engine::{
     TimingCut, Turn,
 };
 use ddi_platform::DeviceId;
-use ddi_platform::gamepad::Control;
 
-use super::data::{OptionDef, OptionKind, OptionSection, OptionsData, trim_number};
+use super::data::{
+    OptionDef, OptionKind, OptionSection, OptionsData, Platform, lane_name, style_name, trim_number,
+};
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
@@ -28,6 +29,8 @@ use crate::state::settings::{
     Graphics, INFINITO, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
     Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
+use ddi_l10n::UiText;
+use ddi_l10n::msg::{common, options as m};
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
 /// The volume sample.
@@ -110,115 +113,123 @@ pub enum Reset {
 impl Reset {
     /// The confirmation's title, text and button.
     pub fn texts(&self, model: &OptionsModel) -> (String, String, String) {
-        match self {
+        let plays = model.world.plays;
+        let (title, body, yes) = match self {
             Reset::Settings => (
-                "Reset settings?".into(),
-                "Speed, scroll and note options, rules, volume, keys, controller bindings, \
-                 display options and device calibrations go back to their defaults. Imported \
-                 songs and per-song offsets are kept."
-                    .into(),
-                "Reset".into(),
+                m::confirm_settings(),
+                m::confirm_settings_body(),
+                m::confirm_settings_button(),
             ),
             // Desktop reads song folders in place: they are forgotten,
             // never deleted.
             Reset::Songs if model.world.folders.is_some() => (
-                "Forget the song folders?".into(),
-                format!(
-                    "The game stops reading {} and forgets the songs and packs taken off the \
-                     list and the offsets of the folders' songs. Nothing in the folders is \
-                     deleted; settings are kept.",
-                    count(
-                        model.world.folders.as_ref().map_or(0, Vec::len),
-                        "song folder",
-                        "song folders"
-                    ),
-                ),
-                "Forget".into(),
-            ),
-            Reset::Everything if model.world.folders.is_some() => (
-                "Reset everything?".into(),
-                format!(
-                    "Settings back to their defaults, the song folders forgotten (nothing in them \
-                     is deleted), {}, and the offsets of the bundled songs too: like a first \
-                     start.",
-                    plays_deleted(model.world.plays)
-                ),
-                "Reset everything".into(),
+                m::confirm_folders(),
+                m::confirm_folders_body(model.world.folders.as_ref().map_or(0, Vec::len)),
+                m::confirm_folders_button(),
             ),
             Reset::Songs => (
-                "Remove imported songs?".into(),
-                format!(
-                    "Deletes the songs imported into this browser ({}) and their offsets, the \
-                     imported noteskins and announcers and the shared background images ({}). \
-                     Settings are kept.",
-                    count(model.world.imported, "imported song", "imported songs"),
-                    count(model.world.shared, "image", "images")
-                ),
-                "Remove".into(),
+                m::confirm_songs(),
+                m::confirm_songs_body(model.world.imported, model.world.shared),
+                m::confirm_songs_button(),
             ),
             Reset::Everything => (
-                "Reset everything?".into(),
-                format!(
-                    "Settings back to their defaults, imported songs, noteskins and announcers \
-                     removed, {}, and the offsets of the bundled songs too: like a first visit.",
-                    plays_deleted(model.world.plays)
-                ),
-                "Reset everything".into(),
+                m::confirm_everything(),
+                m::confirm_everything_body(model.songs_wording(), plays),
+                m::confirm_everything_button(),
             ),
             Reset::History => (
-                "Reset the play history?".into(),
-                format!(
-                    "Deletes {} kept here, and the bests and lamps they give; songs and settings \
-                     are kept. Export them first to keep a copy.",
-                    match model.world.plays {
-                        1 => "the 1 play".to_string(),
-                        n => format!("the {n} plays"),
-                    }
-                ),
-                "Delete".into(),
+                m::confirm_history(),
+                m::confirm_history_body(plays),
+                m::confirm_history_button(),
             ),
-            Reset::Noteskin(key) => (
-                "Remove this noteskin?".into(),
-                format!(
-                    "{} is removed from this browser; {}",
-                    model.skin_name(Some(key)),
+            Reset::Noteskin(key) => {
+                let skin = model.skin_name(Some(key));
+                (
+                    m::confirm_noteskin(),
                     if crate::state::settings::is_pump_skin(key) {
-                        "the pump styles are drawn with the arrows above again."
+                        m::confirm_pump_noteskin_body(&skin)
                     } else {
-                        "songs play with Infinito again."
-                    }
-                ),
-                "Remove".into(),
-            ),
+                        m::confirm_noteskin_body(&skin)
+                    },
+                    m::confirm_noteskin_button(),
+                )
+            }
             Reset::Announcer(key) => (
-                "Remove this announcer?".into(),
-                format!(
-                    "{} is removed from this browser; plays are silent again.",
-                    model.announcer_name(key)
-                ),
-                "Remove".into(),
+                m::confirm_announcer(),
+                m::confirm_announcer_body(model.announcer_name(key)),
+                m::confirm_announcer_button(),
             ),
-        }
+        };
+        (title.into(), body.into(), yes.into())
     }
 }
 
 /// The play history's buttons: Export and Reset with plays kept, Import
 /// unless one runs.
-fn history_buttons(plays: usize, importing: bool) -> &'static [&'static str] {
+fn history_buttons(plays: usize, importing: bool) -> &'static [HistoryButton] {
+    use HistoryButton::*;
     match (plays, importing) {
-        (0, false) => &["Import…"],
+        (0, false) => &[Import],
         (0, true) => &[],
-        (_, false) => &["Export", "Import…", "Reset"],
-        (_, true) => &["Export"],
+        (_, false) => &[Export, Import, Reset],
+        (_, true) => &[Export],
     }
 }
 
-/// "the 3 plays kept deleted" (a reset's part).
-fn plays_deleted(n: usize) -> String {
-    match n {
-        0 => "the play history (empty) cleared".to_string(),
-        1 => "the 1 play kept deleted".to_string(),
-        n => format!("the {n} plays kept deleted"),
+/// A button of the play history's row, as [`OptionsModel::action`] tells
+/// them apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HistoryButton {
+    Export,
+    Import,
+    Reset,
+}
+
+impl HistoryButton {
+    fn label(self) -> UiText {
+        match self {
+            HistoryButton::Export => m::history_export(),
+            HistoryButton::Import => m::history_import(),
+            HistoryButton::Reset => m::history_reset(),
+        }
+    }
+}
+
+/// A button of a controller's row, as [`OptionsModel::action`] tells them
+/// apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PadButton {
+    Bind,
+    Clear,
+    Defaults,
+    Forget,
+}
+
+impl PadButton {
+    fn label(self) -> UiText {
+        match self {
+            PadButton::Bind => m::pad_bind(),
+            PadButton::Clear => m::pad_clear(),
+            PadButton::Defaults => m::pad_defaults(),
+            PadButton::Forget => m::pad_forget(),
+        }
+    }
+}
+
+/// A button of a controller's lane row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LaneButton {
+    /// One more control for the lane (its next press).
+    Add,
+    Clear,
+}
+
+impl LaneButton {
+    fn label(self) -> UiText {
+        match self {
+            LaneButton::Add => m::pad_lane_add(),
+            LaneButton::Clear => m::pad_lane_clear(),
+        }
     }
 }
 
@@ -375,14 +386,18 @@ impl OptionsModel {
             .bind_layouts()
             .into_iter()
             .find(|l| l.id == shown)
-            .map_or_else(|| shown.to_string(), |l| l.name);
-        let mut preview = vec![
-            self.skin_name(s.noteskin_for(shown)),
-            style,
-            format!("×{}", trim_number(s.speed, 2)),
+            .map_or_else(|| UiText::data(shown), |l| style_name(&l.id, &l.name));
+        // A line of tags, " · " between them.
+        let mut preview: Vec<String> = vec![
+            UiText::data(self.skin_name(s.noteskin_for(shown))).into(),
+            style.into(),
+            speed_text(s.speed),
         ];
         if s.reverse {
-            preview.push("Reverse".into());
+            preview.push(m::preview_reverse().into());
+        }
+        if s.dancing_hand_for(shown) {
+            preview.push(m::preview_standing_hand().into());
         }
         OptionsData {
             sections: vec![
@@ -402,11 +417,7 @@ impl OptionsModel {
             .collect(),
             preview_layout: Some(self.preview_layout_option()),
             preview_whole_play: s.dancing_hand_for(shown),
-            preview: if s.dancing_hand_for(shown) {
-                format!("{} · Standing hand", preview.join(" · "))
-            } else {
-                preview.join(" · ")
-            },
+            preview: preview.join(" · "),
             notice: self.notice.clone(),
         }
     }
@@ -440,49 +451,63 @@ impl OptionsModel {
     fn scroll(&self) -> OptionSection {
         let s = &self.settings;
         let values = self.speeds();
-        let speeds: Vec<String> = values
-            .iter()
-            .map(|v| format!("×{}", trim_number(*v, 2)))
-            .collect();
+        let speeds: Vec<String> = values.iter().map(|v| speed_text(*v)).collect();
         let at = values
             .iter()
             .position(|v| (v - s.speed).abs() < 1e-6)
             .unwrap_or(0);
         section(
             "Scroll",
+            m::section_scroll(),
             vec![
                 row(
                     "speed",
-                    "Speed",
+                    m::speed(),
                     OptionKind::Stepper(speeds),
                     at,
-                    "How fast the arrows scroll: the chart's tempo times this.",
+                    m::speed_description(),
                 ),
                 choice(
                     "speed_source",
-                    "Charts with their own speed",
-                    &["Mine", "The chart's"],
+                    m::speed_source(),
+                    [m::speed_source_mine(), m::speed_source_chart()],
                     pos(&SPEED_SOURCES, s.speed_source),
-                    "Some charts set their own scroll speed (Dancing☆Onigiri works): play them \
-                     at the speed above, or at theirs.",
+                    m::speed_source_description(),
                 ),
                 choice(
                     "reverse",
-                    "Reverse",
-                    &["Off", "On"],
+                    m::reverse(),
+                    on_off(),
                     s.reverse as usize,
-                    "Arrows scroll down to receptors at the bottom.",
+                    m::reverse_description(),
                 ),
                 choice(
                     "scroll_action",
-                    "Scroll action",
-                    &["Normal", "Boost", "Brake", "Wave"],
+                    m::scroll_action(),
+                    [
+                        m::scroll_action_normal(),
+                        m::scroll_action_boost(),
+                        m::scroll_action_brake(),
+                        m::scroll_action_wave(),
+                    ],
                     pos(&SCROLL_ACTIONS, s.scroll_action),
-                    "Boost speeds the arrows up near the receptors, Brake slows them down, Wave \
-                     sways them.",
+                    m::scroll_action_description(),
                 ),
             ],
         )
+    }
+
+    /// The lane cover's description: how it moves in play, on the
+    /// keyboard or the controller the hints follow.
+    fn cover_description(&self) -> UiText {
+        if !self.world.hints.active() {
+            m::lane_cover_description_keys()
+        } else {
+            match self.world.hints.cover_start() {
+                Some(start) => m::lane_cover_description_pad(start),
+                None => m::lane_cover_description_unbound(),
+            }
+        }
     }
 
     fn notes(&self) -> OptionSection {
@@ -490,131 +515,143 @@ impl OptionsModel {
         let t = &s.transform;
         let mut cut = choice(
             "cut",
-            "Notes",
-            &["All", "Quarters", "Quarters and eighths"],
+            m::cut(),
+            [m::cut_all(), m::cut_quarters(), m::cut_eighths()],
             pos(&CUTS, t.cut),
-            "Leaves out the faster notes. Simplified plays are marked as assisted on the \
-             results.",
+            m::cut_description(),
         );
-        cut.heading = Some("SIMPLIFY".into());
+        cut.heading = Some(m::heading_simplify().into());
         let cover = s.lane_cover;
         let mut rows = vec![
             choice(
                 "turn",
-                "Turn",
-                &["Off", "Mirror", "Left", "Right", "Shuffle"],
+                m::turn(),
+                [
+                    common::off(),
+                    m::turn_mirror(),
+                    m::turn_left(),
+                    m::turn_right(),
+                    m::turn_shuffle(),
+                ],
                 pos(&TURNS, t.turn),
-                "Moves every arrow to another lane, the same way for the whole chart; Shuffle \
-                     makes a new lane order each play.",
+                m::turn_description(),
             ),
             choice(
                 "appearance",
-                "Appearance",
-                &["Normal", "Hidden", "Sudden", "Both", "Stealth"],
+                m::appearance(),
+                [
+                    m::appearance_normal(),
+                    m::appearance_hidden(),
+                    m::appearance_sudden(),
+                    m::appearance_both(),
+                    m::appearance_stealth(),
+                ],
                 pos(&APPEARANCES, s.appearance),
-                "Hidden: notes vanish before the receptors. Sudden: they appear late. \
-                     Stealth: no notes at all.",
+                m::appearance_description(),
             ),
             choice(
                 "lane_cover",
-                "Lane cover",
-                &["Off", "Sudden+", "Hidden+", "Both"],
+                m::lane_cover(),
+                [
+                    common::off(),
+                    m::lane_cover_sudden(),
+                    m::lane_cover_hidden(),
+                    m::lane_cover_both(),
+                ],
                 pos(&COVER_MODES, cover.mode),
-                &format!(
-                    "A panel over the lanes. Sudden+ covers the end the notes come from, Hidden+ the end they go to. {}",
-                    if self.world.hints.active() {
-                        self.world.hints.cover_instruction().unwrap_or_else(|| "Bind a controller Start control to move or toggle the cover during play.".into())
-                    } else {
-                        "In play, Page Up and Page Down move it and Enter hides or shows it.".into()
-                    }
-                ),
+                self.cover_description(),
             ),
         ];
         if cover.mode.sudden() {
-            rows.push(cover_height("cover_sudden", "Sudden+", cover.sudden));
+            rows.push(cover_height(
+                "cover_sudden",
+                m::cover_sudden_height(),
+                m::cover_sudden_description(),
+                cover.sudden,
+            ));
         }
         if cover.mode.hidden() {
-            rows.push(cover_height("cover_hidden", "Hidden+", cover.hidden));
+            rows.push(cover_height(
+                "cover_hidden",
+                m::cover_hidden_height(),
+                m::cover_hidden_description(),
+                cover.hidden,
+            ));
         }
         rows.extend([
             cut,
             choice(
                 "simplify_onigiri",
-                "Without onigiri",
-                &["Off", "On"],
+                m::simplify_onigiri(),
+                on_off(),
                 s.simplify_onigiri as usize,
-                "Adds separate DanOni charts to Single, Solo, Double and Techno 8-panel, \
-                     without the onigiri notes. Only these versions are marked as assisted; \
-                     the original charts stay available.",
+                m::simplify_onigiri_description(),
             ),
             choice(
                 "simplify_center",
-                "Without center",
-                &["Off", "Where missing", "All"],
+                m::simplify_center(),
+                [
+                    common::off(),
+                    m::simplify_center_missing(),
+                    m::simplify_center_all(),
+                ],
                 pos(&CENTER_VERSIONS, s.simplify_center),
-                "Adds Pump charts to Single and Double without the center notes, each pad \
-                     turned an eighth clockwise, marked as assisted. Where missing: only at \
-                     difficulties the song has no chart of there.",
+                m::simplify_center_description(),
             ),
             choice(
                 "at_once",
-                "At once",
-                &["Any", "Up to two", "One"],
+                m::at_once(),
+                [m::at_once_any(), m::at_once_two(), m::at_once_one()],
                 pos(&AT_ONCE, t.at_once),
-                "The most panels pressed at once, holds included: Up to two keeps jumps but \
-                     leaves out arrows meant for a hand or a keyboard, One leaves out jumps too. \
-                     The leftmost arrows go first.",
+                m::at_once_description(),
             ),
             choice(
                 "no_stretch",
-                "No stretch",
-                &["Off", "On"],
+                m::no_stretch(),
+                on_off(),
                 t.no_stretch as usize,
-                "Leaves out wide combinations on Double, Pump half-double/double and DanOni 9A. \
-                     Existing holds stay; new leftmost notes go first. Marks the play assisted.",
+                m::no_stretch_description(),
             ),
             choice(
                 "no_holds",
-                "No holds",
-                &["Off", "On"],
+                m::no_holds(),
+                on_off(),
                 t.no_holds as usize,
-                "Holds and rolls become single taps.",
+                m::no_holds_description(),
             ),
         ]);
         let mut pump_single = choice(
             "convert_pump_single",
-            "Pump on 5 keys",
-            &["Off", "On"],
+            m::convert_pump_single(),
+            on_off(),
             s.convert_pump_single as usize,
-            "Adds Pump single charts to 5 keys: the center on the onigiri, the corners turned \
-             an eighth clockwise. Marked as converted, played by the original's rules.",
+            m::convert_pump_single_description(),
         );
-        pump_single.heading = Some("CONVERT".into());
+        pump_single.heading = Some(m::heading_convert().into());
         rows.extend([
             pump_single,
             choice(
                 "convert_five_keys",
-                "5 keys on Pump",
-                &["Off", "On"],
+                m::convert_five_keys(),
+                on_off(),
                 s.convert_five_keys as usize,
-                "Adds DanOni 5-key charts to Pump single: the onigiri on the center, the \
-                 arrows turned onto the corners. Marked as converted, played by the original's \
-                 rules.",
+                m::convert_five_keys_description(),
             ),
         ]);
-        section("Notes", rows)
+        section("Notes", m::section_notes(), rows)
     }
 
     fn rules(&self) -> OptionSection {
         let s = &self.settings;
         let presets = ddi_engine::rules::presets::all();
+        // The rulesets keep the names their games give them.
         let names: Vec<String> = presets
             .iter()
             .map(|r| {
                 if r.approximate {
-                    format!("{} (approximate)", r.name)
+                    m::ruleset_approximate(&r.name).into()
                 } else {
-                    r.name.clone()
+                    UiText::data(&r.name).into()
                 }
             })
             .collect();
@@ -623,121 +660,129 @@ impl OptionsModel {
             .iter()
             .position(|(g, _)| *g == s.danoni.gauge.as_deref())
             .unwrap_or(0);
+        // Dancing☆Onigiri's gauges and judge ranges, and DDR's gauges,
+        // keep their games' names.
+        let gauges = DANONI_GAUGES.map(|(gauge, border)| match (gauge, border) {
+            (None, _) => m::danoni_gauge_first(),
+            (Some(g), true) => m::danoni_gauge_border(g),
+            (Some(g), false) => UiText::data(g),
+        });
         let mut gauge = choice(
             "danoni.gauge",
-            "Gauge",
-            &DANONI_GAUGES.map(|(_, n)| n),
+            m::danoni_gauge(),
+            gauges,
             gauge_at,
-            "Used for the charts played by Dancing☆Onigiri rules. A chart may offer its own \
-             gauges; one it does not offer plays its first.",
+            m::danoni_gauge_description(),
         );
-        gauge.heading = Some("DANCING☆ONIGIRI RULES".into());
+        gauge.heading = Some(m::heading_danoni().into());
         section(
             "Rules",
+            m::section_rules(),
             vec![
                 choice(
                     "ruleset_mode",
-                    "Rules for each chart",
-                    &["The ruleset below", "The chart's game", "Dancing☆Onigiri"],
+                    m::ruleset_mode(),
+                    [
+                        m::ruleset_mode_ruleset(),
+                        m::ruleset_mode_game(),
+                        m::ruleset_mode_danoni(),
+                    ],
                     pos(&RULESET_MODES, s.ruleset_mode),
-                    "The ruleset below for every chart, the rules of the game each chart was made \
-                     for (Dancing☆Onigiri works and FFR levels by theirs, the rest by the ruleset \
-                     below), or Dancing☆Onigiri rules for every chart.",
+                    m::ruleset_mode_description(),
                 ),
                 row(
                     "ruleset",
-                    "Ruleset",
+                    m::ruleset(),
                     OptionKind::Choices(names),
                     at,
-                    "How timing is judged and scored, after the game that set the rules.",
+                    m::ruleset_description(),
                 ),
                 choice(
                     "holds",
-                    "Holds",
-                    &["By game", "Dance", "Ticked"],
+                    m::holds(),
+                    [m::holds_by_game(), m::holds_dance(), m::holds_ticked()],
                     pos(&HOLD_STYLES, s.holds),
-                    "Ticked holds count at steady ticks while held, each adding to the combo and \
-                     the score; dance-style holds give one result at their end. By game: ticked \
-                     on pump charts. Dancing☆Onigiri charts keep their own.",
+                    m::holds_description(),
                 ),
                 choice(
                     "fail",
-                    "Fail",
-                    &["Immediate", "Delayed", "Fail at end", "Off"],
+                    m::fail(),
+                    [
+                        m::fail_immediate(),
+                        m::fail_delayed(),
+                        m::fail_at_end(),
+                        common::off(),
+                    ],
                     pos(&FailType::ALL, s.stepmania.fail),
-                    "When an empty life bar fails the play: at once, ending the song; at once \
-                     but playing on to the end; only if it is still empty at the end; or never. \
-                     The results say when the bar emptied. FFR's rules always fail at once.",
+                    m::fail_description(),
                 ),
                 row(
                     "life",
-                    "Life difficulty",
+                    m::life_difficulty(),
                     OptionKind::Stepper(levels(LIFE_SCALES.len())),
                     level_index(s.stepmania.life),
-                    "Higher drains the life bar faster and refills it slower (StepMania's levels; \
-                     4 is the ruleset's own). DDR A's gauge and FFR's life keep their own.",
+                    m::life_difficulty_description(),
                 ),
                 row(
                     "judge",
-                    "Judge difficulty",
+                    m::judge_difficulty(),
+                    // StepMania's levels, the last its Justice.
                     OptionKind::Stepper(
                         (1..=JUDGE_SCALES.len() as u8)
-                            .map(StepManiaOptions::judge_name)
+                            .map(|l| UiText::data(StepManiaOptions::judge_name(l)).into())
                             .collect(),
                     ),
                     level_index(s.stepmania.judge),
-                    "Higher narrows every timing window (StepMania's levels; 4 is the ruleset's \
-                     own, Justice the narrowest). Bests are kept apart for each level. FFR's \
-                     rules keep their own windows.",
+                    m::judge_difficulty_description(),
                 ),
                 choice(
                     "life_type",
-                    "Life",
-                    &["Bar", "Battery"],
+                    m::life_type(),
+                    [m::life_type_bar(), m::life_type_battery()],
                     pos(&LifeType::ALL, s.stepmania.life_type),
-                    "The ruleset's life bar, or a battery of lives: one lost for each step worse \
-                     than a Great, each mine stepped on and each hold let go. Not under FFR's \
-                     rules.",
+                    m::life_type_description(),
                 ),
                 row(
                     "lives",
-                    "Battery lives",
+                    m::lives(),
                     OptionKind::Stepper(levels(usize::from(StepManiaOptions::MAX_LIVES))),
                     level_index(s.stepmania.lives),
-                    "How many lives the battery starts with.",
+                    m::lives_description(),
                 ),
-                row(
+                choice(
                     "ddr_gauge",
-                    "DDR gauge",
-                    OptionKind::Choices(DdrGauge::ALL.iter().map(|g| g.name()).collect()),
+                    m::ddr_gauge(),
+                    DdrGauge::ALL.iter().map(|g| match g {
+                        DdrGauge::Normal => m::ddr_gauge_normal(),
+                        g => UiText::data(g.name()),
+                    }),
                     DdrGauge::ALL
                         .iter()
                         .position(|g| *g == s.stepmania.gauge.sanitized())
                         .unwrap_or(0),
-                    "DDR A's gauge: LIFE4 has four lives, RISKY one. FLARE never refills and \
-                     keeps its level as a rank; FLOATING FLARE drops a level when one empties.",
+                    m::ddr_gauge_description(),
                 ),
                 gauge,
                 choice(
                     "danoni.range",
-                    "Judge range",
-                    &JudgeRange::ALL.map(|r| r.name()),
+                    m::danoni_range(),
+                    JudgeRange::ALL.map(|r| UiText::data(r.name())),
                     JudgeRange::ALL
                         .iter()
                         .position(|r| *r == s.danoni.range)
                         .unwrap_or(0),
-                    "How wide the judgement windows are under Dancing☆Onigiri rules.",
+                    m::danoni_range_description(),
                 ),
                 choice(
                     "danoni.excessive",
-                    "Excessive",
-                    &["As the chart says", "Off", "On"],
+                    m::danoni_excessive(),
+                    [m::danoni_excessive_chart(), common::off(), common::on()],
                     match s.danoni.excessive {
                         None => 0,
                         Some(false) => 1,
                         Some(true) => 2,
                     },
-                    "Early stray presses cost life.",
+                    m::danoni_excessive_description(),
                 ),
             ],
         )
@@ -748,26 +793,24 @@ impl OptionsModel {
         let mut rows = vec![
             actions(
                 CALIBRATE,
-                "Calibration",
-                &["Calibrate"],
+                m::calibration(),
+                [common::calibrate()],
                 "",
-                "Measures your audio and display offsets by playing along.",
+                m::calibration_description(),
             ),
             offset(
                 "audio_offset",
-                "Default audio offset",
+                m::audio_offset(),
                 s.audio_offset,
                 "",
-                "For audio without a profile. Positive: you hear the music later than the clock \
-                 says (typical for Bluetooth).",
+                m::audio_offset_description(),
             ),
             offset(
                 "visual_offset",
-                "Default visual offset",
+                m::visual_offset(),
                 s.visual_offset,
                 "",
-                "For displays without a profile. Positive: arrows are drawn as if the song were \
-                 slightly ahead.",
+                m::visual_offset_description(),
             ),
         ];
         let mut first = true;
@@ -778,88 +821,91 @@ impl OptionsModel {
             for (i, p) in list.iter().enumerate() {
                 let mut r = offset(
                     &format!("profile.{kind}.{i}"),
-                    &format!("{}: {}", super::capitalized(kind), p.label),
+                    if kind == "audio" {
+                        m::profile_audio(device_name(p))
+                    } else {
+                        m::profile_display(device_name(p))
+                    },
                     p.offset,
                     if p.calibrated {
-                        "calibrated"
+                        m::profile_calibrated()
                     } else {
-                        "default"
+                        m::profile_default()
                     },
-                    "Offsets are kept per audio path and per display; the game picks the matching \
-                     one when a song starts.",
+                    m::profile_description(),
                 );
                 if first {
-                    r.heading = Some("KNOWN DEVICES".into());
+                    r.heading = Some(m::heading_known_devices().into());
                     first = false;
                 }
                 rows.push(r);
                 rows.push(actions(
                     &format!("forget.{kind}.{i}"),
                     "",
-                    &["Forget"],
+                    [m::profile_forget()],
                     "",
-                    "Forgets this device: the game asks to calibrate when it meets it again.",
+                    m::profile_forget_description(),
                 ));
             }
         }
-        section("Timing", rows)
+        section("Timing", m::section_timing(), rows)
     }
 
     fn sound(&self) -> OptionSection {
         let s = &self.settings;
         let percent = (volume_to_slider(s.volume) * 100.0).round() as usize;
-        let db = if s.volume > 0.0 {
-            format!("{:.0} dB", 20.0 * s.volume.log10())
-        } else {
-            "muted".into()
-        };
         let mut volume = row(
             "volume",
-            "Music volume",
-            OptionKind::Slider((0..=100).map(|v| format!("{v}%")).collect()),
+            m::volume(),
+            OptionKind::Slider(percents(0..=100)),
             percent.min(100),
-            "How loud the music plays (equal steps are about equal in loudness).",
+            m::volume_description(),
         );
-        volume.note = db;
+        volume.note = decibels(s.volume);
         let mut v = vec![volume];
         let label = match self.world.sample {
             Sample::None => None,
-            Sample::Ready => Some("Play a sample"),
-            Sample::Playing => Some("Stop"),
+            Sample::Ready => Some(m::sample_play()),
+            Sample::Playing => Some(m::sample_stop()),
         };
         if let Some(l) = label {
             v.push(actions(
                 "sample",
-                "Sample",
-                &[l],
+                m::sample(),
+                [l],
                 "",
-                "Plays a song's preview at this volume.",
+                m::sample_description(),
             ));
         }
         v.push(choice(
             "assist_clap",
-            "Assist clap",
-            &["Off", "On"],
+            m::assist_clap(),
+            on_off(),
             s.assist_clap as usize,
-            "A clap on every row of notes, right on the beat: to hear where the steps fall.",
+            m::assist_clap_description(),
         ));
         v.push(choice(
             "mine_sound",
-            "Mine sound",
-            &["Off", "On"],
+            m::mine_sound(),
+            on_off(),
             s.mine_sound as usize,
-            "A sound when you step on a mine or a shock arrow.",
+            m::mine_sound_description(),
         ));
         v.extend(self.announcer_rows());
-        section("Sound", v)
+        section("Sound", m::section_sound(), v)
     }
 
     /// The announcer, its volume, and removing it (the web's, imported).
     fn announcer_rows(&self) -> Vec<OptionDef> {
         let s = &self.settings;
-        let desktop = self.world.platform == super::data::Platform::Desktop;
-        let mut names = vec!["Off".to_string()];
-        names.extend(self.world.announcers.iter().map(|(_, n)| n.clone()));
+        let desktop = self.world.platform == Platform::Desktop;
+        let mut names: Vec<String> = vec![common::off().into()];
+        names.extend(
+            self.world
+                .announcers
+                .iter()
+                .map(|(_, n)| UiText::data(n).into()),
+        );
         let listed = |k: &str| self.world.announcers.iter().position(|(key, _)| key == k);
         let at = match s.announcer.as_deref() {
             None => 0,
@@ -867,7 +913,7 @@ impl OptionsModel {
                 // Not listed yet (desktop's folders are walked after the
                 // screen opens): shown by its key meanwhile.
                 || {
-                    names.push(k.to_string());
+                    names.push(UiText::data(k).into());
                     names.len() - 1
                 },
                 |i| i + 1,
@@ -876,26 +922,18 @@ impl OptionsModel {
         let studio = (!desktop).then(|| {
             actions(
                 "announcer.studio",
-                "Your own announcer",
-                &["Make one…"],
+                m::announcer_studio(),
+                [m::announcer_studio_button()],
                 "",
-                "Opens the announcer studio: bring recordings of your voice, hear each line where \
-                 the game says it, then use it here or share it.",
+                m::announcer_studio_description(),
             )
         });
         let mut rows = vec![row(
             "announcer",
-            "Announcer",
+            m::announcer(),
             OptionKind::Choices(names),
             at,
-            if desktop {
-                "A voice that comments on your plays and calls your grade: one that comes with the \
-                 game, or an announcer pack (StepMania's, or its forks') in a song folder's \
-                 Announcers folder."
-            } else {
-                "A voice that comments on your plays and calls your grade: one that comes with the \
-                 game, or an announcer pack (StepMania's, or its forks') imported with Add songs."
-            },
+            m::announcer_description(self.world.platform.l10n()),
         )];
         let Some(key) = s.announcer.as_deref() else {
             rows.extend(studio);
@@ -904,26 +942,21 @@ impl OptionsModel {
         let percent = (volume_to_slider(s.announcer_volume) * 100.0).round() as usize;
         let mut volume = row(
             "announcer_volume",
-            "Announcer volume",
-            OptionKind::Slider((0..=100).map(|v| format!("{v}%")).collect()),
+            m::announcer_volume(),
+            OptionKind::Slider(percents(0..=100)),
             percent.min(100),
-            "How loud the announcer speaks, as a share of the music volume (muting the music \
-             mutes it too).",
+            m::announcer_volume_description(),
         );
-        volume.note = if s.announcer_volume > 0.0 {
-            format!("{:.0} dB", 20.0 * s.announcer_volume.log10())
-        } else {
-            "muted".into()
-        };
+        volume.note = decibels(s.announcer_volume);
         rows.push(volume);
         // Ours come with the game.
         if !desktop && listed(key).is_some() && !ddi_library::announcer::is_bundled(key) {
             rows.push(actions(
                 "announcer.remove",
-                "This announcer",
-                &["Remove"],
+                m::announcer_remove(),
+                [m::announcer_remove_button()],
                 "",
-                "Removes the imported announcer from this browser.",
+                m::announcer_remove_description(),
             ));
         }
         rows.extend(studio);
@@ -939,219 +972,240 @@ impl OptionsModel {
             .unwrap_or(0);
         let mut demo = actions(
             "demo",
-            "Autoplay demo",
-            &["Play", "On WebGL2"],
+            m::demo(),
+            [m::demo_play(), m::demo_webgl2()],
             "",
-            "Diagnostics: a bundled song played by itself (WebGL2 forces the fallback \
-             renderer).",
+            m::demo_description(),
         );
-        demo.heading = Some("DIAGNOSTICS".into());
+        demo.heading = Some(m::heading_diagnostics().into());
         let mut brightness = row(
             "bg_brightness",
-            "Background brightness",
+            m::bg_brightness(),
             OptionKind::Stepper(
                 (0..=20)
                     .map(|v| {
                         if v == 0 {
-                            "Off".into()
+                            common::off().into()
                         } else {
-                            format!("{}%", v * 5)
+                            m::percent(v * 5).into()
                         }
                     })
                     .collect(),
             ),
             bg.min(20),
-            "How bright songs' backgrounds are behind the field; off shows none.",
+            m::bg_brightness_description(),
         );
-        brightness.heading = Some("BACKGROUNDS".into());
-        let mut menus = choice(
+        brightness.heading = Some(m::heading_backgrounds().into());
+        let mut menus = self.language_row();
+        menus.heading = Some(m::heading_menus().into());
+        let motion = choice(
             "reduced_motion",
-            "Reduced motion",
-            &["As the system", "On", "Off"],
+            m::reduced_motion(),
+            [m::reduced_motion_system(), common::on(), common::off()],
             pos(&REDUCED_MOTION, s.reduced_motion),
-            "No slides in the menus, and their art held still.",
+            m::reduced_motion_description(),
         );
-        menus.heading = Some("MENUS".into());
         section(
             "Display",
+            m::section_display(),
             vec![
                 choice(
                     "field_place",
-                    "Field position",
-                    &["Center", "Left", "Right", "Near left", "Near right"],
+                    m::field_place(),
+                    [
+                        m::field_place_center(),
+                        m::field_place_left(),
+                        m::field_place_right(),
+                        m::field_place_near_left(),
+                        m::field_place_near_right(),
+                    ],
                     pos(&FIELD_PLACES, s.field_place),
-                    "Where the lanes are on the screen: in the middle, or in the middle of its \
-                     left or right half.",
+                    m::field_place_description(),
                 ),
                 choice(
                     "show_deltas",
-                    "Timing error of each hit",
-                    &["Off", "On"],
+                    m::show_deltas(),
+                    on_off(),
                     s.show_deltas as usize,
-                    "Shows how many milliseconds early or late each hit was.",
+                    m::show_deltas_description(),
                 ),
                 choice(
                     "dancing_hand",
-                    "Dancing hand",
-                    &["Off", "On"],
+                    m::dancing_hand(),
+                    on_off(),
                     s.dancing_hand as usize,
-                    "A hand dances along to four-panel and five-key charts (Oni on the center tile). Uses at most two simultaneous presses, including holds.",
+                    m::dancing_hand_description(),
                 ),
                 choice(
                     "hand_layout",
-                    "Field + hand layout",
-                    &[
-                        "Follow field",
-                        "Field right / hand left",
-                        "Field left / hand right",
-                        "Field center / hand right",
-                        "Field center / hand left",
-                        "Field near right / hand near left",
-                        "Field near left / hand near right",
+                    m::hand_layout(),
+                    [
+                        m::hand_layout_follow(),
+                        m::hand_layout_right_left(),
+                        m::hand_layout_left_right(),
+                        m::hand_layout_center_right(),
+                        m::hand_layout_center_left(),
+                        m::hand_layout_near_right_left(),
+                        m::hand_layout_near_left_right(),
                     ],
                     pos(&HandLayout::ALL, s.hand_layout),
-                    "Places both views together. Changing Field position returns to Follow field. The preview shows the hand's standing reference pose.",
+                    m::hand_layout_description(),
                 ),
                 choice(
                     "hand_frame_width",
-                    "Hand frame width",
-                    &["30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"],
+                    m::hand_frame_width(),
+                    (3..=10).map(|t| m::percent(t * 10)),
                     usize::from(s.hand_frame_width.clamp(30, 100) - 30) / 10,
-                    "Width of the hand's camera frame as a share of the screen. It may extend behind the note band.",
+                    m::hand_frame_width_description(),
                 ),
                 choice(
                     "hand_frame_height",
-                    "Hand frame height",
-                    &["50%", "60%", "70%", "80%", "90%", "100%"],
+                    m::hand_frame_height(),
+                    (5..=10).map(|t| m::percent(t * 10)),
                     usize::from(s.hand_frame_height.clamp(50, 100) - 50) / 10,
-                    "Height of the hand's camera frame, aligned to the bottom with a small margin.",
+                    m::hand_frame_height_description(),
                 ),
                 choice(
                     "ghost",
-                    "Ghost of your best",
-                    &["Off", "On"],
+                    m::ghost(),
+                    on_off(),
                     s.ghost as usize,
-                    "Shows, under the score, how far ahead of your best play of the chart you are, \
-                     or behind it.",
+                    m::ghost_description(),
                 ),
                 choice(
                     "receptor_snap",
-                    "Receptor snap",
-                    &["Off", "On"],
+                    m::receptor_snap(),
+                    on_off(),
                     s.receptor_snap as usize,
-                    "Draws a note exactly on the receptor in its closest frame.",
+                    m::receptor_snap_description(),
                 ),
                 choice(
                     "lyrics",
-                    "Lyrics",
-                    &["Off", "On"],
+                    m::lyrics(),
+                    on_off(),
                     s.lyrics as usize,
-                    "Shows the lyrics of songs that have them (Dancing☆Onigiri works, songs with a \
-                     lyrics file).",
+                    m::lyrics_description(),
                 ),
                 brightness,
                 choice(
                     "video",
-                    "Background videos",
-                    &["Automatic", "On", "Off"],
+                    m::video(),
+                    [m::video_auto(), common::on(), common::off()],
                     pos(&VIDEOS, s.video),
-                    "Videos play behind the field in time with the music; automatic turns one off \
-                     for the rest of a song when it costs frames. Off never loads the decoder.",
+                    m::video_description(),
                 ),
                 choice(
                     "random_movies",
-                    "Random movies",
-                    &["Off", "On"],
+                    m::random_movies(),
+                    on_off(),
                     s.random_movies as usize,
-                    "Videos from a RandomMovies folder play behind songs without background \
-                     changes, a new one every four measures, as StepMania plays them.",
+                    m::random_movies_description(),
                 ),
                 choice(
                     "generated_background",
-                    "Generated background",
-                    &[
-                        "Off",
-                        "Spectrum bars",
-                        "Kaleidoscope",
-                        "Field and lines",
-                        "Outline rain",
+                    m::generated_background(),
+                    [
+                        common::off(),
+                        m::generated_background_bars(),
+                        m::generated_background_kaleidoscope(),
+                        m::generated_background_field(),
+                        m::generated_background_rain(),
                     ],
                     pos(&GENERATED, s.generated_background),
-                    "Drawn from the music in place of a missing song background (not for \
-                     Dancing☆Onigiri works, whose layers are their background). Off shows the \
-                     plain ground.",
+                    m::generated_background_description(),
                 ),
                 choice(
                     "generated_over_pictures",
-                    "Over song backgrounds",
-                    &["Off", "On"],
+                    m::generated_over_pictures(),
+                    on_off(),
                     s.generated_over_pictures as usize,
-                    "Draws the generated background over a song's own background picture too \
-                     (the kaleidoscope folds the picture).",
+                    m::generated_over_pictures_description(),
                 ),
                 choice(
                     "generated_palette",
-                    "Generated colors",
-                    &["Ink", "Dusk", "Moss", "Ember", "Mono"],
+                    m::generated_palette(),
+                    [
+                        m::generated_palette_ink(),
+                        m::generated_palette_dusk(),
+                        m::generated_palette_moss(),
+                        m::generated_palette_ember(),
+                        m::generated_palette_mono(),
+                    ],
                     pos(&Palette::ALL, s.generated_palette),
-                    "The generated background's colors.",
+                    m::generated_palette_description(),
                 ),
                 choice(
                     "background_frame",
-                    "Background frame",
-                    &["Automatic", "4:3", "16:9", "Whole screen"],
+                    m::background_frame(),
+                    [
+                        m::background_frame_auto(),
+                        UiText::data("4:3"),
+                        UiText::data("16:9"),
+                        m::background_frame_screen(),
+                    ],
                     pos(&FRAMES, s.background_frame),
-                    "Backgrounds and videos fill this shape, as on the screen they were made for \
-                     (automatic: the song's video, else its background); the rest shows a blur \
-                     of them.",
+                    m::background_frame_description(),
                 ),
                 choice(
                     "field_filter",
-                    "Field filter",
-                    &["Off", "40%", "60%", "80%"],
+                    m::field_filter(),
+                    std::iter::once(common::off()).chain(
+                        FIELD_FILTERS[1..]
+                            .iter()
+                            .map(|f| m::percent((f * 100.0).round())),
+                    ),
                     filter,
-                    "Dims the song's background behind the lanes.",
+                    m::field_filter_description(),
                 ),
                 menus,
+                motion,
                 choice(
                     "cursor_style",
-                    "Cursor",
-                    &["Infinito arrow", "Pointer tip", "System"],
+                    m::cursor(),
+                    [
+                        m::cursor_infinito(),
+                        m::cursor_pointer(),
+                        m::cursor_system(),
+                    ],
                     pos(&CURSORS, s.cursor_style),
-                    "Animated Infinito artwork, or your system cursor. Text and drag cursors keep their system shapes.",
+                    m::cursor_description(),
                 ),
                 row(
                     "cursor_size",
-                    "Cursor size",
-                    OptionKind::Slider((16..=64).map(|v| format!("{v} px")).collect()),
+                    m::cursor_size(),
+                    OptionKind::Slider((16..=64).map(|v| m::px(v).into()).collect()),
                     (s.cursor_size.clamp(16.0, 64.0).round() as usize).saturating_sub(16),
-                    "Artwork size in logical pixels; the system cursor uses your system's size.",
+                    m::cursor_size_description(),
                 ),
                 choice(
                     "start_countdown",
-                    "Start countdown",
-                    &["Off", "3 s", "5 s", "10 s"],
+                    m::start_countdown(),
+                    START_COUNTDOWNS.iter().map(|&c| {
+                        if c == 0.0 {
+                            common::off()
+                        } else {
+                            m::seconds(c)
+                        }
+                    }),
                     START_COUNTDOWNS
                         .iter()
                         .position(|c| (c - s.start_countdown).abs() < 0.01)
                         .unwrap_or(0),
-                    "A song chosen in song select starts by itself after this long. Enter (or \
-                     Start) starts it at once, any other key or a tap waits.",
+                    m::start_countdown_description(),
                 ),
                 choice(
                     "graphics",
-                    "Graphics",
-                    &["Automatic", "WebGL2"],
+                    m::graphics(),
+                    [m::graphics_auto(), m::graphics_webgl2()],
                     pos(&GRAPHICS, s.graphics),
-                    "Automatic: WebGPU where it works, else WebGL2. Takes effect when the page is \
-                     loaded again.",
+                    m::graphics_description(),
                 ),
                 choice(
                     "debug",
-                    "Debug overlay",
-                    &["Off", "On"],
+                    m::debug(),
+                    on_off(),
                     s.debug as usize,
-                    "Shows the backend, frames a second, clock drift and timing error in play.",
+                    m::debug_description(),
                 ),
                 demo,
             ],
@@ -1160,13 +1214,15 @@ impl OptionsModel {
 
     fn arrows(&self) -> OptionSection {
         let s = &self.settings;
-        let mut names = vec![if self.world.default_lua_off {
-            "Infinito (its Lua is off)".to_string()
+        // Skins keep the names their folders give them.
+        let infinito = self.skin_name(None);
+        let mut names: Vec<String> = vec![if self.world.default_lua_off {
+            m::noteskin_lua_off(&infinito).into()
         } else {
-            "Infinito".to_string()
+            UiText::data(&infinito).into()
         }];
         let dance = self.dance_skins();
-        names.extend(dance.iter().map(|(_, n)| n.clone()));
+        names.extend(dance.iter().map(|(_, n)| UiText::data(n).into()));
         let at = match s.noteskin.as_deref() {
             None => 0,
             Some(k) => dance
@@ -1176,21 +1232,15 @@ impl OptionsModel {
         };
         let mut rows = vec![row(
             "noteskin",
-            "Arrows",
+            m::noteskin(),
             OptionKind::Choices(names),
             at,
-            if self.world.platform == super::data::Platform::Desktop {
-                "Infinito: the game's own arrows, its options below. Or a bundled noteskin, or one \
-                 from the song folders."
-            } else {
-                "Infinito: the game's own arrows, its options below. Or a bundled or an imported \
-                 noteskin."
-            },
+            m::noteskin_description(self.world.platform.l10n()),
         )];
         // The chosen skin's parameters.
         let key = s.noteskin.as_deref().unwrap_or(INFINITO);
         rows.extend(self.param_rows(SKIN_ROW, key));
-        let desktop = self.world.platform == super::data::Platform::Desktop;
+        let desktop = self.world.platform == Platform::Desktop;
         // Desktop reads skins in place (bundled ones, the song folders'):
         // none is stored to remove.
         if let Some(k) = s.noteskin.as_deref()
@@ -1199,18 +1249,18 @@ impl OptionsModel {
         {
             rows.push(actions(
                 "noteskin.remove",
-                "This noteskin",
-                &["Remove"],
+                m::noteskin_remove(),
+                [m::noteskin_remove_button()],
                 "",
-                "Removes the imported noteskin from this browser.",
+                m::noteskin_remove_description(),
             ));
         }
         // Pump skins (StepMania's `NoteSkins/pump/*`) draw the pump
         // layouts when one is chosen.
         let pump = self.pump_skins();
         if !pump.is_empty() {
-            let mut names = vec!["As above".to_string()];
-            names.extend(pump.iter().map(|(_, n)| n.clone()));
+            let mut names: Vec<String> = vec![m::pump_noteskin_same().into()];
+            names.extend(pump.iter().map(|(_, n)| UiText::data(n).into()));
             let at = s
                 .pump_noteskin
                 .as_deref()
@@ -1218,11 +1268,10 @@ impl OptionsModel {
                 .map_or(0, |i| i + 1);
             rows.push(row(
                 "pump_noteskin",
-                "Pump arrows",
+                m::pump_noteskin(),
                 OptionKind::Choices(names),
                 at,
-                "The noteskin the pump styles are drawn with: as above, or a pump noteskin \
-                 (its own art for each panel).",
+                m::pump_noteskin_description(),
             ));
             if s.pump_noteskin
                 .as_deref()
@@ -1231,17 +1280,17 @@ impl OptionsModel {
             {
                 rows.push(actions(
                     "pump_noteskin.remove",
-                    "This pump noteskin",
-                    &["Remove"],
+                    m::pump_noteskin_remove(),
+                    [m::pump_noteskin_remove_button()],
                     "",
-                    "Removes the imported pump noteskin from this browser.",
+                    m::pump_noteskin_remove_description(),
                 ));
             }
             if let Some(k) = s.pump_noteskin.as_deref() {
                 rows.extend(self.param_rows(PUMP_SKIN_ROW, k));
             }
         }
-        section("Arrows", rows)
+        section("Arrows", m::section_arrows(), rows)
     }
 
     /// What skin `key` declares (Infinito's built in).
@@ -1256,7 +1305,9 @@ impl OptionsModel {
         }
     }
 
-    /// Skin `key`'s parameters as rows, their ids `prefix` and the name.
+    /// Skin `key`'s parameters as rows, their ids `prefix` and the name:
+    /// their labels, descriptions and choices as the skin's metrics write
+    /// them (data).
     fn param_rows(&self, prefix: &str, key: &str) -> Vec<OptionDef> {
         let stored = self.settings.skin_params(key);
         self.declared(key)
@@ -1265,13 +1316,13 @@ impl OptionsModel {
                 let (labels, _, at) = param_values(p, stored.get(&p.name));
                 row(
                     &format!("{prefix}{}", p.name),
-                    &p.label,
+                    UiText::data(&p.label),
                     match p.kind {
                         ParamKind::Number { .. } => OptionKind::Stepper(labels),
                         _ => OptionKind::Choices(labels),
                     },
                     at,
-                    &p.description,
+                    UiText::data(&p.description),
                 )
             })
             .collect()
@@ -1298,11 +1349,15 @@ impl OptionsModel {
             .unwrap_or(&self.settings.style);
         row(
             "preview_layout",
-            "Preview on",
-            OptionKind::Choices(layouts.iter().map(|l| l.name.clone()).collect()),
+            m::preview_on(),
+            OptionKind::Choices(
+                layouts
+                    .iter()
+                    .map(|l| style_name(&l.id, &l.name).into())
+                    .collect(),
+            ),
             layouts.iter().position(|l| l.id == shown).unwrap_or(0),
-            "The style the preview shows the arrows on (the style chosen until you pick \
-             another; not kept).",
+            m::preview_on_description(),
         )
     }
 
@@ -1314,55 +1369,54 @@ impl OptionsModel {
         let mut rows = vec![
             row(
                 "bind_layout",
-                "Bindings for",
-                OptionKind::Choices(layouts.iter().map(|l| l.name.clone()).collect()),
+                m::bind_layout(),
+                OptionKind::Choices(
+                    layouts
+                        .iter()
+                        .map(|l| style_name(&l.id, &l.name).into())
+                        .collect(),
+                ),
                 at,
-                &match layout.one_pad_layout() {
-                    Some(one) => format!(
-                        "Each device keeps its own bindings for each style. With two controllers, \
-                         each plays one pad of {} with its {} bindings (the one connected first \
-                         on the left), unless it has {} bindings of its own.",
-                        layout.name, one.name, layout.name
-                    ),
-                    None => "Each device keeps its own bindings for each style.".into(),
+                match layout.one_pad_layout() {
+                    Some(one) => m::bind_layout_description_pads(style_name(&one.id, &one.name)),
+                    None => m::bind_layout_description(),
                 },
             ),
             actions(
                 "bind.any",
-                "Any device",
-                &["Bind…"],
+                m::bind_any(),
+                [m::bind_any_button()],
                 "",
-                "Press a key or a controller's button, then each lane in turn. Controllers show \
-                 up once one of their buttons has been pressed.",
+                m::bind_any_description(),
             ),
         ];
         let mut keyboard = actions(
             "keys",
-            "Keyboard",
-            &["Bind", "Reset keys"],
+            m::keyboard(),
+            [m::keyboard_bind(), m::keyboard_reset()],
             if s.controls.keyboard_is_default(layout) {
-                "defaults"
+                m::bindings_defaults()
             } else {
-                "saved"
+                m::bindings_saved()
             },
-            "Bind asks for each lane in turn; Reset keys puts this style's defaults back.",
+            m::keyboard_description(),
         );
-        keyboard.heading = Some("KEYBOARD".into());
+        keyboard.heading = Some(m::heading_keyboard().into());
         rows.push(keyboard);
         let keys = s.controls.keyboard(layout);
-        for (lane, l) in layout.lanes.iter().enumerate() {
+        for lane in 0..layout.lanes.len() {
             let k = keys.get(lane).cloned().unwrap_or_default();
             rows.push(actions(
                 &format!("keys.lane.{lane}"),
-                l.label(),
-                &["Add key", "Clear"],
-                &if k.is_empty() {
+                lane_name(layout, lane),
+                [m::key_add(), m::key_clear()],
+                // The keys' codes, as the shells name them.
+                UiText::data(if k.is_empty() {
                     "—".to_string()
                 } else {
                     k.join(", ")
-                },
-                "Add key takes the next key you press for this lane (Escape cancels); a key \
-                 plays one lane only.",
+                }),
+                m::key_description(),
             ));
         }
         for (j, (id, standard, count)) in self.pads().into_iter().enumerate() {
@@ -1370,27 +1424,76 @@ impl OptionsModel {
         }
         let mut poll = choice(
             "fast_pad_poll",
-            "Poll every millisecond",
-            &["Off", "On"],
+            m::fast_pad_poll(),
+            on_off(),
             s.fast_pad_poll as usize,
-            "Polls controllers every millisecond during play: smoother timing, more CPU.",
+            m::fast_pad_poll_description(),
         );
-        poll.heading = Some("CONTROLLERS".into());
+        poll.heading = Some(m::heading_controllers().into());
         rows.push(poll);
         if !self.world.pads_supported {
             rows.push(actions(
                 "pads.none",
-                "Controllers",
-                &[],
-                "not supported here",
-                if self.world.platform == super::data::Platform::Desktop {
-                    "Controllers are not read here."
-                } else {
-                    "This browser does not read controllers."
-                },
+                m::pads_none(),
+                [],
+                m::pads_none_note(),
+                m::pads_none_description(self.world.platform.l10n()),
             ));
         }
-        section("Controls", rows)
+        section("Controls", m::section_controls(), rows)
+    }
+
+    /// What controller `id` (`count` of them connected) plays in the
+    /// layout shown.
+    fn pad_use(&self, id: &str, standard: bool, count: usize) -> PadUse {
+        let mut pads = self.world.connected.clone();
+        if count == 0 {
+            pads.push(ConnectedPad {
+                vendor_product: None,
+                id: id.to_string(),
+                index: u32::MAX,
+                standard,
+            });
+        }
+        self.settings
+            .controls
+            .plan(&self.bind_layout, &pads)
+            .into_iter()
+            .find(|(c, _)| c.id == id)
+            .map_or(PadUse::Unused, |(_, u)| u)
+    }
+
+    /// Controller `id`'s buttons, in their order.
+    fn pad_buttons(&self, id: &str, standard: bool, count: usize) -> Vec<PadButton> {
+        let layout = &self.bind_layout;
+        let saved = self.settings.controls.pads.iter().find(|p| p.id == id);
+        let has_table = saved.is_some_and(|p| p.table(&layout.id).is_some());
+        let is_one_pad = Layout::builtins()
+            .iter()
+            .any(|l| l.one_pad_layout().is_some_and(|one| one.id == layout.id));
+        let mut buttons = vec![PadButton::Bind];
+        if self.pad_use(id, standard, count).plays() || has_table {
+            buttons.push(PadButton::Clear);
+        }
+        if has_table && (!is_one_pad || standard) {
+            buttons.push(PadButton::Defaults);
+        }
+        if saved.is_some() || self.settings.controller_styles.contains_key(id) {
+            buttons.push(PadButton::Forget);
+        }
+        buttons
+    }
+
+    /// A controller's lane rows' buttons: one more control (while it is
+    /// connected) and Clear, or none where it plays one pad of the
+    /// layout with its bindings of the one-pad layout (changed there).
+    fn pad_lane_buttons(&self, id: &str, standard: bool, count: usize) -> &'static [LaneButton] {
+        let own = !matches!(self.pad_use(id, standard, count), PadUse::OnePad { .. });
+        match (own, count > 0) {
+            (false, _) => &[],
+            (true, true) => &[LaneButton::Add, LaneButton::Clear],
+            (true, false) => &[LaneButton::Clear],
+        }
     }
 
     /// A controller: what it plays, its bindings, and what can be done
@@ -1409,49 +1512,35 @@ impl OptionsModel {
                 standard,
             });
         }
-        let pad_use = self
-            .settings
-            .controls
-            .plan(layout, &pads)
-            .into_iter()
-            .find(|(c, _)| c.id == id)
-            .map_or(PadUse::Unused, |(_, u)| u);
-        let one_name = layout.one_pad_layout().map(|l| l.name).unwrap_or_default();
+        let pad_use = self.pad_use(id, standard, count);
+        let one_name = layout
+            .one_pad_layout()
+            .map(|l| style_name(&l.id, &l.name))
+            .unwrap_or_else(|| UiText::data(""));
         let status = match &pad_use {
-            PadUse::OnePad { .. } if count > 1 => format!("one pad each, {one_name} bindings"),
-            PadUse::OnePad { .. } => format!("one pad, {one_name} bindings"),
-            u if !u.plays() && has_table => "nothing bound".into(),
-            PadUse::Table { defaults: true, .. } if pad_use.plays() => "defaults".into(),
-            PadUse::Table { .. } if pad_use.plays() => "saved".into(),
-            _ => "not bound yet".into(),
+            PadUse::OnePad { .. } if count > 1 => m::pad_one_pad_each(&one_name),
+            PadUse::OnePad { .. } => m::pad_one_pad(&one_name),
+            u if !u.plays() && has_table => m::pad_nothing_bound(),
+            PadUse::Table { defaults: true, .. } if pad_use.plays() => m::bindings_defaults(),
+            PadUse::Table { .. } if pad_use.plays() => m::bindings_saved(),
+            _ => m::pad_not_bound(),
         };
         let presence = match count {
-            0 => "not connected".to_string(),
-            1 => "connected".to_string(),
-            n => format!("{n} connected"),
+            0 => m::pad_not_connected(),
+            n => m::pad_connected(n),
         };
-        let is_one_pad = Layout::builtins()
-            .iter()
-            .any(|l| l.one_pad_layout().is_some_and(|one| one.id == layout.id));
-        let mut buttons = vec!["Bind"];
-        if pad_use.plays() || has_table {
-            buttons.push("Clear");
-        }
-        if has_table && (!is_one_pad || standard) {
-            buttons.push("Use defaults");
-        }
-        if saved.is_some() || self.settings.controller_styles.contains_key(id) {
-            buttons.push("Forget");
-        }
         let mut head = actions(
             &format!("pad.{j}"),
             "",
-            &buttons,
-            &format!("{status} · {presence}"),
-            "Bind asks for each lane, then Start and Back; Clear unbinds this style; Use \
-             defaults puts the standard ones back; Forget drops everything saved for it.",
+            self.pad_buttons(id, standard, count)
+                .into_iter()
+                .map(PadButton::label),
+            // Two tags.
+            format!("{status} · {presence}"),
+            m::pad_description(),
         );
-        head.heading = Some(id.to_uppercase());
+        // The controller's name as it reports it.
+        head.heading = Some(UiText::data(id.to_uppercase()).into());
         let mut rows = vec![head];
         let style = self
             .settings
@@ -1463,32 +1552,47 @@ impl OptionsModel {
             .iter()
             .find(|p| p.id == id)
             .map(crate::controller_hints::detect);
-        let auto = detected.map_or("Auto".to_string(), |(f, _)| format!("Auto ({})", f.label()));
-        rows.push(choice(&format!("pad_style.{j}"),"Button hints",&[&auto,"Xbox","PlayStation","Nintendo","Generic"],crate::controller_hints::Style::ALL.iter().position(|s|*s==style).unwrap_or(0),"Changes artwork only. Unmapped controls retain numbered button/axis labels. Identical controller models share this preference."));
+        let auto = detected.map_or_else(m::pad_style_auto, |(f, _)| {
+            m::pad_style_auto_detected(family_name(f))
+        });
+        use crate::controller_hints::Style;
+        rows.push(choice(
+            &format!("pad_style.{j}"),
+            m::pad_style(),
+            Style::ALL.map(|s| match s {
+                Style::Auto => auto.clone(),
+                Style::Generic => m::pad_style_generic(),
+                // Brands, by their names.
+                s => UiText::data(s.label()),
+            }),
+            Style::ALL.iter().position(|s| *s == style).unwrap_or(0),
+            m::pad_style_description(),
+        ));
         let device = pads
             .iter()
             .find(|p| p.id == id)
             .expect("connected or saved placeholder");
         let family = crate::controller_hints::presentation(device, style);
-        let label = |c: &String| crate::controller_hints::Cap::control(device, family, c).label();
+        // Controls as their buttons are named: legends as printed (data),
+        // else in words.
+        let label = |c: &String| crate::controller_hints::Cap::control(device, family, c).name();
         let list = |controls: &[String]| {
-            if controls.is_empty() {
-                "—".to_string()
-            } else {
-                controls.iter().map(label).collect::<Vec<_>>().join(", ")
-            }
+            crate::controller_hints::control_list(controls.iter().map(label))
+                .unwrap_or_else(|| UiText::data("—"))
         };
-        let lanes: Vec<String> = match (&pad_use, layout.one_pad_layout()) {
+        let lanes: Vec<UiText> = match (&pad_use, layout.one_pad_layout()) {
             (PadUse::OnePad { pad, .. }, Some(one)) => layout
                 .pad_lanes_in(*pad, &one)
                 .into_iter()
                 .zip(layout.lanes_of_pad(*pad))
                 .map(|(l, own)| match l {
-                    Some(l) => one.lanes[l].label().to_string(),
-                    None => layout.lanes[own].label().to_string(),
+                    Some(l) => lane_name(&one, l),
+                    None => lane_name(layout, own),
                 })
                 .collect(),
-            _ => layout.lanes.iter().map(|l| l.label().to_string()).collect(),
+            _ => (0..layout.lanes.len())
+                .map(|i| lane_name(layout, i))
+                .collect(),
         };
         let own = !matches!(pad_use, PadUse::OnePad { .. });
         let table = match pad_use {
@@ -1496,37 +1600,30 @@ impl OptionsModel {
             PadUse::Unused => Vec::new(),
         };
         let b = bindings.unwrap_or_default();
-        // A lane's own controls, as the keyboard's keys: one more (from
-        // the controller, so only while it is connected) or none. A
-        // controller playing one pad of the layout plays it with its
-        // bindings of the one-pad layout: changed there.
-        let lane_buttons: &[&str] = match (own, count > 0) {
-            (false, _) => &[],
-            (true, true) => &["Add button", "Clear"],
-            (true, false) => &["Clear"],
-        };
-        for (lane, name) in lanes.iter().enumerate() {
+        let lane_buttons = self.pad_lane_buttons(id, standard, count);
+        for (lane, name) in lanes.into_iter().enumerate() {
             rows.push(actions(
                 &format!("pad.{j}.lane.{lane}"),
                 name,
-                lane_buttons,
-                &list(table.get(lane).map(Vec::as_slice).unwrap_or_default()),
+                lane_buttons.iter().map(|b| b.label()),
+                list(table.get(lane).map(Vec::as_slice).unwrap_or_default()),
                 if own {
-                    "Add button takes the next button, stick or hat direction you press on this \
-                     controller for this lane (Escape, its Back or holding a button a second \
-                     cancels); a control plays one lane only. Clear empties the lane."
+                    m::pad_lane_description()
                 } else {
-                    "What plays this lane; its bindings for the one-pad style change it."
+                    m::pad_lane_shared_description()
                 },
             ));
         }
-        for (what, c) in [("Start", &b.start), ("Back", &b.back)] {
+        for (what, name, c) in [
+            ("start", m::pad_start(), &b.start),
+            ("back", m::pad_back(), &b.back),
+        ] {
             rows.push(actions(
-                &format!("pad.{j}.{}", what.to_lowercase()),
-                what,
-                &[],
-                &c.as_ref().map(label).unwrap_or_else(|| "—".into()),
-                "Start and Back are shared by every style.",
+                &format!("pad.{j}.{what}"),
+                name,
+                [],
+                c.as_ref().map(label).unwrap_or_else(|| UiText::data("—")),
+                m::pad_start_back_description(),
             ));
         }
         rows
@@ -1546,27 +1643,24 @@ impl OptionsModel {
                     .unwrap_or(f);
                 actions(
                     &format!("folders.{i}"),
-                    name,
-                    &["Remove"],
-                    f,
-                    "Songs read in place from this folder (StepMania's Songs folder, its \
-                     folder, a pack, or a zip). Removing it only takes it off the list: no file \
-                     is touched.",
+                    UiText::data(name),
+                    [m::folder_remove()],
+                    UiText::data(f),
+                    m::folder_description(),
                 )
             })
             .collect();
         rows.push(actions(
             "folders.add",
-            "Song folders",
-            &["Add…", "Read again"],
-            &self.world.library_note,
-            "Add a folder of songs (StepMania's, ITGmania's or OutFox's, a Songs folder, a pack) \
-             or a pack's zip; nothing is copied. Read again reads every folder whole.",
+            m::folders(),
+            [m::folders_add(), m::folders_rescan()],
+            // The shell's line of tags, made of messages.
+            self.world.library_note.as_str(),
+            m::folders_description(),
         ));
-        Some(section("Songs", rows))
+        Some(section("Songs", m::section_songs(), rows))
     }
 
-    /// The play history and the resets ("Data").
     /// Sharing songs by link (`docs/plans/shared-songs.md`), while the
     /// hidden switch is on: the token the uploads carry (never shown),
     /// the server they go to, and what sharing publishes.
@@ -1578,47 +1672,49 @@ impl OptionsModel {
         let rows = vec![
             actions(
                 "share.token",
-                "Upload token",
+                m::share_token(),
                 if set {
-                    &["Change…", "Clear"]
+                    vec![m::share_token_change(), m::share_token_clear()]
                 } else {
-                    &["Set…"]
+                    vec![m::share_token_set()]
                 },
-                if set { "set" } else { "not set" },
-                "The token the uploads carry, as whoever runs the server gave it; kept with the \
-                 settings, so only as private as this browser's profile.",
+                if set {
+                    m::share_token_is_set()
+                } else {
+                    m::share_token_not_set()
+                },
+                m::share_token_description(),
             ),
             actions(
                 "share.shares",
-                "Shares",
-                if set { &["List…"] } else { &[] },
+                m::share_shares(),
+                if set { vec![m::share_list()] } else { vec![] },
                 if set {
-                    "yours, or every one"
+                    m::share_shares_note()
                 } else {
-                    "a token first"
+                    m::share_shares_no_token()
                 },
-                "The shares made with your token, with their size and time left, each to copy, \
-                 open or delete; an admin's token lists everyone's.",
+                m::share_shares_description(),
             ),
             actions(
                 "share.server",
-                "Server",
-                &[],
-                &self.world.share_url,
-                "Where shared songs are uploaded to and read from, built into the game.",
+                m::share_server(),
+                [],
+                UiText::data(&self.world.share_url),
+                m::share_server_description(),
             ),
             actions(
                 "share.about",
-                "What a share is",
-                &[],
-                "a link to a copy",
-                "Share… in a song's or a pack's actions uploads a copy of its files; anyone with \
-                 the link plays them from there until it expires. Share only what you may.",
+                m::share_about(),
+                [],
+                m::share_about_note(),
+                m::share_about_description(),
             ),
         ];
-        Some(section("Sharing", rows))
+        Some(section("Sharing", m::section_sharing(), rows))
     }
 
+    /// The play history and the resets ("Data").
     fn data_section(&self) -> OptionSection {
         let w = &self.world;
         let nothing = w.imported == 0 && w.shared == 0 && !self.has_imported_skins();
@@ -1626,96 +1722,94 @@ impl OptionsModel {
             // Desktop: the song folders are forgotten, never deleted.
             Some(folders) => actions(
                 "reset.songs",
-                "Song folders",
-                if folders.is_empty() { &[] } else { &["Forget"] },
-                &if folders.is_empty() {
-                    "none".to_string()
+                m::reset_folders(),
+                if folders.is_empty() {
+                    vec![]
                 } else {
-                    count(folders.len(), "folder", "folders")
+                    vec![m::reset_folders_button()]
                 },
-                "Stops reading every song folder and forgets the songs taken off the list and \
-                 their offsets; nothing in the folders is deleted, settings are kept.",
+                if folders.is_empty() {
+                    m::reset_folders_none()
+                } else {
+                    m::reset_folders_count(folders.len())
+                },
+                m::reset_folders_description(),
             ),
             None => actions(
                 "reset.songs",
-                "Imported songs",
+                m::reset_songs(),
                 if nothing || w.importing {
-                    &[]
+                    vec![]
                 } else {
-                    &["Remove"]
+                    vec![m::reset_songs_button()]
                 },
-                &if w.importing {
-                    "an import is running".to_string()
+                if w.importing {
+                    m::reset_importing()
                 } else if nothing {
-                    "none".to_string()
+                    m::reset_songs_none()
                 } else {
-                    count(w.imported, "song", "songs")
+                    m::reset_songs_count(w.imported)
                 },
-                "Deletes the imported songs, their offsets, the imported noteskins and \
-                     announcers and the shared background images; settings are kept.",
+                m::reset_songs_description(),
             ),
         };
         let plays = self.world.plays;
+        let wording = self.songs_wording();
         section(
             "Data",
+            m::section_data(),
             vec![
                 actions(
                     "history.export",
-                    "Play history",
-                    history_buttons(plays, w.importing_plays),
-                    &if w.importing_plays {
-                        "importing plays…".to_string()
+                    m::history(),
+                    history_buttons(plays, w.importing_plays)
+                        .iter()
+                        .map(|b| b.label()),
+                    if w.importing_plays {
+                        m::history_importing()
+                    } else if plays == 0 {
+                        m::history_none()
                     } else {
-                        match plays {
-                            0 => "no plays kept yet".to_string(),
-                            1 => "1 play kept".to_string(),
-                            n => format!("{n} plays kept"),
-                        }
+                        m::history_plays(plays)
                     },
-                    if self.world.platform == super::data::Platform::Desktop {
-                        "Every song played to the end or failed is kept, with every press, so \
-                         its score can be worked out again. Export saves them as JSON lines to a \
-                         file you choose; Import adds a file's plays; Reset deletes them."
-                    } else {
-                        "Every song played to the end or failed is kept, with every press, so \
-                         its score can be worked out again. Export downloads them as JSON lines; \
-                         Import (or a drop here) adds a file's plays; Reset deletes them."
-                    },
+                    m::history_description(self.world.platform.l10n()),
                 ),
                 actions(
                     "reset.settings",
-                    "Settings",
-                    &["Reset"],
+                    m::reset_settings(),
+                    [m::reset_settings_button()],
                     "",
-                    if w.folders.is_some() {
-                        "Every setting back to its default; the song folders and per-song offsets \
-                         are kept."
-                    } else {
-                        "Every setting back to its default; imported songs and per-song offsets \
-                         are kept."
-                    },
+                    m::reset_settings_description(wording),
                 ),
                 songs,
                 actions(
                     "reset.everything",
-                    "Everything",
-                    if w.importing { &[] } else { &["Reset"] },
+                    m::reset_everything(),
                     if w.importing {
-                        "an import is running"
+                        vec![]
                     } else {
-                        ""
+                        vec![m::reset_everything_button()]
                     },
-                    if w.folders.is_some() {
-                        "The settings, the song folders and the play history above, and the \
-                         offsets of the bundled songs: like a first start (nothing in the folders \
-                         is deleted)."
+                    if w.importing {
+                        m::reset_importing().into()
                     } else {
-                        "The settings, the songs and the play history above, and the offsets of \
-                         the bundled songs: like a first visit."
+                        String::new()
                     },
+                    m::reset_everything_description(wording),
                 ),
             ],
         )
+    }
+
+    /// Whose wording the songs' rows take (`$platform`): desktop's where
+    /// song folders are read in place, the web's where songs are
+    /// imported.
+    fn songs_wording(&self) -> &'static str {
+        if self.world.folders.is_some() {
+            Platform::Desktop.l10n()
+        } else {
+            Platform::Web.l10n()
+        }
     }
 
     fn has_imported_skins(&self) -> bool {
@@ -1734,6 +1828,7 @@ impl OptionsModel {
             .and_then(|n| n.parse::<usize>().ok())
             .and_then(|n| self.pads().into_iter().nth(n))
             .map(|p| p.0);
+        let languages = self.languages();
         let s = &mut self.settings;
         let on = i == 1;
         match id {
@@ -1838,6 +1933,12 @@ impl OptionsModel {
             "cursor_size" => s.cursor_size = (i.min(48) + 16) as f32,
             "cursor_style" => s.cursor_style = at(&CURSORS, i),
             "reduced_motion" => s.reduced_motion = at(&REDUCED_MOTION, i),
+            "language" => {
+                s.language = i
+                    .checked_sub(1)
+                    .and_then(|i| languages.get(i))
+                    .map(|l| l.tag.to_string())
+            }
             "start_countdown" => {
                 s.start_countdown = START_COUNTDOWNS.get(i).copied().unwrap_or(0.0)
             }
@@ -1931,24 +2032,21 @@ impl OptionsModel {
             ("keys", 0) => Act::Bind(Some(DeviceId::Keyboard)),
             ("keys", _) => {
                 self.settings.controls.reset_keyboard(&layout);
-                self.notice = format!(
-                    "The keyboard's {} keys are the defaults again.",
-                    layout.name
-                );
+                self.notice = m::notice_keys_default(style_name(&layout.id, &layout.name)).into();
                 Act::Done
             }
             ("history.export", b) => {
                 let buttons = history_buttons(self.world.plays, self.world.importing_plays);
                 match buttons.get(b) {
-                    Some(&"Export") => Act::Export,
-                    Some(&"Import…") => Act::ImportPlays,
-                    Some(&"Reset") => Act::Confirm(Reset::History),
-                    _ => Act::Nothing,
+                    Some(HistoryButton::Export) => Act::Export,
+                    Some(HistoryButton::Import) => Act::ImportPlays,
+                    Some(HistoryButton::Reset) => Act::Confirm(Reset::History),
+                    None => Act::Nothing,
                 }
             }
             ("share.token", 1) => {
                 self.settings.share_token.clear();
-                self.notice = "The upload token is cleared.".into();
+                self.notice = m::notice_token_cleared().into();
                 Act::Done
             }
             ("share.token", _) => Act::ShareToken,
@@ -2003,59 +2101,43 @@ impl OptionsModel {
     }
 
     fn pad_action(&mut self, j: usize, button: usize) -> Act {
-        let Some((id, standard, _)) = self.pads().into_iter().nth(j) else {
+        let Some((id, standard, count)) = self.pads().into_iter().nth(j) else {
             return Act::Nothing;
         };
-        let data = self.data();
-        let label = data
-            .sections
-            .iter()
-            .flat_map(|s| &s.options)
-            .find(|o| o.id == format!("pad.{j}"))
-            .and_then(|o| o.values().get(button).cloned())
-            .unwrap_or_default();
         let layout = self.bind_layout.clone();
-        match label.as_str() {
-            "Bind" => Act::Bind(Some(DeviceId::Gamepad(id))),
-            "Clear" => {
+        match self.pad_buttons(&id, standard, count).get(button) {
+            Some(PadButton::Bind) => Act::Bind(Some(DeviceId::Gamepad(id))),
+            Some(PadButton::Clear) => {
                 let mut pad = self.pad_entry(&id, standard);
                 pad.set_table(&layout.id, vec![Vec::new(); layout.lane_count()]);
                 self.settings.set_pad_bindings(pad);
                 Act::Done
             }
-            "Use defaults" => {
+            Some(PadButton::Defaults) => {
                 self.settings
                     .controls
                     .reset_pad_table(&id, &layout.id, standard);
                 Act::Done
             }
-            "Forget" => {
+            Some(PadButton::Forget) => {
                 self.settings.controls.forget_pad(&id);
                 self.settings.controller_styles.remove(&id);
-                self.notice = format!("{id} forgotten.");
+                self.notice = m::notice_pad_forgotten(&id).into();
                 Act::Done
             }
-            _ => Act::Nothing,
+            None => Act::Nothing,
         }
     }
 
     /// A lane row's button of the `j`th controller listed: Add button or
     /// Clear.
     fn pad_lane_action(&mut self, j: usize, lane: usize, button: usize) -> Act {
-        let Some((id, standard, _)) = self.pads().into_iter().nth(j) else {
+        let Some((id, standard, count)) = self.pads().into_iter().nth(j) else {
             return Act::Nothing;
         };
-        let label = self
-            .data()
-            .sections
-            .iter()
-            .flat_map(|s| &s.options)
-            .find(|o| o.id == format!("pad.{j}.lane.{lane}"))
-            .and_then(|o| o.values().get(button).cloned())
-            .unwrap_or_default();
-        match label.as_str() {
-            "Add button" => Act::AddButton { id, lane },
-            "Clear" => {
+        match self.pad_lane_buttons(&id, standard, count).get(button) {
+            Some(LaneButton::Add) => Act::AddButton { id, lane },
+            Some(LaneButton::Clear) => {
                 let layout = self.bind_layout.clone();
                 let mut table = self.pad_lanes(&id, standard);
                 if let Some(c) = table.get_mut(lane) {
@@ -2066,7 +2148,7 @@ impl OptionsModel {
                 self.settings.set_pad_bindings(pad);
                 Act::Done
             }
-            _ => Act::Nothing,
+            None => Act::Nothing,
         }
     }
 
@@ -2104,15 +2186,8 @@ impl OptionsModel {
         let mut pad = self.pad_entry(id, standard);
         pad.set_table(&layout.id, table);
         self.settings.set_pad_bindings(pad);
-        let name = |i: usize| layout.lanes.get(i).map_or("", |l| l.label()).to_string();
-        let shown = control
-            .parse::<Control>()
-            .map(|c| c.label())
-            .unwrap_or_else(|_| control.to_string());
-        self.notice = match from {
-            Some(f) => format!("{shown} moved from {} to {}.", name(f), name(lane)),
-            None => format!("{shown} added to {}.", name(lane)),
-        };
+        let shown = crate::controller_hints::binding_name(control);
+        self.notice = moved_notice(&layout, &shown, from, lane);
         self.settings.save();
     }
 
@@ -2139,10 +2214,11 @@ impl OptionsModel {
     /// controller's Start and Back, kept when skipped).
     pub fn bound(&mut self, bound: Bound) {
         let layout = self.bind_layout.clone();
+        let style = style_name(&layout.id, &layout.name);
         match bound {
             Bound::Keyboard(keys) => {
                 self.settings.controls.set_keyboard(&layout, keys);
-                self.notice = format!("The keyboard is bound for {}.", layout.name);
+                self.notice = m::notice_keyboard_bound(&style).into();
             }
             Bound::Pad {
                 id,
@@ -2155,25 +2231,26 @@ impl OptionsModel {
                 pad.start = start.or(pad.start);
                 pad.back = back.or(pad.back);
                 self.settings.set_pad_bindings(pad);
-                self.notice = format!("{id} is bound for {}.", layout.name);
+                self.notice = m::notice_pad_bound(&id, &style).into();
             }
         }
         self.settings.save();
     }
 
-    /// A key added to a lane of the keyboard (taken from any other lane:
-    /// a key plays one lane only).
     /// The upload token typed into its dialog, kept.
     pub fn set_share_token(&mut self, token: &str) {
         self.settings.share_token = token.trim().to_string();
         self.notice = if self.settings.share_token.is_empty() {
-            "The upload token is cleared.".into()
+            m::notice_token_cleared()
         } else {
-            "The upload token is set.".into()
-        };
+            m::notice_token_set()
+        }
+        .into();
         self.settings.save();
     }
 
+    /// A key added to a lane of the keyboard (taken from any other lane:
+    /// a key plays one lane only).
     pub fn add_key(&mut self, lane: usize, code: &str) {
         let layout = self.bind_layout.clone();
         let mut table = self.settings.controls.keyboard(&layout);
@@ -2188,11 +2265,7 @@ impl OptionsModel {
             keys.push(code.to_string());
         }
         self.settings.controls.set_keyboard(&layout, table);
-        let name = |i: usize| layout.lanes.get(i).map_or("", |l| l.label()).to_string();
-        self.notice = match from {
-            Some(f) => format!("{code} moved from {} to {}.", name(f), name(lane)),
-            None => format!("{code} added to {}.", name(lane)),
-        };
+        self.notice = moved_notice(&layout, code, from, lane);
         self.settings.save();
     }
 
@@ -2259,7 +2332,7 @@ impl OptionsModel {
         }
         self.settings.save();
         if *r == Reset::Settings {
-            self.notice = "Settings reset.".into();
+            self.notice = m::notice_settings_reset().into();
         }
     }
 
@@ -2308,7 +2381,8 @@ const PUMP_SKIN_ROW: &str = "pump_skin.";
 
 /// A parameter's row: its values' labels, the values, and which is
 /// `stored`'s (as its declaration takes it, else the default's). A color
-/// off the palette is offered after it.
+/// off the palette is offered after it. The labels are the skin's own
+/// (data), but for a switch's Off and On.
 fn param_values(
     p: &Parameter,
     stored: Option<&ParamValue>,
@@ -2316,13 +2390,14 @@ fn param_values(
     let current = stored
         .and_then(|v| p.accept(v))
         .unwrap_or_else(|| p.default.clone());
+    let data = |s: &str| -> String { UiText::data(s).into() };
     let (labels, values): (Vec<String>, Vec<ParamValue>) = match &p.kind {
         ParamKind::Choice(choices) => choices
             .iter()
-            .map(|c| (c.label.clone(), ParamValue::Text(c.id.clone())))
+            .map(|c| (data(&c.label), ParamValue::Text(c.id.clone())))
             .unzip(),
         ParamKind::Toggle => (
-            vec!["Off".into(), "On".into()],
+            on_off().map(String::from).to_vec(),
             vec![ParamValue::Bool(false), ParamValue::Bool(true)],
         ),
         ParamKind::Number { unit, .. } => p
@@ -2330,7 +2405,7 @@ fn param_values(
             .into_iter()
             .map(|n| {
                 (
-                    format!("{}{unit}", trim_number(n, 2)),
+                    data(&format!("{}{unit}", trim_number(n, 2))),
                     ParamValue::Number(n),
                 )
             })
@@ -2338,12 +2413,12 @@ fn param_values(
         ParamKind::Color(palette) => {
             let mut pairs: Vec<(String, ParamValue)> = palette
                 .iter()
-                .map(|c| (c.label.clone(), ParamValue::Text(c.id.clone())))
+                .map(|c| (data(&c.label), ParamValue::Text(c.id.clone())))
                 .collect();
             if let ParamValue::Text(t) = &current
                 && !pairs.iter().any(|(_, v)| v == &current)
             {
-                pairs.push((t.clone(), current.clone()));
+                pairs.push((data(t), current.clone()));
             }
             pairs.into_iter().unzip()
         }
@@ -2370,6 +2445,43 @@ impl OptionsModel {
     }
 }
 
+impl OptionsModel {
+    /// The languages the Language row offers after the system's: the
+    /// shipped ones and the previews, the pseudo-languages too with the
+    /// debug overlay on, and the one chosen whatever it is.
+    fn languages(&self) -> Vec<&'static ddi_l10n::Language> {
+        let mut offered = ddi_l10n::offered(self.settings.debug);
+        if let Some(chosen) = self.settings.language.as_deref().and_then(ddi_l10n::find)
+            && !offered.contains(&chosen)
+        {
+            offered.push(chosen);
+        }
+        offered
+    }
+
+    /// The UI's language (`docs/plans/localization.md`): each language
+    /// named in itself, the system's first.
+    fn language_row(&self) -> OptionDef {
+        let languages = self.languages();
+        let mut names: Vec<String> =
+            vec![m::language_system(ddi_l10n::system_language().name).into()];
+        names.extend(languages.iter().map(|l| UiText::data(l.name).into()));
+        let index = self
+            .settings
+            .language
+            .as_deref()
+            .and_then(|t| languages.iter().position(|l| l.tag.eq_ignore_ascii_case(t)))
+            .map_or(0, |i| i + 1);
+        row(
+            "language",
+            m::language(),
+            OptionKind::Choices(names),
+            index,
+            m::language_description(),
+        )
+    }
+}
+
 /// The pump skins of `skins`, or the others.
 fn skins_of(skins: &[(String, String)], pump: bool) -> Vec<(String, String)> {
     skins
@@ -2379,14 +2491,23 @@ fn skins_of(skins: &[(String, String)], pump: bool) -> Vec<(String, String)> {
         .collect()
 }
 
-fn section(name: &str, options: Vec<OptionDef>) -> OptionSection {
+/// A section: `id` what the shell and the tests know it by (its English
+/// name), `name` as it shows.
+fn section(id: &str, name: UiText, options: Vec<OptionDef>) -> OptionSection {
     OptionSection {
+        id: id.into(),
         name: name.into(),
         options,
     }
 }
 
-fn row(id: &str, label: &str, kind: OptionKind, index: usize, description: &str) -> OptionDef {
+fn row(
+    id: &str,
+    label: impl Into<String>,
+    kind: OptionKind,
+    index: usize,
+    description: impl Into<String>,
+) -> OptionDef {
     OptionDef {
         id: id.into(),
         label: label.into(),
@@ -2398,21 +2519,38 @@ fn row(id: &str, label: &str, kind: OptionKind, index: usize, description: &str)
     }
 }
 
-fn choice(id: &str, label: &str, names: &[&str], index: usize, description: &str) -> OptionDef {
+fn choice(
+    id: &str,
+    label: impl Into<String>,
+    names: impl IntoIterator<Item = UiText>,
+    index: usize,
+    description: impl Into<String>,
+) -> OptionDef {
     row(
         id,
         label,
-        OptionKind::Choices(names.iter().map(|s| s.to_string()).collect()),
+        OptionKind::Choices(names.into_iter().map(String::from).collect()),
         index,
         description,
     )
 }
 
-fn actions(id: &str, label: &str, buttons: &[&str], note: &str, description: &str) -> OptionDef {
+/// A switch's values.
+fn on_off() -> [UiText; 2] {
+    [common::off(), common::on()]
+}
+
+fn actions(
+    id: &str,
+    label: impl Into<String>,
+    buttons: impl IntoIterator<Item = UiText>,
+    note: impl Into<String>,
+    description: impl Into<String>,
+) -> OptionDef {
     let mut r = row(
         id,
         label,
-        OptionKind::Actions(buttons.iter().map(|s| s.to_string()).collect()),
+        OptionKind::Actions(buttons.into_iter().map(String::from).collect()),
         0,
         description,
     );
@@ -2421,12 +2559,22 @@ fn actions(id: &str, label: &str, buttons: &[&str], note: &str, description: &st
 }
 
 /// An offset stepper, −500 to +500 ms by 1.
-fn offset(id: &str, label: &str, seconds: f64, note: &str, description: &str) -> OptionDef {
+fn offset(
+    id: &str,
+    label: impl Into<String>,
+    seconds: f64,
+    note: impl Into<String>,
+    description: impl Into<String>,
+) -> OptionDef {
     let ms = (seconds * 1000.0).round().clamp(-500.0, 500.0) as i32;
     let mut r = row(
         id,
         label,
-        OptionKind::Stepper((-500..=500).map(|v| format!("{v:+} ms")).collect()),
+        OptionKind::Stepper(
+            (-500..=500)
+                .map(|v| m::ms(format!("{v:+}")).into())
+                .collect(),
+        ),
         (ms + 500) as usize,
         description,
     );
@@ -2461,11 +2609,96 @@ fn level_at(i: usize, n: usize) -> u8 {
     (i.min(n - 1) + 1) as u8
 }
 
-fn count(n: usize, one: &str, many: &str) -> String {
-    match n {
-        0 => format!("no {many}"),
-        1 => format!("1 {one}"),
-        n => format!("{n} {many}"),
+/// A scroll speed as the rows show it ("×2.5"), to two places.
+fn speed_text(speed: f64) -> String {
+    m::speed_value((speed * 100.0).round() / 100.0).into()
+}
+
+/// Percentages as a slider's values.
+fn percents(range: std::ops::RangeInclusive<u32>) -> Vec<String> {
+    range.map(|p| m::percent(p).into()).collect()
+}
+
+/// A volume's loudness, beside its slider ("-10 dB", "muted").
+fn decibels(volume: f32) -> String {
+    if volume > 0.0 {
+        m::db((20.0 * volume.log10()).round()).into()
+    } else {
+        m::muted().into()
+    }
+}
+
+/// What a key or control added to lane `to` of `layout` did: moved from
+/// lane `from`, or added.
+fn moved_notice(layout: &Layout, control: &str, from: Option<usize>, to: usize) -> String {
+    match from {
+        Some(f) => m::notice_moved(control, lane_name(layout, f), lane_name(layout, to)),
+        None => m::notice_added(control, lane_name(layout, to)),
+    }
+    .into()
+}
+
+/// A controller's kind, as the Button hints row names it: by its brand,
+/// or the word for one of none.
+fn family_name(f: crate::controller_hints::Family) -> UiText {
+    match f {
+        crate::controller_hints::Family::Generic => m::pad_style_generic(),
+        f => UiText::data(f.label()),
+    }
+}
+
+/// A device the offsets are kept by, as the device rows (and
+/// calibration's page) name it: worded from what its fingerprint said,
+/// else from what its id says (a profile kept before), else its
+/// description as stored (data).
+pub(crate) fn device_name(p: &crate::state::settings::OffsetProfile) -> UiText {
+    use ddi_l10n::msg::devices as d;
+    use ddi_platform::{AudioLink, DeviceFacts};
+    let facts = p
+        .facts
+        .clone()
+        .filter(|f| !matches!(f, DeviceFacts::Described(_)))
+        .or_else(|| DeviceFacts::from_id(&p.id));
+    match facts {
+        Some(DeviceFacts::Audio {
+            name,
+            rate,
+            latency_ms,
+            link,
+        }) => {
+            let khz = f64::from(rate) / 1000.0;
+            match name {
+                // The device's own name, as the system gives it.
+                Some(name) => d::audio_named(UiText::data(name), khz, latency_ms),
+                None => d::audio(
+                    khz,
+                    latency_ms,
+                    match link {
+                        Some(AudioLink::Wired) => "wired",
+                        Some(AudioLink::Wireless) => "wireless",
+                        Some(AudioLink::Unknown) => "unknown",
+                        None => "none",
+                    },
+                ),
+            }
+        }
+        Some(DeviceFacts::Display {
+            name,
+            width,
+            height,
+            scale_percent,
+            refresh_hz,
+        }) => {
+            // Sizes as strings: a pixel count is never grouped (1,920).
+            let (w, h) = (width.to_string(), height.to_string());
+            let scale = f64::from(scale_percent) / 100.0;
+            match (name, refresh_hz) {
+                (Some(name), _) => d::display_named(UiText::data(name), w, h, scale),
+                (None, Some(hz)) => d::display_refresh(w, h, scale, hz),
+                (None, None) => d::display(w, h, scale),
+            }
+        }
+        Some(DeviceFacts::Described(_)) | None => UiText::data(&p.label),
     }
 }
 
@@ -2504,13 +2737,13 @@ const COVER_MODES: [CoverMode; 4] = [
 ];
 
 /// A cover's height row: its heights 0 to 100% by 1.
-fn cover_height(id: &str, name: &str, height: u8) -> OptionDef {
+fn cover_height(id: &str, label: UiText, description: UiText, height: u8) -> OptionDef {
     row(
         id,
-        &format!("{name} height"),
-        OptionKind::Stepper((0..=LaneCover::FULL).map(|v| format!("{v}%")).collect()),
+        label,
+        OptionKind::Stepper(percents(0..=u32::from(LaneCover::FULL))),
         usize::from(height.min(LaneCover::FULL)),
-        &format!("How much of the lane {name} covers. A play keeps the height you leave it at."),
+        description,
     )
 }
 
@@ -2522,17 +2755,19 @@ const RULESET_MODES: [RulesetMode; 3] = [
     RulesetMode::AllDanoni,
 ];
 const HOLD_STYLES: [HoldStyle; 3] = [HoldStyle::ByGame, HoldStyle::Dance, HoldStyle::Ticked];
-const DANONI_GAUGES: [(Option<&str>, &str); 10] = [
-    (None, "The chart's first"),
-    (Some("Original"), "Original"),
-    (Some("Light"), "Light"),
-    (Some("Heavy"), "Heavy"),
-    (Some("NoRecovery"), "NoRecovery"),
-    (Some("SuddenDeath"), "SuddenDeath"),
-    (Some("Practice"), "Practice"),
-    (Some("Normal"), "Normal (border)"),
-    (Some("Easy"), "Easy (border)"),
-    (Some("Hard"), "Hard (border)"),
+/// Dancing☆Onigiri's gauges by their names (`None`: the chart's first),
+/// and whether each fails below a border.
+const DANONI_GAUGES: [(Option<&str>, bool); 10] = [
+    (None, false),
+    (Some("Original"), false),
+    (Some("Light"), false),
+    (Some("Heavy"), false),
+    (Some("NoRecovery"), false),
+    (Some("SuddenDeath"), false),
+    (Some("Practice"), false),
+    (Some("Normal"), true),
+    (Some("Easy"), true),
+    (Some("Hard"), true),
 ];
 const VIDEOS: [VideoMode; 3] = [VideoMode::Auto, VideoMode::On, VideoMode::Off];
 const FIELD_PLACES: [FieldPlace; 5] = [
@@ -2571,6 +2806,123 @@ mod tests {
     use std::rc::Rc;
 
     use ddi_platform::storage::{self, Area, MemoryStore};
+
+    #[test]
+    fn devices_are_named_from_their_facts_their_ids_or_as_kept() {
+        use crate::state::settings::OffsetProfile;
+        use ddi_platform::{AudioLink, DeviceFacts, DeviceFingerprint};
+        let kept = |fp: DeviceFingerprint| {
+            let mut list = Vec::new();
+            Settings::touch_profile(&mut list, &fp, 0.0);
+            list.remove(0)
+        };
+        let audio = |name: Option<&str>, link| DeviceFacts::Audio {
+            name: name.map(str::to_string),
+            rate: 44100,
+            latency_ms: 20,
+            link,
+        };
+        let web = kept(DeviceFingerprint::new(
+            "audio:44100:5:15",
+            audio(None, Some(AudioLink::Wired)),
+        ));
+        // The English kept for older builds and the history says the same.
+        assert_eq!(
+            web.label,
+            "44.1 kHz · ~20 ms output latency (wired/built-in?)"
+        );
+        let names = |tag: &str, profiles: &[OffsetProfile]| {
+            ddi_l10n::set_language(tag);
+            let names: Vec<String> = profiles.iter().map(|p| device_name(p).into()).collect();
+            ddi_l10n::set_language("en");
+            names
+        };
+        let desktop = kept(DeviceFingerprint::new(
+            "audio:CoreAudio:Speakers:44100:20",
+            audio(Some("Speakers"), None),
+        ));
+        let unknown = kept(DeviceFingerprint::new(
+            "audio:44100:0:0",
+            audio(None, Some(AudioLink::Unknown)),
+        ));
+        let screen = kept(DeviceFingerprint::new(
+            "display:1512x982@2",
+            DeviceFacts::Display {
+                name: None,
+                width: 1512,
+                height: 982,
+                scale_percent: 200,
+                refresh_hz: Some(120),
+            },
+        ));
+        // Kept before the facts were: worded from the id where it says,
+        // else as described.
+        let old = |id: &str, label: &str| OffsetProfile {
+            id: id.into(),
+            label: label.into(),
+            facts: None,
+            offset: 0.0,
+            calibrated: false,
+            last_seen: 0.0,
+        };
+        let profiles = [
+            web,
+            desktop,
+            unknown,
+            screen,
+            old(
+                "audio:48000:5:170",
+                "48 kHz · ~175 ms output latency (wireless?)",
+            ),
+            old(
+                "display:DELL U2720Q:3840x2160@1.5",
+                "DELL U2720Q · 3840×2160 · ×1.5",
+            ),
+            old("display:9", "Headphones"),
+            kept(DeviceFingerprint::new("audio:1", "Described")),
+        ];
+        assert_eq!(
+            names("en", &profiles),
+            [
+                "44.1 kHz · ~20 ms output latency (wired/built-in?)",
+                "Speakers · 44.1 kHz · ~20 ms output latency",
+                "44.1 kHz · output latency unknown",
+                "1512×982 (2×), ~120 Hz",
+                "48 kHz · ~175 ms output latency (wireless?)",
+                "DELL U2720Q · 3840×2160 · ×1.5",
+                "Headphones",
+                "Described",
+            ]
+        );
+        assert_eq!(
+            names("ja", &profiles)[..4],
+            [
+                "44.1 kHz · 出力遅延 約20 ms（有線・内蔵？）",
+                "Speakers · 44.1 kHz · 出力遅延 約20 ms",
+                "44.1 kHz · 出力遅延 不明",
+                "1512×982（2×）、約120 Hz",
+            ]
+        );
+        // Sizes are never grouped as counts are.
+        let wide = kept(DeviceFingerprint::new(
+            "display:x",
+            DeviceFacts::Display {
+                name: None,
+                width: 5120,
+                height: 2880,
+                scale_percent: 125,
+                refresh_hz: None,
+            },
+        ));
+        assert_eq!(names("en", &[wide]), ["5120×2880 (1.25×)"]);
+        // The rows say the device so.
+        let mut m = model();
+        m.settings.display_profiles = vec![profiles[3].clone()];
+        assert_eq!(
+            find(&m.data(), "profile.display.0").label,
+            "Display: 1512×982 (2×), ~120 Hz"
+        );
+    }
 
     #[test]
 

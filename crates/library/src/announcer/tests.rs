@@ -315,17 +315,38 @@ fn a_messy_pack_reports_what_it_passed_over() {
     let said = a.said();
     assert_eq!(
         said.summary,
-        "6 lines (5 in play, 1 on the results), 8 sounds, 0.0 MB"
+        crate::report::AnnouncerSummary {
+            lines: 6,
+            in_play: 5,
+            on_results: 1,
+            on_select: 0,
+            sounds: 8,
+            bytes: 8,
+        }
     );
     assert!(said.warnings.is_empty());
+    let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    use crate::report::Finding;
     assert_eq!(
         said.details,
         [
-            "2 folders of lines no longer spoken: screenselectmaster comment heavy, select style intro",
-            "1 folder no line uses: ssstyle intro",
-            "2 folders without a sound: evaluation b, stage 6",
-            "1 copy inside its line folders passed over: Mega/evaluation aa",
-            "9 other files passed over (not sounds, or not in a line's folder)",
+            Finding::AnnouncerOldFolders {
+                count: 2,
+                names: names(&["screenselectmaster comment heavy", "select style intro"]),
+            },
+            Finding::AnnouncerUnknownFolders {
+                count: 1,
+                names: names(&["ssstyle intro"]),
+            },
+            Finding::AnnouncerEmptyFolders {
+                count: 2,
+                names: names(&["evaluation b", "stage 6"]),
+            },
+            Finding::AnnouncerNestedCopies {
+                count: 1,
+                names: names(&["Mega/evaluation aa"]),
+            },
+            Finding::AnnouncerOtherFiles { count: 9 },
         ]
     );
 }
@@ -381,10 +402,17 @@ fn what_is_kept_reads_back_and_follows_the_chains() {
     let later = json.replace("gameplay ready", "gameplay someday");
     let read: Kept = serde_json::from_str(&later).unwrap();
     assert_eq!(read.files(Line::Ready), None);
+    let summary = found.announcers[0].said().summary;
     assert_eq!(
-        found.announcers[0].said().summary,
-        "6 lines (5 in play, 1 on the results), 7 sounds, 7.3 MB"
+        (
+            summary.lines,
+            summary.in_play,
+            summary.on_results,
+            summary.sounds
+        ),
+        (6, 5, 1, 7)
     );
+    assert_eq!(summary.bytes / 100_000, 73);
 }
 
 #[test]

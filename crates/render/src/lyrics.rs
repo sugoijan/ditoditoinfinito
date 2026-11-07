@@ -370,36 +370,13 @@ fn overlaps(a: &[f32; 4], b: &[f32; 4]) -> bool {
 }
 
 /// `text` in lines no wider than `width`, as a browser wraps a label's
-/// text: between words, and anywhere in Japanese (each wide character
-/// may start a line); a word longer than a line is kept whole.
+/// text (`ddi_actor::text::wrap`: Unicode's line breaking, between words
+/// and between Japanese characters, never before 。、」 and their kind); a
+/// word longer than a line is kept whole.
 fn wrap(text: &str, width: f32, style: &TextStyle, measure: &mut dyn TextMeasure) -> Vec<String> {
-    let mut tokens: Vec<String> = Vec::new();
-    for c in text.chars() {
-        let wide = (c as u32) >= 0x2E80;
-        match tokens.last_mut() {
-            Some(t) if !wide && !c.is_whitespace() && !t.ends_with(' ') && !is_wide(t) => t.push(c),
-            _ => tokens.push(c.to_string()),
-        }
-    }
-    let mut out = Vec::new();
-    let mut line = String::new();
-    for t in tokens {
-        let candidate = format!("{line}{t}");
-        if line.is_empty() || measure.measure(candidate.trim_end(), style).advance <= width {
-            line = candidate;
-        } else {
-            out.push(line.trim_end().to_string());
-            line = t.trim_start().to_string();
-        }
-    }
-    if !line.trim().is_empty() || out.is_empty() {
-        out.push(line.trim_end().to_string());
-    }
-    out
-}
-
-fn is_wide(t: &str) -> bool {
-    t.chars().last().is_some_and(|c| (c as u32) >= 0x2E80)
+    ddi_actor::text::wrap(text, width, false, &mut |s| {
+        measure.measure(s, style).advance
+    })
 }
 
 #[cfg(test)]

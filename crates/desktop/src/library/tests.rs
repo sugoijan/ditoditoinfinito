@@ -756,6 +756,10 @@ fn ffr_levels_are_songs_one_a_file_and_cached_by_their_files() {
         "{:?}",
         report.failed
     );
+    assert_eq!(
+        report.failed[0].1,
+        ddi_library::report::Finding::LevelWithoutMp3
+    );
     assert_eq!(report.parsed, 3);
     // From the cache; a level changed is read again, alone.
     let (again, r, cache) = scan(&folders, Some(&cache), &[]);

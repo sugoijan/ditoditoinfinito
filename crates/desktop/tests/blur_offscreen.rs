@@ -15,7 +15,10 @@ const SIZE: [u32; 2] = [256, 200];
 fn draw(device: &wgpu::Device, queue: &wgpu::Queue, list: &DrawList) -> Vec<u8> {
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut painter = Painter::new(device, queue, format);
-    painter.set_rasterizer(Box::new(CosmicRasterizer::with_families(gpu::FACES, true)));
+    painter.set_rasterizer(Box::new(CosmicRasterizer::with_families(
+        &gpu::faces(),
+        true,
+    )));
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: None,
         size: wgpu::Extent3d {

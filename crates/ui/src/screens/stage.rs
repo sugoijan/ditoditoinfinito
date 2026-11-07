@@ -14,6 +14,9 @@
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
+use ddi_l10n::UiText;
+use ddi_l10n::msg::studio as m;
+use ddi_library::announcer::Comment;
 
 use super::{Env, frame, left, right};
 use crate::look::{Spec, call, mono_width, quad, tracked};
@@ -37,6 +40,81 @@ const BEZEL: f32 = 10.0;
 
 /// The way back: the shell leaves the scene.
 pub type BackFn = Rc<dyn Fn(&mut Cx)>;
+
+/// What happens in a step of a scene (`ddi_session::announcer::scene`),
+/// the frame's caption: the facts, worded by [`Caption::text`] in the
+/// UI's language. Scores, grades and judgments are as the play's ruleset
+/// writes them.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Caption {
+    /// The start menu, Singleplayer chosen on it (the welcome's scene).
+    Start,
+    /// Song select comes in (the welcome's).
+    SongSelect,
+    /// A chart is chosen on song select that gets this comment.
+    Chosen(Comment),
+    /// The player quits partway through the song.
+    Quit,
+    /// After the play: the chart cleared for the first time.
+    FirstClear,
+    /// After the play: its score, better than ever on the chart.
+    NewRecord { score: String },
+    /// A full combo, every note at `judgment` (`best`: the best one;
+    /// else that one or better).
+    FullCombo { judgment: String, best: bool },
+    /// The life runs out.
+    Failed,
+    /// A play graded `grade`.
+    Graded { grade: String },
+    /// A play graded `grade`, the cheer after its line (`also`: what its
+    /// line is for besides the grade).
+    Cheer { grade: String, also: CheerAlso },
+    /// Song select before the play: the chart was only ever failed.
+    BeforeFailed,
+    /// Song select before the play: the chart's best.
+    BeforeBest { score: String },
+}
+
+/// What the line before a cheer is for, besides its play's grade.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheerAlso {
+    Nothing,
+    NewRecord,
+    FirstClear,
+}
+
+impl Caption {
+    pub fn text(&self) -> UiText {
+        match self {
+            Caption::Start => m::caption_start(),
+            Caption::SongSelect => m::caption_select_intro(),
+            Caption::Chosen(Comment::New) => m::caption_select_new(),
+            Caption::Chosen(Comment::Hard) => m::caption_select_hard(),
+            Caption::Chosen(Comment::Repeat) => m::caption_select_repeat(),
+            Caption::Chosen(Comment::General) => m::caption_select_general(),
+            Caption::Quit => m::caption_quit(),
+            Caption::FirstClear => m::caption_first_clear(),
+            Caption::NewRecord { score } => m::caption_new_record(score),
+            Caption::FullCombo {
+                judgment,
+                best: true,
+            } => m::caption_full_combo_best(judgment),
+            Caption::FullCombo {
+                judgment,
+                best: false,
+            } => m::caption_full_combo(judgment),
+            Caption::Failed => m::caption_failed(),
+            Caption::Graded { grade } => m::caption_graded(grade),
+            Caption::Cheer { grade, also } => match also {
+                CheerAlso::Nothing => m::caption_cheer(grade),
+                CheerAlso::NewRecord => m::caption_cheer_record(grade),
+                CheerAlso::FirstClear => m::caption_cheer_first_clear(grade),
+            },
+            Caption::BeforeFailed => m::caption_before_failed(),
+            Caption::BeforeBest { score } => m::caption_before_best(score),
+        }
+    }
+}
 
 pub struct StageFrame {
     env: Env,
@@ -142,13 +220,13 @@ impl StageFrame {
         let (kicker_y, line_y) = if compact { (11.0, 27.0) } else { (20.0, 42.0) };
         children.push(left(
             tracked(
-                env.text("Stage.Kicker", "IN THE GAME", 11.0, 600, "Muted"),
+                env.text("Stage.Kicker", &m::stage_kicker(), 11.0, 600, "Muted"),
                 200,
             ),
             x0,
             kicker_y,
         ));
-        let line = format!("“{}”", self.line);
+        let line = m::stage_line(&self.line);
         let voice_w = mono_width(&self.voice, 13.0);
         let mut heard = left(
             env.text(
@@ -187,7 +265,7 @@ impl StageFrame {
         children.push(env.component(
             "Button",
             "Button",
-            &Spec::new([button_w, button_h], "Back to the studio"),
+            &Spec::new([button_w, button_h], m::stage_back()),
             "Stage.Back",
             [x1 - button_w / 2.0, row_y],
         ));

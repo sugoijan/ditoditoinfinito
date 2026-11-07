@@ -18,6 +18,7 @@ use crate::screen::Cx;
 use crate::state::editor::Sounds;
 use crate::state::editor::overview::Overview;
 use crate::state::editor::tap::{Estimate, TapTempo};
+use ddi_l10n::msg::editor as em;
 
 /// How often the screen asks for the music's analysis while the shell
 /// makes it, seconds.
@@ -75,15 +76,23 @@ impl EditorScreen {
     /// The metronome (or with `clap`, the assist clap) on or off.
     pub(super) fn toggle_sound(&mut self, clap: bool) {
         let mut s = self.editor.borrow().sounds();
-        let (name, on) = if clap {
+        let said = if clap {
             s.clap = !s.clap;
-            ("Assist clap", s.clap)
+            if s.clap {
+                em::status_clap_on()
+            } else {
+                em::status_clap_off()
+            }
         } else {
             s.metronome = !s.metronome;
-            ("Metronome", s.metronome)
+            if s.metronome {
+                em::status_metronome_on()
+            } else {
+                em::status_metronome_off()
+            }
         };
         self.edit(|e| e.set_sounds(s));
-        self.say(format!("{name} {}", if on { "on" } else { "off" }));
+        self.say(said);
     }
 
     /// A tap of the tempo key at `time_ms` (the key's time stamp, else
@@ -111,7 +120,7 @@ impl EditorScreen {
     /// offset its taps heard too.
     pub(super) fn apply_tap(&mut self, offset: bool) {
         let Some(est) = self.estimate() else {
-            self.say("Tap Y along to the beat first");
+            self.say(em::status_tap_first());
             return;
         };
         let bpm = rounded(est.bpm);
@@ -120,15 +129,15 @@ impl EditorScreen {
         let mut taken = false;
         self.edit(|e| taken = e.set_tapped_tempo(bpm, heard, retime));
         if !taken {
-            self.say("That tempo cannot be kept in a file");
+            self.say(em::status_tempo_not_kept());
             return;
         }
         let beat = trim_number(self.editor.borrow().cursor().beat());
         self.say(if heard.is_some() {
             let o = trim_number(self.editor.borrow().timing().offset_seconds);
-            format!("{} BPM at beat {beat}, offset {o} s", trim_number(bpm))
+            em::status_tapped_offset(trim_number(bpm), beat, o)
         } else {
-            format!("{} BPM at beat {beat}", trim_number(bpm))
+            em::status_tapped(trim_number(bpm), beat)
         });
     }
 
@@ -139,10 +148,20 @@ impl EditorScreen {
         let mut lines = Vec::new();
         let s = self.editor.borrow().sounds();
         if self.place.listen && (!self.geo.compact || s.metronome || s.clap) {
-            let on = |b: bool| if b { "on" } else { "off" };
+            // A list of two: "Metronome on · clap off".
+            let metronome = if s.metronome {
+                em::panel_metronome_on()
+            } else {
+                em::panel_metronome_off()
+            };
+            let clap = if s.clap {
+                em::panel_clap_on()
+            } else {
+                em::panel_clap_off()
+            };
             lines.push((
                 "Panel.Sounds",
-                format!("Metronome {} · clap {}", on(s.metronome), on(s.clap)),
+                format!("{metronome} · {clap}"),
                 if s.metronome || s.clap {
                     "Accent"
                 } else {
@@ -154,22 +173,21 @@ impl EditorScreen {
         if taps > 0 {
             let text = match self.estimate() {
                 Some(est) => {
-                    let mut t = format!("Tapped {} BPM ({taps} taps)", bpm_text(est.bpm));
-                    if let Some(timing) = est.heard.and_then(|h| {
+                    let bpm = bpm_text(est.bpm);
+                    match est.heard.and_then(|h| {
                         self.editor
                             .borrow()
                             .tapped_timing(rounded(est.bpm), Some(h))
                     }) {
-                        t.push_str(&format!(
-                            " · offset {} s",
-                            trim_number(timing.offset_seconds)
-                        ));
+                        Some(timing) => {
+                            em::panel_tapped_offset(bpm, taps, trim_number(timing.offset_seconds))
+                        }
+                        None => em::panel_tapped(bpm, taps),
                     }
-                    t
                 }
-                None => format!("Tapping… ({taps})"),
+                None => em::panel_tapping(taps),
             };
-            lines.push(("Panel.Tap", text, "Accent"));
+            lines.push(("Panel.Tap", text.into(), "Accent"));
         }
         if self.geo.compact && lines.len() > 1 {
             // One line where there is little room: the taps'.
@@ -182,15 +200,30 @@ impl EditorScreen {
     pub(super) fn sound_items(&self, items: &mut Vec<(&'static str, String)>) {
         if self.place.listen {
             let s = self.editor.borrow().sounds();
-            let on = |b: bool| if b { "on" } else { "off" };
-            items.push(("metronome", format!("Metronome: {} (K)", on(s.metronome))));
-            items.push(("clap", format!("Assist clap: {} (Shift K)", on(s.clap))));
+            items.push((
+                "metronome",
+                if s.metronome {
+                    em::menu_metronome_on()
+                } else {
+                    em::menu_metronome_off()
+                }
+                .into(),
+            ));
+            items.push((
+                "clap",
+                if s.clap {
+                    em::menu_clap_on()
+                } else {
+                    em::menu_clap_off()
+                }
+                .into(),
+            ));
         }
         if let Some(est) = self.estimate() {
             let bpm = bpm_text(rounded(est.bpm));
-            items.push(("tap-bpm", format!("Apply tapped BPM: {bpm} (Shift Y)")));
+            items.push(("tap-bpm", em::menu_apply_tapped(&bpm).into()));
             if est.heard.is_some() {
-                items.push(("tap-offset", format!("Apply tapped BPM ({bpm}) and offset")));
+                items.push(("tap-offset", em::menu_apply_tapped_offset(&bpm).into()));
             }
         }
     }
@@ -326,7 +359,7 @@ impl EditorScreen {
         cx.overlay(
             TapDialog {
                 env: self.env.clone(),
-                status: "Tap along to the beat, then apply.".into(),
+                status: em::tap_start().into(),
             },
             true,
         );
@@ -346,17 +379,17 @@ impl crate::Screen for TapDialog {
         let vp = cx.viewport().screen;
         let (screen, scale) = crate::screens::narrow_fit(&self.env, vp);
         let w = 480.0_f32.min(screen[0] - 24.0);
-        let (mut c, [x, y]) = shell(&self.env, screen, [w, 276.0], "Tap tempo");
+        let (mut c, [x, y]) = shell(&self.env, screen, [w, 276.0], &em::tap_title());
         let mut text = self.env.text("Estimate", &self.status, 14.0, 400, "Text");
         wrap(&mut text, w - 48.0);
         c.push(crate::screens::left(text, x + 24.0, y + 64.0));
         let bw = (w - 58.0) / 2.0;
         for (i, (id, label)) in [
-            ("Tap", "Tap"),
-            ("Apply", "Apply BPM"),
-            ("ApplyOffset", "Apply BPM + offset"),
-            ("Reset", "Reset taps"),
-            ("Close", "Back"),
+            ("Tap", em::tap_tap()),
+            ("Apply", em::tap_apply()),
+            ("ApplyOffset", em::tap_apply_offset()),
+            ("Reset", em::tap_reset()),
+            ("Close", ddi_l10n::msg::common::back()),
         ]
         .iter()
         .enumerate()

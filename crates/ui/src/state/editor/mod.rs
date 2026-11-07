@@ -35,6 +35,7 @@ use ddi_chart::{
     TICKS_PER_BEAT, Tick, TickCount, TimeSignature, TimingMap, WarpSegment,
 };
 use ddi_engine::transform::{Turn, lane_map};
+use ddi_l10n::UiText;
 
 /// Ticks in a measure as note data lays them out (4 beats).
 pub const MEASURE: i64 = 4 * TICKS_PER_BEAT;
@@ -89,6 +90,8 @@ impl NoteTool {
         }
     }
 
+    /// Its name for the debug views and tests (`EditorView::tool`): an
+    /// identifier, in English.
     pub fn name(self) -> &'static str {
         match self {
             NoteTool::Tap => "Tap / hold",
@@ -97,6 +100,31 @@ impl NoteTool {
             NoteTool::Mine => "Mine",
             NoteTool::Lift => "Lift",
             NoteTool::Fake => "Fake",
+        }
+    }
+
+    /// Its key in the messages that select on it (`editor-menu-tool`).
+    pub fn key(self) -> &'static str {
+        match self {
+            NoteTool::Tap => "tap",
+            NoteTool::Hold => "hold",
+            NoteTool::Roll => "roll",
+            NoteTool::Mine => "mine",
+            NoteTool::Lift => "lift",
+            NoteTool::Fake => "fake",
+        }
+    }
+
+    /// Its name as the screens show it.
+    pub fn label(self) -> UiText {
+        use ddi_l10n::msg::editor as m;
+        match self {
+            NoteTool::Tap => m::tool_tap(),
+            NoteTool::Hold => m::tool_hold(),
+            NoteTool::Roll => m::tool_roll(),
+            NoteTool::Mine => m::tool_mine(),
+            NoteTool::Lift => m::tool_lift(),
+            NoteTool::Fake => m::tool_fake(),
         }
     }
 }
@@ -142,19 +170,21 @@ impl SegmentKind {
         SegmentKind::Label,
     ];
 
-    pub fn name(self) -> &'static str {
+    /// Its key in the menu's action ids and the messages that select on
+    /// it (`seg:timesig`, `editor-timing-item`).
+    pub fn key(self) -> &'static str {
         match self {
-            SegmentKind::Bpm => "BPM",
-            SegmentKind::Stop => "Stop",
-            SegmentKind::Delay => "Delay",
-            SegmentKind::Warp => "Warp",
-            SegmentKind::Speed => "Speed",
-            SegmentKind::Scroll => "Scroll",
-            SegmentKind::Fake => "Fake",
-            SegmentKind::TimeSignature => "Time signature",
-            SegmentKind::TickCount => "Tick count",
-            SegmentKind::Combo => "Combo",
-            SegmentKind::Label => "Label",
+            SegmentKind::Bpm => "bpm",
+            SegmentKind::Stop => "stop",
+            SegmentKind::Delay => "delay",
+            SegmentKind::Warp => "warp",
+            SegmentKind::Speed => "speed",
+            SegmentKind::Scroll => "scroll",
+            SegmentKind::Fake => "fake",
+            SegmentKind::TimeSignature => "timesig",
+            SegmentKind::TickCount => "tickcount",
+            SegmentKind::Combo => "combo",
+            SegmentKind::Label => "label",
         }
     }
 }
@@ -200,29 +230,28 @@ impl Segment {
         }
     }
 
-    /// Its values as a file writes them, for the marker's text.
-    pub fn describe(&self) -> String {
-        let n = sm_write::number;
+    /// Its marker's text (on the field, in the panel): its values, with
+    /// at most three decimals.
+    pub fn describe(&self) -> UiText {
+        use ddi_l10n::msg::editor as m;
         match self {
-            Segment::Bpm(v) => format!("{} BPM", trim_number(*v)),
-            Segment::Stop(v) => format!("stop {} s", trim_number(*v)),
-            Segment::Delay(v) => format!("delay {} s", trim_number(*v)),
-            Segment::Warp(l) => format!("warp {} beats", trim_number(l.beat())),
-            Segment::Speed { ratio, delay, unit } => format!(
-                "speed {}× over {} {}",
-                trim_number(*ratio),
-                n(*delay),
-                match unit {
-                    SpeedUnit::Beats => "beats",
-                    SpeedUnit::Seconds => "s",
+            Segment::Bpm(v) => m::marker_bpm(trim_number(*v)),
+            Segment::Stop(v) => m::marker_stop(trim_number(*v)),
+            Segment::Delay(v) => m::marker_delay(trim_number(*v)),
+            Segment::Warp(l) => m::marker_warp(counted(l.beat())),
+            Segment::Speed { ratio, delay, unit } => match unit {
+                SpeedUnit::Beats => m::marker_speed_beats(trim_number(*ratio), counted(*delay)),
+                SpeedUnit::Seconds => {
+                    m::marker_speed_seconds(trim_number(*ratio), trim_number(*delay))
                 }
-            ),
-            Segment::Scroll(v) => format!("scroll {}×", trim_number(*v)),
-            Segment::Fake(l) => format!("fake {} beats", trim_number(l.beat())),
-            Segment::TimeSignature(a, b) => format!("{a}/{b}"),
-            Segment::TickCount(t) => format!("{t} ticks"),
-            Segment::Combo(a, b) => format!("combo {a}/{b}"),
-            Segment::Label(s) => format!("“{s}”"),
+            },
+            Segment::Scroll(v) => m::marker_scroll(trim_number(*v)),
+            Segment::Fake(l) => m::marker_fake(counted(l.beat())),
+            // Numbers alone ("3/4"): no one's language.
+            Segment::TimeSignature(a, b) => UiText::data(format!("{a}/{b}")),
+            Segment::TickCount(t) => m::marker_ticks(*t),
+            Segment::Combo(a, b) => m::marker_combo(a.to_string(), b.to_string()),
+            Segment::Label(s) => m::marker_label(s),
         }
     }
 }
@@ -230,6 +259,12 @@ impl Segment {
 /// A number with at most three decimals, for showing.
 pub fn trim_number(v: f64) -> String {
     crate::screens::data::trim_number(v, 3)
+}
+
+/// `v` to three decimals, for a message that counts it ("1 beat", "0.5
+/// beats"): a Number there, its plural chosen by it.
+pub fn counted(v: f64) -> f64 {
+    (v * 1000.0).round() / 1000.0 + 0.0
 }
 
 /// Notes cut or copied: ticks from the selection's start, and its length.

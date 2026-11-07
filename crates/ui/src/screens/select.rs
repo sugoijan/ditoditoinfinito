@@ -38,11 +38,14 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
 use ddi_chart::Difficulty;
+use ddi_l10n::UiText;
+use ddi_l10n::msg::select as msg;
 use ddi_library::announcer::{Comment, Line};
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
 use super::data::{
     ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, closest, difficulty_name,
+    style_name,
 };
 use super::{Backdrop, Env, FooterHint, extent, footer_hints, frame, ground, header, left, right};
 use crate::hit;
@@ -51,6 +54,7 @@ use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
+use crate::state::select_view::pack_label;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
 use crate::widgets::volume::{Volume, VolumeChange};
@@ -244,6 +248,32 @@ pub const IMPORT_CHANGED: &str = "ImportChanged";
 pub const SHARE_CHANGED: &str = "ShareChanged";
 /// The message the notices dialog sends for a notice's link (`Index`).
 pub const NOTICE_LINK: &str = "NoticeLink";
+
+/// The Tab key's legend beside the style tabs, as keyboards print it
+/// (data: a key's legend is never translated).
+const TAB_LEGEND: &str = "TAB";
+
+/// A generated chart version's mark as the screens show it (its
+/// [`ChartEntry::version`], `ddi_chart::simplify::Derivation::name`).
+pub fn version_name(version: &str) -> UiText {
+    match version {
+        "Without onigiri" => msg::version_without_onigiri(),
+        "Without center" => msg::version_without_center(),
+        "From Pump single" => msg::version_from_pump_single(),
+        "From 5 keys" => msg::version_from_five_keys(),
+        other => UiText::data(other),
+    }
+}
+
+/// Text read from a song's files (its title, artist, a chart's name):
+/// data, none where there is none.
+fn data(s: &str) -> String {
+    if s.is_empty() {
+        String::new()
+    } else {
+        UiText::data(s).into()
+    }
+}
 
 /// Ladder rows at most.
 const LADDER_ROWS: usize = 8;
@@ -486,7 +516,7 @@ impl ListModel for Wheel<'_> {
                 let (name, songs) = &self.packs[p];
                 let open = self.matches.is_some() || !self.closed.contains(&p);
                 set_text(item, "Chevron", if open { "▾" } else { "▸" });
-                set_text(item, "Title", name);
+                set_text(item, "Title", &pack_label(name));
                 let cover = self
                     .data
                     .packs
@@ -504,14 +534,13 @@ impl ListModel for Wheel<'_> {
                     },
                 );
                 let n = songs.len();
-                let plural = if n == 1 { "" } else { "s" };
                 // While searching: how many of its songs match.
                 let count = match self.matches {
                     Some(m) => {
                         let found = songs.iter().filter(|&&s| m[s]).count();
-                        format!("{found} of {n} song{plural}")
+                        msg::pack_songs_found(found, n)
                     }
-                    None => format!("{n} song{plural}"),
+                    None => msg::pack_songs(n),
                 };
                 set_text(item, "Count", &count);
             }
@@ -522,8 +551,8 @@ impl ListModel for Wheel<'_> {
                 } else {
                     format!("{} {}", song.title, song.subtitle)
                 };
-                set_text(item, "Title", &title);
-                set_text(item, "Subtitle", &song.artist);
+                set_text(item, "Title", &data(&title));
+                set_text(item, "Subtitle", &data(&song.artist));
                 let banner = song
                     .banner
                     .as_deref()
@@ -547,7 +576,11 @@ impl ListModel for Wheel<'_> {
                         crate::widgets::play(c, if meter.is_some() { "Full" } else { "Empty" });
                     }
                 }
-                set_text(item, "NoCharts", &format!("no {} charts", self.style_name));
+                set_text(
+                    item,
+                    "NoCharts",
+                    &msg::row_no_charts(style_name(self.style, self.style_name)),
+                );
                 // Edits (and named charts) beside the five meters.
                 let edits = charts
                     .iter()
@@ -612,7 +645,7 @@ pub struct SelectScreen {
     /// could not start typing (a browser does either only from a key or
     /// a tap): how long the footer still says so, and what.
     gesture_note: f32,
-    gesture_text: &'static str,
+    gesture_text: String,
     /// The item whose song the left side shows.
     shown: Option<Item>,
     /// The song whose preview movie shows in the banner's place
@@ -696,7 +729,7 @@ impl SelectScreen {
         let layout = Layout::new(&env, super::DESIGN, false);
         let mut search = SearchField::new(
             "Search",
-            "Search  /",
+            &msg::search_placeholder(),
             [
                 layout.field[0] + layout.field[2] / 2.0,
                 layout.field[1] + layout.field[3] / 2.0,
@@ -736,7 +769,7 @@ impl SelectScreen {
             layout,
             hints: None,
             gesture_note: 0.0,
-            gesture_text: "",
+            gesture_text: String::new(),
             shown: None,
             movie: None,
             left_dirty: true,
@@ -868,8 +901,9 @@ impl SelectScreen {
     }
 
     /// What Share… would share: the imported song shown, or the imported
-    /// pack whose header is shown, `(pack, its songs' ids, the title)`.
-    fn shareable(&self) -> Option<(String, Vec<String>, String)> {
+    /// pack whose header is shown, `(pack, its songs' ids, the title)`
+    /// (the song's or the pack's name).
+    fn shareable(&self) -> Option<(String, Vec<String>, Option<String>)> {
         if !self.sharing || self.data.shared.is_some() {
             return None;
         }
@@ -890,12 +924,17 @@ impl SelectScreen {
             Item::Header(p) => {
                 let name = self.packs.get(p)?.0.clone();
                 let songs = pack_songs(&name);
-                (!songs.is_empty()).then(|| (name.clone(), songs, name))
+                (!songs.is_empty()).then(|| (name.clone(), songs, Some(name)))
             }
             Item::Song(i) => {
                 let song = self.data.songs.get(i)?;
-                song.removable
-                    .then(|| (song.pack.clone(), vec![song.id.clone()], song.title.clone()))
+                song.removable.then(|| {
+                    (
+                        song.pack.clone(),
+                        vec![song.id.clone()],
+                        Some(song.title.clone()),
+                    )
+                })
             }
         }
     }
@@ -912,8 +951,9 @@ impl SelectScreen {
     }
 
     /// What "Share N songs…" shares: the songs added, in order, under
-    /// their pack's name when they share one, else "Shared songs".
-    fn share_list(&self) -> Option<(String, Vec<String>, String)> {
+    /// their pack's name when they share one, else "Shared songs"; no
+    /// title (the dialog says how many).
+    fn share_list(&self) -> Option<(String, Vec<String>, Option<String>)> {
         if self.to_share.is_empty() {
             return None;
         }
@@ -925,11 +965,9 @@ impl SelectScreen {
             .collect();
         let pack = match packs.first() {
             Some(p) if packs.iter().all(|q| q == p) => p.to_string(),
-            _ => "Shared songs".to_string(),
+            _ => msg::share_default_pack().into(),
         };
-        let n = self.to_share.len();
-        let title = format!("{n} {}", if n == 1 { "song" } else { "songs" });
-        Some((pack, self.to_share.clone(), title))
+        Some((pack, self.to_share.clone(), None))
     }
 
     /// The Share dialog on what is shown.
@@ -940,7 +978,13 @@ impl SelectScreen {
         self.open_share_of(pack, songs, title, cx);
     }
 
-    fn open_share_of(&mut self, pack: String, songs: Vec<String>, title: String, cx: &mut Cx) {
+    fn open_share_of(
+        &mut self,
+        pack: String,
+        songs: Vec<String>,
+        title: Option<String>,
+        cx: &mut Cx,
+    ) {
         cx.focus("Wheel");
         cx.overlay(
             ShareDialog::new(
@@ -975,18 +1019,16 @@ impl SelectScreen {
         let (Some(song), Some(chart)) = (self.song(), pick.map(|p| charts[p])) else {
             return;
         };
-        let mut title = format!("{} {}", chart.label(), chart.meter_text())
+        let title = format!("{} {}", chart.label(), chart.meter_text())
             .trim_end()
             .to_string();
-        if let Some(version) = chart.version {
-            title = format!("{title} · {version}");
-        }
         let rows = f(song, chart);
         cx.focus("Wheel");
         cx.overlay(
             super::select_dialogs::PlaysDialog::new(
                 self.env.clone(),
                 &title,
+                chart.version,
                 rows,
                 self.shell.clone(),
             ),
@@ -1264,6 +1306,11 @@ impl SelectScreen {
             .map_or("", |s| s.name.as_str())
     }
 
+    /// The style's name as its tab shows it (its message).
+    fn style_label(&self) -> UiText {
+        style_name(self.style_id(), self.style_name())
+    }
+
     /// The song's charts in the style, and the one picked.
     fn charts(&self) -> (Vec<&ChartEntry>, Option<usize>) {
         let Some(song) = self.song() else {
@@ -1346,14 +1393,14 @@ impl SelectScreen {
             let play = env.component(
                 "PlayButton",
                 "Button",
-                &Spec::new([w, l.play_h], "PLAY"),
+                &Spec::new([w, l.play_h], msg::play_button()),
                 "Play",
                 [w / 2.0, l.play_y],
             );
             song.push(play);
         } else {
             song.push(frame("Tabs", Vec::new()));
-            let mut kbd = env.numbers("TabKey", "TAB", 11.0, "Muted");
+            let mut kbd = env.numbers("TabKey", &UiText::data(TAB_LEGEND), 11.0, "Muted");
             kbd = right(kbd, sw, l.tabs_y - sy + 16.0);
             song.push(kbd);
             song.push(frame("Ladder", Vec::new()));
@@ -1396,11 +1443,11 @@ impl SelectScreen {
             children.push(left(title, margin + 56.0, 28.0));
         } else {
             let name = if self.data.shared.is_some() {
-                "SHARED SONGS"
+                msg::title_shared()
             } else {
-                "SELECT MUSIC"
+                msg::title()
             };
-            children.push(header(&env, cx, screen[0], name));
+            children.push(header(&env, cx, screen[0], &name));
             children.push(self.mods(l.field[0] - 16.0));
             children.push(super::more_button(
                 &env,
@@ -1412,6 +1459,8 @@ impl SelectScreen {
         let [fx, fy, fw, fh] = l.field;
         let room = if l.compact { 0.0 } else { 76.0 };
         let bw = (fw - room).max(40.0);
+        // In the language now (built again on a change of language).
+        self.search.hint = msg::search_placeholder().into();
         self.search.centre = [fx + bw / 2.0, fy + fh / 2.0];
         self.search.size = [bw, fh];
         let mut field = self.search.build(&*env.look);
@@ -1460,7 +1509,7 @@ impl SelectScreen {
             .iter()
             .map(|m| look::mono_width(m, 14.0) + 28.0)
             .sum();
-        pills + look::mono_width("Playing with", 13.0) + 8.0
+        pills + look::mono_width(&msg::playing_with(), 13.0) + 8.0
     }
 
     /// "Playing with" and the pills, ending at `end`.
@@ -1480,7 +1529,7 @@ impl SelectScreen {
         }
         if !self.data.mods.is_empty() {
             children.push(right(
-                env.text("PlayingWith", "Playing with", 13.0, 400, "Muted"),
+                env.text("PlayingWith", &msg::playing_with(), 13.0, 400, "Muted"),
                 x,
                 32.0,
             ));
@@ -1535,14 +1584,14 @@ impl SelectScreen {
             set_image(info, "Banner", None);
             return;
         };
-        set_text(info, "Title", &song.title);
-        set_text(info, "Subtitle", &song.subtitle);
-        set_text(info, "Artist", &song.artist);
-        set_text(info, "Bpm", &song.bpm_text);
-        set_text(info, "Length", &song.length_text());
-        set_text(info, "Pack", &song.pack);
+        set_text(info, "Title", &data(&song.title));
+        set_text(info, "Subtitle", &data(&song.subtitle));
+        set_text(info, "Artist", &data(&song.artist));
+        set_text(info, "Bpm", &data(&song.bpm_text));
+        set_text(info, "Length", &data(&song.length_text()));
+        set_text(info, "Pack", &pack_label(&song.pack));
         let offset = if song.offset_ms != 0 {
-            format!("offset {:+} ms", song.offset_ms)
+            msg::info_offset(format!("{:+}", song.offset_ms)).into()
         } else {
             String::new()
         };
@@ -1553,13 +1602,9 @@ impl SelectScreen {
         } else {
             song.credit.as_str()
         };
-        set_text(info, "Credit", credit);
-        let mut line = format!(
-            "{} · {} BPM · {}",
-            song.artist,
-            song.bpm_text,
-            song.length_text()
-        );
+        set_text(info, "Credit", &data(credit));
+        let mut line: String =
+            msg::info_line(&song.artist, &song.bpm_text, song.length_text()).into();
         if !offset.is_empty() {
             line.push_str(&format!(" · {offset}"));
         }
@@ -1600,7 +1645,7 @@ impl SelectScreen {
         let cd_title = song.cd_title.as_deref().map(|c| cx.texture(c, 128.0));
         set_image(info, "CdTitle", cd_title);
         if self.layout.compact {
-            let pack = song.pack.clone();
+            let pack = pack_label(&song.pack);
             if let Some(t) = hit::find_mut(root, "PackTitle")
                 && let Kind::Text(t) = &mut t.kind
             {
@@ -1628,24 +1673,11 @@ impl SelectScreen {
             let lit = counts.iter().filter(|&&n| n > 0).count();
             let n = counts.get(self.style).copied().unwrap_or(0);
             let others = lit - usize::from(n > 0);
-            let note = match (n, others) {
-                (0, 0) => "no charts".to_string(),
-                (0, o) => format!(
-                    "no charts · in {o} other style{}",
-                    if o == 1 { "" } else { "s" }
-                ),
-                (n, 0) => format!("{n} chart{}", if n == 1 { "" } else { "s" }),
-                (n, o) => format!(
-                    "{n} chart{} · also in {o} other style{}",
-                    if n == 1 { "" } else { "s" },
-                    if o == 1 { "" } else { "s" }
-                ),
-            };
             super::set(
                 root,
                 "StyleButton",
                 "Label",
-                &format!("{}  {note}  ▾", self.style_name()),
+                &msg::style_button(self.style_label(), n, others),
             );
             return;
         }
@@ -1653,13 +1685,17 @@ impl SelectScreen {
             return;
         };
         let y = self.layout.tabs_y - self.layout.song[1] + 16.0;
-        let widths: Vec<f32> = self
+        let names: Vec<UiText> = self
             .data
             .styles
             .iter()
+            .map(|st| style_name(&st.id, &st.name))
+            .collect();
+        let widths: Vec<f32> = names
+            .iter()
             .zip(&counts)
-            .map(|(st, &n)| {
-                look::mono_width(&st.name, 13.0)
+            .map(|(name, &n)| {
+                look::mono_width(name, 13.0)
                     + 20.0
                     + if n > 0 {
                         look::mono_width(&n.to_string(), 11.0) + 6.0
@@ -1702,7 +1738,7 @@ impl SelectScreen {
             ));
             x += 22.0;
         }
-        for (i, st) in self.data.styles.iter().enumerate().take(b).skip(a) {
+        for (i, name) in names.iter().enumerate().take(b).skip(a) {
             let n = counts[i];
             let count = if n > 0 { n.to_string() } else { String::new() };
             let w = widths[i];
@@ -1710,7 +1746,7 @@ impl SelectScreen {
                 &*env.look,
                 "StyleTab",
                 "Button",
-                &Spec::new([w, 32.0], &st.name).with_items([count.clone()]),
+                &Spec::new([w, 32.0], name.as_str()).with_items([count.clone()]),
             );
             tab.name = format!("Tab{i}");
             let w = extent(&mut tab, [w, 32.0])[0];
@@ -1746,7 +1782,7 @@ impl SelectScreen {
         let (first, n, row) = self.ladder_window(len, pick);
         self.ladder = (first, n);
         let (charts, pick) = self.charts();
-        let style_name = self.style_name().to_string();
+        let style_name = self.style_label();
         if self.layout.compact {
             let w = self.layout.song[2];
             let cell = (w - 4.0 * 5.0) / 5.0;
@@ -1756,7 +1792,7 @@ impl SelectScreen {
                 // Its meter; a named chart without one by its name (cut
                 // to the button; the play button says it whole).
                 let by_name = c.named() && c.meter == 0;
-                let shown = if by_name { c.label() } else { c.meter_text() };
+                let shown = data(&if by_name { c.label() } else { c.meter_text() });
                 let mut b = look::component_or(
                     &*env.look,
                     "ChartButton",
@@ -1802,7 +1838,7 @@ impl SelectScreen {
             if charts.is_empty() {
                 let t = env.text(
                     "NoChartsText",
-                    &format!("No {style_name} charts for this song."),
+                    &msg::no_charts(&style_name),
                     14.0,
                     600,
                     "Text",
@@ -1814,17 +1850,24 @@ impl SelectScreen {
             }
             let label = match pick.map(|p| charts[p]) {
                 Some(c) => {
-                    let label = format!(
-                        "{} {} {}",
-                        if self.autoplay { "AUTOPLAY" } else { "PLAY" },
-                        c.label().to_uppercase(),
-                        c.meter_text()
-                    );
+                    // The chart as it names itself (data), in the
+                    // button's capitals.
+                    let chart = format!("{} {}", c.label().to_uppercase(), c.meter_text());
+                    let chart = UiText::data(chart.trim_end());
+                    let label: String = if self.autoplay {
+                        msg::autoplay_chart(chart)
+                    } else {
+                        msg::play_chart(chart)
+                    }
+                    .into();
                     // Marked as the results mark its play.
-                    let assist = if c.assisted { " · ASSIST" } else { "" };
-                    format!("{}{assist}", label.trim_end())
+                    if c.assisted {
+                        format!("{label} · {}", msg::assist_mark())
+                    } else {
+                        label
+                    }
                 }
-                None => "NO CHARTS".to_string(),
+                None => msg::play_no_charts().into(),
             };
             super::set(root, "Play", "Label", &label);
             return;
@@ -1842,33 +1885,35 @@ impl SelectScreen {
                 &format!("Ladder.Row{k}"),
                 [0.0, top + k as f32 * (row + gap)],
             );
-            set_text(&mut r, "Label", &c.label().to_uppercase());
-            set_text(&mut r, "Title", &c.label());
-            let mut notes = if c.credit.is_empty() {
-                format!("{} notes", c.notes)
+            // The difficulty (never translated) or the chart's own name.
+            set_text(&mut r, "Label", &data(&c.label().to_uppercase()));
+            set_text(&mut r, "Title", &data(&c.label()));
+            let mut notes: String = if c.credit.is_empty() {
+                msg::chart_notes(c.notes)
             } else {
-                format!("{} notes · steps by {}", c.notes, c.credit)
-            };
+                msg::chart_notes_by(c.notes, &c.credit)
+            }
+            .into();
             // A generated version says what it leaves out or where it
             // comes from (a named one does in its name).
             if let Some(version) = c.version.filter(|_| !c.named()) {
-                notes = format!("{version} · {notes}");
+                notes = format!("{} · {notes}", version_name(version));
             }
             set_text(&mut r, "Notes", &notes);
             set_text(&mut r, "Subtitle", &notes);
             set_text(&mut r, "Meter", &c.meter_text());
-            // The best: grade, score, lamp; marked while it waits to be
-            // worked out again.
+            // The best: grade, score, lamp (the ruleset's readouts);
+            // marked while it waits to be worked out again.
             match &c.best {
                 Some(b) => {
-                    set_text(&mut r, "Grade", &b.grade);
+                    set_text(&mut r, "Grade", &data(&b.grade));
                     let score = if b.pending {
                         format!("{} …", b.score)
                     } else {
                         b.score.clone()
                     };
-                    set_text(&mut r, "Score", &score);
-                    set_text(&mut r, "LampText", &b.lamp_text);
+                    set_text(&mut r, "Score", &data(&score));
+                    set_text(&mut r, "LampText", &data(&b.lamp_text));
                     crate::widgets::play(&mut r, &format!("Lamp.{}", b.lamp));
                 }
                 None => {
@@ -1891,23 +1936,16 @@ impl SelectScreen {
             children.push(r);
         }
         if charts.is_empty() && self.song().is_some() {
+            let none = msg::no_charts(&style_name);
             let mut e = env.component(
                 "ChartLadder.Empty",
                 "Panel",
-                &Spec::new([w, 150.0], format!("No {style_name} charts for this song.")),
+                &Spec::new([w, 150.0], none.as_str()),
                 "Ladder.Empty",
                 [0.0, top],
             );
-            set_text(
-                &mut e,
-                "Title",
-                &format!("No {style_name} charts for this song."),
-            );
-            set_text(
-                &mut e,
-                "Hint",
-                "The lit styles above have charts; Tab moves to the next one.",
-            );
+            set_text(&mut e, "Title", &none);
+            set_text(&mut e, "Hint", &msg::no_charts_hint());
             children.push(e);
         }
         if let Some(f) = hit::find_mut(root, "Ladder") {
@@ -1977,13 +2015,9 @@ impl SelectScreen {
         let manage = self.can_manage();
         // While searching (not typing), what it found.
         let found = match (&self.matches, now) {
-            _ if self.gesture_note > 0.0 && now != Hints::Typing => self.gesture_text.to_string(),
+            _ if self.gesture_note > 0.0 && now != Hints::Typing => self.gesture_text.clone(),
             (_, Hints::Typing) | (None, _) => String::new(),
-            (Some(_), _) => match self.match_count {
-                0 => "No song matches.".to_string(),
-                1 => "1 song matches.".to_string(),
-                n => format!("{n} songs match."),
-            },
+            (Some(_), _) => msg::matches(self.match_count).into(),
         };
         let in_header = self.in_header(cx);
         let key = (now, searching, found.clone(), manage, in_header);
@@ -2010,7 +2044,8 @@ impl SelectScreen {
                 }
             } else {
                 right(
-                    self.env.numbers("TabKey", "TAB", 11.0, "Muted"),
+                    self.env
+                        .numbers("TabKey", &UiText::data(TAB_LEGEND), 11.0, "Muted"),
                     self.layout.song[2],
                     self.layout.tabs_y - self.layout.song[1] + 16.0,
                 )
@@ -2018,58 +2053,95 @@ impl SelectScreen {
             hint.name = "TabKey".into();
             *old = hint;
         }
-        let esc = "Start menu";
+        // The hints' and links' words, in the language now.
+        let (song, chart, style, play, search) = (
+            msg::hint_song(),
+            msg::hint_chart(),
+            msg::hint_style(),
+            msg::hint_play(),
+            msg::hint_search(),
+        );
+        let (open_close, choose, go_to, close) = (
+            msg::hint_open_close(),
+            msg::hint_choose(),
+            msg::hint_go_to(),
+            ddi_l10n::msg::common::close(),
+        );
+        let (manage_hint, plays, edit) = (msg::hint_manage(), msg::hint_plays(), msg::hint_edit());
+        let (navigate, more, activate) = (
+            msg::hint_navigate(),
+            ddi_l10n::msg::common::more(),
+            msg::hint_activate(),
+        );
+        let esc = msg::hint_start_menu();
+        let typing_note = msg::typing_note();
+        let (link_manage, link_add, link_options, link_calibrate) = (
+            msg::link_manage(),
+            msg::link_add(),
+            msg::link_options(),
+            ddi_l10n::msg::common::calibrate(),
+        );
         // The plays are P's (its hint); the credits and the source are
         // the start menu's and the credits'.
         let shared = self.data.shared.is_some();
         let mut links: Vec<(&str, &str)> = Vec::new();
         if manage && !shared {
-            links.push(("Link.Manage", "Manage…"));
+            links.push(("Link.Manage", link_manage.as_str()));
         }
         if !shared {
-            links.push(("Link.Add", "+ Add songs"));
+            links.push(("Link.Add", link_add.as_str()));
         }
-        links.extend([("Link.Options", "Options"), ("Link.Calibrate", "Calibrate")]);
-        let (hints, note): (&[(&[&str], &str)], &str) = match now {
+        links.extend([
+            ("Link.Options", link_options.as_str()),
+            ("Link.Calibrate", link_calibrate.as_str()),
+        ]);
+        /// A key hint: its keys' legends and its words.
+        fn h<'a>(
+            keys: &'static [&'static str],
+            label: &'a str,
+        ) -> (&'static [&'static str], &'a str) {
+            (keys, label)
+        }
+        let (mut hints, note): (Vec<(&[&str], &str)>, &str) = match now {
             Hints::Song => (
-                &[
-                    (&["↑", "↓"], "Song"),
-                    (&["↑", "↓"], "Chart"),
-                    (&["TAB"], "Style"),
-                    (&["ENTER"], "Play"),
-                    (&["/"], "Search"),
-                    (&["ESC"], esc),
+                vec![
+                    h(&["↑", "↓"], &song),
+                    h(&["↑", "↓"], &chart),
+                    h(&["TAB"], &style),
+                    h(&["ENTER"], &play),
+                    h(&["/"], &search),
+                    h(&["ESC"], &esc),
                 ],
                 "",
             ),
             Hints::Greyed => (
-                &[
-                    (&["↑", "↓"], "Song"),
-                    (&["TAB"], "Style"),
-                    (&["/"], "Search"),
-                    (&["ESC"], esc),
+                vec![
+                    h(&["↑", "↓"], &song),
+                    h(&["TAB"], &style),
+                    h(&["/"], &search),
+                    h(&["ESC"], &esc),
                 ],
                 "",
             ),
             Hints::Header if searching => (
-                &[(&["↑", "↓"], "Song"), (&["/"], "Search"), (&["ESC"], esc)],
+                vec![h(&["↑", "↓"], &song), h(&["/"], &search), h(&["ESC"], &esc)],
                 "",
             ),
             Hints::Header => (
-                &[
-                    (&["↑", "↓"], "Song"),
-                    (&["ENTER"], "Open or close"),
-                    (&["/"], "Search"),
+                vec![
+                    h(&["↑", "↓"], &song),
+                    h(&["ENTER"], &open_close),
+                    h(&["/"], &search),
                 ],
                 "",
             ),
             Hints::Typing => (
-                &[
-                    (&["↑", "↓"], "Choose"),
-                    (&["ENTER"], "Go to"),
-                    (&["ESC"], "Close"),
+                vec![
+                    h(&["↑", "↓"], &choose),
+                    h(&["ENTER"], &go_to),
+                    h(&["ESC"], &close),
                 ],
-                "Typing searches titles, artists, packs and step artists; kana and romaji match each other.",
+                typing_note.as_str(),
             ),
         };
         let links = if now == Hints::Typing {
@@ -2078,25 +2150,27 @@ impl SelectScreen {
             &links[..]
         };
         // Delete (or ⌘/Ctrl Backspace) manages what was imported.
-        let mut hints: Vec<(&[&str], &str)> = hints.to_vec();
         if manage && now != Hints::Typing {
-            hints.push((&["DEL"], "Manage"));
+            hints.push(h(&["DEL"], &manage_hint));
         }
         if self.plays.is_some() && now == Hints::Song {
-            hints.push((&["P"], "Plays"));
+            hints.push(h(&["P"], &plays));
         }
         if self.editing && !shared && now == Hints::Song && !self.layout.compact {
-            hints.push((&["E"], "Edit"));
+            hints.push(h(&["E"], &edit));
         }
         // A share's name and its time left, where nothing else is said.
-        let shared_note = self.data.shared.as_ref().map(|v| match &v.expires {
-            Some(e) => format!("Shared: {} · {e}", v.pack),
-            None => format!("Shared: {}", v.pack),
+        let shared_note: Option<String> = self.data.shared.as_ref().map(|v| {
+            match &v.expires {
+                Some(e) => msg::shared_note_expires(&v.pack, e),
+                None => msg::shared_note(&v.pack),
+            }
+            .into()
         });
         // The songs added to the next share, where nothing else is said.
-        let list_note = self
+        let list_note: Option<String> = self
             .share_list()
-            .map(|(_, _, title)| format!("{title} to share"));
+            .map(|(_, songs, _)| msg::share_list_note(songs.len()).into());
         let note = match (note, found.as_str(), &shared_note, &list_note) {
             ("", "", Some(n), _) | ("", "", None, Some(n)) => n.as_str(),
             ("", f, _, _) => f,
@@ -2120,21 +2194,29 @@ impl SelectScreen {
                 HintAction::Left,
                 HintAction::Right,
             ],
-            if in_header { "Navigate" } else { "Song" },
+            if in_header {
+                navigate.as_str()
+            } else {
+                song.as_str()
+            },
         )];
         if now == Hints::Song && !in_header {
-            controller.push((&[HintAction::Previous, HintAction::Next], "Chart"));
+            controller.push((&[HintAction::Previous, HintAction::Next], chart.as_str()));
         }
         if now != Hints::Typing {
             controller.extend([
-                (&[HintAction::Select][..], "Style"),
-                (&[HintAction::More][..], "More"),
+                (&[HintAction::Select][..], style.as_str()),
+                (&[HintAction::More][..], more.as_str()),
             ]);
         }
-        controller.push((&[HintAction::Confirm, HintAction::Start], "Activate"));
+        controller.push((&[HintAction::Confirm, HintAction::Start], activate.as_str()));
         controller.push((
             &[HintAction::Back],
-            if now == Hints::Typing { "Close" } else { esc },
+            if now == Hints::Typing {
+                close.as_str()
+            } else {
+                esc.as_str()
+            },
         ));
         let (mut f, texts) = footer_hints(
             &self.env,
@@ -2273,10 +2355,11 @@ impl SelectScreen {
                 (self.options)(&env, cx);
             }
             "remove-unreadable" => {
+                // The notice's count, wherever its language puts it.
                 let count = self.notices[i]
                     .text
-                    .split(' ')
-                    .next()
+                    .split(|c: char| !c.is_ascii_digit())
+                    .find(|n| !n.is_empty())
                     .and_then(|n| n.parse().ok())
                     .unwrap_or(0);
                 self.open_manage(Manage::Unreadable { count }, cx);
@@ -3046,12 +3129,14 @@ fn suggestions(
     s.suggest(typed, &f, 6)
         .into_iter()
         .map(|s| {
+            // The suggestion as typed into the field (data, never marked),
+            // its kind a message.
             let kind = match s.kind {
-                SuggestKind::Title => "TITLE",
-                SuggestKind::Artist => "ARTIST",
-                SuggestKind::Pack => "PACK",
+                SuggestKind::Title => msg::suggest_title(),
+                SuggestKind::Artist => msg::suggest_artist(),
+                SuggestKind::Pack => msg::suggest_pack(),
             };
-            (s.text, kind.to_string())
+            (s.text, kind.into())
         })
         .collect()
 }
@@ -3504,7 +3589,7 @@ impl Screen for SelectScreen {
         // key or a tap; the footer says so for a while.
         if let Input::NeedsGesture(UiRequest::OpenUrl(_)) = input {
             self.gesture_note = 4.0;
-            self.gesture_text = "Press Enter or tap to open the link.";
+            self.gesture_text = msg::gesture_link().into();
             self.hints = None;
             self.fill_footer(root, cx);
             self.status("press Enter or tap to open".into());
@@ -3520,7 +3605,7 @@ impl Screen for SelectScreen {
             self.typing = false;
             self.search.refused(root);
             self.gesture_note = 4.0;
-            self.gesture_text = "Press / or tap the field to type.";
+            self.gesture_text = msg::gesture_search().into();
             self.hints = None;
             self.fill_footer(root, cx);
             self.sync_field(root);
@@ -3876,11 +3961,11 @@ impl SelectScreen {
             .suggestions
             .iter()
             .enumerate()
-            .map(|(i, (text, note))| (i.to_string(), format!("{text} {note}")))
+            .map(|(i, (text, note))| (i.to_string(), format!("{} {note}", UiText::data(text))))
             .collect();
         super::action_menu(
             &self.env,
-            "Search suggestions",
+            &msg::suggestions_title(),
             items,
             "Select.Suggestion",
             cx,
@@ -3888,72 +3973,78 @@ impl SelectScreen {
     }
 
     fn open_more(&self, cx: &mut Cx) {
-        let mut items = vec![("SearchIcon".into(), "Search".into())];
+        let mut items: Vec<(String, String)> =
+            vec![("SearchIcon".into(), msg::more_search().into())];
         if !self.search.text.trim().is_empty() && !self.search.suggestions.is_empty() {
-            items.push(("Suggestions".into(), "Search suggestions…".into()));
+            items.push(("Suggestions".into(), msg::more_suggestions().into()));
         }
         if !self.search.text.is_empty() {
-            items.push(("ClearSearch".into(), "Clear search".into()));
+            items.push(("ClearSearch".into(), msg::more_clear_search().into()));
         }
         let (charts, pick) = self.charts();
         let chart = pick.and_then(|i| charts.get(i));
         if self.plays.is_some() && chart.is_some() {
-            items.push(("History".into(), "Chart history".into()));
+            items.push(("History".into(), msg::more_history().into()));
         }
         if chart
             .and_then(|c| c.best.as_ref())
             .is_some_and(|b| !b.play.is_empty())
         {
-            items.push(("WatchBest".into(), "Watch best".into()));
+            items.push(("WatchBest".into(), msg::more_watch_best().into()));
         }
         let shared = self.data.shared.is_some();
         if self.editing && !shared && self.song().is_some() {
-            items.push(("EditChart".into(), "Edit chart".into()));
+            items.push(("EditChart".into(), msg::more_edit().into()));
         }
         if self.manageable().is_some() && !shared {
-            items.push(("Link.Manage".into(), "Manage song / pack".into()));
+            items.push(("Link.Manage".into(), msg::more_manage().into()));
         }
         // Sharing: the song shown added to (or taken off) the list, the
         // list shared, or the song or pack shown alone.
         if let Some(song) = self.shown_imported() {
             if self.to_share.contains(&song.id) {
-                items.push(("ShareRemove".into(), "Remove from share".into()));
+                items.push(("ShareRemove".into(), msg::more_share_remove().into()));
             } else {
-                items.push(("ShareAdd".into(), "Add to share".into()));
+                items.push(("ShareAdd".into(), msg::more_share_add().into()));
             }
         }
-        if let Some((_, _, title)) = self.share_list() {
-            items.push(("ShareSelected".into(), format!("Share {title}…")));
-            items.push(("ShareClear".into(), "Clear the share list".into()));
+        if let Some((_, songs, _)) = self.share_list() {
+            items.push((
+                "ShareSelected".into(),
+                msg::more_share_list(songs.len()).into(),
+            ));
+            items.push(("ShareClear".into(), msg::more_share_clear().into()));
         } else if self.shareable().is_some() {
             let label = if self.shown_imported().is_some() {
-                "Share this song…"
+                msg::more_share_song()
             } else {
-                "Share the pack…"
+                msg::more_share_pack()
             };
             items.push(("Share".into(), label.into()));
         }
         if charts.len() > 1 {
             items.extend([
-                ("PreviousChart".into(), "Previous chart".into()),
-                ("NextChart".into(), "Next chart".into()),
+                ("PreviousChart".into(), msg::more_previous_chart().into()),
+                ("NextChart".into(), msg::more_next_chart().into()),
             ]);
         }
-        items.extend(
-            self.data
-                .styles
-                .iter()
-                .enumerate()
-                .map(|(i, style)| (format!("Tab{i}"), format!("Style: {}", style.name))),
-        );
+        items.extend(self.data.styles.iter().enumerate().map(|(i, style)| {
+            (
+                format!("Tab{i}"),
+                msg::more_style(style_name(&style.id, &style.name)).into(),
+            )
+        }));
         if !shared {
-            items.push(("Link.Add".into(), "Add songs".into()));
+            items.push(("Link.Add".into(), msg::more_add_songs().into()));
         }
         items.extend([
-            ("Link.Options".into(), "Options".into()),
-            ("Link.Calibrate".into(), "Calibrate".into()),
+            ("Link.Options".into(), msg::more_options().into()),
+            (
+                "Link.Calibrate".into(),
+                ddi_l10n::msg::common::calibrate().into(),
+            ),
         ]);
-        super::action_menu(&self.env, "Song actions", items, "Select.More", cx);
+        super::action_menu(&self.env, &msg::more_title(), items, "Select.More", cx);
     }
 
     fn activate(&mut self, name: &str, root: &mut Actor, cx: &mut Cx) -> Handled {

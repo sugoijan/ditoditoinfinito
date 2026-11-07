@@ -42,9 +42,9 @@ fn events_until(
     }
 }
 
-fn error_of(events: &[VideoEvent]) -> Option<&str> {
+fn error_of(events: &[VideoEvent]) -> Option<String> {
     events.iter().find_map(|e| match e {
-        VideoEvent::Error(m) => Some(m.as_str()),
+        VideoEvent::Error(m) => Some(m.to_string()),
         _ => None,
     })
 }
@@ -59,7 +59,12 @@ fn without_the_helper_movies_fail_as_on_the_web() {
     );
     v.want(4);
     let events = events_until(&mut v, |e| matches!(e, VideoEvent::Error(_)));
-    assert_eq!(events, [VideoEvent::Error(NOT_INCLUDED.into())]);
+    assert_eq!(
+        events,
+        [VideoEvent::Error(
+            ddi_platform::video::VideoError::NotIncluded
+        )]
+    );
     assert_eq!(v.pending(), 0);
     assert_eq!(host.status(), HelperStatus::Failed(NOT_INCLUDED.into()));
     let id = host.probe(&PathBuf::from("/nowhere/movie.avi").into(), "movie.avi");
@@ -211,7 +216,7 @@ fn a_helper_that_dies_hangs_or_lies_fails_the_movie_not_the_host() {
         v.want(1);
         let events = events_until(&mut v, |e| matches!(e, VideoEvent::Error(_)));
         (
-            error_of(&events).unwrap_or("no error").to_string(),
+            error_of(&events).unwrap_or_else(|| "no error".into()),
             host.status(),
         )
     };

@@ -1,8 +1,9 @@
 //! Bounded pipe ownership and the app side of the importer's protocol. The UI
 //! never waits for filesystem work, a pipe write, or a child process to exit.
-use super::{Finished, Progress, Prompt, report};
+use super::report::{Problem, Report, Step, Summary, SystemError};
+use super::{Finished, Progress, Prompt};
 use crate::library::managed::{PlaybackSnapshot, PlaybackSong};
-use ddi_importer_protocol::{Event, Outcome, Paths, Request, VERSION};
+use ddi_importer_protocol::{Event, Failure, Outcome, Paths, Request, VERSION};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::Read,
@@ -17,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-type Wire = Result<Option<Event>, String>;
+type Wire = Result<Option<Event>, Problem>;
 struct Pipe {
     child: Child,
     requests: Option<mpsc::SyncSender<Request>>,
@@ -28,14 +29,15 @@ struct Pipe {
     stderr_done: Arc<AtomicBool>,
 }
 impl Pipe {
-    fn spawn(executable: &Path) -> Result<Self, String> {
+    fn spawn(executable: &Path) -> Result<Self, Problem> {
+        let start = |e: std::io::Error| Problem::Start(SystemError::from(e));
         let child = crate::os::spawn(
             Command::new(executable)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()),
         )
-        .map_err(|e| format!("Cannot start the packaged importer: {e}"))?;
+        .map_err(start)?;
         // Establish ownership before fallible pipe/thread setup. A partial setup
         // failure must kill and reap the child, rather than merely dropping it.
         let stderr = Arc::new(Mutex::new(VecDeque::new()));
@@ -47,21 +49,22 @@ impl Pipe {
             stderr,
             stderr_done: Arc::new(AtomicBool::new(false)),
         };
+        let missing = |pipe| Problem::Start(SystemError::other(pipe));
         let mut input = pipe
             .child
             .stdin
             .take()
-            .ok_or("Missing importer input pipe")?;
+            .ok_or_else(|| missing("Missing importer input pipe"))?;
         let mut output = pipe
             .child
             .stdout
             .take()
-            .ok_or("Missing importer output pipe")?;
+            .ok_or_else(|| missing("Missing importer output pipe"))?;
         let mut errors = pipe
             .child
             .stderr
             .take()
-            .ok_or("Missing importer diagnostic pipe")?;
+            .ok_or_else(|| missing("Missing importer diagnostic pipe"))?;
         let (requests, rx) = mpsc::sync_channel(4);
         let (tx, events) = mpsc::sync_channel(1);
         let tail = pipe.stderr.clone();
@@ -77,21 +80,26 @@ impl Pipe {
                     }
                 }
             })
-            .map_err(|e| format!("Cannot start importer input thread: {e}"))?;
+            .map_err(start)?;
         pipe.threads.push(writer);
         let reader = std::thread::Builder::new()
             .name("ddi-importer-read".into())
             .spawn(move || {
                 loop {
-                    let message = ddi_importer_protocol::read::<Event>(&mut output)
-                        .map_err(|e| format!("Invalid importer response: {e}"));
+                    let message = ddi_importer_protocol::read::<Event>(&mut output).map_err(|e| {
+                        if e.kind() == std::io::ErrorKind::InvalidData {
+                            Problem::Protocol(e.to_string())
+                        } else {
+                            Problem::Connection(SystemError::from(e))
+                        }
+                    });
                     let end = !matches!(message, Ok(Some(_)));
                     if tx.send(message).is_err() || end {
                         break;
                     }
                 }
             })
-            .map_err(|e| format!("Cannot start importer output thread: {e}"))?;
+            .map_err(start)?;
         pipe.threads.push(reader);
         let diagnostics = std::thread::Builder::new()
             .name("ddi-importer-stderr".into())
@@ -114,16 +122,16 @@ impl Pipe {
                 }
                 done.store(true, Ordering::Release);
             })
-            .map_err(|e| format!("Cannot start importer diagnostic thread: {e}"))?;
+            .map_err(start)?;
         pipe.threads.push(diagnostics);
         Ok(pipe)
     }
-    fn send(&self, message: Request) -> Result<(), String> {
+    fn send(&self, message: Request) -> Result<(), Problem> {
         self.requests
             .as_ref()
-            .ok_or("Importer input closed")?
+            .ok_or_else(|| lost("Importer input closed"))?
             .try_send(message)
-            .map_err(|_| "Importer stopped accepting commands".into())
+            .map_err(|_| lost("Importer stopped accepting commands"))
     }
     /// What the helper wrote to its diagnostics, after waiting up to
     /// `settle` for their end: a helper that reports a failure and exits
@@ -156,6 +164,11 @@ impl Drop for Pipe {
             let _ = thread.join();
         }
     }
+}
+
+/// The pipes to the importer closed or failed: how (technical, data).
+fn lost(how: &str) -> Problem {
+    Problem::Connection(SystemError::other(how))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -222,7 +235,7 @@ impl Snapshot {
 }
 fn publish(
     progress: &Mutex<Progress>,
-    stage: Option<String>,
+    stage: Option<Step>,
     origin: Option<Prompt>,
     wake: &dyn Fn(),
 ) {
@@ -245,11 +258,11 @@ pub(super) fn run(
     progress: &Mutex<Progress>,
     controls: mpsc::Receiver<Request>,
     wake: &dyn Fn(),
-) -> Result<Finished, String> {
+) -> Result<Finished, Problem> {
     let mut pipe = Pipe::spawn(executable)?;
     let mut finished = Finished::default();
     let mut committed = false;
-    let result = (|| -> Result<(), String> {
+    let result = (|| -> Result<(), Problem> {
         pipe.send(Request::Hello { version: VERSION })?;
         let mut phase = Phase::Hello;
         let mut snapshot: Option<Snapshot> = None;
@@ -264,16 +277,11 @@ pub(super) fn run(
         loop {
             if started.elapsed() > Duration::from_secs(if url.is_some() { 30 * 60 } else { 5 * 60 })
             {
-                return Err("The importer exceeded its time limit. Reopen the app to verify/recover its catalog.".into());
+                return Err(Problem::TimedOut);
             }
             if cancel.load(Ordering::Acquire) && cancel_at.is_none() && phase != Phase::Closing {
                 cancel_at = Some(Instant::now());
-                publish(
-                    progress,
-                    Some("Cancelling DanOni import…".into()),
-                    None,
-                    wake,
-                );
+                publish(progress, Some(Step::Cancelling), None, wake);
                 if phase == Phase::Import {
                     pipe.send(Request::Cancel { id: 1 })?;
                 } else {
@@ -285,7 +293,7 @@ pub(super) fn run(
             if cancel_at.is_some_and(|at| at.elapsed() > Duration::from_secs(10))
                 || closing_at.is_some_and(|at| at.elapsed() > Duration::from_secs(10))
             {
-                return Err("The importer did not stop in time. Its catalog will be verified/recovered when the app reopens.".into());
+                return Err(Problem::NotStopped);
             }
             while let Ok(control) = controls.try_recv() {
                 if phase == Phase::Import && cancel_at.is_none() {
@@ -295,14 +303,15 @@ pub(super) fn run(
             let event = match pipe
                 .events
                 .as_ref()
-                .ok_or("Importer output closed")?
+                .ok_or_else(|| lost("Importer output closed"))?
                 .recv_timeout(Duration::from_millis(50))
             {
-                Ok(result) => result?
-                    .ok_or("The importer closed its output before completing the protocol")?,
+                Ok(result) => result?.ok_or_else(|| {
+                    lost("The importer closed its output before completing the protocol")
+                })?,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("The importer response thread stopped".into());
+                    return Err(lost("The importer response thread stopped"));
                 }
             };
             match event {
@@ -315,7 +324,7 @@ pub(super) fn run(
                         || !capabilities.offline
                         || !capabilities.origin_approval
                     {
-                        return Err("The packaged importer uses an incompatible protocol".into());
+                        return Err(Problem::Incompatible);
                     }
                     pipe.send(Request::Initialize {
                         paths: paths.clone(),
@@ -332,8 +341,9 @@ pub(super) fn run(
                 {
                     // Publish stage-local counts independently of stage changes.
                     let work = work.filter(|(done, total)| *total > 0 && done <= total);
+                    let stage = Step::Importer(stage);
                     if let Ok(mut p) = progress.lock()
-                        && (p.stage.as_ref() != Some(&stage) || p.work != work)
+                        && (p.stage != Some(stage) || p.work != work)
                     {
                         p.stage = Some(stage);
                         p.work = work;
@@ -344,12 +354,13 @@ pub(super) fn run(
                 Event::OriginRequired { id: 1, origin }
                     if phase == Phase::Import && cancel_at.is_none() =>
                 {
-                    let parsed = url::Url::parse(&origin)
-                        .map_err(|_| "Importer requested an invalid origin")?;
+                    let invalid =
+                        || Problem::Protocol("Importer requested an invalid origin".into());
+                    let parsed = url::Url::parse(&origin).map_err(|_| invalid())?;
                     if !matches!(parsed.scheme(), "http" | "https")
                         || parsed.origin().ascii_serialization() != origin
                     {
-                        return Err("Importer requested an invalid origin".into());
+                        return Err(invalid());
                     }
                     pipe.send(Request::OriginDecision { id: 1, origin,
                         decision: Some("User-triggered single-work desktop import; no site-terms review claimed".into()) })?;
@@ -360,7 +371,9 @@ pub(super) fn run(
                         || (phase == Phase::Import && id == Some(1)) =>
                 {
                     if snapshot.is_some() || revision.is_empty() || revision.len() > 256 {
-                        return Err("Invalid importer snapshot boundary".into());
+                        return Err(Problem::Protocol(
+                            "Invalid importer snapshot boundary".into(),
+                        ));
                     }
                     if phase == Phase::Import {
                         imported_snapshot = false;
@@ -390,7 +403,7 @@ pub(super) fn run(
                 Event::SnapshotEnd { id, count } if snapshot.is_some() => {
                     let rows = snapshot.take().unwrap();
                     if rows.id != id || (snapshot_error.is_none() && rows.rows.len() != count) {
-                        return Err("Incomplete importer snapshot".into());
+                        return Err(Problem::Protocol("Incomplete importer snapshot".into()));
                     }
                     if snapshot_error.is_none() {
                         match crate::library::managed::songs(PlaybackSnapshot { songs: rows.rows })
@@ -409,14 +422,17 @@ pub(super) fn run(
                 }
                 Event::Initialized { ready, error } if phase == Phase::Initialize => {
                     if !ready {
-                        return Err(error
-                            .map(|e| format!("{}: {}", e.code, e.message))
-                            .unwrap_or_else(|| "Importer could not open its catalog".into()));
+                        return Err(Problem::CatalogUnopened(error));
                     }
                     if !initialized_snapshot || snapshot.is_some() {
-                        return Err(snapshot_error.unwrap_or_else(|| {
-                            "Importer did not complete its initial catalog snapshot".into()
-                        }));
+                        return Err(snapshot_error.map_or_else(
+                            || {
+                                Problem::Protocol(
+                                    "Importer did not complete its initial catalog snapshot".into(),
+                                )
+                            },
+                            Problem::CatalogRejected,
+                        ));
                     }
                     if let Some(url) = &url {
                         pipe.send(Request::Import {
@@ -434,16 +450,18 @@ pub(super) fn run(
                 Event::Terminal {
                     id: 1,
                     status,
-                    summary,
+                    songs,
                     restore_ids,
-                    mut details,
+                    failure,
+                    refresh,
                 } if phase == Phase::Import => {
                     committed = matches!(status, Outcome::Installed | Outcome::Unchanged);
+                    let mut report = Report::ended(status, songs, failure, refresh);
                     if let Some(e) = snapshot_error.take() {
-                        details.push(format!("Could not refresh the playable catalog: {e}. Reopen the app to verify it."));
+                        report.details.push(Problem::CatalogRejected(e));
                     }
                     if snapshot.is_some() {
-                        details.push("The catalog refresh was incomplete; retaining the last complete snapshot.".into());
+                        report.details.push(Problem::CatalogIncomplete);
                     }
                     if committed && imported_snapshot {
                         let published: BTreeSet<_> = finished
@@ -458,63 +476,63 @@ pub(super) fn run(
                             .filter(|id| published.contains(id.as_str()))
                             .collect();
                     }
-                    finished.report = Some(ddi_ui::screens::data::ImportReportView {
-                        summary,
-                        error: matches!(status, Outcome::Failed | Outcome::NeedsRecovery),
-                        sections: if details.is_empty() {
-                            Vec::new()
-                        } else {
-                            vec![("Details".into(), details)]
-                        },
-                    });
-                    publish(
-                        progress,
-                        Some("Finishing DanOni import…".into()),
-                        None,
-                        wake,
-                    );
+                    finished.report = Some(report);
+                    publish(progress, Some(Step::Finishing), None, wake);
                     pipe.send(Request::Shutdown)?;
                     phase = Phase::Closing;
                     closing_at = Some(Instant::now());
                 }
-                Event::Fatal { code, message } => return Err(format!("{code}: {message}")),
+                Event::Fatal { code, message } => {
+                    return Err(Problem::Importer(Failure { code, message }));
+                }
                 Event::Bye if phase == Phase::Closing => {
                     if cancel_at.is_some() && finished.report.is_none() {
-                        finished.report = Some(report("DanOni import cancelled.".into(), false));
+                        finished.report = Some(Report::new(Summary::CancelledEarly));
                     }
                     let until = Instant::now() + Duration::from_secs(5);
                     loop {
-                        if let Some(status) = pipe.child.try_wait().map_err(|e| e.to_string())? {
+                        if let Some(status) = pipe
+                            .child
+                            .try_wait()
+                            .map_err(|e| Problem::Connection(SystemError::from(e)))?
+                        {
                             if !status.success() {
-                                return Err(format!("Importer exited with {status}"));
+                                return Err(Problem::Exited(status.to_string()));
                             }
                             return Ok(());
                         }
                         if Instant::now() >= until {
-                            return Err("Importer did not exit after closing its protocol".into());
+                            return Err(Problem::NoExit);
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     }
                 }
                 _ if cancel_at.is_some() && phase == Phase::Closing => {}
-                _ => return Err("Importer sent a response out of protocol order".into()),
+                _ => {
+                    return Err(Problem::Protocol(
+                        "Importer sent a response out of protocol order".into(),
+                    ));
+                }
             }
         }
     })();
-    if let Err(mut error) = result {
+    if let Err(problem) = result {
+        let mut problems = vec![problem];
         let diagnostics = pipe.diagnostics(Duration::from_millis(500));
         if !diagnostics.is_empty() {
-            error.push('\n');
-            error.push_str(&diagnostics);
+            problems.push(Problem::Diagnostics(diagnostics));
         }
         if committed {
             // A completed commit is durable even if later IPC or child teardown
             // fails. Never turn it into a cancellation or a claimed rollback.
             if let Some(report) = &mut finished.report {
-                report.sections.push(("After import".into(), vec![error]));
+                report.after.extend(problems);
             }
         } else {
-            finished.report = Some(report(error, true));
+            finished.report = Some(Report {
+                details: problems,
+                ..Report::new(Summary::Failed)
+            });
         }
     }
     Ok(finished)
@@ -687,7 +705,7 @@ mod tests {
         }));
         script.push_str(&emit(Event::Progress {
             id: Some(1),
-            stage: "Converting music…".into(),
+            stage: ddi_importer_protocol::Stage::ConvertingMusic,
             progress: Some((2, 5)),
         }));
         match mode {
@@ -706,9 +724,14 @@ mod tests {
                 script.push_str(&emit(Event::Terminal {
                     id: 1,
                     status: Outcome::Installed,
-                    summary: "1 added".into(),
+                    songs: Some(ddi_importer_protocol::Counts {
+                        added: 1,
+                        replaced: 0,
+                        skipped: 0,
+                    }),
                     restore_ids: vec!["admitted-unchanged".into()],
-                    details: Vec::new(),
+                    failure: None,
+                    refresh: None,
                 }));
                 script.push_str(&consume(Request::Shutdown));
                 script.push_str(&emit(Event::Bye));
@@ -750,6 +773,12 @@ mod tests {
                     "desktop must not ask for site approval"
                 );
                 if progress.work == Some((2, 5)) {
+                    assert_eq!(
+                        progress.stage,
+                        Some(Step::Importer(
+                            ddi_importer_protocol::Stage::ConvertingMusic
+                        ))
+                    );
                     counted.store(true, Ordering::Relaxed);
                 }
             },
@@ -763,7 +792,7 @@ mod tests {
         let finished = run_fixture(FixtureMode::Truncated);
         assert!(finished.songs.is_some_and(|songs| songs.is_empty()));
         assert!(finished.restore.is_empty());
-        assert!(finished.report.unwrap().error);
+        assert!(finished.report.unwrap().error());
     }
     #[test]
     fn committed_terminal_without_snapshot_end_keeps_success_but_never_restores_rows() {
@@ -775,23 +804,30 @@ mod tests {
         );
         assert!(finished.restore.is_empty());
         let report = finished.report.unwrap();
-        assert!(!report.error);
-        assert_eq!(report.summary, "1 added");
-        assert!(
-            report
-                .sections
-                .iter()
-                .flat_map(|(_, lines)| lines)
-                .any(|line| line.contains("incomplete"))
+        assert!(!report.error());
+        assert_eq!(
+            report.summary,
+            Summary::Installed(ddi_importer_protocol::Counts {
+                added: 1,
+                replaced: 0,
+                skipped: 0
+            })
         );
+        assert_eq!(report.details, [Problem::CatalogIncomplete]);
     }
     #[test]
     fn helper_stderr_flood_keeps_only_bounded_diagnostic_tail() {
         let finished = run_fixture(FixtureMode::StderrFailure);
         let report = finished.report.unwrap();
-        assert!(report.error);
-        let error = &report.sections[0].1[0];
-        let (_, diagnostics) = error.split_once('\n').expect("fixture stderr retained");
+        assert!(report.error());
+        let [
+            Problem::Importer(failure),
+            Problem::Diagnostics(diagnostics),
+        ] = &report.details[..]
+        else {
+            panic!("{:?}", report.details);
+        };
+        assert_eq!(failure.code, "fixture-error");
         assert!(!diagnostics.is_empty());
         assert!(diagnostics.len() <= 32 * 1024);
         assert!(diagnostics.bytes().all(|byte| byte == b'X'));

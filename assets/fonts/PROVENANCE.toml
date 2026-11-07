@@ -77,3 +77,40 @@ license = "OFL-1.1"
 holders = "Renzhi Li (aka. Belleve Invis)"
 source = "https://github.com/be5invis/Iosevka/releases/download/v34.9.0/PkgTTF-Unhinted-IosevkaTerm-34.9.0.zip"
 modified = "subset with fonttools 4.67.0 to Latin-1, Latin Extended-A and the theme's symbols, layout features removed; preview face"
+
+# Noto Sans CJK JP 2.004 (Sans2.004; OFL-1.1, no Reserved Font Name, so the
+# cuts keep the name), the Japanese UI's face (docs/plans/localization.md),
+# Regular, Medium and Bold from noto-cjk at commit
+# 523d033d6cb47f4a80c58a35753646f5c3608a78, each pinned by its SHA-256 in
+# locales/languages.toml's [[face]], retrieved 2026-11-07 (Regular is the
+# DanOni SDK's copy, tools/danoni-dump/rust/fonts/). Cut with fonttools
+# 4.68.0 by `cargo run -p xtask -- l10n fonts` to the face's base (CJK
+# punctuation, kana, full-width forms) and the characters the Japanese
+# messages and the language's name write beyond Iosevka Term's subset,
+# horizontal shaping only, every name record kept:
+#   pyftsubset NotoSansCJKjp-<Weight>.otf \
+#     --unicodes="U+3000-303F,U+3041-3096,U+3099-30FF,U+FF01-FF60" \
+#     --text-file=target/fonts/NotoSansCJKJP.txt \
+#     --layout-features="ccmp,kern,mark" --name-IDs="*" \
+#     --output-file=NotoSansCJKjp-<Weight>-ja.otf
+# Medium is drawn for the theme's 600 (its SemiBold).
+[[file]]
+path = "NotoSansCJKjp-Regular-ja.otf"
+license = "OFL-1.1"
+holders = "Adobe"
+source = "https://github.com/notofonts/noto-cjk/blob/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+modified = "subset with fonttools 4.68.0 to CJK punctuation, kana, full-width forms and the Japanese messages' characters, horizontal layout features only (assets/fonts/PROVENANCE.toml)"
+
+[[file]]
+path = "NotoSansCJKjp-Medium-ja.otf"
+license = "OFL-1.1"
+holders = "Adobe"
+source = "https://github.com/notofonts/noto-cjk/blob/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Medium.otf"
+modified = "subset with fonttools 4.68.0 to CJK punctuation, kana, full-width forms and the Japanese messages' characters, horizontal layout features only (assets/fonts/PROVENANCE.toml)"
+
+[[file]]
+path = "NotoSansCJKjp-Bold-ja.otf"
+license = "OFL-1.1"
+holders = "Adobe"
+source = "https://github.com/notofonts/noto-cjk/blob/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf"
+modified = "subset with fonttools 4.68.0 to CJK punctuation, kana, full-width forms and the Japanese messages' characters, horizontal layout features only (assets/fonts/PROVENANCE.toml)"

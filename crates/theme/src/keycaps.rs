@@ -206,11 +206,12 @@ impl Infinito {
                 // live printing; their identity never depends on guessed artwork.
                 if column == 28 || matches!(column, 10 | 11) {
                     let label = cap.label();
-                    let long_raw = matches!(&cap.glyph,ddi_ui::controller_hints::Glyph::Raw(s) if !s.starts_with("button "));
+                    let long_raw = cap.named_beside();
+                    let number = cap.raw_button().map(|n| n.to_string());
                     let print = if long_raw {
                         "•"
                     } else {
-                        label.strip_prefix("button ").unwrap_or(&label)
+                        number.as_deref().unwrap_or(&label)
                     };
                     let mut ink = self.text(&format!("Key{i}"), print, 10.0, 400, "Text");
                     call(&mut ink, "maxwidth", &[size[0] - 4.0]);

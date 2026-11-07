@@ -95,8 +95,8 @@ impl Shared {
             // `None`: the notice as it is.
             let notice = match (&report, importing) {
                 (Some(r), _) => Some(r.notice()),
-                (None, Some(0)) => Some("Importing plays…".to_string()),
-                (None, Some(n)) => Some(format!("Importing plays… {n} kept so far.")),
+                (None, Some(0)) => Some(ddi_l10n::msg::options::notice_importing().into()),
+                (None, Some(n)) => Some(ddi_l10n::msg::options::notice_importing_kept(n).into()),
                 (None, None) => None,
             };
             if m.world.importing_plays == importing.is_some()
@@ -318,7 +318,7 @@ impl Desktop {
                     Ok(v) => v,
                     Err(e) => ddi_ui::screens::data::SharesView {
                         state: ddi_ui::screens::data::SharesState::Failed,
-                        error: e,
+                        error: Some(e),
                         ..Default::default()
                     },
                 };
@@ -417,10 +417,14 @@ impl OptionsPlatform for Desktop {
                         .map(|_| n)
                         .map_err(|e| e.to_string())
                 }) {
-                    Ok(n) => format!("{n} plays exported to {}.", path.display()),
-                    Err(e) => format!("The export failed: {e}"),
+                    Ok(n) => {
+                        ddi_l10n::msg::options::notice_exported_to(n, path.display().to_string())
+                    }
+                    Err(e) => ddi_l10n::msg::options::notice_export_failed(
+                        ddi_ui::screens::errors::error_text(&e),
+                    ),
                 };
-                shared.model.borrow_mut().notice = notice;
+                shared.model.borrow_mut().notice = notice.into();
                 shared.refresh();
             },
         );
@@ -435,15 +439,16 @@ impl OptionsPlatform for Desktop {
         };
         let Some(path) = crate::os::dialog(|| {
             rfd::FileDialog::new()
-                .add_filter("Play history", &["jsonl", "ndjson", "json", "txt"])
+                .add_filter(
+                    ddi_l10n::msg::options::history_file_kind(),
+                    &["jsonl", "ndjson", "json", "txt"],
+                )
                 .pick_file()
         }) else {
             return;
         };
         if !songs.import_plays(path) {
-            self.0.model.borrow_mut().notice =
-                "The plays cannot be imported now (an import runs, or the history is not read)."
-                    .into();
+            self.0.model.borrow_mut().notice = ddi_l10n::msg::options::notice_import_busy().into();
             self.0.refresh();
         }
     }
@@ -467,11 +472,15 @@ impl OptionsPlatform for Desktop {
             plays.remove_all(move |r| {
                 {
                     let mut m = shared.model.borrow_mut();
-                    match r {
-                        Ok(()) if alone => m.notice = "Play history deleted.".into(),
-                        Ok(()) => m.notice = "Everything reset.".into(),
-                        Err(e) => m.notice = format!("Could not delete the play history: {e}"),
+                    use ddi_l10n::msg::options as msg;
+                    m.notice = match r {
+                        Ok(()) if alone => msg::notice_history_deleted(),
+                        Ok(()) => msg::notice_everything_reset(),
+                        Err(e) => {
+                            msg::notice_history_not_deleted(ddi_ui::screens::errors::error_text(&e))
+                        }
                     }
+                    .into();
                     m.world.plays = p.history().len();
                 }
                 shared.refresh();

@@ -8,6 +8,8 @@
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
+use ddi_l10n::UiText;
+use ddi_l10n::msg::{common, options as m};
 use ddi_platform::DeviceId;
 
 use super::data::SharesState;
@@ -87,7 +89,14 @@ impl Screen for ConfirmDialog {
         let bw = ((w - 48.0 - (n - 1.0) * 10.0) / n).min(180.0);
         let by = y + h - 44.0;
         let at = |k: f32| [x + w - 24.0 - bw / 2.0 - k * (bw + 10.0), by];
-        c.push(button(&env, "Cancel", "Cancel", at(n - 1.0), bw, "Button"));
+        c.push(button(
+            &env,
+            "Cancel",
+            &common::cancel(),
+            at(n - 1.0),
+            bw,
+            "Button",
+        ));
         if let Some((label, _)) = &self.extra {
             c.push(button(&env, "Extra", label, at(1.0), bw, "Button"));
         }
@@ -152,7 +161,7 @@ pub struct TokenDialog {
 
 impl TokenDialog {
     pub fn new(env: Env, token: &str, on_save: TokenFn) -> TokenDialog {
-        let mut field = SearchField::new("TokenField", "paste the token", [0.0; 2], [1.0; 2]);
+        let mut field = SearchField::new("TokenField", &m::token_placeholder(), [0.0; 2], [1.0; 2]);
         field.hints = InputHints {
             mode: InputMode::Text,
             enter: EnterKey::Done,
@@ -191,14 +200,9 @@ impl Screen for TokenDialog {
         let screen = [vp.width, vp.height];
         let env = self.env.clone();
         let w = 520.0_f32.min(screen[0] - 32.0);
-        let body = wrap_lines(
-            "The token whoever runs the sharing server gave you. Uploads carry it; the game \
-             never shows it again.",
-            w - 48.0,
-            14.0,
-        );
+        let body = wrap_lines(&m::token_body(), w - 48.0, 14.0);
         let h = 230.0 + body.len() as f32 * 18.0;
-        let (mut c, [x, y]) = shell(&env, screen, [w, h], "Upload token");
+        let (mut c, [x, y]) = shell(&env, screen, [w, h], &m::token_title());
         for (i, line) in body.iter().enumerate() {
             let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, "Muted");
             wrap(&mut b, w - 48.0);
@@ -213,7 +217,7 @@ impl Screen for TokenDialog {
         c.push(button(
             &env,
             "Cancel",
-            "Cancel",
+            &common::cancel(),
             [x + w - 24.0 - bw / 2.0 - (bw + 10.0), by],
             bw,
             "Button",
@@ -221,7 +225,7 @@ impl Screen for TokenDialog {
         c.push(button(
             &env,
             "Save",
-            "Save",
+            &common::save(),
             [x + w - 24.0 - bw / 2.0, by],
             bw,
             "Button",
@@ -338,21 +342,21 @@ impl SharesDialog {
         let n = view.shares.len();
         let mut v = Vec::new();
         if view.state == SharesState::Ready && n > 0 {
-            v.push(("Copy", "Copy link".to_string(), "Button"));
-            v.push(("Open", "Open".to_string(), "Button"));
+            v.push(("Copy", m::shares_copy().into(), "Button"));
+            v.push(("Open", common::open().into(), "Button"));
             v.push((
                 "Delete",
                 if self.paged.arming {
-                    "Sure? Delete"
+                    m::shares_delete_sure()
                 } else {
-                    "Delete"
+                    m::shares_delete()
                 }
-                .to_string(),
+                .into(),
                 "DangerButton",
             ));
             self.paged.page_buttons(n, self.per_page(), &mut v);
         }
-        v.push(("Close", "Close".to_string(), "Button"));
+        v.push(("Close", common::close().into(), "Button"));
         v
     }
 
@@ -361,27 +365,24 @@ impl SharesDialog {
         let env = &self.env;
         let [x, y, w] = at;
         let s = &r.summary;
-        let now = self.now;
         let when = if !s.finished {
-            "never finished".to_string()
+            m::shares_unfinished()
         } else {
-            ddi_library::share::expires_in(s.expires_at.map(|t| t as f64), now)
-                .unwrap_or_else(|| "never expires".into())
+            expires_in(s.expires_at.map(|t| t as f64), self.now)
         };
-        let detail = format!(
-            "{} {} · {} · {}{}",
-            s.songs,
-            if s.songs == 1 { "song" } else { "songs" },
-            ddi_library::share::size_text(s.bytes),
-            when,
-            if s.mine { "" } else { " · another's" }
-        );
+        // A line of tags.
+        let mut detail: Vec<String> = vec![
+            m::shares_songs(s.songs).into(),
+            size_text(s.bytes).into(),
+            when.into(),
+        ];
+        if !s.mine {
+            detail.push(m::shares_others().into());
+        }
+        let detail = detail.join(" · ");
         let mut out = self.paged.plate(env, i, [x, y, w]);
-        let pack = if s.pack.is_empty() {
-            s.id.clone()
-        } else {
-            s.pack.clone()
-        };
+        // The pack's name, else the share's id.
+        let pack = UiText::data(if s.pack.is_empty() { &s.id } else { &s.pack });
         let mut title = env.text(&format!("Row{i}.Pack"), &pack, 15.0, 600, "Text");
         title.decoration = true;
         let mut line = env.text(&format!("Row{i}.Detail"), &detail, 12.0, 400, "Muted");
@@ -430,14 +431,19 @@ impl Screen for SharesDialog {
             (v.state, v.error.clone(), v.admin)
         };
         let title = if admin {
-            "SHARES · ALL"
+            m::shares_title_all()
         } else {
-            "SHARES · YOURS"
+            m::shares_title_mine()
         };
         let empty = match state {
-            SharesState::Loading => Some("Reading the shares…".to_string()),
-            SharesState::Failed => Some(format!("The shares could not be read: {error}")),
-            SharesState::Ready if rows.is_empty() => Some("No share yet.".to_string()),
+            SharesState::Loading => Some(m::shares_loading()),
+            SharesState::Failed => Some(m::shares_failed(
+                error
+                    .as_ref()
+                    .map(|e| super::failures::share_text(e).to_string())
+                    .unwrap_or_default(),
+            )),
+            SharesState::Ready if rows.is_empty() => Some(m::shares_none()),
             SharesState::Ready => None,
         };
         let body = if empty.is_some() {
@@ -446,7 +452,7 @@ impl Screen for SharesDialog {
             page.len() as f32 * (PAGED_ROW + 6.0)
         };
         let h = (70.0 + body + 20.0 + lines.0.len() as f32 * 50.0 + 6.0).min(self.screen[1] - 16.0);
-        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], title);
+        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &title);
         if let Some(text) = empty {
             for (i, line) in wrap_lines(&text, room, 14.0).iter().enumerate() {
                 children.push(left(
@@ -554,6 +560,37 @@ impl Screen for SharesDialog {
     }
 }
 
+/// The time a share has left at `now` (seconds since the epoch), as its
+/// row says it.
+pub fn expires_in(expires_at: Option<f64>, now: f64) -> UiText {
+    let Some(at) = expires_at else {
+        return m::shares_never_expires();
+    };
+    let left = at - now;
+    if left <= 0.0 {
+        m::shares_expired()
+    } else if left < 3600.0 {
+        m::shares_expires_minutes((left / 60.0).ceil())
+    } else if left < 86_400.0 {
+        m::shares_expires_hours((left / 3600.0).ceil())
+    } else {
+        m::shares_expires_days((left / 86_400.0).ceil())
+    }
+}
+
+/// A share's size in bytes, as its row says it.
+fn size_text(bytes: f64) -> UiText {
+    if bytes >= 1e9 {
+        m::size_gb((bytes / 1e8).round() / 10.0)
+    } else if bytes >= 1e6 {
+        m::size_mb((bytes / 1e6).round())
+    } else if bytes >= 1e3 {
+        m::size_kb((bytes / 1e3).round())
+    } else {
+        m::size_b(bytes.round())
+    }
+}
+
 /// Told what was bound.
 pub type BoundFn = Rc<dyn Fn(Bound, &mut Cx)>;
 
@@ -587,28 +624,29 @@ impl BindDialog {
         }
     }
 
-    fn title(&self) -> String {
+    fn title(&self) -> UiText {
         match &self.flow.device {
-            Some(DeviceId::Keyboard) => format!("Bind the keyboard for {}", self.layout),
-            Some(DeviceId::Gamepad(id)) => format!("Bind “{id}” for {}", self.layout),
-            _ => "Bind a device".into(),
+            Some(DeviceId::Keyboard) => m::bind_title_keyboard(&self.layout),
+            Some(DeviceId::Gamepad(id)) => m::bind_title_pad(id, &self.layout),
+            _ => m::bind_title(),
         }
     }
 
-    fn buttons(&self) -> Vec<(&'static str, &'static str, &'static str)> {
+    /// The buttons now, `(name, label, kind)`.
+    fn buttons(&self) -> Vec<(&'static str, UiText, &'static str)> {
         let mut v = Vec::new();
         if self.flow.standard_device() && !self.capture && matches!(self.flow.phase, Phase::Step(_))
         {
-            v.push(("Capture", "Capture", "PlayButton"));
+            v.push(("Capture", m::bind_capture(), "PlayButton"));
         }
         if self.flow.phase == Phase::Review {
-            v.push(("Save", "Save", "PlayButton"));
-            v.push(("Redo", "Redo", "Button"));
+            v.push(("Save", common::save(), "PlayButton"));
+            v.push(("Redo", m::bind_redo(), "Button"));
         }
         if self.flow.can_skip() {
-            v.push(("Skip", "Skip", "Button"));
+            v.push(("Skip", m::bind_skip(), "Button"));
         }
-        v.push(("Cancel", "Cancel", "Button"));
+        v.push(("Cancel", common::cancel(), "Button"));
         v
     }
 
@@ -625,7 +663,7 @@ impl BindDialog {
         let cols = if w > 480.0 { 3 } else { 2 };
         let step_rows = steps.div_ceil(cols);
         let prompt = if f.phase == Phase::Review && f.is_pad() {
-            "Bindings ready. Choose Save, Redo or Cancel.".to_string()
+            m::bind_review_pad().into()
         } else {
             f.prompt()
         };
@@ -633,44 +671,33 @@ impl BindDialog {
         if f.standard_device() {
             lines.push((
                 if self.capture {
-                    "Recording a control; any button may be bound. Hold to cancel."
+                    m::bind_capturing()
                 } else {
-                    "Choose Capture to record this step. Directions navigate actions."
+                    m::bind_choose_capture()
                 }
                 .into(),
                 "Muted",
             ));
         }
         if f.phase == Phase::Choose {
-            lines.push((
-                "Controllers appear once one of their buttons is pressed.".into(),
-                "Muted",
-            ));
+            lines.push((m::bind_pads_appear().into(), "Muted"));
         }
         if let Phase::Step(s) = f.phase
             && s >= f.lanes
         {
-            lines.push((
-                "Skip keeps the current one; Start and Back are shared by every style.".into(),
-                "Muted",
-            ));
+            lines.push((m::bind_skip_help().into(), "Muted"));
         }
         if let Some(wt) = &f.waiting
             && f.phase != Phase::Review
         {
-            lines.push((
-                format!("Waiting for {} to be released.", f.label(wt)),
-                "Muted",
-            ));
+            lines.push((m::bind_waiting(f.label(wt)).into(), "Muted"));
         }
         lines.push((
             match (f.phase == Phase::Review, f.is_pad()) {
-                (true, true) => {
-                    "Directions choose an action; confirm activates it. Hold a button to cancel."
-                }
-                (true, false) => "Enter (or Space) saves; Escape cancels.",
-                (false, true) if self.capture => "Escape or holding a controller button cancels.",
-                (false, _) => "Escape, a controller's Back or holding its button cancels.",
+                (true, true) => m::bind_help_review_pad(),
+                (true, false) => m::bind_help_review_keys(),
+                (false, true) if self.capture => m::bind_help_capturing(),
+                (false, _) => m::bind_help(),
             }
             .into(),
             "Muted",
@@ -715,7 +742,7 @@ impl BindDialog {
                     .is_some_and(|ctl| f.held.contains(ctl));
             let color = if current || lit { "Accent" } else { "Text" };
             let name = if i >= f.lanes {
-                format!("{} (optional)", f.steps[i])
+                m::bind_step_optional(&f.steps[i]).into()
             } else {
                 f.steps[i].clone()
             };
@@ -740,7 +767,7 @@ impl BindDialog {
             c.push(button(
                 &env,
                 name,
-                label,
+                &label,
                 [bx + bw / 2.0, y + h - 44.0],
                 bw,
                 kind,
@@ -1036,19 +1063,12 @@ impl KeyDialog {
         let w = 460.0_f32.min(self.screen[0] - 32.0);
         let h = 170.0;
         let (title, prompt) = if self.pad.is_some() {
-            (
-                format!("A button for {}", self.lane),
-                "Press a button, a stick or a hat direction on the controller (Escape, its Back \
-                 or holding a button cancels).",
-            )
+            (m::key_title_pad(&self.lane), m::key_prompt_pad())
         } else {
-            (
-                format!("A key for {}", self.lane),
-                "Press a key (Escape, a controller's Back or holding its button cancels).",
-            )
+            (m::key_title(&self.lane), m::key_prompt())
         };
         let (mut c, [x, y]) = shell(&env, self.screen, [w, h], &title);
-        let mut p = env.text("Prompt", prompt, 14.0, 600, "Text");
+        let mut p = env.text("Prompt", &prompt, 14.0, 600, "Text");
         wrap(&mut p, w - 48.0);
         c.push(left(p, x + 24.0, y + 66.0));
         if let Some(m) = &self.message {
@@ -1059,7 +1079,7 @@ impl KeyDialog {
         c.push(button(
             &env,
             "Cancel",
-            "Cancel",
+            &common::cancel(),
             [x + w - 24.0 - 70.0, y + h - 36.0],
             140.0,
             "Button",
@@ -1108,13 +1128,10 @@ impl Screen for KeyDialog {
                 match e.control.as_str() {
                     "Escape" => cx.close(true),
                     _ if self.pad.is_some() => {
-                        self.say("Press it on the controller.".into(), root);
+                        self.say(m::key_on_pad().into(), root);
                     }
                     "Backspace" => {
-                        self.say(
-                            "Backspace leaves a song; press a different key.".into(),
-                            root,
-                        );
+                        self.say(m::bind_backspace().into(), root);
                     }
                     code => {
                         (self.on_key)(code.to_string(), cx);
@@ -1136,22 +1153,11 @@ impl Screen for KeyDialog {
                 }
                 let id = self.pad.clone().unwrap_or_default();
                 let (start, back) = self.pad_start_back(&id);
-                let label = || {
-                    e.control
-                        .parse::<ddi_platform::gamepad::Control>()
-                        .map(|c| c.label())
-                        .unwrap_or_else(|_| e.control.clone())
-                };
                 if back.as_deref() == Some(e.control.as_str()) {
                     cx.close(true);
                 } else if start.as_deref() == Some(e.control.as_str()) {
-                    self.say(
-                        format!(
-                            "{} is this controller's Start. Press a different one.",
-                            label()
-                        ),
-                        root,
-                    );
+                    let name = crate::controller_hints::binding_name(&e.control);
+                    self.say(m::key_is_start(name).into(), root);
                 } else {
                     (self.on_key)(e.control.clone(), cx);
                     cx.close(false);

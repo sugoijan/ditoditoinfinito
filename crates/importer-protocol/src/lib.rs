@@ -29,6 +29,9 @@ pub struct Capabilities {
     pub origin_approval: bool,
 }
 
+/// What went wrong: `code` says what (an identifier the app words in the
+/// player's language where it knows it), `message` the importer's or its
+/// SDK's own technical words (English, shown as data).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Failure {
@@ -44,6 +47,64 @@ pub enum Outcome {
     Cancelled,
     Failed,
     NeedsRecovery,
+}
+
+/// What an import is doing (`Event::Progress`): a value, never words; the
+/// app says it in the player's language.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum Stage {
+    /// Opening the work, before anything of it is known.
+    OpeningWork,
+    /// Downloading the work's page and files.
+    Downloading,
+    /// Reading the work's chart data from its files.
+    ReadingCharts,
+    /// Checking the charts read from the work.
+    CheckingCharts,
+    /// Converting the songs' music.
+    ConvertingMusic,
+    /// Mapping the charts' timing.
+    MappingTiming,
+    /// Making the songs' pictures.
+    MakingArtwork,
+    /// Preparing the songs.
+    PreparingSongs,
+    /// Finishing the preparation.
+    FinishingPreparation,
+    /// Saving the prepared songs.
+    SavingPrepared,
+    /// Checking the prepared import's records.
+    CheckingImport,
+    /// Checking the prepared songs' files.
+    CheckingFiles,
+    /// Checking the converted charts against the work's.
+    VerifyingCharts,
+    /// Adding the songs' details for the library.
+    AddingDetails,
+    /// Finishing the checks.
+    FinishingChecks,
+    /// Checking the prepared songs, before a step of it is known.
+    CheckingPrepared,
+    /// Comparing with what was imported before.
+    CheckingExisting,
+    /// Beginning the library's update.
+    PreparingUpdate,
+    /// Saving the import's records.
+    SavingDetails,
+    /// Adding the songs to the library.
+    AddingSongs,
+    /// Committing the import.
+    FinishingImport,
+}
+
+/// An installed import's songs.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Counts {
+    pub added: u64,
+    pub replaced: u64,
+    pub skipped: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -97,7 +158,7 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         progress: Option<(u64, u64)>,
         id: Option<u64>,
-        stage: String,
+        stage: Stage,
     },
     OriginRequired {
         id: u64,
@@ -118,12 +179,20 @@ pub enum Event {
         id: Option<u64>,
         count: usize,
     },
+    /// How an import ended, as values the app words.
     Terminal {
         id: u64,
         status: Outcome,
-        summary: String,
+        /// The songs an installed import added, replaced and skipped.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        songs: Option<Counts>,
         restore_ids: Vec<String>,
-        details: Vec<String>,
+        /// Why it failed, or why the library needs recovery.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<Failure>,
+        /// After it ended, the library's songs could not be listed again.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refresh: Option<Failure>,
     },
     Fatal {
         code: String,
@@ -252,6 +321,52 @@ mod tests {
         .unwrap();
         assert_eq!(
             read::<Event>(&mut bytes.as_slice()).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn stages_and_endings_cross_as_values_not_words() {
+        let progress = Event::Progress {
+            progress: Some((2, 5)),
+            id: Some(1),
+            stage: Stage::ConvertingMusic,
+        };
+        let json = serde_json::to_value(&progress).unwrap();
+        assert_eq!(json["stage"], "convertingMusic");
+        let ended = Event::Terminal {
+            id: 1,
+            status: Outcome::Installed,
+            songs: Some(Counts {
+                added: 1,
+                replaced: 2,
+                skipped: 3,
+            }),
+            restore_ids: vec!["a".into()],
+            failure: None,
+            refresh: Some(Failure {
+                code: "filesystem".into(),
+                message: "No such file or directory (os error 2)".into(),
+            }),
+        };
+        let json = serde_json::to_value(&ended).unwrap();
+        assert!(json.get("failure").is_none(), "{json}");
+        let mut bytes = Vec::new();
+        for event in [&progress, &ended] {
+            write(&mut bytes, event).unwrap();
+        }
+        let mut reader = bytes.as_slice();
+        assert_eq!(read::<Event>(&mut reader).unwrap(), Some(progress));
+        assert_eq!(read::<Event>(&mut reader).unwrap(), Some(ended));
+        // Words where a value belongs are refused.
+        let mut worded = Vec::new();
+        write(
+            &mut worded,
+            &serde_json::json!({"type":"progress","id":1,"stage":"Converting music…"}),
+        )
+        .unwrap();
+        assert_eq!(
+            read::<Event>(&mut worded.as_slice()).unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
     }

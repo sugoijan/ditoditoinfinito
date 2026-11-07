@@ -291,17 +291,18 @@ impl Plays {
         self.store.remove(ids, Box::new(done));
     }
 
-    /// A play as stored (its record, log and timing), to replay it.
-    pub fn entry(&self, id: &str, done: impl FnOnce(Result<PlayEntry, String>) + 'static) {
+    /// A play as stored (its record, log and timing), to replay it; or
+    /// why it cannot be had.
+    pub fn entry(&self, id: &str, done: impl FnOnce(Result<PlayEntry, super::Refusal>) + 'static) {
         let id = id.to_string();
         self.store.records(
             vec![id.clone()],
             Box::new(move |r| {
-                done(r.and_then(|entries| {
+                done(r.map_err(super::Refusal::History).and_then(|entries| {
                     entries
                         .into_iter()
                         .find(|e| e.id == id)
-                        .ok_or_else(|| "This play is no longer kept.".to_string())
+                        .ok_or(super::Refusal::Gone)
                 }))
             }),
         );

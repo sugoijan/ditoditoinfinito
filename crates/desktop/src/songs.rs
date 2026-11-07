@@ -97,7 +97,11 @@ struct ShareHost {
     loading: bool,
     /// Why it could not be read.
     notices: Vec<ddi_ui::screens::data::Notice>,
-    rx: Option<std::sync::mpsc::Receiver<Result<crate::share::LoadedShare, String>>>,
+    rx: Option<
+        std::sync::mpsc::Receiver<
+            Result<crate::share::LoadedShare, ddi_library::share::ShareError>,
+        >,
+    >,
 }
 
 impl Songs {
@@ -228,7 +232,7 @@ impl Songs {
             Err(e) => {
                 if let Some(s) = self.share.borrow_mut().as_mut() {
                     s.notices.push(ddi_ui::screens::data::Notice {
-                        text: e,
+                        text: ddi_ui::screens::failures::share_load_text(&e).into(),
                         link: None,
                         error: true,
                     });
@@ -276,7 +280,9 @@ impl Songs {
         if let Some(s) = self.share.borrow().as_ref() {
             data.shared = Some(SharedView {
                 pack: s.pack.clone(),
-                expires: ddi_library::share::expires_in(s.expires_at, now_secs()),
+                expires: s.expires_at.map(|at| {
+                    ddi_ui::screens::options_dialogs::expires_in(Some(at), now_secs()).into()
+                }),
             });
             data.loading = s.loading;
             data.notices = s.notices.clone();
@@ -674,23 +680,25 @@ impl Songs {
         let Some(l) = library.as_ref() else {
             return String::new();
         };
+        use ddi_l10n::msg::options as m;
         let r = &l.report;
-        let mut parts = vec![format!(
-            "{} songs{}",
-            l.songs.len(),
-            if l.scanning { ", reading…" } else { "" }
-        )];
+        // A line of tags.
+        let mut parts: Vec<String> = vec![
+            if l.scanning {
+                m::folders_songs_reading(l.songs.len())
+            } else {
+                m::folders_songs(l.songs.len())
+            }
+            .into(),
+        ];
         if !r.failed.is_empty() {
-            parts.push(format!("{} not read", r.failed.len()));
+            parts.push(m::folders_failed(r.failed.len()).into());
         }
         if !r.duplicates.is_empty() {
-            parts.push(format!(
-                "{} packs also in an earlier folder",
-                r.duplicates.len()
-            ));
+            parts.push(m::folders_duplicates(r.duplicates.len()).into());
         }
         if !r.missing.is_empty() {
-            parts.push(format!("{} folders missing", r.missing.len()));
+            parts.push(m::folders_missing(r.missing.len()).into());
         }
         parts.join(" · ")
     }
@@ -859,11 +867,7 @@ impl Songs {
                     self.notices
                         .borrow_mut()
                         .push(ddi_ui::screens::data::Notice {
-                            text: format!(
-                                "Only zips are read as packs; left out: {}. A folder of songs is \
-                             added with “choose folder”.",
-                                names.join(", ")
-                            ),
+                            text: ddi_l10n::msg::notices::only_zips(names.join(", ")).into(),
                             link: None,
                             error: true,
                         });
@@ -967,7 +971,7 @@ impl Songs {
                             }
                             Err(e) => {
                                 view.state = ShareState::Failed;
-                                view.error = e;
+                                view.error = Some(e);
                             }
                         }
                         tell(&view);
@@ -1040,7 +1044,10 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                             .notices
                             .borrow_mut()
                             .push(ddi_ui::screens::data::Notice {
-                                text: format!("The new song could not be made: {e}"),
+                                text: ddi_l10n::msg::notices::new_song_failed(
+                                    ddi_ui::screens::errors::error_text(&e),
+                                )
+                                .into(),
                                 link: None,
                                 error: true,
                             });

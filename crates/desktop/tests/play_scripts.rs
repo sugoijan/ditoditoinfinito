@@ -142,7 +142,7 @@ fn play(
     );
     (
         out,
-        p.view.scripts_stopped().map(str::to_string),
+        p.view.scripts_stopped().map(|f| f.to_string()),
         p.view.sounds_played,
     )
 }

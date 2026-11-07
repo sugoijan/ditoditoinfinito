@@ -162,7 +162,7 @@ fn each_results_line_is_said_first_in_its_scene() {
                 Line::Grade(Grade::F) => assert!(tried.contains(&Line::Grade(Grade::E))),
                 _ => assert!(tried.contains(&line), "{ruleset}: {line:?} in {tried:?}"),
             }
-            assert!(!scene.caption.is_empty());
+            assert!(!scene.caption.text().is_empty());
             // A record and a first clear show the chart's best before.
             let history = matches!(line, Line::NewRecord | Line::FirstClear);
             assert_eq!(scene.before.is_some(), history, "{line:?}");

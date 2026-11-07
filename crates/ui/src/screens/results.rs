@@ -38,6 +38,9 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind, Sprite};
 
+use ddi_l10n::UiText;
+use ddi_l10n::msg::results as rm;
+
 use super::data::{PanelKind, ResultsData, ResultsKind};
 use super::{Backdrop, Env, footer, frame, ground, header, left, right};
 use crate::graph;
@@ -321,7 +324,7 @@ impl ResultsScreen {
         children.push(self.score_column(left_col, cx));
         children.push(self.panels_actor(panels));
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
-        children.push(header(&env, cx, screen[0], "RESULTS"));
+        children.push(header(&env, cx, screen[0], &rm::title()));
         children.push(super::more_button(&env, [screen[0] - 64.0, 32.0]));
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
@@ -333,26 +336,34 @@ impl ResultsScreen {
             }
             note.push_str(&self.data.note);
         }
-        let mut hints: Vec<(&[&str], &str)> = vec![(&["ENTER"], "Song list")];
+        let (song_list, retry, watch_again, watch_replay, activate, more) = (
+            rm::song_list(),
+            rm::retry(),
+            rm::watch_again(),
+            rm::watch_replay(),
+            rm::activate(),
+            ddi_l10n::msg::common::more(),
+        );
+        let mut hints: Vec<(&[&str], &str)> = vec![(&["ENTER"], &song_list)];
         match self.data.kind {
-            ResultsKind::Play => hints.push((&["R"], "Retry")),
-            ResultsKind::Replay => hints.push((&["R"], "Watch again")),
+            ResultsKind::Play => hints.push((&["R"], &retry)),
+            ResultsKind::Replay => hints.push((&["R"], &watch_again)),
             ResultsKind::Kept => {}
         }
         if self.actions.replay.is_some() && self.data.kind != ResultsKind::Replay {
-            hints.push((&["V"], "Watch replay"));
+            hints.push((&["V"], &watch_replay));
         }
         let mut controller: Vec<(&[HintAction], &str)> = vec![
-            (&[HintAction::Confirm, HintAction::Start], "Activate"),
-            (&[HintAction::More], "More"),
-            (&[HintAction::Back], "Song list"),
+            (&[HintAction::Confirm, HintAction::Start], &activate),
+            (&[HintAction::More], &more),
+            (&[HintAction::Back], &song_list),
         ];
         controller.push((
             &[HintAction::Select],
             if self.data.kind == ResultsKind::Kept {
-                "Watch replay"
+                &watch_replay
             } else {
-                "Retry"
+                &retry
             },
         ));
         let (f, texts) = footer(&env, screen, &hints, &controller, &note, &[], cx);
@@ -390,11 +401,11 @@ impl ResultsScreen {
             a
         };
         let mut ty = bh + 16.0;
-        let title = if d.song.subtitle.is_empty() {
+        let title = UiText::data(if d.song.subtitle.is_empty() {
             d.song.title.clone()
         } else {
             format!("{} {}", d.song.title, d.song.subtitle)
-        };
+        });
         children.push(left(
             cut(env.text("SongTitle", &title, 20.0, 700, "Text"), w),
             0.0,
@@ -404,7 +415,7 @@ impl ResultsScreen {
         let line = if d.song.artist.is_empty() {
             d.line.clone()
         } else {
-            format!("{} · {}", d.song.artist, d.line)
+            format!("{} · {}", UiText::data(&d.song.artist), d.line)
         };
         children.push(left(
             cut(env.text("SongLine", &line, 14.0, 400, "Secondary"), w),
@@ -482,11 +493,20 @@ impl ResultsScreen {
         ty += 66.0 + 10.0;
         // The lamp, FAILED.
         let mut marks = Vec::new();
+        // The game's marks, the same in every language.
         if d.kind != ResultsKind::Play {
-            marks.push(("Replay", "REPLAY".to_string(), "Accent"));
+            marks.push((
+                "Replay",
+                UiText::data(super::play::REPLAY_MARK).into(),
+                "Accent",
+            ));
         }
         if d.failed {
-            marks.push(("Failed", "FAILED".to_string(), "Danger"));
+            marks.push((
+                "Failed",
+                UiText::data(super::play::FAILED_MARK).into(),
+                "Danger",
+            ));
         }
         if let Some(l) = &d.lamp {
             marks.push(("Lamp", l.clone(), "Gold"));
@@ -691,7 +711,7 @@ impl ResultsScreen {
         let env = &self.env;
         let [_, _, w, h] = rect;
         let (mean, sd) = self.data.timing();
-        let note = format!("mean {} ms · σ {sd:.1}", signed(mean, 1));
+        let note = rm::timing_note(signed(mean, 1), format!("{sd:.1}"));
         let inner = [14.0, 40.0, w - 28.0, h - 40.0 - 30.0];
         let range = self.range();
         // An odd count: a bin centred on 0, so a perfect play's bar
@@ -748,7 +768,7 @@ impl ResultsScreen {
         c.push(left(
             env.text(
                 "Early",
-                &format!("−{range:.0} ms early"),
+                &rm::timing_early(format!("{range:.0}")),
                 12.0,
                 400,
                 "Faint",
@@ -757,11 +777,17 @@ impl ResultsScreen {
             iy + ih + 14.0,
         ));
         c.push(right(
-            env.text("Late", &format!("late +{range:.0} ms"), 12.0, 400, "Faint"),
+            env.text(
+                "Late",
+                &rm::timing_late(format!("{range:.0}")),
+                12.0,
+                400,
+                "Faint",
+            ),
             ix + iw,
             iy + ih + 14.0,
         ));
-        self.panel("Timing", "Timing", &note, rect, c)
+        self.panel("Timing", &rm::panel_timing(), &note, rect, c)
     }
 
     /// The song's length, at least the last thing that happened.
@@ -781,12 +807,10 @@ impl ResultsScreen {
             .steepest_drop(DROP_WINDOW)
             .filter(|&(d, _, _)| d >= 0.005);
         let note = match drop {
-            Some((d, from, _)) => format!(
-                "largest drop {:.0}% at {}",
-                d * 100.0,
-                super::data::clock(from)
-            ),
-            None => "no drop".to_string(),
+            Some((d, from, _)) => {
+                rm::life_drop(format!("{:.0}", d * 100.0), super::data::clock(from))
+            }
+            None => rm::life_no_drop(),
         };
         let len = self.length();
         let inner = [14.0, 40.0, w - 28.0, h - 40.0 - 30.0];
@@ -846,7 +870,7 @@ impl ResultsScreen {
             ix + iw,
             iy + ih + 14.0,
         ));
-        self.panel("Life", "Life", &note, rect, c)
+        self.panel("Life", &rm::panel_life(), &note, rect, c)
     }
 
     /// Each hit's offset over the song (early above), misses as lines.
@@ -886,11 +910,10 @@ impl ResultsScreen {
             env.color("Graph.Point"),
         ));
         let note = match misses {
-            0 => format!("early above · ±{range:.0} ms"),
-            1 => "early above · 1 miss".to_string(),
-            n => format!("early above · {n} misses"),
+            0 => rm::offsets_range(format!("{range:.0}")),
+            n => rm::offsets_misses(n),
         };
-        self.panel("Offsets", "Offsets over the song", &note, rect, c)
+        self.panel("Offsets", &rm::panel_offsets(), &note, rect, c)
     }
 
     /// Per lane, the hits short of the best tier.
@@ -955,12 +978,11 @@ impl ResultsScreen {
             call(&mut n, "xy", &[cxl, iy + ih + 32.0]);
             c.push(n);
         }
-        let best_name = self
-            .data
-            .judgements
-            .first()
-            .map_or("the best", |j| j.name.as_str());
-        self.panel("Lanes", &format!("By lane · not {best_name}"), "", rect, c)
+        let title = match self.data.judgements.first() {
+            Some(j) => rm::panel_lanes(j.name.as_str()),
+            None => rm::panel_lanes_any(),
+        };
+        self.panel("Lanes", &title, "", rect, c)
     }
 
     /// The hits by their notes' places in the beat: a row each (the rare
@@ -977,17 +999,17 @@ impl ResultsScreen {
         let mut c = Vec::new();
         if groups.is_empty() {
             let why = if self.data.hits.is_empty() {
-                "No notes were judged."
+                rm::beats_none()
             } else {
-                "This play was kept before notes' places in the beat were."
+                rm::beats_not_kept()
             };
-            let mut t = env.text("Beats.Empty", why, 13.0, 400, "Muted");
+            let mut t = env.text("Beats.Empty", &why, 13.0, 400, "Muted");
             if let Kind::Text(tx) = &mut t.kind {
                 tx.max_width = iw;
                 tx.ellipsis = true;
             }
             c.push(left(t, ix, iy + ih / 2.0));
-            return self.panel("Beats", "By beat", "", rect, c);
+            return self.panel("Beats", &rm::panel_beats(), "", rect, c);
         }
         let range = self.range();
         let (track_x, track_w) = (ix + 104.0, (iw - 104.0 - 104.0).max(40.0));
@@ -1042,8 +1064,9 @@ impl ResultsScreen {
                 call(&mut mean, "xy", &[px(g.mean), y]);
                 c.push(mean);
             }
+            // A readout, the same in every language.
             let stats = if g.count > g.misses {
-                format!("{} · σ {:.1}", signed(g.mean, 1), g.sd)
+                UiText::data(format!("{} · σ {:.1}", signed(g.mean, 1), g.sd)).into()
             } else {
                 "—".to_string()
             };
@@ -1053,7 +1076,7 @@ impl ResultsScreen {
                 y,
             ));
         }
-        self.panel("Beats", "By beat", "mean · σ ms", rect, c)
+        self.panel("Beats", &rm::panel_beats(), &rm::beats_note(), rect, c)
     }
 
     fn bottom_bar(&self, [x, y, w, h]: [f32; 4]) -> Actor {
@@ -1070,11 +1093,11 @@ impl ResultsScreen {
         // Right to left: the main button, then the others.
         let mut right_edge = w;
         for (name, label, kind) in self.bar_buttons().into_iter().rev() {
-            let bw = (look::mono_width(label, 15.0) + 40.0).max(112.0);
+            let bw = (look::mono_width(&label, 15.0) + 40.0).max(112.0);
             c.push(env.component(
                 kind,
                 "Button",
-                &Spec::new([bw, 48.0], label),
+                &Spec::new([bw, 48.0], label.as_str()),
                 name,
                 [right_edge - bw / 2.0, mid],
             ));
@@ -1084,10 +1107,10 @@ impl ResultsScreen {
             c.push(left(
                 env.text(
                     "OffsetLabel",
-                    if self.compact {
-                        "Offset"
+                    &if self.compact {
+                        rm::offset()
                     } else {
-                        "Song offset"
+                        rm::song_offset()
                     },
                     15.0,
                     600,
@@ -1106,7 +1129,7 @@ impl ResultsScreen {
             ));
             let mut v = env.numbers(
                 "OffsetValue",
-                &format!("{} ms", signed((o.current * 1000.0) as f32, 0)),
+                &rm::offset_value(signed((o.current * 1000.0) as f32, 0)),
                 20.0,
                 "Text",
             );
@@ -1123,23 +1146,24 @@ impl ResultsScreen {
             // This play's mean as an offset, while it is not the offset
             // set (as the old results offered it).
             if let Some(s) = o.suggested.filter(|s| (s - o.current).abs() >= 0.001) {
-                let label = format!("Use {} ms", signed((s * 1000.0) as f32, 0));
+                let label = rm::use_mean(signed((s * 1000.0) as f32, 0));
                 let uw = look::mono_width(&label, 15.0) + 28.0;
                 c.push(env.component(
                     "Button",
                     "Button",
-                    &Spec::new([uw, 44.0], &label),
+                    &Spec::new([uw, 44.0], label.as_str()),
                     "UseMean",
                     [bx + uw / 2.0, edit_mid],
                 ));
                 bx += uw + 12.0;
             }
             if o.current != 0.0 {
-                let rw = look::mono_width("Reset", 15.0) + 28.0;
+                let reset = ddi_l10n::msg::common::reset();
+                let rw = look::mono_width(&reset, 15.0) + 28.0;
                 c.push(env.component(
                     "Button",
                     "Button",
-                    &Spec::new([rw, 44.0], "Reset"),
+                    &Spec::new([rw, 44.0], reset.as_str()),
                     "ResetOffset",
                     [bx + rw / 2.0, edit_mid],
                 ));
@@ -1162,12 +1186,12 @@ impl ResultsScreen {
         if self.replay_in_bar() || self.actions.replay.is_none() {
             return None;
         }
-        let label = "Watch replay";
-        let bw = look::mono_width(label, 15.0) + 40.0;
+        let label = rm::watch_replay();
+        let bw = look::mono_width(&label, 15.0) + 40.0;
         Some(self.env.component(
             "Button",
             "Button",
-            &Spec::new([bw, 40.0], label),
+            &Spec::new([bw, 40.0], label.as_str()),
             "WatchReplay",
             [at[0] + bw / 2.0, at[1]],
         ))
@@ -1176,24 +1200,24 @@ impl ResultsScreen {
     /// The bar's buttons, left to right: name, label, component. Retry
     /// first, Song list last, all plain buttons (the accent's look read
     /// as a focus beside the focus outline on Song list).
-    fn bar_buttons(&self) -> Vec<(&'static str, &'static str, &'static str)> {
+    fn bar_buttons(&self) -> Vec<(&'static str, UiText, &'static str)> {
         let mut v = Vec::new();
         let replay = self.actions.replay.is_some();
         match self.data.kind {
             ResultsKind::Play => {
-                v.push(("Retry", "Retry", "Button"));
+                v.push(("Retry", rm::retry(), "Button"));
                 if replay && self.replay_in_bar() {
-                    v.push(("WatchReplay", "Watch replay", "Button"));
+                    v.push(("WatchReplay", rm::watch_replay(), "Button"));
                 }
             }
-            ResultsKind::Replay => v.push(("Retry", "Watch again", "Button")),
+            ResultsKind::Replay => v.push(("Retry", rm::watch_again(), "Button")),
             ResultsKind::Kept => {
                 if replay {
-                    v.push(("WatchReplay", "Watch replay", "Button"));
+                    v.push(("WatchReplay", rm::watch_replay(), "Button"));
                 }
             }
         }
-        v.push(("SongList", "Song list", "Button"));
+        v.push(("SongList", rm::song_list(), "Button"));
         v
     }
 
@@ -1296,19 +1320,19 @@ impl ResultsScreen {
             .map(|(id, label, _)| (id.into(), label.into()))
             .collect();
         if !self.replay_in_bar() && self.actions.replay.is_some() {
-            items.push(("WatchReplay".into(), "Watch replay".into()));
+            items.push(("WatchReplay".into(), rm::watch_replay().into()));
         }
         if let Some(offset) = self.data.offset {
             items.extend([
-                ("OffsetDown".into(), "Offset −1 ms".into()),
-                ("OffsetUp".into(), "Offset +1 ms".into()),
-                ("ResetOffset".into(), "Reset offset".into()),
+                ("OffsetDown".into(), rm::more_offset_down().into()),
+                ("OffsetUp".into(), rm::more_offset_up().into()),
+                ("ResetOffset".into(), rm::more_reset_offset().into()),
             ]);
             if offset.suggested.is_some() {
-                items.push(("UseMean".into(), "Use mean offset".into()));
+                items.push(("UseMean".into(), rm::more_use_mean().into()));
             }
         }
-        super::action_menu(&self.env, "Results", items, "Results.More", cx);
+        super::action_menu(&self.env, &rm::more_title(), items, "Results.More", cx);
     }
 
     fn controller_focus(&mut self, action: MenuAction, root: &mut Actor, cx: &mut Cx) {

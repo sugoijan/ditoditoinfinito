@@ -845,6 +845,7 @@ fn theme_listeners(host: &Rc<RefCell<Host>>, listeners: &mut Vec<EventListener>)
             return false;
         };
         if let Ok(mut h) = rc.try_borrow_mut() {
+            h.ui.forget_metrics();
             h.ui.broadcast(Message::new("FontsLoaded"));
         }
         schedule(&rc);

@@ -11,7 +11,7 @@
 use std::rc::Rc;
 
 use ddi_platform::history::PlayEntry;
-use ddi_ui::state::history::{Replay, ReplayCheck};
+use ddi_ui::state::history::{Refusal, Replay, ReplayCheck};
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::JsValue;
 
@@ -26,7 +26,7 @@ use crate::web::gfx::BackendPreference;
 pub(crate) struct ReplayProp {
     pub(crate) replay: Option<Replay>,
     /// Why it cannot be watched: the prompt says so, nothing loads.
-    pub(crate) refused: Option<String>,
+    pub(crate) refused: Option<Refusal>,
     /// Its results, not its replay.
     pub(crate) view_results: bool,
     /// The skin it was drawn with was looked for (not when its folder
@@ -98,7 +98,7 @@ impl Component for ReplayLoader {
             } else {
                 "ready"
             },
-            prop.refused.as_deref(),
+            prop.refused.as_ref().map(ToString::to_string).as_deref(),
             None,
         );
         let p = ctx.props();
@@ -134,10 +134,10 @@ impl Component for ReplayLoader {
 /// chart found (its song and index), the skin it was drawn with looked
 /// for; or why it cannot be replayed.
 async fn resolve(
-    entry: Result<PlayEntry, String>,
+    entry: Result<PlayEntry, Refusal>,
     view_results: bool,
 ) -> (ReplayProp, String, usize) {
-    let refused = |why: String| {
+    let refused = |why: Refusal| {
         (
             ReplayProp {
                 replay: None,
@@ -181,7 +181,7 @@ async fn resolve(
         Err(LoadError::NeedsAccess { .. }) => {}
         Err(LoadError::Failed(_)) => match elsewhere().await {
             Some((id, i, l)) => (song_id, chart, layout) = (id, i, Some(l)),
-            None => refusal = Some(Replay::missing_song()),
+            None => refusal = Some(Refusal::MissingSong),
         },
     }
     let skin_checked = layout.is_some();
@@ -204,12 +204,12 @@ async fn resolve(
 
 /// Why `replay` cannot be drawn on a chart of layout `layout`: the skin
 /// it was drawn with is not installed (bundled ones ship with the game).
-pub(crate) async fn missing_skin(replay: &Replay, layout: &str) -> Option<String> {
+pub(crate) async fn missing_skin(replay: &Replay, layout: &str) -> Option<Refusal> {
     let settings = replay.settings(&Settings::load());
     let skin = replay.skin(&settings, layout)?;
     let db = crate::web::idb::Db::open().await.ok();
     let skins = crate::noteskins::catalogue(db.as_ref()).await;
-    (!skins.iter().any(|s| s.key() == skin)).then(|| Replay::missing_skin(&skin))
+    (!skins.iter().any(|s| s.key() == skin)).then_some(Refusal::MissingSkin(skin))
 }
 
 /// `window.__DDI_DEBUG.replay`: `id`, `state` (`loading`, `ready`,
@@ -232,7 +232,7 @@ pub(crate) fn publish(id: &str, state: &str, refused: Option<&str>, check: Optio
         set(&k, "withRecord", c.with_record.into());
         let p = Array::new();
         for x in &c.problems {
-            p.push(&x.as_str().into());
+            p.push(&x.to_string().into());
         }
         set(&k, "problems", p.into());
         set(&o, "check", k.into());

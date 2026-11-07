@@ -1137,18 +1137,20 @@ fn a_replay_reads_back_and_judges_to_the_play() {
     assert_eq!(again, results);
     let check = r.check(&again, &again);
     assert!(check.matches && check.with_record, "{check:?}");
-    assert_eq!(check.note(), None);
+    assert!(check.notes().is_empty());
     // A watched replay that judged otherwise is said so.
     let mut other = again.clone();
     other.tally.taps[0] -= 1;
     other.tally.taps[1] += 1;
     let check = r.check(&other, &again);
     assert!(!check.matches);
+    ddi_l10n::set_language("en");
+    let notes = check.notes();
     assert!(
-        check
-            .note()
-            .unwrap()
-            .starts_with("This replay judged differently")
+        notes
+            .first()
+            .is_some_and(|n| n.starts_with("This replay judged differently")),
+        "{notes:?}"
     );
     // Its rows: the chart's plays, newest first.
     let mut h = History::default();
@@ -1178,6 +1180,7 @@ fn replays_are_refused_when_they_would_be_wrong() {
     assert!(
         Replay::from_entry(&later)
             .unwrap_err()
+            .to_string()
             .contains("newer version")
     );
     // Judged by a later judge.
@@ -1188,6 +1191,7 @@ fn replays_are_refused_when_they_would_be_wrong() {
     assert!(
         Replay::from_entry(&newer)
             .unwrap_err()
+            .to_string()
             .contains("judged by a newer")
     );
     // A log that does not read.
@@ -1196,6 +1200,7 @@ fn replays_are_refused_when_they_would_be_wrong() {
     assert!(
         Replay::from_entry(&garbled)
             .unwrap_err()
+            .to_string()
             .contains("presses")
     );
     let mut garbled = entry.clone();
@@ -1218,6 +1223,7 @@ fn replays_are_refused_when_they_would_be_wrong() {
     assert!(
         r.chart(&changed)
             .unwrap_err()
+            .to_string()
             .contains("changed since the play")
     );
     assert!(r.results(&changed).is_err());
@@ -1269,6 +1275,7 @@ fn a_replay_is_drawn_as_played_on_this_devices_settings() {
     here.audio_profiles.push(OffsetProfile {
         id: "audio:b".into(),
         label: String::new(),
+        facts: None,
         offset: 0.05,
         calibrated: true,
         last_seen: 0.0,

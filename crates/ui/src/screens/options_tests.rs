@@ -44,7 +44,7 @@ impl Fake {
                     summary,
                 })
                 .collect(),
-            error: String::new(),
+            error: None,
         };
     }
 }

@@ -2,7 +2,9 @@
 //! anonymous pipes; only the SDK owns durable evidence/catalog files.
 mod job;
 use ddi_danoni_export::{network::NetworkCancel, runtime::Installation};
-use ddi_importer_protocol::{Capabilities, Event, Failure, Outcome, Paths, Request, VERSION};
+use ddi_importer_protocol::{
+    Capabilities, Counts, Event, Failure, Outcome, Paths, Request, VERSION,
+};
 use std::{
     collections::BTreeMap,
     io::{self, Read, Write},
@@ -55,30 +57,41 @@ fn sdk_failure(error: ddi_danoni_export::Error) -> Failure {
     failure(error.code, error.message)
 }
 
+/// How an import ended, as values: the app says it in the player's
+/// language.
 struct Report {
     id: u64,
     status: Outcome,
-    summary: String,
+    songs: Option<Counts>,
     restore_ids: Vec<String>,
-    details: Vec<String>,
+    failure: Option<Failure>,
+    refresh: Option<Failure>,
 }
 impl Report {
-    fn failed(id: u64, error: Failure) -> Self {
+    fn new(id: u64, status: Outcome) -> Self {
         Self {
             id,
-            status: Outcome::Failed,
-            summary: "DanOni import could not finish.".into(),
+            status,
+            songs: None,
             restore_ids: Vec::new(),
-            details: vec![format!("{}: {}", error.code, error.message)],
+            failure: None,
+            refresh: None,
+        }
+    }
+    fn failed(id: u64, error: Failure) -> Self {
+        Self {
+            failure: Some(error),
+            ..Self::new(id, Outcome::Failed)
         }
     }
     fn event(self) -> Event {
         Event::Terminal {
             id: self.id,
             status: self.status,
-            summary: self.summary,
+            songs: self.songs,
             restore_ids: self.restore_ids,
-            details: self.details,
+            failure: self.failure,
+            refresh: self.refresh,
         }
     }
 }

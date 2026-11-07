@@ -27,6 +27,7 @@ use crate::gesture::Gesture;
 use crate::look::{call, quad};
 use crate::screen::{Cx, Handled, Input};
 use crate::state::editor::record::{Mode, Recorded, Take};
+use ddi_l10n::msg::editor as em;
 
 /// The recording's tint.
 const TINT: [f32; 4] = [0.95, 0.3, 0.38, 1.0];
@@ -131,14 +132,11 @@ impl EditorScreen {
         self.passed_to = None;
         self.listen_started();
         self.call(EditorCall::Record { from, count_in }, cx);
-        let what = match mode {
-            Mode::Replace => "Recording",
-            Mode::Add => "Recording, adding",
-        };
-        self.say(format!(
-            "{what} from beat {}: R or Escape stops",
-            trim_number(start.beat())
-        ));
+        let beat = trim_number(start.beat());
+        self.say(match mode {
+            Mode::Replace => em::status_recording(beat),
+            Mode::Add => em::status_recording_add(beat),
+        });
     }
 
     fn record_input(&self, layout: &Layout) -> RecordInput {
@@ -288,13 +286,13 @@ impl EditorScreen {
         if !self.place.listen || self.recording() {
             return;
         }
-        let over = if self.editor.borrow().selection().is_some() {
-            "the selection"
+        let (record, add) = if self.editor.borrow().selection().is_some() {
+            (em::menu_record_selection(), em::menu_record_add_selection())
         } else {
-            "from cursor"
+            (em::menu_record_cursor(), em::menu_record_add_cursor())
         };
-        items.push(("record", format!("Record {over} (R)")));
-        items.push(("record-add", format!("Record {over}, adding (Shift R)")));
+        items.push(("record", record.into()));
+        items.push(("record-add", add.into()));
     }
 
     /// The menu's action `id`, if it is recording's.

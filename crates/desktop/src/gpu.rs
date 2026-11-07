@@ -6,7 +6,7 @@
 //! sRGB. Images are decoded on other threads when a frame asks for them
 //! ([`crate::images::Loader`]); a frame after they are in shows them.
 
-use ddi_render::cosmic::CosmicRasterizer;
+use ddi_render::cosmic::{Bundled, CosmicRasterizer};
 use ddi_render::texture_cache::TextureKey;
 use ddi_render::{DrawList, Painter};
 use ddi_ui::Ui;
@@ -22,7 +22,7 @@ pub const CLEAR: wgpu::Color = wgpu::Color {
 /// The bundled faces under the families styles name them by: the HUD's
 /// numbers and the theme's text face (the web registers the same files
 /// under the same names, `crates/web/src/web/text.rs`).
-pub const FACES: &[(&str, &[u8])] = &[
+const THEME_FACES: &[(&str, &[u8])] = &[
     ("Iosevka Custom", ddi_render::HUD_FONT),
     (
         "Iosevka Term",
@@ -41,6 +41,24 @@ pub const FACES: &[(&str, &[u8])] = &[
         include_bytes!("../../../assets/fonts/IosevkaTerm-Bold-latin.ttf"),
     ),
 ];
+
+/// Every bundled face: the theme's, then each language's
+/// (`ddi_l10n::FACES`, Noto Sans CJK JP's cuts), at the weights the
+/// theme asks for them by, always there (a language's font stack names
+/// them; in another language they back the system's fonts up).
+pub fn faces() -> Vec<Bundled<'static>> {
+    let theme = THEME_FACES.iter().map(|&(family, bytes)| Bundled {
+        family,
+        bytes,
+        weight: None,
+    });
+    let languages = ddi_l10n::FACES.iter().map(|f| Bundled {
+        family: f.family,
+        bytes: f.bytes,
+        weight: Some(f.weight),
+    });
+    theme.chain(languages).collect()
+}
 
 /// The native backends.
 pub fn instance() -> wgpu::Instance {
@@ -113,7 +131,7 @@ pub struct Gpu {
 impl Gpu {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue, format: wgpu::TextureFormat) -> Gpu {
         let mut painter = Painter::new(&device, &queue, format);
-        painter.set_rasterizer(Box::new(CosmicRasterizer::with_families(FACES, true)));
+        painter.set_rasterizer(Box::new(CosmicRasterizer::with_families(&faces(), true)));
         Gpu {
             device,
             queue,
@@ -191,6 +209,8 @@ impl Gpu {
             vp.offset[0] / scale,
             vp.offset[1] / scale,
         ];
+        // The UI's language, for the system's faces it needs.
+        self.painter.set_language(ddi_l10n::current().tag);
         let drawn = {
             let mut measure = self.painter.measure(scale);
             ui.draw_in(&mut measure, shift)

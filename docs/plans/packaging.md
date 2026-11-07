@@ -65,7 +65,7 @@ LICENSES/  CREDITS.md  THIRD_PARTY_RUST.md  PACKAGE.json  README.txt
 macOS, `Dito Dito Infinito.app`:
 
 ```
-Contents/Info.plist             tools/package/macos/Info.plist, versions filled in
+Contents/Info.plist             tools/package/macos/Info.plist, versions and languages filled in
 Contents/PkgInfo
 Contents/MacOS/ddi
 Contents/Helpers/video/ddi-video-helper
@@ -76,14 +76,20 @@ Contents/Resources/LICENSES/  CREDITS.md  THIRD_PARTY_RUST.md  PACKAGE.json
 
 Shipped as `DitoDitoInfinito-<version>-macos-arm64.zip` (`ditto`, which
 keeps the signature) and `.dmg` (`hdiutil`, UDZO, the app beside an
-`/Applications` link).
+`/Applications` link). `CFBundleLocalizations` lists the UI's shipped
+languages (`xtask l10n package`, `docs/plans/localization.md`), so the
+system's panels (the file dialogs) speak the one the game picks from the
+system's, and macOS's per-app language setting offers them.
 
 Linux, `DitoDitoInfinito-<version>-linux-x86_64.tar.gz`: the folder plus
 `share/applications/dev.sugoijan.ditoditoinfinito.desktop`,
 `share/icons/hicolor/scalable/apps/dev.sugoijan.ditoditoinfinito.svg` and
 `install-desktop-entry.sh`, which writes the entry (with this folder's
 absolute path, quoted as the Desktop Entry specification asks) and the
-icon into `$XDG_DATA_HOME` (`--remove` takes them out).
+icon into `$XDG_DATA_HOME` (`--remove` takes them out). The entry's
+`GenericName`, `Comment` and `Keywords` are `locales/<tag>/shell.ftl`'s,
+English's plain and each other shipped language's as `Key[ll]`
+(`xtask l10n package`).
 
 Windows, `DitoDitoInfinito-<version>-windows-x86_64.zip`: the folder
 without `danoni-importer/` (never built for Windows: its confinement is

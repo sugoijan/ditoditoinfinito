@@ -17,7 +17,11 @@
 //! `FontFace`s: the HUD's from the wasm's bytes ([`load_bundled_font`]),
 //! the theme's text face from files served next to the app
 //! ([`load_theme_fonts`], fetched at start; the boot shell stays until
-//! every face settled, [`faces`]). Runs drawn
+//! every face settled, [`faces`]), and the UI language's faces
+//! (`ddi_l10n::FACES`, Japanese's Noto Sans CJK JP) the same way once
+//! the language is chosen, at boot or later ([`load_language_faces`]),
+//! never before: the font stack names them for that language alone
+//! (`ddi_l10n::font_stack`). Runs drawn
 //! before a face loaded are drawn again once it has
 //! ([`RunRasterizer::fonts_version`]), and pages drawing on demand are
 //! woken for it ([`on_fonts_loaded`]).
@@ -50,6 +54,8 @@ thread_local! {
     static FONTS_VERSION: Rc<Cell<u64>> = Rc::new(Cell::new(0));
     /// The theme's faces were asked for.
     static THEME_ASKED: Cell<bool> = const { Cell::new(false) };
+    /// The languages' face files asked for.
+    static LANGUAGE_ASKED: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     /// Each face's load, as asked for.
     static FACES: RefCell<Vec<js_sys::Promise>> = const { RefCell::new(Vec::new()) };
     /// Called when a face finishes loading; dropped once they answer
@@ -86,32 +92,71 @@ pub(crate) fn load_theme_fonts() {
         return;
     };
     for (weight, style, url) in THEME_FACES {
-        let descriptors = web_sys::FontFaceDescriptors::new();
-        descriptors.set_weight(weight);
-        descriptors.set_style(style);
-        let face = match web_sys::FontFace::new_with_str_and_descriptors(
-            THEME_FAMILY,
-            &format!("url({url})"),
-            &descriptors,
-        ) {
-            Ok(f) => f,
-            Err(e) => {
-                web_sys::console::warn_1(&format!("theme font {url}: {e:?}").into());
-                continue;
-            }
-        };
-        let _ = document.fonts().add(&face);
-        let Ok(promise) = face.load() else {
-            continue;
-        };
-        FACES.with(|f| f.borrow_mut().push(promise.clone()));
-        wasm_bindgen_futures::spawn_local(async move {
-            match wasm_bindgen_futures::JsFuture::from(promise).await {
-                Ok(_) => loaded(),
-                Err(e) => web_sys::console::warn_1(&format!("theme font {url}: {e:?}").into()),
-            }
-        });
+        load_face(&document, THEME_FAMILY, weight, style, url.to_string());
     }
+    // The language chosen at boot: the first screen waits for its faces too.
+    load_language_faces(ddi_l10n::current().tag);
+}
+
+/// Registers the faces of language `tag` not registered yet
+/// (`fonts/<file>`, copied there by `index.html`), each under its family
+/// at the weight the theme asks for it by.
+pub(crate) fn load_language_faces(tag: &str) {
+    let Some(language) = ddi_l10n::find(tag) else {
+        return;
+    };
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    for face in language.face_files() {
+        let asked = LANGUAGE_ASKED.with_borrow_mut(|asked| {
+            let before = asked.contains(&face.file);
+            if !before {
+                asked.push(face.file);
+            }
+            before
+        });
+        if asked {
+            continue;
+        }
+        load_face(
+            &document,
+            face.family,
+            &face.weight.to_string(),
+            "normal",
+            format!("fonts/{}", face.file),
+        );
+    }
+}
+
+/// Registers the face at `url` under `family`, `weight` and `style`, and
+/// loads it ([`faces`], [`fonts_version`] once loaded).
+fn load_face(document: &web_sys::Document, family: &str, weight: &str, style: &str, url: String) {
+    let descriptors = web_sys::FontFaceDescriptors::new();
+    descriptors.set_weight(weight);
+    descriptors.set_style(style);
+    let face = match web_sys::FontFace::new_with_str_and_descriptors(
+        family,
+        &format!("url({url})"),
+        &descriptors,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            web_sys::console::warn_1(&format!("font {url}: {e:?}").into());
+            return;
+        }
+    };
+    let _ = document.fonts().add(&face);
+    let Ok(promise) = face.load() else {
+        return;
+    };
+    FACES.with(|f| f.borrow_mut().push(promise.clone()));
+    wasm_bindgen_futures::spawn_local(async move {
+        match wasm_bindgen_futures::JsFuture::from(promise).await {
+            Ok(_) => loaded(),
+            Err(e) => web_sys::console::warn_1(&format!("font {url}: {e:?}").into()),
+        }
+    });
 }
 
 /// The loads of the faces asked for so far, each settling when its face
@@ -342,6 +387,23 @@ impl RunRasterizer for CanvasRasterizer {
         }
         self.ctx
             .clear_rect(f64::from(x), f64::from(y), f64::from(w), f64::from(h));
+    }
+
+    fn set_language(&mut self, tag: &str) {
+        // Its faces; the canvas's language (the browser's choice of the
+        // system's faces for Han characters, where it takes one: the
+        // context's `lang`, else the canvas's and the page's).
+        load_language_faces(tag);
+        if js_sys::Reflect::has(&self.ctx, &"lang".into()).unwrap_or(false) {
+            let _ = js_sys::Reflect::set(&self.ctx, &"lang".into(), &tag.into());
+        }
+        let _ = self.canvas.set_attribute("lang", tag);
+        if let Some(root) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.document_element())
+        {
+            let _ = root.set_attribute("lang", tag);
+        }
     }
 
     fn fonts_version(&self) -> u64 {

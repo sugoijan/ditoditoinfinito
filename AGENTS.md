@@ -250,6 +250,39 @@ Rust and the browser are implementation details, not advertised features.
   as a play judges it, `ddi_session::listen::Listener::heard_at`) and
   the developer screen both shells run (`crates/ui/src/dev.rs`). Pure,
   natively tested.
+- `crates/l10n/` the UI's languages (`ddi-l10n`,
+  `docs/plans/localization.md`): Fluent messages in
+  `locales/<tag>/<area>.ftl` (`locales/languages.toml` lists the
+  languages, English first, the source), each English message a typed
+  function made at build time (`ddi_l10n::msg::start::quit()`, its
+  comment's declared variables its arguments) returning a `UiText` in
+  the thread's language (`choose`: the settings' `language`, else the
+  system's, `set_system_languages`; `force` for `--lang` and the web's
+  `?lang=`), missing messages from the fallback then English, numbers in
+  the language's marks; `UiText::data` for what is not ours to translate;
+  the pseudo-languages `qps-ploc` (accented, 40% longer, « », data ‹ ›)
+  and `qps-wide`. A change of language rebuilds every screen in place
+  (`Cx::rebuild_screens`, `Ui::rebuild_all`). A language's script beyond
+  Iosevka Term's is drawn in its faces (`languages.toml`'s `faces` and
+  `[[face]]`s; Japanese: Noto Sans CJK JP, cut to what the messages use
+  into `assets/fonts/` by `xtask l10n fonts`), which `ddi_l10n::font_stack`
+  puts after the theme's face in its stack; desktop embeds them (feature
+  `embed-faces`) and resolves a stack per grapheme as a browser does
+  (`ddi_render::cosmic`), the web fetches them once the language is
+  chosen (`web::text::load_language_faces`); the painter tells the
+  rasterizer the language (`Painter::set_language`: the system's faces
+  for Han in its forms, the page's `lang`). Lines break by Unicode's
+  rules (`ddi_actor::text::wrap`, UAX #14: Japanese between characters,
+  never before 。、」ー). Beyond the canvas: the web page's loader says
+  `boot.ftl`'s lines in the language the game will choose (English's
+  and each language's first ones inlined by `xtask minify-boot` into
+  `site/boot.js`, the rest fetched from `boot/<tag>-<hash>.json`), the
+  shells' plain
+  pages, desktop's app menu (`crates/desktop/src/app_menu.rs`, macOS)
+  and file dialogs, and the packages' `Info.plist` and Linux entry say
+  `shell.ftl`'s. `locales/README.md` says how to add a message or
+  a language; `locales/<tag>/GLOSSARY.md` the terms and tone.
+  Platform-free, natively tested.
 - `crates/theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
   a look for the UI core whose components are the maintainer's mockups,
   its colors, faces, sizes, timings and places in
@@ -280,7 +313,9 @@ Rust and the browser are implementation details, not advertised features.
   palette cadence and 8× spatial evolution (`Active.EvolutionSpeed`).
   `Screen::presentation`/`active_element` select one target on the input layer;
   song select uses the song, options the active row, pages the active item.
-  Dialogs take exclusive ownership. `Look::active_element` paints the outline;
+  Dialogs take exclusive ownership. `Look::place_measured` moves parts that
+  follow measured text (song select's length and pack after a BPM range),
+  each frame between measuring and drawing. `Look::active_element` paints the outline;
   `Ui` owns its clock and idle/reduced-motion handling. `Actor::decoration`
   excludes visual adornments from bounds and hit-testing. The field stays
   viewport-anchored, and `Vivid::clock` keeps palette/evolution independent. The
@@ -693,7 +728,8 @@ Rust and the browser are implementation details, not advertised features.
   `--shared LINK|ID`, `--sharing on|off`, `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
-  on the host clock), `--volume V`, `--seconds N` (quits, printing the
+  on the host clock), `--lang TAG` (the UI's language for the run: `ja`,
+  `qps-ploc`, `qps-wide`), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
   [--frames] [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`, `--pacing block|late` (a play's frame pacing),
@@ -753,10 +789,27 @@ Rust and the browser are implementation details, not advertised features.
   through `container run` (`act` with `socktainer` gets as far as
   `actions/checkout`, then cannot copy its step scripts into the
   container).
+- `just l10n-check` (`cargo run -p xtask -- l10n check`): every language
+  has every English message and no other, each well formed (variables,
+  terms, plural categories; none in `boot.ftl`), no literal given to
+  `UiText::data`, a page's DOM, a window's title or a file dialog's kind
+  of file, no character its faces lack (and each face's file credited
+  and copied by `site/index.html`); then each language's review states.
+  `xtask l10n notes` is the same check printing the states as the
+  release's notes (`release.yml` runs it before packaging: a language
+  missing a message stops a release); `xtask l10n package [--previews]`
+  the shipped languages' tags and Linux desktop entry lines as JSON
+  (`tools/package/package.py`: `Info.plist`'s `CFBundleLocalizations`,
+  the entry's `Key[ll]`). `xtask l10n
+  fonts` cuts the languages' faces again after a message brings a
+  character they lack (uv and curl; the upstream files cached in
+  `target/fonts/`). `xtask l10n report <tag> [--unverified]
+  [--area A]` lists messages for a review pass; `xtask l10n review <tag>
+  --by agent|human <ids…>|--area A` records one (`locales/README.md`).
 - `just test` native tests (chart, engine, render, session, shell,
   platform with `decode` and, through desktop, `decode-all` (its references against
   the `ffmpeg` command where it is installed), library with `nfkd`,
-  actor, ui, theme, noteskin, lua, desktop, xtask), after writing the
+  actor, ui, l10n, theme, noteskin, lua, desktop, xtask), after writing the
   bundled songs' and noteskins' indexes the desktop's tests read. The
   app crate has no native tests; verify the web in a browser. Desktop's
   local checks: `DDI_WEB_PLAYS=<file>` (`--test play -- --ignored`: the
@@ -1106,8 +1159,11 @@ dependency's licence before adding it.
   them minified with swc in release builds (Trunk's own minification
   never reaches an inlined script: its swc pass serves `data-trunk`
   script assets, which come out as files, and its HTML pass keeps
-  JavaScript's comments and names) and copied as they are otherwise, so
-  that the page fits the first round trip compressed (about 10.5 KB
+  JavaScript's comments and names) and copied as they are otherwise
+  (with the loader's lines in each language put in, the rest of each
+  language's beside them in `target/boot/lines/`, served as `boot/`;
+  `docs/plans/localization.md`), so
+  that the page fits the first round trip compressed (about 11.7 KB
   gzipped of the 12.5 the rule allows), and nothing the first paint
   waits for is fetched (no stylesheet links, classic scripts with a
   source, `@import` or `url()`). `xtask check-boot`, the last step of
@@ -1226,3 +1282,24 @@ dependency's licence before adding it.
 - UI text avoids jargon from specific games except where naming a ruleset
   or a layout by StepMania's own name for its game ("Pump single", from
   StepMania's `pump` game, `docs/plans/pump.md`).
+- UI text is a message (`docs/plans/localization.md`, `locales/README.md`):
+  write it in `locales/en/<area>.ftl` with a comment for the translator
+  (where it shows, its room, each variable declared `$name (Number|String)`)
+  and in every other language listed in `locales/languages.toml` in the
+  same commit; use it as `ddi_l10n::msg::<area>::<name>(…)`. A new
+  character (a kanji) the language's faces lack fails `just l10n-check`:
+  run `cargo run -p xtask -- l10n fonts` and commit the cuts with the
+  message. What is not ours to translate is `UiText::data`. Whole sentences only, data where
+  nothing agrees with it, capitals written in the message. A translation
+  an agent writes is a draft: it stays unverified until a review is
+  recorded, and an agent never records a `human` review (an `agent` one
+  only in a review pass asked for). Japanese: `locales/ja/GLOSSARY.md`.
+  `crates/ui/src/screens/l10n_tests.rs` walks the screens in `qps-ploc`
+  and fails on text written in code (a new screen or dialog joins its
+  walk); `just l10n-check` on a language missing a message. The areas
+  and the rules for a screen's text: `locales/README.md`, "Writing a
+  screen's text". What the library, the importers, the session and the
+  shells report reaches the screens as values worded there (an import's
+  `ddi_library::report::Finding`, `screens::failures`, devices' facts),
+  never as English sentences; a system's error goes through
+  `screens::errors::error_text`. Logs and terminal output stay English.

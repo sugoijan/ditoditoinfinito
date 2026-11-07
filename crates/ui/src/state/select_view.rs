@@ -19,8 +19,21 @@ use crate::screens::data::{
     Best, ChartEntry, ImportView, PackEntry, SelectData, SongEntry, StyleDef,
 };
 
-/// What the bundled songs are listed under.
+/// What the bundled songs are listed under: the pack's name as the list,
+/// its place and the history know it (an identifier; the screens show
+/// it by its message, [`pack_label`]).
 pub const BUNDLED_PACK: &str = "Bundled songs";
+
+/// A pack's name as the screens show it: the bundled songs' by its
+/// message (`select-pack-bundled`), any other as data (the name its
+/// folder or its files give it).
+pub fn pack_label(name: &str) -> ddi_l10n::UiText {
+    if name == BUNDLED_PACK {
+        ddi_l10n::msg::select::pack_bundled()
+    } else {
+        ddi_l10n::UiText::data(name)
+    }
+}
 
 /// A song of the library as the list shows it.
 #[derive(Clone, Debug, PartialEq)]
@@ -303,7 +316,7 @@ pub fn select_data(
     );
     // The StepMania presets' fail type and levels, where they play.
     if settings.ruleset_mode != ddi_engine::rules::presets::RulesetMode::AllDanoni {
-        mods.extend(settings.stepmania.summary());
+        mods.extend(crate::screens::play::rules_summary(&settings.stepmania));
     }
     // The first visit: the bundled songs open (else the first pack).
     let is_closed = |name: &String| place.closed.as_ref().is_some_and(|c| c.contains(name));

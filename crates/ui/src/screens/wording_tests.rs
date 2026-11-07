@@ -26,6 +26,11 @@ fn env() -> Env {
     Env::new(Rc::new(Plain), fold)
 }
 
+/// What a URL import runs, as its importer words it.
+fn worded(text: &str) -> Option<super::data::ImportRunning> {
+    Some(super::data::ImportRunning::Worded(text.into()))
+}
+
 fn check(what: &str, text: &str) {
     let lower = text.to_lowercase();
     for w in WEB_ONLY {
@@ -251,7 +256,7 @@ fn danoni_progress_cancel_retry_and_close_are_separate_from_the_job() {
             platform: Platform::Desktop,
             danoni_urls: true,
             danoni_cancel: true,
-            running: Some("Importing…".into()),
+            running: worded("Importing…"),
             danoni: DanoniImportView {
                 url: "https://example.org/song".into(),
                 stage: Some("Converting charts".into()),
@@ -291,10 +296,10 @@ fn danoni_progress_cancel_retry_and_close_are_separate_from_the_job() {
         );
         view.borrow_mut().running = None;
         view.borrow_mut().danoni_cancel = false;
-        view.borrow_mut().report = Some(ImportReportView {
+        view.borrow_mut().report = Some(ImportReportView::Worded {
             error: true,
             summary: "An import failed. Retry when ready.".into(),
-            ..Default::default()
+            sections: Vec::new(),
         });
         h.push(ImportDialog::new(env, view.clone(), None));
         h.ui.broadcast(crate::Message::new(IMPORT_CHANGED));
@@ -327,7 +332,7 @@ fn danoni_origin_decisions_are_inline_identified_and_fit_compact_dialogs() {
                 platform: Platform::Desktop,
                 danoni_urls: true,
                 danoni_cancel: true,
-                running: Some("Checking files…".into()),
+                running: worded("Checking files…"),
                 danoni: DanoniImportView {
                     url: "https://example.org/work".into(),
                     ..Default::default()
@@ -340,7 +345,6 @@ fn danoni_origin_decisions_are_inline_identified_and_fit_compact_dialogs() {
             view.borrow_mut().danoni.origin = Some(DanoniOriginRequest {
                 request_id: 42,
                 origin: "https://music.example.org".into(),
-                purpose: "This work's music is stored at this address.".into(),
             });
             h.ui.broadcast(crate::Message::new(IMPORT_CHANGED));
             h.run(0.2);
@@ -454,12 +458,11 @@ fn a_pointer_release_for_an_old_origin_cannot_answer_the_next_request() {
         platform: Platform::Desktop,
         danoni_urls: true,
         danoni_cancel: true,
-        running: Some("Checking files…".into()),
+        running: worded("Checking files…"),
         danoni: DanoniImportView {
             origin: Some(DanoniOriginRequest {
                 request_id: 42,
                 origin: "https://first.example.org".into(),
-                ..Default::default()
             }),
             ..Default::default()
         },
@@ -479,7 +482,6 @@ fn a_pointer_release_for_an_old_origin_cannot_answer_the_next_request() {
     view.borrow_mut().danoni.origin = Some(DanoniOriginRequest {
         request_id: 43,
         origin: "https://second.example.org".into(),
-        ..Default::default()
     });
     h.ui.broadcast(crate::Message::new(IMPORT_CHANGED));
     h.pointer(1, PointerKind::Mouse, PointerPhase::Up, at);
@@ -529,7 +531,7 @@ fn busy_danoni_bar_moves_without_counts_and_respects_reduced_motion() {
             platform: Platform::Desktop,
             danoni_urls: true,
             danoni_cancel: true,
-            running: Some("Reading chart data…".into()),
+            running: worded("Reading chart data…"),
             danoni: DanoniImportView {
                 url: "https://example.org/work".into(),
                 ..Default::default()

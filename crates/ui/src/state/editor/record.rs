@@ -89,25 +89,23 @@ pub struct Recorded {
 
 impl Recorded {
     /// The line the editor says it with: "12 notes recorded · 12 ms
-    /// late on average, ±9 ms".
+    /// late on average, ±9 ms" (two messages, a list's items).
     pub fn describe(&self) -> String {
-        let notes = match self.notes {
-            0 => "Nothing recorded".to_string(),
-            1 => "1 note recorded".to_string(),
-            n => format!("{n} notes recorded"),
-        };
+        use ddi_l10n::msg::editor as msg;
+        let notes = msg::recorded(self.notes);
         match (self.mean_ms, self.spread_ms) {
             (Some(m), Some(s)) => {
+                let spread = format!("{s:.0}");
                 let side = if m.round() == 0.0 {
-                    "on the grid".to_string()
+                    msg::recorded_on_grid(&spread)
                 } else if m > 0.0 {
-                    format!("{:.0} ms late", m)
+                    msg::recorded_late(format!("{m:.0}"), &spread)
                 } else {
-                    format!("{:.0} ms early", -m)
+                    msg::recorded_early(format!("{:.0}", -m), &spread)
                 };
-                format!("{notes} · {side} on average, ±{s:.0} ms")
+                format!("{notes} · {side}")
             }
-            _ => notes,
+            _ => notes.into(),
         }
     }
 }

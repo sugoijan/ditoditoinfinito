@@ -1,11 +1,10 @@
+# GenericName, Comment and Keywords, in each shipped language, are
+# locales/<tag>/shell.ftl's (tools/package/package.py adds them).
 [Desktop Entry]
 Type=Application
 Name=Dito Dito Infinito
-GenericName=Dance rhythm game
-Comment=A dance rhythm game that plays StepMania simfiles
 Exec=ddi
 Icon=dev.sugoijan.ditoditoinfinito
 Terminal=false
 Categories=Game;ArcadeGame;
-Keywords=dance;rhythm;music;stepmania;
 StartupWMClass=dev.sugoijan.ditoditoinfinito

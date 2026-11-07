@@ -1164,11 +1164,11 @@ pub fn build_into(
         };
         text.push(TextItem {
             text: if opts.cancel_hint.is_empty() {
-                "hold or double-tap Esc to quit"
+                // The keyboard's, by Esc as its cap prints it.
+                ddi_l10n::msg::prompt::play_quit("Esc").into()
             } else {
-                opts.cancel_hint
-            }
-            .into(),
+                opts.cancel_hint.into()
+            },
             x,
             y: y - a * 0.5,
             size: (a * 0.3).max(12.0),

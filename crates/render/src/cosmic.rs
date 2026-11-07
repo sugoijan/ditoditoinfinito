@@ -6,22 +6,51 @@
 //!
 //! Fonts are the bundled ones given, and the system's when asked for
 //! (cosmic-text falls back per script for glyphs a font lacks). A style's
-//! family is a CSS font stack; its first name is looked up, CSS's generic
-//! names standing for cosmic-text's.
+//! family is a CSS font stack, resolved as a browser does: each grapheme
+//! is set in the first family named in the stack that has it (the theme's
+//! face for Latin, the language's for its script, `ddi_l10n::font_stack`),
+//! the rest in the first family with cosmic-text's fallback; CSS's generic
+//! names stand for cosmic-text's and end the search. The UI's language
+//! chooses the system's faces for unified Han characters
+//! ([`RunRasterizer::set_language`]: Japanese forms in Japanese).
+
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use ddi_actor::text::{RunMetrics, TextStyle};
 use glyphon::cosmic_text::{
     Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style, SwashCache, SwashContent, Weight,
+    fontdb,
 };
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::atlas::PageRect;
 use crate::text_atlas::{PAGE, RunRasterizer};
+
+/// A bundled face: the family styles name it by (as the web registers a
+/// `FontFace` under its name; a face's own name may carry its weight,
+/// "Iosevka Term Semibold"), its file, and the CSS weight it stands for
+/// where that is not its own (Noto Sans CJK's Medium for the theme's 600).
+#[derive(Clone, Copy, Debug)]
+pub struct Bundled<'a> {
+    pub family: &'a str,
+    pub bytes: &'a [u8],
+    pub weight: Option<u16>,
+}
 
 pub struct CosmicRasterizer {
     fonts: FontSystem,
     swash: SwashCache,
     /// The staging page: coverage, one byte a texel.
     staging: Vec<u8>,
+    /// The locale the system's fonts were first matched for: the one kept
+    /// for languages that do not choose Han's forms.
+    system_locale: String,
+    /// The face a family gives a weight and slant, as looked up (a few:
+    /// the families stacks name).
+    matched: Vec<(String, u16, bool, Option<fontdb::ID>)>,
+    /// The code points each face looked at has.
+    coverage: HashMap<fontdb::ID, HashSet<u32>>,
 }
 
 /// One glyph's coverage and where its top left goes, from the pen.
@@ -36,25 +65,25 @@ struct Glyph {
 }
 
 impl CosmicRasterizer {
-    /// With the `bundled` faces, each under the family name given (as the
-    /// web registers a `FontFace` under its name: a face's own name may
-    /// carry its weight, "Iosevka Term Semibold"), and the system's with
-    /// `system`.
-    pub fn with_families(bundled: &[(&str, &[u8])], system: bool) -> CosmicRasterizer {
+    /// With the `bundled` faces, each under the family name given and at
+    /// the weight given, and the system's with `system`.
+    pub fn with_families(bundled: &[Bundled], system: bool) -> CosmicRasterizer {
         let mut r = CosmicRasterizer::new(&[], system);
         let db = r.fonts.db_mut();
-        for (family, bytes) in bundled {
-            let source =
-                glyphon::cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(bytes.to_vec()));
+        for face in bundled {
+            let source = fontdb::Source::Binary(std::sync::Arc::new(face.bytes.to_vec()));
             for id in db.load_font_source(source) {
                 let Some(mut info) = db.face(id).cloned() else {
                     continue;
                 };
                 db.remove_face(id);
                 info.families = vec![(
-                    family.to_string(),
-                    glyphon::cosmic_text::fontdb::Language::English_UnitedStates,
+                    face.family.to_string(),
+                    fontdb::Language::English_UnitedStates,
                 )];
+                if let Some(w) = face.weight {
+                    info.weight = fontdb::Weight(w);
+                }
                 db.push_face_info(info);
             }
         }
@@ -76,10 +105,97 @@ impl CosmicRasterizer {
             fonts.db_mut().load_font_data(bytes.to_vec());
         }
         CosmicRasterizer {
+            system_locale: fonts.locale().to_string(),
             fonts,
             swash: SwashCache::new(),
             staging: vec![0; (PAGE * PAGE) as usize],
+            matched: Vec::new(),
+            coverage: HashMap::new(),
         }
+    }
+
+    /// The face `family` gives `weight` and slant.
+    fn face(&mut self, family: &str, weight: u16, italic: bool) -> Option<fontdb::ID> {
+        if let Some(m) = self
+            .matched
+            .iter()
+            .find(|m| m.0 == family && m.1 == weight && m.2 == italic)
+        {
+            return m.3;
+        }
+        let id = self.fonts.db().query(&fontdb::Query {
+            families: &[fontdb::Family::Name(family)],
+            weight: fontdb::Weight(weight),
+            stretch: fontdb::Stretch::Normal,
+            style: if italic {
+                fontdb::Style::Italic
+            } else {
+                fontdb::Style::Normal
+            },
+        });
+        self.matched.push((family.to_string(), weight, italic, id));
+        id
+    }
+
+    /// Whether `family`'s face at `weight` and slant has `c`.
+    fn covers(&mut self, family: &str, weight: u16, italic: bool, c: char) -> bool {
+        let id = self.face(family, weight, italic);
+        let db = self.fonts.db();
+        let Some(id) = id else {
+            return false;
+        };
+        self.coverage
+            .entry(id)
+            .or_insert_with(|| {
+                db.with_face_data(id, |data, index| {
+                    let mut set = HashSet::new();
+                    let cmap = ttf_parser::Face::parse(data, index)
+                        .ok()
+                        .and_then(|f| f.tables().cmap);
+                    for table in cmap.into_iter().flat_map(|c| c.subtables) {
+                        if table.is_unicode() {
+                            table.codepoints(|cp| {
+                                set.insert(cp);
+                            });
+                        }
+                    }
+                    set
+                })
+                .unwrap_or_default()
+            })
+            .contains(&u32::from(c))
+    }
+
+    /// `text` in spans, each with the index in `families` (a stack's)
+    /// of the family it is set in: per grapheme, the first named family
+    /// having it, else the first family (cosmic-text then falls back).
+    fn spans(
+        &mut self,
+        text: &str,
+        families: &[String],
+        weight: u16,
+        italic: bool,
+    ) -> Vec<(Range<usize>, usize)> {
+        let mut out: Vec<(Range<usize>, usize)> = Vec::new();
+        for (at, g) in text.grapheme_indices(true) {
+            let c = g.chars().next().unwrap_or(' ');
+            let mut pick = 0;
+            for (i, f) in families.iter().enumerate() {
+                if generic(f).is_some() {
+                    break;
+                }
+                if self.covers(f, weight, italic, c) {
+                    pick = i;
+                    break;
+                }
+            }
+            let end = at + g.len();
+            match out.last_mut() {
+                Some((r, i)) if *i == pick => r.end = end,
+                _ => out.push((at..end, pick)),
+            }
+        }
+        out
     }
 
     /// The staging page's coverage (tests).
@@ -92,30 +208,28 @@ impl CosmicRasterizer {
     fn layout(&mut self, text: &str, style: &TextStyle, scale: f32) -> (f32, f32, Vec<Glyph>) {
         let size = (style.size() * scale).max(1.0);
         let metrics = Metrics::new(size, style.line_height() * scale);
-        let mut buffer = Buffer::new(&mut self.fonts, metrics);
-        let family = first_family(&style.family);
-        let attrs = Attrs::new()
-            .family(match family.as_str() {
-                "sans-serif" | "system-ui" | "ui-sans-serif" => Family::SansSerif,
-                "serif" | "ui-serif" => Family::Serif,
-                "monospace" | "ui-monospace" => Family::Monospace,
-                "cursive" => Family::Cursive,
-                "fantasy" => Family::Fantasy,
-                name => Family::Name(name),
-            })
-            .weight(Weight(style.weight))
-            .style(if style.italic {
-                Style::Italic
-            } else {
-                Style::Normal
-            });
-        let attrs = if style.tracking != 0 {
-            attrs.letter_spacing(f32::from(style.tracking) / 1000.0)
+        let families = families(&style.family);
+        let spans = if families.len() > 1 {
+            self.spans(text, &families, style.weight, style.italic)
         } else {
-            attrs
+            Vec::new()
         };
+        let first = families.first().map_or("", String::as_str);
+        let mut buffer = Buffer::new(&mut self.fonts, metrics);
         buffer.set_size(None, None);
-        buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        if spans.len() > 1 {
+            buffer.set_rich_text(
+                spans
+                    .iter()
+                    .map(|(r, i)| (&text[r.clone()], attrs(&families[*i], style))),
+                &attrs(first, style),
+                Shaping::Advanced,
+                None,
+            );
+        } else {
+            let family = spans.first().map_or(first, |s| families[s.1].as_str());
+            buffer.set_text(text, &attrs(family, style), Shaping::Advanced, None);
+        }
         buffer.shape_until_scroll(&mut self.fonts, false);
         let mut advance = 0.0f32;
         let mut baseline = 0.0f32;
@@ -147,18 +261,72 @@ impl CosmicRasterizer {
     }
 }
 
-/// The first family of a CSS font stack, unquoted.
-fn first_family(stack: &str) -> String {
+/// The families of a CSS font stack, unquoted, in order (one empty name
+/// at least).
+fn families(stack: &str) -> Vec<String> {
     stack
         .split(',')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .trim_matches(|c| c == '"' || c == '\'')
-        .to_string()
+        .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+        .collect()
+}
+
+/// How a span in family `name` is set in `style`.
+fn attrs<'a>(name: &'a str, style: &TextStyle) -> Attrs<'a> {
+    let attrs = Attrs::new()
+        .family(generic(name).unwrap_or(Family::Name(name)))
+        .weight(Weight(style.weight))
+        .style(if style.italic {
+            Style::Italic
+        } else {
+            Style::Normal
+        });
+    if style.tracking != 0 {
+        attrs.letter_spacing(f32::from(style.tracking) / 1000.0)
+    } else {
+        attrs
+    }
+}
+
+/// cosmic-text's family for a CSS generic name.
+fn generic(name: &str) -> Option<Family<'static>> {
+    Some(match name {
+        "sans-serif" | "system-ui" | "ui-sans-serif" => Family::SansSerif,
+        "serif" | "ui-serif" => Family::Serif,
+        "monospace" | "ui-monospace" => Family::Monospace,
+        "cursive" => Family::Cursive,
+        "fantasy" => Family::Fantasy,
+        _ => return None,
+    })
+}
+
+/// The locale cosmic-text matches the system's faces for unified Han
+/// characters by, for the UI's language `tag` (`None`: not one choosing
+/// them).
+fn han_locale(tag: &str) -> Option<&'static str> {
+    let mut parts = tag.split(['-', '_']);
+    let rest: Vec<&str> = parts.clone().skip(1).collect();
+    Some(match parts.next()? {
+        "ja" => "ja",
+        "ko" => "ko",
+        "zh" if rest.iter().any(|p| matches!(*p, "HK" | "MO")) => "zh-HK",
+        "zh" if rest.iter().any(|p| matches!(*p, "TW" | "Hant")) => "zh-TW",
+        "zh" => "zh-CN",
+        _ => return None,
+    })
 }
 
 impl RunRasterizer for CosmicRasterizer {
+    fn set_language(&mut self, tag: &str) {
+        let locale = han_locale(tag).map_or_else(|| self.system_locale.clone(), str::to_string);
+        if self.fonts.locale() == locale {
+            return;
+        }
+        // The same faces (and ids), matched for the new locale.
+        let none = FontSystem::new_with_locale_and_db(String::new(), fontdb::Database::new());
+        let (_, db) = std::mem::replace(&mut self.fonts, none).into_locale_and_db();
+        self.fonts = FontSystem::new_with_locale_and_db(locale, db);
+    }
+
     fn measure(&mut self, text: &str, style: &TextStyle, scale: f32) -> RunMetrics {
         let (advance, baseline, glyphs) = self.layout(text, style, scale);
         let mut ink = [0.0f32; 4];
@@ -262,13 +430,94 @@ mod tests {
 
     const FONT: &[u8] = include_bytes!("../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 
+    const TERM: &[u8] = include_bytes!("../../../assets/fonts/IosevkaTerm-Regular-latin.ttf");
+    const NOTO: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-Regular-ja.otf");
+    const NOTO_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-Medium-ja.otf");
+
     #[test]
     fn families_are_read_from_a_css_stack() {
         assert_eq!(
-            first_family("\"Iosevka Custom\", sans-serif"),
-            "Iosevka Custom"
+            families("\"Iosevka Custom\", sans-serif"),
+            ["Iosevka Custom", "sans-serif"]
         );
-        assert_eq!(first_family("system-ui"), "system-ui");
+        assert_eq!(families("system-ui"), ["system-ui"]);
+    }
+
+    /// Iosevka Term and Noto Sans CJK JP's cuts, no system faces.
+    fn bundled() -> CosmicRasterizer {
+        let face = |family, bytes, weight| Bundled {
+            family,
+            bytes,
+            weight,
+        };
+        CosmicRasterizer::with_families(
+            &[
+                face("Iosevka Term", TERM, None),
+                face("Noto Sans CJK JP", NOTO, None),
+                face("Noto Sans CJK JP", NOTO_MEDIUM, Some(600)),
+            ],
+            false,
+        )
+    }
+
+    #[test]
+    fn each_grapheme_takes_the_first_family_of_the_stack_that_has_it() {
+        let mut r = bundled();
+        let stack = families("Iosevka Term, Noto Sans CJK JP, system-ui, sans-serif");
+        // Latin and digits in Iosevka, kana and kanji in Noto, a kanji
+        // the cut lacks in the first family (cosmic-text falls back).
+        let text = "A言語を1鬱";
+        let spans = r.spans(text, &stack, 400, false);
+        let named: Vec<(&str, &str)> = spans
+            .iter()
+            .map(|(range, i)| (&text[range.clone()], stack[*i].as_str()))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("A", "Iosevka Term"),
+                ("言語を", "Noto Sans CJK JP"),
+                ("1鬱", "Iosevka Term")
+            ]
+        );
+        // A generic name ends the search.
+        let generic_first = families("sans-serif, Noto Sans CJK JP");
+        assert!(
+            r.spans("言", &generic_first, 400, false)
+                .iter()
+                .all(|s| s.1 == 0)
+        );
+        // The theme's SemiBold finds Noto's Medium, registered at 600.
+        assert!(r.covers("Noto Sans CJK JP", 600, false, '言'));
+        let medium = r.face("Noto Sans CJK JP", 600, false);
+        let regular = r.face("Noto Sans CJK JP", 400, false);
+        assert!(medium.is_some() && medium != regular);
+    }
+
+    #[test]
+    fn japanese_is_set_a_full_em_beside_half_em_latin() {
+        let mut r = bundled();
+        let style = TextStyle::new("Iosevka Term, Noto Sans CJK JP", 20.0);
+        let m = r.measure("AB言語", &style, 1.0);
+        // Iosevka Term is half an em wide, Noto's kanji a whole one.
+        assert!((m.advance - 60.0).abs() < 1.0, "{m:?}");
+    }
+
+    #[test]
+    fn the_language_chooses_han_s_forms() {
+        assert_eq!(han_locale("ja"), Some("ja"));
+        assert_eq!(han_locale("ja-JP"), Some("ja"));
+        assert_eq!(han_locale("zh-Hant-TW"), Some("zh-TW"));
+        assert_eq!(han_locale("zh"), Some("zh-CN"));
+        assert_eq!(han_locale("en"), None);
+        let mut r = bundled();
+        let system = r.fonts.locale().to_string();
+        r.set_language("ja");
+        assert_eq!(r.fonts.locale(), "ja");
+        // The same faces after.
+        assert!(r.covers("Noto Sans CJK JP", 400, false, '言'));
+        r.set_language("en");
+        assert_eq!(r.fonts.locale(), system);
     }
 
     #[test]

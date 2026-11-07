@@ -82,7 +82,7 @@ pub struct View {
     /// The song's scripted backgrounds and foregrounds
     /// (`docs/plans/scripted-backgrounds.md`), and why they stopped.
     scripts: ddi_shell::scripted::ScriptView<Rgba>,
-    scripts_stopped: Option<String>,
+    scripts_stopped: Option<ddi_session::scripted::Failure>,
     /// The scripts' sounds decoded (by file, relative to the song's
     /// folder), and those played since the host last took them.
     script_sounds: std::collections::HashMap<String, crate::audio::mixer::Sound>,
@@ -360,8 +360,8 @@ impl View {
     }
 
     /// Why the song's scripts stopped during the play, if they did.
-    pub fn scripts_stopped(&self) -> Option<&str> {
-        self.scripts_stopped.as_deref()
+    pub fn scripts_stopped(&self) -> Option<&ddi_session::scripted::Failure> {
+        self.scripts_stopped.as_ref()
     }
 
     /// Whether the song's scripts draw (loaded, not stopped).
@@ -839,7 +839,7 @@ impl View {
                 .name("ddi-lyrics-fonts".into())
                 .spawn(move || {
                     let _ = tx.send(ddi_render::cosmic::CosmicRasterizer::with_families(
-                        crate::gpu::FACES,
+                        &crate::gpu::faces(),
                         true,
                     ));
                 });

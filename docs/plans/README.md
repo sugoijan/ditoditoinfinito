@@ -180,6 +180,19 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## UI and desktop
 
+- [Localization](localization.md) (2026-11-07): steps 1 to 5 done (the
+  groundwork; Noto Sans CJK JP's cuts on both shells, the font stack by
+  language, Unicode line breaking; every screen's text a message, and
+  what the rest of the game reports values the screens word; the edges:
+  the web's loader and plain pages, desktop's app menu and dialogs, the
+  packages' entries, the release's gate; a Japanese draft awaiting
+  review). The UI in
+  Japanese as well as English, more languages later: Fluent messages
+  with typed functions, every text a message or marked data (a
+  pseudo-language test over every screen), every maintained language
+  written with each change and unverified until a review is recorded
+  against its hashes, a coverage check before releases; Noto Sans CJK JP
+  and Unicode line breaking for Japanese.
 - [Controller hints and reachability](controller-hints.md) (2026-10-27):
   implemented: automatic Xbox, PlayStation and Nintendo hints, generic fallback,
   per-controller artwork overrides and LB/LT/RT/RB primary Dance Single defaults;

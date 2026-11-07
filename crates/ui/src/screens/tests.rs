@@ -1166,6 +1166,7 @@ use super::data::{
     Best, ImportReportView, ImportView, Notice, PackEntry, SelectData as Data, SongEntry as Song,
 };
 use super::select::{FEED, Feed, SelectCall, SharedFeed, ShellFn};
+use ddi_library::report::{Finding, ImportReport, ImportStep};
 
 type Calls = Rc<RefCell<Vec<SelectCall>>>;
 
@@ -1742,33 +1743,51 @@ fn the_import_dialog_asks_the_shell_and_shows_the_report() {
     }
     // Running: the pickers wait.
     feed.borrow_mut().import = Some(ImportView {
-        running: Some("reading 12 files…".into()),
+        running: Some(
+            ImportStep::ReadingZip {
+                path: "Pack.zip".into(),
+            }
+            .into(),
+        ),
         ..Default::default()
     });
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.3);
-    assert!(h.texts().iter().any(|t| t == "reading 12 files…"));
+    assert!(h.texts().iter().any(|t| t == "reading Pack.zip…"));
     let n = calls.borrow().len();
     h.tap(PointerKind::Mouse, "PickFiles");
     assert_eq!(calls.borrow().len(), n, "not while importing");
     // The report, in a list.
     feed.borrow_mut().import = Some(ImportView {
-        report: Some(ImportReportView {
-            summary: "Imported 2 songs; 1 warning.".into(),
-            error: false,
-            sections: vec![(
-                "Imported with problems".into(),
-                vec!["Pack/Song: no music".into()],
-            )],
+        report: Some(ImportReportView::Files {
+            report: ImportReport {
+                imported: vec!["A".into(), "B".into()],
+                warnings: vec![(
+                    "Pack/Song".into(),
+                    Finding::Missing {
+                        tag: ddi_library::pack::MissingTag::Jacket,
+                        file: "j.png".into(),
+                    },
+                )],
+                ..ImportReport::default()
+            },
+            details: false,
         }),
         ..Default::default()
     });
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.3);
     let texts = h.texts();
-    assert!(texts.iter().any(|t| t == "Imported 2 songs; 1 warning."));
+    assert!(
+        texts.iter().any(|t| t == "2 songs imported · 1 warning"),
+        "{texts:?}"
+    );
     assert!(texts.iter().any(|t| t == "Imported with problems"));
-    assert!(texts.iter().any(|t| t == "Pack/Song: no music"));
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "Pack/Song: #JACKET names j.png, which is missing")
+    );
     h.tap(PointerKind::Mouse, "Close");
     h.run(0.3);
     assert_eq!(top(&h), "select");
@@ -1986,7 +2005,7 @@ fn unreadable_songs_are_removed_only_when_confirmed() {
 #[test]
 fn nothing_is_removed_while_an_import_runs() {
     let mut d = library();
-    d.import.running = Some("reading 12 files…".into());
+    d.import.running = Some(ImportStep::ReadingFiles.into());
     let (mut h, s, calls, _) = shelled(d, Some("u-one"));
     h.key("Delete", "Delete");
     h.run(0.3);
@@ -2040,13 +2059,13 @@ fn files_dropped_open_the_import_dialog() {
     let (mut h, _s, _, feed) = shelled(library(), Some("some-things-must"));
     feed.borrow_mut().open_import = true;
     feed.borrow_mut().import = Some(ImportView {
-        running: Some("reading 3 files…".into()),
+        running: Some(ImportStep::ReadingFiles.into()),
         ..Default::default()
     });
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.3);
     assert_eq!(top(&h), "import");
-    assert!(h.texts().iter().any(|t| t == "reading 3 files…"));
+    assert!(h.texts().iter().any(|t| t == "reading files…"));
     // Again while it is open: still one.
     feed.borrow_mut().open_import = true;
     h.ui.broadcast(crate::Message::new(FEED));

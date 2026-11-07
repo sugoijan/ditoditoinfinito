@@ -27,6 +27,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind, Sprite};
+use ddi_l10n::msg::{common, options as m};
 
 use super::data::{OptionDef, OptionKind, OptionsData};
 use super::{Env, footer, frame, ground, header, left, right};
@@ -158,7 +159,7 @@ impl OptionsScreen {
                 .data
                 .sections
                 .iter()
-                .position(|s| s.name == section)
+                .position(|s| s.id == section)
                 .unwrap_or(0);
             self.focus = self
                 .options()
@@ -324,13 +325,8 @@ impl OptionsScreen {
             }
             children.push(panel);
             if self.data.preview_whole_play {
-                let mut caption = env.text(
-                    "Preview.Caption",
-                    "Standing hand · layout preview",
-                    11.,
-                    400,
-                    "Muted",
-                );
+                let mut caption =
+                    env.text("Preview.Caption", &m::preview_caption(), 11., 400, "Muted");
                 call(&mut caption, "xy", &[px + pw / 2., py + ph + 12.]);
                 call(&mut caption, "maxwidth", &[pw]);
                 children.push(caption);
@@ -348,7 +344,7 @@ impl OptionsScreen {
         if p.compact {
             children.push(super::back_button(&env, [40.0, 40.0], [12.0 + 20.0, 24.0]));
             children.push(left(
-                env.text("Title", "Options", 16.0, 700, "Text"),
+                env.text("Title", &m::title(), 16.0, 700, "Text"),
                 64.0,
                 24.0,
             ));
@@ -357,32 +353,43 @@ impl OptionsScreen {
             ellipsize(&mut n);
             children.push(right(n, screen[0] - 92.0, 24.0));
         } else {
-            children.push(header(&env, cx, screen[0], "OPTIONS"));
+            children.push(header(&env, cx, screen[0], &m::header()));
             let mut n = env.text("Saved", "", 13.0, 400, "Muted");
             call(&mut n, "maxwidth", &[screen[0] - 600.0]);
             children.push(right(n, screen[0] - margin - 80.0, 32.0));
+            let (option, change, preview, section) = (
+                m::hint_option(),
+                m::hint_change(),
+                m::hint_preview(),
+                m::hint_section(),
+            );
+            let (back, more, calibrate) = (common::back(), common::more(), common::calibrate());
+            let links = [
+                ("Link.Back", back.as_str()),
+                ("Link.Calibrate", calibrate.as_str()),
+            ];
             let (f, texts) = footer(
                 &env,
                 screen,
                 &[
-                    (&["↑", "↓"], "Option"),
-                    (&["←", "→"], "Change"),
-                    (&["P"], "Preview"),
-                    (&["TAB"], "Section"),
-                    (&["ESC"], "Back"),
+                    (&["↑", "↓"], option.as_str()),
+                    (&["←", "→"], change.as_str()),
+                    (&["P"], preview.as_str()),
+                    (&["TAB"], section.as_str()),
+                    (&["ESC"], back.as_str()),
                 ],
                 &[
-                    (&[HintAction::Up, HintAction::Down], "Option"),
-                    (&[HintAction::Left, HintAction::Right], "Change"),
-                    (&[HintAction::Previous, HintAction::Next], "Section"),
-                    (&[HintAction::More], "More"),
-                    (&[HintAction::Back], "Back"),
+                    (&[HintAction::Up, HintAction::Down], option.as_str()),
+                    (&[HintAction::Left, HintAction::Right], change.as_str()),
+                    (&[HintAction::Previous, HintAction::Next], section.as_str()),
+                    (&[HintAction::More], more.as_str()),
+                    (&[HintAction::Back], back.as_str()),
                 ],
                 "",
                 if self.can_calibrate() {
-                    &[("Link.Back", "Back"), ("Link.Calibrate", "Calibrate")]
+                    &links
                 } else {
-                    &[("Link.Back", "Back")]
+                    &links[..1]
                 },
                 cx,
             );
@@ -426,7 +433,7 @@ impl OptionsScreen {
         let mut selector = env.component(
             "Button",
             "Button",
-            &Spec::new([w, ROW], format!("Preview: {}", option.value())),
+            &Spec::new([w, ROW], m::preview_layout(option.value())),
             "PreviewLayout",
             [x + w / 2.0, y - 8.0 - ROW / 2.0],
         );
@@ -825,17 +832,17 @@ impl OptionsScreen {
             .unwrap_or_default();
         self.describe(root, &label, &description);
         if let Some(n) = hit::find_mut(root, "Saved") {
-            let text = if self.data.notice.is_empty() {
+            let text: String = if self.data.notice.is_empty() {
                 if self.places.compact {
-                    ""
+                    String::new()
                 } else {
-                    "Saved as you change them"
+                    m::saved().into()
                 }
             } else {
-                self.data.notice.as_str()
+                self.data.notice.clone()
             };
             if let Kind::Text(t) = &mut n.kind {
-                t.set_text(text);
+                t.set_text(&text);
             }
         }
         if let Some(p) = hit::find_mut(root, "Preview") {
@@ -904,11 +911,11 @@ impl OptionsScreen {
 
     /// New rows: the same section and option where they still are.
     fn set_data(&mut self, data: OptionsData, root: &mut Actor) {
-        let section = self.data.sections.get(self.section).map(|s| s.name.clone());
+        let section = self.data.sections.get(self.section).map(|s| s.id.clone());
         let id = self.options().get(self.focus).map(|o| o.id.clone());
         self.data = data;
         self.desc_cache.set(None);
-        if let Some(i) = section.and_then(|n| self.data.sections.iter().position(|s| s.name == n)) {
+        if let Some(i) = section.and_then(|n| self.data.sections.iter().position(|s| s.id == n)) {
             self.section = i;
         }
         self.section = self.section.min(self.data.sections.len().saturating_sub(1));
@@ -931,13 +938,13 @@ impl OptionsScreen {
             .map(|(i, s)| (format!("Section{i}"), s.name.clone()))
             .collect();
         if self.data.preview_layout.is_some() {
-            items.push(("PreviewLayout".into(), "Change preview layout".into()));
+            items.push(("PreviewLayout".into(), m::more_preview_layout().into()));
         }
         if self.can_calibrate() {
-            items.push(("Link.Calibrate".into(), "Calibrate".into()));
+            items.push(("Link.Calibrate".into(), common::calibrate().into()));
         }
-        items.push(("Back".into(), "Back".into()));
-        super::action_menu(&self.env, "Options", items, "Options.More", cx);
+        items.push(("Back".into(), common::back().into()));
+        super::action_menu(&self.env, &m::more_title(), items, "Options.More", cx);
     }
 
     fn change(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
@@ -982,7 +989,7 @@ impl OptionsScreen {
         let name = if preview {
             "Preview".to_string()
         } else {
-            self.data.sections[section].name.clone()
+            self.data.sections[section].id.clone()
         };
         self.env.state.borrow_mut().status = format!("{} {}", o.label, o.value());
         if let Some(f) = &self.changed {
@@ -1104,7 +1111,7 @@ impl OptionsScreen {
             .data
             .sections
             .get(self.section)
-            .map(|s| s.name.clone())
+            .map(|s| s.id.clone())
             .unwrap_or_default();
         let o = self.selected_option();
         st.option = o.map(|o| o.label.clone()).unwrap_or_default();

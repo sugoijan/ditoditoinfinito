@@ -23,8 +23,10 @@ use std::rc::{Rc, Weak};
 
 use crate::component::{Callback, Component, Context, NodeRef};
 use ddi_engine::{ConnectedPad, PadUse};
+use ddi_l10n::msg::notices as nm;
 use ddi_ui::UiRequest;
-use ddi_ui::screens::data::Notice;
+use ddi_ui::screens::data::{Notice, style_name};
+use ddi_ui::screens::import_report::step_text;
 use ddi_ui::screens::select::{
     FEED, Feed, OpenFn, PlayFn, SelectCall, SelectScreen, SharedFeed, ShellFn,
 };
@@ -114,10 +116,10 @@ impl ImportDebug {
     fn now() -> ImportDebug {
         let (running, report, finished) = import::status();
         ImportDebug {
-            running,
+            running: running.map(|s| step_text(&s).into()),
             report: report.map(|r| {
                 let v = select_data::report_view(&r, Settings::load().import_details);
-                (v.summary, v.error)
+                (v.summary(), v.error())
             }),
             finished,
         }
@@ -145,8 +147,8 @@ pub(crate) struct SelectPage {
     usage: Option<f64>,
     persisted: Option<bool>,
     unbound: Vec<String>,
-    /// The layout they were checked for.
-    unbound_layout: String,
+    /// The style they were checked for: its id and its layout's name.
+    unbound_layout: (String, String),
     seen_imports: u64,
     history_seen: u64,
     _pad_check: Option<Interval>,
@@ -226,7 +228,7 @@ impl Component for SelectPage {
             usage: None,
             persisted: None,
             unbound: Vec::new(),
-            unbound_layout: String::new(),
+            unbound_layout: Default::default(),
             seen_imports: import::status().2,
             history_seen: 0,
             _pad_check: pad_check,
@@ -471,7 +473,7 @@ impl Component for SelectPage {
             let _ = status.set_attribute("role", "status");
             let _ = status.set_attribute("aria-live", "polite");
             let drop = element(root, "div", "drop-note");
-            drop.set_text_content(Some("Drop to add the songs"));
+            drop.set_text_content(Some(&ddi_l10n::msg::shell::drop()));
             let error = element(root, "p", "error select-error");
             Dom {
                 status,
@@ -481,9 +483,14 @@ impl Component for SelectPage {
             }
         });
         let (running, report, _) = import::status();
-        let status = running.or_else(import::stills_status).or_else(|| {
-            report.map(|r| select_data::report_view(&r, Settings::load().import_details).summary)
-        });
+        let status = running
+            .or_else(import::stills_status)
+            .map(|s| step_text(&s).into())
+            .or_else(|| {
+                report.map(|r| {
+                    select_data::report_view(&r, Settings::load().import_details).summary()
+                })
+            });
         let status = status.unwrap_or_default();
         if dom.status.text_content().as_deref() != Some(status.as_str()) {
             dom.status.set_text_content(Some(&status));
@@ -492,8 +499,9 @@ impl Component for SelectPage {
         match &self.load_error {
             Some(e) => {
                 dom.error.set_hidden(false);
-                dom.error
-                    .set_text_content(Some(&format!("could not load the song list: {e}")));
+                dom.error.set_text_content(Some(&ddi_l10n::msg::shell::song_list_failed(
+                    ddi_ui::screens::errors::error_text(e),
+                )));
             }
             None => dom.error.set_hidden(true),
         }
@@ -659,7 +667,7 @@ impl SelectPage {
         if let (false, Some(l)) = (self.shared.of_share, self.shared.library.borrow().as_ref()) {
             if let Some(e) = &l.imported_error {
                 out.push(Notice {
-                    text: format!("Imported songs are unavailable: {e}"),
+                    text: nm::imported_unavailable(ddi_ui::screens::errors::error_text(e)).into(),
                     link: None,
                     error: true,
                 });
@@ -667,39 +675,28 @@ impl SelectPage {
             let n = l.unreadable.len();
             if n > 0 {
                 out.push(Notice {
-                    text: format!(
-                        "{n} stored song{} could not be read.",
-                        if n == 1 { "" } else { "s" }
-                    ),
-                    link: Some(("remove them".into(), "remove-unreadable".into())),
+                    text: nm::unreadable(n).into(),
+                    link: Some((nm::remove_unreadable().into(), "remove-unreadable".into())),
                     error: true,
                 });
             }
         }
+        let (style, name) = &self.unbound_layout;
         for id in &self.unbound {
             out.push(Notice {
-                text: format!(
-                    "Controller “{id}” has no bindings for {} yet.",
-                    self.unbound_layout
-                ),
-                link: Some(("bind it in Options".into(), "options".into())),
+                text: nm::controller_unbound(id, style_name(style, name)).into(),
+                link: Some((nm::bind_controller().into(), "options".into())),
                 error: false,
             });
         }
         if let (false, Some(u)) = (self.shared.of_share, self.usage) {
-            let (more, link) = match self.persisted {
-                Some(true) => (" The browser keeps your songs until you remove them.", None),
-                Some(false) => (
-                    " The browser may clear imported songs when space runs low.",
-                    Some(("keep them".to_string(), "persist".to_string())),
-                ),
-                None => ("", None),
+            let (kept, link) = match self.persisted {
+                Some(true) => ("yes", None),
+                Some(false) => ("no", Some((nm::keep_songs().into(), "persist".to_string()))),
+                None => ("unknown", None),
             };
             out.push(Notice {
-                text: format!(
-                    "This site stores about {} in this browser.{more}",
-                    select_data::format_bytes(u)
-                ),
+                text: nm::storage(storage_size(u), kept).into(),
                 link,
                 error: false,
             });
@@ -731,7 +728,10 @@ impl SelectPage {
                     .find(|x| x.id == style)
             })
             .or_else(|| ddi_chart::Layout::builtin(&style));
-        let layout_name = layout.as_ref().map_or(style.clone(), |l| l.name.clone());
+        let layout_name = (
+            style.clone(),
+            layout.as_ref().map_or(style.clone(), |l| l.name.clone()),
+        );
         let connected: Vec<ConnectedPad> = pads
             .pads()
             .into_iter()
@@ -762,6 +762,16 @@ impl SelectPage {
             self.unbound_layout = layout_name;
             self.send_notices();
         }
+    }
+}
+
+/// What the site stores (`b` bytes), as the storage notice says it: in
+/// megabytes, or gigabytes from one.
+fn storage_size(b: f64) -> ddi_l10n::UiText {
+    if b >= 1e9 {
+        nm::size_gb((b / 1e8).round() / 10.0)
+    } else {
+        nm::size_mb((b / 1e6).max(1.0).round())
     }
 }
 
@@ -1253,7 +1263,7 @@ fn debug_into(shared: &Shared, obj: &js_sys::Object) {
         set(&songs, "importStatus", r.into());
     }
     if let Some(r) = import::stills_status() {
-        set(&songs, "stills", r.into());
+        set(&songs, "stills", step_text(&r).as_str().into());
     }
     if let Some((summary, error)) = d.report {
         set(&songs, "report", summary.into());

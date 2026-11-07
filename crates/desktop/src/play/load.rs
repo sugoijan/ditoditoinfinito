@@ -12,6 +12,7 @@ use ddi_library::manifest::ManifestEntry;
 use ddi_library::path::{RelPath, RelPathBuf};
 use ddi_library::scan::Reader;
 use ddi_platform::decode_all::Range;
+use ddi_ui::screens::failures::LoadFailure;
 
 use crate::audio::Sound;
 use crate::library::LibSong;
@@ -346,7 +347,7 @@ pub struct Loaded {
 }
 
 /// Reads song `id` and decodes its music at `rate` Hz, its movies found.
-pub fn load(id: &str, rate: u32) -> Result<Loaded, String> {
+pub fn load(id: &str, rate: u32) -> Result<Loaded, LoadFailure> {
     load_with(
         id,
         None,
@@ -371,12 +372,12 @@ pub fn load_with(
     random: bool,
     edited: Option<&Song>,
     cancel: &std::sync::atomic::AtomicBool,
-) -> Result<Loaded, String> {
+) -> Result<Loaded, LoadFailure> {
     // A shared song: what its background changes play fetched first.
     if ddi_library::share::is_shared_id(id) {
         crate::share::ensure_all(id)?;
     }
-    let (files, entry) = Files::of(id).ok_or_else(|| format!("no song {id}"))?;
+    let (files, entry) = Files::of(id).ok_or(LoadFailure::NoSong)?;
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
         return load_work(files, entry, &w, rate);
     }
@@ -388,9 +389,12 @@ pub fn load_with(
         None if ddi_library::ffr::is_level_chart(&entry.chart) => {
             let (song, mp3) = ddi_library::ffr::chart_song_and_music(
                 &entry.chart,
-                &files.read(&entry.chart)?,
+                &files
+                    .read(&entry.chart)
+                    .map_err(file_failure(&entry.chart))?,
                 &entry.title,
-            )?;
+            )
+            .map_err(chart_failure(&entry.chart))?;
             level_music = mp3.filter(|_| music_file == entry.chart.as_rel_path());
             song
         }
@@ -400,7 +404,11 @@ pub fn load_with(
     add_lyrics(&files, &entry, &mut song);
     let (music, music_ext) = match level_music {
         Some(mp3) => (mp3, Some("mp3".to_string())),
-        None => ddi_library::ffr::music(music_file, files.read(music_file)?)?,
+        None => ddi_library::ffr::music(
+            music_file,
+            files.read(music_file).map_err(file_failure(music_file))?,
+        )
+        .map_err(LoadFailure::Music)?,
     };
     // A Dancing☆Onigiri work's MP3 where Chrome's decode has it (its
     // notes are timed against that), a simfile's where StepMania's does.
@@ -408,7 +416,8 @@ pub fn load_with(
         target: ddi_session::music_target(&song),
         ..Range::default()
     };
-    let music = crate::audio::decoder::sound(music, music_ext.as_deref(), range, rate)?;
+    let music = crate::audio::decoder::sound(music, music_ext.as_deref(), range, rate)
+        .map_err(LoadFailure::Music)?;
     let mut movies = if with_movies {
         movies_unless(&files, &entry, cancel)
     } else {
@@ -442,22 +451,41 @@ pub fn load_with(
 }
 
 /// Song `id`'s chart alone, no music (a replay's chart looked for).
-pub fn read_chart(id: &str) -> Result<Song, String> {
-    let (files, entry) = Files::of(id).ok_or_else(|| format!("no song {id}"))?;
+pub fn read_chart(id: &str) -> Result<Song, LoadFailure> {
+    let (files, entry) = Files::of(id).ok_or(LoadFailure::NoSong)?;
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
-        return read_work(&files, &w);
+        return read_work(&files, &w).map_err(LoadFailure::Work);
     }
     chart_of(&files, &entry)
 }
 
 /// The song's chart file parsed: an FFR level (`ddi_library::ffr`), else
 /// a simfile with its generated versions ([`parse_simfile`]).
-pub(crate) fn chart_of(files: &Files, entry: &ManifestEntry) -> Result<Song, String> {
-    let bytes = files.read(&entry.chart)?;
+pub(crate) fn chart_of(files: &Files, entry: &ManifestEntry) -> Result<Song, LoadFailure> {
+    let bytes = files
+        .read(&entry.chart)
+        .map_err(file_failure(&entry.chart))?;
     if ddi_library::ffr::is_level_chart(&entry.chart) {
-        return ddi_library::ffr::chart_song(&entry.chart, &bytes, &entry.title);
+        return ddi_library::ffr::chart_song(&entry.chart, &bytes, &entry.title)
+            .map_err(chart_failure(&entry.chart));
     }
-    parse_simfile(&entry.chart, &bytes, true)
+    parse_simfile(&entry.chart, &bytes, true).map_err(chart_failure(&entry.chart))
+}
+
+/// A failure to read the song's `file` (what the system said).
+fn file_failure(file: &RelPath) -> impl FnOnce(String) -> LoadFailure + '_ {
+    move |error| LoadFailure::File {
+        file: file.to_string(),
+        error,
+    }
+}
+
+/// A failure to read the song's chart `file` (what its reader said).
+fn chart_failure(file: &RelPath) -> impl FnOnce(String) -> LoadFailure + '_ {
+    move |error| LoadFailure::Chart {
+        file: file.to_string(),
+        error,
+    }
 }
 
 /// Simfile `chart`'s bytes parsed, as its extension says, with its
@@ -509,7 +537,8 @@ pub fn read_work(files: &Files, w: &crate::library::WorkRef) -> Result<Song, Str
         }
     } else {
         let paths: Vec<RelPathBuf> = w.dos.iter().map(|(p, _)| p.clone()).collect();
-        crate::library::read_page(&reader, &paths, w.source.as_str())?
+        crate::library::read_page(&reader, &paths, w.source.as_str())
+            .map_err(|f| ddi_ui::screens::import_report::finding_text(&f).to_string())?
             .ok_or("the page no longer holds a work")?
             .0
     };
@@ -525,26 +554,28 @@ fn load_work(
     entry: ManifestEntry,
     w: &crate::library::WorkRef,
     rate: u32,
-) -> Result<Loaded, String> {
+) -> Result<Loaded, LoadFailure> {
     struct AtRoot<'a>(&'a Files);
     impl Reader for AtRoot<'_> {
         fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
             self.0.read_at_root(path)
         }
     }
-    let song = read_work(&files, w)?;
+    let song = read_work(&files, w).map_err(LoadFailure::Work)?;
     let reader = AtRoot(&files);
-    let mut music = reader.read(&w.music)?;
+    let mut music = reader.read(&w.music).map_err(file_failure(&w.music))?;
     if w.encoded {
         let js = ddi_library::pack::decode_text(&music);
-        music = ddi_library::danoni::decode_music(&js).ok_or("its music script holds no audio")?;
+        music = ddi_library::danoni::decode_music(&js)
+            .ok_or_else(|| LoadFailure::Work("its music script holds no audio".into()))?;
     }
     let (ext, _) = ddi_library::works::sniff_audio(&music);
     let range = Range {
         target: ddi_session::music_target(&song),
         ..Range::default()
     };
-    let music = crate::audio::decoder::sound(music, Some(ext), range, rate)?;
+    let music =
+        crate::audio::decoder::sound(music, Some(ext), range, rate).map_err(LoadFailure::Music)?;
     let layers = w
         .layers
         .iter()
@@ -565,7 +596,7 @@ fn load_work(
 /// A load on its own thread.
 pub struct Loading {
     pub id: String,
-    rx: Receiver<Result<Loaded, String>>,
+    rx: Receiver<Result<Loaded, LoadFailure>>,
     /// Set when the load is let go (its prompt went): a movie being
     /// extracted is given up.
     cancel: Arc<std::sync::atomic::AtomicBool>,
@@ -610,7 +641,7 @@ impl Loading {
                         &cancelled,
                     )
                 })
-                .unwrap_or_else(|_| Err("the song could not be read".into()));
+                .unwrap_or_else(|_| Err(LoadFailure::Other("the song could not be read".into())));
                 let _ = tx.send(r);
                 if let Some(w) = wake {
                     w();
@@ -624,19 +655,21 @@ impl Loading {
     }
 
     /// The song, once read.
-    pub fn poll(&self) -> Option<Result<Loaded, String>> {
+    pub fn poll(&self) -> Option<Result<Loaded, LoadFailure>> {
         match self.rx.try_recv() {
             Ok(r) => Some(r),
             Err(mpsc::TryRecvError::Empty) => None,
-            Err(mpsc::TryRecvError::Disconnected) => Some(Err("the song could not be read".into())),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(Err(LoadFailure::Other("the song could not be read".into())))
+            }
         }
     }
 
     /// Waits for it (tests).
-    pub fn wait(self) -> Result<Loaded, String> {
+    pub fn wait(self) -> Result<Loaded, LoadFailure> {
         self.rx
             .recv()
-            .unwrap_or_else(|_| Err("the song could not be read".into()))
+            .unwrap_or_else(|_| Err(LoadFailure::Other("the song could not be read".into())))
     }
 }
 
@@ -653,7 +686,7 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
     let entry = ManifestEntry {
         variants_version: 0,
         id: format!("calibration:{}", mode.id()),
-        title: mode.title().into(),
+        title: mode.title(),
         artist: String::new(),
         chart: RelPathBuf::new(),
         music: RelPathBuf::new(),

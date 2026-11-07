@@ -19,7 +19,9 @@
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 
 pub mod preview;
-use ddi_platform::video::{MovieStats, MovieTrack, StopReason, VideoDecoder, VideoFrame};
+use ddi_platform::video::{
+    MovieStats, MovieTrack, StopReason, VideoDecoder, VideoError, VideoFrame, VideoTrouble,
+};
 use std::cell::Cell;
 
 /// A movie is opened this long before its segment starts: opening and
@@ -40,12 +42,12 @@ pub trait MovieShell {
 
     /// Opens movie `name`: `None` while its file is not there yet (tried
     /// again next frame), `Err` why it cannot play (it then fails).
-    fn open(&mut self, name: &str) -> Option<Result<Self::Decoder, String>>;
+    fn open(&mut self, name: &str) -> Option<Result<Self::Decoder, VideoError>>;
 
     /// Called for each open movie after its track was fed: `Ok(true)` when
     /// its decoder was handed to another decoder (the track then seeks it
     /// to where the movie stands), `Err` why the movie cannot play.
-    fn fall_back(&mut self, _name: &str, _decoder: &mut Self::Decoder) -> Result<bool, String> {
+    fn fall_back(&mut self, _name: &str, _decoder: &mut Self::Decoder) -> Result<bool, VideoError> {
         Ok(false)
     }
 
@@ -123,7 +125,7 @@ pub struct MovieSlots<S: MovieShell> {
     /// movie's later tracks (a resume past the end wraps at once).
     ends: Vec<(String, f64)>,
     /// Movies that could not play this session: the song background shows.
-    failed: Vec<(String, String)>,
+    failed: Vec<(String, VideoError)>,
     /// The segment current on each layer at the last update.
     current: [Option<usize>; LAYERS],
     /// The drawn movie the automatic rule watches, `(layer, segment)`.
@@ -141,7 +143,7 @@ pub struct MovieSlots<S: MovieShell> {
     paused: bool,
     /// Movies that failed this play, for the results (`failed` is cleared
     /// when the song ends).
-    trouble: Vec<(String, String)>,
+    trouble: Vec<(String, VideoError)>,
 }
 
 impl<S: MovieShell + Default> Default for MovieSlots<S> {
@@ -188,7 +190,7 @@ impl<S: MovieShell> MovieSlots<S> {
     }
 
     /// Movies that could not play since the song started, `(name, why)`.
-    pub fn failed(&self) -> &[(String, String)] {
+    pub fn failed(&self) -> &[(String, VideoError)] {
         &self.failed
     }
 
@@ -280,9 +282,9 @@ impl<S: MovieShell> MovieSlots<S> {
         self.off
     }
 
-    /// What kept movies from playing this play, in a line for the results.
-    pub fn trouble(&self) -> Option<String> {
-        ddi_platform::video::trouble_line(&self.trouble)
+    /// What kept movies from playing this play, for the results' note.
+    pub fn trouble(&self) -> Option<VideoTrouble> {
+        VideoTrouble::of(&self.trouble)
     }
 
     /// Closes every decoder (the song ended). Textures and what was
@@ -461,7 +463,7 @@ impl<S: MovieShell> MovieSlots<S> {
             open.position = position;
             let frame = open.track.update(&mut open.decoder, position);
             if let Some(e) = open.track.error() {
-                errors.push((open.name.clone(), e.to_string()));
+                errors.push((open.name.clone(), e.clone()));
                 continue;
             }
             if currents[open.layer] == Some(open.segment) {
@@ -580,7 +582,7 @@ impl<S: MovieShell> MovieSlots<S> {
             open.position = c.position;
             let frame = open.track.update(&mut open.decoder, c.position);
             if let Some(e) = open.track.error() {
-                errors.push((open.name.clone(), e.to_string()));
+                errors.push((open.name.clone(), e.clone()));
                 continue;
             }
             if let Some(frame) = frame {
@@ -624,7 +626,7 @@ impl<S: MovieShell> MovieSlots<S> {
 
     /// Movie `name` cannot play this play: the song background shows for
     /// it, and the results say why.
-    pub fn fail(&mut self, name: &str, e: String) {
+    pub fn fail(&mut self, name: &str, e: VideoError) {
         if self.failed.iter().any(|(n, _)| n == name) {
             return;
         }
@@ -697,7 +699,11 @@ impl<S: MovieShell> MovieSlots<S> {
         if width.max(height) > limit || width == 0 || height == 0 {
             self.fail(
                 name,
-                format!("{width}×{height} exceeds the GPU's {limit} px limit"),
+                VideoError::TooLarge {
+                    width,
+                    height,
+                    limit,
+                },
             );
             return false;
         }

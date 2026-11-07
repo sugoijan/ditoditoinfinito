@@ -40,6 +40,116 @@ pub struct Replaying {
     pub ruleset: RulesetKey,
 }
 
+/// Why a kept play cannot be replayed, or its results shown
+/// (`docs/plans/localization.md`, step 4): a value the prompt words
+/// ([`Refusal::text`], a sentence). `Display` is English, for the logs.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Refusal {
+    /// The play history could not be read: what the storage said.
+    History(String),
+    /// Desktop: the play history did not answer (its work stopped).
+    HistorySilent,
+    /// The play is no longer kept.
+    Gone,
+    /// Its record does not read: what the reader said, when it said.
+    Record(Option<String>),
+    /// Kept by a newer version of the game.
+    NewerRecord,
+    /// Judged by a newer version of the game.
+    NewerJudge,
+    /// Its presses do not read: what the reader said.
+    Log(String),
+    /// Its chart changed since the play.
+    ChartChanged,
+    /// No song in the library has its chart.
+    MissingSong,
+    /// The noteskin it was drawn with is not installed (its key).
+    MissingSkin(String),
+    /// Its song could not be read.
+    Song(crate::screens::failures::LoadFailure),
+}
+
+impl Refusal {
+    /// A sentence, after "This replay cannot be watched." or "This
+    /// play's results cannot be shown.".
+    pub fn text(&self) -> ddi_l10n::UiText {
+        use ddi_l10n::msg::results as m;
+        match self {
+            Refusal::History(e) => {
+                m::replay_history_unreadable(crate::screens::errors::error_text(e))
+            }
+            Refusal::HistorySilent => m::replay_history_silent(),
+            Refusal::Gone => m::replay_gone(),
+            Refusal::Record(None) => m::replay_record_unreadable(),
+            Refusal::Record(Some(e)) => m::replay_record_broken(e),
+            Refusal::NewerRecord => m::replay_newer_record(),
+            Refusal::NewerJudge => m::replay_newer_judge(),
+            Refusal::Log(e) => m::replay_log_unreadable(e),
+            Refusal::ChartChanged => m::replay_chart_changed(),
+            Refusal::MissingSong => m::replay_missing_song(),
+            Refusal::MissingSkin(key) => m::replay_missing_skin(key),
+            Refusal::Song(e) => m::replay_song_unreadable(e.text()),
+        }
+    }
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refusal::History(e) => write!(f, "the play history could not be read: {e}"),
+            Refusal::HistorySilent => f.write_str("the play history did not answer"),
+            Refusal::Gone => f.write_str("this play is no longer kept"),
+            Refusal::Record(None) => f.write_str("its record does not read"),
+            Refusal::Record(Some(e)) => write!(f, "its record does not read ({e})"),
+            Refusal::NewerRecord => f.write_str("kept by a newer version of the game"),
+            Refusal::NewerJudge => f.write_str("judged by a newer version of the game"),
+            Refusal::Log(e) => write!(f, "its presses do not read ({e})"),
+            Refusal::ChartChanged => f.write_str("its chart changed since the play"),
+            Refusal::MissingSong => f.write_str("its song is no longer in the library"),
+            Refusal::MissingSkin(key) => write!(f, "its noteskin {key} is not installed"),
+            Refusal::Song(e) => write!(f, "its song could not be read: {e}"),
+        }
+    }
+}
+
+/// How a watched replay differed from the play it replays (a fault of
+/// the game).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReplayProblem {
+    /// The replay and its log judged at once differ.
+    Inputs,
+    /// Its judgements or life are not the play's.
+    Timing,
+    /// Its score or counts are not the play's.
+    Score,
+    /// The play could not be judged again to compare.
+    Refused(Refusal),
+}
+
+impl ReplayProblem {
+    /// The results' note on it, a sentence.
+    pub fn note(&self) -> ddi_l10n::UiText {
+        use ddi_l10n::msg::results as m;
+        match self {
+            ReplayProblem::Inputs => m::replay_differs_inputs(),
+            ReplayProblem::Timing => m::replay_differs_timing(),
+            ReplayProblem::Score => m::replay_differs_score(),
+            ReplayProblem::Refused(why) => m::replay_not_compared(why.text()),
+        }
+    }
+}
+
+impl std::fmt::Display for ReplayProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReplayProblem::Inputs => f.write_str("the replay and its inputs judged at once differ"),
+            ReplayProblem::Timing => f.write_str("its judgements or life are not the play's"),
+            ReplayProblem::Score => f.write_str("its score or counts are not the play's"),
+            ReplayProblem::Refused(why) => write!(f, "not compared: {why}"),
+        }
+    }
+}
+
 /// How a replay's results compare with the play's.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ReplayCheck {
@@ -48,19 +158,26 @@ pub struct ReplayCheck {
     /// The record was judged by today's judge, so its timing and summary
     /// were compared too (else only the log judged at once was).
     pub with_record: bool,
-    /// What differed, said plainly.
-    pub problems: Vec<String>,
+    /// What differed.
+    pub problems: Vec<ReplayProblem>,
 }
 
 impl ReplayCheck {
-    /// The line the results show when something differed.
-    pub fn note(&self) -> Option<String> {
-        (!self.matches).then(|| {
-            format!(
-                "This replay judged differently from the play: {}.",
-                self.problems.join("; ")
-            )
-        })
+    /// The lines the results show when something differed: one a way.
+    pub fn notes(&self) -> Vec<String> {
+        if self.matches {
+            return Vec::new();
+        }
+        self.problems.iter().map(|p| p.note().into()).collect()
+    }
+
+    /// What differed, in English, for the logs and the debug state.
+    pub fn summary(&self) -> String {
+        self.problems
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 }
 
@@ -83,33 +200,25 @@ fn comparable_worked(w: &Worked) -> Worked {
 }
 
 impl Replay {
-    /// Reads a stored play for replaying. Refused (with a sentence the
-    /// screens show) when its record or log is of a format this build
-    /// does not read, or it was judged by a newer judge than this build's.
-    pub fn from_entry(entry: &PlayEntry) -> Result<Replay, String> {
+    /// Reads a stored play for replaying. Refused when its record or log
+    /// is of a format this build does not read, or it was judged by a
+    /// newer judge than this build's.
+    pub fn from_entry(entry: &PlayEntry) -> Result<Replay, Refusal> {
         #[derive(Deserialize)]
         struct Version {
             version: u32,
         }
-        let version: Version = serde_json::from_str(&entry.record)
-            .map_err(|_| "This play's record does not read.".to_string())?;
+        let version: Version =
+            serde_json::from_str(&entry.record).map_err(|_| Refusal::Record(None))?;
         if version.version > RECORD_VERSION {
-            return Err(
-                "This play was kept by a newer version of the game: this one cannot replay it."
-                    .into(),
-            );
+            return Err(Refusal::NewerRecord);
         }
         let record: PlayRecord = serde_json::from_str(&entry.record)
-            .map_err(|e| format!("This play's record does not read ({e})."))?;
+            .map_err(|e| Refusal::Record(Some(e.to_string())))?;
         if record.judge_version > JUDGE_VERSION {
-            return Err(
-                "This play was judged by a newer version of the game: this one would judge it \
-                 differently."
-                    .into(),
-            );
+            return Err(Refusal::NewerJudge);
         }
-        let log = PlayLog::decode(&entry.log)
-            .map_err(|e| format!("This play's presses do not read ({e})."))?;
+        let log = PlayLog::decode(&entry.log).map_err(|e| Refusal::Log(e.to_string()))?;
         let timing = PlayTiming::decode(&entry.timing).ok();
         let summary = entry
             .summary
@@ -132,12 +241,8 @@ impl Replay {
     /// Where the play's chart is in `song` (as stored): where it was, or
     /// where a chart of its content is now. Refused when none is: the
     /// chart changed since.
-    pub fn chart(&self, song: &Song) -> Result<usize, String> {
-        find_chart(song, &self.record.chart).ok_or_else(|| {
-            "This chart changed since the play (its notes or timing are not the ones played): \
-             its replay would be wrong."
-                .to_string()
-        })
+    pub fn chart(&self, song: &Song) -> Result<usize, Refusal> {
+        find_chart(song, &self.record.chart).ok_or(Refusal::ChartChanged)
     }
 
     /// `song` (as stored) as it was played: shifted by the play's song
@@ -148,7 +253,7 @@ impl Replay {
 
     /// The play judged again from its log on `song` (as stored): its
     /// results. Refused when the chart changed.
-    pub fn results(&self, song: &Song) -> Result<Results, String> {
+    pub fn results(&self, song: &Song) -> Result<Results, Refusal> {
         let index = self.chart(song)?;
         let song = self.played_song(song);
         Ok(replay(
@@ -286,25 +391,8 @@ impl Replay {
     /// The line a replay's (or a kept play's) results say when the play
     /// was judged by an older judge: today's judges it, and may differ.
     pub fn older_judge_note(&self) -> Option<String> {
-        (self.record.judge_version < JUDGE_VERSION).then(|| {
-            "This play was judged by an older version of the game; it is judged here by today's, \
-             which may differ from what it showed."
-                .to_string()
-        })
-    }
-
-    /// What a missing skin's refusal says.
-    pub fn missing_skin(key: &str) -> String {
-        format!(
-            "This play was drawn with the noteskin {key}, which is no longer installed: add it again \
-             to watch the replay."
-        )
-    }
-
-    /// What a missing song's refusal says.
-    pub fn missing_song() -> String {
-        "The song of this play is no longer in the library (no song has a chart with its notes)."
-            .into()
+        (self.record.judge_version < JUDGE_VERSION)
+            .then(|| ddi_l10n::msg::results::replay_older_judge().into())
     }
 
     /// Compares a watched replay's results with the log judged at once
@@ -313,13 +401,13 @@ impl Replay {
     pub fn check(&self, watched: &Results, offline: &Results) -> ReplayCheck {
         let mut problems = Vec::new();
         if comparable(watched) != comparable(offline) {
-            problems.push("the replay and its inputs judged at once differ".to_string());
+            problems.push(ReplayProblem::Inputs);
         }
         let with_record = self.record.judge_version == JUDGE_VERSION;
         if with_record {
             match &self.timing {
                 Some(t) if !t.agrees(&PlayTiming::from_results(watched)) => {
-                    problems.push("its judgements or life are not the play's".into())
+                    problems.push(ReplayProblem::Timing)
                 }
                 _ => {}
             }
@@ -334,7 +422,7 @@ impl Replay {
                 && let Some(now) = reread(&Worked::from_results(watched))
                 && comparable_worked(w) != comparable_worked(&now)
             {
-                problems.push("its score or counts are not the play's".into());
+                problems.push(ReplayProblem::Score);
             }
         }
         ReplayCheck {
@@ -358,7 +446,7 @@ impl Replay {
         match self.results(song) {
             Ok(offline) => self.check(watched, &offline),
             Err(e) => ReplayCheck {
-                problems: vec![e],
+                problems: vec![ReplayProblem::Refused(e)],
                 ..Default::default()
             },
         }
@@ -367,10 +455,7 @@ impl Replay {
     /// The results' line under a replay's or a kept play's results: when
     /// it was played (`tz` as [`play_rows`]'s).
     pub fn when_line(&self, tz: &dyn Fn(f64) -> i32) -> String {
-        format!(
-            "Played {}",
-            local_time(self.record.time, tz(self.record.time))
-        )
+        ddi_l10n::msg::results::played_at(local_time(self.record.time, tz(self.record.time))).into()
     }
 }
 
@@ -446,7 +531,7 @@ pub fn play_rows(
                     .as_ref()
                     .map(crate::screens::play::options_line)
                     .into_iter()
-                    .chain(s.ruleset.stepmania.summary())
+                    .chain(crate::screens::play::rules_summary(&s.ruleset.stepmania))
                     .collect::<Vec<_>>()
                     .join(" · "),
                 autoplay: s.autoplay,
@@ -505,7 +590,7 @@ pub enum GhostDelta {
 
 impl Ghost {
     /// `replay`'s ghost on its chart in `song` (as stored).
-    pub fn of(replay: &Replay, song: &Song) -> Result<Ghost, String> {
+    pub fn of(replay: &Replay, song: &Song) -> Result<Ghost, Refusal> {
         let chart = replay.chart(song)?;
         let last = super::score_value(&replay.results(song)?.score);
         Ok(Ghost {

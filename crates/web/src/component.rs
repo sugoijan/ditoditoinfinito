@@ -307,13 +307,13 @@ impl NodeRef {
 pub(crate) fn no_gpu(root: &HtmlElement, reason: &str) {
     root.set_class_name("shell no-gpu");
     root.set_inner_html("");
-    element(root, "h1", "").set_text_content(Some("No graphics"));
-    element(root, "p", "").set_text_content(Some(
-        "This browser gave the game no usable GPU (neither WebGPU nor WebGL2), so nothing can be drawn. Menus that are plain pages still work.",
-    ));
+    use ddi_l10n::msg::shell;
+    element(root, "h1", "").set_text_content(Some(&shell::no_gpu_title()));
+    element(root, "p", "").set_text_content(Some(&shell::no_gpu()));
+    // The browser's own words, as it gave them.
     element(root, "p", "muted").set_text_content(Some(reason));
     let p = element(root, "p", "");
     let a = element(&p, "a", "");
     let _ = a.set_attribute("href", &crate::router::Route::Home.to_hash());
-    a.set_text_content(Some("← home"));
+    a.set_text_content(Some(&shell::home()));
 }

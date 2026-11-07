@@ -194,7 +194,13 @@ pub(super) fn draw(
             let (mut hint, width) = match key {
                 Some(key) => super::key_hint(env, &format!("KeyMotion{i}"), &[key], "", cx),
                 None => (
-                    env.text(&format!("KeyMotion{i}"), "unbound", 10.0, 400, "Muted"),
+                    env.text(
+                        &format!("KeyMotion{i}"),
+                        &ddi_l10n::msg::prompt::unbound(),
+                        10.0,
+                        400,
+                        "Muted",
+                    ),
                     42.0,
                 ),
             };
@@ -212,7 +218,7 @@ pub(super) fn draw(
             {
                 let mut label = env.text(
                     &format!("ControllerSide{i}"),
-                    &format!("Pad {side}"),
+                    &ddi_l10n::msg::prompt::controller_pad(side),
                     10.0,
                     400,
                     "Muted",
