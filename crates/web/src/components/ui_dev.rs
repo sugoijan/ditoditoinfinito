@@ -2441,6 +2441,16 @@ fn publish(h: &Host) {
         &NAMED
     };
     let mut names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+    // The announcer studio's frame around a scene (`screens::stage`).
+    names.extend(
+        [
+            "Stage.Back",
+            "Stage.Caption",
+            "Stage.Progress",
+            "Stage.Subtitle",
+        ]
+        .map(String::from),
+    );
     // Options: its rows and what they hold, its sections; a page's items;
     // the notices' buttons.
     if let Some(t) = &h.theme {
@@ -2574,6 +2584,23 @@ fn publish(h: &Host) {
         }
     }
     set(&ui, "rects", rects.into());
+    // What `Ui::mark` rings (the announcer studio's scenes), as the rects.
+    let mark = h.ui.mark_bounds().map_or(JsValue::NULL, |b| {
+        let a = vp.to_physical([b[0], b[1]]);
+        let c = vp.to_physical([b[2], b[3]]);
+        let r = f64::from(vp.ratio);
+        let arr = js_sys::Array::new();
+        for v in [
+            origin.left() + f64::from(a[0]) / r,
+            origin.top() + f64::from(a[1]) / r,
+            f64::from(c[0] - a[0]) / r,
+            f64::from(c[1] - a[1]) / r,
+        ] {
+            arr.push(&v.into());
+        }
+        arr.into()
+    });
+    set(&ui, "mark", mark);
     // The entrances held under the boot shell (`Ui::hold_entrances`):
     // whether they still are, and a part's alpha, for the verify skill.
     set(&ui, "holding", h.ui.holding().into());

@@ -346,13 +346,13 @@ what it is shown with made in `ddi_session::announcer::scene`:
 
 - **Song select** over the bundled songs, three of their charts played
   before (a day before, one this session), opening on the chart that
-  gets the comment, its caption a notice under the header with a link
-  back to the studio. Its preview plays on song select's own sound, made
+  gets the comment. Its preview plays on song select's own sound, made
   in the press. Its lines come from the draft in place of the announcer
-  chosen (`announcers::stage`). The intro is said as it shows; a
-  comment's chart is chosen (Start) once the intro is said, the preview
-  and the intro stopping as a play opening would stop them, and the
-  comment is said.
+  chosen (`announcers::stage`). The intro is said as it shows (the
+  welcome's scene comes from the start menu, Singleplayer chosen on it);
+  a comment's chart is pointed at once the intro is said, then chosen
+  (Start), the preview and the intro stopping as a play opening would
+  stop them, and the comment is said.
 - **The results** of a play staged for the line: a chart made with the
   note count of Some Things Must's Hard, played through the engine
   (`Player`, as the noteskin demo plays) under the player's ruleset
@@ -370,10 +370,34 @@ what it is shown with made in `ddi_session::announcer::scene`:
   cheer's scene has a grade of AA or better the draft says, else an AA
   play that is a new record or a first clear the draft says. The line
   is `Announcer::results`' choice over it, on a sound of the scene's
-  own made in the press, as the results open.
+  own made in the press, as the results open. A new record's and a
+  first clear's come from song select first, the chart's best before
+  the play on it (the score beaten, cleared; failed), the chart chosen
+  on it; song select says nothing there.
+- **In a frame** (the maintainer, 2026-11-07: a scene should read as
+  something shown, a video of it but not quite, with what comes before
+  it and what the line is said for pointed at). The game's screens are
+  drawn smaller inside a frame over the studio, laid out as on the
+  whole screen (`ddi_ui::screens::stage::StageFrame`, a chrome whose
+  `Screen::stage` places the other layers; it grows back to the whole
+  screen as the frame goes). Above the picture, the line and whose voice
+  says it ("Your recording", "An example by Mr. Clank"); below it, a
+  bar filling until the scene ends, what happens now (each step's
+  caption: "The start menu: Singleplayer is chosen.", then "Song select
+  comes in.") and Back to the studio; over it, the words said as they
+  are said (an example's, from its pack's `[said]`; a recording's line
+  by name, "[Hard chart]"). What the line is said for is ringed in red
+  (`Ui::mark` over a screen's `Screen::spot`, the theme's `Mark`):
+  the screen's name for the welcome, the chart's level for the hard
+  comment, its best (or the empty place of one) for the new and the
+  repeat comments, the chart for the general one, the best before a
+  record or a first clear, then the score beaten, the grade (QUIT for
+  a quit), the full combo's lamp, FAILED.
 - **Each scene ends** 1.5 s after its last line, and lasts 3.5 s at
-  least, by the input a player would give (Back); Back, the link, the
-  results' buttons and the browser's Back leave it sooner. The studio
+  least, by the input a player would give (Back); Back, the frame's
+  button, the results' buttons and the browser's Back leave it sooner
+  (on the start menu, which Back does not leave, as Singleplayer is
+  chosen). The studio
   then says what was heard ("Heard in the game: “Grade AA”, then
   “Cheer”."); a line scheduled and cut by leaving is not counted.
 - **Each scene of a line takes its next recording (or example) first,**
@@ -391,7 +415,17 @@ playing on song select, the comment after the intro, the cheer 2.5 s
 after its line) and returns, and each way out works; the examples
 (`studio-examples.mjs PORT [firefox]`): every line offers one in a fresh
 profile, Mr. Clank says the scenes, then ガキンさん, and once a pack is
-imported its lines say the draft and the rest stay examples.
+imported its lines say the draft and the rest stay examples. The frame:
+its tests (the screens drawn smaller and given back, taps reaching
+them through it, its bar and words; the mark on a spot once its screen
+is in, on the stage where the picture puts it; each scene's spot found
+on its screen, song select's being its parts in our theme; the record's
+and the first clear's best before), and `studio-frame.mjs PORT
+[firefox]`: every scene's screens in order, what it rings and when.
+The welcome goes from the start menu to song select, the screen's name
+ringed; a comment's chart part is ringed once the intro is said, then
+chosen; the record's old best is ringed on song select, then its new
+score on the results.
 
 ## Step 4. Scenes in play: staged playtests (web)
 

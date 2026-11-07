@@ -156,7 +156,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         (
             "ChartLadder.Row",
             s(560.0, 44.0, "Hard"),
-            &["Plate", "Bar", "Label", "Notes", "Meter"],
+            &["Plate", "Bar", "Label", "Notes", "Meter", "Best"],
         ),
         (
             "ChartLadder.Empty",
@@ -400,6 +400,8 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         "List.Row",
         "List.Header",
         "List.Bar",
+        // The ring `Ui::mark` draws (the announcer studio's scenes).
+        "Mark",
     ] {
         theme.component(name, &Spec::new([400.0, 42.0], "x"));
     }
@@ -2143,4 +2145,36 @@ fn specific_keys_and_custom_printing_keep_distinct_semantics() {
         };
         assert_eq!(cap.states[0].rect[1] == 0.8, space);
     }
+}
+
+/// What the announcer studio's scenes point at on song select is the
+/// part itself, in this look: the chart's level, its best (or where it
+/// would be), the screen's name.
+#[test]
+fn song_selects_spots_are_its_parts() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::select_screen(&env, None));
+    h.run(0.5);
+    let mut ring = |what: &str| {
+        h.ui.mark(Some(what));
+        h.ui.mark_bounds()
+            .unwrap_or_else(|| panic!("nothing at {what}"))
+    };
+    let row = ring("chart");
+    let inside = |r: [f32; 4]| r[0] >= row[0] && r[2] <= row[2] && r[1] >= row[1] && r[3] <= row[3];
+    let level = ring("chart.level");
+    assert!(
+        inside(level) && level[2] - level[0] < 60.0,
+        "{level:?} in {row:?}"
+    );
+    let best = ring("chart.best");
+    assert!(
+        inside(best) && best[2] - best[0] < 160.0,
+        "{best:?} in {row:?}"
+    );
+    assert!(best[2] <= level[0], "the best before the level");
+    let screen = ring("screen");
+    assert!(screen[3] <= 64.0, "{screen:?}");
 }

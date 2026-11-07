@@ -859,9 +859,14 @@ impl Infinito {
             1.5,
         );
         self.lamp_commands(&mut lamp);
+        // Where the best goes (lamp, grade, score), unseen: what points at
+        // a best points there when the chart has none.
+        let best = plate("Best", [w - 176.0, 8.0], [112.0, h - 16.0], [0.0; 4]);
         frame(
             "",
-            vec![p, bar, label, notes, lamp_text, grade, score, lamp, meter],
+            vec![
+                p, bar, label, notes, best, lamp_text, grade, score, lamp, meter,
+            ],
         )
     }
 
@@ -1003,6 +1008,23 @@ impl Infinito {
             h / 2.0,
         );
         frame("", vec![p, line, back, mark, divider, title])
+    }
+
+    /// The ring `Ui::mark` draws around what it marks (the announcer
+    /// studio's scenes): a red pill's outline, softly lit around it.
+    fn mark(&self, spec: &Spec) -> Actor {
+        let [w, h] = spec.size;
+        let r = w.min(h) / 2.0;
+        let c = self.c("Mark");
+        let mut glow = round(
+            quad("Glow", [w + 8.0, h + 8.0], [c[0], c[1], c[2], 0.35]),
+            r + 4.0,
+        );
+        call(&mut glow, "outline", &[8.0]);
+        call(&mut glow, "softedge", &[4.0]);
+        let mut ring = round(quad("Ring", [w, h], c), r);
+        call(&mut ring, "outline", &[3.0]);
+        frame("", vec![glow, ring])
     }
 
     /// A Back button: three bars on a plain plate, named `Back`.
@@ -1456,6 +1478,7 @@ impl Look for Infinito {
             }
             "Panel" => self.panel(spec),
             "Screen.Header" => self.header(spec),
+            "Mark" => self.mark(spec),
             "Screen.Footer" => {
                 let p = plate("Plate", [0.0, 0.0], [w, h], self.c("Footer"));
                 let line = plate("Line", [0.0, 0.0], [w, 1.0], self.c("Line"));

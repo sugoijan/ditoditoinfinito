@@ -53,6 +53,8 @@ numbers_weight = 800
 "Preview" = "#0f0d14"
 "Gold" = "#ffd166"
 "Danger" = "#e8584a"
+# The ring around what the announcer studio's scenes point at.
+"Mark" = "#ff3b30"
 "Window" = "#5ad1ff12"
 "Difficulty.Beginner" = "#4ea3f0"
 "Difficulty.Easy" = "#49b86a"

@@ -69,7 +69,7 @@ use crate::hit::{self, Affine, IDENTITY, Target};
 use crate::message::Message;
 use crate::nav::{self, MenuAction, Repeater, Source};
 use crate::request::{CssRect, Cursor, InputHints, UiRequest};
-use crate::screen::{Cx, Handled, Input, Op, Screen, TextChange};
+use crate::screen::{Cx, Handled, Input, Op, Screen, Spot, Stage, TextChange};
 use crate::text_field::{KeyResult, TextField, TextMode};
 use crate::textures::TextureTable;
 use std::cell::RefCell;
@@ -288,6 +288,14 @@ pub struct Ui {
     wheel_stream: crate::gesture::WheelStream,
     /// The chrome is being built (its viewport is the whole surface).
     building_chrome: bool,
+    /// Where the chrome shows the other layers ([`Screen::stage`]).
+    stage: Option<Stage>,
+    /// What is marked ([`Ui::mark`]), and the layer it was first drawn
+    /// on and when (its entrance plays from then).
+    mark: Option<String>,
+    mark_on: Option<(u64, f64)>,
+    /// The mark's entrance is under way: frames are wanted.
+    mark_animating: bool,
 }
 
 impl Ui {
@@ -344,6 +352,10 @@ impl Ui {
             menu_source: None,
             menu_pad: false,
             wheel_stream: Default::default(),
+            stage: None,
+            mark: None,
+            mark_on: None,
+            mark_animating: false,
         }
     }
 
@@ -515,15 +527,26 @@ impl Ui {
     /// The other layers' viewport: the part of the surface below the
     /// chrome, a design's screen fitted into it as into a window that
     /// size (everything a little smaller, nothing cut).
+    /// On a stage ([`Screen::stage`]) they are drawn as there, smaller,
+    /// laid out as without it.
     fn inner_viewport(&self) -> Viewport {
         let v = self.viewport;
-        if self.inset <= 0.0 {
-            return v;
+        let mut inner = if self.inset <= 0.0 {
+            v
+        } else {
+            let css = [v.physical[0] / v.ratio, v.physical[1] / v.ratio];
+            let top = self.inset * v.scale / v.ratio;
+            let mut inner = Viewport::new(self.design, [css[0], (css[1] - top).max(1.0)], v.ratio);
+            inner.offset[1] += top * v.ratio;
+            inner
+        };
+        if let Some(s) = self.stage {
+            inner.offset = [
+                inner.offset[0] + s.at[0] * inner.scale,
+                inner.offset[1] + s.at[1] * inner.scale,
+            ];
+            inner.scale *= s.scale;
         }
-        let css = [v.physical[0] / v.ratio, v.physical[1] / v.ratio];
-        let top = self.inset * v.scale / v.ratio;
-        let mut inner = Viewport::new(self.design, [css[0], (css[1] - top).max(1.0)], v.ratio);
-        inner.offset[1] += top * v.ratio;
         inner
     }
 
@@ -534,7 +557,7 @@ impl Ui {
     }
 
     fn map_for(&self, chrome: bool) -> (f32, [f32; 2]) {
-        if chrome || self.inset <= 0.0 {
+        if chrome || self.inset <= 0.0 && self.stage.is_none() {
             return (1.0, [0.0, 0.0]);
         }
         let (o, i) = (self.viewport, self.inner_viewport());
@@ -575,6 +598,17 @@ impl Ui {
             .sum();
         if inset != self.inset {
             self.inset = inset.max(0.0);
+            self.touch();
+        }
+        let stage = self
+            .layers
+            .iter()
+            .rev()
+            .filter(|l| l.chrome)
+            .find_map(|l| l.screen.stage())
+            .filter(|s| s.scale.is_finite() && s.scale > 0.0 && s.at.iter().all(|v| v.is_finite()));
+        if stage != self.stage {
+            self.stage = stage;
             self.touch();
         }
         if let Some(c) = self.chrome_focus
@@ -1190,6 +1224,15 @@ impl Ui {
         let mut ime = None;
         let ring = self.draw_ring && self.ring_shown;
         let (k, sh) = self.map_for(false);
+        // The mark: its entrance from the first frame it shows on a layer.
+        let mark = self.mark_target();
+        if let Some((id, _)) = mark
+            && self.mark_on.is_none_or(|(l, _)| l != id)
+        {
+            self.mark_on = Some((id, self.time));
+        }
+        let mark_age = self.mark_on.map_or(0.0, |(_, at)| (self.time - at) as f32);
+        let mut mark_animating = false;
         let text = &mut self.text;
         let base = transform;
         for layer in self.layers.iter_mut() {
@@ -1251,7 +1294,18 @@ impl Ui {
             {
                 ring_quads(&transform, b, &mut out);
             }
+            if let Some((id, r)) = mark
+                && id == layer.id
+            {
+                let (look, reduced): (&dyn crate::look::Look, bool) =
+                    match layer.screen.presentation() {
+                        Some(p) => (p.look, p.reduced_motion),
+                        None => (&crate::look::Plain, false),
+                    };
+                mark_animating = draw_mark(look, r, mark_age, reduced, &view, transform, &mut out);
+            }
         }
+        self.mark_animating = mark_animating;
         if let Some(caret) = ime {
             let css = self.css_rect(caret);
             if self.ime_rect != Some(css) {
@@ -1286,6 +1340,7 @@ impl Ui {
                     .and_then(|id| self.layer(id))
                     .and_then(|l| l.screen.presentation())
                     .is_some_and(|p| !p.reduced_motion))
+            || self.mark_animating
             || self.repeater.holding()
             || self.pointers.iter().any(|p| p.tracker.waiting())
             || self.layers.iter().any(|l| l.phase.in_transition())
@@ -1408,6 +1463,40 @@ impl Ui {
             let b = hit::bounds_deep(&l.root, &IDENTITY, &path)?;
             Some(self.shifted(l, b))
         })
+    }
+
+    /// Marks `what` ([`Screen::spot`]: song select's `chart.level`, the
+    /// results' `grade`) on the screen shown: a ring around it in the
+    /// look's `Mark`, coming in as it first shows there once the screen
+    /// is in (the screens after it keep the mark, on whichever has
+    /// `what`); `None` takes it away. The announcer studio's scenes point
+    /// at what a line is said for so.
+    pub fn mark(&mut self, what: Option<&str>) {
+        let what = what.map(str::to_string);
+        if what != self.mark {
+            self.mark = what;
+            self.mark_on = None;
+            self.touch();
+        }
+    }
+
+    /// What the mark is drawn around on the whole screen, virtual pixels
+    /// `[left, top, right, bottom]`; `None` while nothing is marked.
+    pub fn mark_bounds(&self) -> Option<[f32; 4]> {
+        let (id, r) = self.mark_target()?;
+        Some(self.shifted(self.layer(id)?, r))
+    }
+
+    /// The layer the mark is on (the current screen, once it is in) and
+    /// what it marks there, in its own pixels.
+    fn mark_target(&self) -> Option<(u64, [f32; 4])> {
+        let what = self.mark.as_deref()?;
+        let l = self.layers.iter().rev().find(|l| !l.chrome && !l.overlay)?;
+        if !matches!(l.phase, Phase::Active) {
+            return None;
+        }
+        let spot = l.screen.spot(what)?;
+        Some((l.id, spot_rect(&l.root, &spot)?))
     }
 
     /// The focused actor of the layer that takes focus (the top dialog,
@@ -2794,6 +2883,71 @@ fn ring_quads(m: &Affine, b: [f32; 4], out: &mut Vec<Drawn>) {
     ] {
         out.push(quad(m, r, RING_COLOR));
     }
+}
+
+/// How long the mark takes to come in, seconds.
+pub const MARK_IN: f32 = 0.35;
+/// Room between the mark and what it marks, virtual pixels.
+pub const MARK_PAD: f32 = 8.0;
+
+/// What of `spot` is on view in `root`: its parts' (those shown, not
+/// empty), else the actor's.
+fn spot_rect(root: &Actor, spot: &Spot) -> Option<[f32; 4]> {
+    let path = hit::find(root, &spot.actor)?;
+    let owner = hit::actor_at(root, &path)?;
+    let mut union: Option<[f32; 4]> = None;
+    for part in &spot.parts {
+        let Some(inside) = hit::find(owner, part) else {
+            continue;
+        };
+        let mut p = path.clone();
+        p.extend(inside);
+        if let Some(r) = hit::visible_rect(root, &IDENTITY, &p) {
+            union = Some(match union {
+                None => r,
+                Some(u) => [
+                    u[0].min(r[0]),
+                    u[1].min(r[1]),
+                    u[2].max(r[2]),
+                    u[3].max(r[3]),
+                ],
+            });
+        }
+    }
+    union.or_else(|| hit::visible_rect(root, &IDENTITY, &path))
+}
+
+/// The mark around `r` (a layer's pixels) in `look`'s `Mark`, `age`
+/// seconds after it first showed: it closes in on it and fades in over
+/// [`MARK_IN`] (at once with reduced motion). Whether it is still
+/// coming in.
+fn draw_mark(
+    look: &dyn crate::look::Look,
+    r: [f32; 4],
+    age: f32,
+    reduced: bool,
+    view: &View,
+    transform: Affine,
+    out: &mut Vec<Drawn>,
+) -> bool {
+    let size = [r[2] - r[0] + 2.0 * MARK_PAD, r[3] - r[1] + 2.0 * MARK_PAD];
+    let mut a = crate::look::component(look, "Mark", &crate::look::Spec::new(size, ""));
+    let p = if reduced {
+        1.0
+    } else {
+        (age / MARK_IN).clamp(0.0, 1.0)
+    };
+    let eased = 1.0 - (1.0 - p).powi(3);
+    crate::look::call(&mut a, "xy", &[(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0]);
+    crate::look::call(&mut a, "zoom", &[1.0 + 0.35 * (1.0 - eased)]);
+    a.draw_in(
+        view,
+        transform,
+        [1.0, 1.0, 1.0, eased],
+        [1.0, 1.0, 1.0, 0.0],
+        out,
+    );
+    p < 1.0
 }
 
 /// A layer's `[left, top, right, bottom]` on the whole screen: times `k`,

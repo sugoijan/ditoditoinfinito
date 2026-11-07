@@ -185,7 +185,10 @@ Rust and the browser are implementation details, not advertised features.
   calibration's menu and the credits (`page.rs`: headings, text,
   links, buttons, rows of buttons, folds, fields, notes and zones a
   shell finds under a drop, `Zone.<id>`, lit by `PAGE_TARGET`), the
-  announcer studio's page made from its draft (`studio.rs`), the app's notices as the UI's
+  announcer studio's page made from its draft (`studio.rs`) and the
+  frame its scenes are shown in (`stage.rs`: a chrome drawing the
+  screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
+  screen names, `Screen::spot`), the app's notices as the UI's
   chrome, the play's start prompt, `prompt.rs`: Start never waits for
   what loads behind it, a loading screen after Start until the play is
   ready, a countdown on song select's plays, and this play's options,
@@ -444,9 +447,10 @@ Rust and the browser are implementation details, not advertised features.
   sounds in `files`, `crates/web/src/announcers.rs`; the announcer studio
   at `#/announcer`, from Options → Sound, its draft and recordings kept
   in `files` under `studio/`, `components/studio_page.rs`, each line
-  heard in its scene over the page, the real song select or results
-  with the draft as the voice (our pack of the examples chosen where the
-  line is not recorded yet), `docs/plans/announcer-studio.md`; ours listed by
+  heard in its scene in a frame over the page, the real start menu,
+  song select or results with the draft as the voice (our pack of the
+  examples chosen where the line is not recorded yet), what it is said
+  for ringed, `docs/plans/announcer-studio.md`; ours listed by
   `announcers/index.json` and fetched from `announcers/`, a play's decoded
   behind its prompt there, spoken on a bus of their own beside the
   master's, `web/audio.rs`, song select's on its preview's context),

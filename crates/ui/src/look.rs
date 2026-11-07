@@ -422,6 +422,15 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 );
                 frame(vec![lit_plate(spec.size), label, bx, mark])
             }
+            // The ring [`crate::Ui::mark`] draws around what it marks
+            // (the spec's size, the mark's room in it), its middle at the
+            // origin: a red pill's outline.
+            "Mark" => {
+                let mut ring = quad("Ring", spec.size, [1.0, 0.23, 0.19, 1.0]);
+                call(&mut ring, "outline", &[3.0]);
+                call(&mut ring, "cornerradius", &[w.min(h) / 2.0]);
+                frame(vec![ring])
+            }
             "OptionRow" | "Slider" => {
                 let mut label = text("Label", &spec.text, size, MUTED);
                 call(&mut label, "x", &[-w / 2.0 + 12.0]);

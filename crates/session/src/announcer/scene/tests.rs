@@ -5,9 +5,41 @@ use ddi_engine::rules::{FullCombo, Judgement};
 use ddi_library::announcer::{Comment, Grade, Line, Spoken};
 use ddi_ui::screens::select::comment;
 
+use ddi_ui::screens::results::{ResultsActions, ResultsScreen};
+use ddi_ui::screens::select::SelectScreen;
+use ddi_ui::screens::{DESIGN, Env};
+use ddi_ui::testing::Harness;
+use ddi_ui::{Screen, TextMode};
+
 use super::super::tests::Fake;
 use super::super::{Announcer, CHEER_DELAY, Timing, Voice, cheers, results_lines as tried_lines};
 use super::*;
+
+fn env() -> Env {
+    Env::new(
+        Rc::new(ddi_ui::look::Plain),
+        Rc::new(|s: &str| s.to_lowercase()),
+    )
+}
+
+/// What the mark of `mark` rings on `screen`, once it is in.
+fn marked(screen: impl Screen + 'static, mark: &str) -> Option<[f32; 4]> {
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    h.push(screen);
+    h.run(1.0);
+    h.ui.mark(Some(mark));
+    h.ui.mark_bounds()
+}
+
+fn select_of(scene: &MenuScene) -> SelectScreen {
+    SelectScreen::new(
+        env(),
+        scene.data.clone(),
+        Some(&scene.song),
+        Rc::new(|_, _, _, _| {}),
+        Rc::new(|_, _| {}),
+    )
+}
 
 /// A session begun a while ago, and now.
 const STARTED: f64 = 1.8e12;
@@ -69,15 +101,24 @@ fn each_comment_scene_opens_on_a_chart_that_gets_it() {
             scene.data.resume,
             Some((scene.song.clone(), Some(scene.chart)))
         );
-        assert_eq!(scene.data.notices.len(), 1);
-        assert_eq!(scene.data.notices[0].text, scene.caption);
+        assert!(scene.data.notices.is_empty());
+        assert!(scene.start.is_none());
+        // What it points at is on song select, on the chart's row (the
+        // plain look's rows have no parts: the whole row).
+        let ring = marked(select_of(&scene), scene.mark)
+            .unwrap_or_else(|| panic!("{c:?}: nothing at {}", scene.mark));
+        let row = marked(select_of(&scene), "chart").unwrap();
+        assert!(ring[2] - ring[0] <= row[2] - row[0] + 0.01, "{c:?}");
     }
 }
 
 #[test]
-fn the_intro_scene_only_shows() {
+fn the_intro_scene_comes_from_the_start_menu_and_only_shows() {
     let scene = menu(Line::SelectMusicIntro, STARTED, NOW).unwrap();
     assert!(!scene.choose);
+    assert!(scene.start.is_some());
+    assert_eq!(scene.mark, "screen");
+    assert!(marked(select_of(&scene), scene.mark).is_some());
     assert!(menu(Line::Ready, STARTED, NOW).is_none());
     assert!(menu(Line::Quit, STARTED, NOW).is_none());
 }
@@ -122,8 +163,57 @@ fn each_results_line_is_said_first_in_its_scene() {
                 _ => assert!(tried.contains(&line), "{ruleset}: {line:?} in {tried:?}"),
             }
             assert!(!scene.caption.is_empty());
-            assert!(scene.data.note.contains(&scene.caption));
+            // A record and a first clear show the chart's best before.
+            let history = matches!(line, Line::NewRecord | Line::FirstClear);
+            assert_eq!(scene.before.is_some(), history, "{line:?}");
         }
+    }
+}
+
+/// What each results scene points at is on the results screen.
+#[test]
+fn each_results_scene_points_at_what_its_line_is_said_for() {
+    for line in results_lines() {
+        let Some(scene) = results(line, "itg", &|_| true) else {
+            continue;
+        };
+        let screen = ResultsScreen::new(env(), scene.data.clone(), ResultsActions::default());
+        assert!(
+            marked(screen, scene.mark).is_some(),
+            "{line:?}: nothing at {}",
+            scene.mark
+        );
+    }
+}
+
+/// Song select before a record's results shows the best it beats; before
+/// a first clear's, the fails.
+#[test]
+fn a_record_and_a_first_clear_show_the_charts_best_first() {
+    let all = |_: Line| true;
+    for (line, lamp) in [(Line::NewRecord, "Clear"), (Line::FirstClear, "Failed")] {
+        let scene = results(line, "itg", &all).unwrap();
+        let before = scene.before.as_ref().unwrap();
+        assert!(before.choose);
+        assert_eq!(before.mark, "chart.best");
+        let song = before
+            .data
+            .songs
+            .iter()
+            .find(|s| s.id == before.song)
+            .unwrap();
+        let best = song.charts[before.chart].best.as_ref().unwrap();
+        assert_eq!(best.lamp, lamp);
+        let was = best.score.trim_end_matches('%').parse::<f64>().unwrap();
+        let now = scene
+            .data
+            .score
+            .trim_end_matches('%')
+            .parse::<f64>()
+            .unwrap();
+        assert!(was < now, "{was} {now}");
+        assert!(scene.prior.best < score_value(&scene.results.score));
+        assert!(marked(select_of(before), before.mark).is_some());
     }
 }
 

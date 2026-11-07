@@ -6,14 +6,20 @@
 //! - **Song select** ([`menu`]): the bundled songs, a few of their charts
 //!   played before ([`Best`]), so that each comment has a chart that gets
 //!   it ([`ddi_ui::screens::select::comment`]); the scene opens on that
-//!   chart and chooses it.
+//!   chart and chooses it. The welcome's comes from the start menu, as
+//!   song select does.
 //! - **The results** ([`results`]): a play of a chart made for it, with
 //!   the note count of a bundled song's chart, judged by the engine under
 //!   a ruleset that gives the line (the player's where it can), each step
 //!   pressed as far off as the line wants (a full combo of a tier, a
 //!   grade, a fail, a quit), and what the history says of the chart
 //!   before it ([`Prior`]). What speaks is [`Announcer::results`]' choice
-//!   over them, as after a play.
+//!   over them, as after a play. Where the line is about that history (a
+//!   record, a first clear), song select shows the chart's best first.
+//!
+//! Each scene says what it points at as its line is said (a spot of the
+//! screen's, [`ddi_ui::Screen::spot`]: the chart's level, the grade),
+//! which the studio marks.
 //!
 //! Staged for the studio alone: nothing is kept.
 //!
@@ -23,22 +29,21 @@ use ddi_chart::{
     Chart, Difficulty, DisplayBpm, Layout, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick,
     TimingMap,
 };
-use ddi_engine::rules::{FailPolicy, FullCombo, GradeTable, Judgement, Ruleset, presets};
+use ddi_engine::rules::{
+    FailPolicy, FullCombo, GradeTable, Judgement, Ruleset, ScoreView, presets,
+};
 use ddi_engine::{InputEvent, PlayOptions, Player, Results, autoplay};
 use ddi_library::announcer::{Comment, Grade, Line};
 use ddi_platform::{ClockSample, HostTime};
-use ddi_ui::screens::data::{Best, ChartEntry, Notice, ResultsData, SelectData, SongEntry};
+use ddi_ui::screens::data::{Best, ChartEntry, ResultsData, SelectData, SongEntry};
 use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::sample;
+use ddi_ui::state::history::{score_text, score_value};
 
 use super::{Ending, Prior, old_grade};
 
 /// The style the scenes show.
 const STYLE: &str = "dance-single";
-
-/// The id of song select's notice link back to the studio
-/// (`SelectCall::Notice`).
-pub const BACK: &str = "studio";
 
 /// Milliseconds in a day: when the charts played before were played.
 const DAY_MS: f64 = 86_400_000.0;
@@ -54,6 +59,12 @@ pub struct MenuScene {
     pub choose: bool,
     /// What happens, in a sentence.
     pub caption: String,
+    /// The start menu shows first, Singleplayer chosen on it (the
+    /// welcome's scene): what happens there.
+    pub start: Option<String>,
+    /// What is pointed at as the line is said: song select's spot
+    /// (`screen`, `chart`, `chart.level`, `chart.best`).
+    pub mark: &'static str,
 }
 
 /// Each comment's chart in Single: a song and a difficulty.
@@ -80,23 +91,31 @@ fn chart_of(songs: &mut [SongEntry], (song, difficulty): Pick) -> Option<&mut Ch
 /// session that began at `started` and at `now` (milliseconds since the
 /// Unix epoch, as [`ddi_platform::storage::started_ms`]).
 pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
-    let (pick, choose, caption) = match line {
-        Line::SelectMusicIntro => (GENERAL, false, "The song list shows."),
-        Line::SelectMusic(Comment::New) => (NEW, true, "A chart never played is chosen."),
+    let (pick, choose, caption, mark) = match line {
+        Line::SelectMusicIntro => (GENERAL, false, "Song select comes in.", "screen"),
+        Line::SelectMusic(Comment::New) => (
+            NEW,
+            true,
+            "A chart never played (no best on it) is chosen.",
+            "chart.best",
+        ),
         Line::SelectMusic(Comment::Hard) => (
             HARD,
             true,
             "A chart of level 10 or more, played before, is chosen.",
+            "chart.level",
         ),
         Line::SelectMusic(Comment::Repeat) => (
             REPEAT,
             true,
             "A chart played earlier this session is chosen.",
+            "chart.best",
         ),
         Line::SelectMusic(Comment::General) => (
             GENERAL,
             true,
             "A chart played before, below level 10, is chosen.",
+            "chart",
         ),
         _ => return None,
     };
@@ -120,6 +139,21 @@ pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
             });
         }
     }
+    let mut scene = select_on(songs, pick, caption, mark)?;
+    scene.choose = choose;
+    if line == Line::SelectMusicIntro {
+        scene.start = Some("The start menu: Singleplayer is chosen.".into());
+    }
+    Some(scene)
+}
+
+/// Song select over `songs`, opening on `pick`'s chart, which is chosen.
+fn select_on(
+    mut songs: Vec<SongEntry>,
+    pick: Pick,
+    caption: &str,
+    mark: &'static str,
+) -> Option<MenuScene> {
     let chart = chart_of(&mut songs, pick)?.index;
     let styles = sample::styles()
         .into_iter()
@@ -136,17 +170,14 @@ pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
             preferred: Some(pick.1),
             resume: Some((pick.0.into(), Some(chart))),
             style: Some(STYLE.into()),
-            notices: vec![Notice {
-                text: caption.into(),
-                link: Some(("Back to the studio".into(), BACK.into())),
-                error: false,
-            }],
             ..SelectData::default()
         },
         song: pick.0.into(),
         chart,
-        choose,
+        choose: true,
         caption: caption.into(),
+        start: None,
+        mark,
     })
 }
 
@@ -164,10 +195,15 @@ pub struct ResultsScene {
     /// [`Announcer::results`]: super::Announcer::results
     pub grades: GradeTable,
     pub combo_w4: bool,
-    /// The results screen's data, the caption its note.
     pub data: ResultsData,
     /// What happens, in a sentence.
     pub caption: String,
+    /// Song select first, showing the chart's best before the play (a
+    /// record's scene, a first clear's), the chart chosen on it.
+    pub before: Option<MenuScene>,
+    /// What is pointed at as the line is said: the results' spot
+    /// (`grade`, `score`, `lamp`, `failed`).
+    pub mark: &'static str,
 }
 
 impl ResultsScene {
@@ -523,8 +559,11 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         x,
         miss: Some(steps * 3 / 5),
     };
-    // Each scene's play and prior, the ruleset it was judged by, and what
-    // happens.
+    // Each scene's play and prior, the ruleset it was judged by, what
+    // happens, what is pointed at, and the chart's best shown before
+    // (as cleared, or failed).
+    let mut before = None;
+    let mut mark = "grade";
     let (results, prior, rules, caption) = match line {
         Line::Quit => {
             // A note missed on the way, as before most quits.
@@ -549,13 +588,14 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             let prior = Prior {
                 played: true,
                 cleared: false,
-                best: ddi_ui::state::history::score_value(&r.score) * 0.9,
+                best: score_value(&scaled(&r.score, FAILED_BEFORE)),
             };
+            before = Some((FAILED_BEFORE, true));
             (
                 r,
                 prior,
                 stage.rules(None)?,
-                "A chart played before is cleared for the first time.".to_string(),
+                "After the play: the chart is cleared for the first time.".to_string(),
             )
         }
         Line::NewRecord => {
@@ -566,14 +606,15 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             let prior = Prior {
                 played: true,
                 cleared: true,
-                best: ddi_ui::state::history::score_value(&r.score) * 0.98,
+                best: score_value(&scaled(&r.score, BEST_BEFORE)),
             };
-            (
-                r,
-                prior,
-                stage.rules(None)?,
-                "A chart played before gets a better score than ever.".to_string(),
-            )
+            before = Some((BEST_BEFORE, false));
+            mark = "score";
+            let caption = format!(
+                "After the play: {}, better than ever on this chart.",
+                score_text(&r.score)
+            );
+            (r, prior, stage.rules(None)?, caption)
         }
         Line::EvaluationFullCombo(n) => {
             let j = tier(n);
@@ -585,6 +626,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             if r.full_combo != full_combo_of(n) || r.failed {
                 return None;
             }
+            mark = "lamp";
             let caption = match n {
                 1 => format!("A full combo: every note {}.", names.name(j).trim()),
                 _ => format!(
@@ -610,6 +652,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             if !r.failed {
                 return None;
             }
+            mark = "failed";
             (
                 r,
                 known(),
@@ -631,7 +674,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 .into_iter()
                 .find(|g| Line::Grade(*g).chain().into_iter().any(has));
             let (r, rules) = graded(&stage, &rules.grades, said.unwrap_or(Grade::Aa))?;
-            let best = ddi_ui::state::history::score_value(&r.score) * 0.98;
+            let best = score_value(&scaled(&r.score, BEST_BEFORE));
             let (prior, what) = match said {
                 Some(_) => (known(), String::new()),
                 None if has(Line::NewRecord) => (
@@ -662,7 +705,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         .unwrap_or_default();
     let meter = stage.song.charts[0].meter;
     let layout = Layout::builtin(STYLE)?;
-    let mut data = results_data(&PlayInfo {
+    let data = results_data(&PlayInfo {
         results: &results,
         ruleset: &rules,
         layout: &layout,
@@ -675,7 +718,39 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         panels: String::new(),
         autoplay: false,
     });
-    data.note = format!("Staged by the announcer studio: {caption}");
+    let before = match before {
+        None => None,
+        Some((k, failed)) => {
+            // The chart as song select shows it before the play: its best.
+            let view = scaled(&results.score, k);
+            let mut songs = sample::bundled();
+            let c = chart_of(&mut songs, (RESULTS_SONG, RESULTS_CHART))?;
+            let (lamp, lamp_text) = if failed {
+                ("Failed", "FAILED")
+            } else {
+                ("Clear", "CLEAR")
+            };
+            c.best = Some(Best {
+                grade: rules.grades.grade(&view, &results.tally, failed),
+                score: score_text(&view),
+                lamp: lamp.into(),
+                lamp_text: lamp_text.into(),
+                pending: false,
+                plays: 3,
+                play: String::new(),
+                last_played: 0.0,
+            });
+            let caption = if failed {
+                "Before the play: this chart was only ever failed.".to_string()
+            } else {
+                format!(
+                    "Before the play: this chart's best is {}.",
+                    score_text(&view)
+                )
+            };
+            select_on(songs, (RESULTS_SONG, RESULTS_CHART), &caption, "chart.best")
+        }
+    };
     Some(ResultsScene {
         results,
         prior,
@@ -683,7 +758,26 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         combo_w4: rules.combo.continue_min == Judgement::W4,
         data,
         caption,
+        before,
+        mark,
     })
+}
+
+/// A record's scene's best before: this much of the play's score.
+const BEST_BEFORE: f64 = 0.98;
+/// A first clear's: the fails before scored this much of it.
+const FAILED_BEFORE: f64 = 0.9;
+
+/// `v` times `k` (a best below it), as the history keeps a score.
+fn scaled(v: &ScoreView, k: f64) -> ScoreView {
+    ScoreView {
+        money: v.money.map(|m| (m as f64 * k).round() as u64),
+        percent: v.percent.map(|p| p * k),
+        grade_percent: v.grade_percent.map(|p| p * k),
+        ex: v.ex.map(|e| (f64::from(e) * k).round() as u32),
+        max_ex: v.max_ex,
+        ex_percent: v.ex_percent.map(|p| p * k),
+    }
 }
 
 /// A play whose grade is `g` in `table`'s old seven: the first of its

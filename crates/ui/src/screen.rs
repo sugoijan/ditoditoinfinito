@@ -29,6 +29,34 @@ use crate::nav::{Focusable, MenuAction};
 use crate::request::{InputHints, UiRequest};
 use crate::text_field::TextField;
 
+/// Where the screens are drawn while the chrome shows them as a picture
+/// ([`Screen::stage`]): at `scale`, their top left corner at `at`
+/// (virtual pixels of the screen below the chrome's reserve). The
+/// screens are laid out as on the whole screen: only drawn smaller.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stage {
+    pub scale: f32,
+    pub at: [f32; 2],
+}
+
+/// Something a screen shows that can be pointed at ([`Screen::spot`],
+/// [`crate::Ui::mark`]): the actor named `actor`, or what is on view of
+/// its parts named `parts` (the actor where none of them is).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spot {
+    pub actor: String,
+    pub parts: Vec<String>,
+}
+
+impl Spot {
+    pub fn new(actor: impl Into<String>, parts: &[&str]) -> Spot {
+        Spot {
+            actor: actor.into(),
+            parts: parts.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+}
+
 /// Whether a screen took an input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Handled {
@@ -225,6 +253,22 @@ pub trait Screen {
     /// laid out below.
     fn reserve(&self) -> f32 {
         0.0
+    }
+
+    /// The chrome's: where the other layers are shown, smaller, as a
+    /// picture of them in a frame it draws around them (the announcer
+    /// studio's scenes); `None`: as usual. Asked each frame, so it may
+    /// move (a frame coming in or going).
+    fn stage(&self) -> Option<Stage> {
+        None
+    }
+
+    /// Where `what` (a name the screen knows: song select's
+    /// `chart.level`, the results' `grade`) is on this screen, for the
+    /// mark drawn around it ([`crate::Ui::mark`]); `None`: not here.
+    fn spot(&self, what: &str) -> Option<Spot> {
+        let _ = what;
+        None
     }
 
     /// The pointer's look over `target`, where the screen takes taps on

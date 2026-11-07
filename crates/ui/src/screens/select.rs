@@ -3129,6 +3129,35 @@ impl Screen for SelectScreen {
         self.list.selected().and_then(|i| self.list.item_actor(i))
     }
 
+    /// `screen`: the header's name of the screen; `chart`: the chart
+    /// chosen, on the ladder (a button of the compact layout's strip);
+    /// `chart.level`: its level; `chart.best`: its best (grade, score,
+    /// lamp), or where it would be (the row's `Best`) when it has none.
+    fn spot(&self, what: &str) -> Option<crate::Spot> {
+        if what == "screen" {
+            return Some(crate::Spot::new("Header", &["Title"]));
+        }
+        let (first, n) = self.ladder;
+        let (charts, pick) = self.charts();
+        let pick = pick?;
+        let k = pick.checked_sub(first).filter(|k| *k < n)?;
+        let played = charts.get(pick).is_some_and(|c| c.best.is_some());
+        let row = if self.layout.compact {
+            format!("Chart{k}")
+        } else {
+            format!("Ladder.Row{k}")
+        };
+        let parts: &[&str] = match what {
+            "chart" => &[],
+            "chart.level" => &["Meter"],
+            "chart.best" if self.layout.compact => &[],
+            "chart.best" if played => &["Grade", "Score", "LampText"],
+            "chart.best" => &["Best"],
+            _ => return None,
+        };
+        Some(crate::Spot::new(row, parts))
+    }
+
     fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
         Some(self.env.presentation())
     }
