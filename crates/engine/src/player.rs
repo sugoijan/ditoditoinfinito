@@ -447,6 +447,41 @@ impl Player {
         }
     }
 
+    /// [`Player::start`] at `song_offset` of a play staged as though played
+    /// from the song's start (the announcer studio's scenes,
+    /// `docs/plans/announcer-studio.md`, step 4): `past`, lane edges at
+    /// judged song seconds in time order (`autoplay::edges`), is judged at
+    /// once up to `song_offset`, so the tally, the combo, the life, the
+    /// lives and the score are what those presses made them; the combo is
+    /// then at least `combo` (one past what the chart's notes before
+    /// `song_offset` can make, given). Presentation only: such a play is
+    /// never kept. Edges at or after `song_offset` are the live play's.
+    pub fn start_staged(
+        &mut self,
+        start_context_time: f64,
+        song_offset: f64,
+        past: &[(f64, u8, bool)],
+        combo: u32,
+    ) {
+        self.started = true;
+        self.song_offset = 0.0;
+        self.log = PlayLog::default();
+        let song_offset = song_offset.max(0.0);
+        for &(t, lane, pressed) in past.iter().filter(|e| e.0 < song_offset) {
+            self.update_at(t);
+            self.input_at(lane, pressed, t);
+        }
+        self.update_at(song_offset);
+        self.clock.start(start_context_time, song_offset);
+        self.song_offset = song_offset;
+        self.log.start = song_offset;
+        if !self.failed {
+            self.combo = self.combo.max(combo);
+            self.max_combo = self.max_combo.max(self.combo);
+            self.ctx.combo = self.combo;
+        }
+    }
+
     pub fn clock_sample(&mut self, s: ClockSample) {
         self.clock.update(s);
     }

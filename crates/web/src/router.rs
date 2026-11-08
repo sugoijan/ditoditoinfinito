@@ -33,6 +33,10 @@ pub(crate) enum Route {
         /// `edit=1`: the chart editor's playtest (`crate::editor`): the
         /// song as edited, never kept, back to the editor.
         edit: bool,
+        /// `scene=<line folder>`: the announcer studio's scene in play of
+        /// that line (`crate::studio_scene`): staged, never kept, back to
+        /// the studio.
+        scene: Option<String>,
     },
     /// The chart editor on a song (`components::edit_page`).
     Edit {
@@ -123,6 +127,7 @@ impl Route {
                 replay: params.get("replay").filter(|r| !r.is_empty()).cloned(),
                 view_results: params.get("view").is_some_and(|v| v == "results"),
                 edit: params.get("edit").is_some_and(|v| v == "1"),
+                scene: params.get("scene").filter(|s| !s.is_empty()).cloned(),
             },
             "edit" => Route::Edit {
                 song: params.get("song").cloned().unwrap_or_default(),
@@ -198,10 +203,15 @@ impl Route {
                 replay,
                 view_results,
                 edit,
+                scene,
             } => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
                 let slow = if *slow { "&slow=1" } else { "" };
-                let edit = if *edit { "&edit=1" } else { "" };
+                let edit = match scene {
+                    Some(line) => format!("&scene={}", percent_encode(line)),
+                    None if *edit => "&edit=1".into(),
+                    None => String::new(),
+                };
                 if let Some(id) = replay {
                     let view = if *view_results { "&view=results" } else { "" };
                     return format!("#/play?replay={}{view}{gl}{slow}", percent_encode(id));
@@ -315,9 +325,13 @@ pub(crate) fn keep_testing(hash: &str) {
     if !matches!(path, "" | "select" | "play" | "calibrate") {
         return;
     }
-    // The chart editor's playtest says nothing about the session's
-    // plays (its `auto` is the editor's choice for that test only).
-    if path == "play" && query.split('&').any(|kv| kv == "edit=1") {
+    // The chart editor's playtest and the announcer studio's scenes say
+    // nothing about the session's plays (their `auto` is their own).
+    if path == "play"
+        && query
+            .split('&')
+            .any(|kv| kv == "edit=1" || kv.starts_with("scene="))
+    {
         return;
     }
     let kept: Vec<&str> = query
@@ -729,6 +743,7 @@ mod tests {
                 replay: None,
                 view_results: false,
                 edit: false,
+                scene: None,
             }
         );
         let r = Route::parse("#/edit?song=a%20b&chart=3");

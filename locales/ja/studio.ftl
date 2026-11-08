@@ -258,6 +258,7 @@ studio-status-not-used = 追加できませんでした：{ $error }
 
 studio-status-no-select = 選曲画面を表示できませんでした。
 studio-status-no-results = リザルトを表示できませんでした。
+studio-status-no-play = プレイを用意できませんでした。
 
 studio-status-heard-nothing = ゲーム内では何も再生されませんでした。
 
@@ -270,6 +271,10 @@ studio-status-heard-two = ゲーム内で「{ $first }」、続いて「{ $then 
 studio-status-heard-example = ゲーム内で{ $pack }の例「{ $line }」を再生しました。
 
 studio-status-heard-example-two = ゲーム内で{ $pack }の例「{ $first }」、続いて「{ $then }」を再生しました。
+
+studio-status-heard-with = ゲーム内で「{ $line }」ほか{ $others }件のセリフを再生しました。
+
+studio-status-heard-example-with = ゲーム内で{ $pack }の例「{ $line }」ほか{ $others }件のセリフを再生しました。
 
 studio-stage-kicker = ゲーム内
 
@@ -311,3 +316,19 @@ studio-caption-cheer-first-clear = 評価{ $grade }で初めてクリアしま�
 studio-caption-before-failed = プレイ前：この譜面のこれまでのプレイは、すべて失敗しています。
 
 studio-caption-before-best = プレイの前：この譜面のベストは{ $score }です。
+
+studio-caption-play-begins = 最初のノーツの数秒前からプレイが始まります。
+studio-caption-first-note = 最初のノーツの直前からプレイが始まります。
+studio-caption-restart = プレイヤーが曲をリスタートします（Rを2回）。
+studio-caption-full-life = ライフ満タンのままプレイが続きます。
+studio-caption-below-full = ライフが満タンより少ないままプレイが続きます。
+studio-caption-danger = ライフが危険な状態のままプレイが続きます。
+studio-caption-battery = バッテリーゲージでプレイが続きます。
+studio-caption-combo = コンボが{ $count }に達します。
+studio-caption-combo-past = コンボが1000を超えて{ $count }に達します。
+studio-caption-combo-broken = 50を超えるコンボが途切れます。
+studio-caption-life-lost = バッテリーゲージのライフがひとつ減ります。
+studio-caption-last-life = バッテリーゲージのライフが残りひとつになります。
+studio-caption-ends-full-combo-best = フルコンボで曲が終わります：すべてのノーツが{ $judgment }です。
+studio-caption-ends-full-combo = フルコンボで曲が終わります：すべてのノーツが{ $judgment }以上です。
+studio-caption-cleared = 最後のノーツが判定され、曲をクリアします。

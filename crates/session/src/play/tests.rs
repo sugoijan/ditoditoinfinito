@@ -2037,3 +2037,143 @@ fn no_stretch_is_played_and_replayed_independently_of_the_hand_setting() {
         assert_eq!(song.charts[0].notes, source);
     }
 }
+
+/// Every line the announcer says in play, in its staged scene
+/// (`announcer::scene::in_play`, the announcer studio's step 4), under
+/// the player's rules (ITG, DDR A, StepMania 5): the line is said by the
+/// real announcer over the real play, before the scene is over; a scene
+/// at a play's end plays on into its results; the restart's plays again
+/// from the same place, opened by its line.
+#[test]
+fn each_play_lines_scene_says_it() {
+    use crate::announcer::scene::in_play;
+    use ddi_library::announcer::Line;
+    let mut lines = vec![
+        Line::Ready,
+        Line::HereWeGo,
+        Line::Restart,
+        Line::CommentHot,
+        Line::CommentGood,
+        Line::CommentDanger,
+        Line::CommentOni,
+        Line::ComboOverflow,
+        Line::ComboStopped,
+        Line::LifeLost,
+        Line::LastLife,
+        Line::FullCombo,
+        Line::Cleared,
+        Line::Failed,
+    ];
+    lines.extend((1..=10).map(|n| Line::Combo(n * 100)));
+    lines.extend((1..=3).map(Line::FullComboW));
+    // Every line, said in 0.8 s.
+    let voice = || {
+        let mut v = crate::announcer::Voice::default();
+        for line in Line::all().into_iter().chain([Line::ComboOverflow]) {
+            v.expect([line]);
+            v.add(line, 0.8);
+        }
+        Rc::new(RefCell::new(v))
+    };
+    for ruleset in ["itg", "ddr-a", "sm5"] {
+        for &line in &lines {
+            let pick = in_play::pick(line).unwrap();
+            let song = bundled(pick.song);
+            let chart = song
+                .charts
+                .iter()
+                .position(|c| c.layout == in_play::STYLE && c.difficulty == pick.difficulty)
+                .unwrap();
+            let settings = pick.settings(&Settings {
+                announcer: Some("voice".into()),
+                ruleset: ruleset.into(),
+                ..Settings::default()
+            });
+            let config = SessionConfig::from_settings(&settings, false, None);
+            let (rules, options) = config.player_spec(&song, chart, &settings).unwrap();
+            let Some(scene) = in_play::stage(line, &song, chart, &rules, options, &|_| Some(0.8))
+            else {
+                // A plain full combo is DDR A's, whatever the player's.
+                panic!("{ruleset}: no scene for {line:?}");
+            };
+            let clock: Clock = Rc::new(RefCell::new(100.0));
+            let play = |staging: Staging, restart: bool| {
+                let mut config = SessionConfig::from_settings(&settings, false, None);
+                config.staging = Some(staging);
+                config.restart = restart;
+                let mut s = PlaySession::start(
+                    &song,
+                    chart,
+                    &settings,
+                    config,
+                    FakeAudio::new(&clock, 0.0),
+                    200.0,
+                    FakeInputs::new(&clock),
+                )
+                .unwrap();
+                s.set_voice(voice());
+                let event = run(&mut s, &clock, 60.0, 200.0);
+                let spoken: Vec<String> = s
+                    .announcer_report()
+                    .spoken
+                    .iter()
+                    .map(|(f, _)| f.clone())
+                    .collect();
+                (s, event, spoken)
+            };
+            let (s, event, mut spoken) = play(scene.staging.clone(), false);
+            let elapsed = |s: &PlaySession<FakeAudio, FakeInputs>| {
+                s.player
+                    .clock()
+                    .song_time_at_host(HostTime(*clock.borrow()))
+            };
+            match (&event, &scene.restarted, scene.results) {
+                (Some(SessionEvent::Restart), Some(again), _) => {
+                    assert!(!spoken.iter().any(|f| f == "gameplay restart"));
+                    let (_, event, again) = play(again.clone(), true);
+                    assert!(matches!(event, Some(SessionEvent::SceneOver)));
+                    assert_eq!(again.first().map(String::as_str), Some("gameplay restart"));
+                    spoken = again;
+                }
+                (Some(SessionEvent::Finished { results, .. }), None, true) => {
+                    if let Some(fc) = in_play::full_combo_of(line) {
+                        assert_eq!(results.full_combo, fc, "{ruleset}: {line:?}");
+                    }
+                    assert_eq!(results.failed, line == Line::Failed, "{ruleset}: {line:?}");
+                }
+                (Some(SessionEvent::SceneOver), None, false) => {
+                    // Over soon after the start: a scene, not the song.
+                    let length = elapsed(&s) - scene.staging.from;
+                    assert!(length < 10.0, "{ruleset}: {line:?} {length}");
+                }
+                _ => panic!(
+                    "{ruleset}: {line:?} ended {:?}",
+                    event.as_ref().map(std::mem::discriminant)
+                ),
+            }
+            let folder = match line {
+                // Past 1000 the combo's line is the overflow's.
+                Line::ComboOverflow => "gameplay combo overflow".to_string(),
+                _ => line.folder(),
+            };
+            assert!(
+                spoken.contains(&folder),
+                "{ruleset}: {line:?} not said: {spoken:?}"
+            );
+            // Here we go's alone: no room for ready.
+            if line == Line::HereWeGo {
+                assert!(
+                    !spoken.iter().any(|f| f == "gameplay ready"),
+                    "{ruleset}: {spoken:?}"
+                );
+            }
+            // Mid-song, no opening.
+            if scene.staging.from > 10.0 {
+                assert!(
+                    !spoken.iter().any(|f| f == "gameplay ready"),
+                    "{ruleset}: {line:?} {spoken:?}"
+                );
+            }
+        }
+    }
+}

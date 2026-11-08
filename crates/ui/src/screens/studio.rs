@@ -344,10 +344,11 @@ fn line_zone(
     Block::Zone { id: folder, body }
 }
 
-/// Whether `line` has a scene to hear it in (step 3: on song select and
-/// the results; `evaluation aaaaa`, which no play gets, has none).
+/// Whether `line` has a scene to hear it in: on song select, in play
+/// (step 4) and on the results (`evaluation aaaaa`, which no play gets,
+/// has none).
 pub fn hearable(line: Line) -> bool {
-    matches!(line.spoken(), Spoken::Menu | Spoken::Results) && line != Line::Grade(Grade::Aaaaa)
+    line != Line::Grade(Grade::Aaaaa)
 }
 
 /// Whether the draft has something to say for `line`: a recording on it
@@ -364,6 +365,20 @@ pub fn recorded(line: Line, draft: &Draft) -> bool {
 /// comment, a results line and the cheer), said by the draft or by our
 /// pack `example` (its name).
 pub fn heard(line: Line, heard: &[Line], example: Option<&str>) -> UiText {
+    // A scene in play says more besides: the line asked for, and how
+    // many more.
+    if heard.len() > 2
+        && let Some(said) = heard
+            .iter()
+            .find(|l| **l == line)
+            .or_else(|| heard.iter().find(|l| line.chain().contains(l)))
+    {
+        let others = heard.len() as u32 - 1;
+        return match example {
+            None => m::status_heard_with(name(*said), others),
+            Some(pack) => m::status_heard_example_with(pack, name(*said), others),
+        };
+    }
     match (heard, example) {
         ([], _) if line == Line::Cheer => m::status_heard_nothing_cheer(),
         ([], _) => m::status_heard_nothing(),
@@ -715,9 +730,9 @@ mod tests {
         ] {
             assert!(hearable(line), "{line:?}");
         }
-        // No play gets it; play's scenes come with step 4.
+        // No play gets it; the play's lines have scenes of their own.
         assert!(!hearable(Line::Grade(Grade::Aaaaa)));
-        assert!(!hearable(Line::Ready));
+        assert!(hearable(Line::Ready));
         assert!(recorded(Line::Grade(Grade::Aaaa), &d));
         assert!(!recorded(Line::Grade(Grade::Aaa), &d));
         // What speaks in its place counts.
@@ -727,9 +742,14 @@ mod tests {
         let text = format!("{:?}", doc(&d, &View::default(), &BTreeMap::new()).blocks);
         assert!(text.contains("\"hear:evaluation aaaa\", label: \"Hear it in the game\""));
         assert!(text.contains("\"hear:evaluation aaa\", label: \"Hear an example in the game\""));
-        assert!(!text.contains("\"hear:gameplay ready\""));
+        assert!(text.contains("\"hear:gameplay ready\", label: \"Hear it in the game\""));
         assert!(!text.contains("\"hear:evaluation aaaaa\""));
         assert_eq!(act("hear:evaluation cheer"), Some(Act::Hear(Line::Cheer)));
+        // A scene in play says more besides its line: that one is named.
+        let restart = [Line::Ready, Line::HereWeGo, Line::Restart, Line::HereWeGo];
+        let text = heard(Line::Restart, &restart, None).to_string();
+        assert!(text.contains(&name(Line::Restart).to_string()), "{text}");
+        assert!(text.contains('3'), "{text}");
         assert!(in_gesture(Act::Hear(Line::Cheer)));
     }
 

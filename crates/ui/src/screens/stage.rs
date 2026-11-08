@@ -73,6 +73,33 @@ pub enum Caption {
     BeforeFailed,
     /// Song select before the play: the chart's best.
     BeforeBest { score: String },
+    /// A play begins, a few seconds before its first note.
+    PlayBegins,
+    /// A play begins just before its first note.
+    FirstNote,
+    /// The player restarts the song (R twice).
+    Restart,
+    /// The play goes on at full life.
+    FullLife,
+    /// The play goes on below full life.
+    BelowFull,
+    /// The play goes on, the life in danger.
+    Danger,
+    /// The play goes on, on a battery gauge.
+    Battery,
+    /// The combo reaches `count` (`past`: past 1000, by another hundred).
+    Combo { count: u32, past: bool },
+    /// A combo of more than 50 is broken.
+    ComboBroken,
+    /// A life is lost on a battery gauge.
+    LifeLost,
+    /// One life is left on a battery gauge.
+    LastLife,
+    /// The song ends on a full combo, every note at `judgment` (`best`:
+    /// the best one; else that one or better).
+    EndsFullCombo { judgment: String, best: bool },
+    /// The last note is judged: the song is cleared.
+    Cleared,
 }
 
 /// What the line before a cheer is for, besides its play's grade.
@@ -112,6 +139,27 @@ impl Caption {
             },
             Caption::BeforeFailed => m::caption_before_failed(),
             Caption::BeforeBest { score } => m::caption_before_best(score),
+            Caption::PlayBegins => m::caption_play_begins(),
+            Caption::FirstNote => m::caption_first_note(),
+            Caption::Restart => m::caption_restart(),
+            Caption::FullLife => m::caption_full_life(),
+            Caption::BelowFull => m::caption_below_full(),
+            Caption::Danger => m::caption_danger(),
+            Caption::Battery => m::caption_battery(),
+            Caption::Combo { count, past: false } => m::caption_combo(*count),
+            Caption::Combo { count, past: true } => m::caption_combo_past(*count),
+            Caption::ComboBroken => m::caption_combo_broken(),
+            Caption::LifeLost => m::caption_life_lost(),
+            Caption::LastLife => m::caption_last_life(),
+            Caption::EndsFullCombo {
+                judgment,
+                best: true,
+            } => m::caption_ends_full_combo_best(judgment),
+            Caption::EndsFullCombo {
+                judgment,
+                best: false,
+            } => m::caption_ends_full_combo(judgment),
+            Caption::Cleared => m::caption_cleared(),
         }
     }
 }
@@ -172,6 +220,14 @@ impl StageFrame {
             saying: None,
             screen: [0.0; 2],
         }
+    }
+
+    /// In at once (no entrance): a frame shown on after another's (a
+    /// scene going on from the play route's prompt to its play and its
+    /// results).
+    pub fn at_once(mut self) -> StageFrame {
+        self.shown = 1.0;
+        self
     }
 
     /// The picture's place on the screen now (the bezel's inside),
@@ -499,6 +555,53 @@ impl Screen for StageFrame {
             // (the studio, covered) is pressed through it.
             Input::Pointer { .. } => Handled::Yes,
             _ => Handled::No,
+        }
+    }
+}
+
+/// What the shell draws each frame filling the screen, a texture under
+/// `source` (a staged play, drawn as on the whole screen): the screen the
+/// frame shows it in.
+pub struct Picture {
+    source: String,
+    screen: [f32; 2],
+}
+
+impl Picture {
+    pub fn new(source: &str) -> Picture {
+        Picture {
+            source: source.into(),
+            screen: [0.0; 2],
+        }
+    }
+
+    fn tree(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        self.screen = [vp.width, vp.height];
+        let [w, h] = self.screen;
+        let mut picture = quad("Picture", [w, h], [1.0; 4]);
+        let texture = cx.texture(&self.source, w.max(h));
+        if let Kind::Sprite(s) = &mut picture.kind {
+            s.texture = texture;
+        }
+        call(&mut picture, "xy", &[w / 2.0, h / 2.0]);
+        frame("", vec![picture])
+    }
+}
+
+impl Screen for Picture {
+    fn name(&self) -> &str {
+        "picture"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        self.tree(cx)
+    }
+
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        let vp = cx.viewport().screen;
+        if [vp.width, vp.height] != self.screen {
+            *root = self.tree(cx);
         }
     }
 }

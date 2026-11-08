@@ -466,6 +466,9 @@ studio-status-not-used = It could not be added: { $error }
 studio-status-no-select = Song select could not be shown.
 studio-status-no-results = The results could not be shown.
 
+# A line's scene in play could not be staged: the song it plays is not there.
+studio-status-no-play = The play could not be staged.
+
 # After a scene: nothing was said (the line and what speaks in its place
 # have no recording).
 studio-status-heard-nothing = Nothing was said in the game.
@@ -496,6 +499,24 @@ studio-status-heard-example = Heard in the game, an example by { $pack }: “{ $
 #   $first (String) - the first line's name (studio-line-…)
 #   $then (String) - the second's
 studio-status-heard-example-two = Heard in the game, an example by { $pack }: “{ $first }”, then “{ $then }”.
+
+# A scene in play: the line asked for was said with others.
+# Variables:
+#   $line (String) - the line's name (studio-line-…)
+#   $others (Number) - how many other lines were said
+studio-status-heard-with = { $others ->
+    [one] Heard in the game: “{ $line }”, and one other line.
+   *[other] Heard in the game: “{ $line }”, and { $others } other lines.
+}
+
+# Variables:
+#   $pack (String) - our announcer's name ("Mr. Clank")
+#   $line (String) - the line's name (studio-line-…)
+#   $others (Number) - how many other lines were said
+studio-status-heard-example-with = { $others ->
+    [one] Heard in the game, an example by { $pack }: “{ $line }”, and one other line.
+   *[other] Heard in the game, an example by { $pack }: “{ $line }”, and { $others } other lines.
+}
 
 ## A line's scene: the game's own screens shown smaller in a frame over
 ## the studio. Above the picture: a kicker, the line heard and whose voice
@@ -578,3 +599,46 @@ studio-caption-before-failed = Before the play: this chart was only ever failed.
 # Variables:
 #   $score (String) - the chart's best score as song select shows it ("90.15%")
 studio-caption-before-best = Before the play: this chart's best is { $score }.
+
+## The captions of a line's scene in play: the real play, autoplayed from
+## a few seconds before the moment.
+
+# A play begins a few seconds before its first note.
+studio-caption-play-begins = The play begins, a few seconds before its first note.
+
+# A play begins just before its first note (no room for "ready").
+studio-caption-first-note = The play begins just before its first note.
+
+# R pressed twice restarts the song at once.
+studio-caption-restart = The player restarts the song (R twice).
+
+studio-caption-full-life = The play goes on at full life.
+studio-caption-below-full = The play goes on below full life.
+studio-caption-danger = The play goes on with the life in danger.
+
+# A battery gauge counts lives (misses take one each) in place of a bar.
+studio-caption-battery = The play goes on, on a battery gauge.
+
+# Variables:
+#   $count (Number) - the combo reached, a hundred (300)
+studio-caption-combo = The combo reaches { $count }.
+
+# The combo past 1000, each hundred.
+# Variables:
+#   $count (Number) - the combo reached, a hundred past 1000 (1100)
+studio-caption-combo-past = The combo reaches { $count }, past 1000.
+
+studio-caption-combo-broken = A combo of more than 50 is broken.
+studio-caption-life-lost = A life is lost on a battery gauge.
+studio-caption-last-life = One life is left on a battery gauge.
+
+# The song's last note keeps a full combo with every note at the best judgment.
+# Variables:
+#   $judgment (String) - the judgment as the ruleset names it ("Fantastic")
+studio-caption-ends-full-combo-best = The song ends on a full combo: every note { $judgment }.
+
+# Variables:
+#   $judgment (String) - the judgment as the ruleset names it ("Excellent")
+studio-caption-ends-full-combo = The song ends on a full combo: every note { $judgment } or better.
+
+studio-caption-cleared = The last note is judged: the song is cleared.

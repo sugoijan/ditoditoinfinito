@@ -433,7 +433,11 @@ Rust and the browser are implementation details, not advertised features.
   `announcer/scene.rs`: song select's data shaped so each comment has a
   chart that gets it, and for each results line a play staged on a
   chart made for it, judged by the engine under the player's ruleset
-  where it gives the line, `docs/plans/announcer-studio.md`, step 3); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  where it gives the line, `docs/plans/announcer-studio.md`, step 3; and
+  for each line said in play, `announcer/scene/in_play.rs`, a staged
+  play: `play/staging.rs`'s `Staging`, from part-way with what came
+  before judged at once, `Player::start_staged`, notes missed or pressed
+  off, a combo given, step 4); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
@@ -490,7 +494,10 @@ Rust and the browser are implementation details, not advertised features.
   heard in its scene in a frame over the page, the real start menu,
   song select or results with the draft as the voice (our pack of the
   examples chosen where the line is not recorded yet), what it is said
-  for ringed, `docs/plans/announcer-studio.md`; ours listed by
+  for ringed; a line said in play on the play route,
+  `#/play?…&scene=<line>`, staged and drawn into a picture in the same
+  frame, the voice handed over by `crate::studio_scene`,
+  `docs/plans/announcer-studio.md`; ours listed by
   `announcers/index.json` and fetched from `announcers/`, a play's decoded
   behind its prompt there, spoken on a bus of their own beside the
   master's, `web/audio.rs`, song select's on its preview's context),

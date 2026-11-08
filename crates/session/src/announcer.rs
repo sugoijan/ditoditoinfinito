@@ -384,6 +384,17 @@ impl<B> Announcer<B> {
         self
     }
 
+    /// A staged play's (the announcer studio's scenes): `danced`, a note
+    /// came before its start (no ready, no here we go: they open a
+    /// play), its combo `combo` at the start and `since` seconds since
+    /// the last gated line.
+    pub fn staged(mut self, danced: bool, combo: u32, since: f64) -> Announcer<B> {
+        self.opened |= danced;
+        self.combo = combo;
+        self.since = since.max(0.0);
+        self
+    }
+
     /// The end's line was said (or due).
     pub fn ended(&self) -> bool {
         self.ended

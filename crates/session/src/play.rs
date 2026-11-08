@@ -135,6 +135,9 @@ pub struct SessionConfig {
     /// A quick restart's play (decision 79): the announcer opens it with
     /// `gameplay restart`.
     pub restart: bool,
+    /// A play staged for the announcer studio's scenes ([`Staging`]):
+    /// autoplayed from part-way with what came before given; never kept.
+    pub staging: Option<Staging>,
 }
 
 impl SessionConfig {
@@ -162,6 +165,7 @@ impl SessionConfig {
             voice_volume: settings.voice_volume(),
             prior: None,
             restart: false,
+            staging: None,
         }
     }
 
@@ -407,6 +411,9 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// The announcer: its lines over the play and on its results (off in
     /// calibration; silent until the shell hands it a voice).
     announcer: Announcer<A::Buffer>,
+    /// A staged play's end and restart, song seconds ([`Staging`]).
+    scene_until: Option<f64>,
+    scene_restart: Option<f64>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -488,6 +495,9 @@ pub enum SessionEvent {
     /// The player restarted: nothing kept, the same play to start again
     /// at once on the same sound and music ([`PlaySession::into_restart`]).
     Restart,
+    /// A staged play's scene is over ([`Staging::until`]): nothing kept,
+    /// the shell goes back to where it came from.
+    SceneOver,
 }
 
 impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
@@ -579,8 +589,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // Calibration keeps its own ruleset; songs follow the ruleset mode;
         // a replay plays by the rules it was played by.
         let (ruleset, options) = config.player_spec(song, chart_index, settings)?;
-        // A replay is never autoplayed.
-        let auto_play = config.auto && config.replay.is_none();
+        // A replay is never autoplayed; a staged play always is.
+        let staging = config.staging.clone().filter(|_| config.replay.is_none());
+        let auto_play = (config.auto || staging.is_some()) && config.replay.is_none();
         let names = ruleset.names.clone();
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
@@ -627,9 +638,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let mut player = Player::new(song, chart_index, ruleset, options);
         player.set_autoplay(auto_play);
         player.judge_all_in(any_lane);
-        // The autoplayer presses the transformed chart's lanes.
+        // The autoplayer presses the transformed chart's lanes (a staged
+        // play's as its touches say).
+        let mut presses = ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias);
+        if let Some(s) = &staging {
+            presses = staging::touched(presses, &s.touches);
+        }
         let auto = auto_play.then(|| AutoPlay {
-            events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias),
+            events: presses.clone(),
             next: 0,
             pending_release: Vec::new(),
             cue: match config.calibration {
@@ -653,10 +669,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .danoni
             .as_ref()
             .filter(|_| config.calibration.is_none());
-        let song_offset = match &config.replay {
+        let song_offset = match (&config.replay, &staging) {
             // Where the play started.
-            Some(r) => r.log.start,
-            None => config
+            (Some(r), _) => r.log.start,
+            (None, Some(s)) => Some(s.from)
+                .filter(|s| s.is_finite() && *s > 0.0 && *s < duration)
+                .unwrap_or(0.0),
+            (None, None) => config
                 .start
                 .or_else(|| danoni.and_then(|d| d.start))
                 .filter(|s| s.is_finite() && *s > 0.0 && *s < duration)
@@ -687,7 +706,24 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if let Some((at, fade)) = music_end.filter(|(at, _)| *at > music_offset) {
             audio.master_ramp(Some(1.0), 0.0, Some(music_ctx + (at - music_offset)), fade);
         }
-        player.start(start_ctx, song_offset);
+        // A staged play: the notes before its start judged at once as
+        // the autoplayer presses them, the presses from it on its own (a
+        // hold pressed before it let go on time).
+        let mut auto = auto;
+        match (&staging, auto.as_mut()) {
+            (Some(s), Some(a)) => {
+                let mut past = ddi_engine::autoplay::edges(presses.iter().copied());
+                ddi_engine::autoplay::sort_edges(&mut past);
+                player.start_staged(start_ctx, song_offset, &past, s.combo);
+                a.next = a.events.partition_point(|p| p.press < song_offset);
+                a.pending_release = a.events[..a.next]
+                    .iter()
+                    .filter(|p| p.release >= song_offset)
+                    .map(|p| (p.release, p.lane))
+                    .collect();
+            }
+            _ => player.start(start_ctx, song_offset),
+        }
         // The announcer, on the music's timeline: its first note is the
         // first judged one the play reaches.
         let first_note = player
@@ -714,6 +750,19 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             announcer.restarted()
         } else {
             announcer
+        };
+        // A staged play has danced already where a note came before its
+        // start (no ready, no here we go), its combo and comment gap given.
+        let announcer = match &staging {
+            Some(s) => {
+                let danced = player
+                    .judge()
+                    .notes()
+                    .iter()
+                    .any(|n| n.judgeable && n.seconds < song_offset);
+                announcer.staged(danced, player.combo(), s.since)
+            }
+            None => announcer,
         };
         // Nothing may cue the player in calibration.
         let sounds = if config.calibration.is_some() {
@@ -780,6 +829,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             start_ctx,
             song_offset,
             announcer,
+            scene_until: staging.as_ref().and_then(|s| s.until),
+            scene_restart: staging.as_ref().and_then(|s| s.restart),
         })
     }
 
@@ -1050,6 +1101,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.player.quit_at(end);
             self.aborted = true;
         }
+        // A staged play's restart (R twice) and its end.
+        let song_now = self.player.judge_time(host_now);
+        if self
+            .scene_restart
+            .is_some_and(|at| song_now >= at && !self.player.finished())
+        {
+            self.restarted = true;
+            self.view.restarting = true;
+        }
+        let over = self.scene_until.is_some_and(|at| song_now >= at);
         let outcome = if self.aborted {
             self.audio.stop_all();
             // The play ends here, judged to now (`Player::quit_at`).
@@ -1063,6 +1124,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         } else if self.restarted {
             self.audio.stop_all();
             Some(SessionEvent::Restart)
+        } else if over {
+            // The voice says its last line out; the music stops.
+            self.audio.stop_music();
+            Some(SessionEvent::SceneOver)
         } else if self.inputs.interrupted() || !self.audio.running() {
             self.audio.stop_all();
             Some(SessionEvent::Interrupted)
@@ -1389,5 +1454,7 @@ pub fn play_bindings(
 }
 
 mod cover;
+pub mod staging;
+pub use staging::{How, Staging, Touch};
 #[cfg(test)]
 mod tests;

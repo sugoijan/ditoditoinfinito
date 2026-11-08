@@ -129,6 +129,9 @@ pub(crate) struct GameLoop {
     /// The song's generated background (`docs/plans/phase-8-gaps.md`,
     /// step 5), kept across its plays.
     generated: Option<ddi_shell::generative::Generated>,
+    /// The announcer studio's scene in play: the play drawn into a
+    /// picture shown in its frame (`crate::studio_scene`).
+    pub(crate) framed: Option<crate::studio_scene::Framed>,
 }
 
 /// Texts the browser drew for a song's scripts: `(text, drawing, size in
@@ -136,18 +139,34 @@ pub(crate) struct GameLoop {
 type ScriptTexts = std::rc::Rc<std::cell::RefCell<Vec<(String, crate::stage::Bitmap, [f32; 2])>>>;
 
 impl GameLoop {
+    /// `framed`: the announcer studio's scene in play, drawn in its frame
+    /// (`crate::studio_scene`): the play into a picture of encoded values
+    /// as Options' field preview draws (`ddi_render::field_preview`).
     pub(crate) fn new(
         gfx: Rc<Gfx>,
         canvas: HtmlCanvasElement,
         on_event: Callback<SessionEvent>,
+        framed: Option<crate::studio_scene::FrameSpec>,
     ) -> GameLoop {
-        let renderer = Renderer::new(
-            &gfx.device,
-            &gfx.queue,
-            gfx.view_format(),
-            gfx.skin_blending(),
-            &[FONT],
-        );
+        let renderer = match &framed {
+            Some(_) => Renderer::new(
+                &gfx.device,
+                &gfx.queue,
+                ddi_render::field_preview::FORMAT,
+                match gfx.float_format() {
+                    Some(f) => ddi_render::SkinBlending::Encoded(f),
+                    None => ddi_render::SkinBlending::Scene,
+                },
+                &[FONT],
+            ),
+            None => Renderer::new(
+                &gfx.device,
+                &gfx.queue,
+                gfx.view_format(),
+                gfx.skin_blending(),
+                &[FONT],
+            ),
+        };
         let rect = canvas.get_bounding_client_rect();
         let css_size = Rc::new(Cell::new((rect.width(), rect.height())));
         let resize = {
@@ -215,6 +234,7 @@ impl GameLoop {
             next_noteskin: None,
             noteskin_key: String::new(),
             generated: None,
+            framed: framed.map(crate::studio_scene::Framed::new),
         }
     }
 
@@ -656,6 +676,17 @@ impl GameLoop {
         self.frame_aspect(false)
     }
 
+    /// The lines the play's announcer said so far, by folder.
+    pub(crate) fn spoken(&self) -> Vec<String> {
+        self.session.as_ref().map_or(Vec::new(), |s| {
+            s.announcer_report()
+                .spoken
+                .iter()
+                .map(|(f, _)| f.clone())
+                .collect()
+        })
+    }
+
     /// The play taken back (a restart's sound and music).
     pub(crate) fn take_session(&mut self) -> Option<PlaySession> {
         self.session.take()
@@ -733,20 +764,41 @@ impl GameLoop {
             outcome = event;
         }
 
+        // A scene of the announcer studio's: the canvas drawn by the 2D
+        // pass alone (the frame), the play into its picture.
+        if self.framed.is_some() {
+            self.gfx.set_mode(crate::web::gfx::SurfaceMode::Plain);
+        }
         let Some(surface) = self.gfx.frame() else {
             return;
         };
-        let view = surface.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(self.gfx.view_format()),
-            ..Default::default()
-        });
-        // Skins' quads blend as StepMania's do, through the plain view.
-        let plain_view = self.gfx.plain_format().map(|format| {
-            surface.texture.create_view(&wgpu::TextureViewDescriptor {
-                format: Some(format),
-                ..Default::default()
-            })
-        });
+        let (surface_w, surface_h) = self.gfx.size();
+        let (view, plain_view, play_format) = match self.framed.as_mut() {
+            Some(f) => (
+                f.target(&self.gfx.device, [surface_w, surface_h]).clone(),
+                None,
+                ddi_render::field_preview::FORMAT,
+            ),
+            None => {
+                let view = surface.texture.create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(self.gfx.view_format()),
+                    ..Default::default()
+                });
+                // Skins' quads blend as StepMania's do, through the plain
+                // view.
+                let plain_view = self.gfx.plain_format().map(|format| {
+                    surface.texture.create_view(&wgpu::TextureViewDescriptor {
+                        format: Some(format),
+                        ..Default::default()
+                    })
+                });
+                let format = self
+                    .gfx
+                    .plain_format()
+                    .unwrap_or_else(|| self.gfx.view_format());
+                (view, plain_view, format)
+            }
+        };
         let mut encoder = self
             .gfx
             .device
@@ -980,9 +1032,7 @@ impl GameLoop {
                         &self.gfx.queue,
                         &mut encoder,
                         &mut self.renderer,
-                        self.gfx
-                            .plain_format()
-                            .unwrap_or_else(|| self.gfx.view_format()),
+                        play_format,
                         [width, height],
                         frame.song_time,
                     );
@@ -1019,9 +1069,7 @@ impl GameLoop {
                         &self.gfx.queue,
                         &mut encoder,
                         plain_view.as_ref().unwrap_or(&view),
-                        self.gfx
-                            .plain_format()
-                            .unwrap_or_else(|| self.gfx.view_format()),
+                        play_format,
                         [width, height],
                         frame.song_time,
                     );
@@ -1048,7 +1096,38 @@ impl GameLoop {
             }
         }
         self.play_script_sounds();
-        // Over the play: the 2D pass (the lyrics, with the browser's text).
+        // Over the play: the 2D pass (the lyrics, with the browser's text);
+        // a scene's frame, the play's picture in it, over the canvas.
+        let framed = match self.framed.as_mut() {
+            Some(f) => {
+                if let Some(session) = self.session.as_ref() {
+                    use ddi_platform::AudioBackend;
+                    let now = session.audio().now().context_time;
+                    f.said(&session.announcer_report().spoken, now);
+                }
+                let target = self.gfx.menu_format().map(|format| {
+                    surface.texture.create_view(&wgpu::TextureViewDescriptor {
+                        format: Some(format),
+                        ..Default::default()
+                    })
+                });
+                if let Some(target) = target {
+                    let css = self.css_size.get();
+                    f.draw(
+                        &self.gfx,
+                        &mut encoder,
+                        &target,
+                        [surface_w, surface_h],
+                        css,
+                        f64::from(surface_w) / css.0.max(1.0),
+                        host_now.0,
+                    );
+                }
+                lyrics = None;
+                true
+            }
+            None => false,
+        };
         let overlaid = match lyrics {
             Some(l) => self.draw_overlay(&mut encoder, &view, plain_view.as_ref(), l),
             None => {
@@ -1059,6 +1138,9 @@ impl GameLoop {
         self.gfx.queue.submit(Some(encoder.finish()));
         if overlaid && let Some(o) = self.overlay.as_mut() {
             o.painter.submitted();
+        }
+        if framed && let Some(f) = self.framed.as_ref() {
+            f.submitted(&self.gfx);
         }
         for image in self.uploaded_images.drain(..) {
             image.close();
@@ -1197,6 +1279,10 @@ impl GameLoop {
             let _ = js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(k), &v);
         };
         set("frames", (self.frames as f64).into());
+        // The announcer studio's scene in play: its frame drawn.
+        if let Some(f) = &self.framed {
+            set("stage", f.debug());
+        }
         if let Ok(value) = js_sys::JSON::parse(&self.dance.debug().to_string()) {
             set("dance", value);
         }
@@ -1545,6 +1631,10 @@ impl Drop for GameLoop {
         }
         for (_, image) in self.pending_backgrounds.drain(..) {
             image.close();
+        }
+        // A scene's picture leaves the 2D pass.
+        if let Some(f) = self.framed.as_mut() {
+            f.release(&self.gfx);
         }
     }
 }

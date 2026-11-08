@@ -1,7 +1,8 @@
 # Announcer studio
 
 Status: steps 1 and 2 done 2026-11-06 (the draft; the screen on the web), step 3
-2026-11-07 (the scenes on song select and the results); step 4 next. A screen for someone
+2026-11-07 (the scenes on song select and the results), step 4 2026-11-08
+(the scenes in play, on the web); step 5 (desktop) next. A screen for someone
 recording an announcer in an app of their own:
 
 - Their recordings come in through a picker or by dropping them.
@@ -468,6 +469,70 @@ Risk: the staged start is the one change inside the engine. If the player
 cannot take a state cleanly, a scene starts earlier and autoplays up to
 its moment. That is exact but longer, and combos past a chart's note
 count then have no scene.
+
+**Done 2026-11-08.** Every line said in play has a scene (all of them
+but `evaluation aaaaa` are hearable now, `studio::hearable`), the real
+play on Beatucada's Medium in Single, shown in the studio's frame:
+
+- **The staged start** is what the risk above proposed, done at once:
+  `Player::start_staged` judges the presses before the start in one go,
+  as the play from the song's start would have (its tally, combo, life,
+  lives and score exactly that play's, a test against it), then the
+  clock starts there; a combo past what those notes make is given on
+  top (at least that combo), so 1000 and the overflow have scenes on a
+  217-step chart. Nothing about a gauge is set by hand: a life in danger
+  or two lives left come from notes missed before the start.
+- **The staging** (`ddi_session::play::Staging`, `SessionConfig::staging`):
+  where the play starts, the notes missed or pressed off (`Touch`: a
+  span of song seconds; off into a lower window for W2 and W3's full
+  combos), the combo given, where the announcer's comment gap stands
+  (`Announcer::staged`: no ready or here we go once a note came before
+  the start), the song second the scene is over at
+  (`SessionEvent::SceneOver`) and one the player restarts at (R twice).
+  Always autoplayed, never kept.
+- **The scenes** (`ddi_session::announcer::scene::in_play`): `pick` says
+  the chart and what of the settings the scene changes (a battery of
+  four lives for the oni comment and the lives' lines, failing at once
+  for danger and the fail, DDR A's rules for the plain full combo; the
+  player's rules otherwise, ITG where they are another game's), `stage`
+  the staging under the rules and options the play has: ready and here
+  we go from before the first note (here we go's starting late enough
+  that ready has no room), the restart's played past the first note,
+  then again from the same place opened by its line, the comments with
+  their gap given and the life as each wants it (full where a play kept
+  full is full, below it after a few misses, in danger after enough of
+  them, found by simulating the play), each hundred and the overflow
+  crossed a few steps in, a combo of 60 broken by a lone step missed, a
+  life lost and the last life (two lost before), the full combos of each
+  kind and a clear on the last steps, and the fail; those at a play's
+  end go on into its results. A session test plays every one on the
+  fake clock under ITG, DDR A and StepMania 5 and finds its line said
+  before the scene is over.
+- **On the web** the studio's press makes the play's sound and keeps it
+  for the play (`keep_for_play`), the voice (the draft's play and
+  results lines, decoded first where the page opened again, or our
+  pack's) is handed over (`crate::studio_scene`), and the play route
+  opens on `scene=<line>`: its settings the pick's (never stored), its
+  start prompt in the frame a second, then the staged play, drawn into
+  a texture of its own (as Options' field preview draws) that a small UI
+  of the game loop's shows in the frame (`ddi_ui::screens::stage::Picture`
+  under the same `StageFrame`), the words of each line as it starts, the
+  caption the scene's. Over, or Escape, or the frame's button, goes back
+  to the studio, which says what was heard (the line asked for, and how
+  many more were said); a scene at a play's end shows its results in the
+  frame first, their line said, for 6.5 s. Each line's next recording or
+  example, and the decoded sounds, are kept for the session across the
+  trip.
+- **Not yet:** a ring on what a line in play is said for (the combo, the
+  life: drawn by the renderer, not the UI's actors); the caption does not
+  yet say why a line other than the one asked for came first.
+
+Checked: the engine's staged start (`crates/engine/tests/staged.rs`);
+every play line's scene on the fake clock under three rulesets; headless
+Chrome under the user-activation autoplay policy and Firefox
+(`target/scratch/ann/studio-play.mjs PORT [firefox] [line…]`, `DRAFT=1`
+with `gen/voice.zip` imported): each scene opens the play in the frame,
+says its line, and comes back with it heard.
 
 ## Step 5. Desktop
 

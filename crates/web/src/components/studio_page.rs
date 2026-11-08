@@ -108,6 +108,32 @@ pub(crate) enum Msg {
     Failed(String),
 }
 
+/// What the studio keeps for the session while a scene in play shows on
+/// the play route (the page goes, and comes again after): each line's next
+/// recording and example, and our packs' sounds decoded.
+#[derive(Default)]
+struct Kept {
+    decoded: HashMap<u64, AudioBuffer>,
+    turns: HashMap<Line, usize>,
+    example_turns: HashMap<(&'static str, Line), usize>,
+    example_sounds: HashMap<String, AudioBuffer>,
+}
+
+thread_local! {
+    static KEPT: RefCell<Kept> = RefCell::default();
+}
+
+impl Drop for Studio {
+    fn drop(&mut self) {
+        KEPT.with_borrow_mut(|k| {
+            k.decoded = std::mem::take(&mut *self.decoded.borrow_mut());
+            k.turns = std::mem::take(&mut *self.turns.borrow_mut());
+            k.example_turns = std::mem::take(&mut *self.example_turns.borrow_mut());
+            k.example_sounds = std::mem::take(&mut *self.example_sounds.borrow_mut());
+        });
+    }
+}
+
 /// A scene lasts this long at least, seconds: time to see its screen.
 const SCENE_SECONDS: f64 = 3.5;
 /// It ends this long after its last line, seconds.
@@ -263,7 +289,7 @@ impl Studio {
                 ..View::default()
             }),
             blobs: RefCell::default(),
-            decoded: RefCell::default(),
+            decoded: RefCell::new(KEPT.with_borrow_mut(|k| std::mem::take(&mut k.decoded))),
             decoding: Cell::new(false),
             ours: RefCell::default(),
             examples: RefCell::default(),
@@ -280,10 +306,14 @@ impl Studio {
             songs: RefCell::default(),
             scene: RefCell::new(None),
             scenes: Cell::new(0),
-            turns: RefCell::default(),
+            turns: RefCell::new(KEPT.with_borrow_mut(|k| std::mem::take(&mut k.turns))),
             heard: RefCell::new(None),
-            example_sounds: RefCell::default(),
-            example_turns: RefCell::default(),
+            example_sounds: RefCell::new(
+                KEPT.with_borrow_mut(|k| std::mem::take(&mut k.example_sounds)),
+            ),
+            example_turns: RefCell::new(
+                KEPT.with_borrow_mut(|k| std::mem::take(&mut k.example_turns)),
+            ),
         })
     }
 
@@ -501,6 +531,7 @@ impl Studio {
             Ok(m) => *self.songs.borrow_mut() = m.songs,
             Err(e) => web_sys::console::warn_1(&format!("studio: the songs: {e}").into()),
         }
+        self.heard_in_play();
         self.refresh_examples();
         self.send();
         self.decode_pending();
@@ -1015,6 +1046,24 @@ impl Studio {
         self.publish();
     }
 
+    /// The recordings of the lines `which` keeps decoded (those not yet:
+    /// after the page opened again), before a scene's voice is made of
+    /// them; one that cannot be is left out.
+    async fn decode_lines(&self, which: impl Fn(Line) -> bool) {
+        let ids: Vec<u64> = self
+            .draft
+            .borrow()
+            .takes
+            .iter()
+            .filter(|t| t.line.is_some_and(&which) && matches!(t.sound, Sound::Read(_)))
+            .map(|t| t.id)
+            .filter(|id| !self.decoded.borrow().contains_key(id))
+            .collect();
+        for id in ids {
+            let _ = self.buffer(id).await;
+        }
+    }
+
     /// The draft as a voice for the lines `which` keeps: each line's
     /// recordings decoded so far, as the pack has them (tidied where they
     /// are), the line's next one first, each made a buffer by `make`;
@@ -1068,9 +1117,125 @@ impl Studio {
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
-            Spoken::Play => {}
+            Spoken::Play => self.play_scene(line, said),
         }
         self.publish();
+    }
+
+    /// A line said in play: its scene is the real play
+    /// (`docs/plans/announcer-studio.md`, step 4), staged on its chart
+    /// (`in_play::pick`) on the play route, which shows it in the frame;
+    /// the play's sound made in this press and kept for it, the voice
+    /// (the draft's play and results lines, or our pack's) handed over
+    /// (`crate::studio_scene`). The studio says what was heard once it
+    /// shows again ([`Studio::heard_in_play`]).
+    fn play_scene(self: &Rc<Self>, line: Line, said: Said) {
+        use ddi_session::announcer::scene::in_play;
+        let Some(pick) = in_play::pick(line) else {
+            return;
+        };
+        let chart = self
+            .songs
+            .borrow()
+            .iter()
+            .find(|e| e.id == pick.song)
+            .and_then(|e| {
+                e.charts
+                    .iter()
+                    .find(|c| c.layout == in_play::STYLE && c.difficulty == pick.difficulty.name())
+                    .map(|c| c.index)
+            });
+        let Some(chart) = chart else {
+            return self.status(ms::status_no_play());
+        };
+        // The play's sound, from this press (the play starts on it).
+        let audio = match WebAudio::new() {
+            Ok(a) => a,
+            Err(e) => return self.status(ms::status_no_sound(error_text(&e))),
+        };
+        audio.resume_now();
+        crate::web::audio::keep_for_play(pick.song, chart, audio);
+        let n = self.begin_scene(line, said, "play", false, "", "", false);
+        let this = self.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let lines: Vec<Line> = Line::all()
+                .into_iter()
+                .filter(|l| matches!(l.spoken(), Spoken::Play | Spoken::Results))
+                .collect();
+            let voiced = match said {
+                Said::Draft => {
+                    let which = |l: Line| matches!(l.spoken(), Spoken::Play | Spoken::Results);
+                    this.decode_lines(which).await;
+                    // Made on a context of its own, gone after: a buffer
+                    // plays on any (the play's).
+                    let maker = WebAudio::new().ok();
+                    Ok(this.staged_voice(which, |pcm, rate| {
+                        maker.as_ref()?.buffer_from_pcm(pcm, f64::from(rate)).ok()
+                    }))
+                }
+                Said::Example(set) => this.example_voice(set, &lines).await,
+            };
+            if !this.scene_is(n) {
+                return;
+            }
+            let (voice, lengths, words) = match voiced {
+                Ok(v) => v,
+                Err(e) => return this.drop_scene(n, ms::status_example_unreadable(error_text(&e))),
+            };
+            let voice_label = match said {
+                Said::Draft => ms::stage_voice_recording(),
+                Said::Example(set) => ms::stage_voice_example(set.pack()),
+            };
+            crate::studio_scene::stage(crate::studio_scene::StagedPlay {
+                line,
+                said: said.key(),
+                voice_label: voice_label.to_string(),
+                name: studio::name(line).to_string(),
+                voice,
+                lengths,
+                words,
+            });
+            this.scene.borrow_mut().take();
+            crate::router::Route::Play {
+                song: pick.song.into(),
+                chart,
+                force_gl: false,
+                auto: false,
+                auto_pad: false,
+                bias_ms: 0,
+                slow: false,
+                replay: None,
+                view_results: false,
+                edit: false,
+                scene: Some(line.folder()),
+            }
+            .navigate();
+        });
+    }
+
+    /// What the last scene in play said, as the studio shows again: the
+    /// status, and each line's next recording (or example) for the next.
+    fn heard_in_play(&self) {
+        let Some(h) = crate::studio_scene::take_heard() else {
+            return;
+        };
+        let example = h.said.strip_prefix("example:").and_then(Set::from_key);
+        let lines: Vec<Line> = h.spoken.iter().filter_map(|f| Line::parse(f)).collect();
+        for &l in &lines {
+            match example {
+                None => *self.turns.borrow_mut().entry(l).or_insert(0) += 1,
+                Some(set) => {
+                    *self
+                        .example_turns
+                        .borrow_mut()
+                        .entry((set.key(), l))
+                        .or_insert(0) += 1
+                }
+            }
+        }
+        self.view.borrow_mut().status =
+            studio::heard(h.line, &lines, example.map(|s| s.pack())).into();
+        *self.heard.borrow_mut() = Some((h.line, h.spoken, h.said));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1366,10 +1531,11 @@ impl Studio {
                 .filter(|l| l.spoken() == Spoken::Menu)
                 .collect();
             let voiced = match said {
-                Said::Draft => Ok(this.staged_voice(
-                    |l| l.spoken() == Spoken::Menu,
-                    crate::select_preview::make_buffer,
-                )),
+                Said::Draft => {
+                    let which = |l: Line| l.spoken() == Spoken::Menu;
+                    this.decode_lines(which).await;
+                    Ok(this.staged_voice(which, crate::select_preview::make_buffer))
+                }
                 Said::Example(set) => this.example_voice(set, &menu).await,
             };
             if !this.scene_is(n) {
@@ -1587,10 +1753,13 @@ impl Studio {
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let voiced = match said {
-                Said::Draft => Ok(this.staged_voice(
-                    |l| l.spoken() == Spoken::Results,
-                    |pcm, rate| audio.borrow().buffer_from_pcm(pcm, f64::from(rate)).ok(),
-                )),
+                Said::Draft => {
+                    let which = |l: Line| l.spoken() == Spoken::Results;
+                    this.decode_lines(which).await;
+                    Ok(this.staged_voice(which, |pcm, rate| {
+                        audio.borrow().buffer_from_pcm(pcm, f64::from(rate)).ok()
+                    }))
+                }
                 Said::Example(set) => {
                     // The lines the results may say.
                     let ending = scene.ending();

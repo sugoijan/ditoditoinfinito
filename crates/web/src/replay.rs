@@ -120,6 +120,7 @@ impl Component for ReplayLoader {
                 backend: p.backend,
                 replay: Some(prop),
                 edit: false,
+                scene: None,
             },
         ));
         false

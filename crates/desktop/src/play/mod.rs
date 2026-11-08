@@ -493,6 +493,10 @@ impl Play {
             }
             SessionEvent::Interrupted => Some(Ended::Interrupted),
             SessionEvent::Restart => Some(Ended::Restart),
+            // The announcer studio's staged plays are the web's for now
+            // (`docs/plans/announcer-studio.md`, step 5): back, as after
+            // an interruption.
+            SessionEvent::SceneOver => Some(Ended::Interrupted),
         }
     }
 

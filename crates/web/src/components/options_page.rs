@@ -767,6 +767,7 @@ impl OptionsPlatform for Web {
                 replay: None,
                 view_results: false,
                 edit: false,
+                scene: None,
             },
         };
         cx.request(UiRequest::Navigate(route.to_hash()));

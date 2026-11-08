@@ -54,6 +54,7 @@ use crate::web::gamepad::{Gamepads, PadNews};
 use crate::web::gfx::{BackendPreference, SurfaceMode};
 use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
+use ddi_session::announcer::scene::in_play;
 use ddi_ui::screens::failures::LoadFailure;
 use ddi_ui::screens::prompt::{
     Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep,
@@ -257,6 +258,9 @@ pub(crate) struct Props {
     /// The chart editor's playtest (`crate::editor`): the song as
     /// edited, from its start second, never kept, back to the editor.
     pub(crate) edit: bool,
+    /// The announcer studio's scene in play of this line (its folder,
+    /// `crate::studio_scene`): staged, never kept, back to the studio.
+    pub(crate) scene: Option<String>,
 }
 
 /// The page's few DOM elements around the canvas.
@@ -405,7 +409,35 @@ pub(crate) struct GameCanvas {
     replay_check: Option<ddi_ui::state::history::ReplayCheck>,
     /// The chart's best play's ghost, once read (`Settings::ghost`).
     ghost: Option<ddi_ui::state::history::Ghost>,
+    /// The announcer studio's scene in play, if this is one.
+    scene: Option<SceneState>,
 }
+
+/// The announcer studio's scene in play (`Props::scene`,
+/// `crate::studio_scene`): what it is said with and how it is staged.
+struct SceneState {
+    line: ddi_library::announcer::Line,
+    said: String,
+    name: String,
+    voice_label: String,
+    lengths: std::collections::HashMap<ddi_library::announcer::Line, f64>,
+    words: std::collections::HashMap<ddi_library::announcer::Line, String>,
+    /// Its play, staged once the song is read (`None` after: no play
+    /// gives the line).
+    staged: Option<Option<in_play::PlayScene>>,
+    /// The restart's play again is on.
+    restarted: bool,
+    /// How long it lasts from its play's start, seconds (the frame's bar).
+    seconds: f64,
+    /// The lines said so far (the play's, then its results').
+    spoken: Vec<String>,
+    /// Back to the studio once the results' line is said.
+    leave: Option<gloo::timers::callback::Timeout>,
+}
+
+/// The results of a scene at a play's end show this long before the
+/// studio again, ms (their line and its cheer said).
+const SCENE_RESULTS_MS: u32 = 6500;
 
 /// Where keeping the play in the history is.
 #[derive(Clone, Debug, PartialEq)]
@@ -579,7 +611,39 @@ impl Component for GameCanvas {
         let refused = replay.as_ref().and_then(|r| r.refused.clone());
         // A replay is drawn with its own settings (`Replay::settings`).
 
-        let play_settings = play_settings(replay.as_deref());
+        let mut play_settings = play_settings(replay.as_deref());
+        // The announcer studio's scene in play: what the studio staged
+        // (a reload staged nothing: back to the studio), played with the
+        // settings its line wants.
+        let mut voice = None;
+        let scene = match ctx.props().scene.as_deref() {
+            Some(folder) => match crate::studio_scene::take(folder) {
+                Some(play) => {
+                    if let Some(pick) = in_play::pick(play.line) {
+                        play_settings = pick.settings(&play_settings);
+                    }
+                    voice = Some(Rc::new(RefCell::new(play.voice)));
+                    Some(SceneState {
+                        line: play.line,
+                        said: play.said,
+                        name: play.name,
+                        voice_label: play.voice_label,
+                        lengths: play.lengths,
+                        words: play.words,
+                        staged: None,
+                        restarted: false,
+                        seconds: 0.0,
+                        spoken: Vec::new(),
+                        leave: None,
+                    })
+                }
+                None => {
+                    spawn_local(async { Route::Studio.return_to() });
+                    None
+                }
+            },
+            None => None,
+        };
         match ctx.props().source.clone() {
             // Refused: nothing to load, the prompt says why.
             SongSource::Song { .. } if refused.is_some() => {}
@@ -702,9 +766,13 @@ impl Component for GameCanvas {
         // replay, a playtest, calibration): an automatic Start is no
         // gesture (`docs/plans/start-prompt.md`).
         if early_audio.is_some() && !ctx.props().edit {
-            prompt_state
-                .borrow_mut()
-                .set_countdown(Some(play_settings.start_countdown));
+            // A scene's play starts a moment after its prompt shows.
+            let countdown = if scene.is_some() {
+                1.0
+            } else {
+                play_settings.start_countdown
+            };
+            prompt_state.borrow_mut().set_countdown(Some(countdown));
         }
         // A song's prompt offers this play's options (not a replay's, drawn
         // with its own, nor a test's); the skins for its skin row come
@@ -771,7 +839,7 @@ impl Component for GameCanvas {
             gamepads,
             needs_gesture: false,
             alive: Rc::new(std::cell::Cell::new(true)),
-            voice: None,
+            voice,
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             stage_contents: Vec::new(),
@@ -815,6 +883,7 @@ impl Component for GameCanvas {
             refused,
             replay_check: None,
             ghost: None,
+            scene,
         }
     }
 
@@ -851,6 +920,16 @@ impl Component for GameCanvas {
         let video = self.settings.video;
         let frame = self.settings.background_frame;
         let slow = ctx.props().slow;
+        let framed = self
+            .scene
+            .as_ref()
+            .map(|sc| crate::studio_scene::FrameSpec {
+                name: sc.name.clone(),
+                voice_label: sc.voice_label.clone(),
+                caption: String::new(),
+                words: sc.words.clone(),
+                lengths: sc.lengths.clone(),
+            });
         spawn_local(async move {
             let result = crate::web::screen::gfx().await.map(|gfx| {
                 gfx.set_mode(SurfaceMode::Scene);
@@ -858,7 +937,7 @@ impl Component for GameCanvas {
                 // again since).
                 let canvas = crate::web::screen::canvas().unwrap_or(canvas);
                 gfx.resize(canvas.width(), canvas.height());
-                let mut game = Box::new(GameLoop::new(gfx, canvas, on_event));
+                let mut game = Box::new(GameLoop::new(gfx, canvas, on_event, framed));
                 game.set_video(video, frame, slow);
                 game
             });
@@ -958,6 +1037,8 @@ impl GameCanvas {
                 }
                 self.song = Status::Ready(song);
                 self.song_at = js_sys::Date::now();
+                // A scene's play staged now: its prompt's caption.
+                self.stage_scene(ctx);
                 // Options changed before the song was read: its skin again.
                 if std::mem::take(&mut self.skin_stale) {
                     self.restart_skin(ctx);
@@ -1143,6 +1224,11 @@ impl GameCanvas {
                     load(ctx, id, chart, self.settings.clone());
                 }
                 true
+            }
+            Msg::BackRequested if self.scene.is_some() => {
+                // A scene leaves at once, whatever shows.
+                self.leave_scene(ctx);
+                false
             }
             Msg::BackRequested => {
                 // During play the session owns the cancel gesture; the
@@ -1343,6 +1429,12 @@ impl GameCanvas {
             // The same play again at once on its sound and music, nothing
             // kept, the backdrop as it was (`docs/PLAN.md` decision 79).
             Msg::Session(SessionEvent::Restart) => {
+                if let Some(sc) = self.scene.as_mut() {
+                    sc.restarted = true;
+                    if let Some(g) = self.game.borrow().as_ref() {
+                        sc.spoken.extend(g.spoken());
+                    }
+                }
                 let session = self
                     .game
                     .borrow_mut()
@@ -1370,6 +1462,14 @@ impl GameCanvas {
                     self.begin_session(ctx, audio, buffer, Default::default(), true);
                 }
                 true
+            }
+            Msg::Session(SessionEvent::SceneOver) => {
+                self.leave_scene(ctx);
+                false
+            }
+            Msg::Session(SessionEvent::Interrupted) if self.scene.is_some() => {
+                self.leave_scene(ctx);
+                false
             }
             Msg::Session(SessionEvent::Interrupted) => {
                 crate::history::set_playing(false);
@@ -1451,11 +1551,25 @@ impl GameCanvas {
             }
             let link = ctx.link().clone();
             let touch = self.touch_seen.clone();
+            let game = self.game.clone();
             let pointer = EventListener::new(root, "pointerdown", move |e| {
-                if let Some(e) = e.dyn_ref::<PointerEvent>()
-                    && !touch.get()
-                    && matches!(e.pointer_type().as_str(), "touch" | "pen")
+                let Some(e) = e.dyn_ref::<PointerEvent>() else {
+                    return;
+                };
+                // A scene's frame over the play: its way back.
+                let back = game
+                    .try_borrow()
+                    .ok()
+                    .and_then(|g| g.as_ref()?.framed.as_ref()?.back_at());
+                let (x, y) = (e.client_x() as f32, e.client_y() as f32);
+                if let Some([l, t, r, b]) = back
+                    && (l..=r).contains(&x)
+                    && (t..=b).contains(&y)
                 {
+                    link.send_message(Msg::BackRequested);
+                    return;
+                }
+                if !touch.get() && matches!(e.pointer_type().as_str(), "touch" | "pen") {
                     touch.set(true);
                     link.send_message(Msg::TouchSeen);
                 }
@@ -1774,7 +1888,11 @@ impl GameCanvas {
         if let Some(o) = &self.options {
             o.borrow().over(&mut s);
         }
-
+        // A scene's play: the gauge and the rules its line wants (never
+        // stored).
+        if let Some(pick) = self.scene.as_ref().and_then(|sc| in_play::pick(sc.line)) {
+            s = pick.settings(&s);
+        }
         s
     }
 
@@ -1927,6 +2045,18 @@ impl GameCanvas {
         {
             config.session.start = crate::editor::playtest(id).map(|(_, start)| start);
         }
+        // A scene's play, staged (its play again after the restart).
+        if let Some(Some(staged)) = self.scene.as_ref().and_then(|sc| {
+            sc.staged
+                .as_ref()
+                .map(|p| p.as_ref().map(|p| (p, sc.restarted)))
+        }) {
+            let (p, restarted) = staged;
+            config.session.staging = Some(match (&p.restarted, restarted) {
+                (Some(again), true) => again.clone(),
+                _ => p.staging.clone(),
+            });
+        }
         config.gamepads = self.gamepads.clone();
         config.touch_canvas = crate::web::screen::canvas();
         // A replay: its log on the lanes, its options and rules, the
@@ -1935,6 +2065,108 @@ impl GameCanvas {
             config.session.set_replay(r);
         }
         (config, chart)
+    }
+
+    /// A scene's play staged, once the song is read, under the rules and
+    /// options it is played with (`in_play::stage`); the frame's caption
+    /// and how long the scene lasts, from it.
+    fn stage_scene(&mut self, ctx: &Context<Self>) {
+        let Some(sc) = self.scene.as_ref().filter(|sc| sc.staged.is_none()) else {
+            return;
+        };
+        let (Status::Ready(song), SongSource::Song { id, .. }) = (&self.song, &ctx.props().source)
+        else {
+            return;
+        };
+        let line = sc.line;
+        let lengths = sc.lengths.clone();
+        let (config, chart) = self.session_config(ctx);
+        let shift = ddi_session::play::song_shift(&self.settings, id, None, false);
+        let play_song = song.song.shifted(shift);
+        let spec = config
+            .session
+            .player_spec(&play_song, chart, &self.settings);
+        let staged = spec.as_ref().ok().and_then(|(rules, options)| {
+            let length = |l: ddi_library::announcer::Line| {
+                l.chain().iter().find_map(|c| lengths.get(c).copied())
+            };
+            in_play::stage(line, &play_song, chart, rules, *options, &length)
+        });
+        // How long it lasts, seconds: to its end (and its results').
+        let seconds = match (&staged, &spec) {
+            (Some(p), Ok((rules, options))) => {
+                let end = p.staging.until.unwrap_or_else(|| {
+                    ddi_engine::player::Player::new(&play_song, chart, rules.fresh(), *options)
+                        .song_end_time()
+                });
+                let results = if p.results {
+                    f64::from(SCENE_RESULTS_MS) / 1000.0
+                } else {
+                    0.0
+                };
+                (end - p.staging.from).max(0.0) / options.clock.rate.max(0.1) + results
+            }
+            _ => 0.0,
+        };
+        if let Some(sc) = self.scene.as_mut() {
+            sc.staged = Some(staged);
+            sc.seconds = seconds;
+        }
+        self.tell_frames();
+    }
+
+    /// A scene's frames (the prompt's, the play's): what happens, and
+    /// how long the scene lasts from the play's start.
+    fn tell_frames(&self) {
+        let Some(sc) = self.scene.as_ref() else {
+            return;
+        };
+        let Some(Some(p)) = sc.staged.as_ref() else {
+            return;
+        };
+        let caption = p.caption.text().to_string();
+        if let Some(f) = self
+            .game
+            .borrow_mut()
+            .as_mut()
+            .and_then(|g| g.framed.as_mut())
+        {
+            f.caption(&caption);
+            f.until(sc.seconds);
+        }
+        if let Some(prompt) = &self.prompt
+            && let Ok(mut h) = prompt.host.try_borrow_mut()
+        {
+            h.ui.broadcast(
+                ddi_ui::Message::new(ddi_ui::screens::stage::CAPTION)
+                    .with("Text", ddi_ui::Param::Str(caption)),
+            );
+            drop(h);
+            crate::components::ui_dev::wake(&prompt.host);
+        }
+    }
+
+    /// The scene is over (its play, or its results): what it said goes to
+    /// the studio, which shows again.
+    fn leave_scene(&mut self, ctx: &Context<Self>) {
+        let Some(mut sc) = self.scene.take() else {
+            return;
+        };
+        sc.leave = None;
+        if let Some(g) = self.game.borrow().as_ref() {
+            sc.spoken.extend(g.spoken());
+        }
+        crate::history::set_playing(false);
+        crate::studio_scene::heard(crate::studio_scene::Heard {
+            line: sc.line,
+            said: sc.said,
+            spoken: sc.spoken,
+        });
+        if let Some(game) = self.game.borrow_mut().as_mut() {
+            game.clear_session();
+        }
+        self.stage = Stage::Aborted;
+        back_route(ctx.props()).return_to();
     }
 
     fn preload_hand(&mut self, ctx: &Context<Self>) {
@@ -2014,6 +2246,8 @@ impl GameCanvas {
         // The prompt's next showing (a retry, an interruption) waits for
         // Start.
         self.prompt_state.borrow_mut().countdown = None;
+        self.stage_scene(ctx);
+        self.tell_frames();
         let Status::Ready(song) = &self.song else {
             return;
         };
@@ -2026,7 +2260,7 @@ impl GameCanvas {
             SongSource::Calibration(_) => 0.0,
         };
         // The best play's ghost beside it, lined up by the song offsets.
-        if self.settings.ghost && self.replay.is_none() {
+        if self.settings.ghost && self.replay.is_none() && self.scene.is_none() {
             config.session.ghost = self.ghost.clone().map(|g| g.for_play(shift));
         }
         // What the history says of the chart before this play, for the
@@ -2034,6 +2268,7 @@ impl GameCanvas {
         if let SongSource::Song { chart, .. } = &ctx.props().source
             && self.replay.is_none()
             && !ctx.props().edit
+            && self.scene.is_none()
         {
             let best =
                 crate::history::plays()
@@ -2448,6 +2683,9 @@ impl GameCanvas {
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
+        if let Some(frame) = self.scene_frame(&env, false) {
+            ui.push_chrome(frame);
+        }
         ui.push(PromptScreen::new(env, self.prompt_state.clone(), act));
         // What tests read: `__DDI_DEBUG.prompt` and `prompt_backdrop`.
         let state = self.prompt_state.clone();
@@ -2464,6 +2702,29 @@ impl GameCanvas {
             }
             Err(e) => web_sys::console::warn_1(&format!("start prompt: {e}").into()),
         }
+    }
+
+    /// A scene's frame (`ddi_ui::screens::stage`) for a screen of the
+    /// page's: its way back leaves the scene; `at_once`, no entrance (the
+    /// play's frame was there before it).
+    fn scene_frame(
+        &self,
+        env: &ddi_ui::screens::Env,
+        at_once: bool,
+    ) -> Option<ddi_ui::screens::stage::StageFrame> {
+        use ddi_ui::screens::stage::StageFrame;
+        let sc = self.scene.as_ref()?;
+        let link = self.shell.link.clone();
+        let back: ddi_ui::screens::stage::BackFn = Rc::new(move |_| {
+            let link = link.clone();
+            spawn_local(async move { link.send_message(Msg::BackRequested) });
+        });
+        let caption = match sc.staged.as_ref() {
+            Some(Some(p)) => p.caption.text().to_string(),
+            _ => String::new(),
+        };
+        let frame = StageFrame::new(env.clone(), &sc.name, &sc.voice_label, &caption, back);
+        Some(if at_once { frame.at_once() } else { frame })
     }
 
     /// Takes the prompt down (and what it said in `__DDI_DEBUG`).
@@ -2653,8 +2914,9 @@ impl GameCanvas {
         facts: crate::play::PlayFacts,
     ) {
         use ddi_ui::state::history::Autoplay;
-        // The editor's playtests are tests, not plays.
-        if ctx.props().edit {
+        // The editor's playtests are tests, not plays; nor are the
+        // announcer studio's scenes.
+        if ctx.props().edit || self.scene.is_some() {
             return;
         }
         let Status::Ready(song) = &self.song else {
@@ -2837,6 +3099,7 @@ impl GameCanvas {
                 replay: Some(play),
                 view_results: false,
                 edit: false,
+                scene: None,
             };
             Rc::new(move |_: &ddi_ui::screens::Env, _: &mut ddi_ui::Cx| {
                 let route = route.clone();
@@ -2862,16 +3125,41 @@ impl GameCanvas {
                 spawn_local(async move { link.send_message(Msg::Retry) });
             })
         };
-        // The song list, or the editor a playtest came from.
+        // The song list, or the editor a playtest came from; a scene's
+        // studio (Retry too).
         let back = back_route(ctx.props());
-        let song_list: ActionFn = Rc::new(move |_, _| {
-            let back = back.clone();
-            spawn_local(async move { back.return_to() });
-        });
+        let song_list: ActionFn = if self.scene.is_some() {
+            let link = ctx.link().clone();
+            Rc::new(move |_, _| {
+                let link = link.clone();
+                spawn_local(async move { link.send_message(Msg::BackRequested) });
+            })
+        } else {
+            Rc::new(move |_, _| {
+                let back = back.clone();
+                spawn_local(async move { back.return_to() });
+            })
+        };
+        let retry = if self.scene.is_some() {
+            song_list.clone()
+        } else {
+            retry
+        };
         let offset = ddi_ui::screens::play::song_offset_saver(id.clone());
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
+        if let Some(frame) = self.scene_frame(&env, true) {
+            ui.push_chrome(frame);
+            // Back to the studio once their line (and its cheer) is said.
+            let link = ctx.link().clone();
+            let leave = gloo::timers::callback::Timeout::new(SCENE_RESULTS_MS, move || {
+                link.send_message(Msg::BackRequested)
+            });
+            if let Some(sc) = self.scene.as_mut() {
+                sc.leave = Some(leave);
+            }
+        }
         ui.push(ResultsScreen::new(
             env.clone(),
             data.clone(),
@@ -3040,6 +3328,9 @@ fn js_debug(
 }
 
 fn back_route(props: &Props) -> Route {
+    if props.scene.is_some() {
+        return Route::Studio;
+    }
     match &props.source {
         SongSource::Song { id, chart } if props.edit => Route::Edit {
             song: id.clone(),

@@ -39,6 +39,7 @@ mod share;
 mod songs;
 mod stage;
 mod stills;
+mod studio_scene;
 mod web;
 
 /// Starts the app in the page (`#app-root`).

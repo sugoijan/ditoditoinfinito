@@ -347,6 +347,7 @@ impl EditorHost for WebEditorHost {
                     replay: None,
                     view_results: false,
                     edit: true,
+                    scene: None,
                 };
                 cx.request(UiRequest::Navigate(route.to_hash()));
             }

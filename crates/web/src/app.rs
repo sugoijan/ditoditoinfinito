@@ -228,6 +228,7 @@ impl App {
                 bias_ms,
                 slow,
                 edit,
+                scene,
                 ..
             } => Box::new(mount::<GameCanvas>(
                 root,
@@ -249,6 +250,7 @@ impl App {
                     },
                     replay: None,
                     edit: *edit,
+                    scene: scene.clone(),
                 },
             )),
             // The chart editor on a song (`docs/plans/editor.md`).
@@ -279,6 +281,7 @@ impl App {
                     backend: BackendPreference::Auto,
                     replay: None,
                     edit: false,
+                    scene: None,
                 },
             )),
             // Credits and calibration's menu, our theme's pages on the
