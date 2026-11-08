@@ -168,6 +168,7 @@ pub mod decode_all;
 pub mod gamepad;
 pub mod history;
 pub mod mp3;
+pub mod ogg_opus;
 #[cfg(feature = "opus")]
 pub mod opus;
 pub mod storage;

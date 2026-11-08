@@ -5,9 +5,10 @@
 //! them; the screen shows it.
 //!
 //! A take is written into the pack as it came where the game reads its
-//! format and it is not tidied, and as a WAV otherwise ([`Write`]):
-//! the shell decodes it, tidies it ([`super::tidy`]) and writes it
-//! ([`crate::wav`]).
+//! format and it is not tidied, and as Opus otherwise, or a WAV where
+//! Opus will not do ([`Write`]): the shell decodes it, tidies it
+//! ([`super::tidy`]) and encodes it (the browser's encoder or
+//! `ddi_platform::opus`) or writes it ([`crate::wav`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -67,7 +68,7 @@ pub enum Format {
     /// Ogg Opus.
     Opus,
     Flac,
-    /// Anything else (M4A, AAC, AIFF, WebM…): written as a WAV.
+    /// Anything else (M4A, AAC, AIFF, WebM…): written anew ([`Write`]).
     Other,
 }
 
@@ -111,6 +112,11 @@ impl Format {
             Format::Flac => Some("flac"),
             Format::Other => None,
         }
+    }
+
+    /// Whether encoding it again would cost it something.
+    fn lossy(self) -> bool {
+        matches!(self, Format::Mp3 | Format::Vorbis | Format::Opus)
     }
 
     /// Whether a pack keeps it as it is: the game reads it, and with
@@ -259,7 +265,10 @@ pub struct Entry {
 pub enum Write {
     /// Its bytes as they came.
     AsIs,
-    /// Decoded and written as a 16-bit WAV, tidied or not.
+    /// Decoded and encoded as Opus, tidied or not.
+    Opus { tidy: bool },
+    /// Decoded and written as a 16-bit WAV, tidied or not: for StepMania,
+    /// which reads no Opus, and a take of more channels than Opus here.
     Wav { tidy: bool },
 }
 
@@ -421,13 +430,18 @@ impl Draft {
         take.tidy.unwrap_or(self.tidy)
     }
 
-    /// How `take` goes into the pack.
+    /// How `take` goes into the pack. One that is compressed already and
+    /// was tidied before is not encoded again, so that opening a pack and
+    /// exporting it costs its sounds nothing.
     pub fn write_of(&self, take: &Take) -> Write {
         let tidy = self.tidies(take);
-        if !tidy && take.format.kept(self.stepmania) {
+        let settled = take.format.lossy() && take.measure().is_some_and(|m| m.already_tidy());
+        if (!tidy || settled) && take.format.kept(self.stepmania) {
             Write::AsIs
-        } else {
+        } else if self.stepmania || take.measure().is_some_and(|m| m.channels > 2) {
             Write::Wav { tidy }
+        } else {
+            Write::Opus { tidy }
         }
     }
 
@@ -474,7 +488,8 @@ impl Draft {
     }
 
     /// The files an export writes, and their bytes as near as is known
-    /// before writing them (a WAV's from its length once decoded).
+    /// before writing them (a sound written anew: from its length, once
+    /// decoded).
     pub fn size(&self) -> (usize, u64) {
         let mut files = 0;
         let mut bytes = 0;
@@ -482,11 +497,15 @@ impl Draft {
             files += 1;
             bytes += match (self.write_of(t), t.measure()) {
                 (Write::AsIs, _) => t.bytes,
+                (Write::Opus { .. }, Some(m)) => {
+                    let s = self.seconds(t).unwrap_or(m.seconds);
+                    ddi_platform::ogg_opus::len(s, usize::from(m.channels))
+                }
                 (Write::Wav { .. }, Some(m)) => {
                     let s = self.seconds(t).unwrap_or(m.seconds);
                     crate::wav::len((s * f64::from(m.rate)).round() as u64, m.channels)
                 }
-                (Write::Wav { .. }, None) => t.bytes,
+                (Write::Opus { .. } | Write::Wav { .. }, None) => t.bytes,
             };
         }
         (files, bytes)
@@ -526,6 +545,7 @@ impl Draft {
                 let write = self.write_of(t);
                 let ext = match write {
                     Write::AsIs => t.format.extension().unwrap_or("wav"),
+                    Write::Opus { .. } => "opus",
                     Write::Wav { .. } => "wav",
                 };
                 let base = Some(file_safe(stem(t.file_name())))

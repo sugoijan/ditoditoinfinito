@@ -112,15 +112,61 @@ fn a_take_is_kept_as_it_came_unless_tidied_or_unread_by_the_game() {
     let m4a = d.add("cheer.m4a", 1, M4A);
     let opus = d.add("cleared.opus", 1, &ogg(b"OpusHead"));
     let write = |d: &Draft, id| d.write_of(d.take(id).unwrap());
-    assert_eq!(write(&d, mp3), Write::Wav { tidy: true });
+    assert_eq!(write(&d, mp3), Write::Opus { tidy: true });
     d.tidy = false;
     assert_eq!(write(&d, mp3), Write::AsIs);
-    assert_eq!(write(&d, m4a), Write::Wav { tidy: false });
+    assert_eq!(write(&d, m4a), Write::Opus { tidy: false });
     assert_eq!(write(&d, opus), Write::AsIs);
     d.stepmania = true;
     assert_eq!(write(&d, opus), Write::Wav { tidy: false });
     d.take_mut(mp3).unwrap().tidy = Some(true);
     assert_eq!(write(&d, mp3), Write::Wav { tidy: true });
+}
+
+#[test]
+fn a_compressed_take_tidied_before_is_not_encoded_again() {
+    let mut d = Draft::default();
+    let opus = d.add("ready.opus", 1, &ogg(b"OpusHead"));
+    let mut wav = b"RIFF\x24\x00\x00\x00WAVEfmt ".to_vec();
+    wav.resize(64, 0);
+    let wave = d.add("cheer.wav", 1, &wav);
+    let with = |d: &mut Draft, id, m| {
+        d.take_mut(id).unwrap().sound = Sound::Read(m);
+        d.write_of(d.take(id).unwrap())
+    };
+    let tidied = measure(1.0, 0.01, 0.97);
+    let opus_as = Write::Opus { tidy: true };
+    assert_eq!(with(&mut d, opus, tidied), Write::AsIs);
+    // A WAV is ten times smaller encoded, and loses next to nothing.
+    assert_eq!(with(&mut d, wave, tidied), opus_as);
+    // Something for tidying to do.
+    assert_eq!(with(&mut d, opus, measure(1.0, 0.1, 0.97)), opus_as);
+    assert_eq!(with(&mut d, opus, measure(1.0, 0.01, 0.8)), opus_as);
+    let louder = Measure {
+        gain: 1.2,
+        ..tidied
+    };
+    assert_eq!(with(&mut d, opus, louder), opus_as);
+    // StepMania reads no Opus, however tidy.
+    d.stepmania = true;
+    assert_eq!(with(&mut d, opus, tidied), Write::Wav { tidy: true });
+}
+
+#[test]
+fn a_take_of_more_channels_than_opus_here_stays_a_wav() {
+    let mut d = Draft::default();
+    let id = d.add("ready.mp3", 1, MP3);
+    let with = |d: &mut Draft, channels| {
+        d.take_mut(id).unwrap().sound = Sound::Read(Measure {
+            channels,
+            ..measure(2.0, 0.5, 1.5)
+        });
+        d.write_of(d.take(id).unwrap())
+    };
+    assert_eq!(with(&mut d, 1), Write::Opus { tidy: true });
+    assert_eq!(with(&mut d, 2), Write::Opus { tidy: true });
+    assert_eq!(with(&mut d, 6), Write::Wav { tidy: true });
+    assert!(d.export().entries[0].path.ends_with(".wav"));
 }
 
 #[test]
@@ -181,7 +227,8 @@ fn tone() -> Vec<f32> {
 }
 
 /// The zip an export writes, the shell's part done here: each take's
-/// bytes as they came, or its tone tidied and written as a WAV.
+/// bytes as they came, its tone tidied and written as a WAV, or a stand-in
+/// for what an encoder makes of it.
 fn zip_of(d: &Draft, bytes: &BTreeMap<u64, Vec<u8>>) -> Vec<u8> {
     let export = d.export();
     let mut files: Vec<(String, Vec<u8>)> = export
@@ -190,6 +237,15 @@ fn zip_of(d: &Draft, bytes: &BTreeMap<u64, Vec<u8>>) -> Vec<u8> {
         .map(|e| {
             let data = match e.write {
                 Write::AsIs => bytes[&e.take].clone(),
+                Write::Opus { .. } => ddi_platform::ogg_opus::write(
+                    ddi_platform::ogg_opus::Stream {
+                        channels: 1,
+                        pre_skip: 0,
+                        frames: 960,
+                    },
+                    &[[31 << 3, 0]],
+                )
+                .unwrap(),
                 Write::Wav { tidy } => {
                     let t = tone();
                     let out = if tidy {
@@ -243,7 +299,7 @@ fn an_export_imports_as_it_was_made() {
             "Announcers/ガキン さん 2/gameplay ready/Gameplay_Ready_2.mp3",
             "Announcers/ガキン さん 2/gameplay ready/ready.mp3",
             "Announcers/ガキン さん 2/gameplay 100 combo/100 combo.opus",
-            "Announcers/ガキン さん 2/evaluation cheer/cheer.wav",
+            "Announcers/ガキン さん 2/evaluation cheer/cheer.opus",
         ]
     );
     assert_eq!(
@@ -274,9 +330,12 @@ fn an_export_imports_as_it_was_made() {
     );
     assert_eq!(a.report.ignored, 0);
     assert!(a.report.empty.is_empty() && a.unknown.is_empty());
-    // Tidied, every take is a WAV.
+    // Tidied, every take is Opus, and a WAV for StepMania.
     d.tidy = true;
+    assert!(d.export().entries.iter().all(|e| e.path.ends_with(".opus")));
+    d.stepmania = true;
     assert!(d.export().entries.iter().all(|e| e.path.ends_with(".wav")));
+    d.stepmania = false;
     // Unnamed: a folder all the same.
     assert_eq!(Draft::default().export().file_name, "Announcer.zip");
 }
@@ -316,12 +375,16 @@ fn a_draft_is_kept_as_json() {
 }
 
 #[test]
-fn the_size_counts_wavs_by_their_length() {
+fn the_size_counts_what_is_written_anew_by_its_length() {
     let mut d = Draft::default();
     let id = d.add("ready.mp3", 1000, MP3);
     d.take_mut(id).unwrap().sound = Sound::Read(measure(2.0, 0.5, 1.5));
-    // Tidied: a second at 48 kHz, mono, 16-bit.
+    // Tidied: a second of Opus…
+    assert_eq!(d.size(), (1, ddi_platform::ogg_opus::len(1.0, 1)));
+    // …or, for StepMania, a second at 48 kHz, mono, 16-bit.
+    d.stepmania = true;
     assert_eq!(d.size(), (1, 44 + 96_000));
+    d.stepmania = false;
     d.tidy = false;
     assert_eq!(d.size(), (1, 1000));
     assert!(!d.too_big());

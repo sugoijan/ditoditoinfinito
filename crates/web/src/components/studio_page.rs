@@ -16,7 +16,8 @@
 //!   context made in the press, tidied as it will go in the pack, at the
 //!   announcer's share of the music volume.
 //! - **Export** writes the zip (each take as it came, or decoded, tidied
-//!   and written as a WAV), then Save downloads it in its press. **Use in
+//!   and encoded as Opus, the browser's encoder first, `web::opus`), then
+//!   Save downloads it in its press. **Use in
 //!   the game** stores the same files as an imported announcer
 //!   (`crate::announcers::store`), to choose under Options.
 //!
@@ -314,6 +315,8 @@ impl Studio {
             );
             let write = match draft.write_of(t) {
                 Write::AsIs => "as-is",
+                Write::Opus { tidy: true } => "opus-tidied",
+                Write::Opus { tidy: false } => "opus",
                 Write::Wav { tidy: true } => "wav-tidied",
                 Write::Wav { tidy: false } => "wav",
             };
@@ -339,6 +342,9 @@ impl Studio {
             view.playing.as_deref().map_or(JsValue::NULL, JsValue::from),
         );
         set(&o, "examples", view.examples.key().into());
+        let (by_browser, by_ours) = crate::web::opus::encoded();
+        set(&o, "opusByBrowser", by_browser.into());
+        set(&o, "opusByOurs", by_ours.into());
         set(
             &o,
             "target",
@@ -833,6 +839,13 @@ impl Studio {
                     .get(&e.take)
                     .cloned()
                     .ok_or_else(|| format!("{}: its file is gone", e.path))?,
+                Write::Opus { tidy } => {
+                    let (pcm, rate) = self.pcm(e.take, tidy).await?;
+                    let file = crate::web::opus::encode(&pcm, rate)
+                        .await
+                        .map_err(|x| format!("{}: {x}", e.path))?;
+                    files::bytes_blob(&file, "audio/ogg")?
+                }
                 Write::Wav { tidy } => {
                     let (pcm, rate) = self.pcm(e.take, tidy).await?;
                     files::bytes_blob(&ddi_library::wav::write(&pcm, rate), "audio/wav")?

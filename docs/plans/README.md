@@ -77,17 +77,17 @@ architecture, the decisions and the roadmap they belong to. Status as of
   own made with Kokoro, `Mr. Clank` and `ガキンさん` (every line, from
   `tools/announcer-design/pack.toml` and `pack-ja.toml`), bundled
   2026-11-06; the announcer is Off by default.
-- [Announcer studio](announcer-studio.md) (2026-11-06): steps 1 to 5
-  done (the draft; the web's page at `#/announcer`; the scenes on song
-  select and the results, 2026-11-07; the scenes in play and desktop,
-  2026-11-08), the encoder for later;
+- [Announcer studio](announcer-studio.md) (2026-11-06): done (the draft;
+  the web's page at `#/announcer`; the scenes on song select and the
+  results, 2026-11-07; the scenes in play, desktop and the encoder,
+  2026-11-08);
   web first, for authors who only play the game. They record with their own
   app; the recordings are picked or dropped onto their lines, with
   examples in English and Japanese, tidied, and each line heard in a
   staged scene of the game (song select, a play, the results). The pack
   is exported as a zip that Add songs imports as it is: tidied takes in
-  WAV, then Opus once the encoder comes; StepMania's formats only under
-  an Advanced checkbox, off by default. Desktop follows with its
+  Opus, the browser's encoder first and `rusty-opus` behind it;
+  StepMania's formats only under an Advanced checkbox, off by default. Desktop follows with its
   pickers, no drop.
 - [Play HUD](play-hud.md) (2026-10-29): done; accepted study ported
   to the shared renderer and checked offscreen. Life trails, Iosevka type,

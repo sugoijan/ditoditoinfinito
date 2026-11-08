@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "DitoDitoInfinito: the web's Ogg Opus fallback decoder, a worker fetched only when a browser cannot decode Opus"
+description = "DitoDitoInfinito: the web's Ogg Opus fallback, a worker fetched only when a browser cannot decode or encode Opus"
 
 # Trunk builds it into the site as a worker (index.html, `data-type="worker"`);
 # the web shell starts it only when `decodeAudioData` rejects an Ogg Opus

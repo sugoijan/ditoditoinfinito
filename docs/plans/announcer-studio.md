@@ -2,9 +2,9 @@
 
 Status: steps 1 and 2 done 2026-11-06 (the draft; the screen on the web), step 3
 2026-11-07 (the scenes on song select and the results), step 4 2026-11-08
-(the scenes in play, on the web), step 5 2026-11-08 (desktop); step 6 (the
-encoder) for later. A screen for someone recording an announcer in an app of
-their own:
+(the scenes in play, on the web), step 5 2026-11-08 (desktop), step 6
+2026-11-08 (the encoder): done. A screen for someone recording an announcer in
+an app of their own:
 
 - Their recordings come in through a picker or by dropping them.
 - Each recording is put on the line it is.
@@ -119,11 +119,11 @@ playtest.
    - **Untidied takes keep their bytes.** That covers MP3, WAV and
      Ogg (Vorbis or Opus), plus `.opus` and FLAC files, which the import
      learns to read: both shells already decode them.
-   - **Tidied takes, and everything else,** are written as 16-bit WAV
-     until the encoder comes (step 6), then as Opus. M4A/AAC is
-     converted because desktop does not decode it. WAV is large, about
-     10 MB a minute of stereo speech, but well inside the import's
-     128 MB.
+   - **Tidied takes, and everything else,** are written as Opus (step
+     6), about a tenth of a 16-bit WAV's size. M4A/AAC is converted
+     because desktop does not decode it. A take of more than two
+     channels stays a WAV. A compressed take that was tidied before
+     keeps its bytes, so a pack opened again and exported loses nothing.
    - **Advanced → Also for StepMania** (off by default) keeps the
      formats StepMania reads: MP3, WAV and Ogg Vorbis. Anything else is
      written as WAV.
@@ -153,7 +153,8 @@ playtest.
    - the sounds in `Announcers/<Name>/<line folder>/`, the layout our
      import takes whatever lines a pack holds (it is also StepMania's);
    - entries stored rather than compressed, names in UTF-8, and fixed
-     times, so the same draft gives the same bytes;
+     times, so the same draft gives the same bytes with the same encoder
+     (each browser's own differs; ours is the same everywhere);
    - a `README.txt` with the name, author and license typed in (the
      author and license under Advanced), which the import passes over
      and the studio reads back.
@@ -605,7 +606,7 @@ tests over a fake shell (`scene/director/tests.rs`); web scenes in
 headless Chrome again after moving onto it (`studio-examples.mjs`,
 `studio-frame.mjs`, `studio-scene-exits.mjs`, `studio-play.mjs`).
 
-## Step 6 (low priority, for later). The encoder
+## Step 6. The encoder
 
 Tidied takes are written as Opus, a tenth of WAV's size or less, which
 makes Opus the default. It works the way decoding does, the platform's
@@ -622,6 +623,61 @@ encoder first and our own behind it:
   `.opus`.
 - **Also for StepMania** keeps writing WAV. A small pack StepMania reads
   would need a bundled Vorbis or MP3 encoder: not planned.
+
+**Done 2026-11-08.**
+
+- **The file** (`ddi_platform::ogg_opus`, on every target, no codec):
+  `OpusHead`, `OpusTags`, then pages of at most a second, the last one's
+  granule ending the sound on its exact frame. A packet's length comes
+  from its own first bytes, not from what an encoder says of it. Packets
+  wholly past the end are left out, as a browser's encoder runs on after
+  its input. The serial number and vendor string are fixed, so the same
+  packets give the same bytes.
+- **Rates:** 64 kbit/s mono, 96 stereo, variable; 20 ms packets. Both
+  shells decode takes at 48 kHz, which is Opus's own, so nothing is
+  resampled for it.
+- **Ours** (`ddi_platform::opus::encode`, desktop on its export's thread
+  and the web in the Opus worker) asks for CELT alone
+  (`Application::RestrictedLowDelay`). Its delay is then 120 frames
+  whatever is said, measured; `rusty-opus` has no call that says it. On
+  these voices the automatic mode chose CELT for every packet and gave
+  the same bytes.
+- **The browser's** (`web::opus::encode`) is asked for the same rates;
+  its pre-skip is the `OpusHead` it gives in its metadata (312 in Chrome
+  and Firefox), or libopus's usual 312 where it gives none. A browser
+  without one, one refusing the configuration and one failing midway all
+  go on to the worker, with a warning in the console for the last. The
+  worker grew from 399 to 672 KB raw (178 to 298 KB gzip, 151 to 251 KB
+  brotli) and is still fetched only when it is needed; the app itself
+  gained only the file's writer and the calls to `AudioEncoder`.
+- **Size told beforehand** (`Draft::size`, for the import's 128 MB) is
+  estimated from the length and the bit rate.
+- **Encoded once.** Tidying and encoding a take and measuring the result
+  again finds at most 10 ms to cut at the start, 30 ms at the end and
+  0.36 dB to change, over the 334 sounds of our packs and test voices.
+  A take within a little more than that (`Measure::already_tidy`) that
+  is compressed already keeps its bytes.
+
+Checked: `ogg_opus`'s and `opus`'s tests, among them each page's CRC,
+the lacing at whole 255s, the second-long pages, the end's trimming,
+every length around the frames' and the delay's edges, the start found
+at lag 0, no panics on samples no sound has, the same bytes each time.
+`ffmpeg`'s own decoder and libopus's read our encoder's files
+frame-exactly, at lag 0, as near the original as libopus's encoder at the
+same bit rate (22 to 27 dB of SNR, mono; correlation 0.996 to 0.999) and
+about as large or smaller. Desktop's offscreen test exports, decodes each file back at
+its tidied length and a tenth of its WAV, and with Also for StepMania
+gets WAVs alone. In headless Chrome and Firefox
+(`target/scratch/ann/studio-opus.mjs`, not committed), each by its own
+encoder and each by ours (`__DDI_FORCE_WASM_ENCODE`), and in Chrome with
+`AudioEncoder` removed, refusing, throwing on configure and on encode:
+every file the right length, starting on the recording's own frame, read
+by `decodeAudioData` and by `ffmpeg`, 10 to 16 times smaller than its
+WAV. Ours gives the same bytes in both browsers. A pack from each encoder,
+imported through Add songs and chosen, spoke its lines in a real play
+(Chrome and Firefox). Playwright's WebKit could not be run here (the
+installed revision no longer matches its driver), so Safari is the
+maintainer's to try.
 
 ## Not taken
 

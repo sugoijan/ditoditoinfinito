@@ -16,6 +16,7 @@ use ddi_desktop::library::announcers;
 use ddi_desktop::library::files::ZipReader;
 use ddi_desktop::studio::Studio;
 use ddi_library::announcer::draft::Sound;
+use ddi_library::announcer::tidy;
 use ddi_library::announcer::{Comment, Grade, Line, find_announcers};
 use ddi_platform::HostTime;
 use ddi_platform::storage::{self, MemoryStore};
@@ -271,6 +272,60 @@ fn the_studio_on_desktop() {
     let kept = found.announcers[0].kept();
     assert_eq!(kept.name, "Voice");
     assert_eq!(kept.lines.len(), 12, "{:?}", kept.lines);
+
+    // What is tidied went in as Opus, as long as it is tidied: a tenth
+    // of its WAV, and read by the decoder the game plays it with.
+    let opus: Vec<_> = read
+        .names
+        .iter()
+        .filter(|n| n.to_string().ends_with(".opus"))
+        .collect();
+    assert_eq!(opus.len(), 13, "{:?}", read.names);
+    for name in opus {
+        let mut bytes = Vec::new();
+        read.extract_to(name, &mut bytes).unwrap();
+        let back = ddi_platform::decode_all::decode(&bytes, Some("opus")).unwrap();
+        let from = name.to_string();
+        let file = from.rsplit('/').next().unwrap();
+        let stem = file.strip_suffix(".opus").unwrap();
+        let take = draft
+            .takes
+            .iter()
+            .find(|t| t.file_name().starts_with(stem))
+            .unwrap();
+        let measured = take.measure().unwrap();
+        let frames = measured.tidied_seconds() * 48_000.0;
+        assert_eq!(back.sample_rate, 48_000, "{from}");
+        assert_eq!(
+            back.channels.len(),
+            usize::from(measured.channels),
+            "{from}"
+        );
+        assert!((back.frames() as f64 - frames).abs() <= 1.0, "{from}");
+        assert!(bytes.len() * 10 < 44 + back.frames() * back.channels.len() * 2 + 2_000);
+        // Opened again, it is not encoded a second time.
+        let planes: Vec<&[f32]> = back.channels.iter().map(Vec::as_slice).collect();
+        assert!(tidy::measure(&planes, 48_000).already_tidy(), "{from}");
+    }
+
+    // For StepMania: its formats, WAVs where it was Opus.
+    studio.act(Act::StepMania);
+    let wavs = dir.join("out").join("For StepMania.zip");
+    ddi_desktop::os::inject_saved(Some(wavs.clone()));
+    studio.act(Act::Export);
+    t.settled();
+    let read = ZipReader::open(&wavs, &ddi_desktop::library::legacy_text).unwrap();
+    assert!(
+        read.names
+            .iter()
+            .filter(|n| n.to_string().ends_with(".wav"))
+            .count()
+            == 13
+            && !read.names.iter().any(|n| n.to_string().ends_with(".opus")),
+        "{:?}",
+        read.names
+    );
+    studio.act(Act::StepMania);
 
     // Use in the game: listed beside the song folders', played from there.
     assert!(announcers::made().is_empty());

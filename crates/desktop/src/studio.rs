@@ -10,7 +10,8 @@
 //!   there is no drop, as desktop's importer has none.
 //! - **Decoded** at 48 kHz on a thread, measured for the tidy, and played
 //!   on song select's sound, tidied as it will go in the pack.
-//! - **Export** asks where with a save dialog and writes the zip. **Use
+//! - **Export** asks where with a save dialog and writes the zip, what
+//!   is written anew encoded as Opus. **Use
 //!   in the game** writes the announcer into the data folder's
 //!   `announcers/`, listed beside the song folders' from then on.
 //! - **Hear it in the game** is the shared scenes'
@@ -403,7 +404,7 @@ fn entry_bytes(dir: &Path, e: PackEntry) -> Result<(String, Vec<u8>), String> {
     let read = |f: &Path| std::fs::read(f).map_err(|x| format!("{}: {x}", e.path));
     let bytes = match e.write {
         Write::AsIs => read(&file)?,
-        Write::Wav { tidy: tidied } => {
+        Write::Opus { tidy: tidied } | Write::Wav { tidy: tidied } => {
             let sound = match e.decoded {
                 Some(s) => s,
                 None => crate::audio::decoder::sound(
@@ -415,7 +416,13 @@ fn entry_bytes(dir: &Path, e: PackEntry) -> Result<(String, Vec<u8>), String> {
             };
             let measure = e.measure.filter(|_| tidied);
             let shaped = shaped(&sound, measure.as_ref());
-            ddi_library::wav::write(&planar(&shaped), shaped.rate)
+            let pcm = planar(&shaped);
+            if matches!(e.write, Write::Opus { .. }) {
+                ddi_platform::opus::encode(&pcm, shaped.rate)
+                    .map_err(|x| format!("{}: {x}", e.path))?
+            } else {
+                ddi_library::wav::write(&pcm, shaped.rate)
+            }
         }
     };
     Ok((e.path, bytes))

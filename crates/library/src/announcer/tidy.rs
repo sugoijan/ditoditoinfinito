@@ -31,6 +31,12 @@ const VOICED_DB: f64 = -30.0;
 /// The level our packs are made at.
 pub const VOICED_RMS_DB: f64 = -18.0;
 const PEAK_DB: f64 = -1.0;
+/// How far from where tidying would put them a take's ends and level may
+/// be and it count as tidy already: what a tidied, encoded file measures
+/// when read back (the most of 334 of ours: 10 ms, 30 ms and 0.36 dB).
+const TIDY_START: f64 = 0.02;
+const TIDY_END: f64 = 0.04;
+const TIDY_DB: f64 = 0.5;
 /// A sample this close to full scale, three in a row: it clipped.
 const FULL_SCALE: f32 = 0.999;
 const CLIP_RUN: usize = 3;
@@ -61,6 +67,14 @@ impl Measure {
     /// The gain in dB (positive: made louder).
     pub fn gain_db(&self) -> f64 {
         20.0 * f64::from(self.gain.max(1e-9)).log10()
+    }
+
+    /// Whether tidying would leave it about as it is: a take tidied
+    /// before, which a pack opened again brings back.
+    pub fn already_tidy(&self) -> bool {
+        self.start <= TIDY_START
+            && self.seconds - self.end <= TIDY_END
+            && self.gain_db().abs() <= TIDY_DB
     }
 }
 

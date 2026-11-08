@@ -115,7 +115,9 @@ Rust and the browser are implementation details, not advertised features.
   the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,
   `crates/platform/src/mp3.rs`), Ogg Opus through `rusty-opus` (BSD-3-Clause)
   behind `opus` (`crates/platform/src/opus.rs`: the web's Opus worker and
-  desktop's decoder) and, behind `decode-all` (the
+  desktop's decoder, and the encoder behind the announcer studio's packs;
+  the Ogg file around any encoder's packets, `ogg_opus.rs`, on every
+  target) and, behind `decode-all` (the
   desktop's), every format a simfile's music comes in: MP3 as StepMania
   5.1 decodes it (`crates/platform/src/decode_all.rs`), resampling with rubato.
 - `crates/opus-worker/` the web's Ogg Opus fallback (`ddi-opus-worker`, PLAN.md
@@ -129,7 +131,10 @@ Rust and the browser are implementation details, not advertised features.
   browser cannot decode an Ogg Opus file (the module compiled once a
   session and handed to a worker a decode; one that has not started in
   25 s fails); it sends back a float WAV at 48 kHz that
-  `decodeAudioData` resamples. Empty natively.
+  `decodeAudioData` resamples. It also encodes the announcer studio's
+  takes where the browser has no `AudioEncoder` or it fails
+  (`web::opus::encode`; `__DDI_FORCE_WASM_ENCODE` to test it). Empty
+  natively.
 - `crates/svg-worker/` skins' SVG images on the web (`ddi-svg-worker`,
   `docs/plans/noteskin-svg.md`): a worker Trunk builds beside the app
   (`xtask stage-svg` names its files by their hash, index.html's
