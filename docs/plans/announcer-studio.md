@@ -138,7 +138,15 @@ playtest.
    - a bundled song.
 
    A scene starts a few seconds before its moment and ends after its
-   line, back in the studio.
+   line, back in the studio. It opens where the game would be just
+   before the line, so a screen long gone by then is not shown: only
+   Ready and Here we go come through the pre-start screen, the other
+   lines said in play open in the play, four seconds before the moment,
+   and a results line opens on the results.
+
+   The line being heard is the example: what the game says around it
+   is quieter (a third of its volume) and shows no words. What speaks
+   in its place, where it has no recording, is the example too.
 8. **Nothing is lost.**
    - The draft is saved as it changes, on the web in IndexedDB with
      persistent storage asked for, and opens where it was left. While
@@ -377,9 +385,9 @@ what it is shown with made in `ddi_session::announcer::scene`:
   play that is a new record or a first clear the draft says. The line
   is `Announcer::results`' choice over it, on a sound of the scene's
   own made in the press, as the results open. A new record's and a
-  first clear's come from song select first, the chart's best before
-  the play on it (the score beaten, cleared; failed), the chart chosen
-  on it; song select says nothing there.
+  first clear's open on the results like the others (they came from
+  song select first until 2026-11-08, but a whole play lies between
+  those two screens).
 - **In a frame** (the maintainer, 2026-11-07: a scene should read as
   something shown, a video of it but not quite, with what comes before
   it and what the line is said for pointed at). The game's screens are
@@ -518,7 +526,9 @@ play on Beatucada's Medium in Single, shown in the studio's frame:
   results lines, decoded first where the page opened again, or our
   pack's) is handed over (`crate::studio_scene`), and the play route
   opens on `scene=<line>`: its settings the pick's (never stored), its
-  start prompt in the frame a second, then the staged play, drawn into
+  start prompt in the frame a second (Ready's and Here we go's; the
+  others start at once, no card, `PromptState::no_card`), then the
+  staged play, drawn into
   a texture of its own (as Options' field preview draws) that a small UI
   of the game loop's shows in the frame (`ddi_ui::screens::stage::Picture`
   under the same `StageFrame`), the words of each line as it starts, the

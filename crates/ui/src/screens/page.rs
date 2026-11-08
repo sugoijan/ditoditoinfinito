@@ -97,6 +97,9 @@ pub struct Action {
     pub id: String,
     pub label: String,
     pub primary: bool,
+    /// Grayed out: it takes the focus and does nothing, as the start
+    /// menu's Multiplayer does.
+    pub off: bool,
 }
 
 impl Action {
@@ -105,11 +108,18 @@ impl Action {
             id: id.into(),
             label: label.into(),
             primary: false,
+            off: false,
         }
     }
 
     pub fn primary(mut self) -> Action {
         self.primary = true;
+        self
+    }
+
+    /// Grayed out when `off` ([`Action::off`]).
+    pub fn off(mut self, off: bool) -> Action {
+        self.off = off;
         self
     }
 }
@@ -207,6 +217,7 @@ enum RowKind {
         item: usize,
         label: String,
         primary: bool,
+        off: bool,
         indent: f32,
     },
     /// A field: its label, then its box.
@@ -225,6 +236,8 @@ enum RowKind {
 enum Item {
     Link(String),
     Button(String),
+    /// A button grayed out: focused, never pressed.
+    Off(String),
     Fold(String),
     Field(String),
 }
@@ -468,6 +481,7 @@ impl PageScreen {
                             item,
                             label: label.clone(),
                             primary: *primary,
+                            off: false,
                             indent,
                         },
                     });
@@ -501,7 +515,11 @@ impl PageScreen {
                             *y += ACTION_H + ACTION_GAP;
                         }
                         let item = items.len();
-                        items.push(Item::Button(a.id.clone()));
+                        items.push(if a.off {
+                            Item::Off(a.id.clone())
+                        } else {
+                            Item::Button(a.id.clone())
+                        });
                         rows.push(Row {
                             y: *y,
                             h: ACTION_H,
@@ -509,6 +527,7 @@ impl PageScreen {
                                 item,
                                 label: a.label.clone(),
                                 primary: a.primary,
+                                off: a.off,
                                 indent: x,
                             },
                         });
@@ -723,6 +742,7 @@ impl PageScreen {
                     item,
                     label,
                     primary,
+                    off,
                     indent,
                 } => {
                     // The primary button's label is larger; a row of
@@ -736,7 +756,11 @@ impl PageScreen {
                     .min(w - indent);
                     let mut b = look::component_or(
                         &*env.look,
-                        if *primary { "PlayButton" } else { "Button" },
+                        match (*off, *primary) {
+                            (true, _) => "Button.Disabled",
+                            (false, true) => "PlayButton",
+                            (false, false) => "Button",
+                        },
                         "Button",
                         &Spec::new([bw, r.h], label),
                     );
@@ -1046,7 +1070,8 @@ impl PageScreen {
                     self.typing = Some(id);
                 }
             }
-            None => {}
+            // Grayed out: focused, and that is all.
+            Some(Item::Off(_)) | None => {}
         }
         self.rebuild_column(root);
     }
@@ -1142,7 +1167,7 @@ impl PageScreen {
     fn item_key(item: &Item) -> String {
         match item {
             Item::Link(u) => format!("link:{u}"),
-            Item::Button(b) => format!("button:{b}"),
+            Item::Button(b) | Item::Off(b) => format!("button:{b}"),
             Item::Fold(f) => format!("fold:{f}"),
             Item::Field(f) => format!("field:{f}"),
         }

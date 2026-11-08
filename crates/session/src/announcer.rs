@@ -429,6 +429,9 @@ pub struct Announcer<B> {
     timing: Timing,
     /// The first note's song second.
     first_note: Option<f64>,
+    /// The line a scene of the announcer studio's is for: what is not it
+    /// is said quieter.
+    example: Option<Line>,
     /// What opens the play: `gameplay ready`, or after a quick restart
     /// `gameplay restart` (ours, ready where the pack lacks it).
     opening: Line,
@@ -471,6 +474,7 @@ impl<B> Announcer<B> {
             on,
             timing,
             first_note,
+            example: None,
             opening: Line::Ready,
             opened: false,
             go_after: None,
@@ -498,6 +502,13 @@ impl<B> Announcer<B> {
         self.opened |= danced;
         self.combo = combo;
         self.since = since.max(0.0);
+        self
+    }
+
+    /// A scene of the announcer studio's for the line `example`: what is
+    /// not that example is said quieter ([`scene::example_volume`]).
+    pub fn for_example(mut self, example: Option<Line>) -> Announcer<B> {
+        self.example = example;
         self
     }
 
@@ -533,7 +544,11 @@ impl<B> Announcer<B> {
             let Some((found, sound)) = voice.next(line) else {
                 continue;
             };
-            if audio.play_voice(sound, at, self.volume).is_ok() {
+            let volume = match self.example {
+                Some(example) => scene::example_volume(example, found, self.volume),
+                None => self.volume,
+            };
+            if audio.play_voice(sound, at, volume).is_ok() {
                 self.report.spoken.push((found.folder(), at));
                 return true;
             }

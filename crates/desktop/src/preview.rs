@@ -194,11 +194,11 @@ impl Player {
     pub fn announce_menu(&mut self, line: Line) -> Option<StagedLine> {
         if let Some(s) = self.staged.as_mut() {
             let told = s.told.clone();
-            let share = s.share;
             let found = s.voice.next(line).map(|(f, b)| (f, b.clone()));
+            let volume = found.as_ref().map_or(s.share, |(f, _)| s.volume(*f));
             let spoke = found.map(|(found, sound)| {
                 let at = self.audio.context_time() + LEAD;
-                self.audio.play_voice_sound(&sound, at, share);
+                self.audio.play_voice_sound(&sound, at, volume);
                 self.spoken.push(found.folder());
                 (found, sound.duration())
             });

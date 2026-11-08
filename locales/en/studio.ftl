@@ -641,14 +641,6 @@ studio-caption-cheer-record = A play graded { $grade }, a better score than ever
 #   $grade (String) - the grade as the ruleset names it ("AA", "S+")
 studio-caption-cheer-first-clear = A play graded { $grade }, cleared for the first time: the cheer follows its line.
 
-# Song select before the play of a first clear's scene.
-studio-caption-before-failed = Before the play: this chart was only ever failed.
-
-# Song select before the play of a new record's scene.
-# Variables:
-#   $score (String) - the chart's best score as song select shows it ("90.15%")
-studio-caption-before-best = Before the play: this chart's best is { $score }.
-
 ## The captions of a line's scene in play: the real play, autoplayed from
 ## a few seconds before the moment.
 

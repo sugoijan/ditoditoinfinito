@@ -1378,6 +1378,12 @@ impl Look for Infinito {
                 button
             }
             "Button" => self.button(spec, "Plate2", "Text", 15.0, 600),
+            "Button.Disabled" => {
+                let mut button = self.button(spec, "Plate2", "Muted", 15.0, 600);
+                command_of(&mut button, "Press", "stoptweening;zoom,1");
+                command_of(&mut button, "Release", "stoptweening;zoom,1");
+                button
+            }
             "Prompt.Start" => {
                 let mut color = self.c("Accent");
                 color[3] = 0.32;

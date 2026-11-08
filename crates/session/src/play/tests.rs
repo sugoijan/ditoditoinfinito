@@ -2143,7 +2143,8 @@ fn each_play_lines_scene_says_it() {
             };
             match (&event, &scene.restarted, scene.results) {
                 (Some(SessionEvent::Restart), Some(again), _) => {
-                    assert!(!spoken.iter().any(|f| f == "gameplay restart"));
+                    // In the play already: nothing said before the restart.
+                    assert!(spoken.is_empty(), "{ruleset}: {spoken:?}");
                     let (_, event, again) = play(again.clone(), true);
                     assert!(matches!(event, Some(SessionEvent::SceneOver)));
                     assert_eq!(again.first().map(String::as_str), Some("gameplay restart"));
@@ -2181,13 +2182,18 @@ fn each_play_lines_scene_says_it() {
                     "{ruleset}: {spoken:?}"
                 );
             }
-            // Mid-song, no opening.
-            if scene.staging.from > 10.0 {
+            // Not through the pre-start screen, no opening (a restart's
+            // song starts again, here we go and all).
+            if !in_play::opens_on_prompt(line) && line != Line::Restart {
                 assert!(
-                    !spoken.iter().any(|f| f == "gameplay ready"),
+                    !spoken
+                        .iter()
+                        .any(|f| f == "gameplay ready" || f.starts_with("gameplay here we go")),
                     "{ruleset}: {line:?} {spoken:?}"
                 );
             }
+            // The play knows what the scene is for.
+            assert_eq!(scene.staging.example, Some(line));
         }
     }
 }

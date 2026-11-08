@@ -333,10 +333,6 @@ studio-caption-cheer-record = 評価{ $grade }で自己ベストを更新しま�
 
 studio-caption-cheer-first-clear = 評価{ $grade }で初めてクリアしました。リザルトのセリフのあとに声援が続きます。
 
-studio-caption-before-failed = プレイ前：この譜面のこれまでのプレイは、すべて失敗しています。
-
-studio-caption-before-best = プレイの前：この譜面のベストは{ $score }です。
-
 studio-caption-play-begins = 最初のノーツの数秒前からプレイが始まります。
 studio-caption-first-note = 最初のノーツの直前からプレイが始まります。
 studio-caption-restart = プレイヤーが曲をリスタートします（Rを2回）。

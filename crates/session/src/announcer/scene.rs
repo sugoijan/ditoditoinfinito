@@ -14,8 +14,7 @@
 //!   pressed as far off as the line wants (a full combo of a tier, a
 //!   grade, a fail, a quit), and what the history says of the chart
 //!   before it ([`Prior`]). What speaks is [`Announcer::results`]' choice
-//!   over them, as after a play. Where the line is about that history (a
-//!   record, a first clear), song select shows the chart's best first.
+//!   over them, as after a play.
 //!
 //! Each scene says what it points at as its line is said (a spot of the
 //! screen's, [`ddi_ui::Screen::spot`]: the chart's level, the grade),
@@ -49,6 +48,25 @@ const STYLE: &str = "dance-single";
 
 /// Milliseconds in a day: when the charts played before were played.
 const DAY_MS: f64 = 86_400_000.0;
+
+/// How loud the lines around a scene's example are said, as a share of
+/// the voice's volume: the example is what is being listened to.
+pub const AROUND_EXAMPLE: f32 = 0.35;
+
+/// Whether `said` is the example of scene `asked`: the line, or what
+/// speaks in its place.
+pub fn is_example(asked: Line, said: Line) -> bool {
+    asked.chain().contains(&said)
+}
+
+/// The volume `said` is spoken at in scene `asked`, of the voice's.
+pub fn example_volume(asked: Line, said: Line, volume: f32) -> f32 {
+    if is_example(asked, said) {
+        volume
+    } else {
+        volume * AROUND_EXAMPLE
+    }
+}
 
 /// Song select's scene: what it shows and where it opens.
 #[derive(Clone, Debug, PartialEq)]
@@ -169,6 +187,8 @@ fn select_on(
 /// with.
 #[derive(Debug)]
 pub struct ResultsScene {
+    /// The line it is for.
+    pub line: Line,
     /// The play as the engine judged it.
     pub results: Results,
     /// What the history says of the chart before it.
@@ -182,9 +202,6 @@ pub struct ResultsScene {
     pub data: ResultsData,
     /// What happens (the frame's caption).
     pub caption: Caption,
-    /// Song select first, showing the chart's best before the play (a
-    /// record's scene, a first clear's), the chart chosen on it.
-    pub before: Option<MenuScene>,
     /// What is pointed at as the line is said: the results' spot (the
     /// grade, the score, the lamp, FAILED).
     pub mark: Mark,
@@ -529,9 +546,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         miss: Some(steps * 3 / 5),
     };
     // Each scene's play and prior, the ruleset it was judged by, what
-    // happens, what is pointed at, and the chart's best shown before
-    // (as cleared, or failed).
-    let mut before = None;
+    // happens and what is pointed at.
     let mut mark = Mark::Grade;
     let (results, prior, rules, caption) = match line {
         Line::Quit => {
@@ -554,7 +569,6 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 cleared: false,
                 best: score_value(&scaled(&r.score, FAILED_BEFORE)),
             };
-            before = Some((FAILED_BEFORE, true));
             (r, prior, stage.rules(None)?, Caption::FirstClear)
         }
         Line::NewRecord => {
@@ -567,7 +581,6 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 cleared: true,
                 best: score_value(&scaled(&r.score, BEST_BEFORE)),
             };
-            before = Some((BEST_BEFORE, false));
             mark = Mark::Score;
             let caption = Caption::NewRecord {
                 score: score_text(&r.score),
@@ -671,51 +684,14 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         panels: String::new(),
         autoplay: false,
     });
-    let before = match before {
-        None => None,
-        Some((k, failed)) => {
-            // The chart as song select shows it before the play: its best.
-            let view = scaled(&results.score, k);
-            let mut songs = sample::bundled();
-            let c = chart_of(&mut songs, (RESULTS_SONG, RESULTS_CHART))?;
-            let (lamp, lamp_text) = if failed {
-                ("Failed", "FAILED")
-            } else {
-                ("Clear", "CLEAR")
-            };
-            c.best = Some(Best {
-                grade: rules.grades.grade(&view, &results.tally, failed),
-                score: score_text(&view),
-                lamp: lamp.into(),
-                lamp_text: lamp_text.into(),
-                pending: false,
-                plays: 3,
-                play: String::new(),
-                last_played: 0.0,
-            });
-            let caption = if failed {
-                Caption::BeforeFailed
-            } else {
-                Caption::BeforeBest {
-                    score: score_text(&view),
-                }
-            };
-            select_on(
-                songs,
-                (RESULTS_SONG, RESULTS_CHART),
-                caption,
-                Mark::ChartBest,
-            )
-        }
-    };
     Some(ResultsScene {
+        line,
         results,
         prior,
         grades: rules.grades.clone(),
         combo_w4: rules.combo.continue_min == Judgement::W4,
         data,
         caption,
-        before,
         mark,
     })
 }

@@ -275,10 +275,6 @@ fn studio_texts() -> Vec<String> {
             grade: "AA".into(),
             also: CheerAlso::FirstClear,
         },
-        Caption::BeforeFailed,
-        Caption::BeforeBest {
-            score: "90.15%".into(),
-        },
     ] {
         out.push(c.text().into());
     }

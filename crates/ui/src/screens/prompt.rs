@@ -225,6 +225,11 @@ pub struct PromptState {
     /// `audio`, `pictures`, `scripts`), for tests; empty: all is ready.
     /// Not shown, so a change does not bump the version.
     pub waiting: Vec<String>,
+    /// Nothing to read before the play (the announcer studio's scene of a
+    /// line said long after this screen has gone): no card, the backdrop
+    /// alone, Start pressed at once. A step that needs reading still shows
+    /// one.
+    pub no_card: bool,
     /// The shell started the play: the screen closes itself at its next
     /// frame (desktop, where the prompt is a screen over song select).
     pub done: bool,
@@ -312,6 +317,14 @@ impl PromptState {
         let seconds = seconds.filter(|s| *s > 0.0);
         if self.countdown != seconds {
             self.countdown = seconds;
+            self.version += 1;
+        }
+    }
+
+    /// See [`PromptState::no_card`].
+    pub fn set_no_card(&mut self, no_card: bool) {
+        if self.no_card != no_card {
+            self.no_card = no_card;
             self.version += 1;
         }
     }
@@ -823,6 +836,10 @@ impl PromptScreen {
             }
             children.push(loading_label(&env, screen));
             env.state.borrow_mut().hints = Vec::new();
+        } else if state.no_card && state.step == PromptStep::Ready {
+            self.buttons = Vec::new();
+            self.controls = Vec::new();
+            env.state.borrow_mut().hints = Vec::new();
         } else {
             let (card, buttons, controls) = self.card(&state, cx);
             self.buttons = buttons;
@@ -830,7 +847,7 @@ impl PromptScreen {
             self.card_shown = Some(card.clone());
             children.push(card);
         }
-        if !state.touch && state.step == PromptStep::Ready {
+        if !state.touch && state.step == PromptStep::Ready && !state.no_card {
             let (start, back, activate) = (
                 msg::prompt::start(),
                 msg::common::back(),
@@ -1342,7 +1359,8 @@ impl PromptScreen {
     fn tick_countdown(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         let (ready, asked) = {
             let st = self.state.borrow();
-            (st.step == PromptStep::Ready, st.countdown)
+            let at_once = st.no_card.then_some(0.0);
+            (st.step == PromptStep::Ready, st.countdown.or(at_once))
         };
         if !ready {
             return;
@@ -1737,7 +1755,7 @@ impl Screen for PromptScreen {
             || (st.bindings.is_some() && !self.env.reduced() && st.step == PromptStep::Ready)
             || st.done
             || self.counting().is_some()
-            || (self.countdown == Countdown::Off && st.countdown.is_some())
+            || (self.countdown == Countdown::Off && (st.countdown.is_some() || st.no_card))
             || st.version != self.built
             || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
     }
@@ -2598,6 +2616,36 @@ mod tests {
         h.run(4.0);
         assert_eq!(starts(&seen).len(), 1);
         let _ = state;
+    }
+
+    /// Nothing to read before the play: no card, and Start pressed at
+    /// once, outside a gesture.
+    #[test]
+    fn with_no_card_it_starts_at_once() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_no_card(true);
+        let (mut h, seen) = prompt(&state);
+        h.run(0.2);
+        assert_eq!(starts(&seen), [false]);
+        for name in ["Prompt", "Start", "Back"] {
+            assert!(h.ui.actor(name).is_none(), "{name}");
+        }
+        h.run(1.0);
+        assert_eq!(starts(&seen).len(), 1);
+    }
+
+    /// What needs reading shows its card all the same, and waits.
+    #[test]
+    fn with_no_card_an_error_still_shows() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_no_card(true);
+        state
+            .borrow_mut()
+            .set_step(PromptStep::Error("No song".into()));
+        let (mut h, seen) = prompt(&state);
+        h.run(0.5);
+        assert!(h.ui.actor("Prompt").is_some());
+        assert!(starts(&seen).is_empty());
     }
 
     #[test]

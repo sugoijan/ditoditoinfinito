@@ -8,6 +8,7 @@
 //! never kept.
 
 use ddi_engine::autoplay::Press;
+use ddi_library::announcer::Line;
 
 /// What a staged play starts with, and how it is played.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -30,6 +31,9 @@ pub struct Staging {
     pub until: Option<f64>,
     /// The song second the player restarts at (R twice).
     pub restart: Option<f64>,
+    /// The line the scene is for: the example, what else is said around
+    /// it quieter.
+    pub example: Option<Line>,
 }
 
 /// Notes whose judged second is in `from..to` pressed as `how` says.

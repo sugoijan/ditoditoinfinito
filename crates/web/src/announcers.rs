@@ -344,8 +344,10 @@ pub(crate) fn stage(staged: Option<Staged>) {
 pub(crate) fn announce(line: Line) {
     let staged = STAGED.with_borrow_mut(|s| {
         let s = s.as_mut()?;
+        let (share, example) = (s.share, s.example);
         let spoke = s.voice.next(line).and_then(|(found, buffer)| {
-            crate::select_preview::speak_staged(buffer, s.share).map(|len| (found, len))
+            let volume = ddi_session::announcer::scene::example_volume(example, found, share);
+            crate::select_preview::speak_staged(buffer, volume).map(|len| (found, len))
         });
         Some((s.told.clone(), spoke))
     });

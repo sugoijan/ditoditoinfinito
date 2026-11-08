@@ -36,7 +36,7 @@ use ddi_ui::state::settings::Settings;
 use ddi_ui::{Cx, Mark, Screen, Ui};
 
 use super::super::{Announcer, Timing, Voice, cheers, results_lines};
-use super::{MenuScene, ResultsScene};
+use super::{MenuScene, ResultsScene, example_volume, is_example};
 
 /// A scene lasts this long at least, seconds: time to see its screen.
 const SCENE_SECONDS: f64 = 3.5;
@@ -45,9 +45,6 @@ const SCENE_TAIL: f64 = 1.5;
 /// The start menu shows this long before Singleplayer is chosen (the
 /// welcome's scene), seconds.
 const START_SECONDS: f64 = 1.8;
-/// Song select shows a chart's best this long before it is chosen (a
-/// record's scene, a first clear's), seconds.
-const BEFORE_SECONDS: f64 = 2.6;
 /// What a comment is said for is pointed at this long before the chart
 /// is chosen, seconds.
 const MARK_LEAD: f64 = 1.2;
@@ -63,9 +60,6 @@ pub type Timer = Box<dyn Any>;
 /// Something to do on the shell's UI.
 pub type UiFn = Box<dyn FnOnce(&mut Ui)>;
 
-/// The results to come in once their chart is chosen, and their voice.
-type Pending<S> = RefCell<Option<(ResultsScreen, Voice<S>)>>;
-
 /// What a staged line did: the line asked for, and what spoke for it and
 /// for how long.
 pub type Told = Rc<dyn Fn(Line, Option<(Line, f64)>)>;
@@ -77,6 +71,15 @@ pub struct StagedVoice<S> {
     pub voice: Voice<S>,
     pub share: f32,
     pub told: Told,
+    /// The line the scene is for: what is not it is said quieter.
+    pub example: Line,
+}
+
+impl<S> StagedVoice<S> {
+    /// The volume `found` is spoken at.
+    pub fn volume(&self, found: Line) -> f32 {
+        example_volume(self.example, found, self.share)
+    }
 }
 
 /// Who says a scene's lines.
@@ -190,9 +193,6 @@ pub struct SaidWords {
     explaining: bool,
     /// The line asked for was said (or what speaks in its place).
     arrived: bool,
-    /// The play began again (a restart's: what speaks for its line is
-    /// said only now).
-    again: bool,
 }
 
 impl SaidWords {
@@ -209,7 +209,6 @@ impl SaidWords {
             caption: String::new(),
             explaining: false,
             arrived: false,
-            again: false,
         }
     }
 
@@ -226,7 +225,6 @@ impl SaidWords {
     /// The play began again (its report of what was said begins again).
     pub fn restarted(&mut self) {
         self.told = 0;
-        self.again = true;
     }
 
     /// The frame's caption, as it should be with `found` said now.
@@ -235,13 +233,11 @@ impl SaidWords {
             return None;
         }
         let asked = self.asked;
-        // A restart's first play says ready as any play does.
-        let opening_first = asked == Line::Restart && !self.again;
         if found == asked {
             self.arrived = true;
             return std::mem::take(&mut self.explaining).then(|| self.caption.clone());
         }
-        if asked.chain().contains(&found) && !opening_first {
+        if is_example(asked, found) {
             self.arrived = true;
             self.explaining = true;
             return Some(in_its_place(asked, found).to_string());
@@ -251,8 +247,9 @@ impl SaidWords {
     }
 
     /// For each of the lines said so far (`spoken`: folder, context time)
-    /// begun by `now` and not told yet: the frame's messages showing it
-    /// and, where it is not the line asked for and came before it, why.
+    /// begun by `now` and not told yet: the frame's messages showing its
+    /// words, if it is the example, and, where it is not the line asked
+    /// for and came before it, why.
     pub fn next(&mut self, spoken: &[(String, f64)], now: f64) -> Vec<Message> {
         let mut out = Vec::new();
         while let Some((folder, at)) = spoken.get(self.told) {
@@ -265,6 +262,9 @@ impl SaidWords {
             };
             if let Some(caption) = self.caption_for(line) {
                 out.push(Message::new(stage::CAPTION).with("Text", Param::Str(caption)));
+            }
+            if !is_example(self.asked, line) {
+                continue;
             }
             let text = self
                 .words
@@ -351,7 +351,8 @@ pub fn say_results<A: AudioBackend>(
             rate: 1.0,
         },
         None,
-    );
+    )
+    .for_example(Some(scene.line));
     announcer.set_voice(Rc::new(RefCell::new(voice)));
     announcer.results(audio, now, &scene.ending(), &scene.grades, scene.combo_w4);
     announcer.report.spoken
@@ -640,14 +641,18 @@ impl<H: SceneHost> Director<H> {
         self.host.on_ui(Box::new(move |ui| ui.broadcast(m)));
     }
 
-    /// The frame shows the words of `line` (said now) for `seconds`: an
-    /// example's as its pack says them, a recording's line by name.
+    /// The frame shows the words of `line` (said now) for `seconds`, if
+    /// it is the scene's example: as its pack says them, a recording's
+    /// line by name.
     fn say(&self, n: u64, line: Line, seconds: f64) {
         let Some((words, asked)) = self.with_scene(n, |sc| (sc.words.get(&line).cloned(), sc.line))
         else {
             return;
         };
-        if line != asked && asked.chain().contains(&line) {
+        if !is_example(asked, line) {
+            return;
+        }
+        if line != asked {
             self.caption_now(n, &in_its_place(asked, line));
         }
         let text = match words {
@@ -730,6 +735,7 @@ impl<H: SceneHost> Director<H> {
         };
         let (voice, lengths, words) = voiced;
         self.keep(n, &lengths, words);
+        let example = self.with_scene(n, |sc| sc.line).unwrap_or(Line::Ready);
         let told: Told = {
             let weak = Rc::downgrade(self);
             Rc::new(move |asked, spoke| {
@@ -742,6 +748,7 @@ impl<H: SceneHost> Director<H> {
             voice,
             share: Settings::load().announcer_volume,
             told,
+            example,
         }));
         let play: PlayFn = {
             let weak = Rc::downgrade(self);
@@ -918,22 +925,20 @@ impl<H: SceneHost> Director<H> {
         if !self.host.open_results_sound(line) {
             return None;
         }
-        let before = scene.before.is_some();
-        if before {
-            self.host.preview_open(settings.volume);
-        }
-        let (first, caption, mark) = match &scene.before {
-            Some(b) => (Shows::Select, b.caption.text(), b.mark),
-            None => (Shows::Results, scene.caption.text(), scene.mark),
-        };
-        let n = self.begin(line, said, first, before, &caption, Some(mark), before);
+        let n = self.begin(
+            line,
+            said,
+            Shows::Results,
+            false,
+            &scene.caption.text(),
+            Some(scene.mark),
+            false,
+        );
         Some((n, scene))
     }
 
     /// The results' scene `n`, its voice ready: its line said on its own
-    /// sound as the results open, as after a play. A record's and a first
-    /// clear's come from song select, showing the chart's best before the
-    /// play, the chart chosen on it.
+    /// sound as the results open, as after a play.
     pub fn show_results(self: &Rc<Self>, n: u64, scene: ResultsScene, voiced: Voiced<H::Sound>) {
         if !self.is(n) {
             return;
@@ -958,78 +963,12 @@ impl<H: SceneHost> Director<H> {
             offset: None,
         };
         let results = ResultsScreen::new(env.clone(), scene.data.clone(), actions);
-        let caption = match &scene.before {
-            Some(b) => b.caption.text(),
-            None => scene.caption.text(),
-        };
-        let frame = self.frame(env.clone(), n, &caption);
-        let scene = Rc::new(scene);
-        let Some(before) = &scene.before else {
-            if !self.show(frame, results, Some(scene.mark)) {
-                return self.give_up(n, ms::status_no_results());
-            }
-            self.with_scene(n, |sc| sc.marked = true);
-            self.results_said(n, &scene, voice);
-            return;
-        };
-        // Song select says nothing in a results line's scene.
-        self.host.stage_voice(Some(StagedVoice {
-            voice: Voice::default(),
-            share: Settings::load().announcer_volume,
-            told: Rc::new(|_, _| {}),
-        }));
-        let next = Rc::new(RefCell::new(Some((results, voice))));
-        let play: PlayFn = {
-            let weak = Rc::downgrade(self);
-            let scene = scene.clone();
-            Rc::new(move |_, _, _, cx| {
-                if let Some(s) = weak.upgrade() {
-                    s.played(n, &next, &scene, cx);
-                }
-            })
-        };
-        let options: OpenFn = Rc::new(|_, _| {});
-        let select = SelectScreen::new(env, before.data.clone(), Some(&before.song), play, options)
-            .with_shell(self.select_shell(n), Rc::default());
-        if !self.show(frame, select, Some(before.mark)) {
-            return self.give_up(n, ms::status_no_select());
+        let frame = self.frame(env, n, &scene.caption.text());
+        if !self.show(frame, results, Some(scene.mark)) {
+            return self.give_up(n, ms::status_no_results());
         }
         self.with_scene(n, |sc| sc.marked = true);
-        let line = self.with_scene(n, |sc| sc.line).unwrap_or(Line::Ready);
-        self.after(n, BEFORE_SECONDS, Next::Start);
-        self.until(
-            n,
-            BEFORE_SECONDS + 2.0 * ENTRANCE + self.length(n, line) + SCENE_TAIL,
-        );
-        self.host.publish();
-    }
-
-    /// The chart shown before a results line's play chosen (scene `n`, in
-    /// `cx`): its results come in, then their line.
-    fn played(
-        self: &Rc<Self>,
-        n: u64,
-        next: &Pending<H::Sound>,
-        scene: &Rc<ResultsScene>,
-        cx: &mut Cx,
-    ) {
-        let Some((results, voice)) = next.borrow_mut().take() else {
-            return;
-        };
-        self.host.preview_hush();
-        cx.replace(results);
-        self.with_scene(n, |sc| {
-            sc.chosen = true;
-            sc.screen = Shows::Results;
-            sc.mark = Some(scene.mark);
-            sc.timer = None;
-        });
-        self.caption_now(n, &scene.caption.text());
-        self.mark(n);
-        // Said as the results come in.
-        let scene = scene.clone();
-        self.later(n, ENTRANCE, move |s| s.results_said(n, &scene, voice));
-        self.host.publish();
+        self.results_said(n, &scene, voice);
     }
 
     /// The results' line of scene `n`, said now by `voice`, as

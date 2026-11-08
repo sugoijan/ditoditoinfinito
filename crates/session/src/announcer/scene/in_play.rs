@@ -27,8 +27,9 @@ use crate::play::staging::{self, Staging, Touch};
 
 /// Seconds a scene goes on after its line is due.
 const TAIL: f64 = 1.5;
-/// Seconds of play before a scene's moment.
-const LEAD: f64 = 2.5;
+/// Seconds of play before a scene's moment: it opens in the play, with
+/// time to see what is going on.
+const LEAD: f64 = 4.0;
 /// The length of a line's sound where it is not known, seconds.
 const UNKNOWN: f64 = 1.5;
 /// Seconds here we go's scene leaves before it: room for a first frame
@@ -219,6 +220,13 @@ fn simulate(
     }
 }
 
+/// Whether scene `line` comes through the pre-start screen, as the lines
+/// that open a play do. The others are said long after it has gone: their
+/// scenes open in the play.
+pub fn opens_on_prompt(line: Line) -> bool {
+    matches!(line, Line::Ready | Line::HereWeGo)
+}
+
 /// What play line `line` is said for, ringed in its scene (`None`: not
 /// one said in play): the gauge for what is said of the life, the combo
 /// for what is said of it (a broken one vanishes inside the ring), the
@@ -263,12 +271,17 @@ pub fn staged(
     let Some(scene) = stage(line, song, chart, rules, options, &length) else {
         return (None, 0.0);
     };
-    let end = scene
-        .staging
-        .until
-        .unwrap_or_else(|| Player::new(song, chart, rules.fresh(), options).song_end_time());
+    // A play's stretch, to its restart or end.
+    let stretch = |s: &Staging| {
+        let end = s
+            .restart
+            .or(s.until)
+            .unwrap_or_else(|| Player::new(song, chart, rules.fresh(), options).song_end_time());
+        (end - s.from).max(0.0)
+    };
+    let played = stretch(&scene.staging) + scene.restarted.as_ref().map_or(0.0, stretch);
     let results = if scene.results { RESULTS_SECONDS } else { 0.0 };
-    let seconds = (end - scene.staging.from).max(0.0) / options.clock.rate.max(0.1) + results;
+    let seconds = played / options.clock.rate.max(0.1) + results;
     (Some(scene), seconds)
 }
 
@@ -303,244 +316,253 @@ pub fn stage(
         first,
         GO_BEFORE + len(Line::HereWeGo) + len(Line::Ready) + 1.0,
     );
-    Some(match line {
-        Line::Ready => scene(
-            Staging {
-                from: opening,
-                until: Some(first + TAIL),
-                ..Staging::default()
-            },
-            Caption::PlayBegins,
-        ),
-        // No room for ready before here we go: the play opens its
-        // lookahead before its start, here we go then fitting with a
-        // little to spare (a first frame drawn late takes some), not
-        // enough for a ready.
-        Line::HereWeGo => scene(
-            Staging {
-                from: before(
-                    first,
-                    (GO_BEFORE + len(Line::HereWeGo) + GO_SPARE - START_LOOKAHEAD).max(0.05),
-                ),
-                until: Some(first + TAIL),
-                ..Staging::default()
-            },
-            Caption::FirstNote,
-        ),
-        // Played a moment past the first note, then R twice: the play
-        // again from the same place, opened by the restart's line.
-        Line::Restart => PlayScene {
-            staging: Staging {
-                from: opening,
-                restart: Some(first + 1.0),
-                ..Staging::default()
-            },
-            restarted: Some(Staging {
-                from: opening,
-                until: Some(first + TAIL),
-                ..Staging::default()
-            }),
-            caption: Caption::Restart,
-            results: false,
-        },
-        // The periodic comment, due a moment after the start.
-        Line::CommentHot | Line::CommentGood | Line::CommentDanger | Line::CommentOni => {
-            let from = before(mid, 0.4);
-            let due = from + LEAD;
-            let mut s = Staging {
-                from,
-                since: COMMENT_GAP - LEAD,
-                until: Some(due + len(line) + TAIL),
-                ..Staging::default()
-            };
-            let caption = match line {
-                Line::CommentHot => {
-                    // Where a play kept full is at full life (a gauge
-                    // filling slowly is not, early on).
-                    s = steps
-                        .at
-                        .iter()
-                        .filter(|&&t| t >= mid)
-                        .step_by(8)
-                        .find_map(|&t| {
-                            let from = before(t, 0.4);
-                            let due = from + LEAD;
-                            let s = Staging {
-                                from,
-                                until: Some(due + len(line) + TAIL),
-                                ..s.clone()
-                            };
-                            let at = simulate(song, chart, rules, options, &s, due);
-                            (at.life >= 1.0).then_some(s)
-                        })?;
-                    Caption::FullLife
-                }
-                Line::CommentGood => {
-                    // Steps missed just before: the life not full again
-                    // by the comment.
-                    s.touches = vec![Touch::miss(from - 1.0, from)];
-                    Caption::BelowFull
-                }
-                Line::CommentDanger => {
-                    // Missed for long enough before the start that the
-                    // life is in danger at the comment, not run out.
-                    let found = (2..=24).map(|k| f64::from(k) * 0.5).find_map(|x| {
-                        let t = Staging {
-                            touches: vec![Touch::miss(from - x, from)],
-                            ..s.clone()
-                        };
-                        let at = simulate(song, chart, rules, options, &t, due + 0.2);
-                        (at.danger && !at.failed).then_some(t)
-                    })?;
-                    s = found;
-                    Caption::Danger
-                }
-                _ => Caption::Battery,
-            };
-            scene(s, caption)
-        }
-        // The combo crossing a hundred a few steps after the start.
-        Line::Combo(_) | Line::ComboOverflow => {
-            let n = match line {
-                Line::Combo(n) => n,
-                _ => 1100,
-            };
-            let from = before(steps.after(first + 4.0)?, 0.4);
-            let rises = steps.rises(from, from + LEAD).max(1);
-            let at = steps
-                .combos
-                .iter()
-                .copied()
-                .filter(|&s| s >= from)
-                .nth(rises as usize - 1)?;
-            scene(
+    let mut played =
+        match line {
+            Line::Ready => scene(
                 Staging {
-                    from,
-                    combo: n.checked_sub(rises)?,
-                    since: COMBO_GAP,
-                    until: Some(at + len(line) + TAIL),
+                    from: opening,
+                    until: Some(first + TAIL),
                     ..Staging::default()
                 },
-                Caption::Combo {
-                    count: n,
-                    past: n > 1000,
-                },
-            )
-        }
-        // A combo of 60 broken by a step missed a moment after the start.
-        Line::ComboStopped => {
-            let from = before(mid, 0.4);
-            let missed = steps.lone_after(from + 1.2)?;
-            scene(
+                Caption::PlayBegins,
+            ),
+            // No room for ready before here we go: the play opens its
+            // lookahead before its start, here we go then fitting with a
+            // little to spare (a first frame drawn late takes some), not
+            // enough for a ready.
+            Line::HereWeGo => scene(
                 Staging {
-                    from,
-                    combo: COMBO_STOPPED_AT + 10,
-                    since: COMBO_GAP,
-                    touches: vec![Touch::miss(missed - 0.01, missed + 0.01)],
-                    until: Some(missed + len(line) + TAIL),
+                    from: before(
+                        first,
+                        (GO_BEFORE + len(Line::HereWeGo) + GO_SPARE - START_LOOKAHEAD).max(0.05),
+                    ),
+                    until: Some(first + TAIL),
                     ..Staging::default()
                 },
-                Caption::ComboBroken,
-            )
-        }
-        // A battery's life lost by a step missed a moment after the
-        // start; the last one, two lost before it.
-        Line::LifeLost | Line::LastLife => {
-            let from = before(mid, 0.4);
-            let missed = steps.lone_after(from + 1.2)?;
-            let mut touches = vec![Touch::miss(missed - 0.01, missed + 0.01)];
-            if line == Line::LastLife {
-                for back in [6.0, 4.0] {
-                    let s = steps.lone_after(from - back)?;
-                    touches.push(Touch::miss(s - 0.01, s + 0.01));
+                Caption::FirstNote,
+            ),
+            // In the play already, then R twice: the song again from its
+            // start, opened by the restart's line.
+            Line::Restart => {
+                let from = before(steps.after(first + 4.0)?, 0.4);
+                PlayScene {
+                    staging: Staging {
+                        from,
+                        restart: Some(from + LEAD),
+                        ..Staging::default()
+                    },
+                    restarted: Some(Staging {
+                        from: opening,
+                        until: Some(first + TAIL),
+                        ..Staging::default()
+                    }),
+                    caption: Caption::Restart,
+                    results: false,
                 }
             }
-            scene(
-                Staging {
+            // The periodic comment, due a moment after the start.
+            Line::CommentHot | Line::CommentGood | Line::CommentDanger | Line::CommentOni => {
+                let from = before(mid, 0.4);
+                let due = from + LEAD;
+                let mut s = Staging {
                     from,
-                    since: COMBO_GAP,
-                    touches,
-                    until: Some(missed + len(line) + TAIL),
-                    ..Staging::default()
-                },
-                if line == Line::LastLife {
-                    Caption::LastLife
-                } else {
-                    Caption::LifeLost
-                },
-            )
-        }
-        // The last steps, every step pressed into the full combo's
-        // window (or a step missed before, for a clear alone); on into the
-        // results.
-        Line::FullComboW(_) | Line::FullCombo | Line::Cleared => {
-            let from = before(last, 3.5);
-            let tier = match line {
-                Line::FullComboW(n) => Some(n.clamp(1, 3)),
-                Line::FullCombo => Some(4),
-                _ => None,
-            };
-            let mut touches = Vec::new();
-            let caption = match tier {
-                Some(n) => {
-                    let j = Judgement::ALL[usize::from(n) - 1];
-                    if j > rules.combo.continue_min {
-                        return None;
-                    }
-                    if n > 1 {
-                        // Inside the tier's window, past the one before.
-                        let window =
-                            |j: Judgement| rules.judge.window(j).map(|w| w.early.min(w.late));
-                        let inner = window(Judgement::ALL[usize::from(n) - 2])?;
-                        let outer = window(j)?;
-                        touches.push(Touch::off(f64::MIN, f64::MAX, (inner + outer) / 2.0));
-                    }
-                    let judgment = rules.names.name(j).trim().to_string();
-                    Caption::EndsFullCombo {
-                        judgment,
-                        best: n == 1,
-                    }
-                }
-                None => {
-                    let s = steps.lone_after(from - 8.0)?;
-                    touches.push(Touch::miss(s - 0.01, s + 0.01));
-                    Caption::Cleared
-                }
-            };
-            PlayScene {
-                staging: Staging {
-                    from,
-                    touches,
-                    ..Staging::default()
-                },
-                restarted: None,
-                caption,
-                results: true,
-            }
-        }
-        // Every step missed from a while before the start: the life runs
-        // out a moment after it; on into the results.
-        Line::Failed => {
-            let from = before(mid, 0.4);
-            let found = (1..=24).rev().map(|k| f64::from(k) * 0.5).find_map(|x| {
-                let s = Staging {
-                    from,
-                    touches: vec![Touch::miss(from - x, f64::MAX)],
+                    since: COMMENT_GAP - LEAD,
+                    until: Some(due + len(line) + TAIL),
                     ..Staging::default()
                 };
-                let then = simulate(song, chart, rules, options, &s, from);
-                let later = simulate(song, chart, rules, options, &s, from + LEAD + 1.0);
-                (!then.failed && later.failed).then_some(s)
-            })?;
-            PlayScene {
-                staging: found,
-                restarted: None,
-                caption: Caption::Failed,
-                results: true,
+                let caption =
+                    match line {
+                        Line::CommentHot => {
+                            // Where a play kept full is at full life (a gauge
+                            // filling slowly is not, early on).
+                            s = steps.at.iter().filter(|&&t| t >= mid).step_by(8).find_map(
+                                |&t| {
+                                    let from = before(t, 0.4);
+                                    let due = from + LEAD;
+                                    let s = Staging {
+                                        from,
+                                        until: Some(due + len(line) + TAIL),
+                                        ..s.clone()
+                                    };
+                                    let at = simulate(song, chart, rules, options, &s, due);
+                                    (at.life >= 1.0).then_some(s)
+                                },
+                            )?;
+                            Caption::FullLife
+                        }
+                        Line::CommentGood => {
+                            // Steps missed just before: the life not full again
+                            // by the comment.
+                            s.touches = vec![Touch::miss(from - 1.0, from)];
+                            Caption::BelowFull
+                        }
+                        Line::CommentDanger => {
+                            // Missed for long enough before the start that the
+                            // life is in danger at the comment, not run out (or
+                            // back out of danger), a step at a time: that is a
+                            // narrow window, with the lead's notes pressed.
+                            let found = (5..=120).map(|k| f64::from(k) * 0.1).find_map(|x| {
+                                let t = Staging {
+                                    touches: vec![Touch::miss(from - x, from)],
+                                    ..s.clone()
+                                };
+                                let at = simulate(song, chart, rules, options, &t, due + 0.2);
+                                (at.danger && !at.failed).then_some(t)
+                            })?;
+                            s = found;
+                            Caption::Danger
+                        }
+                        _ => Caption::Battery,
+                    };
+                scene(s, caption)
             }
-        }
-        _ => return None,
-    })
+            // The combo crossing a hundred a few steps after the start.
+            Line::Combo(_) | Line::ComboOverflow => {
+                let n = match line {
+                    Line::Combo(n) => n,
+                    _ => 1100,
+                };
+                let from = before(steps.after(first + 4.0)?, 0.4);
+                let rises = steps.rises(from, from + LEAD).max(1);
+                let at = steps
+                    .combos
+                    .iter()
+                    .copied()
+                    .filter(|&s| s >= from)
+                    .nth(rises as usize - 1)?;
+                scene(
+                    Staging {
+                        from,
+                        combo: n.checked_sub(rises)?,
+                        since: COMBO_GAP,
+                        until: Some(at + len(line) + TAIL),
+                        ..Staging::default()
+                    },
+                    Caption::Combo {
+                        count: n,
+                        past: n > 1000,
+                    },
+                )
+            }
+            // A combo of 60 broken by a step missed a while after the start.
+            Line::ComboStopped => {
+                let from = before(mid, 0.4);
+                let missed = steps.lone_after(from + LEAD)?;
+                scene(
+                    Staging {
+                        from,
+                        combo: COMBO_STOPPED_AT + 10,
+                        since: COMBO_GAP,
+                        touches: vec![Touch::miss(missed - 0.01, missed + 0.01)],
+                        until: Some(missed + len(line) + TAIL),
+                        ..Staging::default()
+                    },
+                    Caption::ComboBroken,
+                )
+            }
+            // A battery's life lost by a step missed a while after the
+            // start; the last one, two lost before it.
+            Line::LifeLost | Line::LastLife => {
+                let from = before(mid, 0.4);
+                let missed = steps.lone_after(from + LEAD)?;
+                let mut touches = vec![Touch::miss(missed - 0.01, missed + 0.01)];
+                if line == Line::LastLife {
+                    for back in [6.0, 4.0] {
+                        let s = steps.lone_after(from - back)?;
+                        touches.push(Touch::miss(s - 0.01, s + 0.01));
+                    }
+                }
+                scene(
+                    Staging {
+                        from,
+                        since: COMBO_GAP,
+                        touches,
+                        until: Some(missed + len(line) + TAIL),
+                        ..Staging::default()
+                    },
+                    if line == Line::LastLife {
+                        Caption::LastLife
+                    } else {
+                        Caption::LifeLost
+                    },
+                )
+            }
+            // The last steps, every step pressed into the full combo's
+            // window (or a step missed before, for a clear alone); on into the
+            // results.
+            Line::FullComboW(_) | Line::FullCombo | Line::Cleared => {
+                let from = before(last, LEAD + 1.0);
+                let tier = match line {
+                    Line::FullComboW(n) => Some(n.clamp(1, 3)),
+                    Line::FullCombo => Some(4),
+                    _ => None,
+                };
+                let mut touches = Vec::new();
+                let caption = match tier {
+                    Some(n) => {
+                        let j = Judgement::ALL[usize::from(n) - 1];
+                        if j > rules.combo.continue_min {
+                            return None;
+                        }
+                        if n > 1 {
+                            // Inside the tier's window, past the one before.
+                            let window =
+                                |j: Judgement| rules.judge.window(j).map(|w| w.early.min(w.late));
+                            let inner = window(Judgement::ALL[usize::from(n) - 2])?;
+                            let outer = window(j)?;
+                            touches.push(Touch::off(f64::MIN, f64::MAX, (inner + outer) / 2.0));
+                        }
+                        let judgment = rules.names.name(j).trim().to_string();
+                        Caption::EndsFullCombo {
+                            judgment,
+                            best: n == 1,
+                        }
+                    }
+                    None => {
+                        let s = steps.lone_after(from - 8.0)?;
+                        touches.push(Touch::miss(s - 0.01, s + 0.01));
+                        Caption::Cleared
+                    }
+                };
+                PlayScene {
+                    staging: Staging {
+                        from,
+                        touches,
+                        ..Staging::default()
+                    },
+                    restarted: None,
+                    caption,
+                    results: true,
+                }
+            }
+            // Every step missed from however long before (or after) the
+            // start runs the life out by its moment; on into the results.
+            Line::Failed => {
+                let from = before(mid, 0.4);
+                let found = (-8..=24).map(|k| f64::from(k) * 0.5).find_map(|x| {
+                    let s = Staging {
+                        from,
+                        touches: vec![Touch::miss(from - x, f64::MAX)],
+                        ..Staging::default()
+                    };
+                    let then = simulate(song, chart, rules, options, &s, from);
+                    let later = simulate(song, chart, rules, options, &s, from + LEAD);
+                    (!then.failed && later.failed).then_some(s)
+                })?;
+                PlayScene {
+                    staging: found,
+                    restarted: None,
+                    caption: Caption::Failed,
+                    results: true,
+                }
+            }
+            _ => return None,
+        };
+    played.staging.example = Some(line);
+    if let Some(again) = played.restarted.as_mut() {
+        again.example = Some(line);
+    }
+    Some(played)
 }
 
 /// The full combo a play line is for (tests).

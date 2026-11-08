@@ -408,13 +408,12 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
         },
     ];
     let mut actions = vec![Action::new("examples", m::examples(view.examples.name()))];
-    let has = draft.takes.iter().any(|t| t.line.is_some());
-    if has && !view.busy {
-        actions.push(Action::new("use", m::use_in_game()));
-        match &view.ready {
-            Some(zip) => actions.push(Action::new("save", m::save(zip)).primary()),
-            None => actions.push(Action::new("export", m::export())),
-        }
+    // Always there, grayed out while there is nothing to use or export.
+    let can = !view.busy && draft.takes.iter().any(|t| t.line.is_some());
+    actions.push(Action::new("use", m::use_in_game()).off(!can));
+    match &view.ready {
+        Some(zip) if can => actions.push(Action::new("save", m::save(zip)).primary()),
+        _ => actions.push(Action::new("export", m::export()).off(!can)),
     }
     b.push(Block::Actions(actions));
     if !view.status.is_empty() {
@@ -698,6 +697,49 @@ mod tests {
         assert_eq!(act("add:nothing"), None);
     }
 
+    /// Use in the game and Export are always on the page, grayed out while
+    /// there is nothing to use or export.
+    #[test]
+    fn use_and_export_are_grayed_out_with_nothing_to_give() {
+        use crate::screens::page::{Action, Block};
+        let actions = |d: &Draft, v: &View| -> Vec<Action> {
+            doc(d, v, &BTreeMap::new())
+                .blocks
+                .iter()
+                .find_map(|b| match b {
+                    Block::Actions(a) if a.iter().any(|a| a.id == "examples") => Some(a.clone()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let off = |a: &[Action], id: &str| a.iter().find(|a| a.id == id).unwrap().off;
+        let mut d = Draft::default();
+        let v = View::default();
+        let a = actions(&d, &v);
+        assert!(off(&a, "use") && off(&a, "export"));
+        // A recording not on a line yet is still nothing to give.
+        let id = d.add("New Recording.mp3", 1, MP3);
+        let a = actions(&d, &v);
+        assert!(off(&a, "use") && off(&a, "export"));
+        d.take_mut(id).unwrap().line = Some(Line::Ready);
+        let a = actions(&d, &v);
+        assert!(!off(&a, "use") && !off(&a, "export"));
+        // While the studio is at work.
+        let busy = View {
+            busy: true,
+            ..View::default()
+        };
+        let a = actions(&d, &busy);
+        assert!(off(&a, "use") && off(&a, "export"));
+        // Made: Save takes Export's place, and is on.
+        let ready = View {
+            ready: Some("Voice.zip".into()),
+            ..View::default()
+        };
+        let a = actions(&d, &ready);
+        assert!(!off(&a, "use") && !off(&a, "save"));
+    }
+
     #[test]
     fn song_select_and_results_lines_can_be_heard_recorded_or_not() {
         let mut d = Draft::default();
@@ -752,9 +794,6 @@ mod tests {
         let z = zones(&empty);
         assert_eq!(z.len(), listed().len());
         assert_eq!(z[0], "select music intro");
-        // Nothing to export yet.
-        let text = format!("{:?}", empty.blocks);
-        assert!(!text.contains("\"export\"") && !text.contains("\"use\""));
         d.add("New Recording.m4a", 1, b"");
         d.add("gameplay 1100 combo.wav", 1, MP3);
         let full = doc(&d, &View::default(), &BTreeMap::new());

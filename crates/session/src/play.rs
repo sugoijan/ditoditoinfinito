@@ -755,7 +755,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     .notes()
                     .iter()
                     .any(|n| n.judgeable && n.seconds < song_offset);
-                announcer.staged(danced, player.combo(), s.since)
+                announcer
+                    .staged(danced, player.combo(), s.since)
+                    .for_example(s.example)
             }
             None => announcer,
         };

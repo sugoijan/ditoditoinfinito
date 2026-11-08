@@ -683,3 +683,31 @@ fn a_menu_line_waits_for_its_sound_while_it_is_due() {
     v.borrow_mut().add(hard, 1.0);
     assert_eq!(m.poll(41.0), None);
 }
+
+/// In a scene, the example is said at the voice's volume and what is
+/// said around it quieter, whichever comes first.
+#[test]
+fn a_scenes_example_stands_out() {
+    let lines = [(Line::Ready, 0.5), (Line::HereWeGo, 0.5)];
+    let volumes = |example: Option<Line>| {
+        let mut a = announcer(&lines, 10.0, None).for_example(example);
+        let mut audio = Fake::default();
+        a.say(&mut audio, &[Line::Ready], 1.0);
+        a.say(&mut audio, &[Line::HereWeGo], 2.0);
+        audio.voiced.iter().map(|v| v.2).collect::<Vec<_>>()
+    };
+    let around = 0.5 * scene::AROUND_EXAMPLE;
+    assert_eq!(volumes(None), [0.5, 0.5]);
+    assert_eq!(volumes(Some(Line::Ready)), [0.5, around]);
+    assert_eq!(volumes(Some(Line::HereWeGo)), [around, 0.5]);
+    assert_eq!(volumes(Some(Line::Combo(100))), [around, around]);
+}
+
+/// What speaks in the place of a line with no recording is its example.
+#[test]
+fn what_stands_in_is_the_example() {
+    let mut a = announcer(&[(Line::Ready, 0.5)], 10.0, None).for_example(Some(Line::Restart));
+    let mut audio = Fake::default();
+    a.say(&mut audio, &Line::Restart.chain(), 1.0);
+    assert_eq!(audio.voiced[0].2, 0.5);
+}

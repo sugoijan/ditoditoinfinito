@@ -389,3 +389,39 @@ fn a_page_opens_where_it_was_left() {
     let (_, state) = open(&place);
     assert_eq!(state.borrow().page_focus, -1);
 }
+
+/// A grayed-out button shows and takes the focus; pressing it calls
+/// nothing, by key or by tap, and it keeps its place in the page.
+#[test]
+fn a_grayed_out_button_does_nothing() {
+    use super::page::{Action, Block, PageDoc};
+    let calls: Rc<RefCell<Vec<PageCall>>> = Rc::default();
+    let log = calls.clone();
+    let doc = PageDoc {
+        title: PageTitle::new("Buttons", "BUTTONS"),
+        blocks: vec![Block::Actions(vec![
+            Action::new("off", "Not yet").off(true),
+            Action::new("on", "Go"),
+        ])],
+    };
+    let shell: super::page::PageShell = Rc::new(move |call, _| {
+        log.borrow_mut().push(call);
+        None
+    });
+    let env = env();
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(PageScreen::new(env, "buttons", doc).with_shell(shell, Rc::default()));
+    h.run(0.3);
+    assert_eq!(state.borrow().page_items, ["button:off", "button:on"]);
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.05);
+    assert_eq!(state.borrow().page_focus, 0);
+    h.key("Enter", "Enter");
+    h.tap(PointerKind::Mouse, "Item0");
+    h.run(0.05);
+    assert!(calls.borrow().is_empty(), "{:?}", calls.borrow());
+    h.tap(PointerKind::Mouse, "Item1");
+    h.run(0.05);
+    assert_eq!(*calls.borrow(), [PageCall::Button("on".into())]);
+}

@@ -121,6 +121,8 @@ struct SceneRun {
     staged: Option<Option<PlayScene>>,
     /// How long it lasts from its play's start, seconds (the frame's bar).
     seconds: f64,
+    /// The frame's bar was told.
+    bar_told: bool,
     /// The frame is told what happens at the next poll.
     tell: bool,
     /// The lines said so far (the play's, then its results').
@@ -140,6 +142,7 @@ impl SceneRun {
             order,
             staged: None,
             seconds: 0.0,
+            bar_told: false,
             tell: false,
             spoken: Vec::new(),
             words,
@@ -670,8 +673,16 @@ impl Host {
         if let Some(r) = requested
             && matches!(self.stage, Stage::Idle)
         {
-            // Song select's: counting down to Start; a scene's, a moment.
-            let countdown = if r.scene.is_some() {
+            // Song select's: counting down to Start; a scene's, a moment,
+            // or at once, no card, where it is of a line said long after
+            // one.
+            let no_card = r
+                .scene
+                .as_ref()
+                .is_some_and(|o| !in_play::opens_on_prompt(o.line));
+            let countdown = if no_card {
+                None
+            } else if r.scene.is_some() {
                 Some(1.0)
             } else {
                 r.countdown
@@ -684,6 +695,7 @@ impl Host {
                 info,
                 base: r.backdrop.clone(),
                 countdown,
+                no_card,
                 // Start at once: what the play needs loads behind it.
                 step: match &r.refused {
                     Some(why) => {
@@ -1403,12 +1415,15 @@ impl Host {
                     play.session.set_voice(v.voice.clone());
                 }
                 // A scene's: its voice, and how long it lasts from here.
-                if let Some(run) = &r.scene {
+                if let Some(run) = &mut r.scene {
                     play.session.set_voice(run.order.voice.clone());
-                    ui.broadcast(
-                        ddi_ui::Message::new(stage::UNTIL)
-                            .with("Seconds", ddi_ui::Param::Num(run.seconds)),
-                    );
+                    // Its bar counts through a restart: told once.
+                    if !std::mem::replace(&mut run.bar_told, true) {
+                        ui.broadcast(
+                            ddi_ui::Message::new(stage::UNTIL)
+                                .with("Seconds", ddi_ui::Param::Num(run.seconds)),
+                        );
+                    }
                     ui.mark(in_play::mark(run.order.line));
                 }
                 // Kept with the play's options as they were.

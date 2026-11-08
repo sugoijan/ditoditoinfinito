@@ -163,9 +163,6 @@ fn each_results_line_is_said_first_in_its_scene() {
                 _ => assert!(tried.contains(&line), "{ruleset}: {line:?} in {tried:?}"),
             }
             assert!(!scene.caption.text().is_empty());
-            // A record and a first clear show the chart's best before.
-            let history = matches!(line, Line::NewRecord | Line::FirstClear);
-            assert_eq!(scene.before.is_some(), history, "{line:?}");
         }
     }
 }
@@ -183,37 +180,6 @@ fn each_results_scene_points_at_what_its_line_is_said_for() {
             "{line:?}: nothing at {:?}",
             scene.mark
         );
-    }
-}
-
-/// Song select before a record's results shows the best it beats; before
-/// a first clear's, the fails.
-#[test]
-fn a_record_and_a_first_clear_show_the_charts_best_first() {
-    let all = |_: Line| true;
-    for (line, lamp) in [(Line::NewRecord, "Clear"), (Line::FirstClear, "Failed")] {
-        let scene = results(line, "itg", &all).unwrap();
-        let before = scene.before.as_ref().unwrap();
-        assert!(before.choose);
-        assert_eq!(before.mark, Mark::ChartBest);
-        let song = before
-            .data
-            .songs
-            .iter()
-            .find(|s| s.id == before.song)
-            .unwrap();
-        let best = song.charts[before.chart].best.as_ref().unwrap();
-        assert_eq!(best.lamp, lamp);
-        let was = best.score.trim_end_matches('%').parse::<f64>().unwrap();
-        let now = scene
-            .data
-            .score
-            .trim_end_matches('%')
-            .parse::<f64>()
-            .unwrap();
-        assert!(was < now, "{was} {now}");
-        assert!(scene.prior.best < score_value(&scene.results.score));
-        assert!(marked(select_of(before), before.mark).is_some());
     }
 }
 
@@ -286,4 +252,39 @@ fn the_players_ruleset_judges_where_it_can() {
     assert!(sm5.data.line.contains(&presets::sm5().name));
     let ddr = results(Line::NewRecord, "ddr-a", &all).unwrap();
     assert!(ddr.data.line.contains(&presets::ddr_a().name));
+}
+
+/// Only the lines that open a play come through the pre-start screen;
+/// the others are said long after it has gone.
+#[test]
+fn only_the_opening_lines_come_through_the_pre_start_screen() {
+    use super::in_play::opens_on_prompt;
+    for line in [Line::Ready, Line::HereWeGo] {
+        assert!(opens_on_prompt(line), "{line:?}");
+    }
+    for line in [
+        Line::Restart,
+        Line::CommentGood,
+        Line::Combo(100),
+        Line::ComboStopped,
+        Line::LifeLost,
+        Line::FullCombo,
+        Line::Cleared,
+        Line::Failed,
+    ] {
+        assert!(!opens_on_prompt(line), "{line:?}");
+    }
+}
+
+/// The example is the line, or what speaks in its place.
+#[test]
+fn the_example_is_the_line_or_what_stands_in() {
+    assert!(is_example(Line::Ready, Line::Ready));
+    assert!(is_example(Line::Restart, Line::Ready));
+    assert!(is_example(Line::FullComboW(1), Line::FullCombo));
+    assert!(!is_example(Line::Ready, Line::HereWeGo));
+    assert!(!is_example(Line::Combo(100), Line::Ready));
+    assert!(!is_example(Line::Cheer, Line::Grade(Grade::Aa)));
+    assert_eq!(example_volume(Line::Ready, Line::Ready, 0.5), 0.5);
+    assert!(example_volume(Line::Ready, Line::HereWeGo, 0.5) < 0.5);
 }

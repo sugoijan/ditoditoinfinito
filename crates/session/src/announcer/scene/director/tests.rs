@@ -319,25 +319,45 @@ fn a_results_scene_says_its_line_and_the_cheer() {
     assert_eq!(spoken, ["evaluation aa", "evaluation cheer"]);
 }
 
-/// A record's: song select showing the best first, its chart chosen, the
-/// results after it, song select saying nothing.
+/// A record's and a first clear's open on the results, like any line
+/// said there: song select was a whole play ago.
 #[test]
-fn a_records_scene_comes_from_song_select() {
+fn a_records_and_a_first_clears_scenes_open_on_the_results() {
+    for line in [Line::NewRecord, Line::FirstClear] {
+        let mut t = test();
+        let (n, scene) = t
+            .director
+            .begin_results(line, Said::Draft, &[line].into())
+            .unwrap();
+        t.director.show_results(n, scene, voiced(&[line]));
+        t.run(0.5);
+        assert_eq!(t.director.state().unwrap().screen, Shows::Results);
+        let (_, _, spoken, _) = t.until_over(10.0);
+        assert_eq!(spoken, [line.folder()]);
+    }
+}
+
+/// A results scene shows the words of its example alone: the cheer's,
+/// not the grade's said before it.
+#[test]
+fn a_results_scene_shows_only_its_examples_words() {
     let mut t = test();
-    let line = Line::NewRecord;
+    let (grade, cheer) = (Line::Grade(Grade::Aa), Line::Cheer);
     let (n, scene) = t
         .director
-        .begin_results(line, Said::Draft, &[line].into())
+        .begin_results(cheer, Said::Draft, &[grade, cheer].into())
         .unwrap();
-    t.director.show_results(n, scene, voiced(&[line]));
-    t.run(0.5);
-    assert_eq!(t.director.state().unwrap().screen, Shows::Select);
-    t.run(3.0);
-    let st = t.director.state().unwrap();
-    assert_eq!(st.screen, Shows::Results);
-    assert!(st.chosen);
-    let (_, _, spoken, _) = t.until_over(10.0);
-    assert_eq!(spoken, ["evaluation new record"]);
+    t.director.show_results(n, scene, voiced(&[grade, cheer]));
+    let words = |l: Line| ms::stage_said(studio::name(l)).to_string();
+    let (mut saw_grade, mut saw_cheer) = (false, false);
+    for _ in 0..240 {
+        t.run(1.0 / 60.0);
+        let texts = t.h.texts();
+        saw_grade |= texts.contains(&words(grade));
+        saw_cheer |= texts.contains(&words(cheer));
+    }
+    assert!(saw_cheer, "the cheer's words never showed");
+    assert!(!saw_grade, "the grade's words showed");
 }
 
 /// Its way back: the frame's button leaves at once, what was to be said
@@ -416,8 +436,32 @@ fn a_plays_lines_words_come_as_each_starts() {
     assert!(message_texts(&first, stage::CAPTION).is_empty());
     assert_eq!(words.told(), 1);
     assert_eq!(words.next(&spoken, 11.0).len(), 0);
-    assert_eq!(words.next(&spoken, 12.5).len(), 1);
+    assert_eq!(words.told(), 1);
+    // Said after the example: no words.
+    assert!(message_texts(&words.next(&spoken, 12.5), stage::SAY).is_empty());
+    assert_eq!(words.told(), 2);
     assert_eq!(words.next(&spoken, 20.0).len(), 0);
+}
+
+/// Only the example shows its words, whatever is said around it; what
+/// speaks in its place is the example too.
+#[test]
+fn only_the_examples_words_are_shown() {
+    let words_of = |asked, said: &[&str]| {
+        let mut w = SaidWords::new(asked, HashMap::new(), HashMap::new());
+        let spoken: Vec<_> = said.iter().map(|s| (s.to_string(), 1.0)).collect();
+        message_texts(&w.next(&spoken, 1.0), stage::SAY)
+    };
+    let ready = "gameplay ready";
+    let go = "gameplay here we go normal";
+    assert_eq!(words_of(Line::HereWeGo, &[ready, go]).len(), 1);
+    assert_eq!(words_of(Line::Ready, &[ready, go]).len(), 1);
+    assert_eq!(words_of(Line::Combo(100), &[ready, go]).len(), 0);
+    assert_eq!(words_of(Line::Restart, &[ready]).len(), 1);
+    assert_eq!(
+        words_of(Line::FullComboW(1), &["gameplay full combo"]).len(),
+        1
+    );
 }
 
 /// What comes before the line asked for says why, and the scene's own
@@ -461,20 +505,17 @@ fn what_speaks_in_a_lines_place_is_said_to() {
     );
 }
 
-/// A restart's first play opens as any does; only the play again says
-/// what stands in for the restart's line.
+/// A restart's play begins its report again: ready, standing in for the
+/// restart's line, is told again.
 #[test]
-fn a_restarts_first_play_is_not_said_in_its_place() {
+fn a_restarted_plays_lines_are_told_again() {
     let mut words = SaidWords::new(Line::Restart, HashMap::new(), HashMap::new());
-    words.set_caption("The player restarts.");
-    let first = vec![("gameplay ready".to_string(), 1.0)];
-    let why = message_texts(&words.next(&first, 1.0), stage::CAPTION);
-    assert!(!why[0].contains(&*studio::name(Line::Restart)), "{why:?}");
-    // Its report begins again.
+    let said = vec![("gameplay ready".to_string(), 1.0)];
+    assert_eq!(message_texts(&words.next(&said, 1.0), stage::SAY).len(), 1);
+    assert_eq!(words.told(), 1);
     words.restarted();
-    let again = vec![("gameplay ready".to_string(), 1.0)];
-    let said = message_texts(&words.next(&again, 1.0), stage::CAPTION);
-    assert!(said[0].contains(&*studio::name(Line::Restart)), "{said:?}");
+    assert_eq!(words.told(), 0);
+    assert_eq!(message_texts(&words.next(&said, 1.0), stage::SAY).len(), 1);
 }
 
 /// The draft as a voice: the line's next recording first, the length its.

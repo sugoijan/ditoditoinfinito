@@ -71,10 +71,6 @@ pub enum Caption {
     /// A play graded `grade`, the cheer after its line (`also`: what its
     /// line is for besides the grade).
     Cheer { grade: String, also: CheerAlso },
-    /// Song select before the play: the chart was only ever failed.
-    BeforeFailed,
-    /// Song select before the play: the chart's best.
-    BeforeBest { score: String },
     /// A play begins, a few seconds before its first note.
     PlayBegins,
     /// A play begins just before its first note.
@@ -139,8 +135,6 @@ impl Caption {
                 CheerAlso::NewRecord => m::caption_cheer_record(grade),
                 CheerAlso::FirstClear => m::caption_cheer_first_clear(grade),
             },
-            Caption::BeforeFailed => m::caption_before_failed(),
-            Caption::BeforeBest { score } => m::caption_before_best(score),
             Caption::PlayBegins => m::caption_play_begins(),
             Caption::FirstNote => m::caption_first_note(),
             Caption::Restart => m::caption_restart(),

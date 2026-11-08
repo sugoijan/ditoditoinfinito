@@ -8577,18 +8577,6 @@ text = "3e49a730d7d3863f"
 by = "agent"
 date = "2026-11-07"
 
-[studio-caption-before-best]
-source = "aace62b98548c9ba"
-text = "9b66bda20d6e7e3b"
-by = "agent"
-date = "2026-11-07"
-
-[studio-caption-before-failed]
-source = "a43a598fcbe2689f"
-text = "aac50f2ccb92ec3a"
-by = "agent"
-date = "2026-11-07"
-
 [studio-caption-cheer]
 source = "d5dfe714ced5be0a"
 text = "2f74ce3ff98a9c1b"

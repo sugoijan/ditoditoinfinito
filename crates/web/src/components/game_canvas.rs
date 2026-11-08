@@ -761,13 +761,18 @@ impl Component for GameCanvas {
         // replay, a playtest, calibration): an automatic Start is no
         // gesture (`docs/plans/start-prompt.md`).
         if early_audio.is_some() && !ctx.props().edit {
-            // A scene's play starts a moment after its prompt shows.
-            let countdown = if scene.is_some() {
-                1.0
-            } else {
-                play_settings.start_countdown
+            // A scene's play starts a moment after its prompt shows; at
+            // once, no card, where it is of a line said long after one.
+            let line = scene.as_ref().map(|sc: &SceneState| sc.line);
+            let no_card = line.is_some_and(|l| !in_play::opens_on_prompt(l));
+            let countdown = match line {
+                Some(_) if no_card => None,
+                Some(_) => Some(1.0),
+                None => Some(play_settings.start_countdown),
             };
-            prompt_state.borrow_mut().set_countdown(Some(countdown));
+            let mut prompt = prompt_state.borrow_mut();
+            prompt.set_countdown(countdown);
+            prompt.set_no_card(no_card);
         }
         // A song's prompt offers this play's options (not a replay's, drawn
         // with its own, nor a test's); the skins for its skin row come
@@ -1341,6 +1346,8 @@ impl GameCanvas {
                 self.held_start = None;
                 self.start_on_predecode = false;
                 self.needs_gesture = true;
+                // A note to read, on the card that shows it.
+                self.prompt_state.borrow_mut().set_no_card(false);
                 true
             }
             Msg::Decoded(Ok((audio, buffer))) => {
