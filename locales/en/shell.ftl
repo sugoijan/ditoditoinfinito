@@ -55,6 +55,9 @@ shell-menu-quit = Quit { -game-name }
 # Packs as zips (.zip, .smzip).
 shell-file-zips = Zip archives
 
+# A kind of file in a dialog: the announcer studio's recordings of a voice.
+shell-file-recordings = Recordings
+
 # Music files, for a new song.
 shell-file-music = Music
 

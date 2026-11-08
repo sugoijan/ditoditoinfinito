@@ -22,12 +22,15 @@ pub mod view;
 pub mod voice;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use ddi_chart::Layout;
 use ddi_engine::ConnectedPad;
 use ddi_engine::player::Results;
+use ddi_library::announcer::Line;
 use ddi_platform::{DeviceId, DeviceProfile, HostTime, RawInput};
+use ddi_session::announcer::scene::director::{Heard, Said};
 use ddi_session::calibration::CalMode;
 use ddi_session::play::{PlayFacts, SessionConfig, SessionEvent};
 use ddi_ui::state::history::{Autoplay, Plays};
@@ -76,6 +79,39 @@ pub struct Request {
     /// A quick restart's play (the announcer opens it with `gameplay
     /// restart`; set as it begins again).
     pub restart: bool,
+    /// The announcer studio's scene in play, if this is one.
+    pub scene: Option<Rc<SceneOrder>>,
+    /// How the scene's play is staged (once its chart is read).
+    pub staging: Option<ddi_session::play::Staging>,
+}
+
+/// A line's scene in play, from the announcer studio
+/// (`docs/plans/announcer-studio.md`, step 5): what it is said with and
+/// how it is shown, and who is told what it said.
+pub struct SceneOrder {
+    pub line: Line,
+    pub said: Said,
+    /// Who says it, as the frame shows it ("Your recording").
+    pub voice_label: String,
+    /// The line as the frame names it.
+    pub name: String,
+    /// The play's and its results' lines.
+    pub voice: ddi_session::announcer::SharedVoice<crate::audio::Sound>,
+    pub lengths: HashMap<Line, f64>,
+    pub words: HashMap<Line, String>,
+    pub heard: Rc<dyn Fn(Heard)>,
+}
+
+impl std::fmt::Debug for SceneOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SceneOrder({:?}, {:?})", self.line, self.said)
+    }
+}
+
+impl PartialEq for SceneOrder {
+    fn eq(&self, other: &SceneOrder) -> bool {
+        self.line == other.line && self.said == other.said && self.name == other.name
+    }
 }
 
 impl Request {
@@ -98,6 +134,17 @@ impl Request {
             countdown: false,
             prior: None,
             restart: false,
+            scene: None,
+            staging: None,
+        }
+    }
+
+    /// Chart `chart` of song `song`, the scene of the announcer studio
+    /// `order` asks for: staged (so autoplayed), never kept.
+    pub fn scene(song: &str, chart: usize, order: SceneOrder) -> Request {
+        Request {
+            scene: Some(Rc::new(order)),
+            ..Request::song(song, chart, false)
         }
     }
 
@@ -120,6 +167,8 @@ impl Request {
             countdown: false,
             prior: None,
             restart: false,
+            scene: None,
+            staging: None,
         }
     }
 
@@ -146,6 +195,7 @@ impl Request {
         config.start = self.start;
         config.prior = self.prior;
         config.restart = self.restart;
+        config.staging = self.staging.clone();
         if let Some(mode) = self.calibration {
             config.calibrate(mode);
         }
@@ -318,6 +368,8 @@ pub enum Ended {
     /// kept, the same play to start again at once on its sound
     /// ([`Play::into_restart`]).
     Restart,
+    /// A scene of the announcer studio is over.
+    SceneOver,
 }
 
 /// A play of one chart.
@@ -493,10 +545,7 @@ impl Play {
             }
             SessionEvent::Interrupted => Some(Ended::Interrupted),
             SessionEvent::Restart => Some(Ended::Restart),
-            // The announcer studio's staged plays are the web's for now
-            // (`docs/plans/announcer-studio.md`, step 5): back, as after
-            // an interruption.
-            SessionEvent::SceneOver => Some(Ended::Interrupted),
+            SessionEvent::SceneOver => Some(Ended::SceneOver),
         }
     }
 
@@ -519,6 +568,7 @@ impl Play {
             || self.request.calibration.is_some()
             || self.request.replay.is_some()
             || self.request.edited.is_some()
+            || self.request.scene.is_some()
         {
             return;
         }

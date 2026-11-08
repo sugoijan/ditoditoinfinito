@@ -77,6 +77,7 @@ test:
     @# (Trunk's builds write them too; a fresh checkout has none).
     @cargo run -q -p xtask -- gen-songs
     @cargo run -q -p xtask -- gen-noteskins
+    @cargo run -q -p xtask -- gen-announcers
     @# The desktop's DanOni importer is built but not prepared (no JDK).
     @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-l10n -p ddi-desktop -p ddi -p xtask --features ddi-icon/raster,ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout,ddi-noteskin/raster
 

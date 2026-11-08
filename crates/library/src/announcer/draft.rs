@@ -19,7 +19,7 @@ use super::{CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE, Grade, Line, MAX_BYT
 /// Files a pick or drop takes as recordings by their extension, where
 /// their first bytes say nothing (M4A, AAC, AIFF, WebM…): a song's
 /// music's and these.
-const MORE_RECORDINGS: [&str; 11] = [
+pub const MORE_RECORDINGS: [&str; 11] = [
     "m4a", "aac", "aif", "aiff", "caf", "webm", "weba", "mp4", "3gp", "amr", "wma",
 ];
 

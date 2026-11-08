@@ -385,13 +385,18 @@ options-announcer-description = { $platform ->
 options-announcer-volume = Announcer volume
 options-announcer-volume-description = How loud the announcer speaks, as a share of the music volume (muting the music mutes it too).
 
-# The web: the imported announcer chosen, to remove.
+# The imported announcer chosen (desktop: one made in the announcer
+# studio), to remove.
 options-announcer-remove = This announcer
 options-announcer-remove-button = Remove
-options-announcer-remove-description = Removes the imported announcer from this browser.
+# Variables:
+#   $platform (String) - web or desktop
+options-announcer-remove-description = { $platform ->
+    [web] Removes the imported announcer from this browser.
+   *[desktop] Deletes the announcer you made in the announcer studio.
+}
 
-# The web: opens the announcer studio, to make an announcer of one's own
-# voice.
+# Opens the announcer studio, to make an announcer of one's own voice.
 options-announcer-studio = Your own announcer
 options-announcer-studio-button = Make one…
 options-announcer-studio-description = Opens the announcer studio: bring recordings of your voice, hear each line where the game says it, then use it here or share it.
@@ -903,7 +908,11 @@ options-confirm-announcer = Remove this announcer?
 
 # Variables:
 #   $announcer (String) - the announcer's name
-options-confirm-announcer-body = { $announcer } is removed from this browser; plays are silent again.
+#   $platform (String) - web or desktop
+options-confirm-announcer-body = { $platform ->
+    [web] { $announcer } is removed from this browser; plays are silent again.
+   *[desktop] { $announcer } is deleted; plays are silent again.
+}
 options-confirm-announcer-button = Remove
 
 ## Notices: what the last action did, beside the header (one line,

@@ -50,7 +50,7 @@ pub(crate) fn take_heard() -> Option<Heard> {
 
 /// The texture source the staged play is drawn under (its picture in the
 /// frame, `ddi_ui::screens::stage::Picture`).
-pub(crate) const SOURCE: &str = "staged-play";
+pub(crate) const SOURCE: &str = ddi_ui::screens::stage::PICTURE;
 
 /// What the frame around a staged play says.
 pub(crate) struct FrameSpec {

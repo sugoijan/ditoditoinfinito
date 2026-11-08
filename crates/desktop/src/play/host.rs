@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 use ddi_library::backgrounds::BgImage;
 use ddi_platform::{DeviceFingerprint, DeviceProfile, HostTime};
 use ddi_render::RenderOptions;
+use ddi_session::announcer::scene::director::{Heard, SaidWords};
+use ddi_session::announcer::scene::in_play::{self, PlayScene};
 use ddi_ui::Ui;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
@@ -24,6 +26,7 @@ use ddi_ui::screens::prompt::{
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
+use ddi_ui::screens::stage::{self, Picture as PictureScreen, StageFrame};
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
 
@@ -105,6 +108,92 @@ struct Readied {
     /// The ended play's sound, kept while its results show: their line
     /// speaks on it.
     lingering: Option<Audio>,
+    /// The announcer studio's scene in play, if this is one.
+    scene: Option<SceneRun>,
+}
+
+/// The announcer studio's scene in play under way: how it is staged and
+/// what it said so far.
+struct SceneRun {
+    order: Rc<super::SceneOrder>,
+    /// Its play, staged once the song is read (`None` after: no play
+    /// gives the line).
+    staged: Option<Option<PlayScene>>,
+    /// How long it lasts from its play's start, seconds (the frame's bar).
+    seconds: f64,
+    /// The frame is told what happens at the next poll.
+    tell: bool,
+    /// The lines said so far (the play's, then its results').
+    spoken: Vec<String>,
+    /// The words of what the play says, as each line starts.
+    words: SaidWords,
+    /// Back to the studio then, once its results' line is said.
+    leave_at: Option<Instant>,
+}
+
+impl SceneRun {
+    fn new(order: Rc<super::SceneOrder>) -> SceneRun {
+        let words = SaidWords::new(order.words.clone(), order.lengths.clone());
+        SceneRun {
+            order,
+            staged: None,
+            seconds: 0.0,
+            tell: false,
+            spoken: Vec::new(),
+            words,
+            leave_at: None,
+        }
+    }
+
+    /// What it said in the play just ended.
+    fn keep_said(&mut self, play: &Play) {
+        let report = play.session.announcer_report();
+        self.spoken
+            .extend(report.spoken.iter().map(|(f, _)| f.clone()));
+        self.words = SaidWords::new(self.order.words.clone(), self.order.lengths.clone());
+    }
+}
+
+/// The texture a scene's play is drawn into, shown in the frame.
+struct Picture {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    /// The painter has it.
+    shown: bool,
+}
+
+/// The picture's view at `size` (made again at another).
+fn picture_view<'a>(
+    picture: &'a mut Option<Picture>,
+    device: &wgpu::Device,
+    size: [u32; 2],
+) -> &'a wgpu::TextureView {
+    let stale = picture
+        .as_ref()
+        .is_none_or(|p| [p.texture.width(), p.texture.height()] != size);
+    if stale {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ddi-staged-play"),
+            size: wgpu::Extent3d {
+                width: size[0].max(1),
+                height: size[1].max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: ddi_render::field_preview::FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        *picture = Some(Picture {
+            texture,
+            view,
+            shown: false,
+        });
+    }
+    &picture.as_ref().expect("made above").view
 }
 
 /// A song's scripted backgrounds (`super::scripts`): readied once for
@@ -127,6 +216,15 @@ impl Readied {
         let mut s = self.request.settings();
         if let Some(o) = &self.options {
             o.borrow().over(&mut s);
+        }
+        // A scene's play: the gauge and the rules its line wants (never
+        // stored).
+        if let Some(pick) = self
+            .scene
+            .as_ref()
+            .and_then(|r| in_play::pick(r.order.line))
+        {
+            s = pick.settings(&s);
         }
         s
     }
@@ -173,6 +271,8 @@ pub type ChartLoadedFn = Rc<dyn Fn(&str, &ddi_chart::Song)>;
 /// again), so the screens under it are told they show only then.
 struct PlayScreen {
     in_play: Rc<Cell<bool>>,
+    /// A scene's play: its picture, shown in the frame.
+    picture: Option<PictureScreen>,
 }
 
 impl ddi_ui::Screen for PlayScreen {
@@ -180,11 +280,17 @@ impl ddi_ui::Screen for PlayScreen {
         "play"
     }
 
-    fn build(&mut self, _cx: &mut ddi_ui::Cx) -> ddi_actor::Actor {
-        ddi_actor::Actor::new(ddi_actor::Kind::Frame(Vec::new()))
+    fn build(&mut self, cx: &mut ddi_ui::Cx) -> ddi_actor::Actor {
+        match &mut self.picture {
+            Some(p) => p.build(cx),
+            None => ddi_actor::Actor::new(ddi_actor::Kind::Frame(Vec::new())),
+        }
     }
 
-    fn update(&mut self, _dt: f32, _root: &mut ddi_actor::Actor, cx: &mut ddi_ui::Cx) {
+    fn update(&mut self, dt: f32, root: &mut ddi_actor::Actor, cx: &mut ddi_ui::Cx) {
+        if let Some(p) = &mut self.picture {
+            p.update(dt, root, cx);
+        }
         if !self.in_play.get() {
             cx.close(false);
         }
@@ -240,6 +346,12 @@ pub struct Host {
     /// The window's scale factor (device pixels per point), for sizes
     /// given in points, such as the lyrics' smallest.
     pub scale: f32,
+    /// A scene's way back was asked for (its frame's button, Escape).
+    scene_back: Rc<Cell<bool>>,
+    /// What a scene's play is drawn into.
+    picture: Option<Picture>,
+    /// How long a scene's results show (tests shorten it).
+    pub scene_results: Duration,
 }
 
 impl Default for Host {
@@ -268,6 +380,9 @@ impl Default for Host {
             master: None,
             start_when_ready: false,
             scale: 1.0,
+            scene_back: Rc::default(),
+            picture: None,
+            scene_results: Duration::from_secs_f64(in_play::RESULTS_SECONDS),
         }
     }
 }
@@ -334,6 +449,39 @@ impl Host {
         }
     }
 
+    /// A scene's play runs: drawn into a picture in its frame, the
+    /// pointer the frame's.
+    pub fn framed(&self) -> bool {
+        matches!(&self.stage, Stage::Playing(r, ..) if r.scene.is_some())
+    }
+
+    /// A scene's way back was asked for: it leaves at the next poll.
+    pub fn back_from_scene(&self) {
+        self.scene_back.set(true);
+    }
+
+    /// There is a scene's picture: the UI draws it, in the frame.
+    pub fn has_picture(&self) -> bool {
+        self.picture.is_some()
+    }
+
+    /// The scene's picture, given to `painter` where it has not it yet.
+    pub fn show_picture(&mut self, painter: &mut ddi_render::Painter, device: &wgpu::Device) {
+        if let Some(p) = &mut self.picture
+            && !p.shown
+        {
+            painter.set_external_image(device, stage::PICTURE, Some(&p.texture));
+            p.shown = true;
+        }
+    }
+
+    /// The scene's picture let go of, once its play is over.
+    pub fn release_picture(&mut self, painter: &mut ddi_render::Painter, device: &wgpu::Device) {
+        if !self.framed() && self.picture.take().is_some() {
+            painter.set_external_image(device, stage::PICTURE, None);
+        }
+    }
+
     /// No play, prompt or results.
     pub fn idle(&self) -> bool {
         matches!(self.stage, Stage::Idle)
@@ -369,6 +517,7 @@ impl Host {
     /// again on the new device when the prompt readies it), and a play
     /// stops as interrupted (results stay: they are the UI's).
     pub fn device_lost(&mut self) {
+        self.picture = None;
         match &mut self.stage {
             Stage::Idle => {}
             // The play waits for the song's drawing again (Start stays).
@@ -388,9 +537,15 @@ impl Host {
     /// sound to start running, the scripts' Lua to run its next slices,
     /// the pictures' wait): the loop looks again shortly.
     pub fn wants_poll(&self) -> bool {
-        matches!(&self.stage, Stage::Prompt(r)
-            if (!r.ready && r.error.is_none() && r.request.refused.is_none())
-                || matches!(&r.scripts, SongScripts::Loading(l) if l.running()))
+        match &self.stage {
+            Stage::Prompt(r) => {
+                (!r.ready && r.error.is_none() && r.request.refused.is_none())
+                    || matches!(&r.scripts, SongScripts::Loading(l) if l.running())
+            }
+            // A scene's results, until they leave by themselves.
+            Stage::Results(r) => r.scene.as_ref().is_some_and(|s| s.leave_at.is_some()),
+            _ => false,
+        }
     }
 
     /// The song's pictures on the device now (tests).
@@ -509,11 +664,14 @@ impl Host {
         if let Some(r) = requested
             && matches!(self.stage, Stage::Idle)
         {
-            // Song select's: counting down to Start.
-            let countdown = r
-                .countdown
-                .then(|| r.settings().start_countdown)
-                .filter(|s| *s > 0.0);
+            // Song select's: counting down to Start; a scene's, a moment.
+            let countdown = if r.scene.is_some() {
+                Some(1.0)
+            } else {
+                r.countdown
+                    .then(|| r.settings().start_countdown)
+                    .filter(|s| *s > 0.0)
+            };
             let mut info = first_info(&r);
             info.timing = self.timing_hint(&r);
             let prompt: SharedPrompt = Rc::new(RefCell::new(PromptState {
@@ -561,7 +719,21 @@ impl Host {
                 skins: None,
                 voice: None,
                 lingering: None,
+                scene: None,
             };
+            // A scene's frame, over the prompt, the play and the results.
+            if let Some(order) = readied.request.scene.clone() {
+                self.scene_back.set(false);
+                let flag = self.scene_back.clone();
+                ui.push_chrome(StageFrame::new(
+                    env.clone(),
+                    &order.name,
+                    &order.voice_label,
+                    "",
+                    Rc::new(move |_| flag.set(true)),
+                ));
+                readied.scene = Some(SceneRun::new(order));
+            }
             // A song's prompt offers this play's options (not a test's, a
             // replay's: it is drawn with its own); the skins the song
             // folders hold come from a thread.
@@ -604,6 +776,10 @@ impl Host {
         self.stage = match stage {
             Stage::Prompt(mut r) => {
                 self.ready(&mut r, dev, ui, env.reduced());
+                if self.scene_back.take() {
+                    press_back(ui);
+                }
+                tell_frame(&mut r, ui);
                 // `--start`: Start pressed for the player once it is offered.
                 if self.start_when_ready && r.prompt.borrow().step == PromptStep::Ready {
                     self.start_when_ready = false;
@@ -621,6 +797,7 @@ impl Host {
                 }
                 let choice = self.choice.borrow_mut().take();
                 match choice {
+                    Some(PromptChoice::Back) if r.scene.is_some() => self.leave_scene(r, ui),
                     Some(PromptChoice::Back) => {
                         // Leaving a test: the menu.
                         if r.request.calibration.is_some() {
@@ -664,7 +841,28 @@ impl Host {
                     | None => Stage::Prompt(r),
                 }
             }
+            Stage::Playing(mut r, play, _) if self.scene_back.take() => {
+                if let Some(run) = r.scene.as_mut() {
+                    run.keep_said(&play);
+                }
+                self.leave_scene(r, ui)
+            }
+            Stage::Results(mut r)
+                if self.scene_back.take()
+                    || r.scene
+                        .as_ref()
+                        .and_then(|s| s.leave_at)
+                        .is_some_and(|at| Instant::now() >= at) =>
+            {
+                // Their way out, as a player's Back.
+                if let Some(s) = r.scene.as_mut() {
+                    s.leave_at = None;
+                }
+                press_back(ui);
+                Stage::Results(r)
+            }
             Stage::Results(r) => match self.after.take() {
+                Some(After::Leave) if r.scene.is_some() => self.leave_scene(r, ui),
                 Some(After::Watch(id)) => {
                     if let Some(plays) = &self.plays {
                         *self.requested.borrow_mut() =
@@ -724,7 +922,11 @@ impl Host {
     /// on a test, a replay or an autoplay; else what the kept plays on
     /// the devices say and whether both are calibrated, in a line.
     fn timing_hint(&self, request: &Request) -> Option<String> {
-        if request.calibration.is_some() || request.replay.is_some() || request.auto {
+        if request.calibration.is_some()
+            || request.replay.is_some()
+            || request.auto
+            || request.scene.is_some()
+        {
             return None;
         }
         // The devices watched.
@@ -804,7 +1006,7 @@ impl Host {
                         told(&r.request.song, &loaded.song);
                     }
                     // The announcer's sounds, decoded behind the prompt.
-                    if let Some(key) = r.settings().announcer {
+                    if let Some(key) = r.settings().announcer.filter(|_| r.scene.is_none()) {
                         let notes = loaded
                             .song
                             .charts
@@ -872,7 +1074,15 @@ impl Host {
             }
             return;
         };
+        // A scene's play staged, once the song is read.
+        stage_scene(r, &loaded, &self.watcher);
         let settings = r.settings();
+        // A scene's play is drawn into a picture of its own.
+        let formats = if r.scene.is_some() {
+            Formats::picture()
+        } else {
+            dev.formats
+        };
         let layout = if r.request.calibration.is_none() && r.request.replay.is_none() {
             loaded
                 .song
@@ -886,7 +1096,7 @@ impl Host {
             .borrow_mut()
             .set_bindings(layout.as_ref(), &settings);
         if r.view.is_none() {
-            let mut view = View::new(dev.device, dev.queue, dev.formats);
+            let mut view = View::new(dev.device, dev.queue, formats);
             view.set_song(&loaded, &settings);
             let calibration = r.request.calibration.is_some();
             view.set_generated(&loaded, &settings, calibration);
@@ -1046,7 +1256,7 @@ impl Host {
         view.dance.preload_work(
             dev.device,
             dev.queue,
-            dev.formats.plain.unwrap_or(dev.formats.view),
+            formats.plain.unwrap_or(formats.view),
             ui.viewport().physical.map(|v| v.max(1.) as u32),
             &|| at.elapsed().as_secs_f64(),
         );
@@ -1106,6 +1316,10 @@ impl Host {
         self.in_play.set(true);
         ui.push(PlayScreen {
             in_play: self.in_play.clone(),
+            picture: r
+                .scene
+                .is_some()
+                .then(|| PictureScreen::new(stage::PICTURE)),
         });
         r.prompt.borrow_mut().finish();
         ui.update(0.0);
@@ -1144,12 +1358,20 @@ impl Host {
             .unwrap_or(60.0);
         let mut request = r.request.clone();
         request.restart = std::mem::take(&mut self.restarting);
-        if settings.ghost && request.replay.is_none() && request.calibration.is_none() {
+        if settings.ghost
+            && request.replay.is_none()
+            && request.calibration.is_none()
+            && request.scene.is_none()
+        {
             request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);
         }
         // What the history says of the chart before this play, for the
         // results' first clear and new record (a play that is kept).
-        if request.replay.is_none() && request.calibration.is_none() && request.edited.is_none() {
+        if request.replay.is_none()
+            && request.calibration.is_none()
+            && request.edited.is_none()
+            && request.scene.is_none()
+        {
             request.prior = Some(self.plays.as_ref().map_or_else(Default::default, |p| {
                 ddi_session::announcer::Prior::before(
                     &p.history(),
@@ -1173,6 +1395,14 @@ impl Host {
                 play.graphics = self.graphics.clone();
                 if let Some(v) = &r.voice {
                     play.session.set_voice(v.voice.clone());
+                }
+                // A scene's: its voice, and how long it lasts from here.
+                if let Some(run) = &r.scene {
+                    play.session.set_voice(run.order.voice.clone());
+                    ui.broadcast(
+                        ddi_ui::Message::new(stage::UNTIL)
+                            .with("Seconds", ddi_ui::Param::Num(run.seconds)),
+                    );
                 }
                 // Kept with the play's options as they were.
                 play.overrides = r
@@ -1249,6 +1479,17 @@ impl Host {
         }
         let ended = play.tick(now, self.plays.as_ref());
         render.ghost = play.session.ghost_delta().map(ddi_shell::score_delta);
+        // A scene's play goes into its picture; the words of what it says
+        // into the frame as each line starts.
+        let (view, plain) = if let Some(run) = r.scene.as_mut() {
+            let at = play.session.audio().context_time();
+            for m in run.words.next(&play.session.announcer_report().spoken, at) {
+                ui.broadcast(m);
+            }
+            (picture_view(&mut self.picture, dev.device, size), None)
+        } else {
+            (view, plain)
+        };
         if let Some(v) = r.view.as_mut() {
             v.scale = self.scale;
             v.present_at = self.present_at.take();
@@ -1276,16 +1517,34 @@ impl Host {
         let Stage::Playing(r, play, _) = stage else {
             return;
         };
+        // A scene is over.
+        if matches!(ended, Ended::SceneOver | Ended::Interrupted) && r.scene.is_some() {
+            let mut r = r;
+            if let Some(run) = r.scene.as_mut() {
+                run.keep_said(&play);
+            }
+            self.log_said(&play);
+            self.stage = self.leave_scene(r, ui);
+            return;
+        }
         // Restarted: the same play again at once, nothing kept, the
         // backdrop as it was (`docs/PLAN.md` decision 79).
         if matches!(ended, Ended::Restart) {
             self.log.push(format!("restarted {}", play.request.song));
+            // A scene's restart: its play again from the same place,
+            // opened by its line.
+            let mut r = r;
+            if let Some(run) = r.scene.as_mut() {
+                run.keep_said(&play);
+                if let Some(Some(p)) = &run.staged {
+                    r.request.staging = p.restarted.clone().or(r.request.staging.take());
+                }
+            }
             let loaded = play.loaded.clone();
             let audio = play.into_restart();
             let settings = r.settings();
             self.restarting = true;
             if settings.dancing_hand_for(&loaded.song.charts[r.request.chart].layout) {
-                let mut r = r;
                 self.in_play.set(false);
                 ui.update(0.);
                 r.audio = Some((audio, Instant::now()));
@@ -1301,18 +1560,14 @@ impl Host {
             return;
         }
         self.in_play.set(false);
-        if play.session.announcer_report() != &Default::default() {
-            let a = play.session.announcer_report();
-            let spoken: Vec<&str> = a.spoken.iter().map(|(f, _)| f.as_str()).collect();
-            self.log.push(format!(
-                "announcer: spoke {} · dropped {} · not decoded {:?} · not in the pack {:?}",
-                spoken.join(", "),
-                a.dropped,
-                a.missing,
-                a.absent
-            ));
-        }
+        self.log_said(&play);
         let mut r = r;
+        // A scene's results show a moment, in its frame.
+        let results_for = self.scene_results;
+        if let Some(run) = r.scene.as_mut() {
+            run.keep_said(&play);
+            run.leave_at = Some(Instant::now() + results_for);
+        }
         #[cfg(feature = "video")]
         if let Some(v) = r.view.as_ref()
             && (v.movies.shown_any() || v.movies.trouble().is_some())
@@ -1404,8 +1659,8 @@ impl Host {
                     Stage::Results(r)
                 }
             }
-            // (Started again above.)
-            Ended::Restart => Stage::Idle,
+            // (Started again, or left, above.)
+            Ended::Restart | Ended::SceneOver => Stage::Idle,
             Ended::Interrupted => {
                 self.log.push(format!("interrupted {}", play.request.song));
                 let mut r = r;
@@ -1414,6 +1669,38 @@ impl Host {
                 Stage::Prompt(r)
             }
         };
+    }
+
+    /// What the play said, for a timed run's lines.
+    fn log_said(&mut self, play: &Play) {
+        let a = play.session.announcer_report();
+        if a == &Default::default() {
+            return;
+        }
+        let spoken: Vec<&str> = a.spoken.iter().map(|(f, _)| f.as_str()).collect();
+        self.log.push(format!(
+            "announcer: spoke {} · dropped {} · not decoded {:?} · not in the pack {:?}",
+            spoken.join(", "),
+            a.dropped,
+            a.missing,
+            a.absent
+        ));
+    }
+
+    /// The scene is over (its play, its prompt or its results): the frame
+    /// goes, and the studio is told what it said.
+    fn leave_scene(&mut self, r: Box<Readied>, ui: &mut Ui) -> Stage {
+        let Some(run) = r.scene else {
+            return Stage::Idle;
+        };
+        self.in_play.set(false);
+        ui.broadcast(ddi_ui::Message::new(stage::END));
+        (run.order.heard)(Heard {
+            line: run.order.line,
+            said: run.order.said,
+            spoken: run.spoken,
+        });
+        Stage::Idle
     }
 
     /// The theme's results for the play just ended.
@@ -1523,7 +1810,12 @@ impl Host {
             .map(|play_id| {
                 results_action(&self.after, move || After::Watch(play_id.clone()), true)
             });
-        let retry = results_action(&self.after, || After::Retry, false);
+        // A scene's: both go back to the studio.
+        let retry = if r.scene.is_some() {
+            results_action(&self.after, || After::Leave, true)
+        } else {
+            results_action(&self.after, || After::Retry, false)
+        };
         let song_list = results_action(&self.after, || After::Leave, true);
         let offset = ddi_ui::screens::play::song_offset_saver(id);
         ui.push(ResultsScreen::new(
@@ -1662,6 +1954,61 @@ impl Host {
             },
         ));
         Stage::Results(Box::new(r))
+    }
+}
+
+/// A scene's play staged, once its song is read, under the rules and
+/// options it is played with; how long the scene lasts, from it.
+fn stage_scene(r: &mut Readied, loaded: &Loaded, watcher: &crate::devices::Watcher) {
+    if r.scene.as_ref().is_none_or(|s| s.staged.is_some()) {
+        return;
+    }
+    let settings = r.settings();
+    let chart = r.request.chart;
+    let shift = r.request.song_shift(&settings);
+    let song = loaded.song.shifted(shift);
+    let spec = r
+        .request
+        .session_config(&settings, watcher.for_play(), r.play_seed)
+        .player_spec(&song, chart, &settings);
+    let Some(run) = r.scene.as_mut() else {
+        return;
+    };
+    let (line, lengths) = (run.order.line, &run.order.lengths);
+    let (staged, seconds) = match &spec {
+        Ok((rules, options)) => in_play::staged(line, &song, chart, rules, *options, lengths),
+        Err(_) => (None, 0.0),
+    };
+    r.request.staging = staged.as_ref().map(|p| p.staging.clone());
+    run.staged = Some(staged);
+    run.seconds = seconds;
+    run.tell = true;
+}
+
+/// A scene's frame told what happens, once its play is staged.
+fn tell_frame(r: &mut Readied, ui: &mut Ui) {
+    let Some(run) = r.scene.as_mut().filter(|s| s.tell) else {
+        return;
+    };
+    run.tell = false;
+    if let Some(Some(p)) = &run.staged {
+        ui.broadcast(
+            ddi_ui::Message::new(stage::CAPTION)
+                .with("Text", ddi_ui::Param::Str(p.caption.text().to_string())),
+        );
+    }
+}
+
+/// Back, as a player presses it.
+fn press_back(ui: &mut Ui) {
+    for down in [true, false] {
+        ui.handle(ddi_ui::event::UiEvent::Menu(ddi_ui::event::MenuEvent {
+            action: ddi_ui::nav::MenuAction::Back,
+            down,
+            source: u32::MAX,
+            gesture: false,
+            time: crate::clock::now().0 * 1000.0,
+        }));
     }
 }
 

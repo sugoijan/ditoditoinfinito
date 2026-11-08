@@ -2,8 +2,9 @@
 
 Status: steps 1 and 2 done 2026-11-06 (the draft; the screen on the web), step 3
 2026-11-07 (the scenes on song select and the results), step 4 2026-11-08
-(the scenes in play, on the web); step 5 (desktop) next. A screen for someone
-recording an announcer in an app of their own:
+(the scenes in play, on the web), step 5 2026-11-08 (desktop); step 6 (the
+encoder) for later. A screen for someone recording an announcer in an app of
+their own:
 
 - Their recordings come in through a picker or by dropping them.
 - Each recording is put on the line it is.
@@ -550,6 +551,59 @@ says its line, and comes back with it heard.
 - Scenes run in its play as on the web.
 
 Check: desktop's offscreen tests through the shell.
+
+**Done 2026-11-08.** Desktop runs the same page (Options → Sound → Your
+own announcer, or `--screen announcer`) and the same scenes
+(`crates/desktop/src/studio.rs`).
+
+- **What both shells share.** What a scene does and when
+  (`ddi_session::announcer::scene::director`: `Director`, over a shell's
+  `SceneHost`: its clock, its UI, song select's sound, the voice), the
+  draft as a voice (`draft_voice`), which files are recordings
+  (`draft::takes`), a scene in play's staging and length
+  (`in_play::staged`) and the words a play's lines show
+  (`SaidWords`). The web's page moved onto it, what it does unchanged.
+- **Kept** in the data folder: `studio/draft.json`, each recording under
+  `studio/take/<id>`, written in order on a thread of their own (flushed
+  before the game goes). Takes are decoded at 48 kHz on another; those
+  read before are decoded when a scene needs them.
+- **Recordings** come through pickers alone: Add recording (any file the
+  game or a recording app makes), Advanced's imports of a pack, read on a
+  thread. M4A/AAC cannot be decoded here (`decode-all` has no decoder
+  for it): such a take stays on its line with the page's note that it
+  could not be read.
+- **Export** is one press: the save dialog first, then the zip made and
+  written on a thread (on the web a download must start in its own
+  press). **Use in the game** writes `<data>/announcers/<name>/` (whole or
+  not at all, its README beside its lines), listed after ours and before
+  the song folders', and Options lists them again; only those can be
+  removed from Options, what is in a song folder staying the player's.
+- **Scenes on song select and the results** run as on the web: the page's
+  timers and steps are polled by the shell's loop (`Studio::poll`), the
+  voice on the preview's sound in place of the announcer chosen
+  (`Player::stage`).
+- **A scene in play** is a `Request` with a `SceneOrder` on
+  `play::host`: one UI, so the frame (`StageFrame`, a chrome) is pushed
+  over the prompt, the play and its results alike; the play is drawn
+  into a texture (`Formats::picture`, encoded values as Options' field
+  preview) that `Picture` shows through the 2D pass. Its pointer is the
+  frame's (`Host::framed`) and Escape leaves it. Never kept: no record,
+  no ghost, no prior.
+- **Found on the way:** a chrome pushed while another was still going
+  landed under it, so `push_chrome` flagged the wrong layer and the frame
+  did not show (`Ui::push_layer`: the chrome goes on top).
+
+Checked: `crates/desktop/tests/studio.rs`, offscreen through the shell on
+a fake clock with no sound device: recordings picked for a line and a
+pack imported (name and credits), opened again as they were, a take
+heard, the export cancelled and saved and read back by
+`find_announcers`, Use in the game listed and removed, then song
+select's scene and the results' by the draft, a line not recorded by our
+pack, each kind of line in play in its frame (a combo, a restart, a fail
+into its results, one left by the frame's way back). The director's
+tests over a fake shell (`scene/director/tests.rs`); web scenes in
+headless Chrome again after moving onto it (`studio-examples.mjs`,
+`studio-frame.mjs`, `studio-scene-exits.mjs`, `studio-play.mjs`).
 
 ## Step 6 (low priority, for later). The encoder
 

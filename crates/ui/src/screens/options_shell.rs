@@ -27,7 +27,7 @@ pub enum Leave {
     Demo {
         gl: bool,
     },
-    /// The announcer studio (the web's, `docs/plans/announcer-studio.md`).
+    /// The announcer studio (`docs/plans/announcer-studio.md`).
     Studio,
 }
 

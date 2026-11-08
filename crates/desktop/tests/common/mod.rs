@@ -20,6 +20,7 @@ pub fn indexes() {
         for (index, task) in [
             ("target/songs/index.json", "gen-songs"),
             ("target/noteskins/index.json", "gen-noteskins"),
+            ("target/announcers/index.json", "gen-announcers"),
         ] {
             if root.join(index).is_file() {
                 continue;

@@ -30,6 +30,9 @@ pub struct Rgba {
 pub struct Formats {
     pub view: wgpu::TextureFormat,
     pub plain: Option<wgpu::TextureFormat>,
+    /// Drawn for a plain texture the 2D pass samples, in this float
+    /// format ([`SkinBlending::Encoded`]).
+    pub encoded: Option<wgpu::TextureFormat>,
 }
 
 impl Formats {
@@ -40,19 +43,32 @@ impl Formats {
             Formats {
                 view: plain.add_srgb_suffix(),
                 plain: Some(plain),
+                encoded: None,
             }
         } else {
             Formats {
                 view: plain,
                 plain: None,
+                encoded: None,
             }
         }
     }
 
+    /// For a texture of encoded values the 2D pass shows: the announcer
+    /// studio's staged plays, in their frame.
+    pub fn picture() -> Formats {
+        Formats {
+            view: ddi_render::field_preview::FORMAT,
+            plain: None,
+            encoded: Some(wgpu::TextureFormat::Rgba16Float),
+        }
+    }
+
     fn blending(&self) -> SkinBlending {
-        match self.plain {
-            Some(p) => SkinBlending::PlainView(p),
-            None => SkinBlending::Scene,
+        match (self.encoded, self.plain) {
+            (Some(f), _) => SkinBlending::Encoded(f),
+            (None, Some(p)) => SkinBlending::PlainView(p),
+            (None, None) => SkinBlending::Scene,
         }
     }
 }

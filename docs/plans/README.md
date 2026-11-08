@@ -77,10 +77,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   own made with Kokoro, `Mr. Clank` and `ガキンさん` (every line, from
   `tools/announcer-design/pack.toml` and `pack-ja.toml`), bundled
   2026-11-06; the announcer is Off by default.
-- [Announcer studio](announcer-studio.md) (2026-11-06): steps 1 to 4
+- [Announcer studio](announcer-studio.md) (2026-11-06): steps 1 to 5
   done (the draft; the web's page at `#/announcer`; the scenes on song
-  select and the results, 2026-11-07; the scenes in play, 2026-11-08),
-  desktop next;
+  select and the results, 2026-11-07; the scenes in play and desktop,
+  2026-11-08), the encoder for later;
   web first, for authors who only play the game. They record with their own
   app; the recordings are picked or dropped onto their lines, with
   examples in English and Japanese, tidied, and each line heard in a

@@ -62,6 +62,9 @@ pub struct World {
     /// `bundled:`, `ddi_library::announcer::bundled_key`), then the
     /// imported (the web) or the song folders' (desktop), by name.
     pub announcers: Vec<(String, String)>,
+    /// Those made in the announcer studio on desktop (their keys), which
+    /// can be removed.
+    pub made_announcers: Vec<String>,
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
     /// The parameters skins declare (`docs/plans/skin-parameters.md`),
@@ -160,7 +163,7 @@ impl Reset {
             }
             Reset::Announcer(key) => (
                 m::confirm_announcer(),
-                m::confirm_announcer_body(model.announcer_name(key)),
+                m::confirm_announcer_body(model.announcer_name(key), model.world.platform.l10n()),
                 m::confirm_announcer_button(),
             ),
         };
@@ -946,15 +949,13 @@ impl OptionsModel {
                 |i| i + 1,
             ),
         };
-        let studio = (!desktop).then(|| {
-            actions(
-                "announcer.studio",
-                m::announcer_studio(),
-                [m::announcer_studio_button()],
-                "",
-                m::announcer_studio_description(),
-            )
-        });
+        let studio = Some(actions(
+            "announcer.studio",
+            m::announcer_studio(),
+            [m::announcer_studio_button()],
+            "",
+            m::announcer_studio_description(),
+        ));
         let mut rows = vec![row(
             "announcer",
             m::announcer(),
@@ -976,14 +977,20 @@ impl OptionsModel {
         );
         volume.note = decibels(s.announcer_volume);
         rows.push(volume);
-        // Ours come with the game.
-        if !desktop && listed(key).is_some() && !ddi_library::announcer::is_bundled(key) {
+        // Ours come with the game; on desktop, what is in a song folder
+        // stays there, and only those made in the studio can go.
+        let removable = if desktop {
+            self.world.made_announcers.iter().any(|k| k == key)
+        } else {
+            listed(key).is_some() && !ddi_library::announcer::is_bundled(key)
+        };
+        if removable {
             rows.push(actions(
                 "announcer.remove",
                 m::announcer_remove(),
                 [m::announcer_remove_button()],
                 "",
-                m::announcer_remove_description(),
+                m::announcer_remove_description(self.world.platform.l10n()),
             ));
         }
         rows.extend(studio);
@@ -3251,13 +3258,23 @@ mod tests {
         assert!(!has(&m, "announcer.remove"));
         m.reset(&Reset::Songs);
         assert_eq!(m.settings.announcer.as_deref(), Some("bundled:mr. clank"));
-        // The studio opens from here on the web, Off or not.
+        // The studio opens from here, Off or not, on both shells.
         assert!(has(&m, "announcer.studio"));
         assert_eq!(m.action("announcer.studio", 0), Act::Studio);
         m.change("announcer", 0);
         assert!(has(&m, "announcer.studio"));
         m.world.platform = super::super::data::Platform::Desktop;
-        assert!(!has(&m, "announcer.studio"));
+        assert!(has(&m, "announcer.studio"));
+        // Desktop removes only those made in the studio.
+        m.world.announcers = vec![
+            ("made".into(), "Made".into()),
+            ("found".into(), "Found".into()),
+        ];
+        m.world.made_announcers = vec!["made".into()];
+        m.settings.announcer = Some("found".into());
+        assert!(!has(&m, "announcer.remove"));
+        m.settings.announcer = Some("made".into());
+        assert!(has(&m, "announcer.remove"));
     }
 
     fn find<'a>(d: &'a OptionsData, id: &str) -> &'a OptionDef {

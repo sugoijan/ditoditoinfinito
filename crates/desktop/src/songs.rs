@@ -68,6 +68,8 @@ pub struct Songs {
     history_sent: Cell<Option<std::time::Instant>>,
     /// The options screen while it is open (its song folders' rows).
     pub options: Rc<RefCell<Option<Rc<crate::options::Shared>>>>,
+    /// The announcer studio, while it is open.
+    pub studio: Rc<RefCell<Option<Rc<crate::studio::Studio>>>>,
     /// What song select asked to play (`crate::play::host` takes it).
     pub play: Rc<RefCell<Option<crate::play::Request>>>,
     /// Song select's autoplay switch.
@@ -129,6 +131,7 @@ impl Songs {
             history_seen: Cell::new(u64::MAX),
             history_sent: Cell::new(None),
             options: Rc::default(),
+            studio: Rc::default(),
             play: Rc::default(),
             autoplay: Cell::new(false),
             testing: Cell::new((false, 0.0)),

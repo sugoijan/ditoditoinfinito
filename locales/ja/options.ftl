@@ -203,7 +203,10 @@ options-announcer-volume = アナウンサーの音量
 options-announcer-volume-description = アナウンサーの声の大きさで、音楽の音量に対する割合です（音楽をミュートするとこちらもミュートされます）。
 options-announcer-remove = このアナウンサー
 options-announcer-remove-button = 削除
-options-announcer-remove-description = インポートしたアナウンサーをこのブラウザーから削除します。
+options-announcer-remove-description = { $platform ->
+    [web] インポートしたアナウンサーをこのブラウザーから削除します。
+   *[desktop] アナウンサースタジオで作ったアナウンサーを削除します。
+}
 options-announcer-studio = 自分のアナウンサー
 options-announcer-studio-button = 作る…
 options-announcer-studio-description = アナウンサースタジオを開きます。自分の声の録音を持ち込み、各セリフをゲームで使われる場面で聞いて、ここで使ったり共有したりできます。
@@ -482,7 +485,10 @@ options-confirm-noteskin-body = { $skin }をこのブラウザーから削除し
 options-confirm-pump-noteskin-body = { $skin }をこのブラウザーから削除します。Pumpのスタイルは上の矢印で描かれるようになります。
 options-confirm-noteskin-button = 削除
 options-confirm-announcer = このアナウンサーを削除しますか？
-options-confirm-announcer-body = { $announcer }をこのブラウザーから削除します。プレイ中のアナウンスはなくなります。
+options-confirm-announcer-body = { $platform ->
+    [web] { $announcer }をこのブラウザーから削除します。プレイ中のアナウンスはなくなります。
+   *[desktop] { $announcer }を削除します。プレイ中のアナウンスはなくなります。
+}
 options-confirm-announcer-button = 削除
 
 ## Notices.

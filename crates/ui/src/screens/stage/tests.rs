@@ -130,6 +130,28 @@ fn the_frame_shows_the_screens_smaller_and_gives_them_back() {
     assert!(!h.ui.needs_redraw() || h.ui.layers().iter().all(|l| l.phase == "active"));
 }
 
+/// A scene heard as the last one's frame is still going: the new frame
+/// is the one on top, and shows the screens smaller.
+#[test]
+fn a_frame_shown_as_the_last_one_goes_is_the_frame() {
+    let log: Log = Rc::default();
+    let mut h = Harness::new([1280.0, 720.0], [1280.0, 720.0], 1.0, TextMode::Own);
+    h.push(Shown { log: log.clone() });
+    h.ui.push_chrome(frame_of(log.clone()));
+    h.run(1.0);
+    let small = h.ui.bounds("Thing").unwrap();
+    h.ui.broadcast(Message::new(END));
+    h.run(0.1);
+    h.ui.push_chrome(frame_of(log.clone()));
+    h.run(1.0);
+    assert!(
+        h.ui.layers().iter().all(|l| l.name != "stage"),
+        "both frames are chrome: {:?}",
+        h.ui.layers()
+    );
+    assert!(close(h.ui.bounds("Thing").unwrap(), small));
+}
+
 #[test]
 fn the_progress_fills_until_the_scene_ends() {
     let log: Log = Rc::default();

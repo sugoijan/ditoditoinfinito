@@ -56,7 +56,30 @@ pub struct Shared {
     >,
 }
 
+/// Looks for the announcers on a thread (ours where there is no library).
+fn list_announcers(
+    songs: Option<&Rc<crate::songs::Songs>>,
+) -> std::sync::mpsc::Receiver<Vec<DiskAnnouncer>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let folders = songs.map(|s| s.folders()).unwrap_or_default();
+    let wake = songs.and_then(|s| s.wake.borrow().clone());
+    let _ = std::thread::Builder::new()
+        .name("ddi-announcers".into())
+        .spawn(move || {
+            let _ = tx.send(crate::library::announcers::found(&folders));
+            if let Some(w) = wake {
+                w();
+            }
+        });
+    rx
+}
+
 impl Shared {
+    /// The announcers looked for again (one was made or removed).
+    fn list_announcers(&self) {
+        *self.announcers.borrow_mut() = Some(list_announcers(self.songs.as_ref()));
+    }
+
     /// The controllers connected changed: the rows say so.
     pub fn set_pads(&self, pads: Vec<ConnectedPad>, ui: &mut Ui) {
         if pads == self.model.borrow().world.connected {
@@ -164,7 +187,15 @@ impl Shared {
                 .collect();
             // Not `complete`, as for skins: a folder away for now (a
             // drive unplugged) keeps its announcer chosen.
-            self.model.borrow_mut().set_announcers(list, false);
+            let made = crate::library::announcers::made()
+                .iter()
+                .map(DiskAnnouncer::key)
+                .collect();
+            {
+                let mut m = self.model.borrow_mut();
+                m.set_announcers(list, false);
+                m.world.made_announcers = made;
+            }
             *self.found.borrow_mut() = found;
             self.refresh();
         }
@@ -247,20 +278,7 @@ pub fn screen(
             rx
         })),
         // Ours too where there is no library.
-        announcers: RefCell::new(Some({
-            let (tx, rx) = std::sync::mpsc::channel();
-            let folders = songs.as_ref().map(|s| s.folders()).unwrap_or_default();
-            let wake = songs.as_ref().and_then(|s| s.wake.borrow().clone());
-            let _ = std::thread::Builder::new()
-                .name("ddi-announcers".into())
-                .spawn(move || {
-                    let _ = tx.send(crate::library::announcers::found(&folders));
-                    if let Some(w) = wake {
-                        w();
-                    }
-                });
-            rx
-        })),
+        announcers: RefCell::new(Some(list_announcers(songs.as_ref()))),
         found: RefCell::default(),
         sound,
         songs,
@@ -448,8 +466,25 @@ impl OptionsPlatform for Desktop {
 
     /// The song folders are forgotten (the settings' part, the folders'
     /// songs' offsets, is the model's); nothing in them is deleted.
-    /// Noteskins are read in place too: none is stored to remove.
+    /// Noteskins are read in place too: none is stored to remove; an
+    /// announcer made in the studio is deleted.
     fn remove(&self, reset: &Reset) {
+        if let Reset::Announcer(key) = reset {
+            let removed = crate::library::announcers::remove_made(key);
+            {
+                let mut m = self.0.model.borrow_mut();
+                use ddi_l10n::msg::options as msg;
+                m.notice = match removed {
+                    Ok(_) => msg::notice_announcer_removed(),
+                    Err(e) => {
+                        msg::notice_announcer_not_removed(ddi_ui::screens::errors::error_text(&e))
+                    }
+                }
+                .into();
+            }
+            self.0.list_announcers();
+            self.0.refresh();
+        }
         if matches!(reset, Reset::Songs | Reset::Everything)
             && let Some(s) = &self.0.songs
         {
@@ -515,8 +550,21 @@ impl OptionsPlatform for Desktop {
                     ));
                 }
             }
-            // Neither is offered on desktop.
-            Leave::Demo { .. } | Leave::Studio => {}
+            Leave::Studio => {
+                if let (Some(songs), Some(sound)) = (&self.0.songs, &self.0.sound) {
+                    let shared = self.0.clone();
+                    let studio = crate::studio::Studio::new(
+                        &self.0.env,
+                        sound.clone(),
+                        songs.play.clone(),
+                        Some(Rc::new(move || shared.list_announcers())),
+                    );
+                    cx.push(studio.screen());
+                    *songs.studio.borrow_mut() = Some(studio);
+                }
+            }
+            // Not offered on desktop.
+            Leave::Demo { .. } => {}
         }
     }
 

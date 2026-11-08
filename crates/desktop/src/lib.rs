@@ -51,6 +51,7 @@ pub mod share;
 pub mod shell;
 pub mod songs;
 pub mod store;
+pub mod studio;
 #[cfg(feature = "video")]
 pub mod video;
 
@@ -201,7 +202,7 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
-/// Runs the desktop app: `ddi [--screen select|results|options|credits|calibration |
+/// Runs the desktop app: `ddi [--screen select|results|options|credits|calibration|announcer |
 /// --dev | --widgets] [--seconds N] [--volume V] [--fake-pad SCRIPT]`,
 /// the theme's screens on sample data in a window (options on the stored
 /// settings), song select unless `--screen` names another (`--dev`: the
@@ -394,9 +395,10 @@ pub fn run() {
     // Song select and options on the library on disk (the bundled songs
     // and the song folders), unless `--sample` asks for the sample data;
     // `--songs <dir>` adds a folder for this run.
-    let songs = (!args.iter().any(|a| a == "--sample")
+    let songs = ((!args.iter().any(|a| a == "--sample")
         && matches!(screen.as_str(), "start" | "select" | "options"))
-    .then(|| {
+        || screen == "announcer")
+        .then(|| {
         let extra: Vec<std::path::PathBuf> = args
             .iter()
             .enumerate()

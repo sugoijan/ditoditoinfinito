@@ -31,6 +31,7 @@ shell-menu-quit = { -game-name }を終了
 ## The kinds of file desktop's file dialogs offer.
 
 shell-file-zips = ZIPアーカイブ
+shell-file-recordings = 録音
 
 shell-file-music = 音楽
 

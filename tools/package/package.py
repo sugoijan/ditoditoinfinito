@@ -97,7 +97,7 @@ def folder(app, output, without_video_helper=False):
             source, manifest, _ = importer
             shutil.copytree(source, output / 'danoni-importer' / manifest['id'])
         shutil.copytree(ROOT / 'assets', output / 'assets')
-        for name in ['songs', 'noteskins']:
+        for name in ['songs', 'noteskins', 'announcers']:
             index = ROOT / 'target' / name / 'index.json'
             if not index.is_file():
                 raise ValueError(f'Generate {name} index with cargo run -p xtask -- gen-{name} before packaging')

@@ -1718,7 +1718,8 @@ impl Ui {
             shown: !overlay,
         };
         // An overlay goes directly above its owner and the owner's other
-        // overlays; a screen on top of everything but the chrome.
+        // overlays; a screen on top of everything but the chrome; the
+        // chrome on top (over one still going).
         let at = match owner.and_then(|o| Some((o, self.index(o)?))) {
             Some((o, i)) => {
                 let mut j = i + 1;
@@ -1727,6 +1728,7 @@ impl Ui {
                 }
                 j
             }
+            None if self.building_chrome => self.layers.len(),
             None => self
                 .layers
                 .iter()

@@ -213,6 +213,13 @@ fn studio_texts() -> Vec<String> {
                 ..view.clone()
             },
         ),
+        (
+            &draft,
+            View {
+                platform: super::data::Platform::Desktop,
+                ..view.clone()
+            },
+        ),
     ] {
         doc_texts(&studio::doc(d, &v, &examples).blocks, &mut out);
     }

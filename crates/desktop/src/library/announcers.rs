@@ -5,10 +5,11 @@
 //! `.smzip`s in it too), a song folder that is itself an announcer or a
 //! folder named `Announcers`, an announcer among a song folder's packs,
 //! and a listed zip holding one; ours, which come with the game, from
-//! the assets' `announcers/` ([`bundled`]). Keys are the web's (the name
-//! in lower case; ours `bundled:` and the name), so the `announcer`
-//! setting means the same announcer in both shells; the first folder
-//! holding a key wins, as for skins.
+//! the assets' `announcers/` ([`bundled`]); those made in the announcer
+//! studio, from the data folder's `announcers/` ([`made`]). Keys are the
+//! web's (the name in lower case; ours `bundled:` and the name), so the
+//! `announcer` setting means the same announcer in both shells; the first
+//! folder holding a key wins, as for skins.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -211,10 +212,58 @@ fn in_assets(assets: &Path) -> Vec<DiskAnnouncer> {
     found
 }
 
-/// Every announcer: ours, then the song folders', the first holding a
-/// key winning.
+/// What the announcer studio's Use in the game writes to: the data
+/// folder's `announcers/`.
+pub fn made_dir() -> Option<PathBuf> {
+    Some(crate::paths::data_dir()?.join("announcers"))
+}
+
+/// Those made in the announcer studio ([`made_dir`]).
+pub fn made() -> Vec<DiskAnnouncer> {
+    let Some(shelf) = made_dir().filter(|d| d.is_dir()) else {
+        return Vec::new();
+    };
+    in_dir(&shelf)
+}
+
+/// Removes the announcer made in the studio under `key`; whether one
+/// was.
+pub fn remove_made(key: &str) -> Result<bool, String> {
+    let Some(a) = made().into_iter().find(|a| a.key() == key) else {
+        return Ok(false);
+    };
+    let Base::Dir(dir) = &a.base else {
+        return Ok(false);
+    };
+    std::fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
+    forget();
+    Ok(true)
+}
+
+/// What ours say, from the bundled announcers' index (`target/announcers/
+/// index.json`, as Trunk builds it, or beside the assets in a package);
+/// none when it was not generated.
+pub fn index() -> Vec<announcer::Bundled> {
+    let assets = crate::images::assets();
+    [
+        assets.join("../target/announcers/index.json"),
+        assets.join("announcers/index.json"),
+    ]
+    .iter()
+    .find_map(|p| std::fs::read_to_string(p).ok())
+    .and_then(|t| serde_json::from_str::<announcer::Index>(&t).ok())
+    .map_or_else(Vec::new, |i| i.announcers)
+}
+
+/// Every announcer: ours, those made in the studio, then the song
+/// folders', the first holding a key winning.
 pub fn all(folders: &[PathBuf]) -> Vec<DiskAnnouncer> {
     let mut out: Vec<DiskAnnouncer> = bundled();
+    for a in made() {
+        if !out.iter().any(|o| o.key() == a.key()) {
+            out.push(a);
+        }
+    }
     for f in folders {
         for a in in_folder(f) {
             if !out.iter().any(|o| o.key() == a.key()) {

@@ -32,6 +32,8 @@ pub const UNTIL: &str = "Stage.Until";
 pub const SAY: &str = "Stage.Say";
 /// The scene is over: the frame goes.
 pub const END: &str = "Stage.End";
+/// The texture source a staged play's picture is drawn under ([`Picture`]).
+pub const PICTURE: &str = "staged-play";
 
 /// How long the frame takes to come in or go, seconds.
 const MOTION: f32 = 0.35;

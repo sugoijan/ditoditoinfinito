@@ -21,7 +21,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use ddi_library::announcer::Line;
 use ddi_session::announcer::MenuVoice;
+use ddi_session::announcer::scene::director::{StagedVoice, Told};
 use ddi_session::preview::{FADE, LEAD};
 
 use crate::audio::decoder::Decoder;
@@ -131,9 +133,15 @@ pub struct Player {
     menu: Option<(MenuVoice<Sound>, crate::play::voice::VoiceLoad)>,
     /// What the menu's lines are timed on.
     epoch: Instant,
+    /// The announcer studio's voice, while its scene shows song select.
+    staged: Option<StagedVoice<Sound>>,
 }
 
 pub type SharedPlayer = Rc<RefCell<Player>>;
+
+/// Who is told of a line the studio's voice was asked for, the line, and
+/// what spoke for it and for how long ([`Player::announce_menu`]).
+pub type StagedLine = (Told, Line, Option<(Line, f64)>);
 
 /// A sound being decoded on a thread.
 type Decoding = std::sync::mpsc::Receiver<Result<Sound, String>>;
@@ -162,17 +170,42 @@ impl Player {
             spoken: Vec::new(),
             menu: None,
             epoch: Instant::now(),
+            staged: None,
         }
+    }
+
+    /// The announcer studio's voice speaks song select's lines from now
+    /// (`None`: the announcer chosen again).
+    pub fn stage(&mut self, staged: Option<StagedVoice<Sound>>) {
+        self.staged = staged;
+    }
+
+    /// What a play opening stops: the preview, and what is said.
+    pub fn hush(&mut self) {
+        self.pause();
+        self.audio.stop_all();
     }
 
     /// Song select's `line` (`UiRequest::Announce`), where the announcer
     /// chosen has it: its sounds decoded the first time (the line spoken
-    /// once decoded, if that is soon), at its share of the volume.
-    pub fn announce_menu(&mut self, line: ddi_library::announcer::Line) {
+    /// once decoded, if that is soon), at its share of the volume. The
+    /// studio's voice instead while it stages song select: who to tell,
+    /// to be told outside this player's borrow.
+    pub fn announce_menu(&mut self, line: Line) -> Option<StagedLine> {
+        if let Some(s) = self.staged.as_mut() {
+            let told = s.told.clone();
+            let share = s.share;
+            let found = s.voice.next(line).map(|(f, b)| (f, b.clone()));
+            let spoke = found.map(|(found, sound)| {
+                let at = self.audio.context_time() + LEAD;
+                self.audio.play_voice_sound(&sound, at, share);
+                self.spoken.push(found.folder());
+                (found, sound.duration())
+            });
+            return Some((told, line, spoke));
+        }
         let settings = crate::store::settings_cached();
-        let Some(key) = settings.announcer.clone() else {
-            return;
-        };
+        let key = settings.announcer.clone()?;
         if self.menu.as_ref().is_none_or(|(m, _)| m.key() != key) {
             let load = crate::play::voice::VoiceLoad::start(
                 key.clone(),
@@ -189,6 +222,7 @@ impl Player {
             m.ask(line, now)
         });
         self.speak_menu(found, settings.announcer_volume);
+        None
     }
 
     /// Speaks song select's line found, if any, at `share` of the volume.

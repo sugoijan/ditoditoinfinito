@@ -348,7 +348,7 @@ impl Shell {
         }
         let ui = if let Some(songs) = songs
             .as_ref()
-            .filter(|_| matches!(name, "start" | "select" | "options"))
+            .filter(|_| matches!(name, "start" | "select" | "options" | "announcer"))
         {
             let (ui, env, look) = library_ui_with(name, fold, sound.clone(), songs, quit);
             // Calibration's menu, opened again when a test leaves.
@@ -687,6 +687,10 @@ impl Shell {
         if !self.quitting {
             self.quitting = true;
             self.sound.borrow_mut().close();
+            // The announcer studio's draft written before the game goes.
+            if let Some(s) = &self.songs {
+                s.studio.borrow_mut().take();
+            }
             self.quit_ready = self.songs.as_ref().is_none_or(|s| s.shutdown());
         }
     }
@@ -750,7 +754,13 @@ impl Shell {
                 }
                 UiRequest::PlayPreview { song } => self.sound.borrow_mut().select(Some(&song)),
                 UiRequest::StopPreview => self.sound.borrow_mut().pause(),
-                UiRequest::Announce(line) => self.sound.borrow_mut().announce_menu(line),
+                UiRequest::Announce(line) => {
+                    // The studio's voice tells its scene, past the borrow.
+                    let staged = self.sound.borrow_mut().announce_menu(line);
+                    if let Some((told, asked, spoke)) = staged {
+                        told(asked, spoke);
+                    }
+                }
                 UiRequest::Back => {}
                 UiRequest::Quit => self.request_quit(),
                 UiRequest::CopyText(text) => {
@@ -803,7 +813,9 @@ impl Shell {
     /// never the menus' under it (song select under the prompt that
     /// closed, whose items it would hover and press).
     pub fn pointer(&mut self, id: u64, kind: PointerKind, phase: PointerPhase, pos: [f32; 2]) {
-        if self.play.playing() {
+        // (A scene's play is shown in a frame: the frame's button is the
+        // UI's.)
+        if self.play.playing() && !self.play.framed() {
             return;
         }
         self.send(UiEvent::Pointer(PointerEvent {
@@ -973,6 +985,12 @@ impl Shell {
                 env,
             );
             s.gpu.queue.submit(Some(encoder.finish()));
+            // A scene's play is a picture in its frame: the UI draws it.
+            if self.play.has_picture() {
+                self.play.show_picture(&mut s.gpu.painter, &s.gpu.device);
+                s.gpu.draw(&mut self.ui, &view, size);
+                self.play.release_picture(&mut s.gpu.painter, &s.gpu.device);
+            }
         } else {
             if let Some(env) = &env {
                 let feed = self.songs.as_ref().map(|songs| &songs.feed);
@@ -980,6 +998,7 @@ impl Shell {
                 s.gpu.movie.follow(shown, env, feed);
             }
             s.gpu.draw(&mut self.ui, &view, size);
+            self.play.release_picture(&mut s.gpu.painter, &s.gpu.device);
         }
         self.loaded = s.gpu.images_ready();
         s.window.pre_present_notify();
@@ -1082,8 +1101,24 @@ impl Shell {
         {
             gpu.field.set_settings(&settings);
         }
+        // The announcer studio's work and its scenes' steps.
+        let mut studio_at = None;
+        let studio = self.songs.as_ref().and_then(|s| s.studio.borrow().clone());
+        if let Some(studio) = studio {
+            let (requests, at) = studio.poll(&mut self.ui);
+            self.run(requests);
+            studio_at = at;
+            if studio.left()
+                && !self.play.playing()
+                && !studio.working()
+                && let Some(s) = &self.songs
+            {
+                s.studio.borrow_mut().take();
+            }
+        }
         // Sound moves on (a preview settled, decoded, looped).
-        Polled::Wake(self.sound.borrow_mut().tick())
+        let sound_at = self.sound.borrow_mut().tick();
+        Polled::Wake(sound_at.into_iter().chain(studio_at).min())
     }
 
     /// The play's news: one asked for, its song read, the prompt's or
@@ -1583,6 +1618,10 @@ impl ApplicationHandler for Shell {
                     if down && !event.repeat {
                         self.ui
                             .set_source(ddi_ui::controller_hints::Source::Keyboard);
+                        // A scene's play leaves at once.
+                        if code == "Escape" && self.play.framed() {
+                            self.play.back_from_scene();
+                        }
                     }
                     return;
                 }
@@ -1811,7 +1850,7 @@ fn library_ui_with(
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold);
     ui.push(title_screen(&env, sound.clone(), Some(songs.clone()), quit));
-    if first != "start" && first != "options" {
+    if first != "start" && first != "options" && first != "announcer" {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
         // `--shared`: the share's song select over the library's.
         if songs.shared() {
@@ -1826,6 +1865,10 @@ fn library_ui_with(
         let (screen, shared) = crate::options::screen(&env, Some(sound), Some(songs.clone()));
         *songs.options.borrow_mut() = Some(shared);
         ui.push(screen);
+    } else if first == "announcer" {
+        let studio = crate::studio::Studio::new(&env, sound, songs.play.clone(), None);
+        ui.push(studio.screen());
+        *songs.studio.borrow_mut() = Some(studio);
     }
     (ui, env, look)
 }
@@ -2115,6 +2158,12 @@ impl Shell {
                 env,
             );
             o.gpu.queue.submit(Some(encoder.finish()));
+            // A scene's play is a picture in its frame: the UI draws it.
+            if self.play.has_picture() {
+                self.play.show_picture(&mut o.gpu.painter, &o.gpu.device);
+                o.gpu.draw(&mut self.ui, &o.plain, size);
+                self.play.release_picture(&mut o.gpu.painter, &o.gpu.device);
+            }
         } else {
             if let Some(env) = &env {
                 let feed = self.songs.as_ref().map(|songs| &songs.feed);
@@ -2129,6 +2178,7 @@ impl Shell {
                 self.ui.update(0.0);
                 o.gpu.draw(&mut self.ui, &o.plain, size);
             }
+            self.play.release_picture(&mut o.gpu.painter, &o.gpu.device);
         }
         let pixels = read.then(|| gpu::read_rgba(&o.gpu.device, &o.gpu.queue, &o.texture));
         self.frames += 1;

@@ -440,7 +440,8 @@ Rust and the browser are implementation details, not advertised features.
   for each line said in play, `announcer/scene/in_play.rs`, a staged
   play: `play/staging.rs`'s `Staging`, from part-way with what came
   before judged at once, `Player::start_staged`, notes missed or pressed
-  off, a combo given, step 4); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  off, a combo given, step 4; `announcer/scene/director.rs`, what a
+  scene does and when over a shell's `SceneHost`, step 5); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
@@ -577,7 +578,13 @@ Rust and the browser are implementation details, not advertised features.
   ID[,ID…]|pack:NAME [--expires W]` printing the link, the token from
   the settings or `DDI_SHARE_TOKEN`; HTTP through ureq on the calling
   thread, rustls on the system's trust store);
-  calibration's menu and tests (`calibrate.rs`); the chart editor
+  calibration's menu and tests (`calibrate.rs`); the announcer studio
+  (`studio.rs`, the web's page from Options or `--screen announcer`: its
+  draft in the data folder's `studio/`, recordings from pickers, each
+  line heard in its scene, a line said in play in the real play drawn
+  into the frame's picture, `play/host.rs`; what Use in the game makes
+  in the data folder's `announcers/`, `docs/plans/announcer-studio.md`,
+  step 5); the chart editor
   (`editor.rs`: song select's E, saving into the song's folder, its
   playtests; new songs from a music file, `editor/new_song.rs`); the
   devices' fingerprints and notices (`devices.rs`). Settings in
@@ -729,7 +736,7 @@ Rust and the browser are implementation details, not advertised features.
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
   tuned for size and aborting on panics). Flags (`ddi_desktop::run`):
   `--songs DIR` (a folder for this run), `--sample`, `--screen
-  start|select|results|options|calibration|credits`, `--dev`, `--widgets`,
+  start|select|results|options|calibration|credits|announcer`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
   `--edit SONG [--chart N]` (the chart editor on it),
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its

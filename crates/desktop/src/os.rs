@@ -77,8 +77,32 @@ pub fn dialog<T>(open: impl FnOnce() -> T) -> T {
     open()
 }
 
+thread_local! {
+    /// What the next pickers return instead of asking (tests).
+    static PICKED: std::cell::RefCell<std::collections::VecDeque<Vec<std::path::PathBuf>>> =
+        const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
+    /// Where the next [`save_zip`] saves instead of asking (tests).
+    static SAVED: std::cell::RefCell<Option<Option<std::path::PathBuf>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Makes the next [`pick`] or [`pick_recordings`] return `picked` without
+/// a dialog (tests).
+pub fn inject_picked(picked: Vec<std::path::PathBuf>) {
+    PICKED.with(|p| p.borrow_mut().push_back(picked));
+}
+
+/// Makes the next [`save_zip`] return `path` without a dialog (tests;
+/// `None`: as if cancelled).
+pub fn inject_saved(path: Option<std::path::PathBuf>) {
+    SAVED.with(|p| *p.borrow_mut() = Some(path));
+}
+
 /// Files (or a folder) the player picks; none when cancelled.
 pub fn pick(folder: bool) -> Vec<std::path::PathBuf> {
+    if let Some(picked) = PICKED.with(|p| p.borrow_mut().pop_front()) {
+        return picked;
+    }
     let dialog = rfd::FileDialog::new();
     if folder {
         self::dialog(|| dialog.pick_folder()).into_iter().collect()
@@ -90,6 +114,43 @@ pub fn pick(folder: bool) -> Vec<std::path::PathBuf> {
         );
         self::dialog(|| dialog.pick_files()).unwrap_or_default()
     }
+}
+
+/// Recordings the player picks for a line of the announcer studio; none
+/// when cancelled.
+pub fn pick_recordings() -> Vec<std::path::PathBuf> {
+    if let Some(picked) = PICKED.with(|p| p.borrow_mut().pop_front()) {
+        return picked;
+    }
+    use ddi_library::announcer::draft::MORE_RECORDINGS;
+    let extensions: Vec<String> = ddi_library::pack::AUDIO_EXTENSIONS
+        .iter()
+        .chain(&MORE_RECORDINGS)
+        .flat_map(|e| [e.to_string(), e.to_ascii_uppercase()])
+        .collect();
+    dialog(|| {
+        rfd::FileDialog::new()
+            .add_filter(
+                ddi_l10n::msg::shell::file_recordings().as_str(),
+                &extensions,
+            )
+            .pick_files()
+    })
+    .unwrap_or_default()
+}
+
+/// Where the player saves the zip called `name` (the announcer studio's
+/// export); `None` when cancelled.
+pub fn save_zip(name: &str) -> Option<std::path::PathBuf> {
+    if let Some(path) = SAVED.with(|p| p.borrow_mut().take()) {
+        return path;
+    }
+    dialog(|| {
+        rfd::FileDialog::new()
+            .set_file_name(name)
+            .add_filter(ddi_l10n::msg::shell::file_zips().as_str(), &["zip"])
+            .save_file()
+    })
 }
 
 thread_local! {
