@@ -73,31 +73,15 @@ impl Backing {
             immediate_size: 0,
         });
         let pipelines = ["fs_seed", "fs_horizontal", "fs_vertical", "fs_finish"].map(|entry| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(entry),
-                layout: Some(&pl),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            })
+            crate::gpu::fullscreen_pipeline(
+                device,
+                entry,
+                &pl,
+                &shader,
+                entry,
+                wgpu::TextureFormat::Rgba8Unorm,
+                None,
+            )
         });
         Self {
             layout,
@@ -132,22 +116,17 @@ impl Backing {
             let scale = (512. / size[0].max(size[1]) as f32).min(1.);
             let mask_size = size.map(|v| (v as f32 * scale).round().max(1.) as u32);
             let make = |size: [u32; 2]| {
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("character-backing"),
-                    size: wgpu::Extent3d {
-                        width: size[0],
-                        height: size[1],
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                crate::gpu::texture_2d(
+                    device,
+                    "character-backing",
+                    size,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    1,
+                    wgpu::TextureUsages::RENDER_ATTACHMENT
                         | wgpu::TextureUsages::TEXTURE_BINDING
                         | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                })
+                    &[],
+                )
             };
             let output = make(size);
             let view = output.create_view(&Default::default());

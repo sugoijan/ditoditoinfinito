@@ -365,7 +365,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     for platform in [Platform::Web, Platform::Desktop] {
         // Removing (hiding) a pack, a song: confirmed.
         let pack = PackEntry {
-            name: "Pack".into(),
+            name: Some("Pack".into()),
             removable: true,
             rereadable: false,
             banner: None,
@@ -553,7 +553,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         h.push(PlaysDialog::new(
             env.clone(),
             "Hard 9",
-            Some("Without center"),
+            Some(ddi_chart::simplify::Kind::WithoutCenter),
             rows,
             None,
         ));
@@ -775,7 +775,7 @@ fn walk() -> BTreeSet<String> {
         use ddi_l10n::{UiText, msg};
         for (step, platform) in [
             (PromptStep::Ready, Platform::Web),
-            (PromptStep::Loading("loading…".into()), Platform::Web),
+            (PromptStep::Loading, Platform::Web),
             (PromptStep::Interrupted, Platform::Web),
             (PromptStep::Interrupted, Platform::Desktop),
             (
@@ -845,7 +845,7 @@ fn walk() -> BTreeSet<String> {
             ));
             shown(&mut h, &mut found);
             let pack = PackEntry {
-                name: "Pack".into(),
+                name: Some("Pack".into()),
                 removable: true,
                 rereadable: true,
                 banner: None,
@@ -1279,7 +1279,7 @@ fn moved_screens_show_no_text_written_in_code() {
         docs.push(("the credits", credits::doc(&c)));
     }
     for (what, doc) in docs {
-        let mut texts = vec![doc.title.text.clone(), doc.title.heading()];
+        let mut texts = vec![doc.title.text.clone(), doc.title.heading.clone()];
         block_texts(&doc.blocks, &mut texts);
         let left: Vec<&String> = texts.iter().filter(|t| in_code(t) || joined(t)).collect();
         assert!(left.is_empty(), "{what}: {left:?}");
@@ -1422,7 +1422,10 @@ fn the_language_row_offers_pseudo_languages_with_the_debug_overlay() {
     // Chosen, it stays offered with the overlay off.
     model.settings.debug = false;
     let row = find(&model);
-    assert_eq!(row.values().last().map(String::as_str), Some("Ƥšéúðó-áççéñţš"));
+    assert_eq!(
+        row.values().last().map(String::as_str),
+        Some("Ƥšéúðó-áççéñţš")
+    );
     assert_eq!(row.index, 3);
     model.change("language", 2);
     assert_eq!(model.settings.language.as_deref(), Some("ja"));
@@ -1480,11 +1483,11 @@ fn chart_versions_are_named_by_their_messages() {
     ];
     ddi_l10n::set_language("en");
     for d in &versions {
-        assert_eq!(&*super::select::version_name(d.name()), d.name());
+        assert!(!super::select::version_name(d.kind()).is_empty());
     }
     assert!(ddi_l10n::set_language("qps-ploc"));
     for d in &versions {
-        let name = super::select::version_name(d.name());
+        let name = super::select::version_name(d.kind());
         assert!(name.starts_with('«'), "{name}");
     }
     ddi_l10n::set_language("en");

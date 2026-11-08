@@ -222,7 +222,7 @@ pub fn lane_map(layout: &Layout, turn: Turn, seed: u64) -> Vec<u8> {
                     // Fisher-Yates over the group's lanes; with one group of
                     // every lane this is a plain shuffle of the field.
                     for i in (1..group.len()).rev() {
-                        let j = (rng.next() % (i as u64 + 1)) as usize;
+                        let j = (rng.next_u64() % (i as u64 + 1)) as usize;
                         map.swap(group[i], group[j]);
                     }
                 }
@@ -258,17 +258,26 @@ pub fn turn_supported(layout: &Layout, turn: Turn) -> bool {
     }
 }
 
-/// SplitMix64 (Steele, Lea and Flood 2014). Owned here rather than taken
-/// from a crate so a dependency update can never change a seeded shuffle.
-struct SplitMix64(u64);
+/// SplitMix64 (Steele, Lea and Flood 2014), from its seed. Owned here
+/// rather than taken from a crate so a dependency update can never change
+/// a seeded shuffle (the library's random backgrounds use it too).
+pub struct SplitMix64(pub u64);
 
 impl SplitMix64 {
-    fn next(&mut self) -> u64 {
+    pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
+    }
+
+    /// A Fisher–Yates shuffle of `items`.
+    pub fn shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (1..items.len()).rev() {
+            let j = (self.next_u64() % (i as u64 + 1)) as usize;
+            items.swap(i, j);
+        }
     }
 }
 
@@ -423,11 +432,7 @@ mod tests {
         let mut s = seed;
         loop {
             let mut map = identity.clone();
-            let mut rng = SplitMix64(s);
-            for i in (1..lanes).rev() {
-                let j = (rng.next() % (i as u64 + 1)) as usize;
-                map.swap(i, j);
-            }
+            SplitMix64(s).shuffle(&mut map);
             if map != identity {
                 return map;
             }

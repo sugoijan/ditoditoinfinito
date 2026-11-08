@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use ddi_session::announcer::MenuVoice;
 use ddi_session::preview::{FADE, LEAD};
 
 use crate::audio::decoder::Decoder;
@@ -125,26 +126,17 @@ pub struct Player {
     voice: Option<(Decoding, String, f32)>,
     /// The sample lines spoken, for the record.
     pub spoken: Vec<String>,
-    menu: Option<MenuVoice>,
+    /// Song select's lines of the announcer chosen, decoded when first
+    /// asked for (`docs/plans/announcers.md`, step 5).
+    menu: Option<(MenuVoice<Sound>, crate::play::voice::VoiceLoad)>,
+    /// What the menu's lines are timed on.
+    epoch: Instant,
 }
 
 pub type SharedPlayer = Rc<RefCell<Player>>;
 
 /// A sound being decoded on a thread.
 type Decoding = std::sync::mpsc::Receiver<Result<Sound, String>>;
-
-/// How long a menu line asked for while its sound decodes may wait to be
-/// spoken (later, its moment has passed).
-const MENU_WAIT: Duration = Duration::from_millis(1500);
-
-/// Song select's lines of the announcer chosen, decoded when first asked
-/// for (`docs/plans/announcers.md`, step 5).
-struct MenuVoice {
-    key: String,
-    load: crate::play::voice::VoiceLoad,
-    /// A line asked for before its sound was decoded, and when.
-    pending: Option<(ddi_library::announcer::Line, Instant)>,
-}
 
 impl Player {
     /// On the default output at master volume `volume`.
@@ -169,6 +161,7 @@ impl Player {
             voice: None,
             spoken: Vec::new(),
             menu: None,
+            epoch: Instant::now(),
         }
     }
 
@@ -180,7 +173,7 @@ impl Player {
         let Some(key) = settings.announcer.clone() else {
             return;
         };
-        if self.menu.as_ref().is_none_or(|m| m.key != key) {
+        if self.menu.as_ref().is_none_or(|(m, _)| m.key() != key) {
             let load = crate::play::voice::VoiceLoad::start(
                 key.clone(),
                 crate::library::all_folders(),
@@ -188,38 +181,24 @@ impl Player {
                 self.audio.sample_rate(),
                 None,
             );
-            self.menu = Some(MenuVoice {
-                key,
-                load,
-                pending: None,
-            });
+            self.menu = Some((MenuVoice::new(key, load.voice.clone()), load));
         }
-        if !self.speak_menu(line, settings.announcer_volume)
-            && let Some(m) = self.menu.as_mut()
-        {
-            m.pending = Some((line, Instant::now()));
-        }
+        let now = self.epoch.elapsed().as_secs_f64();
+        let found = self.menu.as_mut().and_then(|(m, load)| {
+            load.poll();
+            m.ask(line, now)
+        });
+        self.speak_menu(found, settings.announcer_volume);
     }
 
-    /// Speaks `line` from song select's voice now; whether it had it.
-    fn speak_menu(&mut self, line: ddi_library::announcer::Line, share: f32) -> bool {
-        let Some(m) = self.menu.as_mut() else {
-            return false;
-        };
-        m.load.poll();
-        let sound = m
-            .load
-            .voice
-            .borrow_mut()
-            .next(line)
-            .map(|(l, s)| (l, s.clone()));
-        let Some((found, sound)) = sound else {
-            return false;
+    /// Speaks song select's line found, if any, at `share` of the volume.
+    fn speak_menu(&mut self, found: Option<(ddi_library::announcer::Line, Sound)>, share: f32) {
+        let Some((found, sound)) = found else {
+            return;
         };
         let at = self.audio.context_time() + LEAD;
         self.audio.play_voice_sound(&sound, at, share);
         self.spoken.push(found.folder());
-        true
     }
 
     /// Speaks `sound` (a path of its lines) of announcer `a` at `share`
@@ -370,17 +349,13 @@ impl Player {
             }
         }
         // Song select's line waiting for its sound, while it is due.
-        if let Some((line, at)) = self.menu.as_ref().and_then(|m| m.pending) {
-            let share = crate::store::settings_cached().announcer_volume;
-            if (now.duration_since(at) > MENU_WAIT || self.speak_menu(line, share))
-                && let Some(m) = self.menu.as_mut()
-            {
-                m.pending = None;
-            }
+        if let Some((m, load)) = self.menu.as_mut().filter(|(m, _)| m.waiting()) {
+            load.poll();
+            let found = m.poll(now.duration_since(self.epoch).as_secs_f64());
+            self.speak_menu(found, crate::store::settings_cached().announcer_volume);
         }
         // While a line decodes, soon again.
-        let waiting =
-            self.voice.is_some() || self.menu.as_ref().is_some_and(|m| m.pending.is_some());
+        let waiting = self.voice.is_some() || self.menu.as_ref().is_some_and(|(m, _)| m.waiting());
         let voice = waiting.then(|| now + Duration::from_millis(8));
         if self.paused {
             return voice;
@@ -506,22 +481,10 @@ mod tests {
             .join(format!("announce-sample-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // 0.1 s of a 16-bit mono WAV.
-        let samples: Vec<u8> = (0..4_800i16)
-            .flat_map(|i| (((i % 48) - 24) * 600).to_le_bytes())
+        let samples: Vec<f32> = (0..4_800)
+            .map(|i| ((i % 48) - 24) as f32 * 600.0 / 32767.0)
             .collect();
-        let mut wav = b"RIFF".to_vec();
-        wav.extend((36 + samples.len() as u32).to_le_bytes());
-        wav.extend(b"WAVEfmt ");
-        wav.extend(16u32.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(48_000u32.to_le_bytes());
-        wav.extend(96_000u32.to_le_bytes());
-        wav.extend(2u16.to_le_bytes());
-        wav.extend(16u16.to_le_bytes());
-        wav.extend(b"data");
-        wav.extend((samples.len() as u32).to_le_bytes());
-        wav.extend(samples);
+        let wav = ddi_library::wav::write(&[samples], 48_000);
         for line in ["gameplay ready", "gameplay failed", "select music intro"] {
             let at = dir.join("Announcers/Voice").join(line);
             std::fs::create_dir_all(&at).unwrap();

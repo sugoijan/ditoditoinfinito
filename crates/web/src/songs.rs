@@ -47,6 +47,21 @@ pub(crate) fn asset_url(path: &str) -> String {
     format!("{}{}", base_url(), path)
 }
 
+/// The site path of a bundled file, `root/dir/path` with each part
+/// encoded, under its content hash where the index gives one (`?v=`), so
+/// a new build's file never comes from an old one's cache.
+pub(crate) fn bundled_url(root: &str, dir: &str, path: &str, hash: Option<&str>) -> String {
+    let encoded: Vec<String> = format!("{dir}/{path}")
+        .split('/')
+        .map(|p| String::from(js_sys::encode_uri_component(p)))
+        .collect();
+    let mut url = format!("{root}/{}", encoded.join("/"));
+    if let Some(hash) = hash {
+        url.push_str(&format!("?v={hash}"));
+    }
+    url
+}
+
 pub(crate) async fn fetch_text(path: &str) -> Result<String, String> {
     text_of(gloo::net::http::Request::get(&asset_url(path)), path).await
 }

@@ -654,14 +654,14 @@ import-skin-files = { $own } of { $total } elements are its own images and model
 #   $results (Number) - spoken on the results
 #   $select (Number) - spoken on song select
 #   $sounds (Number) - sound files
-#   $megabytes (Number) - their size, in megabytes
+#   $size (String) - their size, as the common-size messages write it ("4.2 MB")
 import-announcer-summary = { $lines ->
     [one] { $lines } line
    *[other] { $lines } lines
 } ({ $play } in play, { $results } on the results, { $select } on song select), { $sounds ->
     [one] { $sounds } sound
    *[other] { $sounds } sounds
-}, { NUMBER($megabytes, minimumFractionDigits: 1) } MB
+}, { $size }
 
 # Whole line: more announcers than one import keeps.
 # Variables:

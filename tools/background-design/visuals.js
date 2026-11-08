@@ -641,7 +641,7 @@
       const waved = p.amplitude * follow("rain.wave", f.lift(p.waveBy), f.dt, 0.02, 0.25);
       const n = Math.round(p.count);
       for (let i = 0; i < n; i++) {
-        // crates/theme/src/rain.rs, as site/boot-art.js has it, over the
+        // crates/actor/src/rain.rs, as site/boot-art.js has it, over the
         // menu's 960 × 540 layout scaled to the rect's height.
         const depth = seed(i, 2), rate = 8 * (0.8 + depth * 1.2);
         const travel = seed(i, 1) * 680 + (time + 8) * rate;

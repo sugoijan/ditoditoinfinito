@@ -194,6 +194,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   written with each change and unverified until a review is recorded
   against its hashes, a coverage check before releases; Noto Sans CJK JP
   and Unicode line breaking for Japanese.
+- [System errors as values](system-errors.md) (2026-11-08): planned. A
+  system's failure carried with its kind (an `io::ErrorKind`, a
+  DOMException's name, an HTTP status) instead of as text the screens
+  guess the kind from again; the text guess kept for stored records.
 - [Controller hints and reachability](controller-hints.md) (2026-10-27):
   implemented: automatic Xbox, PlayStation and Nintendo hints, generic fallback,
   per-controller artwork overrides and LB/LT/RT/RB primary Dance Single defaults;

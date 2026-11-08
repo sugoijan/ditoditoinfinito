@@ -34,8 +34,9 @@ const KINDS: [Kind; 4] = [
     Kind::FromFiveKeys,
 ];
 
+/// A kind of generated version, as the song list marks it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Kind {
+pub enum Kind {
     WithoutOnigiri,
     WithoutCenter,
     FromPumpSingle,
@@ -61,13 +62,14 @@ impl Kind {
         }
     }
 
-    /// The version's name alone, and after its source's.
-    fn names(self) -> (&'static str, &'static str) {
+    /// The kind as an identifier, never to change: a version's digest
+    /// hashes it ([`Song::chart_digest`]); tests and debug state read it.
+    pub fn key(self) -> &'static str {
         match self {
-            Kind::WithoutOnigiri => ("Without onigiri", "without onigiri"),
-            Kind::WithoutCenter => ("Without center", "without center"),
-            Kind::FromPumpSingle => ("From Pump single", "from Pump single"),
-            Kind::FromFiveKeys => ("From 5 keys", "from 5 keys"),
+            Kind::WithoutOnigiri => "without-onigiri",
+            Kind::WithoutCenter => "without-center",
+            Kind::FromPumpSingle => "from-pump-single",
+            Kind::FromFiveKeys => "from-five-keys",
         }
     }
 }
@@ -82,7 +84,8 @@ impl Derivation {
         }
     }
 
-    fn kind(&self) -> Kind {
+    /// What kind of version it is.
+    pub fn kind(&self) -> Kind {
         match self {
             Self::WithoutOnigiri { .. } => Kind::WithoutOnigiri,
             Self::WithoutCenter { .. } => Kind::WithoutCenter,
@@ -111,12 +114,6 @@ impl Derivation {
             self,
             Self::WithoutOnigiri { .. } | Self::WithoutCenter { .. }
         )
-    }
-
-    /// What the version leaves out, or where it comes from, as the song
-    /// list marks it ("Without center", "From Pump single").
-    pub fn name(&self) -> &'static str {
-        self.kind().names().0
     }
 }
 
@@ -254,13 +251,8 @@ fn convert(chart: &Chart, source: usize, kind: Kind) -> Option<Chart> {
         })
         .collect();
     converted.notes.sort_by_key(|n| (n.tick, n.lane));
+    // It keeps its source's name: the song list words what it is.
     converted.derivation = Some(kind.derivation(source));
-    let (alone, after) = kind.names();
-    converted.name = if chart.name.is_empty() {
-        alone.into()
-    } else {
-        format!("{} · {after}", chart.name)
-    };
     Some(converted)
 }
 
@@ -486,7 +478,7 @@ mod tests {
             Some(Derivation::WithoutCenter { source: 1 })
         );
         assert_eq!(converted.layout, "dance-single");
-        assert_eq!(converted.name, "Without center");
+        assert_eq!(converted.name, original.charts[1].name);
         assert_eq!(converted.meter, 9);
         assert_eq!(converted.credit, original.charts[1].credit);
         assert_eq!(converted.timing, original.charts[1].timing);
@@ -677,7 +669,7 @@ mod tests {
             Some(Derivation::FromPumpSingle { source: 1 })
         );
         assert_eq!(keys.layout, "danoni-5");
-        assert_eq!(keys.name, "From Pump single");
+        assert_eq!(keys.name, song.charts[1].name);
         assert_eq!(keys.notes.len(), song.charts[1].notes.len());
         assert_eq!(
             names(&song, keys),
@@ -710,7 +702,7 @@ mod tests {
             Some(Derivation::FromFiveKeys { source: 0 })
         );
         assert_eq!(pump.layout, "pump-single");
-        assert_eq!(pump.name, format!("{} · from 5 keys", song.charts[0].name));
+        assert_eq!(pump.name, song.charts[0].name);
         assert_eq!(pump.danoni, song.charts[0].danoni);
         let pad: Vec<_> = pump
             .notes

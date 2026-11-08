@@ -1308,6 +1308,8 @@ impl Library {
     }
 
     fn run(&mut self, folders: Vec<PathBuf>, force: Force, listed_first: bool) {
+        // The announcers in the folders are looked for again too.
+        announcers::forget();
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let current = self.generation.clone();
         let (tx, rx) = mpsc::channel();

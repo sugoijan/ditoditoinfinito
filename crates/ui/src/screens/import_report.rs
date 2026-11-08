@@ -384,15 +384,13 @@ fn skin_files_text(f: &SkinFiles) -> UiText {
 
 /// What an imported announcer speaks.
 pub fn announcer_text(a: &AnnouncerSummary) -> UiText {
-    // Megabytes to a tenth, as the size is shown.
-    let megabytes = (a.bytes as f64 / 1e5).round() / 10.0;
     m::announcer_summary(
         a.lines,
         a.in_play,
         a.on_results,
         a.on_select,
         a.sounds,
-        megabytes,
+        super::data::size_text(a.bytes as f64),
     )
 }
 

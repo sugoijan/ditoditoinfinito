@@ -6,6 +6,8 @@ use ddi_render::{DrawList, Painter, texture_cache::TextureKey};
 use serde_json::{Value, json};
 use std::{cell::RefCell, rc::Rc};
 
+/// The painter compositing the picture over a target, only where it is
+/// not the field's underlay (no look, or the guide shown).
 struct Surface {
     device: wgpu::Device,
     painter: Painter,
@@ -17,14 +19,12 @@ pub struct Preview {
     look: Option<PlayLook>,
     frame: ddi_character::appearance::HandFrame,
     rect: [f32; 4],
-    paused: bool,
     opacity: f32,
+    format: Option<wgpu::TextureFormat>,
     runtime: Option<super::dance_runtime::RuntimePreview>,
-    window: Option<f64>,
     runtime_error: Option<String>,
     preload_key: Option<Vec<u8>>,
     preload_ready: bool,
-    shift: f64,
     origin: f64,
     duration: f64,
     failed_at: Option<f64>,
@@ -48,14 +48,8 @@ impl Preview {
             self.look = Some(gameplay_look());
         }
     }
-    pub fn set_paused(&mut self, paused: bool) {
-        self.paused = paused;
-    }
     pub fn behind_field(&self) -> bool {
         self.look.is_some()
-    }
-    pub fn look(&self) -> Option<PlayLook> {
-        self.look
     }
     pub fn up_marker(&self) -> Option<[f32; 2]> {
         if !self.visible || !self.look.is_some_and(|l| l.guide) {
@@ -85,10 +79,8 @@ impl Preview {
         self.preload_ready = false;
         self.enabled = false;
         self.visible = false;
-        self.shift = 0.;
         self.origin = 0.;
         self.duration = 0.;
-        self.window = Some(3.);
         self.runtime = None;
         self.runtime_error = None;
         self.failed_at = None;
@@ -113,27 +105,41 @@ impl Preview {
     }
     /// Prepare the same effective Player as the eventual session, without audio
     /// scheduling or input capture. Presentation changes reuse the motion buffer.
+    /// The hand plays where `settings` accompany the chart's layout
+    /// ([`Settings::dancing_hand_for`]), never in calibration; `song` is
+    /// shifted by the song offset `shift` only then. Shells call it when the
+    /// song is read, when the play's options change and while
+    /// [`Preview::needs_preload`].
+    ///
+    /// [`Settings::dancing_hand_for`]: ddi_ui::state::settings::Settings::dancing_hand_for
     pub fn preload(
         &mut self,
         song: &Song,
+        shift: f64,
         chart: usize,
         settings: &ddi_ui::state::settings::Settings,
         config: &ddi_session::play::SessionConfig,
-        enabled: bool,
     ) {
         self.configure(settings);
+        let enabled = config.calibration.is_none()
+            && song
+                .charts
+                .get(chart)
+                .is_some_and(|c| settings.dancing_hand_for(&c.layout));
         if !enabled {
             self.reset_preload();
             self.preload_ready = true;
             self.preload_key = Some(Vec::new());
             return;
         }
-        let (rules, options) = match config.player_spec(song, chart, settings) {
+        let song = song.shifted(shift);
+        let (rules, options) = match config.player_spec(&song, chart, settings) {
             Ok(spec) => spec,
             Err(e) => {
                 self.reset_preload();
                 self.runtime_error = Some(e);
                 self.preload_ready = true;
+                self.preload_key = Some(Vec::new());
                 return;
             }
         };
@@ -141,21 +147,26 @@ impl Preview {
         let key = serde_json::to_vec(&(
             chart,
             &c.layout,
-            c.timing(song),
+            c.timing(&song),
             &rules.id,
             &rules.judge,
             options,
-            enabled,
             config.start,
         ))
         .expect("finite play configuration");
         if self.preload_key.as_ref() == Some(&key) {
             return;
         }
-        let player = ddi_engine::player::Player::new(song, chart, rules, options);
-        self.bind_player(&player, &c.layout, enabled, config.start);
+        let player = ddi_engine::player::Player::new(&song, chart, rules, options);
+        self.bind_player(&player, &c.layout, true, config.start);
         self.preload_key = Some(key);
         self.preload_ready = !self.enabled;
+    }
+
+    /// Whether nothing was preloaded since the song or the play changed
+    /// ([`Preview::reset_preload`]): the shell calls [`Preview::preload`].
+    pub fn needs_preload(&self) -> bool {
+        self.preload_key.is_none()
     }
 
     pub fn preload_pending(&self) -> bool {
@@ -185,14 +196,7 @@ impl Preview {
             }
         }
         let mut encoder = device.create_command_encoder(&Default::default());
-        self.update_picture(
-            device,
-            queue,
-            &mut encoder,
-            format,
-            size,
-            self.origin + self.shift,
-        );
+        self.update_picture(device, queue, &mut encoder, format, size, self.origin);
         queue.submit([encoder.finish()]);
         self.preload_ready = self.host.texture().is_some();
         if let Some(e) = self.report.borrow().error.clone() {
@@ -217,22 +221,14 @@ impl Preview {
         self.visible = false;
     }
 
-    pub fn set_window(&mut self, window: f64) {
-        if window.is_finite() && (2. ..=3.).contains(&window) {
-            self.window = Some(window);
-            if let Some(r) = self.runtime.as_mut() {
-                r.set_window(window);
-            }
-        }
-    }
     /// Numerical preparation runs before drawing, under a host clock shared
     /// by all its stages. Sampling/rendering below never calls the pose solver.
     pub fn prepare(&mut self, song_time: f64, clock: &dyn Fn() -> f64) {
-        if self.failed_at.is_some() || self.paused {
+        if self.failed_at.is_some() {
             return;
         }
         if let Some(r) = self.runtime.as_mut() {
-            let time = song_time - self.origin - self.shift;
+            let time = song_time - self.origin;
             r.prepare(time, clock);
             self.ever_available |= r.available;
             if let Some(e) = r.failure() {
@@ -244,6 +240,50 @@ impl Preview {
             }
         }
     }
+    /// A play's frame before its field is drawn: the motion prepared to
+    /// song second `song_time` (under `clock`, host seconds), then the
+    /// picture placed under the field as its underlay where it stands
+    /// behind it, else no underlay ([`Preview::after_field`] draws it).
+    #[allow(clippy::too_many_arguments)]
+    pub fn before_field(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        renderer: &mut ddi_render::Renderer,
+        format: wgpu::TextureFormat,
+        size: [u32; 2],
+        song_time: f64,
+        clock: &dyn Fn() -> f64,
+    ) {
+        self.prepare(song_time, clock);
+        if self.behind_field() {
+            self.draw_underlay(device, queue, encoder, renderer, format, size, song_time);
+        } else {
+            renderer.set_field_underlay(device, encoder, None);
+        }
+    }
+
+    /// A play's frame once its field is drawn on `target`: the guide over
+    /// it where the picture stands behind the field, else the picture.
+    #[allow(clippy::too_many_arguments)]
+    pub fn after_field(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+        size: [u32; 2],
+        song_time: f64,
+    ) {
+        if self.behind_field() {
+            self.draw_guide(device, queue, encoder, target, size);
+        } else {
+            self.draw(device, queue, encoder, target, format, size, song_time);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -255,7 +295,7 @@ impl Preview {
         size: [u32; 2],
         song_time: f64,
     ) {
-        if let Some((rect, opacity)) =
+        if let Some((rect, opacity, _)) =
             self.update_picture(device, queue, encoder, format, size, song_time)
         {
             self.composite(device, queue, encoder, target, size, rect, opacity, false);
@@ -273,8 +313,14 @@ impl Preview {
         song_time: f64,
     ) {
         let ready = self.update_picture(device, queue, encoder, format, size, song_time);
+        // The renderer keeps its copy while the picture repeats.
+        if let Some((rect, opacity, false)) = ready
+            && renderer.place_field_underlay(rect, opacity)
+        {
+            return;
+        }
         let image =
-            ready.and_then(|(rect, opacity)| self.host.texture().map(|t| (t, rect, opacity)));
+            ready.and_then(|(rect, opacity, _)| self.host.texture().map(|t| (t, rect, opacity)));
         renderer.set_field_underlay(device, encoder, image);
     }
     pub fn draw_guide(
@@ -285,7 +331,7 @@ impl Preview {
         target: &wgpu::TextureView,
         size: [u32; 2],
     ) {
-        if self.visible {
+        if self.visible && self.look.is_some_and(|l| l.guide) {
             self.composite(
                 device,
                 queue,
@@ -306,40 +352,23 @@ impl Preview {
         format: wgpu::TextureFormat,
         size: [u32; 2],
         song_time: f64,
-    ) -> Option<([f32; 4], f32)> {
+    ) -> Option<([f32; 4], f32, bool)> {
         self.song_time = song_time;
-        #[allow(unused_mut)]
-        let mut t = song_time - self.origin - self.shift;
-
+        self.format = Some(format);
+        let mut t = song_time - self.origin;
         if self.preload_key.is_some() {
             t = t.max(0.);
         }
         self.visible = self.enabled && (0.0..=self.duration).contains(&t);
-        #[allow(unused_mut)]
         let mut opacity = 1.;
-
-        {
-            if let Some(failed) = self.failed_at {
-                opacity = (1. - (t - failed) / 0.2).clamp(0., 1.) as f32;
-                self.visible &= self.ever_available && opacity > 0.;
-            } else {
-                self.visible &= self.runtime.as_ref().is_some_and(|r| r.available);
-            }
+        if let Some(failed) = self.failed_at {
+            opacity = (1. - (t - failed) / 0.2).clamp(0., 1.) as f32;
+            self.visible &= self.ever_available && opacity > 0.;
+        } else {
+            self.visible &= self.runtime.as_ref().is_some_and(|r| r.available);
         }
         if !self.visible {
             return None;
-        }
-        if self
-            .surface
-            .as_ref()
-            .is_none_or(|s| s.painter.format() != format || s.device != *device)
-        {
-            self.surface = Some(Surface {
-                device: device.clone(),
-                painter: Painter::new(device, queue, format),
-                list: DrawList::new(),
-            });
-            self.host.device_changed();
         }
         let (w, h) = (size[0] as f32, size[1] as f32);
         let pw = (w * 0.34).clamp(150., 480.).min(w - 16.);
@@ -354,21 +383,18 @@ impl Preview {
         self.host.set(Some(Picture {
             ground_y: self.look.map(|_| 0.98),
             appearance: self.look.map(|l| l.appearance),
-
             procedural: self.runtime.as_ref().map(|r| r.payload.clone()),
             rect,
-            playing: !self.paused,
+            playing: true,
             seconds: t as f32,
             yaw: camera[0],
             pitch: camera[1],
             distance: camera[2],
             report: self.report.clone(),
         }));
-        let s = self.surface.as_mut().unwrap();
-        s.painter.submitted();
-        self.host.draw(device, queue, encoder, &mut s.painter);
+        let drawn = self.host.draw(device, queue, encoder);
         self.opacity = opacity;
-        Some((rect, opacity))
+        Some((rect, opacity, drawn))
     }
     #[allow(clippy::too_many_arguments)]
     fn composite(
@@ -382,7 +408,24 @@ impl Preview {
         opacity: f32,
         guide_only: bool,
     ) {
+        let Some(format) = self.format else {
+            return;
+        };
+        if self
+            .surface
+            .as_ref()
+            .is_none_or(|s| s.painter.format() != format || s.device != *device)
+        {
+            self.surface = Some(Surface {
+                device: device.clone(),
+                painter: Painter::new(device, queue, format),
+                list: DrawList::new(),
+            });
+        }
         let s = self.surface.as_mut().unwrap();
+        s.painter.submitted();
+        s.painter
+            .set_external_image(device, ddi_render::character::SOURCE, self.host.texture());
         let [_, _, pw, ph] = rect;
         let texture = s
             .painter
@@ -434,28 +477,25 @@ impl Preview {
         );
     }
     pub fn debug(&self) -> Value {
-        #[allow(unused_mut)]
-        let mut result = json!({"paused":self.paused,"behind_field":self.behind_field(),"look":self.look,"up_marker":self.up_marker(),"enabled":self.enabled,"visible":self.visible,"song_time":self.song_time,
-            "origin":self.origin+self.shift,"duration":self.duration,"character":self.host.debug()});
-
-        {
-            result["runtime"] = self.runtime.as_ref().map_or(Value::Null, |r| r.debug());
-            result["runtime_error"] = json!(self.runtime_error);
-            result["preloaded"] = json!(self.preload_ready);
-            result["preload_pending"] = json!(self.preload_pending());
-            result["status"] = json!(if self.failed_at.is_some() {
-                "stopped"
-            } else if self.runtime_error.is_some() {
-                "unsupported"
-            } else if !self.enabled {
-                "off"
-            } else if self.runtime.as_ref().is_some_and(|r| r.available) {
-                "active"
-            } else {
-                "warming"
-            });
+        let mut character = self.host.debug();
+        if let (Some(r), Some(c)) = (&self.runtime, character.as_object_mut()) {
+            c.insert("rolling".into(), r.sample_debug());
         }
-        result
+        json!({"behind_field":self.behind_field(),"look":self.look,"up_marker":self.up_marker(),"enabled":self.enabled,"visible":self.visible,"song_time":self.song_time,
+        "origin":self.origin,"duration":self.duration,"character":character,
+        "runtime":self.runtime.as_ref().map_or(Value::Null, |r| r.debug()),
+        "runtime_error":self.runtime_error,"preloaded":self.preload_ready,"preload_pending":self.preload_pending(),
+        "status":if self.failed_at.is_some() {
+            "stopped"
+        } else if self.runtime_error.is_some() {
+            "unsupported"
+        } else if !self.enabled {
+            "off"
+        } else if self.runtime.as_ref().is_some_and(|r| r.available) {
+            "active"
+        } else {
+            "warming"
+        }})
     }
 }
 
@@ -485,35 +525,68 @@ mod preload_tests {
         let mut config = ddi_session::play::SessionConfig::from_settings(&settings, true, None);
         config.seed = 17;
         let mut p = Preview::default();
-        p.preload(&song, 0, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
         let payload = p.runtime.as_ref().unwrap().payload.clone();
         assert!(p.preload_pending());
-        p.preload(&song, 0, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
         assert!(Rc::ptr_eq(&payload, &p.runtime.as_ref().unwrap().payload));
         let mut look = gameplay_look();
         look.camera[0] += 10.;
         p.set_look(Some(look));
-        p.preload(&song, 0, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
         assert!(Rc::ptr_eq(&payload, &p.runtime.as_ref().unwrap().payload));
         config.options.transform.turn = ddi_engine::Turn::Mirror;
-        p.preload(&song, 0, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
         assert!(!Rc::ptr_eq(&payload, &p.runtime.as_ref().unwrap().payload));
-        p.preload(&song, 0, &settings, &config, false);
+        let off = ddi_ui::state::settings::Settings {
+            dancing_hand: false,
+            ..settings.clone()
+        };
+        p.preload(&song, 0., 0, &off, &config);
         assert!(!p.preload_pending());
-        p.preload(&song, 0, &settings, &config, true);
+        assert!(!p.needs_preload());
+        p.preload(&song, 0., 0, &settings, &config);
         assert!(p.preload_pending());
         config.start = Some(1.);
-        p.preload(&song, 0, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
         assert!(!p.preload_pending());
         assert!(p.runtime_error.as_ref().unwrap().contains("beginning"));
         p.reset_preload();
         assert!(p.runtime.is_none());
         config.start = None;
-        p.preload(&song, 0, &settings, &config, true);
-        p.preload(&song, 99, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
+        p.preload(&song, 0., 99, &settings, &config);
         assert!(!p.preload_pending());
-        p.preload(&song, 0, &settings, &config, true);
+        p.preload(&song, 0., 0, &settings, &config);
         assert!(p.preload_pending());
         assert!(p.runtime_error.is_none());
+        // Nothing prepared in calibration, nor for a layout the hand
+        // does not play.
+        let double = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:dance-double::Easy:2:0,0,0,0,0:\n10000000\n00000001;",
+        )
+        .unwrap();
+        p.preload(&double, 0., 0, &settings, &config);
+        assert!(!p.preload_pending() && p.runtime_error.is_none());
+        config.calibrate(ddi_session::calibration::CalMode::Visual);
+        p.preload(&song, 0., 0, &settings, &config);
+        assert!(!p.preload_pending() && p.runtime_error.is_none());
+    }
+
+    /// The settings offer the hand on the layouts its planner places on
+    /// the mat, and on no other.
+    #[test]
+    fn the_hand_layouts_are_those_the_planner_places() {
+        let builtins = ddi_chart::Layout::builtin_ids();
+        for layout in ddi_character::HAND_LAYOUTS {
+            assert!(builtins.iter().any(|b| b == layout), "{layout}");
+        }
+        for id in &builtins {
+            assert_eq!(
+                ddi_hand_plan::layout_panels(id).is_ok(),
+                ddi_character::HAND_LAYOUTS.contains(&id.as_str()),
+                "{id}"
+            );
+        }
     }
 }

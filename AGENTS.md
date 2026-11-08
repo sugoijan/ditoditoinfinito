@@ -75,7 +75,9 @@ Rust and the browser are implementation details, not advertised features.
   ongoing holds for dance-double, Pump half-double/double and DanOni 9A. Oni may
   use either center in the logical span policy; double contact/pose/rendering
   remains gated by `layout_panels`. Supported hand layouts are dance-single, dance-solo, danoni-5,
-  danoni-7, danoni-9B, pump-single and techno-single8. Resolve lanes through
+  danoni-7, danoni-9B, pump-single and techno-single8
+  (`ddi_character::HAND_LAYOUTS`, which `Settings::dancing_hand_for`
+  reads and a test holds `layout_panels` to). Resolve lanes through
   `ddi_hand_plan::layout_panels`;
   Solo L/UL/D/U/UR/R map to mat 4/7/2/8/9/6, with center unscored;
   Pump DL/UL/C/UR/DR map to 1/7/5/9/3. Pump may use unscored side stances
@@ -270,8 +272,9 @@ Rust and the browser are implementation details, not advertised features.
   `embed-faces`) and resolves a stack per grapheme as a browser does
   (`ddi_render::cosmic`), the web fetches them once the language is
   chosen (`web::text::load_language_faces`); the painter tells the
-  rasterizer the language (`Painter::set_language`: the system's faces
-  for Han in its forms, the page's `lang`). Lines break by Unicode's
+  rasterizer the language when it changes (read from `ddi_l10n::current`
+  as it lays out text: the system's faces for Han in its forms, the
+  page's `lang`). Lines break by Unicode's
   rules (`ddi_actor::text::wrap`, UAX #14: Japanese between characters,
   never before 。、」ー). Beyond the canvas: the web page's loader says
   `boot.ftl`'s lines in the language the game will choose (English's

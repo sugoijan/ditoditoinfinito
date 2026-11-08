@@ -18,10 +18,6 @@ notices-storage = { $kept ->
    *[unknown] このサイトは、このブラウザーに約{ $size }のデータを保存しています。
 }
 
-notices-size-mb = { $amount } MB
-
-notices-size-gb = { NUMBER($amount, minimumFractionDigits: 1) } GB
-
 notices-keep-songs = 保持する
 
 ## Desktop's.

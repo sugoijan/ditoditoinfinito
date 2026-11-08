@@ -228,7 +228,7 @@ scratch folder) into a fresh profile. Row `simplify_center` (stored
 Single and Double list a version only at a difficulty the style has no
 original of (Edits always), All lists every one (`ui.select.styleCounts`
 counts them on the song; Tab moves between styles; `ui.theme.ladder`
-marks one `Hard 9 (Without center)`, and the ladder's line under it
+marks one `Hard 9 (without-center)`, and the ladder's line under it
 begins "Without center ·"; on a phone Play ends "· ASSIST"); Off in
 Notes and they go. Autoplay one (`#/play?song=<id>&chart=<n>&auto=1`): all top tier,
 `AUTOPLAY · ASSIST` on the results, its holds ticked (the results'
@@ -239,7 +239,7 @@ The conversions are Notes → Convert (`convert_pump_single`,
 `convert_five_keys`, both on by default; seed them off in
 `ddi.settings.v1` to compare). A pump single chart then shows under 5 keys and a
 5-key chart under Pump single (`ui.theme.ladder` marks one
-`Hard 9 (From Pump single)`, the ladder's line begins "From Pump single
+`Hard 9 (from-pump-single)`, the ladder's line begins "From Pump single
 ·"; on a phone the chart button has the dot but Play no "· ASSIST").
 Autoplay one: all top tier, no ASSIST on the results; a pump chart's
 holds still ticked on 5 keys. The bundled songs' pump single charts give

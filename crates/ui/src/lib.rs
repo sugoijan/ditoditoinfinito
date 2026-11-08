@@ -51,7 +51,7 @@ pub use hit::Target;
 pub use message::{Message, Param};
 pub use nav::{Focusable, MenuAction};
 pub use request::{InputHints, UiRequest};
-pub use screen::{Cx, Handled, Input, Screen, Spot, Stage, TextChange};
+pub use screen::{Cx, Handled, Input, Mark, Screen, Spot, Stage, TextChange};
 pub use text_field::{TextField, TextMode};
 pub use ui::{ACTIVATION_WINDOW, DESIGN_MESSAGE, RING_COLOR};
 pub use ui::{LayerInfo, Outcome, Ui};

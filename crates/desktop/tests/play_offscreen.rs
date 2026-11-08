@@ -124,7 +124,7 @@ fn frames(
     let skin = view
         .noteskin()
         .map_or("built-in".to_string(), |n| n.name.clone());
-    for (what, source, side) in View::images_to_read(&loaded, settings) {
+    for (what, source, side) in View::images_to_read(&loaded, settings, false) {
         let (size, data) = ddi_desktop::images::load(&source, side).expect("the song's picture");
         view.add_background(what, Rgba { size, data });
     }

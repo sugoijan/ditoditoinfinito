@@ -12,13 +12,13 @@ use std::rc::Rc;
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as m;
-use ddi_library::announcer::draft::{Draft, Note, Sound, Take, Write};
+use ddi_library::announcer::draft::{Draft, Note, Sound, Take};
 use ddi_library::announcer::examples::{self, Set};
 use ddi_library::announcer::{Bundled, Comment, Grade, Line, Spoken};
 
 use super::Env;
 use super::editor_dialogs::ActionsDialog;
-use super::page::{Action, Block, PageDoc};
+use super::page::{Action, Block, PageDoc, PageTitle};
 use crate::screen::Cx;
 
 /// The page's name, for tests and the debug state.
@@ -82,21 +82,6 @@ pub fn examples(set: Set, ours: Option<&Bundled>) -> BTreeMap<Line, Vec<Example>
     by
 }
 
-fn grade_letters(g: Grade) -> &'static str {
-    match g {
-        Grade::Aaaaa => "AAAAA",
-        Grade::Aaaa => "AAAA",
-        Grade::Aaa => "AAA",
-        Grade::Aa => "AA",
-        Grade::A => "A",
-        Grade::B => "B",
-        Grade::C => "C",
-        Grade::D => "D",
-        Grade::E => "E",
-        Grade::F => "F",
-    }
-}
-
 /// A line's plain name.
 pub fn name(line: Line) -> UiText {
     match line {
@@ -122,8 +107,10 @@ pub fn name(line: Line) -> UiText {
         Line::FirstClear => m::line_first_clear(),
         Line::NewRecord => m::line_new_record(),
         Line::EvaluationFullCombo(_) => m::line_full_combo(),
-        Line::Grade(g @ (Grade::E | Grade::F)) => m::line_grade_failed(grade_letters(g)),
-        Line::Grade(g) => m::line_grade(grade_letters(g)),
+        Line::Grade(g @ (Grade::E | Grade::F)) => {
+            m::line_grade_failed(g.name().to_ascii_uppercase())
+        }
+        Line::Grade(g) => m::line_grade(g.name().to_ascii_uppercase()),
         Line::Cheer => m::line_cheer(),
         Line::SelectMusicIntro => m::line_select_intro(),
         Line::SelectMusic(Comment::New) => m::line_select_new(),
@@ -503,7 +490,7 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
         }
     }
     PageDoc {
-        title: m::title().into(),
+        title: PageTitle::new(m::title(), m::heading()),
         blocks: b,
     }
 }
@@ -660,15 +647,6 @@ pub fn in_gesture(a: Act) -> bool {
             | Act::Export
             | Act::UseInGame
     )
-}
-
-/// How each take goes into a pack, for the shells' debug state.
-pub fn writes(draft: &Draft) -> Vec<(u64, Write)> {
-    draft
-        .takes
-        .iter()
-        .map(|t| (t.id, draft.write_of(t)))
-        .collect()
 }
 
 #[cfg(test)]

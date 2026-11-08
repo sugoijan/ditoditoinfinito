@@ -25,6 +25,9 @@ use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 
 mod number;
 mod pseudo;
+mod wide;
+
+pub use wide::wide;
 
 include!(concat!(env!("OUT_DIR"), "/messages.rs"));
 
@@ -96,13 +99,6 @@ pub fn font_stack(stack: &str) -> String {
         out.push_str(rest);
     }
     out
-}
-
-/// Whether `c` is wide (CJK, kana, Hangul, full-width forms): drawn by a
-/// language's face where the stack names one, never by the theme's (the
-/// same ranges as `ddi_ui::look::mono_width`'s).
-fn wide(c: char) -> bool {
-    matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD)
 }
 
 /// Whether the cut of `family` has `c`, for a language face and a wide

@@ -116,8 +116,7 @@ impl Field {
         self.receptors = None;
         self.receptor_ready = None;
         self.options = self.skin.set_settings(settings);
-
-        self.hand.set_settings(settings, &self.options.layout);
+        self.hand.set_settings(settings);
     }
 
     /// The prompt's receptor diagram (`None`: gone), its skin readied

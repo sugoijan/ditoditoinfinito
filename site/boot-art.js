@@ -11,7 +11,7 @@
 // crates/render/src/material_prelude.wgsl): CPU doubles for the GPU's
 // floats, the same math otherwise. The title's lettering, its rings and
 // its clearance are the atlas's (tools/title-design/generate.py), the
-// rain is crates/theme/src/rain.rs particle for particle, both from
+// rain is crates/actor/src/rain.rs particle for particle, both from
 // the data boot_title.py writes beside this file (boot-art-data.js).
 (() => {
   const D = window.__DDI_ART_DATA;
@@ -195,7 +195,7 @@
     ctx.drawImage(layer, title.x, title.y, title.w, title.h);
   };
 
-  // crates/theme/src/rain.rs, particle for particle: the study's seed,
+  // crates/actor/src/rain.rs, particle for particle: the study's seed,
   // a shape and direction kept until the particle wraps, the quiet
   // around the middle, in the start menu's layout units scaled to CSS.
   const seed = (i, salt) => fract(Math.sin(i * 127.1 + salt * 311.7) * 43758.5453);

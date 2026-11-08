@@ -183,13 +183,13 @@ fn main() -> Result<()> {
     let host: audio::HostClock = Arc::new(move || c.load(Ordering::SeqCst));
     audio::set_headless(true);
     audio::set_headless_clock(Some(host.clone()));
-    shell::hide_quit();
     let library = songs::Songs::new(Vec::new());
     library.skip_offer();
     library.autoplay.set(true);
     library.start(Arc::new(|| {}));
-    // Previews at the settings' volume, as the game plays them.
-    let mut shell = shell::Shell::named_with("start", None, Some(library));
+    // Previews at the settings' volume, as the game plays them; the start
+    // menu without its Quit, as the web's.
+    let mut shell = shell::Shell::named_with("start", None, Some(library), false);
     shell.play.test_clock = Some(host);
     let instance = gpu::instance();
     let adapter = gpu::adapter(&instance, None).ok_or("a GPU adapter is needed")?;

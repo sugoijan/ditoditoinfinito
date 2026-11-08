@@ -41,6 +41,9 @@ pub struct StartScreen {
     background_animating: bool,
     /// The title stands in place on the first entrance ([`Self::in_place`]).
     in_place: bool,
+    /// What the debug state was last told: the hints' keys (`None`: the
+    /// keyboard's) and the compact layout.
+    published: Option<(Option<[String; 2]>, bool)>,
 }
 
 impl StartScreen {
@@ -56,6 +59,7 @@ impl StartScreen {
             background_time: 0.0,
             background_animating: false,
             in_place: false,
+            published: None,
         }
     }
 
@@ -192,33 +196,44 @@ impl StartScreen {
         root
     }
 
-    fn publish(&self, hints: &crate::controller_hints::Hints) {
+    /// Tells the debug state this screen's, each frame (a screen above may
+    /// have told its own meanwhile), worded only when it changed.
+    fn publish(&mut self, hints: &crate::controller_hints::Hints) {
         use ddi_l10n::msg::common as msg;
-        let mut st = self.env.state.borrow_mut();
-        st.screen = "start".into();
-        st.compact = self.size[0] < super::DESIGN[0] || self.size[1] < 480.0;
-        st.backdrop = None;
-        st.hints = if hints.active() {
-            let label = |caps: Vec<crate::keycaps::Keycap>| {
-                caps.iter()
-                    .map(crate::keycaps::Keycap::label)
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            };
-            vec![
-                msg::hint_move(label(
-                    hints.actions(&[ddi_engine::MenuInput::Up, ddi_engine::MenuInput::Down]),
-                ))
-                .into(),
-                msg::hint_choose(label(hints.activate())).into(),
+        let label = |caps: Vec<crate::keycaps::Keycap>| {
+            caps.iter()
+                .map(crate::keycaps::Keycap::label)
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let keys = hints.active().then(|| {
+            [
+                label(hints.actions(&[ddi_engine::MenuInput::Up, ddi_engine::MenuInput::Down])),
+                label(hints.activate()),
             ]
-        } else {
-            vec![
+        });
+        let compact = self.size[0] < super::DESIGN[0] || self.size[1] < 480.0;
+        let mut st = self.env.state.borrow_mut();
+        let key = (keys, compact);
+        if st.screen == "start" && self.published.as_ref() == Some(&key) {
+            return;
+        }
+        st.screen = "start".into();
+        st.compact = compact;
+        st.backdrop = None;
+        st.hints = match &key.0 {
+            Some([moves, choose]) => vec![
+                msg::hint_move(moves.as_str()).into(),
+                msg::hint_choose(choose.as_str()).into(),
+            ],
+            None => vec![
                 msg::hint_move("↑↓").into(),
                 msg::hint_choose("ENTER").into(),
-            ]
+            ],
         };
         st.page_items = self.focusables().into_iter().map(|f| f.name).collect();
+        drop(st);
+        self.published = Some(key);
     }
 }
 

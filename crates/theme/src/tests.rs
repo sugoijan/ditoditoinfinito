@@ -360,7 +360,7 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     let mut p = harness([1280.0, 720.0], DESIGN);
     p.push(sample::prompt_screen(
         &env,
-        screens::prompt::PromptStep::Loading("loading…".into()),
+        screens::prompt::PromptStep::Loading,
     ));
     p.run(0.6);
     // The compact layout.
@@ -645,7 +645,7 @@ fn the_dialogs_in_the_theme() {
             env.clone(),
             Manage::Pack {
                 pack: PackEntry {
-                    name: "My Pack".into(),
+                    name: Some("My Pack".into()),
                     removable: true,
                     rereadable: true,
                     banner: None,
@@ -1405,10 +1405,7 @@ fn the_prompt_fits_every_size_at_every_step() {
         }
         // The loading screen: no card, its label on the screen.
         let mut h = harness(size, design);
-        h.push(sample::prompt_screen(
-            &env,
-            PromptStep::Loading("loading…".into()),
-        ));
+        h.push(sample::prompt_screen(&env, PromptStep::Loading));
         h.run(0.6);
         let vp = h.ui.viewport().screen;
         assert!(h.ui.bounds("Card").is_none(), "{size:?}");
@@ -1580,7 +1577,7 @@ fn pack_cover_headers_recycle_without_leaking_art_or_title_insets() {
         let env = env(&theme);
         let mut data = sample::select();
         data.packs.push(PackEntry {
-            name: sample::BUNDLED_PACK.into(),
+            name: None,
             banner: Some("pack-cover.png".into()),
             ..Default::default()
         });
@@ -1968,11 +1965,11 @@ fn the_menus_move_part_by_part_and_follow_each_other() {
 /// item outside one lights itself.
 #[test]
 fn an_item_in_a_zone_lights_its_card() {
-    use ddi_ui::screens::page::{Action, Block, PageDoc, PageScreen, PageShell};
+    use ddi_ui::screens::page::{Action, Block, PageDoc, PageScreen, PageShell, PageTitle};
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     let doc = PageDoc {
-        title: "Studio".into(),
+        title: PageTitle::new("Studio", "STUDIO"),
         blocks: vec![
             Block::Actions(vec![Action::new("a", "Outside")]),
             Block::Zone {
@@ -2157,25 +2154,25 @@ fn song_selects_spots_are_its_parts() {
     let mut h = harness([1280.0, 720.0], DESIGN);
     h.push(sample::select_screen(&env, None));
     h.run(0.5);
-    let mut ring = |what: &str| {
+    let mut ring = |what: ddi_ui::Mark| {
         h.ui.mark(Some(what));
         h.ui.mark_bounds()
-            .unwrap_or_else(|| panic!("nothing at {what}"))
+            .unwrap_or_else(|| panic!("nothing at {}", what.as_str()))
     };
-    let row = ring("chart");
+    let row = ring(ddi_ui::Mark::Chart);
     let inside = |r: [f32; 4]| r[0] >= row[0] && r[2] <= row[2] && r[1] >= row[1] && r[3] <= row[3];
-    let level = ring("chart.level");
+    let level = ring(ddi_ui::Mark::ChartLevel);
     assert!(
         inside(level) && level[2] - level[0] < 60.0,
         "{level:?} in {row:?}"
     );
-    let best = ring("chart.best");
+    let best = ring(ddi_ui::Mark::ChartBest);
     assert!(
         inside(best) && best[2] - best[0] < 160.0,
         "{best:?} in {row:?}"
     );
     assert!(best[2] <= level[0], "the best before the level");
-    let screen = ring("screen");
+    let screen = ring(ddi_ui::Mark::Screen);
     assert!(screen[3] <= 64.0, "{screen:?}");
 }
 
@@ -2195,7 +2192,10 @@ fn the_length_follows_a_wide_bpm() {
         theme.place_measured(info, &mut m);
         let after = ddi_ui::hit::find_mut(info, "AfterBpm").unwrap();
         let shift = after.current().pos[0];
-        let label = ddi_ui::hit::find_mut(after, "LengthLabel").unwrap().current().pos[0];
+        let label = ddi_ui::hit::find_mut(after, "LengthLabel")
+            .unwrap()
+            .current()
+            .pos[0];
         let pack = match &ddi_ui::hit::find_mut(after, "Pack").unwrap().kind {
             Kind::Text(t) => t.max_width,
             _ => unreachable!(),

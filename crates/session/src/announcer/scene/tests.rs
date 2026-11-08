@@ -9,7 +9,7 @@ use ddi_ui::screens::results::{ResultsActions, ResultsScreen};
 use ddi_ui::screens::select::SelectScreen;
 use ddi_ui::screens::{DESIGN, Env};
 use ddi_ui::testing::Harness;
-use ddi_ui::{Screen, TextMode};
+use ddi_ui::{Mark, Screen, TextMode};
 
 use super::super::tests::Fake;
 use super::super::{Announcer, CHEER_DELAY, Timing, Voice, cheers, results_lines as tried_lines};
@@ -23,7 +23,7 @@ fn env() -> Env {
 }
 
 /// What the mark of `mark` rings on `screen`, once it is in.
-fn marked(screen: impl Screen + 'static, mark: &str) -> Option<[f32; 4]> {
+fn marked(screen: impl Screen + 'static, mark: Mark) -> Option<[f32; 4]> {
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
     h.push(screen);
     h.run(1.0);
@@ -106,8 +106,8 @@ fn each_comment_scene_opens_on_a_chart_that_gets_it() {
         // What it points at is on song select, on the chart's row (the
         // plain look's rows have no parts: the whole row).
         let ring = marked(select_of(&scene), scene.mark)
-            .unwrap_or_else(|| panic!("{c:?}: nothing at {}", scene.mark));
-        let row = marked(select_of(&scene), "chart").unwrap();
+            .unwrap_or_else(|| panic!("{c:?}: nothing at {:?}", scene.mark));
+        let row = marked(select_of(&scene), Mark::Chart).unwrap();
         assert!(ring[2] - ring[0] <= row[2] - row[0] + 0.01, "{c:?}");
     }
 }
@@ -117,7 +117,7 @@ fn the_intro_scene_comes_from_the_start_menu_and_only_shows() {
     let scene = menu(Line::SelectMusicIntro, STARTED, NOW).unwrap();
     assert!(!scene.choose);
     assert!(scene.start.is_some());
-    assert_eq!(scene.mark, "screen");
+    assert_eq!(scene.mark, Mark::Screen);
     assert!(marked(select_of(&scene), scene.mark).is_some());
     assert!(menu(Line::Ready, STARTED, NOW).is_none());
     assert!(menu(Line::Quit, STARTED, NOW).is_none());
@@ -180,7 +180,7 @@ fn each_results_scene_points_at_what_its_line_is_said_for() {
         let screen = ResultsScreen::new(env(), scene.data.clone(), ResultsActions::default());
         assert!(
             marked(screen, scene.mark).is_some(),
-            "{line:?}: nothing at {}",
+            "{line:?}: nothing at {:?}",
             scene.mark
         );
     }
@@ -195,7 +195,7 @@ fn a_record_and_a_first_clear_show_the_charts_best_first() {
         let scene = results(line, "itg", &all).unwrap();
         let before = scene.before.as_ref().unwrap();
         assert!(before.choose);
-        assert_eq!(before.mark, "chart.best");
+        assert_eq!(before.mark, Mark::ChartBest);
         let song = before
             .data
             .songs

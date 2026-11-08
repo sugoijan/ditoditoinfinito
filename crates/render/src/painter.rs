@@ -623,7 +623,7 @@ pub struct Painter {
     text: RunCache,
     raster: Option<Box<dyn RunRasterizer>>,
     fonts_version: u64,
-    /// The UI's language the runs are drawn for ([`Painter::set_language`]).
+    /// The UI's language the runs are drawn for (`Painter::sync_fonts`).
     language: String,
     /// Images whose Gaussian filter and mipmaps the next draw prepares.
     unprepared: Vec<TextureId>,
@@ -698,20 +698,6 @@ impl Painter {
             raster.set_language(&self.language);
         }
         self.raster = Some(raster);
-        self.text.clear();
-    }
-
-    /// The UI's language is `tag` (`ddi_l10n::current().tag`; the shells
-    /// tell it before each frame): on a change the rasterizer is told
-    /// ([`RunRasterizer::set_language`]) and every run is drawn again.
-    pub fn set_language(&mut self, tag: &str) {
-        if self.language == tag {
-            return;
-        }
-        self.language = tag.to_string();
-        if let Some(r) = self.raster.as_mut() {
-            r.set_language(tag);
-        }
         self.text.clear();
     }
 
@@ -857,12 +843,22 @@ impl Painter {
         self.drawing = false;
     }
 
-    /// Runs drawn with fonts that changed since are drawn again.
+    /// Runs drawn with fonts that changed since, or for another language
+    /// than the UI's now (`ddi_l10n::current`), are drawn again; the
+    /// rasterizer is told the language ([`RunRasterizer::set_language`]).
     fn sync_fonts(&mut self) {
         if let Some(v) = self.raster.as_ref().map(|r| r.fonts_version())
             && v != self.fonts_version
         {
             self.fonts_version = v;
+            self.text.clear();
+        }
+        let tag = ddi_l10n::current().tag;
+        if self.language != tag {
+            self.language = tag.to_string();
+            if let Some(r) = self.raster.as_mut() {
+                r.set_language(tag);
+            }
             self.text.clear();
         }
     }

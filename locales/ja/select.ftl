@@ -69,6 +69,8 @@ select-version-from-pump-single = Pumpシングルから
 
 select-version-from-five-keys = 5keyから
 
+select-chart-version = { $chart } · { $version }
+
 ## フッター。
 
 select-hint-song = 曲
@@ -189,7 +191,7 @@ select-share-intro = 「{ $pack }」の{ $count }曲のコピーをアップロ�
 
 select-share-uploading = アップロード中…
 
-select-share-progress = { $total }曲中{ $done }曲、{ $totalmb } MB中{ $mb } MB。
+select-share-progress = { $total }曲中{ $done }曲、{ $size }中{ $sent }。
 
 select-share-done = 共有しました
 

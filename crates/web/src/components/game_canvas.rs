@@ -303,6 +303,9 @@ pub(crate) struct GameCanvas {
     played_offset: f64,
     play_seed: u64,
     hand_restart: bool,
+    /// The play's settings changed since the dancing hand was readied
+    /// for them ([`GameCanvas::preload_hand`]).
+    hand_stale: bool,
     gamepads: Option<Gamepads>,
     /// A pad start left the audio suspended; the prompt asks for a gesture.
     needs_gesture: bool,
@@ -509,9 +512,7 @@ impl PromptShell {
                     if cx.in_gesture() {
                         let _ = early.resume();
                     }
-                    self.state
-                        .borrow_mut()
-                        .set_step(PromptStep::Loading("loading…".into()));
+                    self.state.borrow_mut().set_step(PromptStep::Loading);
                     send(Msg::BeginDecoded);
                     return;
                 }
@@ -535,9 +536,7 @@ impl PromptShell {
                         *self.pad_ctx.borrow_mut() = Some(a.context().clone());
                     }
                 }
-                self.state
-                    .borrow_mut()
-                    .set_step(PromptStep::Loading("loading…".into()));
+                self.state.borrow_mut().set_step(PromptStep::Loading);
                 send(Msg::Begin(Box::new(audio), from_pad));
             }
             PromptChoice::Back => send(Msg::BackRequested),
@@ -836,6 +835,7 @@ impl Component for GameCanvas {
             played_offset: 0.0,
             play_seed: crate::play::random_seed(),
             hand_restart: false,
+            hand_stale: false,
             gamepads,
             needs_gesture: false,
             alive: Rc::new(std::cell::Cell::new(true)),
@@ -1032,7 +1032,12 @@ impl GameCanvas {
                         .get(*chart)
                         .map_or(0, |c| c.notes.len() as u32);
                     let voice = ddi_session::announcer::SharedVoice::default();
-                    crate::announcers::load_voice(key, notes, voice.clone(), self.alive.clone());
+                    crate::announcers::load_voice(
+                        key,
+                        crate::announcers::For::Play { notes },
+                        voice.clone(),
+                        self.alive.clone(),
+                    );
                     self.voice = Some(voice);
                 }
                 self.song = Status::Ready(song);
@@ -1358,6 +1363,7 @@ impl GameCanvas {
                     display: crate::web::display::fingerprint(refresh),
                 };
                 self.settings = self.play_settings();
+                self.hand_stale = true;
                 self.devices = Some(profile);
                 // New devices play on the defaults, kept as their profile
                 // from now (no banner, no step: `quiet-calibration.md`); a
@@ -1909,6 +1915,7 @@ impl GameCanvas {
         }
         let before = std::mem::replace(&mut self.applied, now.clone());
         self.settings = self.play_settings();
+        self.hand_stale = true;
         let skin = before.noteskin != now.noteskin
             || before.pump_noteskin != now.pump_noteskin
             || before.reverse != now.reverse;
@@ -2169,6 +2176,9 @@ impl GameCanvas {
         back_route(ctx.props()).return_to();
     }
 
+    /// The dancing hand readied for the play to come: once the song is
+    /// read, again when the play's settings change or after a reset (a
+    /// retry, a restart: a new seed).
     fn preload_hand(&mut self, ctx: &Context<Self>) {
         if !matches!(
             self.stage,
@@ -2179,6 +2189,14 @@ impl GameCanvas {
         let Status::Ready(song) = &self.song else {
             return;
         };
+        let needed = self
+            .game
+            .borrow()
+            .as_ref()
+            .is_some_and(|g| self.hand_stale || g.dance.needs_preload());
+        if !needed {
+            return;
+        }
         let (config, chart) = self.session_config(ctx);
         let shift = match &ctx.props().source {
             SongSource::Song { id, .. } => {
@@ -2187,30 +2205,20 @@ impl GameCanvas {
             SongSource::Calibration(_) => 0.,
         };
         if let Some(game) = self.game.borrow_mut().as_mut() {
-            game.dance.preload(
-                &song.song.shifted(shift),
-                chart,
-                &self.settings,
-                &config.session,
-                self.settings.dancing_hand
-                    && !matches!(ctx.props().source, SongSource::Calibration(_)),
-            );
+            game.dance
+                .preload(&song.song, shift, chart, &self.settings, &config.session);
+            self.hand_stale = false;
         }
     }
 
     /// The generated background this song's plays get
-    /// (`ddi_shell::generative::wanted`): never in calibration, nor with
-    /// the backgrounds off.
+    /// (`ddi_shell::generative::wanted`).
     fn generated_want(&self, ctx: &Context<Self>) -> Option<ddi_shell::generative::Want> {
         let Status::Ready(song) = &self.song else {
             return None;
         };
-        if !matches!(ctx.props().source, SongSource::Song { .. })
-            || self.settings.bg_brightness <= 0.0
-        {
-            return None;
-        }
-        ddi_shell::generative::wanted(&self.settings, &song.song)
+        let calibration = matches!(ctx.props().source, SongSource::Calibration(_));
+        ddi_shell::generative::wanted(&self.settings, &song.song, calibration)
     }
 
     /// The music's analysis for the generated background, begun once
@@ -2270,11 +2278,12 @@ impl GameCanvas {
             && !ctx.props().edit
             && self.scene.is_none()
         {
-            let best =
-                crate::history::plays()
-                    .history()
-                    .best_of_play(&song.song, *chart, &self.settings);
-            config.session.prior = Some(ddi_session::announcer::Prior::of(best.as_ref()));
+            config.session.prior = Some(ddi_session::announcer::Prior::before(
+                &crate::history::plays().history(),
+                &song.song,
+                *chart,
+                &self.settings,
+            ));
         }
         if let Some(r) = self.kept() {
             crate::replay::publish(&r.id, "playing", None, None);
@@ -2507,9 +2516,9 @@ impl GameCanvas {
             }
             // Start pressed: the loading screen until the play begins.
             (_, Stage::Idle) if self.held_start.is_some() || self.start_on_predecode => {
-                PromptStep::Loading("loading…".into())
+                PromptStep::Loading
             }
-            (_, Stage::Decoding | Stage::Waiting { .. }) => PromptStep::Loading("loading…".into()),
+            (_, Stage::Decoding | Stage::Waiting { .. }) => PromptStep::Loading,
             (_, Stage::Interrupted) => PromptStep::Interrupted,
             (_, Stage::Error(e)) => PromptStep::Error(e.sentence().into()),
             (
@@ -2656,18 +2665,13 @@ impl GameCanvas {
         let source = prompt_source("generated").filter(|_| still.is_some());
         let aspect = still.as_ref().map(|s| s.aspect);
         crate::generated::set_still(source.clone(), still);
-        let (source, aspect, brightness) = match (picture, source, aspect) {
-            (Some((source, aspect)), _, _) => (source, aspect, self.settings.bg_brightness),
-            (None, Some(source), Some(aspect)) => (source, aspect, 1.0),
-            _ => return None,
-        };
-        Some(PromptPicture {
-            source,
-            aspect,
+        ddi_shell::generative::prompt_picture(
+            picture,
+            source.zip(aspect),
+            self.settings.bg_brightness,
             frame,
-            brightness,
             filter,
-        })
+        )
     }
 
     /// Puts the prompt on the canvas: the play's frames give way to the
@@ -2748,7 +2752,7 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
     };
     let p = js_sys::Object::new();
     let step = match &st.step {
-        PromptStep::Loading(s) => s.as_str(),
+        PromptStep::Loading => "loading…",
         PromptStep::Ready => "ready",
         PromptStep::Access { .. } => "access",
         PromptStep::Interrupted => "interrupted",
@@ -3023,7 +3027,8 @@ impl GameCanvas {
             title: song.title.clone(),
             subtitle: String::new(),
             artist: song.subtitle.clone(),
-            pack: String::new(),
+            // No pack named (the play knows none).
+            pack: Some(String::new()),
             bpm: bpm_text.parse().unwrap_or(0.0),
             bpm_text,
             length: self.song_length as f32,
@@ -3537,7 +3542,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             }
             let random: Vec<String> = loaded.random.iter().map(|(n, _)| n.clone()).collect();
             let with_cover = ddi_shell::generative::needs_cover(
-                ddi_shell::generative::wanted(&generated, &loaded.song),
+                ddi_shell::generative::wanted(&generated, &loaded.song, false),
                 loaded.entry.background.is_some(),
             );
             // The opening movie's still (`crate::stills`): the one taken,

@@ -293,6 +293,13 @@ Choices made on the way:
 - **Ready and here we go** are placed at the first frame from the
   sounds decoded then; a here we go decoded later still goes where it
   fits after ready. A line not decoded when due is left out.
+- **What is decoded first:** the opening (ready or restart, then here
+  we go) and song select's intro come first in `wanted` and `menu`; the
+  web reads and decodes four sounds at once (`load_voice`, one loader
+  for a play and song select), desktop one after another on its thread.
+  Desktop's song folders are looked through for an announcer once per
+  library scan (`library::announcers::found`), so one added appears
+  once the library scans again, as songs do.
 - **The grade:** a table of StepMania's letters (SM5's, DDR's with
   their `+` and `-`) by letter; any other (ITG's seventeen,
   Dancing☆Onigiri's eleven) by place, rounded as 5.1's
@@ -348,7 +355,8 @@ decode song select's lines the first time one is asked for
 (`ddi_session::announcer::menu`: one sound of each, the next of its
 bag) and speak them at the announcer's share of the music volume; a
 line asked for while its sound decodes waits for it up to 1.5 s, then
-its moment has passed. The web speaks on song select's context where it
+its moment has passed (`ddi_session::announcer::MenuVoice`, both
+shells'; a line asked for meanwhile takes its place). The web speaks on song select's context where it
 runs (a page loaded with no input yet stays quiet, as its preview does),
 and the comment on the one the play takes from it (the intro still
 speaking stops at that hand-over); desktop on the preview player. A

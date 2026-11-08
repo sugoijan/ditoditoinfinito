@@ -11,13 +11,14 @@
 //! prompt ([`load_voice`], step 4); song select's lines are decoded when
 //! first asked for and spoken on its sound ([`announce`], step 5).
 
-use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
 use ddi_library::announcer::{Bundled, Index, Kept, Line, is_bundled};
+use ddi_library::path::RelPathBuf;
 use ddi_platform::AudioBackend;
-use ddi_session::announcer::{Bags, SharedVoice, Voice};
+use ddi_session::announcer::{Bags, MenuVoice, SharedVoice, Voice};
 use wasm_bindgen::JsValue;
 use web_sys::AudioBuffer;
 use web_sys::Blob;
@@ -83,21 +84,17 @@ pub(crate) async fn bundled() -> Result<Vec<Bundled>, String> {
     Ok(index.announcers)
 }
 
-/// The announcers one can choose `(key, name)`: ours, then the imported
-/// by name. An error (storage or ours unread) keeps the choice as it is.
+/// The announcers one can choose `(key, name)`: ours and the imported
+/// (Options orders them). An error (storage or ours unread) keeps the
+/// choice as it is.
 pub(crate) async fn choices() -> Result<Vec<(String, String)>, String> {
     let ours = bundled().await?;
     let db = Db::open().await?;
-    let mut list: Vec<(String, String)> = all(&db)
-        .await?
-        .into_iter()
-        .map(|k| (k.key(), k.name))
-        .collect();
-    list.sort_by_key(|(_, name)| name.to_lowercase());
     Ok(ours
         .into_iter()
-        .map(|b| (b.kept.key(), b.kept.name))
-        .chain(list)
+        .map(|b| b.kept)
+        .chain(all(&db).await?)
+        .map(|k| (k.key(), k.name))
         .collect())
 }
 
@@ -176,14 +173,8 @@ async fn sound(source: &Source, key: &str, path: &str) -> Result<Vec<u8>, String
             crate::web::files::blob_bytes(&blob).await
         }
         Source::Bundled { path: dir, hashes } => {
-            let encoded: Vec<String> = format!("{dir}/{path}")
-                .split('/')
-                .map(|p| String::from(js_sys::encode_uri_component(p)))
-                .collect();
-            let mut url = format!("announcers/{}", encoded.join("/"));
-            if let Some(hash) = hashes.get(path) {
-                url.push_str(&format!("?v={hash}"));
-            }
+            let hash = hashes.get(path).map(String::as_str);
+            let url = crate::songs::bundled_url("announcers", dir, path, hash);
             crate::songs::fetch_bytes(&url).await
         }
     }
@@ -206,65 +197,117 @@ thread_local! {
     ));
 }
 
-/// Decodes into `voice`, one after another, the sounds of announcer
-/// `key` a play of a chart of `notes` notes can speak
-/// (`ddi_session::announcer::wanted`), on an offline context (no gesture
-/// needed; they play on the play's, resampled if need be); stops once
-/// `alive` says the page went.
+/// Whose sounds: a play's (of a chart of `notes` notes), or song
+/// select's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum For {
+    Play { notes: u32 },
+    Menu,
+}
+
+/// How many of an announcer's sounds are read and decoded at once.
+const AT_ONCE: usize = 4;
+
+/// Decodes into `voice` the sounds of announcer `key` `of` a play
+/// (`ddi_session::announcer::wanted`) or song select
+/// (`ddi_session::announcer::menu`, the line waiting spoken once its sound
+/// is in), on an offline context (no gesture needed; they play on the
+/// play's or song select's, resampled if need be): [`AT_ONCE`] at a
+/// time, those said first asked for first; stops once `alive` says the
+/// page went.
 pub(crate) fn load_voice(
     key: String,
-    notes: u32,
+    of: For,
     voice: SharedVoice<AudioBuffer>,
-    alive: Rc<std::cell::Cell<bool>>,
+    alive: Rc<Cell<bool>>,
 ) {
     wasm_bindgen_futures::spawn_local(async move {
-        let loaded = async {
+        let started = async {
             let (kept, source) = open(&key).await?;
-            let wanted = BAGS.with_borrow_mut(|b| ddi_session::announcer::wanted(&kept, notes, b));
+            let wanted = BAGS.with_borrow_mut(|b| match of {
+                For::Play { notes } => ddi_session::announcer::wanted(&kept, notes, b),
+                For::Menu => ddi_session::announcer::menu(&kept, b),
+            });
             voice
                 .borrow_mut()
                 .expect(wanted.iter().map(|(line, _)| *line));
             let decoder = crate::web::audio::AudioDecoder::offline(48_000.0)
                 .ok_or("this browser cannot decode sounds ahead")?;
-            for (line, files) in wanted {
-                for file in files {
-                    if !alive.get() {
-                        return Ok(());
-                    }
-                    let path = file.to_string();
-                    let decoded = match sound(&source, &key, &path).await {
-                        Ok(bytes) => decoder.decode(&bytes, Default::default()).await,
-                        Err(e) => Err(e),
-                    };
-                    match decoded {
-                        Ok(buffer) => voice.borrow_mut().add(line, buffer),
-                        Err(e) => {
-                            web_sys::console::warn_1(&format!("announcer: {path}: {e}").into())
-                        }
-                    }
-                }
-            }
-            Ok::<(), String>(())
+            let queue = wanted
+                .into_iter()
+                .flat_map(|(line, files)| files.into_iter().map(move |f| (line, f)))
+                .collect();
+            Ok::<_, String>((source, decoder, queue))
         }
         .await;
-        if let Err(e) = loaded {
-            web_sys::console::warn_1(&format!("announcer: {e}").into());
+        match started {
+            Ok((source, decoder, queue)) => {
+                let load = Rc::new(Load {
+                    key,
+                    of,
+                    voice,
+                    alive,
+                    source,
+                    decoder,
+                    queue: RefCell::new(queue),
+                });
+                for _ in 0..AT_ONCE {
+                    wasm_bindgen_futures::spawn_local(load.clone().run());
+                }
+            }
+            Err(e) => web_sys::console::warn_1(&format!("announcer: {e}").into()),
         }
     });
 }
 
-/// How long a menu line asked for while its sound decodes may wait to be
-/// spoken, milliseconds (later, its moment has passed).
-const MENU_WAIT_MS: f64 = 1500.0;
+/// An announcer's sounds being read and decoded ([`load_voice`]).
+struct Load {
+    key: String,
+    of: For,
+    voice: SharedVoice<AudioBuffer>,
+    alive: Rc<Cell<bool>>,
+    source: Source,
+    decoder: crate::web::audio::AudioDecoder,
+    /// The sounds not asked for yet, in the order asked for.
+    queue: RefCell<VecDeque<(Line, RelPathBuf)>>,
+}
+
+impl Load {
+    /// Reads and decodes the next sound left, one at a time, until none
+    /// is.
+    async fn run(self: Rc<Load>) {
+        while self.alive.get() {
+            let Some((line, file)) = self.queue.borrow_mut().pop_front() else {
+                return;
+            };
+            let path = file.to_string();
+            let decoded = match sound(&self.source, &self.key, &path).await {
+                Ok(bytes) => self.decoder.decode(&bytes, Default::default()).await,
+                Err(e) => Err(e),
+            };
+            match decoded {
+                Ok(buffer) => self.voice.borrow_mut().add(line, buffer),
+                Err(e) => web_sys::console::warn_1(&format!("announcer: {path}: {e}").into()),
+            }
+            if self.of == For::Menu {
+                speak_waiting(&self.key);
+            }
+        }
+    }
+}
 
 /// Song select's lines, for the announcer chosen.
 struct Menu {
-    key: String,
-    voice: SharedVoice<AudioBuffer>,
-    /// A line asked for before its sound was decoded, and when.
-    pending: Option<(Line, f64)>,
+    voice: MenuVoice<AudioBuffer>,
+    /// Its load goes on (until another announcer is chosen).
+    alive: Rc<Cell<bool>>,
     /// The lines spoken (`__DDI_DEBUG.menuAnnouncer`).
     spoken: Vec<String>,
+}
+
+/// Seconds on the clock song select's lines are timed on.
+fn menu_now() -> f64 {
+    js_sys::Date::now() / 1000.0
 }
 
 thread_local! {
@@ -316,38 +359,30 @@ pub(crate) fn announce(line: Line) {
     let Some(key) = settings.announcer.clone() else {
         return;
     };
-    let fresh = MENU.with_borrow(|m| m.as_ref().is_none_or(|m| m.key != key));
+    let fresh = MENU.with_borrow(|m| m.as_ref().is_none_or(|m| m.voice.key() != key));
     if fresh {
         let voice = SharedVoice::default();
-        MENU.with_borrow_mut(|m| {
-            *m = Some(Menu {
-                key: key.clone(),
-                voice: voice.clone(),
-                pending: None,
+        let alive = Rc::new(Cell::new(true));
+        let old = MENU.with_borrow_mut(|m| {
+            m.replace(Menu {
+                voice: MenuVoice::new(key.clone(), voice.clone()),
+                alive: alive.clone(),
                 spoken: Vec::new(),
             })
         });
-        load_menu(key, voice);
+        if let Some(old) = old {
+            old.alive.set(false);
+        }
+        load_voice(key, For::Menu, voice, alive);
     }
-    if !speak_menu(line, &settings) {
-        MENU.with_borrow_mut(|m| {
-            if let Some(m) = m {
-                m.pending = Some((line, js_sys::Date::now()));
-            }
-        });
-    }
+    let found = MENU.with_borrow_mut(|m| m.as_mut()?.voice.ask(line, menu_now()));
+    speak_menu(found, &settings);
 }
 
-/// Speaks `line` from the menu's voice now; whether its sound was there
-/// (spoken or not: no context running).
-fn speak_menu(line: Line, settings: &crate::settings::Settings) -> bool {
-    let sound = MENU.with_borrow(|m| {
-        let m = m.as_ref()?;
-        let mut voice = m.voice.borrow_mut();
-        voice.next(line).map(|(l, b)| (l, b.clone()))
-    });
-    let Some((found, buffer)) = sound else {
-        return false;
+/// Speaks song select's line found, if any.
+fn speak_menu(found: Option<(Line, AudioBuffer)>, settings: &crate::settings::Settings) {
+    let Some((found, buffer)) = found else {
+        return;
     };
     if crate::select_preview::speak(&buffer, settings.announcer_volume, settings.volume) {
         MENU.with_borrow_mut(|m| {
@@ -356,7 +391,6 @@ fn speak_menu(line: Line, settings: &crate::settings::Settings) -> bool {
             }
         });
     }
-    true
 }
 
 /// `__DDI_DEBUG.menuAnnouncer`: song select's lines spoken this session
@@ -373,54 +407,18 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
     });
 }
 
-/// Decodes song select's sounds of announcer `key` into `voice`
-/// (`ddi_session::announcer::menu`), speaking the line waiting for one.
-fn load_menu(key: String, voice: SharedVoice<AudioBuffer>) {
-    wasm_bindgen_futures::spawn_local(async move {
-        let loaded = async {
-            let (kept, source) = open(&key).await?;
-            let wanted = BAGS.with_borrow_mut(|b| ddi_session::announcer::menu(&kept, b));
-            voice
-                .borrow_mut()
-                .expect(wanted.iter().map(|(line, _)| *line));
-            let decoder = crate::web::audio::AudioDecoder::offline(48_000.0)
-                .ok_or("this browser cannot decode sounds ahead")?;
-            for (line, files) in wanted {
-                for file in files {
-                    let path = file.to_string();
-                    let decoded = match sound(&source, &key, &path).await {
-                        Ok(bytes) => decoder.decode(&bytes, Default::default()).await,
-                        Err(e) => Err(e),
-                    };
-                    match decoded {
-                        Ok(buffer) => voice.borrow_mut().add(line, buffer),
-                        Err(e) => {
-                            web_sys::console::warn_1(&format!("announcer: {path}: {e}").into())
-                        }
-                    }
-                    // The line waiting, if it is this one and still due.
-                    let waiting = MENU.with_borrow_mut(|m| {
-                        let m = m.as_mut().filter(|m| m.key == key)?;
-                        let (l, at) = m.pending?;
-                        let due = js_sys::Date::now() - at <= MENU_WAIT_MS;
-                        let ours = l.chain().contains(&line);
-                        if !due || ours {
-                            m.pending = None;
-                        }
-                        (due && ours).then_some(l)
-                    });
-                    if let Some(l) = waiting {
-                        speak_menu(l, &crate::settings::Settings::load());
-                    }
-                }
-            }
-            Ok::<(), String>(())
-        }
-        .await;
-        if let Err(e) = loaded {
-            web_sys::console::warn_1(&format!("announcer: {e}").into());
-        }
+/// Speaks song select's line waiting, if announcer `key`'s sound for it
+/// is in now and it is still due.
+fn speak_waiting(key: &str) {
+    let found = MENU.with_borrow_mut(|m| {
+        m.as_mut()
+            .filter(|m| m.voice.key() == key)?
+            .voice
+            .poll(menu_now())
     });
+    if found.is_some() {
+        speak_menu(found, &crate::settings::Settings::load());
+    }
 }
 
 thread_local! {

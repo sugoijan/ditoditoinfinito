@@ -229,7 +229,8 @@ impl RunCache {
         scale: f32,
         measure: &mut dyn FnMut(&str, &TextStyle, f32) -> RunMetrics,
     ) -> RunMetrics {
-        let style = &*set_in(style, text);
+        // Keyed by the style asked for: the one it is set in follows from
+        // it and the text, worked out only for a run not known yet.
         let key = RunKey::new(text, style, scale);
         if let Some(run) = self.runs.get(&key) {
             return run.placed.metrics;
@@ -237,7 +238,7 @@ impl RunCache {
         if let Some(m) = self.measured.get(&key) {
             return *m;
         }
-        let m = measure(text, style, scale);
+        let m = measure(text, &set_in(style, text), scale);
         if self.measured.len() >= MEASURED_MAX {
             self.measured.clear();
         }
@@ -255,7 +256,6 @@ impl RunCache {
         sink: &mut dyn PageSink,
     ) -> Option<Placed> {
         let frame = self.frame;
-        let style = &*set_in(style, text);
         let key = RunKey::new(text, style, scale);
         if let Some(run) = self.runs.get_mut(&key) {
             run.last_used = frame;
@@ -265,6 +265,7 @@ impl RunCache {
         if text.trim().is_empty() {
             return None;
         }
+        let style = &*set_in(style, text);
         let metrics = match self.measured.remove(&key) {
             Some(m) => m,
             None => sink.measure(text, style, scale),

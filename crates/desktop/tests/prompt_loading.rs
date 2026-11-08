@@ -95,7 +95,7 @@ fn start_during_a_slow_skin_shows_the_loading_screen_then_plays() {
     key(&mut ui, "Enter", "Enter");
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     assert!(!host.playing());
-    assert!(matches!(host.prompt_step(), Some(PromptStep::Loading(_))));
+    assert!(matches!(host.prompt_step(), Some(PromptStep::Loading)));
     ui.update(0.05);
     assert!(prompt_view().loading);
     // Its backdrop settles; "Loading" after the entrance.
@@ -187,7 +187,7 @@ fn start_during_a_slow_skin_shows_the_loading_screen_then_plays() {
     ui.update(0.05);
     key(&mut ui, "Enter", "Enter");
     host.poll(&mut ui, &env, Some(dev()), 48_000);
-    assert!(matches!(host.prompt_step(), Some(PromptStep::Loading(_))));
+    assert!(matches!(host.prompt_step(), Some(PromptStep::Loading)));
     key(&mut ui, "Escape", "Escape");
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     assert!(host.idle());

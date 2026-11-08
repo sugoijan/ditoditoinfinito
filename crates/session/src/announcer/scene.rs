@@ -35,13 +35,14 @@ use ddi_engine::rules::{
 use ddi_engine::{InputEvent, PlayOptions, Player, Results, autoplay};
 use ddi_library::announcer::{Comment, Grade, Line};
 use ddi_platform::{ClockSample, HostTime};
+use ddi_ui::Mark;
 use ddi_ui::screens::data::{Best, ChartEntry, ResultsData, SelectData, SongEntry};
 use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::sample;
 use ddi_ui::screens::stage::{Caption, CheerAlso};
 use ddi_ui::state::history::{score_text, score_value};
 
-use super::{Ending, Prior, old_grade};
+use super::{Ending, Prior, grade_order, old_grade};
 
 /// The style the scenes show.
 const STYLE: &str = "dance-single";
@@ -63,9 +64,9 @@ pub struct MenuScene {
     /// The start menu shows first, Singleplayer chosen on it (the
     /// welcome's scene): what happens there.
     pub start: Option<Caption>,
-    /// What is pointed at as the line is said: song select's spot
-    /// (`screen`, `chart`, `chart.level`, `chart.best`).
-    pub mark: &'static str,
+    /// What is pointed at as the line is said: song select's spot (the
+    /// screen, the chart, its level, its best).
+    pub mark: Mark,
 }
 
 /// Each comment's chart in Single: a song and a difficulty.
@@ -93,11 +94,13 @@ fn chart_of(songs: &mut [SongEntry], (song, difficulty): Pick) -> Option<&mut Ch
 /// Unix epoch, as [`ddi_platform::storage::started_ms`]).
 pub fn menu(line: Line, started: f64, now: f64) -> Option<MenuScene> {
     let (pick, choose, caption, mark) = match line {
-        Line::SelectMusicIntro => (GENERAL, false, Caption::SongSelect, "screen"),
-        Line::SelectMusic(c @ Comment::New) => (NEW, true, Caption::Chosen(c), "chart.best"),
-        Line::SelectMusic(c @ Comment::Hard) => (HARD, true, Caption::Chosen(c), "chart.level"),
-        Line::SelectMusic(c @ Comment::Repeat) => (REPEAT, true, Caption::Chosen(c), "chart.best"),
-        Line::SelectMusic(c @ Comment::General) => (GENERAL, true, Caption::Chosen(c), "chart"),
+        Line::SelectMusicIntro => (GENERAL, false, Caption::SongSelect, Mark::Screen),
+        Line::SelectMusic(c @ Comment::New) => (NEW, true, Caption::Chosen(c), Mark::ChartBest),
+        Line::SelectMusic(c @ Comment::Hard) => (HARD, true, Caption::Chosen(c), Mark::ChartLevel),
+        Line::SelectMusic(c @ Comment::Repeat) => {
+            (REPEAT, true, Caption::Chosen(c), Mark::ChartBest)
+        }
+        Line::SelectMusic(c @ Comment::General) => (GENERAL, true, Caption::Chosen(c), Mark::Chart),
         _ => return None,
     };
     let mut songs = sample::bundled();
@@ -133,7 +136,7 @@ fn select_on(
     mut songs: Vec<SongEntry>,
     pick: Pick,
     caption: Caption,
-    mark: &'static str,
+    mark: Mark,
 ) -> Option<MenuScene> {
     let chart = chart_of(&mut songs, pick)?.index;
     let styles = sample::styles()
@@ -182,9 +185,9 @@ pub struct ResultsScene {
     /// Song select first, showing the chart's best before the play (a
     /// record's scene, a first clear's), the chart chosen on it.
     pub before: Option<MenuScene>,
-    /// What is pointed at as the line is said: the results' spot
-    /// (`grade`, `score`, `lamp`, `failed`).
-    pub mark: &'static str,
+    /// What is pointed at as the line is said: the results' spot (the
+    /// grade, the score, the lamp, FAILED).
+    pub mark: Mark,
 }
 
 impl ResultsScene {
@@ -427,7 +430,8 @@ impl Stage {
     /// combo), its skill in the middle of the grade's: `None` where no
     /// skill gives it.
     fn graded(&self, grade: &str, fail: Option<FailPolicy>) -> Option<(Results, Ruleset)> {
-        let order = grade_order(&self.rules(None)?.grades);
+        let rules = self.rules(None)?;
+        let order = grade_order(&rules.grades);
         let want = rank(&order, grade);
         let miss = Some(self.errors.len() * 3 / 5);
         let at = |x: f64| -> Option<(usize, Results)> {
@@ -471,24 +475,8 @@ impl Stage {
     }
 }
 
-/// `table`'s grade names from best to worst.
-fn grade_order(table: &GradeTable) -> Vec<String> {
-    let mut names: Vec<String> = Vec::new();
-    for n in table
-        .all_w1
-        .iter()
-        .chain(table.all_w2.iter())
-        .chain(table.tiers.iter().map(|(n, _)| n))
-    {
-        if !n.is_empty() && !names.contains(n) {
-            names.push(n.clone());
-        }
-    }
-    names
-}
-
-fn rank(order: &[String], name: &str) -> usize {
-    order.iter().position(|n| n == name).unwrap_or(order.len())
+fn rank(order: &[&str], name: &str) -> usize {
+    order.iter().position(|n| *n == name).unwrap_or(order.len())
 }
 
 /// The full combo a tier's scene gets.
@@ -544,7 +532,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
     // happens, what is pointed at, and the chart's best shown before
     // (as cleared, or failed).
     let mut before = None;
-    let mut mark = "grade";
+    let mut mark = Mark::Grade;
     let (results, prior, rules, caption) = match line {
         Line::Quit => {
             // A note missed on the way, as before most quits.
@@ -580,7 +568,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                 best: score_value(&scaled(&r.score, BEST_BEFORE)),
             };
             before = Some((BEST_BEFORE, false));
-            mark = "score";
+            mark = Mark::Score;
             let caption = Caption::NewRecord {
                 score: score_text(&r.score),
             };
@@ -596,7 +584,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             if r.full_combo != full_combo_of(n) || r.failed {
                 return None;
             }
-            mark = "lamp";
+            mark = Mark::Lamp;
             let caption = Caption::FullCombo {
                 judgment: names.name(j).trim().to_string(),
                 best: n == 1,
@@ -619,7 +607,7 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
             if !r.failed {
                 return None;
             }
-            mark = "failed";
+            mark = Mark::Failed;
             (r, known(), stage.rules(fail)?, Caption::Failed)
         }
         Line::Grade(Grade::Aaaaa) => return None,
@@ -712,7 +700,12 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
                     score: score_text(&view),
                 }
             };
-            select_on(songs, (RESULTS_SONG, RESULTS_CHART), caption, "chart.best")
+            select_on(
+                songs,
+                (RESULTS_SONG, RESULTS_CHART),
+                caption,
+                Mark::ChartBest,
+            )
         }
     };
     Some(ResultsScene {
@@ -748,7 +741,7 @@ fn scaled(v: &ScoreView, k: f64) -> ScoreView {
 /// names a play can get, failing as the ruleset does, else with failing
 /// off.
 fn graded(stage: &Stage, table: &GradeTable, g: Grade) -> Option<(Results, Ruleset)> {
-    let names: Vec<String> = grade_order(table)
+    let names: Vec<&str> = grade_order(table)
         .into_iter()
         .filter(|n| old_grade(table, n, false) == Some(g))
         .collect();

@@ -47,22 +47,9 @@ fn song(dir: &Path, name: &str, jacket: bool) {
         .save(song.join("jacket.png"))
         .unwrap();
     }
-    let rate = 44_100u32;
-    let data = vec![0u8; (rate * 4 * 4) as usize];
-    let mut wav = Vec::new();
-    wav.extend(b"RIFF");
-    wav.extend((36 + data.len() as u32).to_le_bytes());
-    wav.extend(b"WAVEfmt ");
-    wav.extend(16u32.to_le_bytes());
-    wav.extend(1u16.to_le_bytes());
-    wav.extend(2u16.to_le_bytes());
-    wav.extend(rate.to_le_bytes());
-    wav.extend((rate * 4).to_le_bytes());
-    wav.extend(4u16.to_le_bytes());
-    wav.extend(16u16.to_le_bytes());
-    wav.extend(b"data");
-    wav.extend((data.len() as u32).to_le_bytes());
-    wav.extend(data);
+    // 4 s of stereo silence.
+    let quiet = vec![0.0f32; 44_100 * 4];
+    let wav = ddi_library::wav::write(&[&quiet, &quiet], 44_100);
     std::fs::write(song.join("music.wav"), wav).unwrap();
 }
 

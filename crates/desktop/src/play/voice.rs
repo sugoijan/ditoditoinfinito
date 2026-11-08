@@ -43,8 +43,6 @@ enum Arrived {
 pub struct VoiceLoad {
     pub voice: SharedVoice<Sound>,
     rx: Receiver<Arrived>,
-    /// Sounds that did not decode, and why.
-    pub errors: Vec<String>,
 }
 
 impl VoiceLoad {
@@ -61,11 +59,12 @@ impl VoiceLoad {
         let _ = std::thread::Builder::new()
             .name("ddi-announcer".into())
             .spawn(move || {
-                // Ours without walking the song folders.
+                // Ours without walking the song folders; the folders'
+                // as found since the library last scanned.
                 let found = if ddi_library::announcer::is_bundled(&key) {
                     crate::library::announcers::bundled()
                 } else {
-                    crate::library::announcers::all(&folders)
+                    crate::library::announcers::found(&folders)
                 };
                 let Some(a) = found.into_iter().find(|a| a.key() == key) else {
                     let _ = tx.send(Arrived::Failed(format!(
@@ -115,7 +114,6 @@ impl VoiceLoad {
         VoiceLoad {
             voice: Default::default(),
             rx,
-            errors: Vec::new(),
         }
     }
 
@@ -125,10 +123,7 @@ impl VoiceLoad {
             match a {
                 Arrived::Expect(lines) => self.voice.borrow_mut().expect(lines),
                 Arrived::Sound(line, sound) => self.voice.borrow_mut().add(line, sound),
-                Arrived::Failed(e) => {
-                    eprintln!("announcer: {e}");
-                    self.errors.push(e);
-                }
+                Arrived::Failed(e) => eprintln!("announcer: {e}"),
             }
         }
     }

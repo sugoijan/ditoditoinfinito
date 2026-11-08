@@ -535,6 +535,27 @@ fn the_ladder_picks_and_lights_what_it_shows() {
     assert_eq!(s.borrow().status, "PLAYED Some Things Must Hard 16");
 }
 
+/// A named chart that is a version keeps its source's name, and the
+/// buttons naming it add the version's mark, so that the two read apart.
+#[test]
+fn a_named_version_is_named_with_its_version() {
+    ddi_l10n::set_language("en");
+    let mut c = ChartEntry {
+        difficulty: Difficulty::Edit,
+        name: "My edit".into(),
+        ..ChartEntry::default()
+    };
+    assert_eq!(&*super::select::chart_text(&c, "MY EDIT 7"), "MY EDIT 7");
+    c.version = Some(ddi_chart::simplify::Kind::WithoutOnigiri);
+    assert_eq!(
+        &*super::select::chart_text(&c, "MY EDIT 7"),
+        "MY EDIT 7 · Without onigiri"
+    );
+    // An unnamed version is marked by the ladder's line instead.
+    c.name.clear();
+    assert_eq!(&*super::select::chart_text(&c, "EDIT 7"), "EDIT 7");
+}
+
 /// A generated (assisted) version is marked where its chart is picked: on
 /// the ladder's line under it, and on a phone on Play, as its results
 /// mark it (its button's dot is the theme's, `ddi-theme`'s tests).
@@ -544,7 +565,7 @@ fn generated_versions_are_marked_where_they_are_picked() {
     for song in &mut d.songs {
         for c in &mut song.charts {
             if c.difficulty == Difficulty::Hard {
-                c.version = Some("Without center");
+                c.version = Some(ddi_chart::simplify::Kind::WithoutCenter);
                 c.assisted = true;
             }
         }
@@ -565,7 +586,7 @@ fn generated_versions_are_marked_where_they_are_picked() {
         s.borrow()
             .ladder
             .iter()
-            .any(|c| c.ends_with(" (Without center)"))
+            .any(|c| c.ends_with(" (without-center)"))
     );
     let notes: Vec<(String, String)> = (0..8)
         .filter_map(|k| {
@@ -597,7 +618,7 @@ fn generated_versions_are_marked_where_they_are_picked() {
     for song in &mut d.songs {
         for c in &mut song.charts {
             if c.difficulty == Difficulty::Hard {
-                c.version = Some("From Pump single");
+                c.version = Some(ddi_chart::simplify::Kind::FromPumpSingle);
                 c.assisted = false;
             }
         }
@@ -608,7 +629,7 @@ fn generated_versions_are_marked_where_they_are_picked() {
         s.borrow()
             .ladder
             .iter()
-            .any(|c| c.ends_with(" (From Pump single)"))
+            .any(|c| c.ends_with(" (from-pump-single)"))
     );
     let mut row = (0..8)
         .filter_map(|k| h.ui.actor(&format!("Ladder.Row{k}")).cloned())
@@ -825,7 +846,7 @@ fn song(id: &str, charts: Vec<ChartEntry>) -> SongEntry {
         id: id.into(),
         title: id.into(),
         artist: "x".into(),
-        pack: "P".into(),
+        pack: Some("P".into()),
         bpm: 120.0,
         bpm_text: "120".into(),
         length: 100.0,
@@ -840,7 +861,7 @@ fn a_small_library_is_one_list_without_packs() {
         styles: sample::styles(),
         songs: (0..n)
             .map(|i| SongEntry {
-                pack: format!("Pack {}", i % 2),
+                pack: Some(format!("Pack {}", i % 2)),
                 ..song(&format!("s{i}"), vec![])
             })
             .collect(),
@@ -1217,7 +1238,7 @@ fn library() -> Data {
             id: id.into(),
             title: id.into(),
             artist: "a".into(),
-            pack: "My Pack".into(),
+            pack: Some("My Pack".into()),
             bpm: 150.0,
             bpm_text: "150".into(),
             length: 90.0,
@@ -1228,11 +1249,11 @@ fn library() -> Data {
     }
     d.packs = vec![
         PackEntry {
-            name: sample::BUNDLED_PACK.into(),
+            name: None,
             ..Default::default()
         },
         PackEntry {
-            name: "My Pack".into(),
+            name: Some("My Pack".into()),
             removable: true,
             rereadable: true,
             banner: None,
@@ -1302,7 +1323,7 @@ fn the_shell_hears_the_song_shown_and_the_place() {
 #[test]
 fn the_place_comes_back() {
     let mut d = library();
-    d.closed = vec![sample::BUNDLED_PACK.into()];
+    d.closed = vec![None];
     d.style = Some("dance-double".into());
     let (_h, s, _, _) = shelled(d, Some("u-two"));
     let st = s.borrow();
@@ -1556,7 +1577,9 @@ fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.2);
     assert!(
-        h.texts().iter().any(|t| t == "0 of 1 songs, 2 of 3 MB."),
+        h.texts()
+            .iter()
+            .any(|t| t == "0 of 1 songs, 1.5 MB of 3.0 MB."),
         "{:?}",
         h.texts()
     );
@@ -1869,7 +1892,7 @@ fn typing_on_a_big_library() {
         let mut s = base[i % base.len()].clone();
         s.id = format!("big-{i}");
         s.title = format!("{} {} {i}", words[i % 8], words[(i / 8) % 8]);
-        s.pack = format!("Pack {}", i / 100);
+        s.pack = Some(format!("Pack {}", i / 100));
         d.songs.push(s);
     }
     let (mut h, s, _, _) = shelled(d, Some("some-things-must"));
@@ -1901,7 +1924,7 @@ fn transliterations_and_credits_are_searched() {
         artist: "木星".into(),
         artist_translit: "Mokusei".into(),
         credit: "Ponpokolin Steps".into(),
-        pack: "My Pack".into(),
+        pack: Some("My Pack".into()),
         bpm: 150.0,
         bpm_text: "150".into(),
         length: 90.0,
@@ -1931,15 +1954,11 @@ fn a_removed_song_gives_way_to_its_neighbour() {
         let mut s = d.songs.iter().find(|s| s.id == "u-one").unwrap().clone();
         s.id = id.into();
         s.title = id.into();
-        s.pack = if i == 0 {
-            "My Pack".into()
-        } else {
-            "Other".into()
-        };
+        s.pack = Some(if i == 0 { "My Pack" } else { "Other" }.into());
         d.songs.push(s);
     }
     d.packs.push(PackEntry {
-        name: "Other".into(),
+        name: Some("Other".into()),
         removable: true,
         rereadable: false,
         banner: None,
@@ -1955,8 +1974,8 @@ fn a_removed_song_gives_way_to_its_neighbour() {
     assert_eq!(s.borrow().song, "u-three");
     // The whole pack removed: the next pack's first song.
     let mut d3 = d2.clone();
-    d3.songs.retain(|s| s.pack != "My Pack");
-    d3.packs.retain(|p| p.name != "My Pack");
+    d3.songs.retain(|s| s.pack.as_deref() != Some("My Pack"));
+    d3.packs.retain(|p| p.name.as_deref() != Some("My Pack"));
     feed.borrow_mut().data = Some(d3);
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.3);
@@ -2332,7 +2351,7 @@ fn saved_selection_waits_for_the_initial_library_scan() {
         .songs
         .iter()
         .map(|s| s.pack.clone())
-        .filter(|p| p != "My Pack")
+        .filter(|p| p.as_deref() != Some("My Pack"))
         .collect();
     let mut initial = full.clone();
     initial.songs.retain(|s| !s.removable);
@@ -2351,7 +2370,7 @@ fn saved_selection_waits_for_the_initial_library_scan() {
     assert_eq!(state.borrow().song, "u-two");
     assert_eq!(last_place(&calls).song.as_deref(), Some("u-two"));
     assert_eq!(last_place(&calls).chart, Some(3));
-    assert_eq!(last_place(&calls).open.as_deref(), Some("My Pack"));
+    assert_eq!(last_place(&calls).open.as_deref(), Some("pack:my pack"));
 }
 
 #[test]
@@ -2395,12 +2414,12 @@ fn missing_saved_song_settles_when_the_scan_finishes() {
 #[test]
 fn saved_open_pack_waits_for_its_header_even_without_a_song() {
     let mut full = library();
-    full.resume_pack = Some("My Pack".into());
+    full.resume_pack = Some("pack:my pack".into());
     full.closed = full
         .songs
         .iter()
         .map(|s| s.pack.clone())
-        .filter(|p| p != "My Pack")
+        .filter(|p| p.as_deref() != Some("My Pack"))
         .collect();
     let mut initial = full.clone();
     initial.songs.retain(|s| !s.removable);
@@ -2415,7 +2434,7 @@ fn saved_open_pack_waits_for_its_header_even_without_a_song() {
     feed.borrow_mut().data = Some(full);
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.5);
-    assert_eq!(last_place(&calls).open.as_deref(), Some("My Pack"));
+    assert_eq!(last_place(&calls).open.as_deref(), Some("pack:my pack"));
 }
 
 #[test]

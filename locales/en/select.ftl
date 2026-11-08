@@ -174,6 +174,15 @@ select-version-from-pump-single = From Pump single
 # Made from a Dancing☆Onigiri five-key chart (onto Pump single).
 select-version-from-five-keys = From 5 keys
 
+# A named chart that is a version the game made, on its chart button and
+# the large Play button: its name with the version's mark, as it would
+# otherwise read as the chart it was made from. The name keeps the case
+# the button writes it in.
+# Variables:
+#   $chart (String) - the chart's name and level, as the chart says them ("MY EDIT 12")
+#   $version (String) - the version, as the ladder marks it ("Without onigiri")
+select-chart-version = { $chart } · { $version }
+
 ## The footer: key hints at the left (the keys' caps, then these words),
 ## links at the right. Each hint's words are short (about 10 letters).
 
@@ -393,9 +402,9 @@ select-share-uploading = Uploading…
 # Variables:
 #   $done (Number) - the songs uploaded
 #   $total (Number) - the songs to upload
-#   $mb (Number) - the megabytes uploaded
-#   $totalmb (Number) - the megabytes to upload
-select-share-progress = { $done } of { $total } songs, { $mb } of { $totalmb } MB.
+#   $sent (String) - the size uploaded, as the common-size messages write it ("4.2 MB")
+#   $size (String) - the size to upload, the same way ("37 MB")
+select-share-progress = { $done } of { $total } songs, { $sent } of { $size }.
 
 # The dialog's title once the songs are up.
 select-share-done = Shared

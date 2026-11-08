@@ -32,19 +32,13 @@ impl HandLayout {
             Self::NearLeft => FieldPlace::NearLeft,
         })
     }
+    /// The hand's middle as a share of the screen's width: across from
+    /// the field, at the right of a centered one unless told the left.
     fn center(self, field: FieldPlace) -> f32 {
-        match self {
-            Self::FieldRight => 0.25,
-            Self::FieldLeft | Self::CenterHandRight => 0.75,
-            Self::CenterHandLeft => 0.25,
-            Self::NearRight => 0.375,
-            Self::NearLeft => 0.625,
-            Self::FollowField => match field {
-                FieldPlace::Right => 0.25,
-                FieldPlace::NearRight => 0.375,
-                FieldPlace::NearLeft => 0.625,
-                _ => 0.75,
-            },
+        match (self, self.field().unwrap_or(field)) {
+            (Self::CenterHandLeft, _) => 0.25,
+            (_, FieldPlace::Center) => 0.75,
+            (_, field) => 1.0 - field.center(),
         }
     }
 }

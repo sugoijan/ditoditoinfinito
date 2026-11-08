@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use ddi_chart::simplify::Derivation;
 use ddi_chart::{Difficulty, Layout};
 use ddi_library::manifest::{ChartInfo, ManifestEntry};
 
@@ -19,19 +20,13 @@ use crate::screens::data::{
     Best, ChartEntry, ImportView, PackEntry, SelectData, SongEntry, StyleDef,
 };
 
-/// What the bundled songs are listed under: the pack's name as the list,
-/// its place and the history know it (an identifier; the screens show
-/// it by its message, [`pack_label`]).
-pub const BUNDLED_PACK: &str = "Bundled songs";
-
-/// A pack's name as the screens show it: the bundled songs' by its
-/// message (`select-pack-bundled`), any other as data (the name its
+/// A pack's name as the screens show it: the bundled songs' (`None`) by
+/// its message (`select-pack-bundled`), any other as data (the name its
 /// folder or its files give it).
-pub fn pack_label(name: &str) -> ddi_l10n::UiText {
-    if name == BUNDLED_PACK {
-        ddi_l10n::msg::select::pack_bundled()
-    } else {
-        ddi_l10n::UiText::data(name)
+pub fn pack_label(name: Option<&str>) -> ddi_l10n::UiText {
+    match name {
+        None => ddi_l10n::msg::select::pack_bundled(),
+        Some(name) => ddi_l10n::UiText::data(name),
     }
 }
 
@@ -182,10 +177,7 @@ fn best_of<'a>(
     let key = BestKey {
         digest,
         ruleset,
-        assist: chart
-            .derivation
-            .as_ref()
-            .is_some_and(ddi_chart::simplify::Derivation::assisted),
+        assist: chart.derivation.as_ref().is_some_and(Derivation::assisted),
     };
     let b = bests.get(&key)?;
     let (lamp, lamp_text) = b.lamp.names();
@@ -203,7 +195,7 @@ fn best_of<'a>(
 
 fn song_entry<'a>(
     s: &'a Listed,
-    pack: &str,
+    pack: Option<&str>,
     settings: &Settings,
     bests: &HashMap<BestKey, HistoryBest>,
     keys: &mut BestKeys<'a>,
@@ -220,7 +212,7 @@ fn song_entry<'a>(
         title: entry.title.clone(),
         subtitle: String::new(),
         artist: entry.artist.clone(),
-        pack: pack.to_string(),
+        pack: pack.map(str::to_string),
         bpm,
         bpm_text: entry.bpm.replace('-', "–"),
         length: entry.length as f32,
@@ -239,14 +231,11 @@ fn song_entry<'a>(
                 notes: c.notes as u32,
                 credit: c.credit.clone(),
                 index: c.index,
-                name: c.name.clone(),
+                name: chart_name(entry, c).to_string(),
                 best: best_of(entry, c, settings, bests, keys),
                 digest: c.digest,
-                version: c.derivation.as_ref().map(|d| d.name()),
-                assisted: c
-                    .derivation
-                    .as_ref()
-                    .is_some_and(ddi_chart::simplify::Derivation::assisted),
+                version: c.derivation.as_ref().map(Derivation::kind),
+                assisted: c.derivation.as_ref().is_some_and(Derivation::assisted),
             })
             .collect(),
         removable: s.removable,
@@ -255,6 +244,15 @@ fn song_entry<'a>(
         artist_translit: entry.artist_translit.clone(),
         credit: entry.credit.clone(),
     }
+}
+
+/// A chart's name: a version's is its source's (metadata kept before
+/// versions took their source's name has an English one of its own).
+fn chart_name<'a>(entry: &'a ManifestEntry, c: &'a ChartInfo) -> &'a str {
+    c.derivation
+        .as_ref()
+        .and_then(|d| entry.charts.iter().find(|s| s.index == d.source()))
+        .map_or(&c.name, |s| &s.name)
 }
 
 /// Song select's data now: `songs` in list order (the bundled ones
@@ -282,22 +280,21 @@ pub fn select_data(
     // in `packs` by their lowercased names.
     let mut pack_at: HashMap<String, usize> = HashMap::new();
     if songs.iter().any(|s| s.pack.is_none()) {
-        pack_at.insert(BUNDLED_PACK.to_lowercase(), packs.len());
         packs.push(PackEntry {
-            name: BUNDLED_PACK.into(),
+            name: None,
             banner: None,
             removable: false,
             rereadable: false,
         });
     }
     for s in songs.iter().filter(|s| s.pack.is_none()) {
-        list.push(song_entry(s, BUNDLED_PACK, settings, &bests, &mut keys));
+        list.push(song_entry(s, None, settings, &bests, &mut keys));
     }
     for s in songs.iter() {
         let Some(pack) = &s.pack else { continue };
         let at = *pack_at.entry(pack.to_lowercase()).or_insert_with(|| {
             packs.push(PackEntry {
-                name: pack.clone(),
+                name: Some(pack.clone()),
                 banner: s.pack_banner.clone(),
                 removable: s.removable,
                 rereadable: rereadable(pack),
@@ -305,7 +302,7 @@ pub fn select_data(
             packs.len() - 1
         });
         let name = packs[at].name.clone();
-        list.push(song_entry(s, &name, settings, &bests, &mut keys));
+        list.push(song_entry(s, name.as_deref(), settings, &bests, &mut keys));
     }
     let mut mods = crate::screens::play::mods_summary(
         &settings.transform,
@@ -319,7 +316,7 @@ pub fn select_data(
         mods.extend(crate::screens::play::rules_summary(&settings.stepmania));
     }
     // The first visit: the bundled songs open (else the first pack).
-    let is_closed = |name: &String| place.closed.as_ref().is_some_and(|c| c.contains(name));
+    let is_closed = |name: &Option<String>| place.is_closed(name.as_deref());
     let open = if place.closed.is_none() {
         packs.first()
     } else {
@@ -355,13 +352,7 @@ pub fn select_data(
                 .map(|(_, c)| *c);
             (song, chart)
         }),
-        resume_pack: place.open.as_ref().and_then(|key| {
-            if key == "bundled" {
-                Some(BUNDLED_PACK.into())
-            } else {
-                key.strip_prefix("pack:").map(str::to_string)
-            }
-        }),
+        resume_pack: place.open.clone(),
         loading: false,
         style: place.style.clone().or_else(|| Some(settings.style.clone())),
         search: place.search.clone(),
@@ -375,6 +366,7 @@ pub fn select_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ddi_chart::simplify::Kind;
 
     #[test]
     fn onigiri_versions_are_optional_but_the_originals_are_always_listed_and_unassisted() {
@@ -564,7 +556,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         use crate::screens::data::difficulty_name;
-        let center = Some("Without center");
+        let center = Some(Kind::WithoutCenter);
         // The original Medium stands for its difficulty; the Hard and the
         // Edit are new.
         assert_eq!(
@@ -622,7 +614,7 @@ mod tests {
         };
         let mut settings = Settings::default();
         assert!(settings.convert_pump_single && settings.convert_five_keys);
-        assert_eq!(keys(&settings), [(2, Some("From Pump single"), false)]);
+        assert_eq!(keys(&settings), [(2, Some(Kind::FromPumpSingle), false)]);
         settings.convert_pump_single = false;
         assert_eq!(keys(&settings), []);
     }
@@ -635,6 +627,29 @@ mod tests {
         .unwrap();
         e.length = 90.0;
         e
+    }
+
+    #[test]
+    fn only_the_bundled_songs_pack_is_worded_by_its_message() {
+        assert!(ddi_l10n::set_language("qps-ploc"));
+        assert!(pack_label(None).starts_with('«'));
+        // A pack of the message's English name is data.
+        assert!(pack_label(Some("Bundled songs")).starts_with('‹'));
+        ddi_l10n::set_language("en");
+    }
+
+    #[test]
+    fn a_version_goes_by_its_source_s_name() {
+        let mut e = entry("u-1", "danoni-5");
+        e.charts[0].name = "My edit".into();
+        let mut version = e.charts[0].clone();
+        version.index = 1;
+        // As metadata kept before versions took their source's name.
+        version.name = "My edit · without onigiri".into();
+        version.derivation = Some(Derivation::WithoutOnigiri { source: 0 });
+        e.charts.push(version);
+        assert_eq!(chart_name(&e, &e.charts[1]), "My edit");
+        assert_eq!(chart_name(&e, &e.charts[0]), "My edit");
     }
 
     #[test]
@@ -665,21 +680,25 @@ mod tests {
         );
         let ids: Vec<&str> = d.songs.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, vec!["bundled", "u-1", "u-2", "u-3"]);
-        let packs: Vec<(&str, bool)> = d
+        let packs: Vec<(Option<&str>, bool)> = d
             .packs
             .iter()
-            .map(|p| (p.name.as_str(), p.rereadable))
+            .map(|p| (p.name.as_deref(), p.rereadable))
             .collect();
         assert_eq!(
             packs,
-            vec![(BUNDLED_PACK, false), ("Pack", false), ("Other", true)]
+            vec![(None, false), (Some("Pack"), false), (Some("Other"), true)]
         );
-        assert_eq!(d.songs[2].pack, "Pack");
+        assert_eq!(d.songs[2].pack.as_deref(), Some("Pack"));
+        assert_eq!(d.songs[0].pack, None);
         assert_eq!(d.packs[1].banner.as_deref(), Some("pack-cover.png"));
         assert_eq!(d.songs[1].bpm, 120.0);
         assert_eq!(d.songs[1].bpm_text, "120–150");
         // The first visit opens the bundled songs.
-        assert_eq!(d.closed, vec!["Pack".to_string(), "Other".to_string()]);
+        assert_eq!(
+            d.closed,
+            vec![Some("Pack".to_string()), Some("Other".to_string())]
+        );
         assert_eq!(d.styles.len(), 1);
     }
 }

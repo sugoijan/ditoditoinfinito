@@ -132,15 +132,10 @@ pub trait Look {
     }
 
     /// Moves parts whose place depends on text measured just now (a
-    /// value wider than the room its design gives it), each frame after
-    /// the screen's text is measured and before it is drawn. A run whose
+    /// value wider than the room its design gives it): after a frame
+    /// measured a screen's changed text, before it is drawn. A run whose
     /// room it changes it measures again with `measure`.
-    fn place_measured(
-        &self,
-        _root: &mut Actor,
-        _measure: &mut dyn ddi_actor::text::TextMeasure,
-    ) {
-    }
+    fn place_measured(&self, _root: &mut Actor, _measure: &mut dyn ddi_actor::text::TextMeasure) {}
 
     /// Update a single active-element decoration. `None` clears it on a
     /// covered layer. Return true when the current decoration wants frames.
@@ -213,10 +208,7 @@ pub fn font_for(look: &dyn Look, role: &str) -> Arc<str> {
 /// makes this an estimate.
 pub fn mono_width(s: &str, size: f32) -> f32 {
     s.chars()
-        .map(|c| {
-            let wide = matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD);
-            if wide { 1.0 } else { 0.5 }
-        })
+        .map(|c| if ddi_l10n::wide(c) { 1.0 } else { 0.5 })
         .sum::<f32>()
         * size
 }

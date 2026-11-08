@@ -248,7 +248,7 @@ import-skin-files = { $total }要素中{ $own }要素がスキン独自の画像
 
 ## インポートしたアナウンサー。
 
-import-announcer-summary = セリフ{ $lines }件（プレイ中{ $play }件、リザルト{ $results }件、選曲{ $select }件）、音声ファイル{ $sounds }個、{ NUMBER($megabytes, minimumFractionDigits: 1) } MB
+import-announcer-summary = セリフ{ $lines }件（プレイ中{ $play }件、リザルト{ $results }件、選曲{ $select }件）、音声ファイル{ $sounds }個、{ $size }
 
 import-too-many-announcers = アナウンサー{ $count }件：インポートしたのは最初の{ $kept }件だけです
 

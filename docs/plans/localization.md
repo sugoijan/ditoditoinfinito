@@ -267,7 +267,8 @@ As built in step 2:
   search (before, it took the first family alone). Unified Han
   characters the cuts lack take the UI language's forms from the
   system's faces: the painter tells the rasterizer the language
-  (`Painter::set_language`), desktop matching the system's faces for
+  (`RunRasterizer::set_language`, on a change it reads as it lays out
+  text), desktop matching the system's faces for
   that locale (Hiragino Sans in Japanese rather than cosmic-text's
   default, PingFang SC), the web setting the canvas's and the page's
   `lang` (`<html lang>` from step 5, here since the browser's choice of

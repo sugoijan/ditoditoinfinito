@@ -201,13 +201,7 @@ impl PlayOptions {
 
     /// The rows, as Options shows them.
     pub fn rows(&self) -> Vec<OptionDef> {
-        let all: Vec<OptionDef> = self
-            .model
-            .data()
-            .sections
-            .into_iter()
-            .flat_map(|s| s.options)
-            .collect();
+        let all: Vec<OptionDef> = self.model.prompt_rows().collect();
         let skin = self.skin_row(&all);
         ROWS.iter()
             .map(|id| if *id == "noteskin" { skin } else { id })
@@ -310,6 +304,21 @@ mod tests {
         let mut p = options();
         p.set_layout("pump-single");
         assert_eq!(p.rows()[5].id, "pump_noteskin");
+        // Each as Options shows it, without its heading.
+        for o in [o, p] {
+            let all: Vec<OptionDef> = o
+                .model
+                .data()
+                .sections
+                .into_iter()
+                .flat_map(|s| s.options)
+                .collect();
+            for row in o.rows() {
+                let mut shown = all.iter().find(|a| a.id == row.id).unwrap().clone();
+                shown.heading = None;
+                assert_eq!(shown, row);
+            }
+        }
         // The skins not all listed yet: no skin row.
         let o = PlayOptions::new(Settings::default(), "dance-single", Platform::Web);
         assert_eq!(o.rows().len(), 5);

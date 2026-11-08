@@ -132,50 +132,15 @@ pub struct PageDoc {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PageTitle {
     pub text: String,
-    /// The header's; none: the text in capitals (a page whose text is not
-    /// a message yet).
-    pub heading: Option<String>,
+    /// The header's, written in capitals where the language has them.
+    pub heading: String,
 }
 
 impl PageTitle {
     pub fn new(text: impl Into<String>, heading: impl Into<String>) -> PageTitle {
         PageTitle {
             text: text.into(),
-            heading: Some(heading.into()),
-        }
-    }
-
-    /// As the header shows it.
-    pub fn heading(&self) -> String {
-        self.heading
-            .clone()
-            .unwrap_or_else(|| self.text.to_uppercase())
-    }
-}
-
-impl From<&str> for PageTitle {
-    fn from(text: &str) -> PageTitle {
-        PageTitle {
-            text: text.into(),
-            heading: None,
-        }
-    }
-}
-
-impl From<String> for PageTitle {
-    fn from(text: String) -> PageTitle {
-        PageTitle {
-            text,
-            heading: None,
-        }
-    }
-}
-
-impl From<UiText> for PageTitle {
-    fn from(text: UiText) -> PageTitle {
-        PageTitle {
-            text: text.into(),
-            heading: None,
+            heading: heading.into(),
         }
     }
 }
@@ -261,29 +226,6 @@ const ZONE_PAD: f32 = 12.0;
 /// A button's width in a row of them (a primary one's label is larger).
 fn action_width(label: &str, primary: bool) -> f32 {
     look::mono_width(label, if primary { 18.0 } else { 14.0 }) + 32.0
-}
-
-/// `text` in lines no wider than `width` at `size`
-/// ([`wrap_lines`]). In a pseudo-language a message («…») or data (‹…›)
-/// keeps its marks on each of its lines, so that a line from its middle
-/// still reads as passed through a message (`l10n_tests.rs`).
-pub(crate) fn wrap_marked(text: &str, width: f32, size: f32) -> Vec<String> {
-    if ddi_l10n::current().status == ddi_l10n::Status::Pseudo {
-        for (open, close) in [('«', '»'), ('‹', '›')] {
-            let Some(inner) = text.strip_prefix(open).and_then(|t| t.strip_suffix(close)) else {
-                continue;
-            };
-            let marks = look::mono_width(&format!("{open}{close}"), size);
-            let lines = wrap_lines(inner, width - marks, size);
-            if lines.len() > 1 {
-                return lines
-                    .into_iter()
-                    .map(|l| format!("{open}{l}{close}"))
-                    .collect();
-            }
-        }
-    }
-    wrap_lines(text, width, size)
 }
 
 pub struct PageScreen {
@@ -426,7 +368,7 @@ impl PageScreen {
                     size: f32,
                     weight: u16,
                     color: &'static str| {
-            for l in wrap_marked(s, width, size) {
+            for l in wrap_lines(s, width, size) {
                 let h = size + LINE;
                 rows.push(Row {
                     y: *y,
@@ -477,7 +419,7 @@ impl PageScreen {
                 Block::Link { label, url } => {
                     let item = items.len();
                     items.push(Item::Link(url.clone()));
-                    for l in wrap_marked(label, width, 14.0) {
+                    for l in wrap_lines(label, width, 14.0) {
                         rows.push(Row {
                             y: *y,
                             h: 14.0 + LINE + 4.0,
@@ -553,7 +495,7 @@ impl PageScreen {
                 Block::Action { id, label } => {
                     let item = items.len();
                     items.push(Item::Button(id.clone()));
-                    for l in wrap_marked(label, width, 14.0) {
+                    for l in wrap_lines(label, width, 14.0) {
                         rows.push(Row {
                             y: *y,
                             h: 14.0 + LINE + 4.0,
@@ -665,7 +607,7 @@ impl PageScreen {
                 28.0,
             ));
         } else {
-            children.push(header(&env, cx, w, &self.doc.title.heading()));
+            children.push(header(&env, cx, w, &self.doc.title.heading));
             let (to_move, open, back, activate) = (
                 pm::move_hint(),
                 common::open(),
@@ -1145,7 +1087,7 @@ impl PageScreen {
             let title = if self.compact {
                 self.doc.title.text.clone()
             } else {
-                self.doc.title.heading()
+                self.doc.title.heading.clone()
             };
             crate::widgets::set_text(root, "Title", &title);
         }

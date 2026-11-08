@@ -6,7 +6,7 @@
 use ddi_library::path::RelPath;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use ddi_library::manifest::{EntryMeta, Manifest, summarize};
@@ -14,12 +14,7 @@ use ddi_library::manifest::{EntryMeta, Manifest, summarize};
 use ddi_library::scan::parse_simfile;
 use serde::Deserialize;
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives in the workspace root")
-        .to_path_buf()
-}
+use crate::repo_root;
 
 /// `assets/songs/<id>/PROVENANCE.toml`.
 #[derive(Debug, Deserialize)]

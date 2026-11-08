@@ -3447,18 +3447,6 @@ text = "bd47753de62b998d"
 by = "agent"
 date = "2026-11-07"
 
-[notices-size-gb]
-source = "e72c2358893600bd"
-text = "e72c2358893600bd"
-by = "agent"
-date = "2026-11-07"
-
-[notices-size-mb]
-source = "4775d72804d1486c"
-text = "4775d72804d1486c"
-by = "agent"
-date = "2026-11-07"
-
 [notices-storage]
 source = "45e94a72f74c70a8"
 text = "a2b9579846924399"
@@ -6194,30 +6182,6 @@ source = "8c8e452fae698abf"
 text = "6085cf18b71b41bf"
 by = "agent"
 date = "2026-11-08"
-
-[options-size-b]
-source = "136ce34b3f67c0d0"
-text = "136ce34b3f67c0d0"
-by = "agent"
-date = "2026-11-07"
-
-[options-size-gb]
-source = "73239c7b57f8da6a"
-text = "73239c7b57f8da6a"
-by = "agent"
-date = "2026-11-07"
-
-[options-size-kb]
-source = "55ec81f7e1714832"
-text = "55ec81f7e1714832"
-by = "agent"
-date = "2026-11-07"
-
-[options-size-mb]
-source = "d87e10c51bd01a56"
-text = "d87e10c51bd01a56"
-by = "agent"
-date = "2026-11-07"
 
 [options-speed]
 source = "f2750fe334fde05f"

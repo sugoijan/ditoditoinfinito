@@ -11,7 +11,7 @@ use std::rc::Rc;
 use super::Env;
 use super::options::{OPTIONS_CHANGED, OptionsCall, OptionsFeed, OptionsShell};
 use super::options_dialogs::{BindDialog, ConfirmDialog, KeyDialog};
-use super::options_model::{Act, OptionsModel, Reset, Sample};
+use super::options_model::{Act, Effect, OptionsModel, Reset, Sample};
 use crate::message::Message;
 use crate::screen::Cx;
 use crate::state::bind::BindFlow;
@@ -56,8 +56,11 @@ pub trait OptionsPlatform {
     fn held(&self, _id: &str) -> HashSet<String> {
         HashSet::new()
     }
-    /// A setting changed (`reduced_motion` is followed at once).
-    fn changed(&self, _id: &str, _model: &OptionsModel) {}
+    /// A setting changed: what the platform shows of the settings
+    /// follows them.
+    fn changed(&self, _model: &OptionsModel) {}
+    /// Reduced motion may have changed: followed at once.
+    fn motion(&self, _model: &OptionsModel) {}
     /// Goes to another screen.
     fn leave(&self, to: Leave, cx: &mut Cx);
     /// Song folders (desktop, `World::folders`): add one (the picker,
@@ -142,10 +145,9 @@ fn call_with(
 ) -> Option<super::data::OptionsData> {
     let act = match call {
         OptionsCall::Change { id, index } => {
-            if !model.borrow_mut().change(&id, index) {
-                return None;
-            }
-            if id == "volume" {
+            // Nothing changed: nothing to show again.
+            let effect = model.borrow_mut().change(&id, index)?;
+            if effect == Effect::Volume {
                 let (volume, ready) = {
                     let m = model.borrow();
                     (m.settings.volume, m.world.sample == Sample::Ready)
@@ -158,7 +160,7 @@ fn call_with(
                     model.borrow_mut().world.sample = Sample::Playing;
                 }
             }
-            if id == "announcer" || id == "announcer_volume" {
+            if effect == Effect::Announce {
                 let (key, volume, share) = {
                     let s = &model.borrow().settings;
                     (s.announcer.clone(), s.volume, s.announcer_volume)
@@ -171,14 +173,17 @@ fn call_with(
                     platform.announce(&key, volume, share, cx);
                 }
             }
-            if id == "language" {
+            if effect == Effect::Language {
                 // The screens speak it from here: each built again, these
                 // rows with them (the data below is made in it).
                 ddi_l10n::unforce();
                 ddi_l10n::choose(model.borrow().settings.language.as_deref());
                 cx.rebuild_screens();
             }
-            platform.changed(&id, &model.borrow());
+            platform.changed(&model.borrow());
+            if effect == Effect::Motion {
+                platform.motion(&model.borrow());
+            }
             return Some(model.borrow().data());
         }
         OptionsCall::Leave => {
@@ -334,7 +339,8 @@ fn call_with(
                     {
                         let model = m.borrow();
                         p.volume(model.settings.volume);
-                        p.changed("reduced_motion", &model);
+                        p.changed(&model);
+                        p.motion(&model);
                     }
                     p.remove(&reset);
                     send(&m, &f, cx);

@@ -69,7 +69,7 @@ use crate::hit::{self, Affine, IDENTITY, Target};
 use crate::message::Message;
 use crate::nav::{self, MenuAction, Repeater, Source};
 use crate::request::{CssRect, Cursor, InputHints, UiRequest};
-use crate::screen::{Cx, Handled, Input, Op, Screen, Spot, Stage, TextChange};
+use crate::screen::{Cx, Handled, Input, Mark, Op, Screen, Spot, Stage, TextChange};
 use crate::text_field::{KeyResult, TextField, TextMode};
 use crate::textures::TextureTable;
 use std::cell::RefCell;
@@ -292,7 +292,7 @@ pub struct Ui {
     stage: Option<Stage>,
     /// What is marked ([`Ui::mark`]), and the layer it was first drawn
     /// on and when (its entrance plays from then).
-    mark: Option<String>,
+    mark: Option<Mark>,
     mark_on: Option<(u64, f64)>,
     /// The mark's entrance is under way: frames are wanted.
     mark_animating: bool,
@@ -1273,9 +1273,11 @@ impl Ui {
             {
                 run.set_text(shown);
             }
-            layer.root.measure(measure);
+            let measured = layer.root.measure(measure);
             if let Some(presentation) = layer.screen.presentation() {
-                presentation.look.place_measured(&mut layer.root, measure);
+                if measured {
+                    presentation.look.place_measured(&mut layer.root, measure);
+                }
                 let target = (Some(layer.id) == active_layer)
                     .then(|| layer.screen.active_element(layer.focused.as_deref()))
                     .flatten();
@@ -1478,14 +1480,13 @@ impl Ui {
         })
     }
 
-    /// Marks `what` ([`Screen::spot`]: song select's `chart.level`, the
-    /// results' `grade`) on the screen shown: a ring around it in the
+    /// Marks `what` ([`Screen::spot`]: song select's chart's level, the
+    /// results' grade) on the screen shown: a ring around it in the
     /// look's `Mark`, coming in as it first shows there once the screen
     /// is in (the screens after it keep the mark, on whichever has
     /// `what`); `None` takes it away. The announcer studio's scenes point
     /// at what a line is said for so.
-    pub fn mark(&mut self, what: Option<&str>) {
-        let what = what.map(str::to_string);
+    pub fn mark(&mut self, what: Option<Mark>) {
         if what != self.mark {
             self.mark = what;
             self.mark_on = None;
@@ -1503,7 +1504,7 @@ impl Ui {
     /// The layer the mark is on (the current screen, once it is in) and
     /// what it marks there, in its own pixels.
     fn mark_target(&self) -> Option<(u64, [f32; 4])> {
-        let what = self.mark.as_deref()?;
+        let what = self.mark?;
         let l = self.layers.iter().rev().find(|l| !l.chrome && !l.overlay)?;
         if !matches!(l.phase, Phase::Active) {
             return None;

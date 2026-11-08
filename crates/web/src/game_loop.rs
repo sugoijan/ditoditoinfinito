@@ -439,14 +439,6 @@ impl GameLoop {
         }
     }
 
-    /// The renderer's id of image `what`, once up.
-    fn background_id(&self, what: &BgImage) -> Option<usize> {
-        self.background_ids
-            .iter()
-            .find(|(w, _)| w == what)
-            .map(|(_, id)| *id)
-    }
-
     /// What the start prompt shows of the generated background, for a
     /// song without a picture: its frame at the play's first song second
     /// and beat (`first`), for a frame of shape `aspect`
@@ -458,9 +450,14 @@ impl GameLoop {
         reduced: bool,
         aspect: f32,
     ) -> Option<ddi_shell::generative::Still> {
-        let g = self.generated.as_ref()?;
-        let cover = self.background_id(&BgImage::Cover);
-        g.still(&self.renderer, first, brightness, reduced, aspect, cover)
+        self.generated.as_ref()?.still(
+            &self.renderer,
+            &self.background_ids,
+            first,
+            brightness,
+            reduced,
+            aspect,
+        )
     }
 
     /// The back and mask layers of the play about to start (`None`: none
@@ -651,19 +648,16 @@ impl GameLoop {
         }
         let _ = self.fps.tick(time_ms);
         self.upload_backgrounds();
-
-        {
-            let (w, h) = self.gfx.size();
-            self.dance.preload_work(
-                &self.gfx.device,
-                &self.gfx.queue,
-                self.gfx
-                    .plain_format()
-                    .unwrap_or_else(|| self.gfx.view_format()),
-                [w, h],
-                &|| crate::web::clock::PerformanceClock::now_ms() / 1000.,
-            );
-        }
+        let (w, h) = self.gfx.size();
+        self.dance.preload_work(
+            &self.gfx.device,
+            &self.gfx.queue,
+            self.gfx
+                .plain_format()
+                .unwrap_or_else(|| self.gfx.view_format()),
+            [w, h],
+            &|| crate::web::clock::PerformanceClock::now_ms() / 1000.,
+        );
         self.frames += 1;
         if self.frames.is_multiple_of(10) {
             self.publish_debug(HostTime(time_ms / 1000.0));
@@ -889,12 +883,14 @@ impl GameLoop {
                 }
                 // A generated background: its texture at the frame's
                 // size, in the backdrop's list, drawn when it shows.
-                if let Some(g) = self.generated.as_mut().filter(|_| render.background > 0.0) {
-                    let [w, h] = [width as f32, height as f32];
-                    let frame_px = ddi_render::background::frame_rect(w, h, frame_aspect)
-                        .map_or([w, h], |r| [r[2], r[3]]);
-                    let entry = g.ensure(&mut self.renderer, &self.gfx.device, frame_px);
-                    self.shown_cache.set_generated(Some(entry));
+                if let Some(g) = self.generated.as_mut() {
+                    g.prepare(
+                        &mut self.renderer,
+                        &self.gfx.device,
+                        &mut self.shown_cache,
+                        [width, height],
+                        &render,
+                    );
                 }
                 render.backdrop = Self::backdrop(
                     &mut self.shown_cache,
@@ -906,23 +902,15 @@ impl GameLoop {
                     self.scripts.running().then_some(ddi_render::BLACK),
                 );
                 self.backdrop_drawn = render.backdrop;
-                let pictures = (
-                    self.background_id(&BgImage::Song),
-                    self.background_id(&BgImage::Cover),
-                );
-                if let Some(g) = self.generated.as_mut()
-                    && let Some(id) = g.id()
-                    && ddi_shell::generative::shown(&render.backdrop, id)
-                {
-                    g.draw(
+                if let Some(g) = self.generated.as_mut() {
+                    g.draw_shown(
                         &mut self.renderer,
                         &self.gfx.device,
                         &self.gfx.queue,
                         &mut encoder,
+                        &render,
+                        &self.background_ids,
                         (frame.song_time, frame.beat),
-                        render.background,
-                        render.reduced_motion,
-                        pictures,
                     );
                 }
                 self.playing_at = (session.player.started() && !session.player.finished())
@@ -1005,41 +993,30 @@ impl GameLoop {
                         // Their movies drawn, decoded on their clocks and
                         // their new frames drawn into their textures.
                         if self.video_mode != VideoMode::Off && !session.player.finished() {
-                            let clips = self.scripts.movie_clips();
                             let (device, queue) = (&self.gfx.device, &self.gfx.queue);
-                            let shown = self.script_movies.update_clips(
-                                &clips,
-                                self.scripts.movie_renderer(device, queue),
+                            let deck = &mut self.script_movies;
+                            self.scripts.play_movies(
+                                &mut self.renderer,
                                 device,
                                 queue,
+                                |clips, r| deck.update_clips(clips, r, device, queue),
                             );
-                            self.scripts
-                                .show_movies(&mut self.renderer, device, queue, &shown);
                         } else if session.player.finished() {
                             self.script_movies.stop();
                         }
                     }
                     self.renderer.set_stage_quads(back, mask);
                 }
-
-                self.dance.prepare(frame.song_time, &|| {
-                    crate::web::clock::PerformanceClock::now_ms() / 1000.
-                });
-
-                if self.dance.behind_field() {
-                    self.dance.draw_underlay(
-                        &self.gfx.device,
-                        &self.gfx.queue,
-                        &mut encoder,
-                        &mut self.renderer,
-                        play_format,
-                        [width, height],
-                        frame.song_time,
-                    );
-                } else {
-                    self.renderer
-                        .set_field_underlay(&self.gfx.device, &mut encoder, None);
-                }
+                self.dance.before_field(
+                    &self.gfx.device,
+                    &self.gfx.queue,
+                    &mut encoder,
+                    &mut self.renderer,
+                    play_format,
+                    [width, height],
+                    frame.song_time,
+                    &|| crate::web::clock::PerformanceClock::now_ms() / 1000.,
+                );
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -1054,26 +1031,15 @@ impl GameLoop {
                     render,
                     layer,
                 );
-
-                if self.dance.behind_field() {
-                    self.dance.draw_guide(
-                        &self.gfx.device,
-                        &self.gfx.queue,
-                        &mut encoder,
-                        plain_view.as_ref().unwrap_or(&view),
-                        [width, height],
-                    );
-                } else {
-                    self.dance.draw(
-                        &self.gfx.device,
-                        &self.gfx.queue,
-                        &mut encoder,
-                        plain_view.as_ref().unwrap_or(&view),
-                        play_format,
-                        [width, height],
-                        frame.song_time,
-                    );
-                }
+                self.dance.after_field(
+                    &self.gfx.device,
+                    &self.gfx.queue,
+                    &mut encoder,
+                    plain_view.as_ref().unwrap_or(&view),
+                    play_format,
+                    [width, height],
+                    frame.song_time,
+                );
             }
             None => {
                 self.playing_at = None;

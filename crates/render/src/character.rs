@@ -405,34 +405,7 @@ impl CharacterScene {
             self.target.as_ref().map(|t| &t.color)
         }
     }
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        asset: &Character,
-        pose: &Pose,
-        camera: Camera,
-        size: [u32; 2],
-    ) {
-        self.draw_styled(
-            device,
-            queue,
-            encoder,
-            asset,
-            pose,
-            Presentation {
-                camera,
-                size,
-                appearance: None,
-                tiles: [0.; 9],
-                strikes: [0; 9],
-                seconds: 0.,
-            },
-        );
-    }
-    /// Presentation-only overrides; the legacy entry point retains its original appearance.
+    /// Draws the pose for a presentation (camera, size, appearance).
     pub fn draw_styled(
         &mut self,
         device: &wgpu::Device,
@@ -456,20 +429,7 @@ impl CharacterScene {
         let size = size.map(|n| (n as f32 * scale).round().max(1.) as u32);
         if self.target.as_ref().is_none_or(|t| t.size != size) {
             let make = |format, usage, label| {
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d {
-                        width: size[0],
-                        height: size[1],
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage,
-                    view_formats: &[],
-                })
+                crate::gpu::texture_2d(device, label, size, format, 1, usage, &[])
             };
             let color = make(
                 wgpu::TextureFormat::Rgba8Unorm,

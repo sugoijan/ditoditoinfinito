@@ -32,7 +32,7 @@ fn music() -> Vec<u8> {
     let rate = 44_100u32;
     let n = rate as usize * 16;
     let mut noise = 0x1234_5678u32;
-    let mut data = Vec::with_capacity(n * 4);
+    let mut mid = Vec::with_capacity(n);
     for i in 0..n {
         let t = i as f64 / f64::from(rate);
         let beat = (t * 2.0).fract() / 2.0;
@@ -43,25 +43,9 @@ fn music() -> Vec<u8> {
         noise ^= noise << 5;
         let hat = (f64::from(noise) / f64::from(u32::MAX) * 2.0 - 1.0) * (-half * 60.0).exp() * 0.3;
         let tone = (std::f64::consts::TAU * 440.0 * t).sin() * 0.05;
-        let v = ((kick + hat + tone).clamp(-1.0, 1.0) * 32767.0) as i16;
-        data.extend(v.to_le_bytes());
-        data.extend(v.to_le_bytes());
+        mid.push((kick + hat + tone) as f32);
     }
-    let mut wav = Vec::new();
-    wav.extend(b"RIFF");
-    wav.extend((36 + data.len() as u32).to_le_bytes());
-    wav.extend(b"WAVEfmt ");
-    wav.extend(16u32.to_le_bytes());
-    wav.extend(1u16.to_le_bytes());
-    wav.extend(2u16.to_le_bytes());
-    wav.extend(rate.to_le_bytes());
-    wav.extend((rate * 4).to_le_bytes());
-    wav.extend(4u16.to_le_bytes());
-    wav.extend(16u16.to_le_bytes());
-    wav.extend(b"data");
-    wav.extend((data.len() as u32).to_le_bytes());
-    wav.extend(data);
-    wav
+    ddi_library::wav::write(&[&mid, &mid], rate)
 }
 
 /// A song folder under `dir` with `tags`, a light picture `light.png`
@@ -128,7 +112,7 @@ fn play(
 ) -> (Vec<Vec<u8>>, Option<ddi_shell::generative::Debug>) {
     let loaded = load(root);
     let mut p = OffscreenPlay::new(adapter, loaded.clone(), settings);
-    p.view.set_generated(&loaded, settings);
+    p.view.set_generated(&loaded, settings, false);
     p.view.wait_for_generated();
     let mut out = Vec::new();
     p.run(

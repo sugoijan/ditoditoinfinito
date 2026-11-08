@@ -140,7 +140,10 @@ playtest.
    line, back in the studio.
 8. **Nothing is lost.**
    - The draft is saved as it changes, on the web in IndexedDB with
-     persistent storage asked for, and opens where it was left.
+     persistent storage asked for, and opens where it was left. While
+     an import's takes are decoded it is saved once a second and at
+     the end, and the page shown again once a frame, so a few hundred
+     takes do not write and lay out the whole draft for each.
    - Use in the game adds it as an announcer to choose under Options,
      and to hear in real plays.
    - Any imported announcer opens in the studio again, to carry on with

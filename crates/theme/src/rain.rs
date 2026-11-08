@@ -1,12 +1,11 @@
 //! Slow outline rain behind the title menu. Atlas frames keep glyphs upright
 //! in their quads, so all of them can sample one screen-aligned Vivid field.
-use ddi_actor::{Actor, Kind, Sprite, State, Vivid};
+use ddi_actor::{Actor, Kind, Sprite, State, Vivid, rain};
 use ddi_ui::look::{call, named};
 
 use super::Infinito;
 
 const COUNT: usize = 50;
-const WEIGHTS: usize = 8;
 
 pub(super) fn actor() -> Actor {
     let particles = (0..COUNT)
@@ -27,11 +26,6 @@ pub(super) fn actor() -> Actor {
     named(Kind::Frame(particles), "MenuBackground")
 }
 
-// The study's deterministic seed, evaluated in f64 so wasm and native agree.
-fn seed(i: f64, salt: f64) -> f64 {
-    ((i * 127.1 + salt * 311.7).sin() * 43758.5453).rem_euclid(1.0)
-}
-
 struct Particle {
     pos: [f32; 2],
     side: f32,
@@ -39,39 +33,31 @@ struct Particle {
     frame: [f32; 4],
 }
 
+/// The shared particle ([`ddi_actor::rain`]) as the menu's sprite.
 fn particle(i: usize, time: f64, size: [f32; 2], speed: f64, strength: f32) -> Particle {
-    let i = i as f64;
-    let depth = seed(i, 2.0);
-    let rate = speed * (0.8 + depth * 1.2);
-    let travel = seed(i, 1.0) * 680.0 + (time + 8.0) * rate;
-    let identity = i + (travel / 680.0).floor() * 4099.0;
-    let y = -70.0 + travel.rem_euclid(680.0);
-    let x = -50.0 + (seed(i, 3.0) * 1060.0 + (time + 8.0) * rate * 0.17).rem_euclid(1060.0);
-    let fade = ((y + 70.0) / 80.0).min((610.0 - y) / 80.0).clamp(0.0, 1.0);
-    // Change shape/direction only when the particle wraps outside the view.
-    let column = if seed(identity, 6.0) < 0.01 {
+    let p = rain::particle(i, time, speed);
+    let depth = p.depth as f32;
+    let column = if p.onigiri {
         4.0
     } else {
-        (seed(identity, 21.0) * 4.0).floor() as f32
+        f32::from(p.direction)
     };
-    let row = (depth * (WEIGHTS - 1) as f64).round() as f32;
-    let distance = ((x - 480.0).hypot(y - 290.0) - 60.0).max(0.0) / 370.0;
-    let quiet = if distance < 0.6 {
-        0.58 + (0.23 - 0.58) * distance / 0.6
-    } else {
-        0.23 * (1.0 - distance).max(0.0) / 0.4
-    };
+    let row = p.row as f32;
     Particle {
-        pos: [x as f32 / 960.0 * size[0], y as f32 / 540.0 * size[1]],
+        pos: [
+            p.x as f32 / rain::WIDTH as f32 * size[0],
+            p.y as f32 / rain::HEIGHT as f32 * size[1],
+        ],
         // Keep glyph proportions on portrait and ultrawide viewports.
-        side: 72.0 * (0.22 + depth as f32 * 0.36) * 64.0 / 56.0
+        side: 72.0 * (0.22 + depth * 0.36) * 64.0 / 56.0
             * (size[0] / 960.0).min(size[1] / 540.0).max(0.65),
-        alpha: (0.13 + depth as f32 * 0.24) * fade as f32 * (1.0 - quiet as f32) * strength / 22.0,
+        // In f32, as the menu has always weighed it.
+        alpha: (0.13 + depth * 0.24) * p.fade as f32 * (1.0 - p.quiet as f32) * strength / 22.0,
         frame: [
             column / 5.0,
-            row / 8.0,
+            row / rain::ROWS as f32,
             (column + 1.0) / 5.0,
-            (row + 1.0) / 8.0,
+            (row + 1.0) / rain::ROWS as f32,
         ],
     }
 }

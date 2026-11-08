@@ -436,7 +436,7 @@ pub fn run() {
     }
     // What an earlier run left half extracted.
     play::load::clean_stale_parts();
-    let mut shell = shell::Shell::named_with(&screen, volume, songs);
+    let mut shell = shell::Shell::named_with(&screen, volume, songs, true);
     shell.play.master = volume;
     shell.play.start_when_ready = args.iter().any(|a| a == "--start");
     // `--bias MS`: autoplay presses that late (negative: early), as the

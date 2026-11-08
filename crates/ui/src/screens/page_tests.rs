@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::page::{PageCall, PageFeed, PageScreen};
+use super::page::{PageCall, PageFeed, PageScreen, PageTitle};
 use super::{DESIGN, Env, SharedTheme, credits};
 use crate::dev_widgets::FoldFn;
 use crate::look::Plain;
@@ -248,7 +248,7 @@ fn fields_buttons_and_zones() {
     let calls: Rc<RefCell<Vec<PageCall>>> = Rc::default();
     let c = calls.clone();
     let doc = PageDoc {
-        title: "Studio".into(),
+        title: PageTitle::new("Studio", "STUDIO"),
         blocks: vec![
             Block::Field {
                 id: "name".into(),

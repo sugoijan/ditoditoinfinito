@@ -10,7 +10,7 @@
 mod danoni;
 mod ffr;
 
-use ddi_library::path::RelPathBuf;
+use ddi_library::path::{RelPath, RelPathBuf};
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -1195,11 +1195,12 @@ fn is_zip(path: &str) -> bool {
     zip::archive_stem(path).is_some()
 }
 
-/// Lowercase extension of the last path component.
-fn extension(path: &str) -> Option<String> {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    let (_, ext) = name.rsplit_once('.')?;
-    (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
+/// Lowercase extension of the last path component ([`RelPath::extension`]).
+pub(crate) fn extension(path: &str) -> Option<String> {
+    RelPath::new(path)
+        .extension()
+        .filter(|e| !e.is_empty())
+        .map(str::to_ascii_lowercase)
 }
 
 /// File name without directories or extension.

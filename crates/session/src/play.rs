@@ -526,11 +526,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         (audio, self.buffer)
     }
 
-    /// Mutable shell input state for bounded host-side inspection controls.
-    pub fn inputs_mut(&mut self) -> &mut I {
-        &mut self.inputs
-    }
-
     /// The music's volume.
     pub fn volume(&self) -> f32 {
         self.volume
@@ -1071,9 +1066,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 self.calibrate_hit(delta);
             }
         }
-        // The announcer's lines due now.
-        let moment = self.moment(now, frame_dt, HostTime(judge_now));
-        self.announcer.tick(&mut *self.audio, &moment);
+        // The announcer's lines due now (the moment read only for one
+        // that speaks: it is off by default).
+        if self.announcer.speaking() {
+            let moment = self.moment(now, frame_dt, HostTime(judge_now));
+            self.announcer.tick(&mut *self.audio, &moment);
+        }
 
         // An immediate fail: the engine has stopped judging and the field is
         // blank; fade the music and hold the FAILED banner before the results.

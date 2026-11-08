@@ -735,7 +735,7 @@ impl OptionsPlatform for Web {
             })
     }
 
-    fn changed(&self, id: &str, model: &OptionsModel) {
+    fn changed(&self, model: &OptionsModel) {
         if let Some(env) = self.0.env.borrow().as_ref() {
             env.follow_cursor(&model.settings);
         }
@@ -743,9 +743,10 @@ impl OptionsPlatform for Web {
         if let Some(f) = self.0.field.borrow().as_ref() {
             *f.borrow_mut() = Some(model.preview_settings());
         }
-        if id == "reduced_motion" {
-            follow_motion(&self.0);
-        }
+    }
+
+    fn motion(&self, _model: &OptionsModel) {
+        follow_motion(&self.0);
     }
 
     fn leave(&self, to: Leave, cx: &mut Cx) {

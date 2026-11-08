@@ -11,6 +11,7 @@
 //! holding a key wins, as for skins.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use ddi_library::announcer::{self, Kept, Kind};
 use ddi_library::path::{RelPath, RelPathBuf};
@@ -151,11 +152,7 @@ fn children(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn is_archive(path: &Path) -> bool {
-    path.is_file()
-        && path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| ddi_library::zip::archive_stem(n).is_some())
+    path.is_file() && super::is_zip(path)
 }
 
 fn named_announcers(path: &Path) -> bool {
@@ -226,6 +223,53 @@ pub fn all(folders: &[PathBuf]) -> Vec<DiskAnnouncer> {
         }
     }
     out
+}
+
+/// The announcers found last ([`found`]), let go at each scan of the
+/// library ([`forget`]).
+static FOUND: Mutex<Found> = Mutex::new(Found {
+    scan: 0,
+    last: None,
+});
+
+struct Found {
+    /// The library's scans so far: a list found during one is not kept.
+    scan: u64,
+    /// The folders looked in and what was found there.
+    last: Option<(Vec<PathBuf>, Vec<DiskAnnouncer>)>,
+}
+
+/// [`all`], as found since the library last scanned: looked for again
+/// only once it scans again (an announcer added to a song folder then
+/// appears, as its songs do) or in other folders.
+pub fn found(folders: &[PathBuf]) -> Vec<DiskAnnouncer> {
+    let scan = {
+        let Ok(f) = FOUND.lock() else {
+            return all(folders);
+        };
+        if let Some((at, list)) = &f.last
+            && at == folders
+        {
+            return list.clone();
+        }
+        f.scan
+    };
+    let list = all(folders);
+    if let Ok(mut f) = FOUND.lock()
+        && f.scan == scan
+    {
+        f.last = Some((folders.to_vec(), list.clone()));
+    }
+    list
+}
+
+/// The library scans again: the announcers are looked for again when
+/// next asked for.
+pub fn forget() {
+    if let Ok(mut f) = FOUND.lock() {
+        f.scan += 1;
+        f.last = None;
+    }
 }
 
 #[cfg(test)]
@@ -326,6 +370,26 @@ mod tests {
         // None where the folder is not.
         assert!(in_assets(&assets.join("elsewhere")).is_empty());
         let _ = std::fs::remove_dir_all(&assets);
+    }
+
+    #[test]
+    fn an_announcer_added_is_found_once_the_library_scans_again() {
+        let root = scratch("announcers-found");
+        let keys = |found: Vec<DiskAnnouncer>| -> Vec<String> {
+            found
+                .into_iter()
+                .filter(|a| !a.kept.bundled)
+                .map(|a| a.key())
+                .collect()
+        };
+        write(&root, &["Announcers/One/gameplay ready/r.ogg"]);
+        let folders = [root.clone()];
+        assert_eq!(keys(found(&folders)), ["one"]);
+        assert_eq!(keys(found(&folders)), ["one"]);
+        write(&root, &["Announcers/Two/gameplay ready/r.ogg"]);
+        forget();
+        assert_eq!(keys(found(&folders)), ["one", "two"]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The repository's own: every line ours, every sound decoded.

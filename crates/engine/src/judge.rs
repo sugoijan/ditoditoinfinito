@@ -385,82 +385,46 @@ impl Judge {
         &self.table
     }
 
-    /// Extend a streaming tap/hold validation window without replaying its past.
-    /// Resolved notes are dropped; active hold life/release budgets, buttons and
-    /// the judging clock survive. Incoming rows must be complete, sorted and
-    /// strictly after all previously known heads and the current clock.
-    /// Ticked holds and other note kinds require their own streaming contract.
-    pub fn append_future_taps_and_holds(
-        &mut self,
-        incoming: &[Note],
-        timing: &TimingMap,
-    ) -> Result<(), &'static str> {
-        self.append_future_contacts(incoming, timing, 0)
-    }
-
-    /// The same bounded checkpoint contract, also retaining pending mines and
-    /// their real press/crossing windows. Mines must arrive before their window.
-    pub fn append_future_taps_holds_and_mines(
-        &mut self,
-        incoming: &[Note],
-        timing: &TimingMap,
-    ) -> Result<(), &'static str> {
-        self.append_future_contacts(incoming, timing, 1)
-    }
-
-    /// Bounded physical-contact checkpoint including rolls, scored releases and full-row hazards.
-    /// Existing tap/hold and mine-only APIs retain their strict contracts.
+    /// Extends a streaming validation window of the hand's physical contacts
+    /// (taps, holds, rolls, mines, shocks, lifts) without replaying its past.
+    /// Resolved notes are dropped; active hold life/release budgets, buttons
+    /// and the judging clock survive. Incoming rows must be complete, sorted
+    /// and strictly after all previously known heads and the current clock;
+    /// mines and lifts before their early windows.
     pub fn append_future_hand_contacts(
         &mut self,
         incoming: &[Note],
         timing: &TimingMap,
     ) -> Result<(), &'static str> {
-        self.append_future_contacts(incoming, timing, 2)
-    }
-
-    fn append_future_contacts(
-        &mut self,
-        incoming: &[Note],
-        timing: &TimingMap,
-        kinds: u8,
-    ) -> Result<(), &'static str> {
-        if (kinds != 2 && self.table.hold.is_ticked())
-            || self.notes.iter().map(|n| &n.note).chain(incoming).any(|n| {
-                !matches!(n.kind, NoteKind::Tap | NoteKind::HoldHead { .. })
-                    && !(kinds >= 1 && n.kind == NoteKind::Mine)
-                    && !(kinds == 2
-                        && matches!(
-                            n.kind,
-                            NoteKind::Shock | NoteKind::Lift | NoteKind::RollHead { .. }
-                        ))
-            })
-        {
-            return Err(if kinds == 2 {
-                "streaming judge supports taps, holds, rolls, mines, shocks and lifts only"
-            } else if kinds == 1 {
-                "streaming judge supports unticked taps, holds and mines only"
-            } else {
-                "streaming judge supports unticked taps and holds only"
-            });
+        if self.notes.iter().map(|n| &n.note).chain(incoming).any(|n| {
+            !matches!(
+                n.kind,
+                NoteKind::Tap
+                    | NoteKind::HoldHead { .. }
+                    | NoteKind::RollHead { .. }
+                    | NoteKind::Mine
+                    | NoteKind::Shock
+                    | NoteKind::Lift
+            )
+        }) {
+            return Err(
+                "streaming judge supports taps, holds, rolls, mines, shocks and lifts only",
+            );
         }
-        if kinds >= 1
-            && incoming.iter().any(|n| {
-                matches!(n.kind, NoteKind::Mine | NoteKind::Shock)
-                    && self.last_time.is_some_and(|t| {
-                        timing.seconds_at(n.tick) - self.table.mine_window_seconds() <= t
-                    })
-            })
-        {
+        if incoming.iter().any(|n| {
+            matches!(n.kind, NoteKind::Mine | NoteKind::Shock)
+                && self.last_time.is_some_and(|t| {
+                    timing.seconds_at(n.tick) - self.table.mine_window_seconds() <= t
+                })
+        }) {
             return Err("streaming mine arrived after its early window");
         }
-        if kinds == 2
-            && incoming.iter().any(|n| {
-                n.kind == NoteKind::Lift
-                    && self
-                        .last_time
-                        .is_some_and(|t| timing.seconds_at(n.tick) - self.table.max_early() <= t)
-            })
-        {
+        if incoming.iter().any(|n| {
+            n.kind == NoteKind::Lift
+                && self
+                    .last_time
+                    .is_some_and(|t| timing.seconds_at(n.tick) - self.table.max_early() <= t)
+        }) {
             return Err("streaming lift arrived after its early window");
         }
         if incoming

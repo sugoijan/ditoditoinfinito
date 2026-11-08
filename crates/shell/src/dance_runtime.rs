@@ -6,8 +6,21 @@ use ddi_hand_plan::RollingPlanner;
 use ddi_hand_pose::{DanceRuntime, Model, Plan};
 use std::{cell::RefCell, rc::Rc};
 
+/// The bundled hand calibration (763 KB of JSON), read once a thread.
+pub(crate) fn bundled_model() -> Rc<Model> {
+    thread_local! {
+        static MODEL: Rc<Model> = Rc::new(
+            Model::load(include_bytes!("../../../assets/hand/model.json"))
+                .expect("accepted calibration"),
+        );
+    }
+    MODEL.with(Rc::clone)
+}
+
 pub struct RuntimePreview {
-    model: Model,
+    model: Rc<Model>,
+    /// The last sample shown, for the debug state ([`Self::sample_debug`]).
+    shown: Option<(f64, ddi_hand_pose::Parameters)>,
     origin: f64,
     duration: f64,
     first_contact: Option<f64>,
@@ -22,8 +35,6 @@ pub struct RuntimePreview {
     known: f64,
     certified: f64,
     window: f64,
-    layout: String,
-    rules: Vec<(String, ddi_engine::rules::JudgeTable)>,
     error: Option<String>,
     pub payload: Rc<RefCell<ProceduralPose>>,
     last_time: Option<f64>,
@@ -93,22 +104,13 @@ impl RuntimePreview {
         if !origin.is_finite() || !duration.is_finite() || duration <= 0. {
             return Err("invalid dancing hand timeline".into());
         }
-        Self::from_notes(
-            source,
-            timing,
-            3.,
-            origin,
-            duration,
-            layout,
-            if ddi_hand_plan::standard_rules()
-                .iter()
-                .any(|(_, t)| t == table)
-            {
-                ddi_hand_plan::standard_rules()
-            } else {
-                vec![(player.ruleset().id.clone(), table.clone())]
-            },
-        )
+        let standard = ddi_hand_plan::standard_rules();
+        let rules = if standard.iter().any(|(_, t)| t == table) {
+            standard
+        } else {
+            vec![(player.ruleset().id.clone(), table.clone())]
+        };
+        Self::from_notes(source, timing, 3., origin, duration, layout, rules)
     }
     fn from_notes(
         source: Vec<ddi_chart::Note>,
@@ -120,17 +122,16 @@ impl RuntimePreview {
         rules: Vec<(String, ddi_engine::rules::JudgeTable)>,
     ) -> Result<Self, String> {
         let first_contact = source.first().map(|n| timing.seconds_at(n.tick));
-        let planner = RollingPlanner::configured(window, timing.clone(), layout, rules.clone())?;
-        let model = Model::load(include_bytes!("../../../assets/hand/model.json"))
-            .expect("accepted calibration");
+        let planner = RollingPlanner::configured(window, timing.clone(), layout, rules)?;
+        let model = bundled_model();
         let q = Plan::empty(duration).seed(&model, 0., None);
         let payload = Rc::new(RefCell::new(ProceduralPose {
             worlds: model.joint_worlds(&q),
             weights: model.morph_weights(&q),
-            debug: serde_json::Value::Null,
         }));
         Ok(Self {
             model,
+            shown: None,
             origin,
             duration,
             first_contact,
@@ -145,8 +146,6 @@ impl RuntimePreview {
             known: 0.,
             certified: 0.,
             window,
-            layout: layout.into(),
-            rules,
             error: None,
             payload,
             last_time: None,
@@ -176,29 +175,6 @@ impl RuntimePreview {
     }
     pub fn duration(&self) -> f64 {
         self.duration
-    }
-    pub fn set_window(&mut self, window: f64) {
-        if self.last_time.is_some_and(|t| t > 0.) {
-            self.error = Some("restart play to change the rolling contact window".into());
-            self.available = false;
-            return;
-        }
-        self.window = window;
-        self.planner = RollingPlanner::configured(
-            window,
-            self.timing.clone(),
-            &self.layout,
-            self.rules.clone(),
-        )
-        .unwrap();
-        self.cursor = 0;
-        self.plan = None;
-        self.runtime = None;
-        self.last_time = None;
-        self.known = 0.;
-        self.certified = 0.;
-        self.available = false;
-        self.resets += 1;
     }
     fn receive(&mut self, now: f64) {
         let known = (now + self.window).min(self.duration);
@@ -385,10 +361,20 @@ impl RuntimePreview {
             let mut payload = self.payload.borrow_mut();
             payload.worlds = self.model.joint_worlds(&s.pose);
             payload.weights = self.model.morph_weights(&s.pose);
-            let geometry = self.model.geometry(&s.pose);
-            let targets = self.plan.as_ref().unwrap().targets(timeline);
-            payload.debug = serde_json::json!({"time":timeline,"stream":runtime.stream_at(timeline),"parameters":s.pose,"targets":targets.tips,"contact":targets.contact,"actual":geometry.tips,"knuckle_mm":geometry.knuckles});
+            self.shown = Some((timeline, s.pose));
         }
+    }
+    /// The last sample shown against its targets, worked out when the
+    /// debug state is read rather than every frame.
+    pub fn sample_debug(&self) -> serde_json::Value {
+        let (Some((timeline, pose)), Some(runtime), Some(plan)) =
+            (&self.shown, &self.runtime, &self.plan)
+        else {
+            return serde_json::Value::Null;
+        };
+        let geometry = self.model.geometry(pose);
+        let targets = plan.targets(*timeline);
+        serde_json::json!({"time":timeline,"stream":runtime.stream_at(*timeline),"parameters":pose,"targets":targets.tips,"contact":targets.contact,"actual":geometry.tips,"knuckle_mm":geometry.knuckles})
     }
     pub fn debug(&self) -> serde_json::Value {
         let report = self

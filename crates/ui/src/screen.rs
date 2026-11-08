@@ -57,6 +57,46 @@ impl Spot {
     }
 }
 
+/// What a screen is asked to point at ([`Screen::spot`],
+/// [`crate::Ui::mark`]): the announcer studio's scenes point so at what a
+/// line is said for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mark {
+    /// The header's name of the screen.
+    Screen,
+    /// Song select's chart chosen, on the ladder (a button of the compact
+    /// layout's strip).
+    Chart,
+    /// The chart's level.
+    ChartLevel,
+    /// The chart's best (grade, score, lamp), or where it would be.
+    ChartBest,
+    /// The results' grade (QUIT for a quit).
+    Grade,
+    /// The results' score.
+    Score,
+    /// The results' full combo's lamp.
+    Lamp,
+    /// The results' FAILED.
+    Failed,
+}
+
+impl Mark {
+    /// As the web's debug state says it: `chart.level`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Mark::Screen => "screen",
+            Mark::Chart => "chart",
+            Mark::ChartLevel => "chart.level",
+            Mark::ChartBest => "chart.best",
+            Mark::Grade => "grade",
+            Mark::Score => "score",
+            Mark::Lamp => "lamp",
+            Mark::Failed => "failed",
+        }
+    }
+}
+
 /// Whether a screen took an input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Handled {
@@ -263,10 +303,10 @@ pub trait Screen {
         None
     }
 
-    /// Where `what` (a name the screen knows: song select's
-    /// `chart.level`, the results' `grade`) is on this screen, for the
-    /// mark drawn around it ([`crate::Ui::mark`]); `None`: not here.
-    fn spot(&self, what: &str) -> Option<Spot> {
+    /// Where `what` (song select's chart's level, the results' grade) is
+    /// on this screen, for the mark drawn around it ([`crate::Ui::mark`]);
+    /// `None`: not here.
+    fn spot(&self, what: Mark) -> Option<Spot> {
         let _ = what;
         None
     }

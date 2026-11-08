@@ -26,13 +26,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use fluent_syntax::ast;
 use serde::{Deserialize, Serialize};
 
 mod fonts;
+#[allow(dead_code)]
+#[path = "../../crates/l10n/schema.rs"]
+mod schema;
+use schema::{Found, LanguageEntry, Languages, ftl_files};
 
 #[derive(clap::Subcommand)]
 pub enum Action {
@@ -106,28 +110,7 @@ pub fn run(action: Action) -> Result<()> {
     }
 }
 
-fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf()
-}
-
-#[derive(Deserialize)]
-struct Languages {
-    language: Vec<LanguageEntry>,
-    #[serde(default)]
-    face: Vec<fonts::FaceEntry>,
-}
-
-#[derive(Deserialize)]
-struct LanguageEntry {
-    tag: String,
-    name: String,
-    status: String,
-    #[serde(default)]
-    faces: Vec<String>,
-}
+use crate::repo_root as root;
 
 /// A message as written in one language.
 struct Message {
@@ -176,12 +159,7 @@ fn languages(root: &Path) -> Result<Vec<LanguageEntry>> {
 
 fn catalog(root: &Path, tag: &str) -> Result<Catalog> {
     let dir = root.join("locales").join(tag);
-    let mut files: Vec<PathBuf> = fs::read_dir(&dir)
-        .with_context(|| dir.display().to_string())?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "ftl"))
-        .collect();
-    files.sort();
+    let files = ftl_files(&dir).with_context(|| dir.display().to_string())?;
     let mut c = Catalog {
         messages: BTreeMap::new(),
         order: Vec::new(),
@@ -266,104 +244,9 @@ fn catalog(root: &Path, tag: &str) -> Result<Catalog> {
     Ok(c)
 }
 
-const CATEGORIES: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
-
-#[derive(Default)]
-struct Found {
-    variables: BTreeSet<String>,
-    terms: BTreeSet<String>,
-    /// Each plural selector's keys, and whether it selects on ordinal
-    /// numbers (`NUMBER($n, type: "ordinal")`: 1st, 2nd, 3rd).
-    plurals: Vec<(BTreeSet<String>, bool)>,
-    /// The text it writes (its text and string literals, every variant).
-    text: String,
-}
-
-impl Found {
-    fn pattern(&mut self, p: &ast::Pattern<&str>) {
-        for e in &p.elements {
-            match e {
-                ast::PatternElement::Placeable { expression } => self.expression(expression),
-                ast::PatternElement::TextElement { value } => self.text.push_str(value),
-            }
-        }
-    }
-
-    fn expression(&mut self, e: &ast::Expression<&str>) {
-        match e {
-            ast::Expression::Select { selector, variants } => {
-                self.inline(selector);
-                let keys: BTreeSet<String> = variants
-                    .iter()
-                    .map(|v| match &v.key {
-                        ast::VariantKey::Identifier { name } => name.to_string(),
-                        ast::VariantKey::NumberLiteral { value } => format!("={value}"),
-                    })
-                    .collect();
-                if keys
-                    .iter()
-                    .all(|k| k.starts_with('=') || CATEGORIES.contains(&k.as_str()))
-                    && keys.iter().any(|k| !k.starts_with('='))
-                {
-                    let ordinal = matches!(
-                        selector,
-                        ast::InlineExpression::FunctionReference { id, arguments }
-                            if id.name == "NUMBER"
-                                && arguments.named.iter().any(|a| {
-                                    a.name.name == "type"
-                                        && matches!(
-                                            &a.value,
-                                            ast::InlineExpression::StringLiteral { value }
-                                                if *value == "ordinal"
-                                        )
-                                })
-                    );
-                    self.plurals.push((keys, ordinal));
-                }
-                for v in variants {
-                    self.pattern(&v.value);
-                }
-            }
-            ast::Expression::Inline(i) => self.inline(i),
-        }
-    }
-
-    fn inline(&mut self, e: &ast::InlineExpression<&str>) {
-        match e {
-            ast::InlineExpression::VariableReference { id } => {
-                self.variables.insert(id.name.to_string());
-            }
-            ast::InlineExpression::FunctionReference { arguments, .. } => self.call(arguments),
-            ast::InlineExpression::TermReference { id, arguments, .. } => {
-                self.terms.insert(id.name.to_string());
-                if let Some(a) = arguments {
-                    self.call(a);
-                }
-            }
-            ast::InlineExpression::Placeable { expression } => self.expression(expression),
-            ast::InlineExpression::StringLiteral { value } => self.text.push_str(value),
-            _ => {}
-        }
-    }
-
-    fn call(&mut self, a: &ast::CallArguments<&str>) {
-        for p in &a.positional {
-            self.inline(p);
-        }
-        for n in &a.named {
-            self.inline(&n.value);
-        }
-    }
-}
-
 /// FNV-1a, 64 bits, as hex: stable everywhere, enough to see a change.
 fn hash(text: &str) -> String {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in text.as_bytes() {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{h:016x}")
+    ddi_noteskin::report::hash(text.as_bytes())
 }
 
 /// The plural categories CLDR gives `tag`'s cardinal numbers.
@@ -708,7 +591,12 @@ fn package_json(previews: bool) -> serde_json::Value {
         ddi_l10n::set_language(l.tag);
         let keys: serde_json::Map<String, serde_json::Value> = ENTRY
             .iter()
-            .map(|(key, id)| ((*key).to_string(), ddi_l10n::format(id, &[]).as_str().into()))
+            .map(|(key, id)| {
+                (
+                    (*key).to_string(),
+                    ddi_l10n::format(id, &[]).as_str().into(),
+                )
+            })
             .collect();
         entry.insert(l.tag.to_string(), keys.into());
     }
@@ -900,16 +788,7 @@ fn today() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    // Days to a civil date (Howard Hinnant's algorithm).
-    let z = (secs / 86_400) as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
+    let (y, m, d) = ddi_library::date::civil_from_days((secs / 86_400) as i64);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
@@ -1020,7 +899,9 @@ mod tests {
             "{found:#?}"
         );
         assert!(
-            found.iter().any(|p| p.contains(":7: a literal given to a window's title")),
+            found
+                .iter()
+                .any(|p| p.contains(":7: a literal given to a window's title")),
             "{found:#?}"
         );
     }

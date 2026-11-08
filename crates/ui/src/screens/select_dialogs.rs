@@ -92,9 +92,30 @@ pub(crate) fn button(
 /// `text` in lines no wider than `width` at `size` (monospace widths),
 /// broken where Unicode allows (`ddi_actor::text::wrap`: between words,
 /// between Japanese characters but never before 。、」 and their kind);
-/// a piece too long for a line (a link, a hash) is cut.
+/// a piece too long for a line (a link, a hash) is cut. In a
+/// pseudo-language a message («…») or data (‹…›) keeps its marks on each
+/// of its lines, so that a line from its middle still reads as passed
+/// through a message (`l10n_tests.rs`).
 pub fn wrap_lines(text: &str, width: f32, size: f32) -> Vec<String> {
-    ddi_actor::text::wrap(text, width, true, &mut |s| look::mono_width(s, size))
+    let wrap = |text: &str, width: f32| {
+        ddi_actor::text::wrap(text, width, true, &mut |s| look::mono_width(s, size))
+    };
+    if ddi_l10n::current().status == ddi_l10n::Status::Pseudo {
+        for (open, close) in [('«', '»'), ('‹', '›')] {
+            let Some(inner) = text.strip_prefix(open).and_then(|t| t.strip_suffix(close)) else {
+                continue;
+            };
+            let marks = look::mono_width(&format!("{open}{close}"), size);
+            let lines = wrap(inner, width - marks);
+            if lines.len() > 1 {
+                return lines
+                    .into_iter()
+                    .map(|l| format!("{open}{l}{close}"))
+                    .collect();
+            }
+        }
+    }
+    wrap(text, width)
 }
 
 /// Text no wider than `w`: cut with "…".
@@ -265,7 +286,7 @@ impl ManageDialog {
         let platform = self.platform.l10n();
         if self.busy {
             let title = match &self.what {
-                Manage::Pack { pack, .. } => pack_label(&pack.name),
+                Manage::Pack { pack, .. } => pack_label(pack.name.as_deref()),
                 Manage::Song { title, .. } => UiText::data(title),
                 Manage::Unreadable { .. } => msg::manage_unreadable_title(),
             };
@@ -273,7 +294,7 @@ impl ManageDialog {
         }
         let (title, body) = match (&self.step, &self.what) {
             (Step::Choose, Manage::Pack { pack, songs }) => (
-                pack_label(&pack.name),
+                pack_label(pack.name.as_deref()),
                 if pack.rereadable {
                     msg::manage_pack_rereadable(platform, *songs)
                 } else {
@@ -282,10 +303,10 @@ impl ManageDialog {
             ),
             (Step::Choose, Manage::Song { title, pack, .. }) => (
                 UiText::data(title),
-                msg::manage_song_pack(pack_label(&pack.name)),
+                msg::manage_song_pack(pack_label(pack.name.as_deref())),
             ),
             (Step::ConfirmPack, _) => (
-                msg::manage_confirm_pack_title(platform, pack_label(&self.pack().name)),
+                msg::manage_confirm_pack_title(platform, pack_label(self.pack().name.as_deref())),
                 msg::manage_confirm_pack(platform, self.songs()),
             ),
             (Step::ConfirmSong, Manage::Song { title, .. }) => (
@@ -381,12 +402,17 @@ impl Screen for ManageDialog {
                         self.step = Step::ConfirmPack;
                         self.rebuild(root, cx);
                     }
+                    // Only an imported pack (named) is read again or removed.
                     ("Reread", _) => {
-                        self.call(SelectCall::Reread(self.pack().name.clone()), cx);
+                        if let Some(name) = self.pack().name.clone() {
+                            self.call(SelectCall::Reread(name), cx);
+                        }
                         cx.close(false);
                     }
                     ("Confirm", Step::ConfirmPack) => {
-                        self.call(SelectCall::RemovePack(self.pack().name.clone()), cx);
+                        if let Some(name) = self.pack().name.clone() {
+                            self.call(SelectCall::RemovePack(name), cx);
+                        }
                         cx.close(false);
                     }
                     ("Confirm", Step::ConfirmSong) => {
@@ -522,7 +548,7 @@ impl ShareDialog {
                     None => msg::share_title_list(n),
                 }
                 .into(),
-                vec![msg::share_intro(n, pack_label(&self.pack)).into()],
+                vec![msg::share_intro(n, pack_label(Some(&self.pack))).into()],
             ),
             ShareState::Uploading => (
                 msg::share_uploading().into(),
@@ -530,8 +556,8 @@ impl ShareDialog {
                     msg::share_progress(
                         v.done_songs,
                         v.songs,
-                        (v.done_bytes / 1e6).round() as i64,
-                        (v.bytes / 1e6).round() as i64,
+                        super::data::size_text(v.done_bytes),
+                        super::data::size_text(v.bytes),
                     )
                     .into(),
                 ],
@@ -1966,7 +1992,7 @@ impl PlaysDialog {
     pub fn new(
         env: Env,
         chart: &str,
-        version: Option<&str>,
+        version: Option<ddi_chart::simplify::Kind>,
         rows: Vec<PlayRow>,
         shell: Option<ShellFn>,
     ) -> PlaysDialog {

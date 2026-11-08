@@ -23,6 +23,7 @@ mod actor;
 pub mod background;
 pub mod commands;
 pub mod model;
+pub mod rain;
 pub mod screen;
 pub mod text;
 

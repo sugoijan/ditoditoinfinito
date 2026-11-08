@@ -36,7 +36,7 @@ no local files).
     palette, with lines across it. Each line waves with its share of the
     bands, or with the waveform itself.
   - **Outline rain:** the start menu's rain, particle for particle
-    (`crates/theme/src/rain.rs`, as `site/boot-art.js` ports it). A
+    (`crates/actor/src/rain.rs`, as `site/boot-art.js` ports it). A
     share of its outlines move, each chosen afresh as it comes in at the
     top. Some zoom with the bass; the rest wave round their outline
     with the treble.

@@ -6,6 +6,10 @@
 //! connected, the library's counts) and carries out what only it can
 //! ([`Act`]).
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use crate::state::settings::HandLayout;
 use ddi_chart::Layout;
 use ddi_engine::rules::danoni::JudgeRange;
@@ -233,6 +237,21 @@ impl LaneButton {
     }
 }
 
+/// What a change asks of the shell, beyond showing the rows again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// Nothing more.
+    Plain,
+    /// The volume changed: the sample follows it.
+    Volume,
+    /// The announcer or its volume changed: a line is spoken.
+    Announce,
+    /// The UI's language changed: the screens are built again in it.
+    Language,
+    /// Reduced motion changed: followed at once.
+    Motion,
+}
+
 /// What an action asks of the shell.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
@@ -422,6 +441,14 @@ impl OptionsModel {
         }
     }
 
+    /// The rows a play's start prompt picks from, as Options shows them:
+    /// its Scroll, Notes and Arrows sections' alone.
+    pub fn prompt_rows(&self) -> impl Iterator<Item = OptionDef> {
+        [self.scroll(), self.notes(), self.arrows()]
+            .into_iter()
+            .flat_map(|s| s.options)
+    }
+
     /// The speeds offered: ×0.25 to ×10 by 0.25, and the one stored when
     /// it is between (an older setting, a hand edit), until changed.
     fn speeds(&self) -> Vec<f64> {
@@ -463,7 +490,7 @@ impl OptionsModel {
                 row(
                     "speed",
                     m::speed(),
-                    OptionKind::Stepper(speeds),
+                    OptionKind::Stepper(speeds.into()),
                     at,
                     m::speed_description(),
                 ),
@@ -857,7 +884,7 @@ impl OptionsModel {
         let mut volume = row(
             "volume",
             m::volume(),
-            OptionKind::Slider(percents(0..=100)),
+            OptionKind::Slider(percents()),
             percent.min(100),
             m::volume_description(),
         );
@@ -943,7 +970,7 @@ impl OptionsModel {
         let mut volume = row(
             "announcer_volume",
             m::announcer_volume(),
-            OptionKind::Slider(percents(0..=100)),
+            OptionKind::Slider(percents()),
             percent.min(100),
             m::announcer_volume_description(),
         );
@@ -1318,7 +1345,7 @@ impl OptionsModel {
                     &format!("{prefix}{}", p.name),
                     UiText::data(&p.label),
                     match p.kind {
-                        ParamKind::Number { .. } => OptionKind::Stepper(labels),
+                        ParamKind::Number { .. } => OptionKind::Stepper(labels.into()),
                         _ => OptionKind::Choices(labels),
                     },
                     at,
@@ -1819,8 +1846,9 @@ impl OptionsModel {
             .any(|(k, _)| !k.starts_with(BUNDLED))
     }
 
-    /// Applies a row's new value and saves; whether anything changed.
-    pub fn change(&mut self, id: &str, i: usize) -> bool {
+    /// Applies a row's new value and saves; what the shell does after,
+    /// or `None` when nothing changed.
+    pub fn change(&mut self, id: &str, i: usize) -> Option<Effect> {
         let before = self.settings.clone();
         let layout_before = self.bind_layout.id.clone();
         let style_pad = id
@@ -2003,7 +2031,22 @@ impl OptionsModel {
         if self.settings != before && !self.transient {
             self.settings.save();
         }
-        changed
+        let s = &self.settings;
+        changed.then(|| {
+            if s.volume != before.volume {
+                Effect::Volume
+            } else if s.announcer != before.announcer
+                || s.announcer_volume != before.announcer_volume
+            {
+                Effect::Announce
+            } else if s.language != before.language {
+                Effect::Language
+            } else if s.reduced_motion != before.reduced_motion {
+                Effect::Motion
+            } else {
+                Effect::Plain
+            }
+        })
     }
 
     /// What pressing button `button` of row `id` does: done here, or
@@ -2351,9 +2394,16 @@ impl OptionsModel {
         self.world.default_lua_off = lua_off;
     }
 
-    /// The announcers one can choose: a chosen one no longer there is let
-    /// go (when every one could be read: `complete`).
-    pub fn set_announcers(&mut self, announcers: Vec<(String, String)>, complete: bool) {
+    /// The announcers one can choose `(key, name)`, listed ours first,
+    /// then by name: a chosen one no longer there is let go (when every
+    /// one could be read: `complete`).
+    pub fn set_announcers(&mut self, mut announcers: Vec<(String, String)>, complete: bool) {
+        announcers.sort_by_cached_key(|(key, name)| {
+            (
+                !ddi_library::announcer::is_bundled(key),
+                name.to_lowercase(),
+            )
+        });
         if complete
             && self
                 .settings
@@ -2570,11 +2620,11 @@ fn offset(
     let mut r = row(
         id,
         label,
-        OptionKind::Stepper(
+        OptionKind::Stepper(formatted("offsets", || {
             (-500..=500)
                 .map(|v| m::ms(format!("{v:+}")).into())
-                .collect(),
-        ),
+                .collect()
+        })),
         (ms + 500) as usize,
         description,
     );
@@ -2595,7 +2645,7 @@ fn at<T: Copy + Default>(table: &[T], i: usize) -> T {
 }
 
 /// Levels `1..=n` as a stepper shows them.
-fn levels(n: usize) -> Vec<String> {
+fn levels(n: usize) -> Rc<[String]> {
     (1..=n).map(|l| l.to_string()).collect()
 }
 
@@ -2614,9 +2664,29 @@ fn speed_text(speed: f64) -> String {
     m::speed_value((speed * 100.0).round() / 100.0).into()
 }
 
-/// Percentages as a slider's values.
-fn percents(range: std::ops::RangeInclusive<u32>) -> Vec<String> {
-    range.map(|p| m::percent(p).into()).collect()
+/// Percentages 0 to 100 as a slider's or a stepper's values.
+fn percents() -> Rc<[String]> {
+    formatted("percents", || {
+        (0..=100).map(|p| m::percent(p).into()).collect()
+    })
+}
+
+/// A long list of values (offsets, percentages) formatted once per
+/// language: the rows are made again at every change, and a stepper or a
+/// slider shows only the chosen one.
+fn formatted(list: &'static str, make: impl FnOnce() -> Rc<[String]>) -> Rc<[String]> {
+    /// By language and list.
+    type Lists = HashMap<(&'static str, &'static str), Rc<[String]>>;
+    thread_local! {
+        static LISTS: RefCell<Lists> = RefCell::default();
+    }
+    let key = (ddi_l10n::current().tag, list);
+    if let Some(values) = LISTS.with_borrow(|l| l.get(&key).cloned()) {
+        return values;
+    }
+    let values = make();
+    LISTS.with_borrow_mut(|l| l.insert(key, values.clone()));
+    values
 }
 
 /// A volume's loudness, beside its slider ("-10 dB", "muted").
@@ -2741,11 +2811,14 @@ fn cover_height(id: &str, label: UiText, description: UiText, height: u8) -> Opt
     row(
         id,
         label,
-        OptionKind::Stepper(percents(0..=u32::from(LaneCover::FULL))),
+        OptionKind::Stepper(percents()),
         usize::from(height.min(LaneCover::FULL)),
         description,
     )
 }
+
+// A lane cover's stepper is its percentages.
+const _: () = assert!(LaneCover::FULL == 100);
 
 const CUTS: [TimingCut; 3] = [TimingCut::Off, TimingCut::Quarters, TimingCut::Eighths];
 const AT_ONCE: [AtOnce; 3] = [AtOnce::Any, AtOnce::Two, AtOnce::One];
@@ -3110,7 +3183,7 @@ mod tests {
             ],
             true,
         );
-        assert!(m.change("announcer", 2));
+        assert_eq!(m.change("announcer", 2), Some(Effect::Announce));
         assert_eq!(m.settings.announcer.as_deref(), Some("techno"));
         assert_eq!(find(&m.data(), "announcer").index, 2);
         // Its volume, a share of the music's, on the music's scale.
@@ -3160,14 +3233,15 @@ mod tests {
         assert_eq!(m.settings.announcer, None);
         m.set_announcers(
             vec![
-                ("bundled:mr. clank".into(), "Mr. Clank".into()),
                 ("techno".into(), "Techno".into()),
+                ("bundled:mr. clank".into(), "Mr. Clank".into()),
+                ("ddr".into(), "ddr".into()),
             ],
             true,
         );
         assert_eq!(
             find(&m.data(), "announcer").values(),
-            ["Off", "Mr. Clank", "Techno"]
+            ["Off", "Mr. Clank", "ddr", "Techno"]
         );
         assert_eq!(m.settings.announcer, None);
         m.change("announcer", 1);
@@ -3378,14 +3452,14 @@ mod tests {
     fn no_stretch_is_a_saved_play_simplification() {
         let mut m = model();
         assert_eq!(find(&m.data(), "no_stretch").value(), "Off");
-        assert!(m.change("no_stretch", 1));
+        assert!(m.change("no_stretch", 1).is_some());
         assert_eq!(find(&m.data(), "no_stretch").value(), "On");
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert!(stored.transform.no_stretch);
         let options = stored.play_options(None);
         assert!(options.transform.is_assist());
         assert!(super::super::play::options_line(&options).contains("no stretch"));
-        assert!(m.change("no_stretch", 0));
+        assert!(m.change("no_stretch", 0).is_some());
         assert!(!Settings::load().transform.no_stretch);
         assert!(
             !super::super::play::options_line(&m.settings.play_options(None))
@@ -3437,7 +3511,7 @@ mod tests {
         use crate::controller_hints::Style;
         let mut m = model();
         let before = m.settings.controls.clone();
-        assert!(m.change("pad_style.0", 2));
+        assert!(m.change("pad_style.0", 2).is_some());
         assert_eq!(m.settings.controls, before);
         assert_eq!(
             Settings::load().controller_styles["Pad"],
@@ -3553,7 +3627,7 @@ mod tests {
         let p = d.preview_layout.as_ref().unwrap();
         assert_eq!(p.value(), "Single");
         let solo = p.values().iter().position(|v| v == "Solo").unwrap();
-        assert!(m.change("preview_layout", solo));
+        assert!(m.change("preview_layout", solo).is_some());
         assert_eq!(m.preview_settings().style, "dance-solo");
         assert!(m.data().preview.contains(" · Solo · "));
         assert_eq!(m.settings.style, "dance-single");

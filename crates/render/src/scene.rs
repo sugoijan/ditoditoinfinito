@@ -96,16 +96,11 @@ impl FieldGeometry {
         let field_w = arrow * span;
         let centered = (width - field_w) / 2.0;
         let margin = arrow.min(centered.max(0.0));
-        let left = match place {
-            FieldPlace::Center => centered,
-            FieldPlace::Left => (width / 4.0 - field_w / 2.0).max(margin).min(centered),
-            FieldPlace::NearLeft => (width * 0.375 - field_w / 2.0).max(margin).min(centered),
-            FieldPlace::NearRight => (width * 0.625 - field_w / 2.0)
-                .min(width - field_w - margin)
-                .max(centered),
-            FieldPlace::Right => (width * 0.75 - field_w / 2.0)
-                .min(width - field_w - margin)
-                .max(centered),
+        let wanted = width * place.center() - field_w / 2.0;
+        let left = match place.center().total_cmp(&0.5) {
+            std::cmp::Ordering::Less => wanted.max(margin).min(centered),
+            std::cmp::Ordering::Equal => centered,
+            std::cmp::Ordering::Greater => wanted.min(width - field_w - margin).max(centered),
         };
         let (receptor_y, direction) = if reverse {
             (height - arrow * 1.5, -1.0)

@@ -11,12 +11,14 @@
 
 use std::rc::Rc;
 
+use ddi_library::backgrounds::BgImage;
 use ddi_library::generative::{Look, Palette, Series, Signals, stands_in};
 use ddi_library::manifest::ManifestEntry;
 use ddi_library::path::RelPathBuf;
 use ddi_render::generative::{FORMAT, Frame, GenerativePipeline};
-use ddi_render::{Painter, Renderer, TextureId, TextureKey};
-use ddi_session::movies::Generated as InBackdrop;
+use ddi_render::{Painter, RenderOptions, Renderer, TextureId, TextureKey};
+use ddi_session::movies::{BackdropTextures, Generated as InBackdrop};
+use ddi_ui::screens::prompt::PromptPicture;
 use ddi_ui::state::settings::Settings;
 
 /// The background brightness the looks are drawn at in full, as the
@@ -33,10 +35,13 @@ pub struct Want {
 }
 
 /// The generated background `song` gets under `settings`: none when it
-/// is turned off or for a Dancing☆Onigiri work (decision 5).
-pub fn wanted(settings: &Settings, song: &ddi_chart::Song) -> Option<Want> {
+/// is turned off, with the backgrounds off, in calibration
+/// (`calibration`: nothing may cue the player) or for a
+/// Dancing☆Onigiri work (decision 5).
+pub fn wanted(settings: &Settings, song: &ddi_chart::Song, calibration: bool) -> Option<Want> {
     let look = settings.generated_background.look()?;
-    stands_in(song).then_some(Want {
+    let shown = settings.bg_brightness > 0.0 && !calibration;
+    (shown && stands_in(song)).then_some(Want {
         look,
         palette: settings.generated_palette,
         over: settings.generated_over_pictures,
@@ -74,6 +79,12 @@ pub fn folded(want: Want, song: Option<usize>, cover: Option<usize>) -> Option<u
     }
 }
 
+/// The renderer's id of background image `what` among `images` (a
+/// shell's list of the song's images up), once up.
+pub fn picture_id(images: &[(BgImage, usize)], what: &BgImage) -> Option<usize> {
+    images.iter().find(|(w, _)| w == what).map(|(_, id)| *id)
+}
+
 /// How bright a look is drawn under background brightness `brightness`.
 pub fn light(brightness: f32) -> f32 {
     (brightness / FULL_AT).clamp(0.0, 1.0)
@@ -104,7 +115,14 @@ pub struct Generated {
     picture: Option<usize>,
     /// Frames drawn.
     drawn: u64,
+    /// What the texture holds while motion is reduced (the picture held
+    /// still): drawing it again would change nothing.
+    held: Option<Held>,
 }
+
+/// A held frame's inputs: the wanted look, the analysis, the picture,
+/// the brightness and the texture's size.
+type Held = (Want, Option<*const Series>, Option<usize>, u32, [u32; 2]);
 
 /// What the debug state says of it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -128,6 +146,7 @@ impl Generated {
             series: None,
             picture: None,
             drawn: 0,
+            held: None,
         }
     }
 
@@ -143,7 +162,7 @@ impl Generated {
     /// Its texture for a background frame of `frame` pixels, made (or
     /// made again at a new size) and registered with the renderer: what
     /// the backdrop's list gets ([`ddi_session::movies::BackdropTextures::set_generated`]).
-    pub fn ensure(
+    fn ensure(
         &mut self,
         renderer: &mut Renderer,
         device: &wgpu::Device,
@@ -159,6 +178,7 @@ impl Generated {
             }
             let view = texture.create_view(&Default::default());
             self.texture = Some((texture, view, size));
+            self.held = None;
         }
         InBackdrop {
             id: self.id.expect("registered"),
@@ -166,9 +186,60 @@ impl Generated {
         }
     }
 
-    /// Its id, once registered.
-    pub fn id(&self) -> Option<usize> {
-        self.id
+    /// A play's frame before its backdrop is chosen: while the
+    /// backgrounds show (`render`'s brightness), its texture at the
+    /// background frame's size (on a screen of `size` pixels) in
+    /// `textures`' list ([`Generated::ensure`]).
+    pub fn prepare(
+        &mut self,
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        textures: &mut BackdropTextures,
+        size: [u32; 2],
+        render: &RenderOptions,
+    ) {
+        if render.background <= 0.0 {
+            return;
+        }
+        let [w, h] = size.map(|v| v as f32);
+        let frame = ddi_render::background::frame_rect(w, h, render.frame_aspect)
+            .map_or([w, h], |r| [r[2], r[3]]);
+        let entry = self.ensure(renderer, device, frame);
+        textures.set_generated(Some(entry));
+    }
+
+    /// A play's frame once its backdrop is chosen (`render`'s): drawn at
+    /// song second `t` and beat `beat` when the backdrop shows it, over
+    /// the song's picture or folding its cover, among `images` (the
+    /// shell's list of the song's images up).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_shown(
+        &mut self,
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        render: &RenderOptions,
+        images: &[(BgImage, usize)],
+        (t, beat): (f64, f64),
+    ) {
+        if !self.id.is_some_and(|id| shown(&render.backdrop, id)) {
+            return;
+        }
+        let pictures = (
+            picture_id(images, &BgImage::Song),
+            picture_id(images, &BgImage::Cover),
+        );
+        self.draw(
+            renderer,
+            device,
+            queue,
+            encoder,
+            (t, beat),
+            render.background,
+            render.reduced_motion,
+            pictures,
+        );
     }
 
     /// The signals at song second `t`, beat `beat`: held at the start
@@ -189,7 +260,7 @@ impl Generated {
     ///
     /// [`ensure`]: Generated::ensure
     #[allow(clippy::too_many_arguments)]
-    pub fn draw(
+    fn draw(
         &mut self,
         renderer: &mut Renderer,
         device: &wgpu::Device,
@@ -215,6 +286,17 @@ impl Generated {
             );
             self.picture = picture;
         }
+        let held = reduced.then_some((
+            self.want,
+            self.series.as_ref().map(Rc::as_ptr),
+            picture,
+            brightness.to_bits(),
+            *size,
+        ));
+        if held.is_some() && held == self.held {
+            return;
+        }
+        self.held = held;
         let frame = Frame {
             look: self.want.look,
             palette: self.want.palette,
@@ -232,18 +314,19 @@ impl Generated {
     /// What the start prompt shows of it, the song having no picture of
     /// its own: the frame at song second `t` and beat `beat` (the play's
     /// first), as [`Generated::draw`] would draw it then, for a frame of
-    /// shape `aspect` (width over height); `cover` the cover's id among
-    /// `renderer`'s backgrounds, once read.
+    /// shape `aspect` (width over height); the cover folded found among
+    /// `images` (the shell's list of the song's images up), once up.
+    /// `None` while the cover it folds is read but not up.
     pub fn still(
         &self,
         renderer: &Renderer,
+        images: &[(BgImage, usize)],
         (t, beat): (f64, f64),
         brightness: f32,
         reduced: bool,
         aspect: f32,
-        cover: Option<usize>,
     ) -> Option<Still> {
-        let cover = folded(self.want, None, cover);
+        let cover = folded(self.want, None, picture_id(images, &BgImage::Cover));
         let picture = match cover {
             Some(id) => Some(renderer.background_picture(id)?),
             None => None,
@@ -297,6 +380,36 @@ impl Still {
             && self.aspect == other.aspect
             && self.cover == other.cover
     }
+}
+
+/// The start prompt's picture: the song's own (`song`: its texture
+/// source and shape) at the backgrounds' brightness `brightness`, else
+/// its generated background's [`Still`] (`still`: the source it is
+/// drawn under and its shape) at full brightness, the still being drawn
+/// under the backgrounds' brightness already ([`light`]); none with the
+/// backgrounds off. `frame` and `filter` as the prompt takes them.
+pub fn prompt_picture(
+    song: Option<(String, f32)>,
+    still: Option<(String, f32)>,
+    brightness: f32,
+    frame: Option<f32>,
+    filter: Option<([f32; 2], f32)>,
+) -> Option<PromptPicture> {
+    if brightness <= 0.0 {
+        return None;
+    }
+    let (source, aspect, brightness) = match (song, still) {
+        (Some((source, aspect)), _) => (source, aspect, brightness),
+        (None, Some((source, aspect))) => (source, aspect, 1.0),
+        (None, None) => return None,
+    };
+    Some(PromptPicture {
+        source,
+        aspect,
+        frame,
+        brightness,
+        filter,
+    })
 }
 
 /// A texture source of its own for a prompt's still (the painter keeps
@@ -486,14 +599,36 @@ mod tests {
     #[test]
     fn every_song_but_a_work_gets_the_chosen_look() {
         let mut settings = Settings::default();
-        let want = wanted(&settings, &song("sm")).unwrap();
+        let want = wanted(&settings, &song("sm"), false).unwrap();
         assert_eq!(
             (want.look, want.palette, want.over),
             (Look::Field, Palette::Ink, false)
         );
-        assert_eq!(wanted(&settings, &song("danoni")), None);
+        assert_eq!(wanted(&settings, &song("danoni"), false), None);
+        // Never in calibration, nor with the backgrounds off.
+        assert_eq!(wanted(&settings, &song("sm"), true), None);
+        let dark = Settings {
+            bg_brightness: 0.0,
+            ..settings.clone()
+        };
+        assert_eq!(wanted(&dark, &song("sm"), false), None);
         settings.generated_background = ddi_ui::state::settings::GeneratedBackground::Off;
-        assert_eq!(wanted(&settings, &song("sm")), None);
+        assert_eq!(wanted(&settings, &song("sm"), false), None);
+    }
+
+    #[test]
+    fn the_prompt_shows_the_songs_picture_dimmed_else_the_still_as_drawn() {
+        let pic = |s: &str| Some((s.to_string(), 1.5));
+        let at = |p: Option<PromptPicture>| p.map(|p| (p.source, p.brightness));
+        let shown =
+            |song, still, brightness| at(prompt_picture(song, still, brightness, None, None));
+        assert_eq!(
+            shown(pic("song"), pic("still"), 0.4),
+            Some(("song".into(), 0.4))
+        );
+        assert_eq!(shown(None, pic("still"), 0.4), Some(("still".into(), 1.0)));
+        assert_eq!(shown(None, None, 0.4), None);
+        assert_eq!(shown(pic("song"), pic("still"), 0.0), None);
     }
 
     #[test]

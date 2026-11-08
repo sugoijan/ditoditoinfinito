@@ -124,9 +124,6 @@ const BUNDLED: [Bundled; 4] = [
     ),
 ];
 
-/// The bundled songs' pack, as the song list names it.
-pub use crate::state::select_view::BUNDLED_PACK;
-
 /// The styles, as `ddi_chart`'s built-in layouts name them.
 pub fn styles() -> Vec<StyleDef> {
     ddi_chart::layout::Layout::builtins()
@@ -148,7 +145,7 @@ pub fn bundled() -> Vec<SongEntry> {
                 title: title.to_string(),
                 subtitle: subtitle.to_string(),
                 artist: artist.to_string(),
-                pack: BUNDLED_PACK.into(),
+                pack: None,
                 bpm: *bpm,
                 bpm_text: format!("{bpm}"),
                 length: *length,
@@ -283,7 +280,7 @@ pub fn select() -> SelectData {
                 title,
                 subtitle: String::new(),
                 artist: ARTISTS[rng.below(ARTISTS.len())].to_string(),
-                pack: pack.to_string(),
+                pack: Some(pack.to_string()),
                 bpm,
                 bpm_text: format!("{bpm}"),
                 length: 90.0 + rng.below(90) as f32,

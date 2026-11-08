@@ -2,6 +2,8 @@
 //! from the library, the engine's records and the settings; the
 //! developer routes from [`super::sample`]).
 
+use std::rc::Rc;
+
 use ddi_chart::{Difficulty, Quantization};
 
 /// The difficulties in their order (StepMania's `Difficulty` enum).
@@ -109,10 +111,9 @@ pub struct ChartEntry {
     pub best: Option<Best>,
     /// Its content's digest, when known (its kept plays).
     pub digest: Option<ddi_chart::ChartDigest>,
-    /// What a generated version leaves out, or where it comes from, as
-    /// the list marks it ("Without center", "From Pump single"); `None`
-    /// for an original.
-    pub version: Option<&'static str>,
+    /// What kind of version the game made it as, which the list marks
+    /// ("Without center", "From Pump single"); `None` for an original.
+    pub version: Option<ddi_chart::simplify::Kind>,
     /// Whether that version leaves notes out, its plays assisted (a
     /// conversion's are not).
     pub assisted: bool,
@@ -215,7 +216,8 @@ pub struct PlayRow {
 /// A pack of the song list and what can be done to it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PackEntry {
-    pub name: String,
+    /// Its name; `None` for the bundled songs.
+    pub name: Option<String>,
     /// Pack cover as a texture source, when supplied by the pack.
     pub banner: Option<String>,
     /// Imported: it can be removed.
@@ -400,7 +402,8 @@ pub struct SongEntry {
     pub title: String,
     pub subtitle: String,
     pub artist: String,
-    pub pack: String,
+    /// Its pack's name; `None` for a bundled song.
+    pub pack: Option<String>,
     /// The display BPM.
     pub bpm: f32,
     /// As shown ("160", "90–180").
@@ -467,6 +470,37 @@ pub fn trim_number(v: f64, decimals: usize) -> String {
     }
 }
 
+/// An amount of data as the screens write it (`common-size-*`): B, kB,
+/// MB or GB in steps of 1000, the largest unit it makes one of (counted
+/// after rounding: 999,960 bytes are "1.0 MB"), to a tenth below 10 of
+/// it ("4.2 MB"), else whole ("37 MB"); bytes always whole.
+pub fn size_text(bytes: f64) -> ddi_l10n::UiText {
+    use ddi_l10n::msg::common as m;
+    let bytes = bytes.max(0.0);
+    let mut unit = 0;
+    let mut amount = bytes.round();
+    while unit < 3 && amount >= 1000.0 {
+        unit += 1;
+        let v = bytes / 1000f64.powi(unit);
+        amount = if (v * 10.0).round() < 100.0 {
+            (v * 10.0).round() / 10.0
+        } else {
+            v.round()
+        };
+    }
+    let tenths = if unit > 0 && amount < 10.0 {
+        "yes"
+    } else {
+        "no"
+    };
+    match unit {
+        0 => m::size_b(amount),
+        1 => m::size_kb(amount, tenths),
+        2 => m::size_mb(amount, tenths),
+        _ => m::size_gb(amount, tenths),
+    }
+}
+
 /// Seconds as "m:ss".
 pub fn clock(seconds: f32) -> String {
     let s = seconds.max(0.0).round() as u32;
@@ -504,11 +538,12 @@ pub struct SelectData {
     /// The packs, in list order, with what can be done to them (packs
     /// named by songs and missing here can do nothing).
     pub packs: Vec<PackEntry>,
-    /// Packs closed at first, by name.
-    pub closed: Vec<String>,
+    /// Packs closed at first, by name (`None`: the bundled songs).
+    pub closed: Vec<Option<String>>,
     /// Saved browsing song and chart; restored once, including after a library scan.
     pub resume: Option<(String, Option<usize>)>,
-    /// Saved open pack, including when its header was selected.
+    /// Saved open pack, including when its header was selected: its key
+    /// ([`crate::state::place::pack_key`]).
     pub resume_pack: Option<String>,
     /// More songs may arrive from the initial library scan.
     pub loading: bool,
@@ -890,11 +925,12 @@ impl ResultsData {
 pub enum OptionKind {
     /// Named choices, one chosen.
     Choices(Vec<String>),
-    /// A number stepped through `values` (shown as given).
-    Stepper(Vec<String>),
+    /// A number stepped through `values` (shown as given; shared, since
+    /// only the chosen one shows and long lists are formatted once).
+    Stepper(Rc<[String]>),
     /// The same as a slider: a track the pointer drags or taps along,
     /// keys and pads stepping it (the volume).
-    Slider(Vec<String>),
+    Slider(Rc<[String]>),
     /// Buttons (none: a row that only says something, its `note`): Left
     /// and Right move between them (`index`), Start or a tap presses one.
     Actions(Vec<String>),
@@ -920,10 +956,8 @@ pub struct OptionDef {
 impl OptionDef {
     pub fn values(&self) -> &[String] {
         match &self.kind {
-            OptionKind::Choices(v)
-            | OptionKind::Stepper(v)
-            | OptionKind::Slider(v)
-            | OptionKind::Actions(v) => v,
+            OptionKind::Choices(v) | OptionKind::Actions(v) => v,
+            OptionKind::Stepper(v) | OptionKind::Slider(v) => v,
         }
     }
 
@@ -970,6 +1004,27 @@ mod tests {
         }
         assert!(DIFFICULTIES.is_sorted());
         assert_eq!(Difficulty::from_name("hard"), None);
+    }
+
+    #[test]
+    fn sizes_are_written_in_steps_of_1000_to_a_tenth_below_10() {
+        ddi_l10n::set_language("en");
+        let cases = [
+            (0.0, "0 B"),
+            (999.0, "999 B"),
+            (999.6, "1.0 kB"),
+            (4_200.0, "4.2 kB"),
+            (4_000_000.0, "4.0 MB"),
+            (9_960_000.0, "10 MB"),
+            (37_400_000.0, "37 MB"),
+            (999_600_000.0, "1.0 GB"),
+            (1_300_000_000.0, "1.3 GB"),
+            (12_000_000_000.0, "12 GB"),
+            (2_500_000_000_000.0, "2,500 GB"),
+        ];
+        for (bytes, text) in cases {
+            assert_eq!(&*size_text(bytes), text, "{bytes}");
+        }
     }
 
     fn chart(d: Difficulty) -> ChartEntry {

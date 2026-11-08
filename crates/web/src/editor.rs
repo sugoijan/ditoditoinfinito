@@ -483,22 +483,85 @@ pub(crate) async fn next_frame() {
 }
 
 /// The analysis of `buffer` (its lead: where its first sample is
-/// heard), its samples read a block at a time and analyzed
-/// [`ANALYSIS_BUDGET_MS`] each animation frame; `None` once `stale`
-/// says another read began.
+/// heard), [`analyze_buffer`] [`ANALYSIS_BUDGET_MS`] each animation
+/// frame; `None` once `stale` says another read began.
 async fn analyze(buffer: &web_sys::AudioBuffer, stale: impl Fn() -> bool) -> Option<Analysis> {
+    analyze_buffer::<Builder>(buffer, 1 << 15, 8, ANALYSIS_BUDGET_MS, stale).await
+}
+
+/// An analysis of a buffer's samples, fed a block at a time and made a
+/// few units at a time ([`analyze_buffer`]): the chart editor's audio
+/// view's, a generated background's music's.
+pub(crate) trait BufferAnalysis: Sized {
+    type Done;
+    fn new(rate: f64, frames: usize, start: f64) -> Self;
+    fn fed(&self) -> usize;
+    fn add_planar(&mut self, channels: &[&[f32]]);
+    fn step(&mut self, units: usize) -> bool;
+    fn finish(self) -> Self::Done;
+}
+
+impl BufferAnalysis for Builder {
+    type Done = Analysis;
+    fn new(rate: f64, frames: usize, start: f64) -> Self {
+        Builder::new(rate, frames, start)
+    }
+    fn fed(&self) -> usize {
+        Builder::fed(self)
+    }
+    fn add_planar(&mut self, channels: &[&[f32]]) {
+        Builder::add_planar(self, channels)
+    }
+    fn step(&mut self, units: usize) -> bool {
+        Builder::step(self, units)
+    }
+    fn finish(self) -> Analysis {
+        Builder::finish(self)
+    }
+}
+
+impl BufferAnalysis for ddi_library::music::Analyzer {
+    type Done = ddi_library::music::Music;
+    fn new(rate: f64, frames: usize, start: f64) -> Self {
+        Self::new(rate, frames, start)
+    }
+    fn fed(&self) -> usize {
+        Self::fed(self)
+    }
+    fn add_planar(&mut self, channels: &[&[f32]]) {
+        Self::add_planar(self, channels)
+    }
+    fn step(&mut self, units: usize) -> bool {
+        Self::step(self, units)
+    }
+    fn finish(self) -> Self::Done {
+        Self::finish(self)
+    }
+}
+
+/// `buffer`'s analysis (its lead: where its first sample is heard), its
+/// samples read `block` frames at a time and analyzed `units` a step,
+/// `budget_ms` each animation frame; `None` once `stale` says it is no
+/// longer wanted.
+pub(crate) async fn analyze_buffer<A: BufferAnalysis>(
+    buffer: &web_sys::AudioBuffer,
+    block: usize,
+    units: usize,
+    budget_ms: f64,
+    stale: impl Fn() -> bool,
+) -> Option<A::Done> {
     let frames = buffer.length() as usize;
-    let mut b = Builder::new(
+    let mut a = A::new(
         f64::from(buffer.sample_rate()),
         frames,
         crate::web::audio::lead(buffer),
     );
     let channels = (buffer.number_of_channels() as usize).max(1);
-    let mut blocks = vec![vec![0.0f32; 1 << 15]; channels];
+    let mut blocks = vec![vec![0.0f32; block]; channels];
     loop {
-        let until = now_ms() + ANALYSIS_BUDGET_MS;
+        let until = now_ms() + budget_ms;
         while now_ms() < until {
-            let at = b.fed();
+            let at = a.fed();
             if at < frames {
                 let n = blocks[0].len().min(frames - at);
                 for (c, block) in blocks.iter_mut().enumerate() {
@@ -514,10 +577,10 @@ async fn analyze(buffer: &web_sys::AudioBuffer, stale: impl Fn() -> bool) -> Opt
                     }
                 }
                 let planar: Vec<&[f32]> = blocks.iter().map(|b| &b[..n]).collect();
-                b.add_planar(&planar);
+                a.add_planar(&planar);
             }
-            if b.step(8) {
-                return Some(b.finish());
+            if a.step(units) {
+                return Some(a.finish());
             }
         }
         next_frame().await;

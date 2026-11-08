@@ -1,4 +1,5 @@
-//! A radix-2 Fourier transform, for the music's analyses: the chart
+//! A radix-2 Fourier transform (and the real transform and downmix on
+//! it), for the music's analyses: the chart
 //! editor's audio view (`ddi_ui::state::editor::audio`) and the
 //! generative backgrounds' ([`crate::music`]).
 
@@ -74,6 +75,90 @@ impl Fft {
             len *= 2;
         }
     }
+}
+
+/// A transform of `n` real values (a power of two, at least 2) as a
+/// complex one of `n / 2`, even values real and odd imaginary, unpacked
+/// into each bin's power with its twiddles: the music's analyses' step.
+#[derive(Clone)]
+pub struct RealFft {
+    fft: Fft,
+    /// The unpacking's twiddles, a bin each (`0..=n / 2`).
+    turns: Vec<(f32, f32)>,
+    re: Vec<f32>,
+    im: Vec<f32>,
+}
+
+impl RealFft {
+    pub fn new(n: usize) -> RealFft {
+        let half = n / 2;
+        RealFft {
+            fft: Fft::new(half),
+            turns: (0..=half)
+                .map(|k| {
+                    let a = -2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                    (a.cos() as f32, a.sin() as f32)
+                })
+                .collect(),
+            re: vec![0.0; half],
+            im: vec![0.0; half],
+        }
+    }
+
+    /// Transforms the `n` values `sample(i)` gives (windowed already);
+    /// [`RealFft::power`] then reads its bins.
+    pub fn run(&mut self, sample: impl Fn(usize) -> f32) {
+        for m in 0..self.re.len() {
+            self.re[m] = sample(2 * m);
+            self.im[m] = sample(2 * m + 1);
+        }
+        self.fft.run(&mut self.re, &mut self.im);
+    }
+
+    /// Bin `k`'s power (`0..=n / 2`) of the last [`RealFft::run`].
+    pub fn power(&self, k: usize) -> f32 {
+        let half = self.re.len();
+        let (zr, zi) = (self.re[k % half], self.im[k % half]);
+        let (cr, ci) = (self.re[(half - k) % half], -self.im[(half - k) % half]);
+        // Even part and odd part, the odd turned by its twiddle.
+        let (er, ei) = ((zr + cr) / 2.0, (zi + ci) / 2.0);
+        let (dr, di) = ((zr - cr) / 2.0, (zi - ci) / 2.0);
+        // (d / i) = (di, -dr)
+        let (or, oi) = (di, -dr);
+        let (wr, wi) = self.turns[k];
+        let (xr, xi) = (er + or * wr - oi * wi, ei + or * wi + oi * wr);
+        xr * xr + xi * xi
+    }
+}
+
+/// Appends each frame's mean over its `channels` (planar, the same
+/// length), `limit` frames at most, to `out`; the frames taken.
+pub fn downmix_planar(channels: &[&[f32]], limit: usize, out: &mut Vec<f32>) -> usize {
+    let Some(n) = channels.iter().map(|c| c.len()).min() else {
+        return 0;
+    };
+    let n = n.min(limit);
+    let k = channels.len() as f32;
+    out.extend((0..n).map(|i| channels.iter().map(|c| c[i]).sum::<f32>() / k));
+    n
+}
+
+/// The same for `data` interleaved `channels` to a frame.
+pub fn downmix_interleaved(
+    data: &[f32],
+    channels: usize,
+    limit: usize,
+    out: &mut Vec<f32>,
+) -> usize {
+    let channels = channels.max(1);
+    let k = channels as f32;
+    let n = (data.len() / channels).min(limit);
+    out.extend(
+        data.chunks_exact(channels)
+            .take(n)
+            .map(|f| f.iter().sum::<f32>() / k),
+    );
+    n
 }
 
 #[cfg(test)]

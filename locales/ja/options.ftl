@@ -553,10 +553,6 @@ options-shares-delete-sure = 本当に削除
 options-shares-songs = { $count ->
    *[other] { $count }曲
 }
-options-size-gb = { $size } GB
-options-size-mb = { $size } MB
-options-size-kb = { $size } kB
-options-size-b = { $size } B
 options-shares-unfinished = 未完了
 options-shares-never-expires = 無期限
 options-shares-expired = 期限切れ

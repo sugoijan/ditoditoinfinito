@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 use sha2::Digest;
 
 use super::{LanguageEntry, catalog, listed};
@@ -31,24 +30,6 @@ const SYSTEM: &[char] = &['☆', '★'];
 
 /// The fonttools release the cuts are made with.
 const FONTTOOLS: &str = "fonttools==4.68.0";
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct FaceEntry {
-    family: String,
-    base: String,
-    features: String,
-    file: Vec<FaceFile>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FaceFile {
-    weight: u16,
-    file: String,
-    source: String,
-    sha256: String,
-}
 
 /// The code points `path`'s character map has.
 fn coverage(path: &Path) -> Result<HashSet<u32>> {

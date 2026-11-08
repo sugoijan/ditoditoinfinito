@@ -129,10 +129,10 @@ pub struct PromptPicture {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum PromptStep {
     /// The loading screen: Start was pressed before everything the play
-    /// needs was ready ("loading…", "preparing audio…", for tests); the
-    /// card gives way to "Loading" over the play's background, whose
-    /// entrance runs here. Back leaves.
-    Loading(String),
+    /// needs was ready (tests read it as "loading…"); the card gives way
+    /// to "Loading" over the play's background, whose entrance runs
+    /// here. Back leaves.
+    Loading,
     /// Start plays (or shows the loading screen first: the shell says),
     /// whatever still loads in the background ([`PromptState::waiting`]).
     #[default]
@@ -471,13 +471,12 @@ pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) ->
 /// The quiet line on a shared song's files coming down, `done` of `total`
 /// bytes (0: not known yet), on the prompt and in song select's notices.
 pub fn download_line(done: f64, total: f64) -> String {
+    use super::data::size_text;
     use ddi_l10n::msg::prompt;
-    // Megabytes, one decimal (the messages show it).
-    let mb = |bytes: f64| (bytes / 1e5).round() / 10.0;
     if total > 0.0 {
-        prompt::download_progress(mb(done), mb(total)).into()
+        prompt::download_progress(size_text(done), size_text(total)).into()
     } else if done > 0.0 {
-        prompt::download_done(mb(done)).into()
+        prompt::download_done(size_text(done)).into()
     } else {
         prompt::download().into()
     }
@@ -810,7 +809,7 @@ impl PromptScreen {
         call(&mut field, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
         let mut children = vec![field];
         children.push(picture(&env, screen, &state, cx));
-        if matches!(state.step, PromptStep::Loading(_)) {
+        if matches!(state.step, PromptStep::Loading) {
             // The loading screen: the card fading out (while it does),
             // then the label alone.
             self.buttons = Vec::new();
@@ -853,11 +852,11 @@ impl PromptScreen {
             );
             env.state.borrow_mut().hints = texts;
             children.push(f);
-        } else if !matches!(state.step, PromptStep::Loading(_)) {
+        } else if !matches!(state.step, PromptStep::Loading) {
             env.state.borrow_mut().hints = Vec::new();
         }
         let mut root = Actor::new(Kind::Frame(children));
-        if !matches!(state.step, PromptStep::Loading(_)) {
+        if !matches!(state.step, PromptStep::Loading) {
             // The card fades in as the screen comes in (taking keys at
             // once, as every screen does; held under the web's loader as
             // any screen's entrance), and goes at once: on Back, and
@@ -1058,7 +1057,7 @@ impl PromptScreen {
         let back = || ("Back".to_string(), msg::common::back().into(), "Button");
         match &state.step {
             // Not a card: the loading screen (`tree`).
-            PromptStep::Loading(_) => {}
+            PromptStep::Loading => {}
             PromptStep::Ready => {
                 buttons.push(("Start".into(), msg::prompt::start().into(), "Prompt.Start"));
                 buttons.push(back());
@@ -1497,7 +1496,7 @@ impl PromptScreen {
         st.song = info.title.clone();
         st.chart = (!info.chart.is_empty()).then_some(info.chart);
         st.status = match &self.state.borrow().step {
-            PromptStep::Loading(s) => s.clone(),
+            PromptStep::Loading => "loading…".into(),
             PromptStep::Ready => "ready".into(),
             PromptStep::Access { .. } => "access".into(),
             PromptStep::Interrupted => "interrupted".into(),
@@ -1734,7 +1733,7 @@ impl Screen for PromptScreen {
         // Changed by the shell since built (a picture, a line, a step):
         // a frame builds it, whatever the step.
         let st = self.state.borrow();
-        matches!(st.step, PromptStep::Loading(_))
+        matches!(st.step, PromptStep::Loading)
             || (st.bindings.is_some() && !self.env.reduced() && st.step == PromptStep::Ready)
             || st.done
             || self.counting().is_some()
@@ -1762,7 +1761,7 @@ impl Screen for PromptScreen {
             self.picture_source = source;
             self.reveal_time = 0.0;
         }
-        let loading = matches!(self.state.borrow().step, PromptStep::Loading(_));
+        let loading = matches!(self.state.borrow().step, PromptStep::Loading);
         let moved = if loading {
             // The loading screen: the entrance the play would run at its
             // first frame, run here (`Reveal::continuing`), from where
@@ -1871,7 +1870,7 @@ impl Screen for PromptScreen {
         let step = self.state.borrow().step.clone();
         // The loading screen: Back leaves; Start or a tap reach the shell
         // (a pad's start waiting for a gesture takes it); nothing else.
-        if matches!(step, PromptStep::Loading(_)) {
+        if matches!(step, PromptStep::Loading) {
             match input {
                 Input::Menu {
                     action: MenuAction::Back,
@@ -2257,9 +2256,7 @@ mod tests {
     #[test]
     fn the_shells_steps_show_as_they_change() {
         let state = SharedPrompt::default();
-        state
-            .borrow_mut()
-            .set_step(PromptStep::Loading("preparing audio…".into()));
+        state.borrow_mut().set_step(PromptStep::Loading);
         let (mut h, seen) = prompt(&state);
         // The loading screen: no card, no buttons.
         assert!(h.ui.actor("Start").is_none());
@@ -2388,9 +2385,7 @@ mod tests {
         assert_eq!(state.borrow().reveal, 1.0);
         assert_eq!(state.borrow().clarity, 0.0);
         // Start pressed before all was ready: the shell's loading step.
-        state
-            .borrow_mut()
-            .set_step(PromptStep::Loading("loading…".into()));
+        state.borrow_mut().set_step(PromptStep::Loading);
         h.run(0.1);
         assert!(view().loading && !view().label);
         let c = state.borrow().clarity;
@@ -2448,9 +2443,7 @@ mod tests {
         state.borrow_mut().set_base(Some("cached:menu".into()));
         let (mut h, _) = prompt(&state);
         assert!(h.ui.actor("Base").is_some());
-        state
-            .borrow_mut()
-            .set_step(PromptStep::Loading("loading…".into()));
+        state.borrow_mut().set_step(PromptStep::Loading);
         h.run(0.5);
         // The play's own ground alone, as the play draws it.
         assert!(h.ui.actor("Base").is_none());
@@ -2462,9 +2455,7 @@ mod tests {
         let state = SharedPrompt::default();
         state.borrow_mut().set_picture(Some(picture()));
         let (mut h, _) = prompt_with(&state, true);
-        state
-            .borrow_mut()
-            .set_step(PromptStep::Loading("loading…".into()));
+        state.borrow_mut().set_step(PromptStep::Loading);
         h.run(0.02);
         assert_eq!(
             state.borrow().entrance(),
@@ -2816,7 +2807,7 @@ mod tests {
     }
 
     #[test]
-    fn the_download_line_says_megabytes_to_a_tenth() {
+    fn the_download_line_says_its_sizes() {
         ddi_l10n::set_language("en");
         assert_eq!(download_line(0.0, 0.0), "downloading the song…");
         assert_eq!(
@@ -2825,7 +2816,7 @@ mod tests {
         );
         assert_eq!(
             download_line(2_130_000.0, 4_000_000.0),
-            "downloading the song… 2.1 of 4.0 MB"
+            "downloading the song… 2.1 MB of 4.0 MB"
         );
     }
 

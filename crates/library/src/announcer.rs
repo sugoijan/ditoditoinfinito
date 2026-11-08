@@ -15,11 +15,6 @@ use crate::pack::{extension, file_name, is_ignored, parent};
 use crate::path::{RelPath, RelPathBuf};
 use crate::report::{AnnouncerSummary, Finding};
 
-/// The sound files read in a line folder: StepMania's
-/// (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which
-/// both shells decode as they do songs' music (StepMania passes them
-/// over; the studio keeps them as recorded, `draft`).
-pub const AUDIO_EXTENSIONS: [&str; 6] = ["mp3", "wav", "ogg", "oga", "opus", "flac"];
 /// An announcer's sound files kept, at most; the rest are left out.
 pub const MAX_FILES: usize = 2000;
 /// An announcer's sound files kept, in bytes, at most.
@@ -74,7 +69,8 @@ impl Grade {
         Grade::F,
     ];
 
-    fn name(self) -> &'static str {
+    /// The grade's name in its line's folder (`evaluation aa`).
+    pub fn name(self) -> &'static str {
         match self {
             Grade::Aaaaa => "aaaaa",
             Grade::Aaaa => "aaaa",
@@ -688,8 +684,16 @@ pub struct Found {
     pub left_out: usize,
 }
 
+/// A sound file read in a line folder: StepMania's
+/// (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which both
+/// shells decode as they do songs' music (StepMania passes them over; the
+/// studio keeps them as recorded, `draft`): a song's music's formats.
 fn is_audio(path: &str) -> bool {
-    extension(path).is_some_and(|e| AUDIO_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+    extension(path).is_some_and(|e| {
+        crate::pack::AUDIO_EXTENSIONS
+            .iter()
+            .any(|x| e.eq_ignore_ascii_case(x))
+    })
 }
 
 /// The announcers' folders among `paths` (files, `/`-separated), each with

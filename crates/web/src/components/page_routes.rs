@@ -212,7 +212,10 @@ fn shared_gone_doc(why: &ddi_library::share::ShareError) -> PageDoc {
     use ddi_l10n::msg::errors as m;
     use ddi_ui::screens::page::Block;
     PageDoc {
-        title: m::shared_page_title().into(),
+        title: ddi_ui::screens::page::PageTitle::new(
+            m::shared_page_title(),
+            m::shared_page_heading(),
+        ),
         blocks: vec![
             Block::Text(ddi_ui::screens::failures::share_load_text(why).into()),
             Block::Muted(m::shared_page_hint().into()),

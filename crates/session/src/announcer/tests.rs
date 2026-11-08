@@ -162,6 +162,12 @@ fn a_play_decodes_the_lines_it_can_speak_a_few_sounds_each() {
     .map(|(f, n)| (f.to_string(), n))
     .collect();
     assert_eq!(got, expected);
+    // The opening's first, as they are said first.
+    let order: Vec<Line> = wanted(&kept, 300, &mut bags)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect();
+    assert_eq!(&order[..2], [Line::Ready, Line::Restart]);
     // A chart past 1000: the overflow and every hundred.
     let long = wanted(&kept, 1500, &mut bags);
     assert!(long.iter().any(|(l, _)| *l == Line::ComboOverflow));
@@ -266,6 +272,25 @@ fn comments_come_every_ten_seconds_by_the_life() {
     let mut a = announcer(&lines, 0.0, None);
     run(&mut a, &mut audio, 0.0, 10.5, |m| m.lives = Some(3));
     assert_eq!(spoken(&a), ["gameplay comment good"]);
+}
+
+#[test]
+fn a_comment_not_decoded_when_due_is_said_once_it_is() {
+    let mut audio = Fake::default();
+    let v = voice(&[]);
+    v.borrow_mut().expect([Line::CommentGood]);
+    let mut a = Announcer::new(true, 1.0, None, TIMING, Some(0.0));
+    a.set_voice(v.clone());
+    // Due from ten seconds, its sound not there yet: missing.
+    run(&mut a, &mut audio, 0.0, 11.0, |m| m.life = 0.5);
+    assert!(spoken(&a).is_empty());
+    assert_eq!(a.report.missing, ["gameplay comment good"]);
+    // Decoded: said at the next frame.
+    v.borrow_mut().add(Line::CommentGood, 1.0);
+    run(&mut a, &mut audio, 11.0, 11.05, |m| m.life = 0.5);
+    assert_eq!(spoken(&a), ["gameplay comment good"]);
+    let said = a.report.spoken[0].1;
+    assert!((said - TIMING.at(11.0)).abs() < 0.05, "{said}");
 }
 
 #[test]
@@ -604,4 +629,38 @@ fn what_is_not_there_is_reported_and_an_announcer_off_says_nothing() {
     run(&mut b, &mut audio, 0.0, 0.1, |m| m.ended = true);
     assert!(a.report == Report::default() && b.report == Report::default());
     assert!(audio.voiced.is_empty());
+}
+
+#[test]
+fn a_menu_line_waits_for_its_sound_while_it_is_due() {
+    let v: SharedVoice<f64> = Rc::new(RefCell::new(Voice::default()));
+    let mut m = MenuVoice::new("bundled:x".into(), v.clone());
+    // Not decoded yet: it waits.
+    assert_eq!(m.ask(Line::SelectMusicIntro, 10.0), None);
+    assert!(m.waiting());
+    assert_eq!(m.poll(10.5), None);
+    // Decoded while due: spoken once.
+    v.borrow_mut().add(Line::SelectMusicIntro, 2.0);
+    assert_eq!(m.poll(11.0), Some((Line::SelectMusicIntro, 2.0)));
+    assert!(!m.waiting());
+    assert_eq!(m.poll(11.1), None);
+    // There at once: spoken, nothing waits.
+    assert_eq!(
+        m.ask(Line::SelectMusicIntro, 20.0),
+        Some((Line::SelectMusicIntro, 2.0))
+    );
+    assert!(!m.waiting());
+    // Decoded too late: dropped.
+    let comment = Line::SelectMusic(ddi_library::announcer::Comment::New);
+    assert_eq!(m.ask(comment, 30.0), None);
+    v.borrow_mut().add(comment, 1.0);
+    assert_eq!(m.poll(30.0 + MENU_WAIT + 0.01), None);
+    assert!(!m.waiting());
+    // A line asked for replaces the one waiting.
+    let hard = Line::SelectMusic(ddi_library::announcer::Comment::Hard);
+    assert_eq!(m.ask(hard, 40.0), None);
+    assert_eq!(m.ask(comment, 40.5), Some((comment, 1.0)));
+    assert!(!m.waiting());
+    v.borrow_mut().add(hard, 1.0);
+    assert_eq!(m.poll(41.0), None);
 }

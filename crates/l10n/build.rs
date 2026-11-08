@@ -25,65 +25,14 @@ use std::path::{Path, PathBuf};
 
 use fluent_syntax::ast;
 
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Languages {
-    language: Vec<LanguageEntry>,
-    #[serde(default)]
-    face: Vec<FaceEntry>,
-}
+#[path = "src/wide.rs"]
+mod wide;
+use wide::wide;
 
-/// A face the languages name: its family and its cut files (the cut's
-/// recipe, `base`, `features` and each file's `source` and `sha256`, is
-/// xtask's, `l10n fonts`).
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FaceEntry {
-    family: String,
-    base: String,
-    #[allow(dead_code)]
-    features: String,
-    file: Vec<FaceFile>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FaceFile {
-    weight: u16,
-    file: String,
-    #[allow(dead_code)]
-    source: String,
-    #[allow(dead_code)]
-    sha256: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LanguageEntry {
-    tag: String,
-    name: String,
-    status: String,
-    #[serde(default)]
-    fallback: Option<String>,
-    #[serde(default = "dot")]
-    decimal: String,
-    #[serde(default = "comma")]
-    group: String,
-    #[serde(default = "one")]
-    min_grouping: u32,
-    #[serde(default)]
-    faces: Vec<String>,
-}
-
-fn dot() -> String {
-    ".".into()
-}
-fn comma() -> String {
-    ",".into()
-}
-fn one() -> u32 {
-    1
-}
+#[allow(dead_code)]
+#[path = "schema.rs"]
+mod schema;
+use schema::{Found, Languages, ftl_files};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Kind {
@@ -119,7 +68,7 @@ fn main() {
 
     // The English messages, area by area.
     let mut areas = BTreeMap::new();
-    for path in ftl_files(&locales.join("en")) {
+    for path in files(&locales.join("en")) {
         let area = path.file_stem().unwrap().to_string_lossy().into_owned();
         let text = read(&path);
         let messages = english(&area, &text, &mut problems);
@@ -142,14 +91,8 @@ fn read(path: &Path) -> String {
 }
 
 /// A language's `.ftl` files, sorted.
-fn ftl_files(dir: &Path) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "ftl"))
-        .collect();
-    files.sort();
-    files
+fn files(dir: &Path) -> Vec<PathBuf> {
+    ftl_files(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
 }
 
 fn check_languages(languages: &Languages, locales: &Path, problems: &mut Vec<String>) {
@@ -253,41 +196,6 @@ fn write_faces(out: &mut String, languages: &Languages, fonts: &Path) {
     out.push_str("];\n\n");
 }
 
-/// Whether `c` is wide (CJK, kana, Hangul, full-width forms): a full em
-/// in the theme's metrics (`ddi_ui::look::mono_width`), never the theme's
-/// face's, a language face's to draw.
-fn wide(c: char) -> bool {
-    matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD)
-}
-
-/// Every text a resource writes (its messages' and terms' text and string
-/// literals, every variant).
-fn texts(pattern: &ast::Pattern<&str>, out: &mut String) {
-    fn inline(e: &ast::InlineExpression<&str>, out: &mut String) {
-        match e {
-            ast::InlineExpression::StringLiteral { value } => out.push_str(value),
-            ast::InlineExpression::Placeable { expression } => expression_texts(expression, out),
-            _ => {}
-        }
-    }
-    fn expression_texts(e: &ast::Expression<&str>, out: &mut String) {
-        match e {
-            ast::Expression::Select { variants, .. } => {
-                for v in variants {
-                    texts(&v.value, out);
-                }
-            }
-            ast::Expression::Inline(i) => inline(i, out),
-        }
-    }
-    for e in &pattern.elements {
-        match e {
-            ast::PatternElement::TextElement { value } => out.push_str(value),
-            ast::PatternElement::Placeable { expression } => expression_texts(expression, out),
-        }
-    }
-}
-
 /// Each face's wide characters, as `xtask l10n fonts` cuts it: its base
 /// and what the languages naming it write (their messages, their names).
 fn write_face_chars(out: &mut String, languages: &Languages, locales: &Path) {
@@ -312,23 +220,25 @@ fn write_face_chars(out: &mut String, languages: &Languages, locales: &Path) {
             .filter(|l| l.faces.contains(&face.family))
         {
             let mut written = l.name.clone();
-            for path in ftl_files(&locales.join(&l.tag)) {
+            for path in files(&locales.join(&l.tag)) {
                 let text = read(&path);
                 let resource = match fluent_syntax::parser::parse(text.as_str()) {
                     Ok(r) => r,
                     Err((r, _)) => r,
                 };
+                let mut found = Found::default();
                 for entry in &resource.body {
                     match entry {
                         ast::Entry::Message(m) => {
                             if let Some(v) = &m.value {
-                                texts(v, &mut written);
+                                found.pattern(v);
                             }
                         }
-                        ast::Entry::Term(t) => texts(&t.value, &mut written),
+                        ast::Entry::Term(t) => found.pattern(&t.value),
                         _ => {}
                     }
                 }
+                written.push_str(&found.text);
             }
             set.extend(written.chars().filter(|&c| wide(c)).map(u32::from));
         }
@@ -345,18 +255,26 @@ fn write_face_chars(out: &mut String, languages: &Languages, locales: &Path) {
 }
 
 fn write_sources(out: &mut String, languages: &Languages, locales: &Path) {
-    out.push_str("/// Each language's files, as written.\n");
+    out.push_str("/// Each language's files, without their comments (the translators'\n");
+    out.push_str("/// notes, half of English's bytes, are of no use at run time).\n");
     out.push_str("pub(crate) static SOURCES: &[(&str, &[(&str, &str)])] = &[\n");
     for l in &languages.language {
         let _ = writeln!(out, "    ({:?}, &[", l.tag);
         let dir = locales.join(&l.tag);
         if dir.is_dir() {
-            for path in ftl_files(&dir) {
+            for path in files(&dir) {
+                let text = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                // A comment starts its line; a pattern's lines are indented.
+                let kept: String = text
+                    .split_inclusive('\n')
+                    .filter(|line| !line.starts_with('#'))
+                    .collect();
                 let _ = writeln!(
                     out,
-                    "        ({:?}, include_str!({:?})),",
+                    "        ({:?}, {:?}),",
                     path.file_name().unwrap().to_string_lossy(),
-                    path.display().to_string(),
+                    kept,
                 );
             }
         }
@@ -422,10 +340,10 @@ fn english(area: &str, text: &str, problems: &mut Vec<String>) -> Vec<Msg> {
                 "{file}: {id} has attributes, which the generated functions do not take yet"
             ));
         }
-        let mut used = BTreeSet::new();
-        let mut references = Vec::new();
-        pattern_variables(value, &mut used, &mut references);
-        for r in references {
+        let mut found = Found::default();
+        found.pattern(value);
+        let used = found.variables;
+        for r in found.messages {
             problems.push(format!(
                 "{file}: {id} refers to the message {r}; write it out, or use a term (-name)"
             ));
@@ -500,66 +418,6 @@ fn declarations(comment: &[String]) -> (Vec<(String, Kind)>, Vec<String>) {
         doc.push(line.clone());
     }
     (declared, doc)
-}
-
-fn pattern_variables(p: &ast::Pattern<&str>, used: &mut BTreeSet<String>, refs: &mut Vec<String>) {
-    for e in &p.elements {
-        if let ast::PatternElement::Placeable { expression } = e {
-            expression_variables(expression, used, refs);
-        }
-    }
-}
-
-fn expression_variables(
-    e: &ast::Expression<&str>,
-    used: &mut BTreeSet<String>,
-    refs: &mut Vec<String>,
-) {
-    match e {
-        ast::Expression::Select { selector, variants } => {
-            inline_variables(selector, used, refs);
-            for v in variants {
-                pattern_variables(&v.value, used, refs);
-            }
-        }
-        ast::Expression::Inline(i) => inline_variables(i, used, refs),
-    }
-}
-
-fn inline_variables(
-    e: &ast::InlineExpression<&str>,
-    used: &mut BTreeSet<String>,
-    refs: &mut Vec<String>,
-) {
-    match e {
-        ast::InlineExpression::VariableReference { id } => {
-            used.insert(id.name.to_string());
-        }
-        ast::InlineExpression::FunctionReference { arguments, .. } => {
-            call_variables(arguments, used, refs)
-        }
-        ast::InlineExpression::TermReference {
-            arguments: Some(a), ..
-        } => call_variables(a, used, refs),
-        ast::InlineExpression::MessageReference { id, .. } => refs.push(id.name.to_string()),
-        ast::InlineExpression::Placeable { expression } => {
-            expression_variables(expression, used, refs)
-        }
-        _ => {}
-    }
-}
-
-fn call_variables(
-    a: &ast::CallArguments<&str>,
-    used: &mut BTreeSet<String>,
-    refs: &mut Vec<String>,
-) {
-    for p in &a.positional {
-        inline_variables(p, used, refs);
-    }
-    for n in &a.named {
-        inline_variables(&n.value, used, refs);
-    }
 }
 
 fn write_messages(out: &mut String, areas: &BTreeMap<String, Vec<Msg>>) {

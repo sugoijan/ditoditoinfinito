@@ -143,14 +143,14 @@ prompt-download = downloading the song…
 
 # The same, with what has come.
 # Variables:
-#   $done (Number) - megabytes come so far, one decimal
-prompt-download-done = downloading the song… { NUMBER($done, minimumFractionDigits: 1) } MB
+#   $done (String) - the size come so far, as the common-size messages write it ("4.2 MB")
+prompt-download-done = downloading the song… { $done }
 
 # The same, with what has come of how much.
 # Variables:
-#   $done (Number) - megabytes come so far, one decimal
-#   $total (Number) - megabytes in all, one decimal
-prompt-download-progress = downloading the song… { NUMBER($done, minimumFractionDigits: 1) } of { NUMBER($total, minimumFractionDigits: 1) } MB
+#   $done (String) - the size come so far, as the common-size messages write it ("4.2 MB")
+#   $total (String) - the size in all, the same way ("37 MB")
+prompt-download-progress = downloading the song… { $done } of { $total }
 
 # Desktop: a share's songs being read, before their files come down.
 # Variables:

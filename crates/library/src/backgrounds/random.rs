@@ -207,18 +207,7 @@ fn ini_sections(text: &str) -> Vec<(String, Vec<(String, String)>)> {
 
 /// A Fisher–Yates shuffle on SplitMix64 from `seed`.
 fn shuffle<T>(items: &mut [T], seed: u64) {
-    let mut state = seed;
-    let mut next = || {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    };
-    for i in (1..items.len()).rev() {
-        let j = (next() % (i as u64 + 1)) as usize;
-        items.swap(i, j);
-    }
+    ddi_engine::transform::SplitMix64(seed).shuffle(items);
 }
 
 /// The pool handed out in turn (`CreateRandomBGA`): each taken goes to

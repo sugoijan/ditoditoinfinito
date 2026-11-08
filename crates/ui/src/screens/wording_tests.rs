@@ -64,7 +64,7 @@ fn desktop_screens_do_not_talk_of_the_browser() {
         assert!(h.ui.bounds("Option.copy").is_none(), "no browser options");
         // Managing a pack and a song: hidden, never deleted.
         let pack = PackEntry {
-            name: "Pack".into(),
+            name: Some("Pack".into()),
             removable: true,
             rereadable: true,
             banner: None,

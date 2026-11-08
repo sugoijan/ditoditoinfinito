@@ -233,13 +233,13 @@ impl View {
     }
 
     /// The song's generated background under `settings`
-    /// (`ddi_shell::generative`): none for a work, when turned off or
-    /// with the backgrounds off. Its music is analyzed on a thread where
-    /// it may show (no picture, or over it); until then it runs on the
-    /// beat alone.
-    pub fn set_generated(&mut self, loaded: &Loaded, settings: &Settings) {
+    /// (`ddi_shell::generative::wanted`): none for a work, when turned
+    /// off, with the backgrounds off or in `calibration`. Its music is
+    /// analyzed on a thread where it may show (no picture, or over it);
+    /// until then it runs on the beat alone.
+    pub fn set_generated(&mut self, loaded: &Loaded, settings: &Settings, calibration: bool) {
         use ddi_shell::generative::{Generated, needs_music, wanted};
-        let want = wanted(settings, &loaded.song).filter(|_| settings.bg_brightness > 0.0);
+        let want = wanted(settings, &loaded.song, calibration);
         self.generated = want.map(Generated::new);
         self.backdrop_textures.set_generated(None);
         self.analysis = None;
@@ -273,17 +273,14 @@ impl View {
         }
     }
 
+    /// Whether the song has a generated background.
+    pub fn has_generated(&self) -> bool {
+        self.generated.is_some()
+    }
+
     /// What the generated background did, if the song has one.
     pub fn generated(&self) -> Option<ddi_shell::generative::Debug> {
         self.generated.as_ref().map(|g| g.debug())
-    }
-
-    /// The renderer's id of image `what`, once up.
-    fn background(&self, what: &BgImage) -> Option<usize> {
-        self.backgrounds
-            .iter()
-            .find(|(w, _)| w == what)
-            .map(|(_, id)| *id)
     }
 
     /// What the start prompt shows of the generated background, for a
@@ -298,9 +295,14 @@ impl View {
         reduced: bool,
         aspect: f32,
     ) -> Option<ddi_shell::generative::Still> {
-        let g = self.generated.as_ref()?;
-        let cover = self.background(&BgImage::Cover);
-        g.still(&self.renderer, first, brightness, reduced, aspect, cover)
+        self.generated.as_ref()?.still(
+            &self.renderer,
+            &self.backgrounds,
+            first,
+            brightness,
+            reduced,
+            aspect,
+        )
     }
 
     /// The song's scripts (`docs/plans/scripted-backgrounds.md`), loaded
@@ -369,9 +371,14 @@ impl View {
         self.scripts.running()
     }
 
-    /// The images the song shows: what to read, `(what, source,
-    /// longest side)`.
-    pub fn images_to_read(loaded: &Loaded, settings: &Settings) -> Vec<(BgImage, String, u32)> {
+    /// The images the song shows (in `calibration`, without the cover a
+    /// generated background folds: it has none): what to read, `(what,
+    /// source, longest side)`.
+    pub fn images_to_read(
+        loaded: &Loaded,
+        settings: &Settings,
+        calibration: bool,
+    ) -> Vec<(BgImage, String, u32)> {
         if settings.bg_brightness <= 0.0 {
             return Vec::new();
         }
@@ -381,7 +388,7 @@ impl View {
             out.push((BgImage::Song, loaded.files.source(bg), MAX_BACKGROUND_SIDE));
         }
         // The cover the kaleidoscope folds standing in.
-        let want = ddi_shell::generative::wanted(settings, &loaded.song);
+        let want = ddi_shell::generative::wanted(settings, &loaded.song, calibration);
         if ddi_shell::generative::needs_cover(want, e.background.is_some())
             && let Some(cover) = ddi_shell::generative::cover(e)
         {
@@ -613,31 +620,25 @@ impl View {
             }
             self.analysis = None;
         }
-        if let Some(g) = self.generated.as_mut().filter(|_| render.background > 0.0) {
-            let [w, h] = [size[0] as f32, size[1] as f32];
-            let frame_px = ddi_render::background::frame_rect(w, h, frame_aspect)
-                .map_or([w, h], |r| [r[2], r[3]]);
-            let entry = g.ensure(&mut self.renderer, device, frame_px);
-            self.backdrop_textures.set_generated(Some(entry));
+        if let Some(g) = self.generated.as_mut() {
+            g.prepare(
+                &mut self.renderer,
+                device,
+                &mut self.backdrop_textures,
+                size,
+                &render,
+            );
         }
         render.backdrop = self.backdrop(frame.song_time);
-        let pictures = (
-            self.background(&BgImage::Song),
-            self.background(&BgImage::Cover),
-        );
-        if let Some(g) = self.generated.as_mut()
-            && let Some(id) = g.id()
-            && ddi_shell::generative::shown(&render.backdrop, id)
-        {
-            g.draw(
+        if let Some(g) = self.generated.as_mut() {
+            g.draw_shown(
                 &mut self.renderer,
                 device,
                 queue,
                 encoder,
+                &render,
+                &self.backgrounds,
                 (frame.song_time, frame.beat),
-                render.background,
-                render.reduced_motion,
-                pictures,
             );
         }
         let layer = match self.noteskin.as_mut() {
@@ -712,15 +713,11 @@ impl View {
                 // next frame on, the first time).
                 #[cfg(feature = "video")]
                 if self.video != VideoMode::Off && !session.player.finished() {
-                    let clips = self.scripts.movie_clips();
-                    let shown = self.script_movies.update_clips(
-                        &clips,
-                        self.scripts.movie_renderer(device, queue),
-                        device,
-                        queue,
-                    );
+                    let deck = &mut self.script_movies;
                     self.scripts
-                        .show_movies(&mut self.renderer, device, queue, &shown);
+                        .play_movies(&mut self.renderer, device, queue, |clips, r| {
+                            deck.update_clips(clips, r, device, queue)
+                        });
                 }
             }
             self.stage_drawn = (back.len(), mask.len());
@@ -728,26 +725,18 @@ impl View {
         }
         #[cfg(feature = "video")]
         crate::video::protect_external_frames(device, encoder);
-
-        {
-            let origin = std::time::Instant::now();
-            self.dance
-                .prepare(frame.song_time, &|| origin.elapsed().as_secs_f64());
-        }
-
-        if self.dance.behind_field() {
-            self.dance.draw_underlay(
-                device,
-                queue,
-                encoder,
-                &mut self.renderer,
-                self.formats.plain.unwrap_or(self.formats.view),
-                size,
-                frame.song_time,
-            );
-        } else {
-            self.renderer.set_field_underlay(device, encoder, None);
-        }
+        let origin = std::time::Instant::now();
+        let format = self.formats.plain.unwrap_or(self.formats.view);
+        self.dance.before_field(
+            device,
+            queue,
+            encoder,
+            &mut self.renderer,
+            format,
+            size,
+            frame.song_time,
+            &|| origin.elapsed().as_secs_f64(),
+        );
         self.renderer.render(
             device,
             queue,
@@ -762,21 +751,15 @@ impl View {
             render,
             layer,
         );
-
-        if self.dance.behind_field() {
-            self.dance
-                .draw_guide(device, queue, encoder, plain.unwrap_or(view), size);
-        } else {
-            self.dance.draw(
-                device,
-                queue,
-                encoder,
-                plain.unwrap_or(view),
-                self.formats.plain.unwrap_or(self.formats.view),
-                size,
-                frame.song_time,
-            );
-        }
+        self.dance.after_field(
+            device,
+            queue,
+            encoder,
+            plain.unwrap_or(view),
+            format,
+            size,
+            frame.song_time,
+        );
         // The lyrics at this frame's time, over the field's middle.
         let lyrics = self
             .lyrics

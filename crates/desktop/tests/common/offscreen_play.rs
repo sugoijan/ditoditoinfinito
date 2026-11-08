@@ -87,7 +87,7 @@ impl OffscreenPlay {
         if let Some(scripts) = ScriptLoad::start(&loaded, settings, None) {
             view.set_scripts(scripts.wait());
         }
-        for (what, source, side) in View::images_to_read(&loaded, settings) {
+        for (what, source, side) in View::images_to_read(&loaded, settings, false) {
             let (size, data) = ddi_desktop::images::load(&source, side).expect("an image");
             view.add_background(what, Rgba { size, data });
         }

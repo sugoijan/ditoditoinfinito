@@ -9,6 +9,19 @@ use math::{IDENTITY, Mat4, mul, normalize, point, slerp, trs, vector};
 
 pub const HAND_MODEL: &[u8] = include_bytes!("../../../assets/hand/hand.glb");
 
+/// The layouts the dancing hand plays (`docs/plans/dancing-hand.md`):
+/// the settings offer it on these alone, and `ddi_hand_plan::layout_panels`
+/// places each on the mat.
+pub const HAND_LAYOUTS: &[&str] = &[
+    "dance-single",
+    "dance-solo",
+    "danoni-5",
+    "danoni-7",
+    "danoni-9B",
+    "pump-single",
+    "techno-single8",
+];
+
 #[derive(Clone, Debug)]
 pub struct Vertex {
     pub position: [f32; 3],

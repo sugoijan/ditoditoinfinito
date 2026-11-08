@@ -10,8 +10,7 @@ use ddi_actor::Actor;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::pages as pm;
 
-use super::page::wrap_marked;
-use super::select_dialogs::{button, dialog_root, shell, wrap};
+use super::select_dialogs::{button, dialog_root, shell, wrap, wrap_lines};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
@@ -39,7 +38,7 @@ impl FoldersOfferDialog {
     }
 
     fn lines(&self, w: f32) -> Vec<(String, &'static str)> {
-        let mut lines: Vec<(String, &'static str)> = wrap_marked(&pm::offer_found(), w, 14.0)
+        let mut lines: Vec<(String, &'static str)> = wrap_lines(&pm::offer_found(), w, 14.0)
             .into_iter()
             .map(|l| (l, "Text"))
             .collect();
@@ -52,7 +51,7 @@ impl FoldersOfferDialog {
         }
         lines.push((String::new(), "Muted"));
         lines.extend(
-            wrap_marked(&pm::offer_where(), w, 14.0)
+            wrap_lines(&pm::offer_where(), w, 14.0)
                 .into_iter()
                 .map(|l| (l, "Muted")),
         );

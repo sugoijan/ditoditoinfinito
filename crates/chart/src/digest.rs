@@ -164,20 +164,8 @@ impl Song {
         // Original chart identities stay byte-for-byte compatible. The
         // derivation kind distinguishes generated charts; source indexes
         // are intentionally omitted, since chart order can change.
-        match &chart.derivation {
-            Some(crate::simplify::Derivation::WithoutOnigiri { .. }) => {
-                h.section("without-onigiri", 1)
-            }
-            Some(crate::simplify::Derivation::WithoutCenter { .. }) => {
-                h.section("without-center", 1)
-            }
-            Some(crate::simplify::Derivation::FromPumpSingle { .. }) => {
-                h.section("from-pump-single", 1)
-            }
-            Some(crate::simplify::Derivation::FromFiveKeys { .. }) => {
-                h.section("from-five-keys", 1)
-            }
-            None => {}
+        if let Some(d) = &chart.derivation {
+            h.section(d.kind().key(), 1);
         }
         h.section("notes", chart.notes.len());
         for n in &chart.notes {

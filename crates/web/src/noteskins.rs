@@ -1081,14 +1081,7 @@ pub(crate) fn fetches() -> (u64, u64) {
 /// content hash (`?v=`), so a new build's file never comes from an old
 /// one's cache.
 fn file_promise(dir: &str, path: &str) -> js_sys::Promise {
-    let encoded: Vec<String> = format!("{dir}/{path}")
-        .split('/')
-        .map(|p| String::from(js_sys::encode_uri_component(p)))
-        .collect();
-    let mut url = format!("noteskins/{}", encoded.join("/"));
-    if let Some(hash) = bundled_hash(dir, path) {
-        url.push_str(&format!("?v={hash}"));
-    }
+    let url = crate::songs::bundled_url("noteskins", dir, path, bundled_hash(dir, path).as_deref());
     let mime = match path
         .rsplit('.')
         .next()

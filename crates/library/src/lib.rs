@@ -32,12 +32,14 @@
 //! - [`fft`]: a Fourier transform; [`music`]: the music's analysis a
 //!   generative background follows; [`generative`]: those backgrounds'
 //!   looks, as the design study chose them.
+//! - [`date`]: calendar dates from day counts.
 
 pub mod announcer;
 pub mod avi;
 pub mod backgrounds;
 pub(crate) mod bytes;
 pub mod danoni;
+pub mod date;
 pub mod edited;
 pub mod ffr;
 pub mod fft;

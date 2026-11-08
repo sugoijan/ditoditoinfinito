@@ -103,7 +103,8 @@ pub(crate) fn select_data(
     let rereadable = |pack: &str| rereadable_packs.contains(&pack.to_lowercase());
     let mut data = select_view::select_data(&songs, &rereadable, settings, history, place);
     for pack in &mut data.packs {
-        let key = crate::songs::pack_art_key(&pack.name);
+        let Some(name) = &pack.name else { continue };
+        let key = crate::songs::pack_art_key(name);
         if library.pack_art.contains(&key) {
             pack.banner = Some(format!("files:{key}"));
         }

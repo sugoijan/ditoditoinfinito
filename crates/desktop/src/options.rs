@@ -158,17 +158,10 @@ impl Shared {
             .and_then(|rx| rx.try_recv().ok());
         if let Some(found) = announcers {
             *self.announcers.borrow_mut() = None;
-            let mut list: Vec<(String, String)> = found
+            let list: Vec<(String, String)> = found
                 .iter()
                 .map(|a| (a.key(), a.kept.name.clone()))
                 .collect();
-            // Ours first, then the player's, by name.
-            list.sort_by_key(|(key, name)| {
-                (
-                    !ddi_library::announcer::is_bundled(key),
-                    name.to_lowercase(),
-                )
-            });
             // Not `complete`, as for skins: a folder away for now (a
             // drive unplugged) keeps its announcer chosen.
             self.model.borrow_mut().set_announcers(list, false);
@@ -261,7 +254,7 @@ pub fn screen(
             let _ = std::thread::Builder::new()
                 .name("ddi-announcers".into())
                 .spawn(move || {
-                    let _ = tx.send(crate::library::announcers::all(&folders));
+                    let _ = tx.send(crate::library::announcers::found(&folders));
                     if let Some(w) = wake {
                         w();
                     }
@@ -492,14 +485,16 @@ impl OptionsPlatform for Desktop {
         self.0.held.borrow().get(id).cloned().unwrap_or_default()
     }
 
-    fn changed(&self, id: &str, model: &OptionsModel) {
+    fn changed(&self, model: &OptionsModel) {
         self.0.env.follow_cursor(&model.settings);
         // As the preview shows them: on the layout picked for it.
         *self.0.edited.borrow_mut() = Some(model.preview_settings());
-        if id == "reduced_motion" {
-            let env = &self.0.env;
-            env.follow_motion(model.settings.reduced_motion, false);
-        }
+    }
+
+    fn motion(&self, model: &OptionsModel) {
+        self.0
+            .env
+            .follow_motion(model.settings.reduced_motion, false);
     }
 
     /// Back to the caller under it, or calibration's menu above it;

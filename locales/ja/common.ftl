@@ -59,3 +59,22 @@ common-lane-giko = ギコ
 common-lane-iyo = イヨウ
 
 common-lane-on-pad = { $lane }（パッド{ $pad }）
+
+## サイズ。
+
+common-size-b = { $amount } B
+
+common-size-kb = { $tenths ->
+    [yes] { NUMBER($amount, minimumFractionDigits: 1) } kB
+   *[no] { $amount } kB
+}
+
+common-size-mb = { $tenths ->
+    [yes] { NUMBER($amount, minimumFractionDigits: 1) } MB
+   *[no] { $amount } MB
+}
+
+common-size-gb = { $tenths ->
+    [yes] { NUMBER($amount, minimumFractionDigits: 1) } GB
+   *[no] { $amount } GB
+}

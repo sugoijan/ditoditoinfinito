@@ -29,26 +29,10 @@ const SIZE: [u32; 2] = [640, 360];
 /// `seconds` of a 16-bit mono WAV tone at 48 kHz.
 fn wav(seconds: f64) -> Vec<u8> {
     let n = (48_000.0 * seconds) as usize;
-    let samples: Vec<u8> = (0..n)
-        .flat_map(|i| {
-            let v = ((i as f64 * 440.0 * std::f64::consts::TAU / 48_000.0).sin() * 8000.0) as i16;
-            v.to_le_bytes()
-        })
+    let samples: Vec<f32> = (0..n)
+        .map(|i| ((i as f64 * 440.0 * std::f64::consts::TAU / 48_000.0).sin() * 0.25) as f32)
         .collect();
-    let mut out = b"RIFF".to_vec();
-    out.extend((36 + samples.len() as u32).to_le_bytes());
-    out.extend(b"WAVEfmt ");
-    out.extend(16u32.to_le_bytes());
-    out.extend(1u16.to_le_bytes());
-    out.extend(1u16.to_le_bytes());
-    out.extend(48_000u32.to_le_bytes());
-    out.extend(96_000u32.to_le_bytes());
-    out.extend(2u16.to_le_bytes());
-    out.extend(16u16.to_le_bytes());
-    out.extend(b"data");
-    out.extend((samples.len() as u32).to_le_bytes());
-    out.extend(samples);
-    out
+    ddi_library::wav::write(&[samples], 48_000)
 }
 
 #[test]

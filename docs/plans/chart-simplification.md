@@ -107,8 +107,8 @@ lifts, fakes and anything else there. Every other note keeps its row,
 kind, hold or roll end and attributes; the chart keeps its timing
 (split timing, `#TICKCOUNTS` included), meter (pump's scale, as its
 author rated it), difficulty, credit and chart-scoped effects
-(`Song::effects_chart`). Its name is the original's followed by
-"· without center", or "Without center". A version without a judged
+(`Song::effects_chart`). Its name is the original's (the song list
+words what it is, `simplify::Kind`). A version without a judged
 note (a tap, a hold or roll head, a lift) is not offered.
 
 **Rules.** The version is played by its source's game, pump, as the
@@ -190,9 +190,10 @@ leaves 3 of the 16 versions, all on Double (Beatucada's Easy 6, Some
 Things Must's Medium 11 and Hard 17).
 
 **The mark.** Song select marks a generated version subtly where a chart
-is picked (`ChartEntry::version`, `Derivation::name`): the ladder's muted
-line under it begins with what it leaves out ("Without center · 412
-notes · steps by …"; a named version says it in its name), a phone's
+is picked (`ChartEntry::version`, a `simplify::Kind` the screens word):
+the ladder's muted line under it begins with what it leaves out
+("Without center · 412 notes · steps by …"), a named version's chart
+button and Play label add it after its name, a phone's
 chart button has a small muted dot in its corner (`ChartButton`'s
 `Assist`, commands `Assisted`/`Original`), and its Play label ends in
 "· ASSIST", as the results mark the play. The wheel's meter cells show
@@ -222,9 +223,8 @@ center put on the onigiri:
 simplifications: a pump chart's 5-key version without its onigiri is its
 version without the center, and a 5-key chart's pump version without its
 center its version without the onigiri. Every note moves, of every kind,
-with its row and attributes; timing, meter, difficulty, name (followed
-by "· from Pump single" or "· from 5 keys", else "From Pump single",
-"From 5 keys"), credit and chart-scoped effects (`Song::effects_chart`)
+with its row and attributes; timing, meter, difficulty, name, credit
+and chart-scoped effects (`Song::effects_chart`)
 are kept. Only pump single and 5 keys: half-double's six panels and
 double's ten (two centers) have no key mode of as many lanes with as
 many centers. A generated version is never converted again.

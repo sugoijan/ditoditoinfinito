@@ -173,7 +173,7 @@ mod tests {
         let place = MenuPlace {
             song: Some("u-last-song".into()),
             chart: Some(("u-last-song".into(), 4)),
-            closed: Some(vec![ddi_ui::state::select_view::BUNDLED_PACK.into()]),
+            closed: Some(vec![ddi_ui::state::place::CLOSED_BUNDLED.into()]),
             ..Default::default()
         };
         place.save();

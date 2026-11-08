@@ -36,7 +36,7 @@ the atlas and painted by the Vivid material ported from its WGSL (the
 prelude's hash and noise, the drift, warp, folds and palette window;
 CPU doubles for the GPU's floats, each initial's field centered as
 `wordmark_geometry.rs` has it, at most half the device's pixels), the
-rain as `crates/theme/src/rain.rs` computes it particle for particle
+rain as `crates/actor/src/rain.rs` computes it particle for particle
 in the menu's layout (its stationary field sampled at each outline's
 middle, at 35% saturation), and the progress bar's done part painted
 as the focused button's outline is (`crates/theme/src/active.rs`: the

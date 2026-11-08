@@ -1,10 +1,7 @@
 //! The gameplay hand picture, shared by desktop and browser.
 use ddi_character::appearance::{Appearance, ContactLights, UP_TILE_CENTER};
 use ddi_character::{Character, Pose};
-use ddi_render::{
-    Painter,
-    character::{Camera, CharacterScene, Presentation, SOURCE, animated_camera, project},
-};
+use ddi_render::character::{Camera, CharacterScene, Presentation, animated_camera, project};
 use std::{cell::RefCell, rc::Rc};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Report {
@@ -34,7 +31,6 @@ pub struct Picture {
 pub struct ProceduralPose {
     pub worlds: [[f32; 16]; 19],
     pub weights: [f32; 76],
-    pub debug: serde_json::Value,
 }
 
 type DrawKey = ([u32; 2], [f32; 4], Option<f32>, Option<Appearance>);
@@ -53,33 +49,18 @@ impl Host {
     pub fn set(&mut self, picture: Option<Picture>) {
         self.picture = picture;
     }
-    /// Draw the next frame even if its time and camera repeat (a pose replay
-    /// alternating between streams at one instant).
-    pub fn invalidate(&mut self) {
-        self.last = None;
-    }
-    /// Drop device-owned resources even when a paused picture has not changed.
-    pub fn device_changed(&mut self) {
-        self.scene = None;
-        self.last = None;
-    }
-    pub fn release(&mut self, device: &wgpu::Device, painter: &mut Painter) {
-        painter.set_external_image(device, SOURCE, None);
-        self.scene = None;
-        self.last = None;
-    }
+    /// Draws the picture into [`Host::texture`]; whether it drew (a
+    /// picture repeating its time, camera and size keeps the last image).
     pub fn draw(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        painter: &mut Painter,
-    ) {
+    ) -> bool {
         let Some(p) = self.picture.as_ref() else {
-            if self.scene.is_some() {
-                self.release(device, painter);
-            }
-            return;
+            self.scene = None;
+            self.last = None;
+            return false;
         };
         if self.asset.is_none() && self.error.is_none() {
             match Character::load(ddi_character::HAND_MODEL) {
@@ -97,7 +78,7 @@ impl Host {
                 report.error = Some(e.clone());
                 report.revision += 1;
             }
-            return;
+            return false;
         }
         let asset = self.asset.as_ref().unwrap();
         let pose = self.pose.as_mut().unwrap();
@@ -119,21 +100,22 @@ impl Host {
             p.appearance,
         );
         if self.last == Some(key) {
-            return;
+            return false;
         }
 
         if let Some(external) = &p.procedural {
             let external = external.borrow();
             if let Err(e) = asset.pose_from_joints(&external.worlds, &external.weights, pose) {
                 self.error = Some(e);
-                return;
+                return false;
             }
         } else {
             asset.sample(p.seconds, pose);
         }
         let scene = self.scene.as_mut().unwrap();
+        let contacts = asset.contacts(pose);
         if p.appearance.is_some() {
-            self.lights.update(p.seconds, &asset.contacts(pose));
+            self.lights.update(p.seconds, &contacts);
         }
         scene.draw_styled(
             device,
@@ -157,7 +139,6 @@ impl Host {
                 seconds: p.seconds,
             },
         );
-        painter.set_external_image(device, SOURCE, scene.texture());
         self.last = Some(key);
         self.drawn += 1;
         let revision = p.report.borrow().revision + 1;
@@ -168,7 +149,7 @@ impl Host {
             morphs: asset.morph_count(),
             drawn: self.drawn,
             revision,
-            contacts: asset.contacts(pose),
+            contacts,
             up: p.appearance.filter(|a| a.mat).and_then(|a| {
                 project(
                     animated_camera(
@@ -187,6 +168,7 @@ impl Host {
                 )
             }),
         };
+        true
     }
     /// Prepared straight-alpha image, for a host's behind-field compositor.
     pub fn texture(&self) -> Option<&wgpu::Texture> {
@@ -198,12 +180,12 @@ impl Host {
             return serde_json::Value::Null;
         };
         let Some(a) = &self.asset else {
-            return serde_json::json!({"error":self.error,"rolling":p.procedural.as_ref().map(|p|p.borrow().debug.clone())});
+            return serde_json::json!({"error":self.error});
         };
         let Some(pose) = &self.pose else {
             return serde_json::Value::Null;
         };
         let anchors = a.contact_centers(pose);
-        serde_json::json!({"appearance":p.appearance,"tiles":self.lights.values,"tile_heights_m":ddi_character::appearance::tile_heights(&a.contacts(pose)),"strikes":self.lights.strikes,"up":p.report.borrow().up,"rect":p.rect,"time":p.seconds,"playing":p.playing,"yaw":p.yaw,"pitch":p.pitch,"distance":p.distance,"vertices":a.vertices.len(),"triangles":a.indices.len()/3,"jointCount":a.joint_names.len(),"morphCount":a.morph_count(),"drawn":self.drawn,"contacts":a.contacts(pose),"anchors":anchors,"positions":if p.playing{None}else{Some(&pose.positions)},"error":self.error,"rolling":p.procedural.as_ref().map(|p|p.borrow().debug.clone())})
+        serde_json::json!({"appearance":p.appearance,"tiles":self.lights.values,"tile_heights_m":ddi_character::appearance::tile_heights(&a.contacts(pose)),"strikes":self.lights.strikes,"up":p.report.borrow().up,"rect":p.rect,"time":p.seconds,"playing":p.playing,"yaw":p.yaw,"pitch":p.pitch,"distance":p.distance,"vertices":a.vertices.len(),"triangles":a.indices.len()/3,"jointCount":a.joint_names.len(),"morphCount":a.morph_count(),"drawn":self.drawn,"contacts":a.contacts(pose),"anchors":anchors,"positions":if p.playing{None}else{Some(&pose.positions)},"error":self.error})
     }
 }

@@ -850,19 +850,10 @@ impl Settings {
         }
     }
 
-    /// Whether this build accompanies this layout with the dancing hand.
+    /// Whether a play of `layout` is accompanied by the dancing hand: it
+    /// is on, and plays that layout ([`ddi_character::HAND_LAYOUTS`]).
     pub fn dancing_hand_for(&self, layout: &str) -> bool {
-        self.dancing_hand
-            && matches!(
-                layout,
-                "dance-single"
-                    | "dance-solo"
-                    | "danoni-5"
-                    | "danoni-7"
-                    | "danoni-9B"
-                    | "pump-single"
-                    | "techno-single8"
-            )
+        self.dancing_hand && ddi_character::HAND_LAYOUTS.contains(&layout)
     }
 
     /// Keeps the heights a play left the lane covers at, as DDR and

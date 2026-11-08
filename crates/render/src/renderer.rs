@@ -472,12 +472,22 @@ impl Renderer {
             };
             self.underlay_image = Some((id, texture));
         }
-        let (id, texture) = self.underlay_image.as_ref().unwrap();
+        let (_, texture) = self.underlay_image.as_ref().unwrap();
         encoder.copy_texture_to_texture(
             source.as_image_copy(),
             texture.as_image_copy(),
             source.size(),
         );
+        self.place_field_underlay(rect, opacity);
+    }
+
+    /// Places the image [`Renderer::set_field_underlay`] copied last again,
+    /// without copying it (its source has not changed); false when there is
+    /// none to place.
+    pub fn place_field_underlay(&mut self, rect: [f32; 4], opacity: f32) -> bool {
+        let Some((id, _)) = self.underlay_image.as_ref() else {
+            return false;
+        };
         let [x, y, w, h] = rect;
         self.field_underlay = Some(crate::textured::TexQuad::new(
             crate::textured::Shape::Quad {
@@ -487,6 +497,7 @@ impl Renderer {
             [1., 1., 1., opacity],
             *id,
         ));
+        true
     }
 
     /// HUD runs shaped since the start (a counter for the debug state).

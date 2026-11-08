@@ -27,7 +27,8 @@ pub struct MenuPlace {
     pub search: String,
     pub searched: String,
     /// Song select (step 6.2): the song shown, the style (its id) and the
-    /// packs closed (by name; `None` before the first visit).
+    /// packs closed (by name, the bundled songs by [`CLOSED_BUNDLED`];
+    /// `None` before the first visit).
     pub song: Option<String>,
     pub style: Option<String>,
     pub closed: Option<Vec<String>>,
@@ -36,10 +37,7 @@ pub struct MenuPlace {
 impl MenuPlace {
     /// Apply a committed selection from either shell.
     pub fn remember(&mut self, place: &crate::screens::select::SelectPlace) {
-        let open = place
-            .open
-            .as_deref()
-            .map(|name| pack_key((name != super::select_view::BUNDLED_PACK).then_some(name)));
+        let open = place.open.clone();
         if place.song.is_some() || self.open != open {
             self.song = place.song.clone();
             self.chart = place
@@ -53,7 +51,22 @@ impl MenuPlace {
         self.style = Some(place.style.clone());
         self.search = place.search.clone();
         self.searched = place.search.clone();
-        self.closed = Some(place.closed.clone());
+        self.closed = Some(
+            place
+                .closed
+                .iter()
+                .map(|p| p.as_deref().unwrap_or(CLOSED_BUNDLED).to_string())
+                .collect(),
+        );
+    }
+
+    /// Whether the pack named `name` (`None`: the bundled songs) was
+    /// closed.
+    pub fn is_closed(&self, name: Option<&str>) -> bool {
+        let name = name.unwrap_or(CLOSED_BUNDLED);
+        self.closed
+            .as_ref()
+            .is_some_and(|c| c.iter().any(|n| n == name))
     }
 
     pub fn load() -> MenuPlace {
@@ -70,6 +83,10 @@ impl MenuPlace {
         }
     }
 }
+
+/// How the closed packs kept by earlier runs name the bundled songs (a
+/// saved value: a pack of this name shares their closing).
+pub const CLOSED_BUNDLED: &str = "Bundled songs";
 
 /// Key of a group of the list: the bundled songs or an imported pack
 /// (packs are told apart ignoring case).
@@ -93,8 +110,8 @@ mod tests {
             song: Some("u-song".into()),
             chart: Some(2),
             style: "dance-single".into(),
-            open: Some("My Pack".into()),
-            closed: vec![crate::state::select_view::BUNDLED_PACK.into()],
+            open: Some(pack_key(Some("My Pack"))),
+            closed: vec![None],
             ..Default::default()
         };
         place.remember(&selection);
@@ -114,17 +131,15 @@ mod tests {
         assert_eq!(resumed.chart, Some(("u-song".into(), 2)));
         assert_eq!(resumed.open.as_deref(), Some("pack:my pack"));
         assert!(resumed.search.is_empty());
-        assert_eq!(
-            resumed.closed,
-            Some(vec![crate::state::select_view::BUNDLED_PACK.into()])
-        );
+        assert_eq!(resumed.closed, Some(vec![CLOSED_BUNDLED.into()]));
+        assert!(resumed.is_closed(None) && !resumed.is_closed(Some("My Pack")));
     }
 
     #[test]
     fn headers_keep_the_last_song_only_within_the_open_pack() {
         let mut place = MenuPlace::default();
         let mut selection = crate::screens::select::SelectPlace {
-            open: Some("Pack".into()),
+            open: Some(pack_key(Some("Pack"))),
             song: Some("u-song".into()),
             chart: Some(3),
             ..Default::default()
@@ -133,7 +148,7 @@ mod tests {
         selection.song = None;
         place.remember(&selection);
         assert_eq!(place.song.as_deref(), Some("u-song"));
-        selection.open = Some("Other".into());
+        selection.open = Some(pack_key(Some("Other")));
         place.remember(&selection);
         assert!(place.song.is_none());
         assert!(place.chart.is_none());

@@ -11,9 +11,12 @@
 -studio-button-add-recording = Add recording
 -studio-button-which-line = Which line?
 
-# The page's name: the compact header shows it as written, the wide one in
-# capitals.
+# The page's title beside its back icon on a phone (about 20 letters).
 studio-title = Announcer studio
+
+# The page's name in its header, in small capitals: written in capitals
+# where the language has them.
+studio-heading = ANNOUNCER STUDIO
 
 # The page's first paragraph (wrapped, the page's width).
 studio-intro = Drop each recording of your voice on its line below, or add it with the line's { -studio-button-add-recording } button. Then use your announcer in the game, or export it to share.

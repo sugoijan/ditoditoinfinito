@@ -67,9 +67,9 @@ prompt-video-failed = 背景動画を再生できません：{ $error }
 
 prompt-download = 曲をダウンロード中…
 
-prompt-download-done = 曲をダウンロード中… { NUMBER($done, minimumFractionDigits: 1) } MB
+prompt-download-done = 曲をダウンロード中… { $done }
 
-prompt-download-progress = 曲をダウンロード中… { NUMBER($done, minimumFractionDigits: 1) } / { NUMBER($total, minimumFractionDigits: 1) } MB
+prompt-download-progress = 曲をダウンロード中… { $done } / { $total }
 
 prompt-share-reading = 共有曲を読み込み中… { $done } / { $total }曲
 

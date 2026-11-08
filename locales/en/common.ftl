@@ -105,3 +105,39 @@ common-lane-iyo = Iyo
 #   $lane (String) - the lane's name, as above ("Left")
 #   $pad (Number) - its pad, 1 or 2
 common-lane-on-pad = { $lane } (pad { $pad })
+
+## Sizes: an amount of data (a file, a download, what the browser
+## stores), in steps of 1000: B, kB, MB, GB. Below 10 of a unit the
+## amount shows a tenth ("4.2 MB"), from 10 a whole number ("37 MB").
+
+# A size in bytes, below 1000.
+# Variables:
+#   $amount (Number) - bytes, a whole number
+common-size-b = { $amount } B
+
+# A size in kilobytes (1000 bytes).
+# Variables:
+#   $amount (Number) - kilobytes: to a tenth below 10, else whole
+#   $tenths (String) - "yes" when the amount shows a tenth, else "no"
+common-size-kb = { $tenths ->
+    [yes] { NUMBER($amount, minimumFractionDigits: 1) } kB
+   *[no] { $amount } kB
+}
+
+# A size in megabytes (1000 kilobytes).
+# Variables:
+#   $amount (Number) - megabytes: to a tenth below 10, else whole
+#   $tenths (String) - "yes" when the amount shows a tenth, else "no"
+common-size-mb = { $tenths ->
+    [yes] { NUMBER($amount, minimumFractionDigits: 1) } MB
+   *[no] { $amount } MB
+}
+
+# A size in gigabytes (1000 megabytes).
+# Variables:
+#   $amount (Number) - gigabytes: to a tenth below 10, else whole
+#   $tenths (String) - "yes" when the amount shows a tenth, else "no"
+common-size-gb = { $tenths ->
+    [yes] { NUMBER($amount, minimumFractionDigits: 1) } GB
+   *[no] { $amount } GB
+}

@@ -19,8 +19,8 @@ use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
 use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::prompt::{
-    Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptScreen,
-    PromptState, PromptStep, SharedPrompt, chart_line,
+    Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptScreen, PromptState, PromptStep,
+    SharedPrompt, chart_line,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
@@ -458,9 +458,7 @@ impl Host {
                     if step != PromptStep::Ready {
                         return;
                     }
-                    state
-                        .borrow_mut()
-                        .set_step(PromptStep::Loading("loading…".into()));
+                    state.borrow_mut().set_step(PromptStep::Loading);
                 }
                 // After an interruption: the prompt readies the play
                 // again (Start then plays).
@@ -890,16 +888,19 @@ impl Host {
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, dev.formats);
             view.set_song(&loaded, &settings);
-            // Never behind calibration (nothing may cue the player).
-            if r.request.calibration.is_none() {
-                view.set_generated(&loaded, &settings);
-            }
+            let calibration = r.request.calibration.is_some();
+            view.set_generated(&loaded, &settings, calibration);
             view.set_noteskin(dev.device, dev.queue, None);
             view.start();
             r.view = Some(view);
             // Its pictures are read on threads (again for a view made
             // again, after a lost device); Start waits for them.
-            r.images = Some(read_images(&loaded, &settings, self.wake.clone()));
+            r.images = Some(read_images(
+                &loaded,
+                &settings,
+                calibration,
+                self.wake.clone(),
+            ));
             r.view_made = Some(Instant::now());
             // The skin is read on a thread (its images decoded there);
             // until it comes the prompt says it loads.
@@ -932,9 +933,11 @@ impl Host {
         // The play options changed on the prompt: the skin read again
         // when they change it (its key, or the direction its Lua is
         // told), the summary as it now is.
+        let mut changed = false;
         if let Some(o) = &r.options {
             let now = o.borrow().overrides();
             if now != r.applied {
+                changed = true;
                 let before = std::mem::replace(&mut r.applied, now.clone());
                 let skin = before.noteskin != now.noteskin
                     || before.pump_noteskin != now.pump_noteskin
@@ -1000,10 +1003,9 @@ impl Host {
         // The prompt's picture, as the play opens on it (a test shows
         // none): the song's, else its generated background's first
         // frame held still (self-lit, as the play draws it).
-        let shown = r.request.calibration.is_none() && settings.bg_brightness > 0.0;
         let frame = view.prompt_frame();
         r.still = None;
-        if shown && loaded.entry.background.is_none() {
+        if loaded.entry.background.is_none() && view.has_generated() {
             let first = *r
                 .first_beat
                 .get_or_insert_with(|| first_beat(&loaded, &r.request, &settings));
@@ -1016,40 +1018,38 @@ impl Host {
                 aspect,
             );
         }
-        let picture = match (&r.picture, &r.still) {
-            (Some((source, aspect)), _) => Some((source.clone(), *aspect, settings.bg_brightness)),
-            (None, Some(still)) => Some((r.still_source.clone(), still.aspect, 1.0)),
-            (None, None) => None,
-        }
-        .filter(|_| shown)
-        .map(|(source, aspect, brightness)| PromptPicture {
-            source,
-            aspect,
+        let picture = ddi_shell::generative::prompt_picture(
+            r.picture
+                .clone()
+                .filter(|_| r.request.calibration.is_none()),
+            r.still.as_ref().map(|s| (r.still_source.clone(), s.aspect)),
+            settings.bg_brightness,
             frame,
-            brightness,
-            filter: filter(&loaded, r.request.chart, &settings, ui),
-        });
-
-        {
+            filter(&loaded, r.request.chart, &settings, ui),
+        );
+        // The dancing hand readied for the play as it now is: again when
+        // the play's options change, or after a reset (a new view, the
+        // prompt up again with a new seed).
+        if changed || view.dance.needs_preload() {
             let config = r
                 .request
                 .session_config(&settings, self.watcher.for_play(), r.play_seed);
             view.dance.preload(
-                &loaded.song.shifted(r.request.song_shift(&settings)),
+                &loaded.song,
+                r.request.song_shift(&settings),
                 r.request.chart,
                 &settings,
                 &config,
-                settings.dancing_hand && r.request.calibration.is_none(),
-            );
-            let at = Instant::now();
-            view.dance.preload_work(
-                dev.device,
-                dev.queue,
-                dev.formats.plain.unwrap_or(dev.formats.view),
-                ui.viewport().physical.map(|v| v.max(1.) as u32),
-                &|| at.elapsed().as_secs_f64(),
             );
         }
+        let at = Instant::now();
+        view.dance.preload_work(
+            dev.device,
+            dev.queue,
+            dev.formats.plain.unwrap_or(dev.formats.view),
+            ui.viewport().physical.map(|v| v.max(1.) as u32),
+            &|| at.elapsed().as_secs_f64(),
+        );
         let sound = r
             .audio
             .as_ref()
@@ -1078,7 +1078,7 @@ impl Host {
     /// the loading screen shows until it is (looked at again each poll).
     fn start_if_ready(&mut self, mut r: Box<Readied>, ui: &mut Ui, env: &Env) -> Stage {
         let step = r.prompt.borrow().step.clone();
-        if !matches!(step, PromptStep::Ready | PromptStep::Loading(_)) {
+        if !matches!(step, PromptStep::Ready | PromptStep::Loading) {
             // An error came meanwhile: it shows, nothing starts.
             r.started = false;
             return Stage::Prompt(r);
@@ -1087,9 +1087,7 @@ impl Host {
             return self.start(r, ui, env);
         }
         if step == PromptStep::Ready {
-            r.prompt
-                .borrow_mut()
-                .set_step(PromptStep::Loading("loading…".into()));
+            r.prompt.borrow_mut().set_step(PromptStep::Loading);
         }
         Stage::Prompt(r)
     }
@@ -1152,11 +1150,14 @@ impl Host {
         // What the history says of the chart before this play, for the
         // results' first clear and new record (a play that is kept).
         if request.replay.is_none() && request.calibration.is_none() && request.edited.is_none() {
-            let best = self.plays.as_ref().and_then(|p| {
-                p.history()
-                    .best_of_play(&loaded.song, request.chart, settings)
-            });
-            request.prior = Some(ddi_session::announcer::Prior::of(best.as_ref()));
+            request.prior = Some(self.plays.as_ref().map_or_else(Default::default, |p| {
+                ddi_session::announcer::Prior::before(
+                    &p.history(),
+                    &loaded.song,
+                    request.chart,
+                    settings,
+                )
+            }));
         }
         match Play::start_seeded(
             request,
@@ -1292,9 +1293,7 @@ impl Host {
                 self.push_prompt(ui, env, &mut r);
                 r.started = true;
                 r.prompt.borrow_mut().countdown = None;
-                r.prompt
-                    .borrow_mut()
-                    .set_step(PromptStep::Loading("loading…".into()));
+                r.prompt.borrow_mut().set_step(PromptStep::Loading);
                 self.stage = Stage::Prompt(r);
             } else {
                 self.stage = self.begin(r, loaded, &settings, audio, Default::default(), ui, env);
@@ -1742,10 +1741,11 @@ fn read_skin(
 fn read_images(
     loaded: &Loaded,
     settings: &Settings,
+    calibration: bool,
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Receiver<(BgImage, Rgba)> {
     let (tx, rx) = mpsc::channel();
-    let jobs = View::images_to_read(loaded, settings);
+    let jobs = View::images_to_read(loaded, settings, calibration);
     let _ = std::thread::Builder::new()
         .name("ddi-play-images".into())
         .spawn(move || {

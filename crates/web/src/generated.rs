@@ -13,7 +13,7 @@ use ddi_library::music::Analyzer;
 use ddi_render::{Painter, TextureId, TextureKey};
 use ddi_shell::generative::{Still, Stills};
 
-use crate::editor::{next_frame, now_ms};
+use crate::editor::analyze_buffer;
 use crate::web::gfx::Gfx;
 
 thread_local! {
@@ -48,47 +48,12 @@ pub(crate) fn serve_stills(
 const BUDGET_MS: f64 = 3.0;
 
 /// The signals of `buffer`'s music (its lead: where its first sample is
-/// heard); `None` once `stale` says the page went.
+/// heard), [`analyze_buffer`] [`BUDGET_MS`] each animation frame; `None`
+/// once `stale` says the page went.
 pub(crate) async fn analyze(
     buffer: web_sys::AudioBuffer,
     stale: impl Fn() -> bool,
 ) -> Option<Series> {
-    let frames = buffer.length() as usize;
-    let mut a = Analyzer::new(
-        f64::from(buffer.sample_rate()),
-        frames,
-        crate::web::audio::lead(&buffer),
-    );
-    let channels = (buffer.number_of_channels() as usize).max(1);
-    let mut blocks = vec![vec![0.0f32; 1 << 14]; channels];
-    loop {
-        let until = now_ms() + BUDGET_MS;
-        while now_ms() < until {
-            let at = a.fed();
-            if at < frames {
-                let n = blocks[0].len().min(frames - at);
-                for (c, block) in blocks.iter_mut().enumerate() {
-                    if buffer
-                        .copy_from_channel_with_start_in_channel(
-                            &mut block[..n],
-                            c as i32,
-                            at as u32,
-                        )
-                        .is_err()
-                    {
-                        block[..n].fill(0.0);
-                    }
-                }
-                let planar: Vec<&[f32]> = blocks.iter().map(|b| &b[..n]).collect();
-                a.add_planar(&planar);
-            }
-            if a.step(32) {
-                return Some(Series::new(&a.finish()));
-            }
-        }
-        next_frame().await;
-        if stale() {
-            return None;
-        }
-    }
+    let music = analyze_buffer::<Analyzer>(&buffer, 1 << 14, 32, BUDGET_MS, stale).await?;
+    Some(Series::new(&music))
 }

@@ -337,10 +337,14 @@ fn place_after_bpm(root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeas
     let Some(info) = ddi_ui::hit::actor_at_mut(root, parent) else {
         return;
     };
-    let advance = info.children().iter().find(|a| a.name == "Bpm").and_then(|a| match &a.kind {
-        Kind::Text(t) => t.metrics().map(|m| m.advance),
-        _ => None,
-    });
+    let advance = info
+        .children()
+        .iter()
+        .find(|a| a.name == "Bpm")
+        .and_then(|a| match &a.kind {
+            Kind::Text(t) => t.metrics().map(|m| m.advance),
+            _ => None,
+        });
     let Some(advance) = advance else {
         return;
     };

@@ -5,6 +5,8 @@
 
 studio-title = アナウンサースタジオ
 
+studio-heading = アナウンサースタジオ
+
 studio-intro = 自分の声の録音を下のセリフにドロップするか、セリフの「{ -studio-button-add-recording }」ボタンで追加します。作ったアナウンサーはゲームで使ったり、書き出して共有したりできます。
 
 studio-name = 名前

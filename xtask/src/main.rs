@@ -148,11 +148,16 @@ struct SeoPaths {
     theme_css: PathBuf,
 }
 
-fn seo_paths() -> SeoPaths {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+/// The workspace's root, where xtask lives.
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("xtask crate lives inside the workspace root")
-        .to_path_buf();
+        .expect("xtask lives in the workspace root")
+        .to_path_buf()
+}
+
+fn seo_paths() -> SeoPaths {
+    let repo_root = repo_root();
     let generated_dir = repo_root.join("target/seo");
     SeoPaths {
         metadata: repo_root.join("site/seo/metadata.toml"),

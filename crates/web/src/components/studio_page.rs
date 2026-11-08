@@ -61,8 +61,9 @@ use ddi_ui::screens::select::{OpenFn, PlayFn, SelectCall, SelectScreen, ShellFn}
 use ddi_ui::screens::stage::{self, BackFn, StageFrame};
 use ddi_ui::screens::start;
 use ddi_ui::screens::studio::{self, Act, Example, View};
-use ddi_ui::{Cx, MenuAction, UiRequest};
+use ddi_ui::{Cx, Mark, MenuAction, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
+use gloo::render::{AnimationFrame, request_animation_frame};
 use gloo::timers::callback::Timeout;
 use js_sys::Reflect;
 use wasm_bindgen::{JsCast, JsValue};
@@ -81,11 +82,14 @@ const EXAMPLES_KEY: &str = "ddi.studio.examples";
 /// The rate takes are decoded, measured and written at.
 const RATE: f32 = 48_000.0;
 /// Files a pick or drop takes as recordings by their extension, where
-/// their first bytes say nothing (M4A, AAC, AIFF, WebM…).
-const RECORDINGS: [&str; 17] = [
-    "mp3", "wav", "ogg", "oga", "opus", "flac", "m4a", "aac", "aif", "aiff", "caf", "webm", "weba",
-    "mp4", "3gp", "amr", "wma",
+/// their first bytes say nothing (M4A, AAC, AIFF, WebM…): a song's music's
+/// and these.
+const MORE_RECORDINGS: [&str; 11] = [
+    "m4a", "aac", "aif", "aiff", "caf", "webm", "weba", "mp4", "3gp", "amr", "wma",
 ];
+/// The draft is saved at most this often while takes are decoded,
+/// milliseconds.
+const SAVE_EVERY_MS: f64 = 1000.0;
 
 /// What a line's Add recording picks.
 const RECORDING_TYPES: &str = "audio/*,.m4a,.opus,.flac,.caf,.aif,.aiff,.webm";
@@ -96,12 +100,14 @@ fn take_key(id: u64) -> String {
     format!("studio/take/{id}")
 }
 
-fn extension(path: &str) -> String {
-    path.rsplit('/')
-        .next()
-        .and_then(|n| n.rsplit_once('.'))
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .unwrap_or_default()
+/// Whether `path`'s extension is a recording's.
+fn is_recording(path: &str) -> bool {
+    crate::import::extension(path).is_some_and(|e| {
+        ddi_library::pack::AUDIO_EXTENSIONS
+            .iter()
+            .chain(&MORE_RECORDINGS)
+            .any(|x| *x == e)
+    })
 }
 
 pub(crate) enum Msg {
@@ -177,6 +183,28 @@ impl Said {
     }
 }
 
+/// The screen a scene shows.
+#[derive(Clone, Copy, PartialEq)]
+enum Shows {
+    /// A line said in play, on the play route.
+    Play,
+    Start,
+    Select,
+    Results,
+}
+
+impl Shows {
+    /// As the debug state says it: `start`.
+    fn key(self) -> &'static str {
+        match self {
+            Shows::Play => "play",
+            Shows::Start => "start",
+            Shows::Select => "select",
+            Shows::Results => "results",
+        }
+    }
+}
+
 /// A scene showing (`docs/plans/announcer-studio.md`, step 3): a line
 /// heard on the screen the game speaks it on, in a frame over the
 /// studio ([`StageFrame`]), what it is said for pointed at.
@@ -185,8 +213,8 @@ struct Scene {
     said: Said,
     /// When it began, milliseconds (`Date.now`).
     began: f64,
-    /// The screen shown now: `start`, `select` or `results`.
-    screen: &'static str,
+    /// The screen shown now.
+    screen: Shows,
     /// What happens now (the frame's caption).
     caption: String,
     /// Song select's chart is to be chosen (a comment's scene, a results
@@ -196,7 +224,7 @@ struct Scene {
     chosen: bool,
     /// What it points at now (a spot of the screen's, `Ui::mark`), and
     /// whether it does yet.
-    mark: &'static str,
+    mark: Option<Mark>,
     marked: bool,
     /// Its way out was asked for on the start menu (which Back does not
     /// leave): it leaves as Singleplayer is chosen.
@@ -275,6 +303,12 @@ struct Studio {
     /// each line's next (by set).
     example_sounds: RefCell<HashMap<String, AudioBuffer>>,
     example_turns: RefCell<HashMap<(&'static str, Line), usize>>,
+    /// `__DDI_DEBUG.studio` as last built; `None` once the studio changed
+    /// since (each frame's debug state takes it as it is).
+    debug: RefCell<Option<js_sys::Object>>,
+    /// The page is to be shown again at the next animation frame
+    /// ([`Studio::send_soon`]).
+    frame: RefCell<Option<AnimationFrame>>,
 }
 
 impl Studio {
@@ -314,6 +348,8 @@ impl Studio {
             example_turns: RefCell::new(
                 KEPT.with_borrow_mut(|k| std::mem::take(&mut k.example_turns)),
             ),
+            debug: RefCell::new(None),
+            frame: RefCell::new(None),
         })
     }
 
@@ -338,20 +374,54 @@ impl Studio {
         self.publish();
     }
 
+    /// [`Studio::send`] at the next animation frame, however often asked
+    /// before it (each take decoded).
+    fn send_soon(self: &Rc<Self>) {
+        if self.frame.borrow().is_some() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        let frame = request_animation_frame(move |_| {
+            if let Some(s) = weak.upgrade() {
+                s.frame.borrow_mut().take();
+                s.send();
+            }
+        });
+        *self.frame.borrow_mut() = Some(frame);
+    }
+
     fn status(&self, text: impl Into<String>) {
         self.view.borrow_mut().status = text.into();
         self.send();
     }
 
+    /// The debug state made again: the studio changed.
     fn publish(&self) {
+        self.changed();
         if let Some(debug) = crate::web::debug_object() {
             self.debug_into(&debug);
         }
     }
 
-    /// `__DDI_DEBUG.studio` (the host writes its debug object anew; this
-    /// goes in each time, [`ui_dev::DebugFn`]).
+    /// The debug state is to be made again when next asked.
+    fn changed(&self) {
+        self.debug.borrow_mut().take();
+    }
+
+    /// `__DDI_DEBUG.studio` (the host writes its debug object anew each
+    /// frame; this goes in each time, [`ui_dev::DebugFn`]), made again
+    /// only after the studio changed.
     fn debug_into(&self, debug: &js_sys::Object) {
+        let built = self
+            .debug
+            .borrow_mut()
+            .get_or_insert_with(|| self.studio_debug())
+            .clone();
+        let _ = Reflect::set(debug, &"studio".into(), &built);
+    }
+
+    /// What `__DDI_DEBUG.studio` says.
+    fn studio_debug(&self) -> js_sys::Object {
         let set = |o: &js_sys::Object, k: &str, v: JsValue| {
             let _ = Reflect::set(o, &k.into(), &v);
         };
@@ -433,17 +503,15 @@ impl Studio {
                 let x = js_sys::Object::new();
                 set(&x, "line", sc.line.folder().into());
                 set(&x, "said", sc.said.key().into());
-                set(&x, "screen", sc.screen.into());
+                set(&x, "screen", sc.screen.key().into());
                 set(&x, "caption", sc.caption.as_str().into());
                 set(&x, "chosen", sc.chosen.into());
                 set(
                     &x,
                     "mark",
-                    if sc.marked {
-                        sc.mark.into()
-                    } else {
-                        JsValue::NULL
-                    },
+                    sc.mark
+                        .filter(|_| sc.marked)
+                        .map_or(JsValue::NULL, |m| m.as_str().into()),
                 );
                 let said: Vec<String> = sc.spoken.iter().map(|(f, _)| f.clone()).collect();
                 set(&x, "spoken", folders(&said));
@@ -463,7 +531,7 @@ impl Studio {
             None => JsValue::NULL,
         };
         set(&o, "heard", heard);
-        set(debug, "studio", o.into());
+        o
     }
 
     /// The draft written to storage.
@@ -623,7 +691,7 @@ impl Studio {
                 let name = path.rsplit('/').next().unwrap_or(&path);
                 if name.starts_with('.')
                     || (format == ddi_library::announcer::draft::Format::Other
-                        && !RECORDINGS.contains(&extension(&path).as_str()))
+                        && !is_recording(&path))
                 {
                     if readme.as_deref() != Some(path.as_str()) {
                         passed += 1;
@@ -672,6 +740,10 @@ impl Studio {
                 this.status(ms::status_no_decoder());
                 return;
             };
+            // Saved and shown now and then while they come in (the work
+            // each grows with the takes), and once at the end.
+            let mut saved = js_sys::Date::now();
+            let mut any = false;
             loop {
                 let next = this
                     .draft
@@ -695,10 +767,19 @@ impl Studio {
                 if let Some(t) = this.draft.borrow_mut().take_mut(id) {
                     t.sound = sound;
                 }
+                any = true;
+                let now = js_sys::Date::now();
+                if now - saved >= SAVE_EVERY_MS {
+                    saved = now;
+                    this.save();
+                }
+                this.send_soon();
+            }
+            this.decoding.set(false);
+            if any {
                 this.save();
                 this.send();
             }
-            this.decoding.set(false);
         });
     }
 
@@ -766,12 +847,14 @@ impl Studio {
         let n = self.plays.get() + 1;
         self.plays.set(n);
         self.view.borrow_mut().playing = Some(playing);
+        self.changed();
         Some((audio, n))
     }
 
     fn stop(&self) {
         self.sound.borrow_mut().take();
         self.view.borrow_mut().playing = None;
+        self.changed();
     }
 
     /// `pcm` played on `audio` (started for play `n`), and the page told
@@ -881,6 +964,7 @@ impl Studio {
     fn forget_export(&self) {
         self.zip.borrow_mut().take();
         self.view.borrow_mut().ready = None;
+        self.changed();
     }
 
     /// The pack's files: each export entry's, and where it goes.
@@ -1155,7 +1239,7 @@ impl Studio {
         };
         audio.resume_now();
         crate::web::audio::keep_for_play(pick.song, chart, audio);
-        let n = self.begin_scene(line, said, "play", false, "", "", false);
+        let n = self.begin_scene(line, said, Shows::Play, false, "", None, false);
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let lines: Vec<Line> = Line::all()
@@ -1243,14 +1327,15 @@ impl Studio {
         &self,
         line: Line,
         said: Said,
-        screen: &'static str,
+        screen: Shows,
         choose: bool,
         caption: &str,
-        mark: &'static str,
+        mark: Option<Mark>,
         preview: bool,
     ) -> u64 {
         let n = self.scenes.get() + 1;
         self.scenes.set(n);
+        self.changed();
         *self.scene.borrow_mut() = Some(Scene {
             line,
             said,
@@ -1280,6 +1365,7 @@ impl Studio {
 
     /// `f` on scene `n` (while it is the one under way).
     fn with_scene<T>(&self, n: u64, f: impl FnOnce(&mut Scene) -> T) -> Option<T> {
+        self.changed();
         self.scene.borrow_mut().as_mut().filter(|s| s.n == n).map(f)
     }
 
@@ -1350,7 +1436,7 @@ impl Studio {
         &self,
         frame: StageFrame,
         screen: impl ddi_ui::Screen + 'static,
-        mark: Option<&str>,
+        mark: Option<Mark>,
     ) -> bool {
         let Some(host) = self.weak_host().and_then(|w| w.upgrade()) else {
             return false;
@@ -1368,7 +1454,7 @@ impl Studio {
 
     /// Scene `n` points at what it is for (its spot), now.
     fn mark(&self, n: u64) {
-        let Some(mark) = self.with_scene(n, |sc| {
+        let Some(Some(mark)) = self.with_scene(n, |sc| {
             sc.marked = true;
             sc.mark
         }) else {
@@ -1520,10 +1606,18 @@ impl Studio {
         crate::select_preview::set_volume(settings.volume);
         crate::select_preview::gesture();
         let (first, caption) = match &scene.start {
-            Some(c) => ("start", c.text()),
-            None => ("select", scene.caption.text()),
+            Some(c) => (Shows::Start, c.text()),
+            None => (Shows::Select, scene.caption.text()),
         };
-        let n = self.begin_scene(line, said, first, scene.choose, &caption, scene.mark, true);
+        let n = self.begin_scene(
+            line,
+            said,
+            first,
+            scene.choose,
+            &caption,
+            Some(scene.mark),
+            true,
+        );
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let menu: Vec<Line> = Line::all()
@@ -1643,7 +1737,7 @@ impl Studio {
         };
         cx.replace(select);
         self.with_scene(n, |sc| {
-            sc.screen = "select";
+            sc.screen = Shows::Select;
             sc.timer = None;
         });
         self.caption_now(n, caption);
@@ -1746,10 +1840,10 @@ impl Studio {
             crate::select_preview::gesture();
         }
         let (first, caption, mark) = match &scene.before {
-            Some(b) => ("select", b.caption.text(), b.mark),
-            None => ("results", scene.caption.text(), scene.mark),
+            Some(b) => (Shows::Select, b.caption.text(), b.mark),
+            None => (Shows::Results, scene.caption.text(), scene.mark),
         };
-        let n = self.begin_scene(line, said, first, before, &caption, mark, before);
+        let n = self.begin_scene(line, said, first, before, &caption, Some(mark), before);
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let voiced = match said {
@@ -1867,8 +1961,8 @@ impl Studio {
         cx.replace(results);
         self.with_scene(n, |sc| {
             sc.chosen = true;
-            sc.screen = "results";
-            sc.mark = scene.mark;
+            sc.screen = Shows::Results;
+            sc.mark = Some(scene.mark);
             sc.timer = None;
         });
         self.caption_now(n, &scene.caption.text());
@@ -1957,7 +2051,7 @@ impl Studio {
             let action = s.with_scene(n, |sc| match next {
                 Next::Start if sc.chosen => None,
                 Next::Start => Some(MenuAction::Start),
-                Next::End | Next::Leave if sc.screen == "start" => {
+                Next::End | Next::Leave if sc.screen == Shows::Start => {
                     sc.leaving = true;
                     Some(MenuAction::Start)
                 }

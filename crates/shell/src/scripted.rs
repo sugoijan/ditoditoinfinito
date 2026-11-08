@@ -93,55 +93,43 @@ impl<C: StageContent> ScriptView<C> {
         }
     }
 
-    /// The movies to decode now: those the last frame's quads drew, each
-    /// by its file (relative to the song's folder) at its clock, as the
-    /// shell's movie deck takes them (`ddi_session::movies::Clip`).
-    pub fn movie_clips(&self) -> Vec<ddi_session::movies::Clip> {
-        let Some(scripts) = &self.scripts else {
-            return Vec::new();
-        };
-        let drawn = self.movies_drawn.get();
-        scripts
-            .movies()
-            .into_iter()
-            .enumerate()
-            .filter(|(i, _)| drawn & 1u32.checked_shl(*i as u32).unwrap_or(0) != 0)
-            .map(|(_, m)| ddi_session::movies::Clip {
-                name: m.path,
-                position: m.clock,
-                looping: m.looping,
-            })
-            .collect()
-    }
-
-    /// The renderer the movies' frames go on (made at the first call).
-    pub fn movie_renderer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> &mut Renderer {
-        self.movies
-            .get_or_insert_with(|| ddi_render::script_movies::ScriptMovies::new(device, queue))
-            .renderer_mut()
-    }
-
-    /// The movies' frames the shell's deck just showed, `(file, its id
-    /// among the movie renderer's)`: each drawn into the movie's texture
-    /// in `renderer` (the play's), made at the size its file's header
-    /// gave the scripts.
-    pub fn show_movies(
+    /// Their movies for a frame: those the last frame's quads drew, each
+    /// by its file (relative to the song's folder) at its clock, handed
+    /// to the shell's movie deck (`deck`: it opens, feeds and closes
+    /// their decoders and puts the frames due on the renderer it is
+    /// given, the movies' converter, made at the first call), which says
+    /// the movies it showed, `(file, its id there)`; each is then drawn
+    /// into the movie's texture in `renderer` (the play's), made at the
+    /// size its file's header gave the scripts.
+    pub fn play_movies(
         &mut self,
         renderer: &mut Renderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        shown: &[(String, usize)],
+        deck: impl FnOnce(&[ddi_session::movies::Clip], &mut Renderer) -> Vec<(String, usize)>,
     ) {
-        let (Some(scripts), Some(movies)) = (&self.scripts, self.movies.as_mut()) else {
-            return;
-        };
-        let list = scripts.movies();
+        let list = self.scripts.as_ref().map_or(Vec::new(), Scripts::movies);
+        let drawn = self.movies_drawn.get();
+        let clips: Vec<_> = list
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| drawn & 1u32.checked_shl(*i as u32).unwrap_or(0) != 0)
+            .map(|(_, m)| ddi_session::movies::Clip {
+                name: m.path.clone(),
+                position: m.clock,
+                looping: m.looping,
+            })
+            .collect();
+        let movies = self
+            .movies
+            .get_or_insert_with(|| ddi_render::script_movies::ScriptMovies::new(device, queue));
+        let shown = deck(&clips, movies.renderer_mut());
         for (name, video) in shown {
-            let Some(index) = list.iter().position(|m| m.path == *name) else {
+            let Some(index) = list.iter().position(|m| m.path == name) else {
                 continue;
             };
             movies.target(renderer, device, index, list[index].size);
-            movies.draw(device, queue, index, *video);
+            movies.draw(device, queue, index, video);
         }
     }
 

@@ -46,15 +46,6 @@ use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
 use std::cell::RefCell;
 
-/// The start menu offers Quit ([`hide_quit`]).
-static QUIT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
-/// From now on the start menu offers no Quit, as the web's (the README's
-/// video shows the game's menu, not the window's way out).
-pub fn hide_quit() {
-    QUIT_SHOWN.store(false, std::sync::atomic::Ordering::Relaxed);
-}
-
 thread_local! {
     /// The wall clock less the host clock, at the first frame (`Shell::redraw`'s clock).
     static WALL_ORIGIN: std::cell::OnceCell<f64> = const { std::cell::OnceCell::new() };
@@ -156,15 +147,76 @@ struct Surface {
     link: Option<crate::display_link::DisplayLink>,
 }
 
+/// What the shell draws into: a window's surface, or a texture with no
+/// window ([`Shell::offscreen`]: the README's video).
+enum Target {
+    Window(Surface),
+    Offscreen(Offscreen),
+}
+
+impl Target {
+    fn gpu(&self) -> &Gpu {
+        match self {
+            Target::Window(s) => &s.gpu,
+            Target::Offscreen(o) => &o.gpu,
+        }
+    }
+
+    fn gpu_mut(&mut self) -> &mut Gpu {
+        match self {
+            Target::Window(s) => &mut s.gpu,
+            Target::Offscreen(o) => &mut o.gpu,
+        }
+    }
+
+    fn formats(&self) -> crate::play::view::Formats {
+        match self {
+            Target::Window(s) => s.formats,
+            Target::Offscreen(o) => o.formats,
+        }
+    }
+
+    /// The device a play draws with.
+    fn device(&self) -> crate::play::host::Device<'_> {
+        let gpu = self.gpu();
+        crate::play::host::Device {
+            device: &gpu.device,
+            queue: &gpu.queue,
+            formats: self.formats(),
+        }
+    }
+
+    /// The window's surface, when there is a window.
+    fn window(&self) -> Option<&Surface> {
+        match self {
+            Target::Window(s) => Some(s),
+            Target::Offscreen(_) => None,
+        }
+    }
+
+    fn window_mut(&mut self) -> Option<&mut Surface> {
+        match self {
+            Target::Window(s) => Some(s),
+            Target::Offscreen(_) => None,
+        }
+    }
+}
+
+/// What the loop's poll asks of it ([`Shell::poll_once`]).
+enum Polled {
+    /// The library is shut down after a quit: the shell exits.
+    Exit,
+    /// When the sound wants the loop again, if it does.
+    Wake(Option<Instant>),
+}
+
 /// What the shell does last as it quits ([`Shell::on_exit`]).
 pub type OnExit = Box<dyn FnOnce(&Shell)>;
 
 pub struct Shell {
     pub ui: Ui,
     pub dev: Shared,
-    surface: Option<Surface>,
-    /// Drawing with no window ([`Shell::offscreen`]): the README's video.
-    offscreen: Option<Offscreen>,
+    target: Option<Target>,
     scale: f64,
     cursor: [f32; 2],
     buttons: u32,
@@ -259,15 +311,18 @@ impl Shell {
     /// [`Shell::named`], with the master volume `volume` instead of the
     /// settings' (`--volume`).
     pub fn named_at(name: &str, volume: Option<f32>) -> Shell {
-        Shell::named_with(name, volume, None)
+        Shell::named_with(name, volume, None, true)
     }
 
     /// [`Shell::named_at`]; with `songs`, song select and options are on
-    /// the library on disk (`crate::songs`), not on sample data.
+    /// the library on disk (`crate::songs`), not on sample data. Without
+    /// `quit`, the library's start menu offers no Quit, as the web's (the
+    /// README's video shows the game's menu, not the window's way out).
     pub fn named_with(
         name: &str,
         volume: Option<f32>,
         songs: Option<Rc<crate::songs::Songs>>,
+        quit: bool,
     ) -> Shell {
         let volume = volume.unwrap_or_else(|| ddi_ui::state::settings::Settings::load().volume);
         let sound: SharedPlayer = Rc::new(RefCell::new(match songs {
@@ -295,7 +350,7 @@ impl Shell {
             .as_ref()
             .filter(|_| matches!(name, "start" | "select" | "options"))
         {
-            let (ui, env, look) = library_ui(name, fold, sound.clone(), songs);
+            let (ui, env, look) = library_ui_with(name, fold, sound.clone(), songs, quit);
             // Calibration's menu, opened again when a test leaves.
             {
                 let (songs, sound) = (songs.clone(), sound.clone());
@@ -313,6 +368,7 @@ impl Shell {
                 if name == "options" { "select" } else { name },
                 fold,
                 Some(sound.clone()),
+                quit,
             );
             if name == "options" {
                 let (screen, shared) = crate::options::screen(&env, Some(sound.clone()), None);
@@ -339,7 +395,7 @@ impl Shell {
         Shell {
             ui,
             dev,
-            surface: None,
+            target: None,
             scale: 1.0,
             cursor: [0.0; 2],
             buttons: 0,
@@ -380,16 +436,17 @@ impl Shell {
             songs,
             pointer_hidden: false,
             custom_cursor_hidden: false,
-            offscreen: None,
         }
+    }
+
+    /// The window's surface, when the shell draws into a window.
+    fn window(&self) -> Option<&Surface> {
+        self.target.as_ref().and_then(Target::window)
     }
 
     /// The device the UI draws with: the window's, or the offscreen one.
     fn gpu_mut(&mut self) -> Option<&mut Gpu> {
-        match &mut self.surface {
-            Some(s) => Some(&mut s.gpu),
-            None => self.offscreen.as_mut().map(|o| &mut o.gpu),
-        }
+        self.target.as_mut().map(Target::gpu_mut)
     }
 
     /// The host clock (`crate::clock`) in milliseconds: keys and pads are
@@ -436,7 +493,7 @@ impl Shell {
     /// start, and again after the device was lost.
     fn with_gpu(&mut self, window: Arc<Window>) -> Result<(), String> {
         // The old surface goes before a new one is made on the window.
-        self.surface = None;
+        self.target = None;
         let instance = gpu::instance();
         let surface = instance
             .create_surface(window.clone())
@@ -494,7 +551,7 @@ impl Shell {
                 self.pacer.in_flight(),
             )];
         }
-        self.surface = Some(Surface {
+        self.target = Some(Target::Window(Surface {
             link,
             window,
             surface,
@@ -502,7 +559,7 @@ impl Shell {
             gpu: Gpu::new(device, queue, format),
             formats: crate::play::view::Formats::of(format, srgb_view),
             modes: caps.present_modes.clone(),
-        });
+        }));
         self.resized();
         Ok(())
     }
@@ -537,24 +594,24 @@ impl Shell {
     /// again; results stay), as the web recovers.
     fn recover_device(&mut self) {
         // The callback runs from a poll of the device.
-        if let Some(s) = &self.surface {
+        if let Some(s) = self.window() {
             let _ = s.gpu.device.poll(wgpu::PollType::Poll);
         }
         if !self.lost.swap(false, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        let Some(window) = self.surface.as_ref().map(|s| s.window.clone()) else {
+        let Some(window) = self.window().map(|s| s.window.clone()) else {
             return;
         };
         self.devices_lost += 1;
         self.play.device_lost();
-        let field = self.surface.as_ref().map(|s| s.gpu.field.for_new_device());
+        let field = self.window().map(|s| s.gpu.field.for_new_device());
         if let Err(e) = self.with_gpu(window) {
             eprintln!("no new GPU device: {e}");
             self.error = Some(e);
             return;
         }
-        if let (Some(s), Some(field)) = (&mut self.surface, field) {
+        if let (Some(s), Some(field)) = (self.target.as_mut().and_then(Target::window_mut), field) {
             s.gpu.field = field;
             s.gpu.editor = crate::editor_field::EditorFieldHost::for_new_device();
         }
@@ -566,7 +623,7 @@ impl Shell {
     /// Loses the device on purpose (`--lose-device-after`: a test of the
     /// recovery).
     pub fn lose_device(&self) {
-        if let Some(s) = &self.surface {
+        if let Some(s) = self.window() {
             s.gpu.device.destroy();
         }
     }
@@ -574,7 +631,9 @@ impl Shell {
     fn resized(&mut self) {
         self.occluded = false;
         self.shown();
-        let Some(s) = &mut self.surface else { return };
+        let Some(s) = self.target.as_mut().and_then(Target::window_mut) else {
+            return;
+        };
         screen_height(&s.window);
         let size = s.window.inner_size();
         s.config.width = size.width.max(1);
@@ -653,7 +712,7 @@ impl Shell {
     fn run(&mut self, requests: Vec<UiRequest>) {
         let mut later = Vec::new();
         for r in requests {
-            let window = self.surface.as_ref().map(|s| s.window.clone());
+            let window = self.window().map(|s| s.window.clone());
             match r {
                 UiRequest::StartTextInput { caret, .. } => {
                     self.typing = true;
@@ -766,11 +825,11 @@ impl Shell {
 
     /// Asks for a frame if the UI needs one and none is coming.
     fn ask(&mut self) {
-        let field =
-            self.surface.as_ref().is_some_and(|s| {
-                s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy()
-            }) || self.play.playing()
-                || self.play.prompt_changed();
+        let field = self
+            .window()
+            .is_some_and(|s| s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy())
+            || self.play.playing()
+            || self.play.prompt_changed();
         if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
             return;
         }
@@ -783,7 +842,7 @@ impl Shell {
             Some(_) => self.retry_at = None,
             None => {}
         }
-        if let Some(s) = &self.surface {
+        if let Some(s) = self.target.as_ref().and_then(Target::window) {
             self.pending = true;
             self.asked += 1;
             s.window.request_redraw();
@@ -825,7 +884,9 @@ impl Shell {
         self.ui.update(dt);
         let r = self.ui.take_requests();
         self.run(r);
-        let Some(s) = &mut self.surface else { return };
+        let Some(s) = self.target.as_mut().and_then(Target::window_mut) else {
+            return;
+        };
         let acquire = crate::clock::now().0;
         let frame = match s.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) => f,
@@ -939,6 +1000,92 @@ impl Shell {
 }
 
 impl Shell {
+    /// What the loop does between frames, with a window or without
+    /// ([`Shell::offscreen_poll`]): the library's news (its scan woke the
+    /// loop) and the options screen's open over it, the controllers'
+    /// (their thread woke the loop), the play's, the sound's. What the
+    /// window's devices, its menu and the event loop's control need is
+    /// [`ApplicationHandler::about_to_wait`]'s alone.
+    fn poll_once(&mut self) -> Polled {
+        // The library's news (its scan woke the loop), and the options
+        // screen open over it.
+        if let Some(songs) = &self.songs {
+            // Stale plays worked out again (song select's bests follow
+            // in the poll), never during a play.
+            songs.rework(self.play.playing(), !self.play.idle());
+            songs.poll(&mut self.ui);
+            // `--edit`: the editor once the library has the song.
+            if let Some((env, _)) = &self.theme
+                && let Some((id, chart)) = songs.edit_ready()
+            {
+                match crate::editor::screen(env, songs, &id, chart) {
+                    Ok(screen) => self.ui.push(screen),
+                    Err(e) => eprintln!("--edit {id}: {e}"),
+                }
+            }
+            let invalidated = crate::library::take_invalidated_previews();
+            if !invalidated.is_empty() {
+                self.sound.borrow_mut().invalidate(&invalidated);
+            }
+            if songs.drained() && self.may_exit() {
+                return Polled::Exit;
+            }
+            // A library song's preview made ready on its thread.
+            if crate::library::take_prepared() {
+                self.sound.borrow_mut().refind();
+            }
+            if let Some(o) = songs.options.borrow().clone() {
+                if o.take_pending() {
+                    self.ui
+                        .broadcast(Message::new(theme_screens::options::OPTIONS_CHANGED));
+                }
+                if o.take_shares() {
+                    self.ui
+                        .broadcast(Message::new(theme_screens::options_shell::SHARES_CHANGED));
+                }
+                self.input.options = Some(o);
+            }
+            // The chart song select shows: its prompt's diagram's skin
+            // readied ahead.
+            if let Some(c) = songs.warm.borrow_mut().take()
+                && let Some(t) = &mut self.target
+            {
+                t.gpu_mut().field.warm(&c);
+            }
+        }
+        // The controllers' news (their thread woke the loop): a play's
+        // own while it runs, else the menus'.
+        let playing = self.play.playing();
+        for edge in self.input.poll(&mut self.ui) {
+            if edge.pressed {
+                self.hide_pointer(true);
+            }
+            if playing {
+                // The results show what was played with.
+                if edge.pressed
+                    && let ddi_platform::DeviceId::Gamepad(id) = &edge.device
+                {
+                    self.ui.set_source(ddi_ui::controller_hints::Source::Pad {
+                        slot: edge.slot,
+                        id: id.clone(),
+                    });
+                }
+                self.play.feed.borrow_mut().edges.push(edge);
+            } else {
+                let e = self.input.route(&self.ui, edge);
+                self.send(e);
+            }
+        }
+        self.poll_play();
+        if let Some(settings) = self.input.take_edited()
+            && let Some(gpu) = self.gpu_mut()
+        {
+            gpu.field.set_settings(&settings);
+        }
+        // Sound moves on (a preview settled, decoded, looped).
+        Polled::Wake(self.sound.borrow_mut().tick())
+    }
+
     /// The play's news: one asked for, its song read, the prompt's or
     /// the results' choice; the keyboard and present mode follow whether
     /// a play runs.
@@ -947,27 +1094,12 @@ impl Shell {
             return;
         };
         let rate = self.sound.borrow().audio.sample_rate();
-        let dev = match (&self.surface, &self.offscreen) {
-            (Some(s), _) => Some(crate::play::host::Device {
-                device: &s.gpu.device,
-                queue: &s.gpu.queue,
-                formats: s.formats,
-            }),
-            (None, Some(o)) => Some(crate::play::host::Device {
-                device: &o.gpu.device,
-                queue: &o.gpu.queue,
-                formats: o.formats,
-            }),
-            (None, None) => None,
-        };
+        let dev = self.target.as_ref().map(Target::device);
         self.play.poll(&mut self.ui, &env, dev, rate);
         // The prompt's generated still, for the painter that draws it.
         let (source, still) = self.play.prompt_still();
-        if let Some(s) = &mut self.surface {
-            s.gpu.stills.set(source.clone(), still.clone());
-        }
-        if let Some(o) = &mut self.offscreen {
-            o.gpu.stills.set(source, still);
+        if let Some(gpu) = self.gpu_mut() {
+            gpu.stills.set(source, still);
         }
         self.sync_play_mode();
         if self.play.playing() {
@@ -998,14 +1130,11 @@ impl Shell {
                 .play
                 .play_fingerprint()
                 .or_else(|| self.sound.borrow().audio.fingerprint());
-            let display = self
-                .surface
-                .as_ref()
-                .and_then(|s| display_fingerprint(&s.window));
+            let display = self.window().and_then(|s| display_fingerprint(&s.window));
             if display.is_some() {
                 self.play.display = display.clone();
             }
-            if let Some(s) = &self.surface {
+            if let Some(s) = self.window() {
                 self.play.refresh_hint = refresh_rate(&s.window);
                 self.pacer.set_refresh_hint(self.play.refresh_hint);
             }
@@ -1079,7 +1208,7 @@ impl Shell {
     }
 
     fn set_native_cursor(&mut self, cursor: Cursor) {
-        if self.surface.is_none() {
+        if self.window().is_none() {
             return;
         }
         let custom = cursor == Cursor::Hidden;
@@ -1095,7 +1224,7 @@ impl Shell {
             self.custom_cursor_hidden = custom;
             crate::os::set_pointer_hidden(custom);
         }
-        if let Some(s) = &self.surface {
+        if let Some(s) = self.window() {
             #[cfg(not(target_os = "macos"))]
             s.window.set_cursor_visible(!custom && !self.pointer_hidden);
             s.window.set_cursor(match cursor {
@@ -1127,7 +1256,7 @@ impl Shell {
             objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(true);
         }
         #[cfg(not(target_os = "macos"))]
-        if let Some(s) = &self.surface {
+        if let Some(s) = self.window() {
             s.window
                 .set_cursor_visible(!hide && !self.custom_cursor_hidden);
         }
@@ -1170,7 +1299,11 @@ impl Shell {
                 time: self.now_ms(),
             }));
         }
-        let link = self.surface.as_ref().and_then(|s| s.link.as_ref());
+        let link = self
+            .target
+            .as_ref()
+            .and_then(Target::window)
+            .and_then(|s| s.link.as_ref());
         if let Some(l) = link {
             l.run(on);
         }
@@ -1202,7 +1335,9 @@ impl Shell {
     fn present_mode(&mut self, play: bool) {
         let fifo = self.pacer.mode() == pacing::Mode::Late || self.pacing_report.is_some();
         let in_flight = self.pacer.in_flight();
-        let Some(s) = &mut self.surface else { return };
+        let Some(s) = self.target.as_mut().and_then(Target::window_mut) else {
+            return;
+        };
         let (mode, latency) = if !play {
             (wgpu::PresentMode::AutoVsync, 2)
         } else if !fifo && s.modes.contains(&wgpu::PresentMode::Mailbox) {
@@ -1238,8 +1373,7 @@ impl Shell {
     /// The display link's last refresh, to the pacer.
     fn feed_link(&mut self) {
         if let Some(t) = self
-            .surface
-            .as_ref()
+            .window()
             .and_then(|s| s.link.as_ref())
             .and_then(|l| l.latest())
         {
@@ -1250,7 +1384,7 @@ impl Shell {
     /// `--pacing-report`'s text for the play so far, if it drew frames.
     pub fn pacing_text(&self) -> Option<String> {
         let r = self.pacing_report.as_ref().filter(|r| !r.is_empty())?;
-        let modes = self.surface.as_ref().map_or(String::new(), |s| {
+        let modes = self.window().map_or(String::new(), |s| {
             let mailbox = if s.modes.contains(&wgpu::PresentMode::Mailbox) {
                 " (block alone uses Mailbox here)"
             } else {
@@ -1282,7 +1416,7 @@ fn ime_area(window: &Window, [x, y, w, h]: [f32; 4]) {
 
 impl ApplicationHandler for Shell {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.surface.is_some() {
+        if self.target.is_some() {
             return;
         }
         if let Err(e) = self.open(event_loop) {
@@ -1321,7 +1455,7 @@ impl ApplicationHandler for Shell {
                 if !f && self.typing {
                     self.typing = false;
                     self.preedit = false;
-                    if let Some(s) = &self.surface {
+                    if let Some(s) = self.window() {
                         s.window.set_ime_allowed(false);
                     }
                     self.send(UiEvent::Text(TextEvent::Blurred));
@@ -1523,85 +1657,17 @@ impl ApplicationHandler for Shell {
             self.lose_device();
         }
         self.recover_device();
-        // The library's news (its scan woke the loop), and the options
-        // screen open over it.
-        if let Some(songs) = &self.songs {
-            // Stale plays worked out again (song select's bests follow
-            // in the poll), never during a play.
-            songs.rework(self.play.playing(), !self.play.idle());
-            songs.poll(&mut self.ui);
-            // `--edit`: the editor once the library has the song.
-            if let Some((env, _)) = &self.theme
-                && let Some((id, chart)) = songs.edit_ready()
-            {
-                match crate::editor::screen(env, songs, &id, chart) {
-                    Ok(screen) => self.ui.push(screen),
-                    Err(e) => eprintln!("--edit {id}: {e}"),
-                }
-            }
-            let invalidated = crate::library::take_invalidated_previews();
-            if !invalidated.is_empty() {
-                self.sound.borrow_mut().invalidate(&invalidated);
-            }
-            if songs.drained() && self.may_exit() {
+        let wake = match self.poll_once() {
+            Polled::Exit => {
                 self.exit(event_loop);
                 return;
             }
-            // A library song's preview made ready on its thread.
-            if crate::library::take_prepared() {
-                self.sound.borrow_mut().refind();
-            }
-            if let Some(o) = songs.options.borrow().clone() {
-                if o.take_pending() {
-                    self.ui
-                        .broadcast(Message::new(theme_screens::options::OPTIONS_CHANGED));
-                }
-                if o.take_shares() {
-                    self.ui
-                        .broadcast(Message::new(theme_screens::options_shell::SHARES_CHANGED));
-                }
-                self.input.options = Some(o);
-            }
-            // The chart song select shows: its prompt's diagram's skin
-            // readied ahead.
-            if let Some(c) = songs.warm.borrow_mut().take()
-                && let Some(s) = &mut self.surface
-            {
-                s.gpu.field.warm(&c);
-            }
-        }
-        // The controllers' news (their thread woke the loop): a play's
-        // own while it runs, else the menus'.
-        let playing = self.play.playing();
-        for edge in self.input.poll(&mut self.ui) {
-            if edge.pressed {
-                self.hide_pointer(true);
-            }
-            if playing {
-                // The results show what was played with.
-                if edge.pressed
-                    && let ddi_platform::DeviceId::Gamepad(id) = &edge.device
-                {
-                    self.ui.set_source(ddi_ui::controller_hints::Source::Pad {
-                        slot: edge.slot,
-                        id: id.clone(),
-                    });
-                }
-                self.play.feed.borrow_mut().edges.push(edge);
-            } else {
-                let e = self.input.route(&self.ui, edge);
-                self.send(e);
-            }
-        }
-        self.poll_play();
+            Polled::Wake(wake) => wake,
+        };
+        // The window's display and the sound device looked at again: a
+        // window's alone (offscreen, the frames run on a fixed clock with
+        // no device to change under them).
         let watch_at = self.watch_devices();
-        if let Some(settings) = self.input.take_edited()
-            && let Some(s) = &mut self.surface
-        {
-            s.gpu.field.set_settings(&settings);
-        }
-        // Sound moves on (a preview settled, decoded, looped).
-        let wake = self.sound.borrow_mut().tick();
         if let Some(limit) = self.quit_after {
             if self.start.elapsed().as_secs_f64() >= limit {
                 self.request_quit();
@@ -1623,7 +1689,7 @@ impl ApplicationHandler for Shell {
             ));
         } else if let Some(at) = self.retry_at {
             event_loop.set_control_flow(ControlFlow::WaitUntil(at));
-        } else if self.surface.as_ref().is_some_and(|s| s.gpu.loading()) {
+        } else if self.window().is_some_and(|s| s.gpu.loading()) {
             // Images are decoding on other threads: looked for shortly
             // (only while they are).
             event_loop.set_control_flow(ControlFlow::WaitUntil(
@@ -1651,13 +1717,13 @@ impl ApplicationHandler for Shell {
                 _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
             }
         }
-        if let Some(s) = &mut self.surface {
+        if let Some(s) = self.target.as_mut().and_then(Target::window_mut) {
             self.loaded |= s.gpu.images_ready();
         }
-        let field =
-            self.surface.as_ref().is_some_and(|s| {
-                s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy()
-            }) || self.play.playing();
+        let field = self
+            .window()
+            .is_some_and(|s| s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy())
+            || self.play.playing();
         if self.play.playing() && !self.occluded {
             match self.pace() {
                 // Blocking frames come one after another (each waits for
@@ -1689,14 +1755,16 @@ impl ApplicationHandler for Shell {
 /// select under it, at the theme's design. Desktop has no system setting
 /// for reduced motion: motion is reduced only when the settings say so.
 pub fn theme_ui(first: &str, fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
-    theme_ui_with(first, fold, None)
+    theme_ui_with(first, fold, None, true)
 }
 
-/// [`theme_ui`]; with `sound`, song select's previews play.
+/// [`theme_ui`]; with `sound`, song select's previews play; with `quit`,
+/// the start menu offers Quit.
 pub fn theme_ui_with(
     first: &str,
     fold: FoldFn,
     sound: Option<SharedPlayer>,
+    quit: bool,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold);
     let changed = sample::motion_change(&env, || false);
@@ -1705,9 +1773,9 @@ pub fn theme_ui_with(
         None => sample::select_screen(&env, Some(changed.clone())),
     };
     if let Some(sound) = sound.clone() {
-        ui.push(title_screen(&env, sound, None));
+        ui.push(title_screen(&env, sound, None, quit));
     } else {
-        ui.push(sample::start_screen(&env, true));
+        ui.push(sample::start_screen(&env, quit));
     }
     if first != "start" {
         ui.push(select);
@@ -1730,8 +1798,19 @@ pub fn library_ui(
     sound: SharedPlayer,
     songs: &Rc<crate::songs::Songs>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
+    library_ui_with(first, fold, sound, songs, true)
+}
+
+/// [`library_ui`]; with `quit`, the start menu offers Quit.
+fn library_ui_with(
+    first: &str,
+    fold: FoldFn,
+    sound: SharedPlayer,
+    songs: &Rc<crate::songs::Songs>,
+    quit: bool,
+) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold);
-    ui.push(title_screen(&env, sound.clone(), Some(songs.clone())));
+    ui.push(title_screen(&env, sound.clone(), Some(songs.clone()), quit));
     if first != "start" && first != "options" {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
         // `--shared`: the share's song select over the library's.
@@ -1874,15 +1953,17 @@ fn sample_select(env: &ThemeEnv, sound: SharedPlayer) -> theme_screens::select::
     .with_shell(calls, SharedFeed::default())
 }
 
+/// The start menu; with `quit`, its Quit.
 fn title_screen(
     env: &ThemeEnv,
     sound: SharedPlayer,
     songs: Option<Rc<crate::songs::Songs>>,
+    quit: bool,
 ) -> theme_screens::start::StartScreen {
     let e = env.clone();
     theme_screens::start::StartScreen::new(
         env.clone(),
-        QUIT_SHOWN.load(std::sync::atomic::Ordering::Relaxed),
+        quit,
         Rc::new(move |choice, cx| {
             use theme_screens::start::Choice;
             sound.borrow_mut().pause();
@@ -1944,13 +2025,13 @@ impl Shell {
             format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
             ..Default::default()
         });
-        self.offscreen = Some(Offscreen {
+        self.target = Some(Target::Offscreen(Offscreen {
             gpu: Gpu::new(device, queue, format),
             texture,
             plain,
             srgb,
             formats: crate::play::view::Formats::of(format, true),
-        });
+        }));
         self.scale = 1.0;
         let logical = [size[0] as f32, size[1] as f32];
         if let Some((_, look)) = &self.theme {
@@ -1968,34 +2049,17 @@ impl Shell {
     /// by the frame itself): a caller on its own clock waits for it, its
     /// clock held, drawing the frame again meanwhile.
     pub fn offscreen_busy(&self) -> bool {
-        self.offscreen
+        self.target
             .as_ref()
-            .is_some_and(|o| o.gpu.field.reading())
+            .is_some_and(|t| t.gpu().field.reading())
             || self.play.wants_poll()
             || self.sound.borrow().loading()
     }
 
-    /// What the loop does between frames: the library's news, the
-    /// play's, the preview's sound.
+    /// What the loop does between frames ([`Shell::poll_once`]).
     pub fn offscreen_poll(&mut self) {
-        if let Some(songs) = self.songs.clone() {
-            songs.poll(&mut self.ui);
-            if crate::library::take_prepared() {
-                self.sound.borrow_mut().refind();
-            }
-            if let Some(c) = songs.warm.borrow_mut().take()
-                && let Some(gpu) = self.gpu_mut()
-            {
-                gpu.field.warm(&c);
-            }
-        }
-        self.poll_play();
-        if let Some(settings) = self.input.take_edited()
-            && let Some(gpu) = self.gpu_mut()
-        {
-            gpu.field.set_settings(&settings);
-        }
-        self.sound.borrow_mut().tick();
+        // No quit is asked for offscreen: the library never drains.
+        let _ = self.poll_once();
     }
 
     /// A key pressed and let go, as a window's keyboard sends it.
@@ -2020,7 +2084,9 @@ impl Shell {
         let r = self.ui.take_requests();
         self.run(r);
         let env = self.theme.as_ref().map(|(e, _)| e.clone());
-        let o = self.offscreen.as_mut()?;
+        let Some(Target::Offscreen(o)) = self.target.as_mut() else {
+            return None;
+        };
         let size = [o.texture.width(), o.texture.height()];
         if self.play.playing()
             && let Some(env) = &env

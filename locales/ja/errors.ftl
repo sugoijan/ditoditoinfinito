@@ -82,6 +82,8 @@ errors-share-not-shared = 曲を共有できませんでした：{ $error }。
 
 errors-shared-page-title = 共有された曲
 
+errors-shared-page-heading = 共有された曲
+
 errors-shared-page-hint = 共有リンクでは、共有元の曲を、共有した人が指定した期間だけプレイできます。共有した人に新しいリンクを依頼してください。
 
 errors-shared-page-home = タイトルへ

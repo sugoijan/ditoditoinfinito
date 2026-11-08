@@ -15,7 +15,7 @@
 //! desktop runs it on a thread. It keeps only the samples the frames to
 //! come still need, and makes the same analysis however it is stepped.
 
-use crate::fft::Fft;
+use crate::fft::{RealFft, downmix_interleaved, downmix_planar};
 
 /// Seconds between frames.
 pub const HOP: f64 = 0.02;
@@ -74,7 +74,7 @@ pub struct Analyzer {
     hop: usize,
     window: usize,
     hann: Vec<f32>,
-    fft: Fft,
+    fft: RealFft,
     /// Each band's bins, `[from, to)`.
     edges: Vec<(usize, usize)>,
     /// The mid channel from sample `base` on, as far as fed.
@@ -82,9 +82,6 @@ pub struct Analyzer {
     base: usize,
     fed: usize,
     made: usize,
-    re: Vec<f32>,
-    im: Vec<f32>,
-    turns: Vec<(f32, f32)>,
     db: Vec<f32>,
     loudness: Vec<f32>,
 }
@@ -126,20 +123,12 @@ impl Analyzer {
             hop,
             window,
             hann,
-            fft: Fft::new(window / 2),
+            fft: RealFft::new(window),
             edges,
             mid: Vec::new(),
             base: 0,
             fed: 0,
             made: 0,
-            re: vec![0.0; window / 2],
-            im: vec![0.0; window / 2],
-            turns: (0..=window / 2)
-                .map(|k| {
-                    let a = -2.0 * std::f64::consts::PI * k as f64 / window as f64;
-                    (a.cos() as f32, a.sin() as f32)
-                })
-                .collect(),
             db: Vec::with_capacity(count * BANDS),
             loudness: Vec::with_capacity(count),
         }
@@ -158,27 +147,12 @@ impl Analyzer {
     /// The next frames of each channel (planar, the same length; more
     /// than the music's frames are left out).
     pub fn add_planar(&mut self, channels: &[&[f32]]) {
-        let Some(n) = channels.iter().map(|c| c.len()).min() else {
-            return;
-        };
-        let n = n.min(self.total - self.fed);
-        let k = channels.len() as f32;
-        self.mid
-            .extend((0..n).map(|i| channels.iter().map(|c| c[i]).sum::<f32>() / k));
-        self.fed += n;
+        self.fed += downmix_planar(channels, self.total - self.fed, &mut self.mid);
     }
 
     /// The next frames, interleaved `channels` to a frame.
     pub fn add_interleaved(&mut self, data: &[f32], channels: usize) {
-        let channels = channels.max(1);
-        let k = channels as f32;
-        let n = (data.len() / channels).min(self.total - self.fed);
-        self.mid.extend(
-            data.chunks_exact(channels)
-                .take(n)
-                .map(|f| f.iter().sum::<f32>() / k),
-        );
-        self.fed += n;
+        self.fed += downmix_interleaved(data, channels, self.total - self.fed, &mut self.mid);
     }
 
     /// Every frame is made.
@@ -231,25 +205,10 @@ impl Analyzer {
         let db = 10.0 * (squares / self.hop as f64 + 1e-12).log10();
         self.loudness
             .push(((db + 60.0) / 60.0).clamp(0.0, 1.0) as f32);
-        // A real transform of `n` as a complex one of `n / 2`, as the
-        // editor's analysis makes it.
-        for m in 0..half {
-            self.re[m] = at(2 * m) * self.hann[2 * m];
-            self.im[m] = at(2 * m + 1) * self.hann[2 * m + 1];
-        }
-        self.fft.run(&mut self.re, &mut self.im);
-        let power = |k: usize| {
-            let (zr, zi) = (self.re[k % half], self.im[k % half]);
-            let (cr, ci) = (self.re[(half - k) % half], -self.im[(half - k) % half]);
-            let (er, ei) = ((zr + cr) / 2.0, (zi + ci) / 2.0);
-            let (dr, di) = ((zr - cr) / 2.0, (zi - ci) / 2.0);
-            let (or, oi) = (di, -dr);
-            let (wr, wi) = self.turns[k];
-            let (xr, xi) = (er + or * wr - oi * wi, ei + or * wi + oi * wr);
-            xr * xr + xi * xi
-        };
+        let hann = &self.hann;
+        self.fft.run(|i| at(i) * hann[i]);
         for &(from, to) in &self.edges {
-            let p: f32 = (from..to).map(power).sum();
+            let p: f32 = (from..to).map(|k| self.fft.power(k)).sum();
             self.db
                 .push(10.0 * (p / (to - from) as f32 + 1e-12).log10());
         }

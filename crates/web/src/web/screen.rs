@@ -551,8 +551,6 @@ pub(crate) fn with_painter<R>(gfx: &Gfx, f: impl FnOnce(&mut Painter) -> R) -> O
                 &mut s.painter.insert((gfx.generation, p)).1
             }
         };
-        // The UI's language: its faces loaded, its runs drawn again.
-        painter.set_language(ddi_l10n::current().tag);
         f(painter)
     })
 }

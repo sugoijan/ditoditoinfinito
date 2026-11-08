@@ -1409,15 +1409,16 @@ impl Screen for ResultsScreen {
         Some(self.env.presentation())
     }
 
-    /// `screen`: the header's name of the screen; `grade` (QUIT for a
-    /// quit), `score`, `lamp` (the full combo's), `failed` (FAILED).
-    fn spot(&self, what: &str) -> Option<crate::Spot> {
+    /// The header's name of the screen, the grade (QUIT for a quit), the
+    /// score, the full combo's lamp, FAILED.
+    fn spot(&self, what: crate::Mark) -> Option<crate::Spot> {
+        use crate::Mark;
         Some(match what {
-            "screen" => crate::Spot::new("Header", &["Title"]),
-            "grade" => crate::Spot::new("ScoreBox", &["Grade"]),
-            "score" => crate::Spot::new("ScoreBox", &["Score"]),
-            "lamp" if self.data.lamp.is_some() => crate::Spot::new("Lamp", &[]),
-            "failed" if self.data.failed => crate::Spot::new("Failed", &[]),
+            Mark::Screen => crate::Spot::new("Header", &["Title"]),
+            Mark::Grade => crate::Spot::new("ScoreBox", &["Grade"]),
+            Mark::Score => crate::Spot::new("ScoreBox", &["Score"]),
+            Mark::Lamp if self.data.lamp.is_some() => crate::Spot::new("Lamp", &[]),
+            Mark::Failed if self.data.failed => crate::Spot::new("Failed", &[]),
             _ => return None,
         })
     }

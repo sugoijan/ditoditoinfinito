@@ -1608,13 +1608,17 @@ impl Actor {
     /// the alignment, `maxwidth`, `zoomto` and the getters. A screen calls
     /// it after its updates, before drawing: commands run where nothing
     /// measures (a skin's or a theme's Lua), so a run changed by one has
-    /// its old size until then.
-    pub fn measure(&mut self, measure: &mut dyn TextMeasure) {
+    /// its old size until then. Whether any run was measured (a text
+    /// changed since).
+    pub fn measure(&mut self, measure: &mut dyn TextMeasure) -> bool {
+        let mut measured = false;
         self.each(&mut |a| {
             if let Kind::Text(t) = &mut a.kind {
+                measured |= t.metrics.is_none();
                 t.measure(measure);
             }
         });
+        measured
     }
 
     /// Forgets every run's metrics, so the next [`Actor::measure`] asks

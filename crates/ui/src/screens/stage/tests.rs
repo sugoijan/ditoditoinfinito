@@ -6,7 +6,7 @@ use ddi_actor::{Actor, Kind};
 use super::*;
 use crate::look::{Plain, call, quad};
 use crate::testing::Harness;
-use crate::{PointerKind, Spot, TextMode};
+use crate::{Mark, PointerKind, Spot, TextMode};
 
 type Log = Rc<RefCell<Vec<String>>>;
 
@@ -39,10 +39,10 @@ impl Screen for Shown {
         Actor::new(Kind::Frame(vec![thing]))
     }
 
-    fn spot(&self, what: &str) -> Option<Spot> {
+    fn spot(&self, what: Mark) -> Option<Spot> {
         match what {
-            "part" => Some(Spot::new("Thing", &["Part"])),
-            "thing" => Some(Spot::new("Thing", &[])),
+            Mark::Score => Some(Spot::new("Thing", &["Part"])),
+            Mark::Grade => Some(Spot::new("Thing", &[])),
             _ => None,
         }
     }
@@ -156,21 +156,21 @@ fn the_mark_rings_a_spot_once_its_screen_is_in() {
     let log: Log = Rc::default();
     let mut h = Harness::new([1280.0, 720.0], [1280.0, 720.0], 1.0, TextMode::Own);
     h.push(Shown { log: log.clone() });
-    h.ui.mark(Some("part"));
+    h.ui.mark(Some(Mark::Score));
     h.run(0.3);
     let part = h.ui.bounds_of("Thing", "Part").unwrap();
     assert!(close(h.ui.mark_bounds().unwrap(), part));
     // The whole of it where no part is named; nothing where the screen
     // has no such thing.
-    h.ui.mark(Some("thing"));
+    h.ui.mark(Some(Mark::Grade));
     assert!(close(
         h.ui.mark_bounds().unwrap(),
         h.ui.bounds("Thing").unwrap()
     ));
-    h.ui.mark(Some("nothing"));
+    h.ui.mark(Some(Mark::Lamp));
     assert_eq!(h.ui.mark_bounds(), None);
     // Drawn: the ring comes in, then stays.
-    h.ui.mark(Some("part"));
+    h.ui.mark(Some(Mark::Score));
     let red = [1.0, 0.23, 0.19, 1.0];
     h.frame(0.016);
     assert!(h.ui.needs_redraw(), "the ring's entrance");

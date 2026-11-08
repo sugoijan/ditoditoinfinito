@@ -84,7 +84,7 @@ fn a_play_paced_late_draws_for_the_refresh_it_is_shown_at() {
     let mut view = View::new(&device, &queue, formats);
     view.set_song(&loaded, &settings);
     view.set_noteskin(&device, &queue, host::noteskin(&loaded, chart, &settings));
-    for (what, source, side) in View::images_to_read(&loaded, &settings) {
+    for (what, source, side) in View::images_to_read(&loaded, &settings, false) {
         let (size, data) = ddi_desktop::images::load(&source, side).expect("the song's picture");
         view.add_background(what, Rgba { size, data });
     }

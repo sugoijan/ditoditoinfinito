@@ -499,9 +499,10 @@ impl Component for SelectPage {
         match &self.load_error {
             Some(e) => {
                 dom.error.set_hidden(false);
-                dom.error.set_text_content(Some(&ddi_l10n::msg::shell::song_list_failed(
-                    ddi_ui::screens::errors::error_text(e),
-                )));
+                dom.error
+                    .set_text_content(Some(&ddi_l10n::msg::shell::song_list_failed(
+                        ddi_ui::screens::errors::error_text(e),
+                    )));
             }
             None => dom.error.set_hidden(true),
         }
@@ -696,7 +697,7 @@ impl SelectPage {
                 None => ("unknown", None),
             };
             out.push(Notice {
-                text: nm::storage(storage_size(u), kept).into(),
+                text: nm::storage(ddi_ui::screens::data::size_text(u), kept).into(),
                 link,
                 error: false,
             });
@@ -762,16 +763,6 @@ impl SelectPage {
             self.unbound_layout = layout_name;
             self.send_notices();
         }
-    }
-}
-
-/// What the site stores (`b` bytes), as the storage notice says it: in
-/// megabytes, or gigabytes from one.
-fn storage_size(b: f64) -> ddi_l10n::UiText {
-    if b >= 1e9 {
-        nm::size_gb((b / 1e8).round() / 10.0)
-    } else {
-        nm::size_mb((b / 1e6).max(1.0).round())
     }
 }
 

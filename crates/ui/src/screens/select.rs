@@ -38,6 +38,7 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
 use ddi_chart::Difficulty;
+use ddi_chart::simplify::Kind as Version;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::select as msg;
 use ddi_library::announcer::{Comment, Line};
@@ -54,6 +55,7 @@ use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
+use crate::state::place::pack_key;
 use crate::state::select_view::pack_label;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
@@ -203,8 +205,10 @@ pub struct SelectPlace {
     pub chart: Option<usize>,
     pub style: String,
     pub search: String,
-    pub closed: Vec<String>,
-    /// The one expanded browsing pack (search ignores this state).
+    /// The packs closed, by name (`None`: the bundled songs).
+    pub closed: Vec<Option<String>>,
+    /// The one expanded browsing pack (search ignores this state), by its
+    /// key ([`crate::state::place::pack_key`]).
     pub open: Option<String>,
 }
 
@@ -254,14 +258,23 @@ pub const NOTICE_LINK: &str = "NoticeLink";
 const TAB_LEGEND: &str = "TAB";
 
 /// A generated chart version's mark as the screens show it (its
-/// [`ChartEntry::version`], `ddi_chart::simplify::Derivation::name`).
-pub fn version_name(version: &str) -> UiText {
+/// [`ChartEntry::version`]).
+pub fn version_name(version: Version) -> UiText {
     match version {
-        "Without onigiri" => msg::version_without_onigiri(),
-        "Without center" => msg::version_without_center(),
-        "From Pump single" => msg::version_from_pump_single(),
-        "From 5 keys" => msg::version_from_five_keys(),
-        other => UiText::data(other),
+        Version::WithoutOnigiri => msg::version_without_onigiri(),
+        Version::WithoutCenter => msg::version_without_center(),
+        Version::FromPumpSingle => msg::version_from_pump_single(),
+        Version::FromFiveKeys => msg::version_from_five_keys(),
+    }
+}
+
+/// A chart as a button names it, from `shown`, its label and meter as
+/// data in the button's case: a named chart that is a version with the
+/// version's mark, as it would otherwise read as its source does.
+pub(super) fn chart_text(c: &ChartEntry, shown: &str) -> UiText {
+    match c.version.filter(|_| c.named()) {
+        Some(v) => msg::chart_version(UiText::data(shown), version_name(v)),
+        None => UiText::data(shown),
     }
 }
 
@@ -482,7 +495,7 @@ impl Layout {
 struct Wheel<'a> {
     items: &'a [Item],
     data: &'a SelectData,
-    packs: &'a [(String, Vec<usize>)],
+    packs: &'a [(Option<String>, Vec<usize>)],
     closed: &'a BTreeSet<usize>,
     /// The songs a search matches (none: no search).
     matches: Option<&'a [bool]>,
@@ -516,7 +529,7 @@ impl ListModel for Wheel<'_> {
                 let (name, songs) = &self.packs[p];
                 let open = self.matches.is_some() || !self.closed.contains(&p);
                 set_text(item, "Chevron", if open { "▾" } else { "▸" });
-                set_text(item, "Title", &pack_label(name));
+                set_text(item, "Title", &pack_label(name.as_deref()));
                 let cover = self
                     .data
                     .packs
@@ -608,6 +621,11 @@ impl ListModel for Wheel<'_> {
     }
 }
 
+/// What song select's footer shows: its hints, whether a search is in
+/// them, its note (a gesture's, else the matches counted), whether Manage
+/// is offered and whether the header has the focus.
+type FooterKey = (Hints, bool, Result<String, usize>, bool, bool);
+
 /// Song select.
 pub struct SelectScreen {
     /// The header's wordmark's clock.
@@ -616,7 +634,7 @@ pub struct SelectScreen {
     data: Rc<SelectData>,
     /// Plays start autoplayed (the switch; the data's at first).
     autoplay: bool,
-    packs: Vec<(String, Vec<usize>)>,
+    packs: Vec<(Option<String>, Vec<usize>)>,
     /// Each song's search text, folded.
     haystacks: Vec<String>,
     style: usize,
@@ -638,9 +656,10 @@ pub struct SelectScreen {
     suggester: RefCell<Option<Suggester>>,
     backdrop: Backdrop,
     layout: Layout,
-    /// The footer's hints, whether a search was in them, its note and
-    /// whether Manage was offered.
-    hints: Option<(Hints, bool, String, bool, bool)>,
+    /// The footer's hints, whether a search was in them, its note (a
+    /// gesture's, else the matches counted) and whether Manage was
+    /// offered.
+    hints: Option<FooterKey>,
     /// A link a controller pressed could not open, or the search field
     /// could not start typing (a browser does either only from a key or
     /// a tap): how long the footer still says so, and what.
@@ -842,7 +861,7 @@ impl SelectScreen {
             && !s
                 .packs
                 .iter()
-                .any(|(name, _)| name.to_lowercase() == pack.to_lowercase())
+                .any(|(name, _)| pack_key(name.as_deref()) == pack)
         {
             s.resume_pack = Some(pack);
         }
@@ -910,7 +929,7 @@ impl SelectScreen {
         let pack_songs = |name: &str| -> Vec<String> {
             self.packs
                 .iter()
-                .find(|(n, _)| n == name)
+                .find(|(n, _)| n.as_deref() == Some(name))
                 .map(|(_, v)| {
                     v.iter()
                         .filter_map(|&i| self.data.songs.get(i))
@@ -922,19 +941,15 @@ impl SelectScreen {
         };
         match self.selected_item()? {
             Item::Header(p) => {
-                let name = self.packs.get(p)?.0.clone();
+                // The bundled songs are not shared.
+                let name = self.packs.get(p)?.0.clone()?;
                 let songs = pack_songs(&name);
                 (!songs.is_empty()).then(|| (name.clone(), songs, Some(name)))
             }
             Item::Song(i) => {
                 let song = self.data.songs.get(i)?;
-                song.removable.then(|| {
-                    (
-                        song.pack.clone(),
-                        vec![song.id.clone()],
-                        Some(song.title.clone()),
-                    )
-                })
+                let pack = song.pack.clone().filter(|_| song.removable)?;
+                Some((pack, vec![song.id.clone()], Some(song.title.clone())))
             }
         }
     }
@@ -957,14 +972,14 @@ impl SelectScreen {
         if self.to_share.is_empty() {
             return None;
         }
-        let packs: Vec<&str> = self
+        let packs: Vec<Option<&str>> = self
             .to_share
             .iter()
             .filter_map(|id| self.data.songs.iter().find(|s| &s.id == id))
-            .map(|s| s.pack.as_str())
+            .map(|s| s.pack.as_deref())
             .collect();
         let pack = match packs.first() {
-            Some(p) if packs.iter().all(|q| q == p) => p.to_string(),
+            Some(Some(p)) if packs.iter().all(|q| *q == Some(*p)) => p.to_string(),
             _ => msg::share_default_pack().into(),
         };
         Some((pack, self.to_share.clone(), None))
@@ -1100,16 +1115,16 @@ impl SelectScreen {
             .enumerate()
             .find(|(p, _)| !self.closed.contains(p))
             .map(|(p, (name, _))| (p, name.clone()));
-        let closed: Vec<String> = self
+        let closed: Vec<Option<String>> = self
             .closed
             .iter()
             .filter_map(|&p| self.packs.get(p).map(|(n, _)| n.clone()))
             .collect();
         // The packs in order of first song.
-        let mut packs: Vec<(String, Vec<usize>)> = Vec::new();
-        let mut pack_at: HashMap<&str, usize> = HashMap::new();
+        let mut packs: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+        let mut pack_at: HashMap<Option<&str>, usize> = HashMap::new();
         for (i, s) in data.songs.iter().enumerate() {
-            let p = *pack_at.entry(s.pack.as_str()).or_insert_with(|| {
+            let p = *pack_at.entry(s.pack.as_deref()).or_insert_with(|| {
                 packs.push((s.pack.clone(), Vec::new()));
                 packs.len() - 1
             });
@@ -1196,7 +1211,7 @@ impl SelectScreen {
                 || self
                     .packs
                     .iter()
-                    .any(|(name, _)| name.to_lowercase() == pack.to_lowercase()))
+                    .any(|(name, _)| pack_key(name.as_deref()) == pack))
         {
             self.resume_pack = None;
         }
@@ -1222,7 +1237,7 @@ impl SelectScreen {
     /// The item to show when the song shown is gone (removed): the song
     /// now at its place in its pack (its pack's header when closed), else,
     /// the pack gone, the first song from where the wheel was.
-    fn neighbour(&self, was: Option<(String, usize)>, at: Option<usize>) -> Option<usize> {
+    fn neighbour(&self, was: Option<(Option<String>, usize)>, at: Option<usize>) -> Option<usize> {
         if let Some((pack, k)) = was
             && let Some(p) = self.packs.iter().position(|(n, _)| *n == pack)
         {
@@ -1589,7 +1604,7 @@ impl SelectScreen {
         set_text(info, "Artist", &data(&song.artist));
         set_text(info, "Bpm", &data(&song.bpm_text));
         set_text(info, "Length", &data(&song.length_text()));
-        set_text(info, "Pack", &pack_label(&song.pack));
+        set_text(info, "Pack", &pack_label(song.pack.as_deref()));
         let offset = if song.offset_ms != 0 {
             msg::info_offset(format!("{:+}", song.offset_ms)).into()
         } else {
@@ -1645,7 +1660,7 @@ impl SelectScreen {
         let cd_title = song.cd_title.as_deref().map(|c| cx.texture(c, 128.0));
         set_image(info, "CdTitle", cd_title);
         if self.layout.compact {
-            let pack = pack_label(&song.pack);
+            let pack = pack_label(song.pack.as_deref());
             if let Some(t) = hit::find_mut(root, "PackTitle")
                 && let Kind::Text(t) = &mut t.kind
             {
@@ -1792,7 +1807,11 @@ impl SelectScreen {
                 // Its meter; a named chart without one by its name (cut
                 // to the button; the play button says it whole).
                 let by_name = c.named() && c.meter == 0;
-                let shown = data(&if by_name { c.label() } else { c.meter_text() });
+                let shown: String = if by_name {
+                    chart_text(c, &c.label()).into()
+                } else {
+                    data(&c.meter_text())
+                };
                 let mut b = look::component_or(
                     &*env.look,
                     "ChartButton",
@@ -1853,7 +1872,7 @@ impl SelectScreen {
                     // The chart as it names itself (data), in the
                     // button's capitals.
                     let chart = format!("{} {}", c.label().to_uppercase(), c.meter_text());
-                    let chart = UiText::data(chart.trim_end());
+                    let chart = chart_text(c, chart.trim_end());
                     let label: String = if self.autoplay {
                         msg::autoplay_chart(chart)
                     } else {
@@ -1895,8 +1914,8 @@ impl SelectScreen {
             }
             .into();
             // A generated version says what it leaves out or where it
-            // comes from (a named one does in its name).
-            if let Some(version) = c.version.filter(|_| !c.named()) {
+            // comes from.
+            if let Some(version) = c.version {
                 notes = format!("{} · {notes}", version_name(version));
             }
             set_text(&mut r, "Notes", &notes);
@@ -2013,17 +2032,22 @@ impl SelectScreen {
         let now = self.hints_now();
         let searching = !self.search.text.is_empty();
         let manage = self.can_manage();
-        // While searching (not typing), what it found.
+        // While searching (not typing), what it found: worded once it
+        // changes, not every frame.
         let found = match (&self.matches, now) {
-            _ if self.gesture_note > 0.0 && now != Hints::Typing => self.gesture_text.clone(),
-            (_, Hints::Typing) | (None, _) => String::new(),
-            (Some(_), _) => msg::matches(self.match_count).into(),
+            _ if self.gesture_note > 0.0 && now != Hints::Typing => Ok(self.gesture_text.clone()),
+            (_, Hints::Typing) | (None, _) => Ok(String::new()),
+            (Some(_), _) => Err(self.match_count),
         };
         let in_header = self.in_header(cx);
-        let key = (now, searching, found.clone(), manage, in_header);
+        let key = (now, searching, found, manage, in_header);
         if self.hints.as_ref() == Some(&key) {
             return;
         }
+        let found = match &key.2 {
+            Ok(text) => text.clone(),
+            Err(count) => msg::matches(*count).into(),
+        };
         self.hints = Some(key);
         if let Some(old) = hit::find_mut(root, "TabKey") {
             let mut hint = if cx.hints().active() {
@@ -2300,26 +2324,26 @@ impl SelectScreen {
     /// What Manage acts on: the selected header's pack, or the selected
     /// song (imported), when something can be done.
     fn manageable(&self) -> Option<Manage> {
-        let pack = |name: &str| {
+        let pack = |name: Option<&str>| {
             self.data
                 .packs
                 .iter()
-                .find(|p| p.name == name)
+                .find(|p| p.name.as_deref() == name)
                 .cloned()
                 .unwrap_or_else(|| PackEntry {
-                    name: name.to_string(),
+                    name: name.map(str::to_string),
                     ..Default::default()
                 })
         };
-        let count = |name: &str| {
+        let count = |name: Option<&str>| {
             self.packs
                 .iter()
-                .find(|(n, _)| n == name)
+                .find(|(n, _)| n.as_deref() == name)
                 .map_or(0, |(_, v)| v.len())
         };
         match self.selected_item()? {
             Item::Header(p) => {
-                let name = &self.packs.get(p)?.0;
+                let name = self.packs.get(p)?.0.as_deref();
                 let pack = pack(name);
                 (pack.removable || pack.rereadable).then(|| Manage::Pack {
                     songs: count(name),
@@ -2331,8 +2355,8 @@ impl SelectScreen {
                 song.removable.then(|| Manage::Song {
                     id: song.id.clone(),
                     title: song.title.clone(),
-                    pack: pack(&song.pack),
-                    songs: count(&song.pack),
+                    pack: pack(song.pack.as_deref()),
+                    songs: count(song.pack.as_deref()),
                 })
             }
         }
@@ -2435,7 +2459,7 @@ impl SelectScreen {
             return;
         }
         let place = SelectPlace {
-            open: self.place_open().cloned(),
+            open: self.place_open(),
             song: self.place_song().cloned(),
             chart,
             style: self.style_id().to_string(),
@@ -2446,13 +2470,13 @@ impl SelectScreen {
         self.call(SelectCall::Place(place), cx);
     }
 
-    /// The list's place's open pack: the first one not closed.
-    fn place_open(&self) -> Option<&String> {
+    /// The list's place's open pack: the first one not closed, by its key.
+    fn place_open(&self) -> Option<String> {
         self.packs
             .iter()
             .enumerate()
             .find(|(p, _)| !self.closed.contains(p))
-            .map(|(_, (name, _))| name)
+            .map(|(_, (name, _))| pack_key(name.as_deref()))
     }
 
     /// The list's place's song: the selected row's.
@@ -2464,7 +2488,7 @@ impl SelectScreen {
     }
 
     /// The list's place's closed packs, by name.
-    fn place_closed(&self) -> impl Iterator<Item = &String> {
+    fn place_closed(&self) -> impl Iterator<Item = &Option<String>> {
         self.closed
             .iter()
             .filter_map(|&p| self.packs.get(p).map(|(n, _)| n))
@@ -2473,7 +2497,7 @@ impl SelectScreen {
     /// Whether `told` is the list's place now (with `chart` picked),
     /// without building it.
     fn place_matches(&self, told: &SelectPlace, chart: Option<usize>) -> bool {
-        told.open.as_ref() == self.place_open()
+        told.open == self.place_open()
             && told.song.as_ref() == self.place_song()
             && told.chart == chart
             && told.style == self.style_id()
@@ -2813,7 +2837,7 @@ impl SelectScreen {
             }
             self.list.select(at);
         }
-        let name = self.packs[p].0.clone();
+        let name = pack_label(self.packs[p].0.as_deref());
         let open = !self.closed.contains(&p);
         self.status(format!(
             "pack {name} {}",
@@ -3015,7 +3039,7 @@ impl SelectScreen {
             .map(|c| {
                 let chart = format!("{} {}", difficulty_name(c.difficulty), c.meter);
                 match c.version {
-                    Some(version) => format!("{chart} ({version})"),
+                    Some(version) => format!("{chart} ({})", version.key()),
                     None => chart,
                 }
             })
@@ -3030,7 +3054,7 @@ impl SelectScreen {
             .collect();
         match self.selected_item() {
             Some(Item::Header(p)) => {
-                st.header = Some(self.packs[p].0.clone());
+                st.header = Some(pack_label(self.packs[p].0.as_deref()).into());
             }
             _ => st.header = None,
         }
@@ -3043,7 +3067,7 @@ impl SelectScreen {
         st.closed = self
             .closed
             .iter()
-            .map(|&p| self.packs[p].0.clone())
+            .map(|&p| pack_label(self.packs[p].0.as_deref()).into())
             .collect();
         let style = self.style_id();
         st.greyed_rows = self
@@ -3087,7 +3111,7 @@ fn search_fields(s: &SongEntry) -> ([&str; 5], impl Iterator<Item = &str> + '_, 
             s.title.as_str(),
             s.subtitle.as_str(),
             s.artist.as_str(),
-            s.pack.as_str(),
+            s.pack.as_deref().unwrap_or_default(),
             s.credit.as_str(),
         ],
         s.charts
@@ -3109,7 +3133,7 @@ fn same_search(a: &SongEntry, b: &SongEntry) -> bool {
 fn suggestions(
     built: &RefCell<Option<Suggester>>,
     fold: &crate::dev_widgets::FoldFn,
-    packs: &[(String, Vec<usize>)],
+    packs: &[(Option<String>, Vec<usize>)],
     data: &SelectData,
     typed: &str,
 ) -> Vec<(String, String)> {
@@ -3117,8 +3141,11 @@ fn suggestions(
     let mut built = built.borrow_mut();
     let s = built.get_or_insert_with(|| {
         let mut cands: Vec<(&str, &str, SuggestKind)> = Vec::new();
+        // The bundled songs' pack is no data to search.
         for (p, _) in packs {
-            cands.push((p, "", SuggestKind::Pack));
+            if let Some(p) = p {
+                cands.push((p, "", SuggestKind::Pack));
+            }
         }
         for s in &data.songs {
             cands.push((&s.title, &s.title_translit, SuggestKind::Title));
@@ -3146,7 +3173,7 @@ fn suggestions(
 fn wheel<'a>(
     items: &'a [Item],
     data: &'a SelectData,
-    packs: &'a [(String, Vec<usize>)],
+    packs: &'a [(Option<String>, Vec<usize>)],
     closed: &'a BTreeSet<usize>,
     matches: Option<&'a [bool]>,
     style: usize,
@@ -3214,12 +3241,13 @@ impl Screen for SelectScreen {
         self.list.selected().and_then(|i| self.list.item_actor(i))
     }
 
-    /// `screen`: the header's name of the screen; `chart`: the chart
-    /// chosen, on the ladder (a button of the compact layout's strip);
-    /// `chart.level`: its level; `chart.best`: its best (grade, score,
-    /// lamp), or where it would be (the row's `Best`) when it has none.
-    fn spot(&self, what: &str) -> Option<crate::Spot> {
-        if what == "screen" {
+    /// The header's name of the screen; the chart chosen, on the ladder
+    /// (a button of the compact layout's strip); its level; its best
+    /// (grade, score, lamp), or where it would be (the row's `Best`) when
+    /// it has none.
+    fn spot(&self, what: crate::Mark) -> Option<crate::Spot> {
+        use crate::Mark;
+        if what == Mark::Screen {
             return Some(crate::Spot::new("Header", &["Title"]));
         }
         let (first, n) = self.ladder;
@@ -3233,11 +3261,11 @@ impl Screen for SelectScreen {
             format!("Ladder.Row{k}")
         };
         let parts: &[&str] = match what {
-            "chart" => &[],
-            "chart.level" => &["Meter"],
-            "chart.best" if self.layout.compact => &[],
-            "chart.best" if played => &["Grade", "Score", "LampText"],
-            "chart.best" => &["Best"],
+            Mark::Chart => &[],
+            Mark::ChartLevel => &["Meter"],
+            Mark::ChartBest if self.layout.compact => &[],
+            Mark::ChartBest if played => &["Grade", "Score", "LampText"],
+            Mark::ChartBest => &["Best"],
             _ => return None,
         };
         Some(crate::Spot::new(row, parts))

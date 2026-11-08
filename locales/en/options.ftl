@@ -1081,22 +1081,6 @@ options-shares-songs = { $count ->
    *[other] { $count } songs
 }
 
-# Variables:
-#   $size (Number) - gigabytes, one decimal
-options-size-gb = { $size } GB
-
-# Variables:
-#   $size (Number) - megabytes
-options-size-mb = { $size } MB
-
-# Variables:
-#   $size (Number) - kilobytes
-options-size-kb = { $size } kB
-
-# Variables:
-#   $size (Number) - bytes
-options-size-b = { $size } B
-
 # A share whose upload never ended.
 options-shares-unfinished = never finished
 options-shares-never-expires = never expires

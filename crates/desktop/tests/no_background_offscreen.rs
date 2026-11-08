@@ -99,7 +99,7 @@ fn play(
     };
     let loaded = load(root);
     let mut p = OffscreenPlay::new(adapter, loaded.clone(), &settings);
-    p.view.set_generated(&loaded, &settings);
+    p.view.set_generated(&loaded, &settings, false);
     let mut out = Vec::new();
     p.run(
         times,

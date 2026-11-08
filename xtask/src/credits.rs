@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use ddi_chart::formats::sm::parse_simfile;
@@ -19,12 +19,7 @@ use serde::Serialize;
 
 use crate::{noteskins, songs};
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives in the workspace root")
-        .to_path_buf()
-}
+use crate::repo_root;
 
 #[derive(Debug, Serialize)]
 struct CreditsJson {

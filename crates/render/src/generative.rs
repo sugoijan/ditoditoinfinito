@@ -9,6 +9,7 @@
 //! holds encoded values on any target ([`FORMAT`]).
 
 use bytemuck::{Pod, Zeroable};
+use ddi_actor::rain::{self, seed};
 use ddi_library::generative::{BAR_COUNT, BARS, FIELD, KALEIDOSCOPE, Look, Palette, RAIN, Signals};
 use ddi_library::music::BANDS;
 
@@ -28,7 +29,7 @@ const MAX_STROKES: usize = 64;
 const ARROW: &str = "M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z";
 const ONIGIRI: &str = "M24.924 20.762A8.17 8.17 0 0 1 39.076 20.762L52.052 43.238A8.17 8.17 0 0 1 44.976 55.493L43.246 55.493A1.377 1.377 0 0 1 41.869 54.116L41.869 41.448A1.377 1.377 0 0 0 40.492 40.07L23.508 40.07A1.377 1.377 0 0 0 22.131 41.448L22.131 54.116A1.377 1.377 0 0 1 20.754 55.493L19.024 55.493A8.17 8.17 0 0 1 11.948 43.238Z";
 /// The rain's line weights, in units, a row of depth each (the menu's).
-const WEIGHTS: [f32; 8] = [
+const WEIGHTS: [f32; rain::ROWS] = [
     4.0657, 3.2953, 2.7704, 2.3897, 2.101, 1.8746, 1.6922, 1.5421,
 ];
 
@@ -106,12 +107,6 @@ fn with(c: [f32; 3], a: f32) -> [f32; 4] {
 
 fn scaled(c: [f32; 3], k: f32) -> [f32; 3] {
     c.map(|v| v * k)
-}
-
-/// The study's deterministic seed, in f64 as the menu's rain has it
-/// (`ddi_theme`'s `rain.rs`), so both shells pick the same.
-fn seed(i: f64, salt: f64) -> f64 {
-    ((i * 127.1 + salt * 311.7).sin() * 43758.5453).rem_euclid(1.0)
 }
 
 /// The kaleidoscope's piece turns a step each beat, eased out.
@@ -244,8 +239,8 @@ fn lines(frame: &Frame, size: [f32; 2], out: &mut Vec<Stroke>) -> StrokesHead {
 }
 
 /// The rain's outlines at the frame's second, as the menu's rain falls
-/// (`ddi_theme`'s `rain.rs`, as the study draws it over a 960 × 540
-/// layout scaled to the texture): a share moving, each chosen as it
+/// ([`ddi_actor::rain`], as the study draws it over its layout scaled
+/// to the texture): a share moving, each chosen as it
 /// comes in at the top, zooming with the bass or waving with the treble.
 fn rain(frame: &Frame, size: [f32; 2], out: &mut Vec<Stroke>) {
     let s = frame.signals;
@@ -255,34 +250,17 @@ fn rain(frame: &Frame, size: [f32; 2], out: &mut Vec<Stroke>) {
     let cs = colors(frame.palette);
     let time = f64::from(s.time) * r.speed;
     for i in 0..r.count {
-        let i = i as f64;
-        let depth = seed(i, 2.0);
-        let rate = 8.0 * (0.8 + depth * 1.2);
-        let travel = seed(i, 1.0) * 680.0 + (time + 8.0) * rate;
-        let identity = i + (travel / 680.0).floor() * 4099.0;
-        let y = -70.0 + travel.rem_euclid(680.0);
-        let x = -50.0 + (seed(i, 3.0) * 1060.0 + (time + 8.0) * rate * 0.17).rem_euclid(1060.0);
-        let fade = ((y + 70.0) / 80.0).min((610.0 - y) / 80.0).clamp(0.0, 1.0);
-        let onigiri = seed(identity, 6.0) < 0.01;
-        let column = (seed(identity, 21.0) * 4.0).floor();
-        let row = (depth * 7.0).round() as usize;
-        // Quieter round the middle, as the menu's.
-        let distance = ((x - 480.0).hypot(y - 290.0) - 60.0).max(0.0) / 370.0;
-        let quiet = if distance < 0.6 {
-            0.58 + (0.23 - 0.58) * distance / 0.6
-        } else {
-            0.23 * (1.0 - distance).max(0.0) / 0.4
-        };
-        let alpha = ((0.13 + depth * 0.24) * fade * (1.0 - quiet)) as f32 * r.opacity;
+        let p = rain::particle(i, time, 8.0);
+        let alpha = p.alpha() as f32 * r.opacity;
         let alpha = alpha.min(1.0);
         if alpha <= 0.0 {
             continue;
         }
-        let moving = seed(identity, 9.0) < r.moving;
-        let zooming = moving && seed(identity, 13.0) < r.zooming;
+        let moving = seed(p.identity, 9.0) < r.moving;
+        let zooming = moving && seed(p.identity, 13.0) < r.zooming;
         let zoom = if zooming { 1.0 + r.zoom * s.zoom } else { 1.0 };
-        let side = 72.0 * (0.22 + depth as f32 * 0.36) * (64.0 / 56.0) * units * r.size;
-        let color = mix3(cs[2], cs[3], depth as f32);
+        let side = 72.0 * (0.22 + p.depth as f32 * 0.36) * (64.0 / 56.0) * units * r.size;
+        let color = mix3(cs[2], cs[3], p.depth as f32);
         let amplitude = if moving && !zooming {
             r.amplitude * s.wave
         } else {
@@ -291,27 +269,27 @@ fn rain(frame: &Frame, size: [f32; 2], out: &mut Vec<Stroke>) {
         let phase = f64::from(s.time)
             * std::f64::consts::TAU
             * f64::from(r.frequency)
-            * (0.7 + seed(i, 11.0) * 0.6);
+            * (0.7 + seed(i as f64, 11.0) * 0.6);
         out.push(Stroke {
             place: [
-                (x / 960.0) as f32 * w,
-                (y / 540.0) as f32 * h,
+                (p.x / rain::WIDTH) as f32 * w,
+                (p.y / rain::HEIGHT) as f32 * h,
                 side * zoom / 64.0,
-                if onigiri {
+                if p.onigiri {
                     0.0
                 } else {
-                    column as f32 * std::f32::consts::FRAC_PI_2
+                    f32::from(p.direction) * std::f32::consts::FRAC_PI_2
                 },
             ],
             color: with(scaled(color, frame.light), alpha),
             // The line keeps its width as the outline zooms.
             line: [
-                WEIGHTS[row.min(7)] * side / 64.0,
+                WEIGHTS[p.row.min(rain::ROWS - 1)] * side / 64.0,
                 amplitude,
                 phase.rem_euclid(std::f64::consts::TAU) as f32,
                 r.waves,
             ],
-            kind: [if onigiri { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+            kind: [if p.onigiri { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
         });
     }
 }

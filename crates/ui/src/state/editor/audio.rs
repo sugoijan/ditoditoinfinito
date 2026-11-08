@@ -21,7 +21,7 @@
 //! against the 115 MB of its decoded stereo music.
 
 use super::overview::{self, Overview};
-use ddi_library::fft::Fft;
+use ddi_library::fft::{RealFft, downmix_interleaved, downmix_planar};
 
 /// The spectrogram's bands, log-spaced from [`LOW_HZ`] to [`HIGH_HZ`].
 pub const BANDS: usize = 128;
@@ -291,15 +291,11 @@ struct Frames {
     hop: usize,
     window: usize,
     hann: Vec<f32>,
-    fft: Fft,
+    fft: RealFft,
     bands: [Band; BANDS],
     /// The power of a full-scale sine's bin.
     full: f32,
-    re: Vec<f32>,
-    im: Vec<f32>,
     power: Vec<f32>,
-    /// The real transform's twiddles, a bin each.
-    turns: Vec<(f32, f32)>,
     out: Vec<u8>,
 }
 
@@ -333,18 +329,10 @@ impl Frames {
             hop: hop(rate),
             window,
             hann,
-            fft: Fft::new(window / 2),
+            fft: RealFft::new(window),
             bands,
             full,
-            re: vec![0.0; window / 2],
-            im: vec![0.0; window / 2],
             power: vec![0.0; window / 2 + 1],
-            turns: (0..=window / 2)
-                .map(|k| {
-                    let a = -2.0 * std::f64::consts::PI * k as f64 / window as f64;
-                    (a.cos() as f32, a.sin() as f32)
-                })
-                .collect(),
             out: Vec::new(),
         }
     }
@@ -362,24 +350,10 @@ impl Frames {
                 None => 0.0,
             }
         };
-        // A real transform of `n` as a complex one of `n / 2`: even
-        // samples real, odd imaginary.
-        for m in 0..half {
-            self.re[m] = at(2 * m) * self.hann[2 * m];
-            self.im[m] = at(2 * m + 1) * self.hann[2 * m + 1];
-        }
-        self.fft.run(&mut self.re, &mut self.im);
+        let hann = &self.hann;
+        self.fft.run(|i| at(i) * hann[i]);
         for k in 0..=half {
-            let (zr, zi) = (self.re[k % half], self.im[k % half]);
-            let (cr, ci) = (self.re[(half - k) % half], -self.im[(half - k) % half]);
-            // Even part and odd part, the odd turned by its twiddle.
-            let (er, ei) = ((zr + cr) / 2.0, (zi + ci) / 2.0);
-            let (dr, di) = ((zr - cr) / 2.0, (zi - ci) / 2.0);
-            // (d / i) = (di, -dr)
-            let (or, oi) = (di, -dr);
-            let (wr, wi) = self.turns[k];
-            let (xr, xi) = (er + or * wr - oi * wi, ei + or * wi + oi * wr);
-            self.power[k] = xr * xr + xi * xi;
+            self.power[k] = self.fft.power(k);
         }
         let step = 255.0 / FLOOR_DB;
         for band in &self.bands {
@@ -460,27 +434,19 @@ impl Builder {
     /// The next frames of each channel (planar, the same length; more
     /// than the music's frames are left out).
     pub fn add_planar(&mut self, channels: &[&[f32]]) {
-        let Some(n) = channels.iter().map(|c| c.len()).min() else {
-            return;
-        };
-        let n = n.min(self.total - self.samples.len());
-        let k = channels.len() as f32;
         self.mid.clear();
-        self.mid
-            .extend((0..n).map(|i| channels.iter().map(|c| c[i]).sum::<f32>() / k));
+        downmix_planar(channels, self.total - self.samples.len(), &mut self.mid);
         self.take_mid();
     }
 
     /// The next frames, interleaved `channels` to a frame.
     pub fn add_interleaved(&mut self, data: &[f32], channels: usize) {
-        let channels = channels.max(1);
-        let k = channels as f32;
-        let n = (data.len() / channels).min(self.total - self.samples.len());
         self.mid.clear();
-        self.mid.extend(
-            data.chunks_exact(channels)
-                .take(n)
-                .map(|f| f.iter().sum::<f32>() / k),
+        downmix_interleaved(
+            data,
+            channels,
+            self.total - self.samples.len(),
+            &mut self.mid,
         );
         self.take_mid();
     }

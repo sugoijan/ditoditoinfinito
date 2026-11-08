@@ -271,11 +271,17 @@ mod tests {
                   showCrashOverlay(\"reload\", \"update\", d); new URL(\"x\");";
         let out = with_lines(js, &table).unwrap();
         assert!(out.starts_with("const B = {\"en\""), "{out}");
-        assert!(!out.contains("</script>") && out.contains("\\u003c/script>"), "{out}");
+        assert!(
+            !out.contains("</script>") && out.contains("\\u003c/script>"),
+            "{out}"
+        );
         // A key no message gives, and messages never named.
         let wrong = "const B = __DDI_BOOT_LINES__; L(\"loading\"); L(\"lodaing\");";
         let e = with_lines(wrong, &table).unwrap_err().to_string();
-        assert!(e.contains("\"lodaing\"") && e.contains("boot-no-wasm") && e.contains("boot-update"), "{e}");
+        assert!(
+            e.contains("\"lodaing\"") && e.contains("boot-no-wasm") && e.contains("boot-update"),
+            "{e}"
+        );
         assert!(with_lines("L(\"loading\")", &table).is_err());
     }
 
@@ -291,9 +297,20 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("old-00000000.json"), "{}").unwrap();
         let table = page_lines(&lines, &dir).unwrap();
-        assert_eq!(table["en"]["blocked"], "This browser cannot run Dito Dito Infinito.");
-        assert_eq!(table["first"]["ja"], serde_json::json!({"loading": "Dito Dito Infinito、読み込み中"}));
-        assert!(table["first"]["qps-ploc"]["loading"].as_str().unwrap().starts_with('«'));
+        assert_eq!(
+            table["en"]["blocked"],
+            "This browser cannot run Dito Dito Infinito."
+        );
+        assert_eq!(
+            table["first"]["ja"],
+            serde_json::json!({"loading": "Dito Dito Infinito、読み込み中"})
+        );
+        assert!(
+            table["first"]["qps-ploc"]["loading"]
+                .as_str()
+                .unwrap()
+                .starts_with('«')
+        );
         assert!(table["files"].get("en").is_none());
         // Each language's file has all its lines, named by its contents;
         // the old ones are gone.
@@ -302,8 +319,14 @@ mod tests {
         assert!(name.starts_with("ja-") && name.ends_with(".json"), "{file}");
         let ja: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join(name)).unwrap()).unwrap();
-        assert_eq!(ja["reload"], "問題が発生しました。ページを再読み込みしてください。");
-        assert_eq!(ja.as_object().unwrap().len(), table["en"].as_object().unwrap().len());
+        assert_eq!(
+            ja["reload"],
+            "問題が発生しました。ページを再読み込みしてください。"
+        );
+        assert_eq!(
+            ja.as_object().unwrap().len(),
+            table["en"].as_object().unwrap().len()
+        );
         assert!(!dir.join("old-00000000.json").exists());
         std::fs::remove_dir_all(&dir).unwrap();
         // A release build's page has no pseudo-language.

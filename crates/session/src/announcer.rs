@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use ddi_engine::player::Results;
 use ddi_engine::rules::{FullCombo, GradeTable};
+use ddi_engine::transform::SplitMix64;
 use ddi_library::announcer::{Grade, Kept, Line, Spoken};
 use ddi_library::path::RelPathBuf;
 use ddi_platform::AudioBackend;
@@ -61,16 +62,8 @@ impl Bags {
     pub fn new(seed: u64) -> Bags {
         Bags {
             bags: HashMap::new(),
-            seed: seed | 1,
+            seed,
         }
-    }
-
-    /// xorshift64*.
-    fn next(&mut self) -> u64 {
-        self.seed ^= self.seed >> 12;
-        self.seed ^= self.seed << 25;
-        self.seed ^= self.seed >> 27;
-        self.seed.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
 
     /// The next `count` (at most `n`) of the `n` sounds of announcer
@@ -87,10 +80,9 @@ impl Bags {
         while out.len() < want {
             if bag.is_empty() {
                 bag = (0..n).filter(|i| !out.contains(i)).collect();
-                for i in (1..bag.len()).rev() {
-                    let j = (self.next() % (i as u64 + 1)) as usize;
-                    bag.swap(i, j);
-                }
+                let mut rng = SplitMix64(self.seed);
+                rng.shuffle(&mut bag);
+                self.seed = rng.0;
             }
             match bag.pop() {
                 Some(i) => out.push(i),
@@ -104,7 +96,8 @@ impl Bags {
 
 /// The sounds a play of a chart of `notes` notes decodes: those of the
 /// lines it can speak ([`speaks`]; no combo it cannot reach), up to
-/// [`variants`] of each, the next of each line's bag.
+/// [`variants`] of each, the next of each line's bag, its opening's
+/// first.
 pub fn wanted(kept: &Kept, notes: u32, bags: &mut Bags) -> Vec<(Line, Vec<RelPathBuf>)> {
     take(kept, bags, |line| {
         speaks(line)
@@ -122,14 +115,17 @@ pub fn menu(kept: &Kept, bags: &mut Bags) -> Vec<(Line, Vec<RelPathBuf>)> {
     take(kept, bags, |line| line.spoken() == Spoken::Menu)
 }
 
-/// [`variants`] of each of `kept`'s lines `which` keeps, from their bags.
+/// [`variants`] of each of `kept`'s lines `which` keeps, from their bags,
+/// those said first first: a play's opening, then here we go; song
+/// select's intro.
 fn take(
     kept: &Kept,
     bags: &mut Bags,
     which: impl Fn(Line) -> bool,
 ) -> Vec<(Line, Vec<RelPathBuf>)> {
     let key = kept.key();
-    kept.lines
+    let mut lines: Vec<(Line, Vec<RelPathBuf>)> = kept
+        .lines
         .iter()
         .filter_map(|(folder, files)| {
             let line = Line::parse(folder)?;
@@ -139,7 +135,13 @@ fn take(
             let picks = bags.take(&key, line, files.len(), variants(line));
             Some((line, picks.into_iter().map(|i| files[i].clone()).collect()))
         })
-        .collect()
+        .collect();
+    lines.sort_by_key(|(line, _)| match line {
+        Line::Ready | Line::Restart | Line::SelectMusicIntro => 0,
+        Line::HereWeGo => 1,
+        _ => 2,
+    });
+    lines
 }
 
 /// The announcer's sounds as decoded, by line.
@@ -191,6 +193,12 @@ impl<B> Voice<B> {
         line.chain().iter().any(|l| self.expected.contains(l))
     }
 
+    /// What it holds: the sounds decoded and the lines expected (a line
+    /// it had nothing for may be there once either changes).
+    fn held(&self) -> (usize, usize) {
+        (self.decoded(), self.expected.len())
+    }
+
     /// The sound `line` (or the first of its chain decoded) speaks next.
     pub fn peek(&self, line: Line) -> Option<(Line, &B)> {
         let found = self.find(line)?;
@@ -213,6 +221,71 @@ impl<B> Voice<B> {
 /// The voice as the shell decodes it and the session speaks it.
 pub type SharedVoice<B> = Rc<RefCell<Voice<B>>>;
 
+/// How long song select's line asked for while its sound decodes may
+/// wait to be spoken, seconds (later, its moment has passed).
+pub const MENU_WAIT: f64 = 1.5;
+
+/// Song select's lines of the announcer chosen (step 5): its sounds as
+/// the shell decodes them, the first time a line is asked for, and the
+/// line asked for before its sound came, spoken if it comes while due.
+/// The times are seconds on any clock the shell keeps.
+pub struct MenuVoice<B> {
+    key: String,
+    pub voice: SharedVoice<B>,
+    /// A line asked for before its sound was decoded, and when.
+    pending: Option<(Line, f64)>,
+}
+
+impl<B: Clone> MenuVoice<B> {
+    /// Announcer `key`'s, its sounds decoded into `voice`.
+    pub fn new(key: String, voice: SharedVoice<B>) -> MenuVoice<B> {
+        MenuVoice {
+            key,
+            voice,
+            pending: None,
+        }
+    }
+
+    /// The announcer's key.
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    /// `line` asked for at `now`: the line found for it and its sound,
+    /// to speak now; else it waits for its sound ([`MenuVoice::poll`]),
+    /// in place of any line waiting.
+    pub fn ask(&mut self, line: Line, now: f64) -> Option<(Line, B)> {
+        let found = self.next(line);
+        self.pending = found.is_none().then_some((line, now));
+        found
+    }
+
+    /// The line waiting, at `now`: its sound to speak once decoded, while
+    /// it is due ([`MENU_WAIT`]); dropped once it is not.
+    pub fn poll(&mut self, now: f64) -> Option<(Line, B)> {
+        let (line, at) = self.pending?;
+        if now - at > MENU_WAIT {
+            self.pending = None;
+            return None;
+        }
+        let found = self.next(line);
+        if found.is_some() {
+            self.pending = None;
+        }
+        found
+    }
+
+    /// A line waits for its sound.
+    pub fn waiting(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    fn next(&self, line: Line) -> Option<(Line, B)> {
+        let mut voice = self.voice.borrow_mut();
+        voice.next(line).map(|(found, b)| (found, b.clone()))
+    }
+}
+
 /// What the history says of a chart (under the rules and the assist it
 /// is played with) before a play: the results' first clear and new
 /// record are told from it.
@@ -227,7 +300,18 @@ pub struct Prior {
 }
 
 impl Prior {
-    pub fn of(best: Option<&ddi_ui::state::history::Best>) -> Prior {
+    /// What `history` says of `song`'s chart `chart` played under
+    /// `settings`, before the play to come.
+    pub fn before(
+        history: &ddi_ui::state::history::History,
+        song: &ddi_chart::Song,
+        chart: usize,
+        settings: &ddi_ui::state::settings::Settings,
+    ) -> Prior {
+        Prior::of(history.best_of_play(song, chart, settings).as_ref())
+    }
+
+    fn of(best: Option<&ddi_ui::state::history::Best>) -> Prior {
         use ddi_ui::state::history::{Lamp, score_value};
         best.map_or(Prior::default(), |b| Prior {
             played: b.plays > 0,
@@ -346,6 +430,10 @@ pub struct Announcer<B> {
     lives: Option<u32>,
     /// `gameplay cleared` or `failed` said.
     ended: bool,
+    /// The comment last due that had no sound (on a battery gauge, and
+    /// the life's line), and what the voice held then: not tried again
+    /// each frame until one of them changes.
+    unsaid: Option<(bool, Line, (usize, usize))>,
     pub report: Report,
 }
 
@@ -373,6 +461,7 @@ impl<B> Announcer<B> {
             combo: 0,
             lives: None,
             ended: false,
+            unsaid: None,
             report: Report::default(),
         }
     }
@@ -568,12 +657,19 @@ impl<B> Announcer<B> {
                 };
                 // On a battery gauge `oni` (5.1's in courses), else the
                 // life's line.
-                let lines = if m.lives.is_some() {
-                    vec![Line::CommentOni, life]
-                } else {
-                    vec![life]
-                };
-                self.gated(audio, &lines, COMMENT_GAP, m.now);
+                let both = [Line::CommentOni, life];
+                let oni = m.lives.is_some();
+                let lines = if oni { &both[..] } else { &both[1..] };
+                let held = self.voice.as_ref().map(|v| v.borrow().held());
+                let tried = held.map(|h| (oni, life, h));
+                if tried != self.unsaid {
+                    if self.say(audio, lines, m.now + LEAD) {
+                        self.since = 0.0;
+                        self.unsaid = None;
+                    } else {
+                        self.unsaid = tried;
+                    }
+                }
             }
         }
         self.combo = m.combo;
@@ -705,24 +801,13 @@ pub fn old_grade(grades: &GradeTable, grade: &str, failed: bool) -> Option<Grade
     if failed {
         return Some(Grade::E);
     }
+    // The letters in capitals, DDR's with a `+` or `-`.
     let letter = |name: &str| -> Option<Grade> {
-        let at = ["AAAA", "AAA", "AA", "A", "B", "C", "D"]
-            .iter()
-            .position(|l| *l == name.trim_end_matches(['+', '-']))?;
-        Some(OLD[at])
+        let name = name.trim_end_matches(['+', '-']);
+        OLD.into_iter()
+            .find(|g| g.name().to_ascii_uppercase() == name)
     };
-    let mut names: Vec<&str> = Vec::new();
-    for n in grades
-        .all_w1
-        .iter()
-        .chain(grades.all_w2.iter())
-        .map(String::as_str)
-        .chain(grades.tiers.iter().map(|(n, _)| n.as_str()))
-    {
-        if !n.is_empty() && !names.contains(&n) {
-            names.push(n);
-        }
-    }
+    let names = grade_order(grades);
     if names.len() < 2 || !names.contains(&grade) {
         return None;
     }
@@ -732,6 +817,23 @@ pub fn old_grade(grades: &GradeTable, grade: &str, failed: bool) -> Option<Grade
     let i = names.iter().position(|n| *n == grade)?;
     let old = (i as f64 * 6.0 / (names.len() - 1) as f64).round() as usize;
     OLD.get(old.min(6)).copied()
+}
+
+/// `table`'s grade names from best to worst, each once.
+pub(crate) fn grade_order(table: &GradeTable) -> Vec<&str> {
+    let mut names: Vec<&str> = Vec::new();
+    for n in table
+        .all_w1
+        .iter()
+        .chain(table.all_w2.iter())
+        .map(String::as_str)
+        .chain(table.tiers.iter().map(|(n, _)| n.as_str()))
+    {
+        if !n.is_empty() && !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    names
 }
 
 #[cfg(test)]

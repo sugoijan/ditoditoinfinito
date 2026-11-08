@@ -7,7 +7,6 @@ use std::{cell::RefCell, rc::Rc};
 #[derive(Default)]
 pub struct HandPreview {
     host: super::hand::Host,
-    painter: Option<ddi_render::Painter>,
     report: Rc<RefCell<Report>>,
     enabled: bool,
     frame: HandFrame,
@@ -23,11 +22,10 @@ impl HandPreview {
     }
     pub fn release_targets(&mut self) {
         self.host = Default::default();
-        self.painter = None;
     }
-    pub fn set_settings(&mut self, settings: &Settings, layout: &str) {
-        self.enabled =
-            settings.dancing_hand_for(layout) && settings.dancing_hand_for(&settings.style);
+    /// The hand under `settings`, shown on the style the preview draws.
+    pub fn set_settings(&mut self, settings: &Settings) {
+        self.enabled = settings.dancing_hand_for(&settings.style);
         self.frame = settings.hand_frame();
     }
     #[allow(clippy::too_many_arguments)]
@@ -58,27 +56,22 @@ impl HandPreview {
             procedural: Some(
                 self.reference
                     .get_or_insert_with(|| {
-                        let model = ddi_hand_pose::Model::load(include_bytes!(
-                            "../../../assets/hand/model.json"
-                        ))
-                        .expect("bundled hand calibration");
+                        let model = super::dance_runtime::bundled_model();
                         let plan = ddi_hand_pose::Plan::empty(3.);
                         let q = plan.seed(&model, 0., None);
                         Rc::new(RefCell::new(ProceduralPose {
                             worlds: model.joint_worlds(&q),
                             weights: model.morph_weights(&q),
-                            debug: serde_json::Value::Null,
                         }))
                     })
                     .clone(),
             ),
             report: self.report.clone(),
         }));
-        let painter = self.painter.get_or_insert_with(|| {
-            ddi_render::Painter::new(device, queue, wgpu::TextureFormat::Rgba8Unorm)
-        });
-        painter.submitted();
-        self.host.draw(device, queue, encoder, painter);
+        // The standing pose repeats: the renderer keeps its copy.
+        if !self.host.draw(device, queue, encoder) && renderer.place_field_underlay(rect, 1.) {
+            return;
+        }
         renderer.set_field_underlay(device, encoder, self.host.texture().map(|t| (t, rect, 1.)));
     }
 }

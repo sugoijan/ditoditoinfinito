@@ -373,7 +373,7 @@ impl SharesDialog {
         // A line of tags.
         let mut detail: Vec<String> = vec![
             m::shares_songs(s.songs).into(),
-            size_text(s.bytes).into(),
+            super::data::size_text(s.bytes).into(),
             when.into(),
         ];
         if !s.mine {
@@ -575,19 +575,6 @@ pub fn expires_in(expires_at: Option<f64>, now: f64) -> UiText {
         m::shares_expires_hours((left / 3600.0).ceil())
     } else {
         m::shares_expires_days((left / 86_400.0).ceil())
-    }
-}
-
-/// A share's size in bytes, as its row says it.
-fn size_text(bytes: f64) -> UiText {
-    if bytes >= 1e9 {
-        m::size_gb((bytes / 1e8).round() / 10.0)
-    } else if bytes >= 1e6 {
-        m::size_mb((bytes / 1e6).round())
-    } else if bytes >= 1e3 {
-        m::size_kb((bytes / 1e3).round())
-    } else {
-        m::size_b(bytes.round())
     }
 }
 

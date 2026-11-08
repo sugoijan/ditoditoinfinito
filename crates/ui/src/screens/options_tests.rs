@@ -1076,7 +1076,7 @@ fn the_shares_dialog_lists_copies_and_deletes() {
     assert!(
         texts
             .iter()
-            .any(|t| t == "2 songs · 8 MB · expires in 7 days"),
+            .any(|t| t == "2 songs · 8.2 MB · expires in 7 days"),
         "{texts:?}"
     );
     assert!(

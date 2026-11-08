@@ -14,12 +14,7 @@ use serde::Deserialize;
 
 use crate::songs::LicenseEntry;
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives in the workspace root")
-        .to_path_buf()
-}
+use crate::repo_root;
 
 /// `assets/announcers/<name>/PROVENANCE.toml`, as kokoro.py writes it.
 #[derive(Debug, Deserialize)]

@@ -202,6 +202,10 @@ errors-share-not-shared = The songs could not be shared: { $error }.
 # The page's title beside its back icon on a phone (about 20 letters).
 errors-shared-page-title = Shared songs
 
+# The page's name in its header, in small capitals: written in capitals
+# where the language has them.
+errors-shared-page-heading = SHARED SONGS
+
 # Under the page's line, muted.
 errors-shared-page-hint = A shared link plays its songs from where they were shared, for as long as whoever shared them chose. Ask them for a new one.
 

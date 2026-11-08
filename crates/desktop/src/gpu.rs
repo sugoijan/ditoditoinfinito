@@ -209,8 +209,6 @@ impl Gpu {
             vp.offset[0] / scale,
             vp.offset[1] / scale,
         ];
-        // The UI's language, for the system's faces it needs.
-        self.painter.set_language(ddi_l10n::current().tag);
         let drawn = {
             let mut measure = self.painter.measure(scale);
             ui.draw_in(&mut measure, shift)

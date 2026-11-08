@@ -164,8 +164,7 @@ impl FieldPreviewHost {
     pub(crate) fn set_settings(&mut self, settings: &Settings) {
         self.preview.set_receptors(None);
         let options = self.skin.set_settings(settings);
-
-        self.hand.set_settings(settings, &options.layout);
+        self.hand.set_settings(settings);
         self.preview.set_options(options);
     }
 
