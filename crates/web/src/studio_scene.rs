@@ -11,35 +11,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use ddi_library::announcer::Line;
-use ddi_session::announcer::Voice;
+pub(crate) use ddi_session::announcer::scene::director::Heard;
+use ddi_session::announcer::scene::director::SaidWords;
 use web_sys::AudioBuffer;
 
 /// What a staged play is said with, from the studio.
-pub(crate) struct StagedPlay {
-    pub(crate) line: Line,
-    /// Who says it, as the studio's debug state says it (`draft`,
-    /// `example:en`).
-    pub(crate) said: String,
-    /// Who says it, as the frame shows it ("Your recording").
-    pub(crate) voice_label: String,
-    /// The line as the frame names it.
-    pub(crate) name: String,
-    /// The play's and its results' lines (the draft's, or our pack's).
-    pub(crate) voice: Voice<AudioBuffer>,
-    /// Each line's length (its next sound's), seconds.
-    pub(crate) lengths: HashMap<Line, f64>,
-    /// Each line's words, where known (an example's).
-    pub(crate) words: HashMap<Line, String>,
-}
-
-/// What a staged play said, for the studio.
-#[derive(Clone, Debug)]
-pub(crate) struct Heard {
-    pub(crate) line: Line,
-    pub(crate) said: String,
-    /// The lines said, by folder, in order.
-    pub(crate) spoken: Vec<String>,
-}
+pub(crate) type StagedPlay = ddi_session::announcer::scene::director::StagedPlay<AudioBuffer>;
 
 thread_local! {
     static STAGED: RefCell<Option<StagedPlay>> = const { RefCell::new(None) };
@@ -97,10 +74,8 @@ pub(crate) struct Framed {
     /// The canvas's CSS size and pixel ratio told to the UI.
     viewport: Option<(f64, f64, f64)>,
     last: Option<f64>,
-    /// The lines said so far, told to the frame as they start.
-    told: usize,
-    words: HashMap<Line, String>,
-    lengths: HashMap<Line, f64>,
+    /// The lines' words, told to the frame as each starts.
+    words: SaidWords,
 }
 
 impl Framed {
@@ -132,9 +107,7 @@ impl Framed {
             list: ddi_render::DrawList::new(),
             viewport: None,
             last: None,
-            told: 0,
-            words: spec.words,
-            lengths: spec.lengths,
+            words: SaidWords::new(spec.words, spec.lengths),
         }
     }
 
@@ -185,21 +158,7 @@ impl Framed {
     /// The lines said so far (`report.spoken`: folder, context time):
     /// the words of each one begun by `now` (the play's context time) shown.
     pub(crate) fn said(&mut self, spoken: &[(String, f64)], now: f64) {
-        while let Some((folder, at)) = spoken.get(self.told) {
-            if *at > now {
-                break;
-            }
-            self.told += 1;
-            let Some(line) = Line::parse(folder) else {
-                continue;
-            };
-            let text = self.words.get(&line).cloned().unwrap_or_else(|| {
-                ddi_l10n::msg::studio::stage_said(ddi_ui::screens::studio::name(line)).to_string()
-            });
-            let seconds = self.lengths.get(&line).copied().unwrap_or(1.5);
-            let m = ddi_ui::Message::new(ddi_ui::screens::stage::SAY)
-                .with("Text", ddi_ui::Param::Str(text))
-                .with("Seconds", ddi_ui::Param::Num(seconds));
+        for m in self.words.next(spoken, now) {
             self.ui.broadcast(m);
         }
     }
@@ -294,7 +253,7 @@ impl Framed {
             back.push(&f64::from(v).into());
         }
         set("back", back.into());
-        set("told", (self.told as f64).into());
+        set("told", (self.words.told() as f64).into());
         set(
             "picture",
             self.picture

@@ -18,7 +18,8 @@ use std::rc::Rc;
 use ddi_library::announcer::{Bundled, Index, Kept, Line, is_bundled};
 use ddi_library::path::RelPathBuf;
 use ddi_platform::AudioBackend;
-use ddi_session::announcer::{Bags, MenuVoice, SharedVoice, Voice};
+use ddi_session::announcer::scene::director::StagedVoice;
+use ddi_session::announcer::{Bags, MenuVoice, SharedVoice};
 use wasm_bindgen::JsValue;
 use web_sys::AudioBuffer;
 use web_sys::Blob;
@@ -314,19 +315,10 @@ thread_local! {
     static MENU: RefCell<Option<Menu>> = const { RefCell::new(None) };
 }
 
-/// What a staged line did: the line asked for, and what spoke for it
-/// (the line of its chain found) and for how long; `None`: nothing.
-pub(crate) type Told = Rc<dyn Fn(Line, Option<(Line, f64)>)>;
-
 /// The announcer studio's voice while its scene shows song select
 /// (`crate::components::studio_page`): song select's lines are spoken
-/// from it in place of the announcer chosen, at `share` of the music's
-/// volume, and each told to the studio.
-pub(crate) struct Staged {
-    pub(crate) voice: Voice<AudioBuffer>,
-    pub(crate) share: f32,
-    pub(crate) told: Told,
-}
+/// from it in place of the announcer chosen.
+type Staged = StagedVoice<AudioBuffer>;
 
 thread_local! {
     static STAGED: RefCell<Option<Staged>> = const { RefCell::new(None) };

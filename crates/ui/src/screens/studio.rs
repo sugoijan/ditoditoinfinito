@@ -17,6 +17,7 @@ use ddi_library::announcer::examples::{self, Set};
 use ddi_library::announcer::{Bundled, Comment, Grade, Line, Spoken};
 
 use super::Env;
+use super::data::Platform;
 use super::editor_dialogs::ActionsDialog;
 use super::page::{Action, Block, PageDoc, PageTitle};
 use crate::screen::Cx;
@@ -40,6 +41,9 @@ pub struct View {
     pub ready: Option<String>,
     /// An export or Use in the game under way.
     pub busy: bool,
+    /// Where the page shows (its words on dropping files, and on keeping
+    /// them).
+    pub platform: Platform,
 }
 
 /// An example of a line.
@@ -395,7 +399,7 @@ fn switch(id: &str, label: UiText, does: UiText) -> [Block; 2] {
 /// The studio's page.
 pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) -> PageDoc {
     let mut b = vec![
-        Block::Text(m::intro().into()),
+        Block::Text(m::intro(view.platform.l10n()).into()),
         Block::Field {
             id: "name".into(),
             label: m::name().into(),
@@ -468,7 +472,7 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
     if !unsorted.is_empty() {
         let mut body = vec![
             Block::Heading(m::unsorted(unsorted.len()).into()),
-            Block::Muted(m::unsorted_help().into()),
+            Block::Muted(m::unsorted_help(view.platform.l10n()).into()),
         ];
         for t in unsorted {
             take_blocks(draft, view, t, false, &mut body);

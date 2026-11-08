@@ -16,6 +16,47 @@ use serde::{Deserialize, Serialize};
 use super::tidy::Measure;
 use super::{CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE, Grade, Line, MAX_BYTES, MAX_FILES};
 
+/// Files a pick or drop takes as recordings by their extension, where
+/// their first bytes say nothing (M4A, AAC, AIFF, WebM…): a song's
+/// music's and these.
+const MORE_RECORDINGS: [&str; 11] = [
+    "m4a", "aac", "aif", "aiff", "caf", "webm", "weba", "mp4", "3gp", "amr", "wma",
+];
+
+/// Whether `path`'s extension is a recording's.
+pub fn is_recording(path: &str) -> bool {
+    crate::path::RelPath::new(path)
+        .extension()
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|e| {
+            crate::pack::AUDIO_EXTENSIONS
+                .iter()
+                .chain(&MORE_RECORDINGS)
+                .any(|x| *x == e)
+        })
+}
+
+/// Whether the file at `path`, starting with `head` (its first [`HEAD`]
+/// bytes), is taken as a recording: not a hidden file, and a format the
+/// game reads or a recording's extension.
+pub fn takes(path: &str, head: &[u8]) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    !name.starts_with('.') && (Format::sniff(head) != Format::Other || is_recording(path))
+}
+
+/// The README of the pack among `paths`: the one nearest its top
+/// (`README.txt`, in any case).
+pub fn readme_path<'a>(paths: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    paths
+        .into_iter()
+        .filter(|p| {
+            p.rsplit('/')
+                .next()
+                .is_some_and(|n| n.eq_ignore_ascii_case("readme.txt"))
+        })
+        .min_by_key(|p| p.matches('/').count())
+}
+
 /// What a recording is, by its first bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Format {

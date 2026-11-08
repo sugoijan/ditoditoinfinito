@@ -7,7 +7,10 @@ studio-title = アナウンサースタジオ
 
 studio-heading = アナウンサースタジオ
 
-studio-intro = 自分の声の録音を下のセリフにドロップするか、セリフの「{ -studio-button-add-recording }」ボタンで追加します。作ったアナウンサーはゲームで使ったり、書き出して共有したりできます。
+studio-intro = { $platform ->
+    [web] 自分の声の録音を下のセリフにドロップするか、セリフの「{ -studio-button-add-recording }」ボタンで追加します。作ったアナウンサーはゲームで使ったり、書き出して共有したりできます。
+   *[desktop] 自分の声の録音は、下の各セリフの「{ -studio-button-add-recording }」ボタンで追加します。作ったアナウンサーはゲームで使ったり、書き出して共有したりできます。
+}
 
 studio-name = 名前
 studio-name-hint = アナウンサーの名前
@@ -58,7 +61,10 @@ studio-details-description = 各セリフのフォルダーと、各録音を整
 
 studio-unsorted = 未分類（{ $count }）
 
-studio-unsorted-help = 「{ -studio-button-which-line }」を押すと、録音を聞きながらセリフを選べます。下のセリフにドロップすることもできます。
+studio-unsorted-help = { $platform ->
+    [web] 「{ -studio-button-which-line }」を押すと、録音を聞きながらセリフを選べます。下のセリフにドロップすることもできます。
+   *[desktop] 「{ -studio-button-which-line }」を押すと、録音を聞きながらセリフを選べます。
+}
 
 studio-section-select = 選曲画面
 studio-section-play = プレイ中
@@ -226,7 +232,10 @@ studio-status-added = 録音を{ $added }件追加しました。{ $passed ->
 studio-status-added-unkept = 録音を{ $added }件追加しました。{ $passed ->
     [0] {""}
    *[other] 音声ではない{ $passed }個のファイルは無視しました。
-}ブラウザーに保存できませんでした：{ $error }
+}{ $platform ->
+    [web] ブラウザーに保存できませんでした：{ $error }
+   *[desktop] 保存できませんでした：{ $error }
+}
 
 studio-status-files-unreadable = ファイルを読み込めませんでした：{ $error }
 
@@ -248,7 +257,10 @@ studio-status-exported = 「{ $file }」ができました（音声ファイル{
 
 studio-status-not-exported = パックを作れませんでした：{ $error }
 
-studio-status-saved = { $file }をダウンロードに保存しました。
+studio-status-saved = { $platform ->
+    [web] { $file }をダウンロードに保存しました。
+   *[desktop] { $file }を保存しました。
+}
 
 studio-status-not-saved = パックを保存できませんでした。
 

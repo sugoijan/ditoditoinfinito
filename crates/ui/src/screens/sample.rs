@@ -713,6 +713,7 @@ pub fn studio() -> (
         status: ddi_l10n::msg::studio::status_added(9, 1).into(),
         ready: Some("Announcer.zip".into()),
         busy: false,
+        platform: Default::default(),
     };
     let mut kept = Kept {
         name: Set::English.pack().into(),

@@ -19,7 +19,12 @@ studio-title = Announcer studio
 studio-heading = ANNOUNCER STUDIO
 
 # The page's first paragraph (wrapped, the page's width).
-studio-intro = Drop each recording of your voice on its line below, or add it with the line's { -studio-button-add-recording } button. Then use your announcer in the game, or export it to share.
+# Variables:
+#   $platform (String) - web or desktop
+studio-intro = { $platform ->
+    [web] Drop each recording of your voice on its line below, or add it with the line's { -studio-button-add-recording } button. Then use your announcer in the game, or export it to share.
+   *[desktop] Add each recording of your voice with its line's { -studio-button-add-recording } button below. Then use your announcer in the game, or export it to share.
+}
 
 ## The fields: a label at the left (about 12 letters), what was typed at
 ## the right, or a hint while it is empty.
@@ -106,7 +111,12 @@ studio-details-description = Shows each line's folder and what tidying did to ea
 #   $count (Number) - how many recordings wait
 studio-unsorted = Not sorted yet ({ $count })
 
-studio-unsorted-help = Press { -studio-button-which-line } to hear a recording and choose its line, or drop it on its line below.
+# Variables:
+#   $platform (String) - web or desktop
+studio-unsorted-help = { $platform ->
+    [web] Press { -studio-button-which-line } to hear a recording and choose its line, or drop it on its line below.
+   *[desktop] Press { -studio-button-which-line } to hear a recording and choose its line.
+}
 
 ## The lines' sections: a heading each, then the zones of the lines the
 ## game says there.
@@ -389,12 +399,12 @@ studio-status-added = { $added ->
    *[other] {" "}{ $passed } files were passed over: not sounds.
 }
 
-# The same, where the browser would not keep them (they are gone after a
-# reload).
+# The same, where they could not be stored (they are gone next time).
 # Variables:
 #   $added (Number) - recordings added
 #   $passed (Number) - files passed over, which were no sounds (0: none)
 #   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
+#   $platform (String) - web or desktop
 studio-status-added-unkept = { $added ->
     [one] Added { $added } recording.
    *[other] Added { $added } recordings.
@@ -402,7 +412,10 @@ studio-status-added-unkept = { $added ->
     [0] {""}
     [one] {" "}{ $passed } file was passed over: not sounds.
    *[other] {" "}{ $passed } files were passed over: not sounds.
-} They could not be kept in the browser: { $error }
+} { $platform ->
+    [web] They could not be kept in the browser: { $error }
+   *[desktop] They could not be kept: { $error }
+}
 
 # Variables:
 #   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
@@ -412,6 +425,7 @@ studio-status-files-unreadable = The files could not be read: { $error }
 #   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
 studio-status-draft-unreadable = The draft could not be read: { $error }
 
+# The web only.
 studio-status-no-decoder = This browser cannot decode sounds here.
 
 # Variables:
@@ -449,7 +463,11 @@ studio-status-not-exported = The pack could not be made: { $error }
 
 # Variables:
 #   $file (String) - the zip's file name
-studio-status-saved = { $file } saved to your downloads.
+#   $platform (String) - web or desktop
+studio-status-saved = { $platform ->
+    [web] { $file } saved to your downloads.
+   *[desktop] { $file } saved.
+}
 
 studio-status-not-saved = The pack could not be saved.
 

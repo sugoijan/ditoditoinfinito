@@ -45,23 +45,23 @@ use std::rc::{Rc, Weak};
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
-use ddi_library::announcer::draft::Take;
-use ddi_library::announcer::draft::{Draft, HEAD, Sound, Write, readme_credits};
+use ddi_library::announcer::draft::{
+    Draft, HEAD, Sound, Write, readme_credits, readme_path, takes,
+};
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::{Bundled, Line, Spoken, find_announcers, tidy};
 use ddi_platform::AudioBackend;
 use ddi_platform::storage::{self, Area};
-use ddi_session::announcer::{Announcer, Timing, Voice, scene};
+use ddi_session::announcer::scene::director::{
+    self, Director, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
+};
+use ddi_session::announcer::{Voice, scene};
 use ddi_ui::event::{MenuEvent, UiEvent};
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::page::{PAGE_CHANGED, PAGE_TARGET, PageCall, PageFeed, PageScreen, PageShell};
-use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
-use ddi_ui::screens::select::{OpenFn, PlayFn, SelectCall, SelectScreen, ShellFn};
-use ddi_ui::screens::stage::{self, BackFn, StageFrame};
-use ddi_ui::screens::start;
 use ddi_ui::screens::studio::{self, Act, Example, View};
-use ddi_ui::{Cx, Mark, MenuAction, UiRequest};
+use ddi_ui::{Cx, MenuAction, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use gloo::timers::callback::Timeout;
@@ -81,12 +81,6 @@ const DRAFT_KEY: &str = "studio/draft.json";
 const EXAMPLES_KEY: &str = "ddi.studio.examples";
 /// The rate takes are decoded, measured and written at.
 const RATE: f32 = 48_000.0;
-/// Files a pick or drop takes as recordings by their extension, where
-/// their first bytes say nothing (M4A, AAC, AIFF, WebM…): a song's music's
-/// and these.
-const MORE_RECORDINGS: [&str; 11] = [
-    "m4a", "aac", "aif", "aiff", "caf", "webm", "weba", "mp4", "3gp", "amr", "wma",
-];
 /// The draft is saved at most this often while takes are decoded,
 /// milliseconds.
 const SAVE_EVERY_MS: f64 = 1000.0;
@@ -98,16 +92,6 @@ const PACK_TYPES: &str = ".zip,.smzip";
 
 fn take_key(id: u64) -> String {
     format!("studio/take/{id}")
-}
-
-/// Whether `path`'s extension is a recording's.
-fn is_recording(path: &str) -> bool {
-    crate::import::extension(path).is_some_and(|e| {
-        ddi_library::pack::AUDIO_EXTENSIONS
-            .iter()
-            .chain(&MORE_RECORDINGS)
-            .any(|x| *x == e)
-    })
 }
 
 pub(crate) enum Msg {
@@ -133,126 +117,11 @@ impl Drop for Studio {
     fn drop(&mut self) {
         KEPT.with_borrow_mut(|k| {
             k.decoded = std::mem::take(&mut *self.decoded.borrow_mut());
-            k.turns = std::mem::take(&mut *self.turns.borrow_mut());
-            k.example_turns = std::mem::take(&mut *self.example_turns.borrow_mut());
+            k.turns = std::mem::take(&mut *self.director.turns.borrow_mut());
+            k.example_turns = std::mem::take(&mut *self.director.example_turns.borrow_mut());
             k.example_sounds = std::mem::take(&mut *self.example_sounds.borrow_mut());
         });
     }
-}
-
-/// A scene lasts this long at least, seconds: time to see its screen.
-const SCENE_SECONDS: f64 = 3.5;
-/// It ends this long after its last line, seconds.
-const SCENE_TAIL: f64 = 1.5;
-/// The start menu shows this long before Singleplayer is chosen (the
-/// welcome's scene), seconds.
-const START_SECONDS: f64 = 1.8;
-/// Song select shows a chart's best this long before it is chosen (a
-/// record's scene, a first clear's), seconds.
-const BEFORE_SECONDS: f64 = 2.6;
-/// What a comment is said for is pointed at this long before the chart
-/// is chosen, seconds.
-const MARK_LEAD: f64 = 1.2;
-/// A screen's way in, about, seconds: the results' line waits for it.
-const ENTRANCE: f64 = 0.4;
-
-/// A voice, each line's length (seconds) and words (where known).
-type Voiced = (
-    Voice<AudioBuffer>,
-    HashMap<Line, f64>,
-    HashMap<Line, String>,
-);
-
-/// Who says a scene's lines.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Said {
-    /// The draft: the line is recorded (or what speaks in its place).
-    Draft,
-    /// Our pack of this set of examples (Mr. Clank, ガキンさん): it is
-    /// not yet.
-    Example(Set),
-}
-
-impl Said {
-    /// As the debug state says it: `draft`, `example:en`.
-    fn key(self) -> String {
-        match self {
-            Said::Draft => "draft".into(),
-            Said::Example(set) => format!("example:{}", set.key()),
-        }
-    }
-}
-
-/// The screen a scene shows.
-#[derive(Clone, Copy, PartialEq)]
-enum Shows {
-    /// A line said in play, on the play route.
-    Play,
-    Start,
-    Select,
-    Results,
-}
-
-impl Shows {
-    /// As the debug state says it: `start`.
-    fn key(self) -> &'static str {
-        match self {
-            Shows::Play => "play",
-            Shows::Start => "start",
-            Shows::Select => "select",
-            Shows::Results => "results",
-        }
-    }
-}
-
-/// A scene showing (`docs/plans/announcer-studio.md`, step 3): a line
-/// heard on the screen the game speaks it on, in a frame over the
-/// studio ([`StageFrame`]), what it is said for pointed at.
-struct Scene {
-    line: Line,
-    said: Said,
-    /// When it began, milliseconds (`Date.now`).
-    began: f64,
-    /// The screen shown now.
-    screen: Shows,
-    /// What happens now (the frame's caption).
-    caption: String,
-    /// Song select's chart is to be chosen (a comment's scene, a results
-    /// line's song select), and was (by the scene, or by the player
-    /// first).
-    choose: bool,
-    chosen: bool,
-    /// What it points at now (a spot of the screen's, `Ui::mark`), and
-    /// whether it does yet.
-    mark: Option<Mark>,
-    marked: bool,
-    /// Its way out was asked for on the start menu (which Back does not
-    /// leave): it leaves as Singleplayer is chosen.
-    leaving: bool,
-    /// It plays song select's preview (on song select's own sound).
-    preview: bool,
-    /// The lines said, by folder, and when each starts (milliseconds,
-    /// `Date.now`): one cut by the scene's end was not heard.
-    spoken: Vec<(String, f64)>,
-    /// Each line's words (an example's) and length, seconds.
-    words: HashMap<Line, String>,
-    lengths: HashMap<Line, f64>,
-    /// Its next step, and the steps under way (the mark, the words shown).
-    timer: Option<Timeout>,
-    later: Vec<Timeout>,
-    /// Tells this scene's calls and timers from a later one's.
-    n: u64,
-}
-
-/// A scene's next step.
-#[derive(Clone, Copy)]
-enum Next {
-    /// Start: Singleplayer on the start menu, the chart on song select.
-    Start,
-    /// Back to the studio (Back), once the scene has shown long enough.
-    End,
-    /// Back to the studio at once (the frame's way back).
-    Leave,
 }
 
 pub(crate) struct StudioPage {
@@ -292,17 +161,12 @@ struct Studio {
     plays: Cell<u64>,
     /// The bundled songs' entries, for song select's previews in a scene.
     songs: RefCell<Vec<ManifestEntry>>,
-    scene: RefCell<Option<Scene>>,
-    scenes: Cell<u64>,
-    /// Each line's recording a scene says first: the next each time one
-    /// was said.
-    turns: RefCell<HashMap<Line, usize>>,
+    /// Runs the scenes (`ddi_session::announcer::scene::director`).
+    director: Rc<Director<WebScenes>>,
     /// The last scene's line, what it said and who (the debug state).
     heard: RefCell<Option<(Line, Vec<String>, String)>>,
-    /// Our packs' sounds a scene took, decoded (by pack and path), and
-    /// each line's next (by set).
+    /// Our packs' sounds a scene took, decoded (by pack and path).
     example_sounds: RefCell<HashMap<String, AudioBuffer>>,
-    example_turns: RefCell<HashMap<(&'static str, Line), usize>>,
     /// `__DDI_DEBUG.studio` as last built; `None` once the studio changed
     /// since (each frame's debug state takes it as it is).
     debug: RefCell<Option<js_sys::Object>>,
@@ -316,7 +180,7 @@ impl Studio {
         let examples = storage::get(Area::Local, EXAMPLES_KEY)
             .and_then(|k| Set::from_key(&k))
             .unwrap_or_else(studio::first_set);
-        Rc::new(Studio {
+        let studio = Rc::new_cyclic(|me: &Weak<Studio>| Studio {
             draft: RefCell::new(Draft::default()),
             view: RefCell::new(View {
                 examples,
@@ -338,19 +202,19 @@ impl Studio {
             target: RefCell::new(None),
             plays: Cell::new(0),
             songs: RefCell::default(),
-            scene: RefCell::new(None),
-            scenes: Cell::new(0),
-            turns: RefCell::new(KEPT.with_borrow_mut(|k| std::mem::take(&mut k.turns))),
+            director: Director::new(WebScenes(me.clone())),
             heard: RefCell::new(None),
             example_sounds: RefCell::new(
                 KEPT.with_borrow_mut(|k| std::mem::take(&mut k.example_sounds)),
             ),
-            example_turns: RefCell::new(
-                KEPT.with_borrow_mut(|k| std::mem::take(&mut k.example_turns)),
-            ),
             debug: RefCell::new(None),
             frame: RefCell::new(None),
-        })
+        });
+        KEPT.with_borrow_mut(|k| {
+            *studio.director.turns.borrow_mut() = std::mem::take(&mut k.turns);
+            *studio.director.example_turns.borrow_mut() = std::mem::take(&mut k.example_turns);
+        });
+        studio
     }
 
     fn doc(&self) -> ddi_ui::screens::page::PageDoc {
@@ -498,7 +362,7 @@ impl Studio {
             }
             JsValue::from(a)
         };
-        let scene = match &*self.scene.borrow() {
+        let scene = match self.director.state() {
             Some(sc) => {
                 let x = js_sys::Object::new();
                 set(&x, "line", sc.line.folder().into());
@@ -509,12 +373,9 @@ impl Studio {
                 set(
                     &x,
                     "mark",
-                    sc.mark
-                        .filter(|_| sc.marked)
-                        .map_or(JsValue::NULL, |m| m.as_str().into()),
+                    sc.mark.map_or(JsValue::NULL, |m| m.as_str().into()),
                 );
-                let said: Vec<String> = sc.spoken.iter().map(|(f, _)| f.clone()).collect();
-                set(&x, "spoken", folders(&said));
+                set(&x, "spoken", folders(&sc.spoken));
                 x.into()
             }
             None => JsValue::NULL,
@@ -647,15 +508,8 @@ impl Studio {
                 .collect();
             let found = find_announcers(&listed, "");
             let readme = match found.announcers.as_slice() {
-                [_] => files
-                    .iter()
-                    .filter(|(p, _)| {
-                        p.rsplit('/')
-                            .next()
-                            .is_some_and(|n| n.eq_ignore_ascii_case("readme.txt"))
-                    })
-                    .min_by_key(|(p, _)| p.matches('/').count())
-                    .cloned(),
+                [_] => readme_path(files.iter().map(|(p, _)| p.as_str()))
+                    .and_then(|r| files.iter().find(|(p, _)| p == r).cloned()),
                 _ => None,
             };
             let credits = match &readme {
@@ -687,12 +541,7 @@ impl Studio {
             let mut passed = 0;
             for (path, blob) in files {
                 let head = head_of(&blob).await.unwrap_or_default();
-                let format = ddi_library::announcer::draft::Format::sniff(&head);
-                let name = path.rsplit('/').next().unwrap_or(&path);
-                if name.starts_with('.')
-                    || (format == ddi_library::announcer::draft::Format::Other
-                        && !is_recording(&path))
-                {
+                if !takes(&path, &head) {
                     if readme.as_deref() != Some(path.as_str()) {
                         passed += 1;
                     }
@@ -720,7 +569,12 @@ impl Studio {
             this.forget_export();
             let said = match stored {
                 Ok(_) => ms::status_added(added, passed),
-                Err(e) => ms::status_added_unkept(added, passed, error_text(&e)),
+                Err(e) => ms::status_added_unkept(
+                    added,
+                    passed,
+                    error_text(&e),
+                    ddi_ui::screens::data::Platform::Web.l10n(),
+                ),
             };
             this.save();
             this.status(said);
@@ -1042,7 +896,7 @@ impl Studio {
         gloo::timers::callback::Timeout::new(60_000, move || files::revoke_object_url(&url))
             .forget();
         self.view.borrow_mut().status = match clicked {
-            Some(()) => ms::status_saved(&name),
+            Some(()) => ms::status_saved(&name, ddi_ui::screens::data::Platform::Web.l10n()),
             None => ms::status_not_saved(),
         }
         .into();
@@ -1150,46 +1004,31 @@ impl Studio {
 
     /// The draft as a voice for the lines `which` keeps: each line's
     /// recordings decoded so far, as the pack has them (tidied where they
-    /// are), the line's next one first, each made a buffer by `make`;
-    /// with the first one's length of each line.
+    /// are), each made a buffer by `make`.
     fn staged_voice(
         &self,
         which: impl Fn(Line) -> bool,
         make: impl Fn(Vec<Vec<f32>>, u32) -> Option<AudioBuffer>,
-    ) -> Voiced {
+    ) -> Voiced<AudioBuffer> {
         let draft = self.draft.borrow();
-        let turns = self.turns.borrow();
-        let decoded = self.decoded.borrow();
-        let mut voice = Voice::default();
-        let mut lengths = HashMap::new();
-        for line in Line::all().into_iter().filter(|l| which(*l)) {
-            let takes: Vec<&Take> = draft
-                .takes_of(line)
-                .filter(|t| decoded.contains_key(&t.id))
-                .collect();
-            if takes.is_empty() {
-                continue;
-            }
-            voice.expect([line]);
-            let first = turns.get(&line).copied().unwrap_or(0) % takes.len();
-            for k in 0..takes.len() {
-                let t = takes[(first + k) % takes.len()];
-                let (pcm, rate) = self.shaped(t.id, &decoded[&t.id], draft.tidies(t));
-                if let Some(b) = make(pcm, rate) {
-                    lengths.entry(line).or_insert(b.duration());
-                    voice.add(line, b);
-                }
-            }
-        }
-        // A recording's words are not known: its line by name.
-        (voice, lengths, HashMap::new())
+        director::draft_voice(
+            &draft,
+            which,
+            &self.director.turns.borrow(),
+            &self.decoded.borrow(),
+            |t, b| {
+                let (pcm, rate) = self.shaped(t.id, b, draft.tidies(t));
+                make(pcm, rate)
+            },
+            AudioBuffer::duration,
+        )
     }
 
     /// Hears `line` in the game, in the press: its scene over the studio,
     /// said by the draft where it has something to say for the line, else
     /// by our pack of the examples chosen.
     fn hear(self: &Rc<Self>, line: Line) {
-        if self.scene.borrow().is_some() {
+        if self.director.busy() {
             return;
         }
         self.stop();
@@ -1239,7 +1078,7 @@ impl Studio {
         };
         audio.resume_now();
         crate::web::audio::keep_for_play(pick.song, chart, audio);
-        let n = self.begin_scene(line, said, Shows::Play, false, "", None, false);
+        let n = self.director.begin_play(line, said);
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let lines: Vec<Line> = Line::all()
@@ -1259,27 +1098,27 @@ impl Studio {
                 }
                 Said::Example(set) => this.example_voice(set, &lines).await,
             };
-            if !this.scene_is(n) {
+            if !this.director.is(n) {
                 return;
             }
             let (voice, lengths, words) = match voiced {
                 Ok(v) => v,
-                Err(e) => return this.drop_scene(n, ms::status_example_unreadable(error_text(&e))),
+                Err(e) => {
+                    return this
+                        .director
+                        .give_up(n, ms::status_example_unreadable(error_text(&e)));
+                }
             };
-            let voice_label = match said {
-                Said::Draft => ms::stage_voice_recording(),
-                Said::Example(set) => ms::stage_voice_example(set.pack()),
-            };
-            crate::studio_scene::stage(crate::studio_scene::StagedPlay {
+            crate::studio_scene::stage(director::StagedPlay {
                 line,
-                said: said.key(),
-                voice_label: voice_label.to_string(),
+                said,
+                voice_label: said.label().to_string(),
                 name: studio::name(line).to_string(),
                 voice,
                 lengths,
                 words,
             });
-            this.scene.borrow_mut().take();
+            this.director.handed_over(n);
             crate::router::Route::Play {
                 song: pick.song.into(),
                 chart,
@@ -1297,90 +1136,11 @@ impl Studio {
         });
     }
 
-    /// What the last scene in play said, as the studio shows again: the
-    /// status, and each line's next recording (or example) for the next.
+    /// What the last scene in play said, as the studio shows again.
     fn heard_in_play(&self) {
-        let Some(h) = crate::studio_scene::take_heard() else {
-            return;
-        };
-        let example = h.said.strip_prefix("example:").and_then(Set::from_key);
-        let lines: Vec<Line> = h.spoken.iter().filter_map(|f| Line::parse(f)).collect();
-        for &l in &lines {
-            match example {
-                None => *self.turns.borrow_mut().entry(l).or_insert(0) += 1,
-                Some(set) => {
-                    *self
-                        .example_turns
-                        .borrow_mut()
-                        .entry((set.key(), l))
-                        .or_insert(0) += 1
-                }
-            }
+        if let Some(h) = crate::studio_scene::take_heard() {
+            self.director.heard(h);
         }
-        self.view.borrow_mut().status =
-            studio::heard(h.line, &lines, example.map(|s| s.pack())).into();
-        *self.heard.borrow_mut() = Some((h.line, h.spoken, h.said));
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn begin_scene(
-        &self,
-        line: Line,
-        said: Said,
-        screen: Shows,
-        choose: bool,
-        caption: &str,
-        mark: Option<Mark>,
-        preview: bool,
-    ) -> u64 {
-        let n = self.scenes.get() + 1;
-        self.scenes.set(n);
-        self.changed();
-        *self.scene.borrow_mut() = Some(Scene {
-            line,
-            said,
-            began: js_sys::Date::now(),
-            screen,
-            caption: caption.into(),
-            choose,
-            chosen: false,
-            mark,
-            marked: false,
-            leaving: false,
-            preview,
-            spoken: Vec::new(),
-            words: HashMap::new(),
-            lengths: HashMap::new(),
-            timer: None,
-            later: Vec::new(),
-            n,
-        });
-        n
-    }
-
-    /// Whether scene `n` is still the one under way.
-    fn scene_is(&self, n: u64) -> bool {
-        self.scene.borrow().as_ref().is_some_and(|s| s.n == n)
-    }
-
-    /// `f` on scene `n` (while it is the one under way).
-    fn with_scene<T>(&self, n: u64, f: impl FnOnce(&mut Scene) -> T) -> Option<T> {
-        self.changed();
-        self.scene.borrow_mut().as_mut().filter(|s| s.n == n).map(f)
-    }
-
-    /// Scene `n` given up before it showed (its example could not be
-    /// read): the studio says why.
-    fn drop_scene(&self, n: u64, why: UiText) {
-        let Some(sc) = self.scene.borrow_mut().take_if(|s| s.n == n) else {
-            return;
-        };
-        crate::announcers::stage(None);
-        if sc.preview {
-            crate::select_preview::close();
-        }
-        self.stop();
-        self.status(why);
     }
 
     /// `f` on the page's UI: now, or just after the event it is handling
@@ -1410,110 +1170,11 @@ impl Studio {
         .forget();
     }
 
-    /// The frame scene `n` is shown in ([`StageFrame`]): its line, who
-    /// says it, what happens first; its way back leaves the scene.
-    fn frame(self: &Rc<Self>, env: ddi_ui::screens::Env, n: u64, caption: &str) -> StageFrame {
-        let (line, said) = self
-            .with_scene(n, |sc| (sc.line, sc.said))
-            .unwrap_or((Line::Ready, Said::Draft));
-        let voice = match said {
-            Said::Draft => ms::stage_voice_recording(),
-            Said::Example(set) => ms::stage_voice_example(set.pack()),
-        };
-        let weak = Rc::downgrade(self);
-        let back: BackFn = Rc::new(move |_| {
-            if let Some(s) = weak.upgrade() {
-                s.after(n, 0.0, Next::Leave);
-            }
-        });
-        StageFrame::new(env, &studio::name(line), &voice, caption, back)
-    }
-
-    /// The scene's frame over the studio and its first screen in it, the
-    /// studio leaving first (out of the press: what it says is ready),
-    /// `mark` pointed at; whether they were.
-    fn show(
-        &self,
-        frame: StageFrame,
-        screen: impl ddi_ui::Screen + 'static,
-        mark: Option<Mark>,
-    ) -> bool {
-        let Some(host) = self.weak_host().and_then(|w| w.upgrade()) else {
-            return false;
-        };
-        let Ok(mut h) = host.try_borrow_mut() else {
-            return false;
-        };
-        h.ui.push_chrome(frame);
-        h.ui.push_over(screen);
-        h.ui.mark(mark);
-        drop(h);
-        ui_dev::wake(&host);
-        true
-    }
-
-    /// Scene `n` points at what it is for (its spot), now.
-    fn mark(&self, n: u64) {
-        let Some(Some(mark)) = self.with_scene(n, |sc| {
-            sc.marked = true;
-            sc.mark
-        }) else {
-            return;
-        };
-        self.on_ui(move |ui| ui.mark(Some(mark)));
-        self.publish();
-    }
-
-    /// The frame's caption: what happens now.
-    fn caption_now(&self, n: u64, caption: &str) {
-        self.with_scene(n, |sc| sc.caption = caption.into());
-        let m = Message::new(stage::CAPTION).with("Text", Param::Str(caption.into()));
-        self.on_ui(move |ui| ui.broadcast(m));
-    }
-
-    /// The frame's bar: the scene ends in about `seconds`.
-    fn until(&self, n: u64, seconds: f64) {
-        if !self.scene_is(n) {
-            return;
-        }
-        let m = Message::new(stage::UNTIL).with("Seconds", Param::Num(seconds));
-        self.on_ui(move |ui| ui.broadcast(m));
-    }
-
-    /// The frame shows the words of `line` (said now) for `seconds`: an
-    /// example's as its pack says them, a recording's line by name.
-    fn say(&self, n: u64, line: Line, seconds: f64) {
-        let Some(words) = self.with_scene(n, |sc| sc.words.get(&line).cloned()) else {
-            return;
-        };
-        let text = match words {
-            Some(w) => UiText::data(w),
-            None => ms::stage_said(studio::name(line)),
-        };
-        let m = Message::new(stage::SAY)
-            .with("Text", Param::Str(text.into()))
-            .with("Seconds", Param::Num(seconds));
-        self.on_ui(move |ui| ui.broadcast(m));
-    }
-
-    /// `f` in `seconds`, while scene `n` lasts.
-    fn later(self: &Rc<Self>, n: u64, seconds: f64, f: impl FnOnce(&Rc<Self>) + 'static) {
-        let weak = Rc::downgrade(self);
-        let t = Timeout::new((seconds.max(0.0) * 1000.0) as u32, move || {
-            if let Some(s) = weak.upgrade()
-                && s.scene_is(n)
-            {
-                f(&s);
-            }
-        });
-        self.with_scene(n, |sc| sc.later.push(t));
-    }
-
     /// Our pack of `set` as a voice for `lines` (each as the first of its
     /// chain the pack has): one sound of each, the line's next each scene,
     /// fetched and decoded once a session; with each one's length and
     /// words.
-    async fn example_voice(&self, set: Set, lines: &[Line]) -> Result<Voiced, String> {
+    async fn example_voice(&self, set: Set, lines: &[Line]) -> Result<Voiced<AudioBuffer>, String> {
         let pack = self
             .pack_of(set)
             .ok_or_else(|| format!("{} is not here", set.pack()))?;
@@ -1531,12 +1192,7 @@ impl Studio {
             if lengths.contains_key(&found) {
                 continue;
             }
-            let turn = self
-                .example_turns
-                .borrow()
-                .get(&(set.key(), found))
-                .copied()
-                .unwrap_or(0);
+            let turn = self.director.example_turn(set, found);
             let path = files[turn % files.len()].to_string();
             let key = format!("{}/{path}", pack.path);
             let kept = self.example_sounds.borrow().get(&key).cloned();
@@ -1569,55 +1225,12 @@ impl Studio {
         Ok((voice, lengths, words))
     }
 
-    /// Scene `n`'s words and lengths, kept for its steps.
-    fn keep(&self, n: u64, lengths: &HashMap<Line, f64>, words: HashMap<Line, String>) {
-        self.with_scene(n, |sc| {
-            sc.lengths = lengths.clone();
-            sc.words = words;
-        });
-    }
-
-    /// How long `line` is said for in scene `n` (as the first of its
-    /// chain the voice has), about.
-    fn length(&self, n: u64, line: Line) -> f64 {
-        self.with_scene(n, |sc| {
-            line.chain()
-                .into_iter()
-                .find_map(|l| sc.lengths.get(&l).copied())
-        })
-        .flatten()
-        .unwrap_or(1.5)
-    }
-
-    /// Song select's scene: the bundled songs, the preview playing on
-    /// song select's own sound (made in this press), the intro said as it
-    /// shows (the welcome's from the start menu, Singleplayer chosen on
-    /// it); a comment's chart pointed at and chosen once the intro is
-    /// said.
+    /// Song select's scene: its voice got ready (made on song select's own
+    /// sound, opened in this press), then the director shows it.
     fn menu_scene(self: &Rc<Self>, line: Line, said: Said) {
-        let started = storage::started_ms();
-        let Some(scene) = scene::menu(line, started, js_sys::Date::now()) else {
+        let Some((n, scene)) = self.director.begin_menu(line, said) else {
             return;
         };
-        let Some(env) = self.env.borrow().clone() else {
-            return;
-        };
-        let settings = crate::settings::Settings::load();
-        crate::select_preview::set_volume(settings.volume);
-        crate::select_preview::gesture();
-        let (first, caption) = match &scene.start {
-            Some(c) => (Shows::Start, c.text()),
-            None => (Shows::Select, scene.caption.text()),
-        };
-        let n = self.begin_scene(
-            line,
-            said,
-            first,
-            scene.choose,
-            &caption,
-            Some(scene.mark),
-            true,
-        );
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let menu: Vec<Line> = Line::all()
@@ -1632,190 +1245,21 @@ impl Studio {
                 }
                 Said::Example(set) => this.example_voice(set, &menu).await,
             };
-            if !this.scene_is(n) {
+            if !this.director.is(n) {
                 return;
             }
-            let (voice, lengths, words) = match voiced {
-                Ok(v) => v,
-                Err(e) => return this.drop_scene(n, ms::status_example_unreadable(error_text(&e))),
-            };
-            this.keep(n, &lengths, words);
-            let told: crate::announcers::Told = {
-                let weak = Rc::downgrade(&this);
-                Rc::new(move |asked, spoke| {
-                    if let Some(s) = weak.upgrade() {
-                        s.told(n, asked, spoke);
-                    }
-                })
-            };
-            crate::announcers::stage(Some(crate::announcers::Staged {
-                voice,
-                share: settings.announcer_volume,
-                told,
-            }));
-            let play: PlayFn = {
-                let weak = Rc::downgrade(&this);
-                Rc::new(move |_, _, _, _| {
-                    if let Some(s) = weak.upgrade() {
-                        s.chosen(n);
-                    }
-                })
-            };
-            let options: OpenFn = Rc::new(|_, _| {});
-            let shell: ShellFn = {
-                let weak = Rc::downgrade(&this);
-                Rc::new(move |call, cx| {
-                    if let Some(s) = weak.upgrade() {
-                        s.select_call(n, call, cx);
-                    }
-                })
-            };
-            let select =
-                SelectScreen::new(env.clone(), scene.data, Some(&scene.song), play, options)
-                    .with_shell(shell, Rc::default());
-            let frame = this.frame(env.clone(), n, &caption);
-            let intro = this.length(n, Line::SelectMusicIntro);
-            let shown = match &scene.start {
-                Some(_) => {
-                    // Singleplayer brings song select in, as on the start
-                    // menu.
-                    let next = Rc::new(RefCell::new(Some(select)));
-                    let weak = Rc::downgrade(&this);
-                    let caption = scene.caption.text();
-                    let action: start::Action = Rc::new(move |choice, cx| {
-                        if choice == start::Choice::Singleplayer
-                            && let Some(s) = weak.upgrade()
-                        {
-                            s.singleplayer(n, &next, &caption, cx);
-                        }
-                    });
-                    let start = start::StartScreen::new(env, false, action)
-                        .with_focus(Some(start::Choice::Singleplayer.id().into()));
-                    this.show(frame, start, Some(scene.mark))
-                }
-                None => this.show(frame, select, None),
-            };
-            if !shown {
-                return this.drop_scene(n, ms::status_no_select());
+            match voiced {
+                Ok(v) => this.director.show_menu(n, scene, v),
+                Err(e) => this
+                    .director
+                    .give_up(n, ms::status_example_unreadable(error_text(&e))),
             }
-            this.with_scene(n, |sc| sc.marked = scene.start.is_some());
-            if scene.start.is_some() {
-                this.after(n, START_SECONDS, Next::Start);
-                this.until(n, START_SECONDS + ENTRANCE + intro + SCENE_TAIL);
-            } else if scene.choose {
-                // Should nothing be said as it shows: on regardless.
-                let comment = this.length(n, line);
-                this.later(n, 3.0 - MARK_LEAD, move |s| s.mark(n));
-                this.after(n, 3.0, Next::Start);
-                this.until(
-                    n,
-                    ENTRANCE + (intro + MARK_LEAD).max(3.0) + comment + SCENE_TAIL,
-                );
-            } else {
-                this.after(n, 3.0, Next::End);
-            }
-            this.publish();
         });
     }
 
-    /// The welcome's start menu chose Singleplayer (scene `n`, in `cx`):
-    /// song select `next` comes in, as on the start menu; the scene
-    /// leaves instead where its way out was asked for meanwhile.
-    fn singleplayer(
-        self: &Rc<Self>,
-        n: u64,
-        next: &RefCell<Option<SelectScreen>>,
-        caption: &str,
-        cx: &mut Cx,
-    ) {
-        let leaving = self.with_scene(n, |sc| sc.leaving).unwrap_or(true);
-        if leaving {
-            return self.leave_scene(n, cx);
-        }
-        let Some(select) = next.borrow_mut().take() else {
-            return;
-        };
-        cx.replace(select);
-        self.with_scene(n, |sc| {
-            sc.screen = Shows::Select;
-            sc.timer = None;
-        });
-        self.caption_now(n, caption);
-        // Should nothing be said as it shows: on regardless.
-        self.after(n, 3.0 + ENTRANCE, Next::End);
-        self.publish();
-    }
-
-    /// What song select's scene `n` asks.
-    fn select_call(self: &Rc<Self>, n: u64, call: SelectCall, cx: &mut Cx) {
-        match call {
-            SelectCall::Selected { song, .. } => {
-                let entry =
-                    song.and_then(|id| self.songs.borrow().iter().find(|e| e.id == id).cloned());
-                crate::select_preview::select(entry);
-            }
-            SelectCall::Shown(false) => crate::select_preview::stop(),
-            SelectCall::Volume(v) => crate::select_preview::set_volume(v),
-            SelectCall::Leave => self.leave_scene(n, cx),
-            _ => {}
-        }
-    }
-
-    /// Scene `n`'s chart chosen (song select's Start): as a play opening
-    /// takes song select's sound, the preview and the intro stop; the
-    /// comment comes next (`UiRequest::Announce`, [`Studio::told`]).
-    fn chosen(&self, n: u64) {
-        self.with_scene(n, |sc| {
-            sc.chosen = true;
-            sc.timer = None;
-        });
-        crate::select_preview::hush();
-        self.publish();
-    }
-
-    /// A line of song select's scene `n` asked for (`asked`), and what
-    /// was said for it and how long: the scene's next step after it (a
-    /// comment's chart pointed at once the intro is said, then chosen).
-    fn told(self: &Rc<Self>, n: u64, asked: Line, spoke: Option<(Line, f64)>) {
-        let Some((chosen, choose)) = self.with_scene(n, |sc| {
-            if let Some((found, _)) = spoke {
-                sc.spoken.push((found.folder(), js_sys::Date::now()));
-            }
-            (sc.chosen, sc.choose)
-        }) else {
-            return;
-        };
-        if let Some((found, len)) = spoke {
-            self.say(n, found, len);
-        }
-        let len = spoke.map_or(0.0, |(_, l)| l);
-        match asked {
-            Line::SelectMusicIntro if chosen => {}
-            Line::SelectMusicIntro if choose => {
-                // The steps in case nothing was said give way.
-                let line = self
-                    .with_scene(n, |sc| {
-                        sc.later.clear();
-                        sc.line
-                    })
-                    .unwrap_or(asked);
-                let at = (len + MARK_LEAD).max(1.8);
-                self.later(n, at - MARK_LEAD, move |s| s.mark(n));
-                self.after(n, at, Next::Start);
-                self.until(n, at + self.length(n, line) + SCENE_TAIL);
-            }
-            _ => self.after(n, len + SCENE_TAIL, Next::End),
-        }
-        self.publish();
-    }
-
-    /// The results' scene: a play staged for the line, judged by the
-    /// player's rules where they give it; its line said on a sound of its
-    /// own (made in this press) as the results open, as after a play. A
-    /// record's and a first clear's come from song select, showing the
-    /// chart's best before the play, the chart chosen on it.
+    /// The results' scene: its voice got ready, then the director shows
+    /// it (its line said on a sound made in this press).
     fn results_scene(self: &Rc<Self>, line: Line, said: Said) {
-        let settings = crate::settings::Settings::load();
         let recorded: std::collections::BTreeSet<Line> = self
             .draft
             .borrow()
@@ -1823,302 +1267,39 @@ impl Studio {
             .iter()
             .filter_map(|t| t.line)
             .collect();
-        // Our packs say every line.
-        let has = |l: Line| said != Said::Draft || recorded.contains(&l);
-        let Some(scene) = scene::results(line, &settings.ruleset, &has) else {
+        let Some((n, scene)) = self.director.begin_results(line, said, &recorded) else {
             return;
         };
-        let Some(env) = self.env.borrow().clone() else {
-            return;
-        };
-        let Some((audio, _)) = self.new_sound(format!("scene:{}", line.folder())) else {
-            return;
-        };
-        let before = scene.before.is_some();
-        if before {
-            crate::select_preview::set_volume(settings.volume);
-            crate::select_preview::gesture();
-        }
-        let (first, caption, mark) = match &scene.before {
-            Some(b) => (Shows::Select, b.caption.text(), b.mark),
-            None => (Shows::Results, scene.caption.text(), scene.mark),
-        };
-        let n = self.begin_scene(line, said, first, before, &caption, Some(mark), before);
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let voiced = match said {
                 Said::Draft => {
                     let which = |l: Line| l.spoken() == Spoken::Results;
                     this.decode_lines(which).await;
+                    let audio = this.sound.borrow().clone();
                     Ok(this.staged_voice(which, |pcm, rate| {
-                        audio.borrow().buffer_from_pcm(pcm, f64::from(rate)).ok()
+                        audio
+                            .as_ref()?
+                            .borrow()
+                            .buffer_from_pcm(pcm, f64::from(rate))
+                            .ok()
                     }))
                 }
                 Said::Example(set) => {
-                    // The lines the results may say.
-                    let ending = scene.ending();
-                    let mut lines = ddi_session::announcer::results_lines(
-                        Some(scene.prior),
-                        &ending,
-                        &scene.grades,
-                        scene.combo_w4,
-                    );
-                    if ddi_session::announcer::cheers(&ending, &scene.grades) {
-                        lines.push(Line::Cheer);
-                    }
-                    this.example_voice(set, &lines).await
+                    this.example_voice(set, &director::results_said_lines(&scene))
+                        .await
                 }
             };
-            if !this.scene_is(n) {
+            if !this.director.is(n) {
                 return;
             }
-            let (voice, lengths, words) = match voiced {
-                Ok(v) => v,
-                Err(e) => return this.drop_scene(n, ms::status_example_unreadable(error_text(&e))),
-            };
-            this.keep(n, &lengths, words);
-            let back: ActionFn = {
-                let weak = Rc::downgrade(&this);
-                Rc::new(move |_, cx| {
-                    if let Some(s) = weak.upgrade() {
-                        s.leave_scene(n, cx);
-                    }
-                })
-            };
-            let actions = ResultsActions {
-                retry: Some(back.clone()),
-                song_list: Some(back),
-                replay: None,
-                offset: None,
-            };
-            let results = ResultsScreen::new(env.clone(), scene.data.clone(), actions);
-            let frame = this.frame(env.clone(), n, &caption);
-            let scene = Rc::new(scene);
-            let Some(before) = &scene.before else {
-                if !this.show(frame, results, Some(scene.mark)) {
-                    return this.drop_scene(n, ms::status_no_results());
-                }
-                this.with_scene(n, |sc| sc.marked = true);
-                this.results_said(n, &scene, &audio, voice);
-                return;
-            };
-            // Song select says nothing in a results line's scene.
-            crate::announcers::stage(Some(crate::announcers::Staged {
-                voice: Voice::default(),
-                share: settings.announcer_volume,
-                told: Rc::new(|_, _| {}),
-            }));
-            let next = Rc::new(RefCell::new(Some((results, voice))));
-            let play: PlayFn = {
-                let weak = Rc::downgrade(&this);
-                let scene = scene.clone();
-                let audio = audio.clone();
-                Rc::new(move |_, _, _, cx| {
-                    if let Some(s) = weak.upgrade() {
-                        s.played(n, &next, &scene, &audio, cx);
-                    }
-                })
-            };
-            let options: OpenFn = Rc::new(|_, _| {});
-            let shell: ShellFn = {
-                let weak = Rc::downgrade(&this);
-                Rc::new(move |call, cx| {
-                    if let Some(s) = weak.upgrade() {
-                        s.select_call(n, call, cx);
-                    }
-                })
-            };
-            let select =
-                SelectScreen::new(env, before.data.clone(), Some(&before.song), play, options)
-                    .with_shell(shell, Rc::default());
-            if !this.show(frame, select, Some(before.mark)) {
-                return this.drop_scene(n, ms::status_no_select());
-            }
-            this.with_scene(n, |sc| sc.marked = true);
-            this.after(n, BEFORE_SECONDS, Next::Start);
-            this.until(
-                n,
-                BEFORE_SECONDS + 2.0 * ENTRANCE + this.length(n, line) + SCENE_TAIL,
-            );
-            this.publish();
-        });
-    }
-
-    /// The chart shown before a results line's play chosen (scene `n`, in
-    /// `cx`): its results come in, then their line.
-    fn played(
-        self: &Rc<Self>,
-        n: u64,
-        next: &RefCell<Option<(ResultsScreen, Voice<AudioBuffer>)>>,
-        scene: &Rc<scene::ResultsScene>,
-        audio: &Rc<RefCell<WebAudio>>,
-        cx: &mut Cx,
-    ) {
-        let Some((results, voice)) = next.borrow_mut().take() else {
-            return;
-        };
-        crate::select_preview::hush();
-        cx.replace(results);
-        self.with_scene(n, |sc| {
-            sc.chosen = true;
-            sc.screen = Shows::Results;
-            sc.mark = Some(scene.mark);
-            sc.timer = None;
-        });
-        self.caption_now(n, &scene.caption.text());
-        self.mark(n);
-        // Said as the results come in.
-        let scene = scene.clone();
-        let audio = audio.clone();
-        self.later(n, ENTRANCE, move |s| {
-            s.results_said(n, &scene, &audio, voice)
-        });
-        self.publish();
-    }
-
-    /// The results' line of scene `n`, said now by `voice` on `audio`, as
-    /// [`Announcer::results`] chooses it; the scene ends after it.
-    fn results_said(
-        self: &Rc<Self>,
-        n: u64,
-        scene: &scene::ResultsScene,
-        audio: &Rc<RefCell<WebAudio>>,
-        voice: Voice<AudioBuffer>,
-    ) {
-        let settings = crate::settings::Settings::load();
-        let mut announcer = Announcer::new(
-            true,
-            settings.announcer_volume,
-            Some(scene.prior),
-            Timing {
-                start: 0.0,
-                offset: 0.0,
-                rate: 1.0,
-            },
-            None,
-        );
-        announcer.set_voice(Rc::new(RefCell::new(voice)));
-        let now = audio.borrow().context().current_time();
-        announcer.results(
-            &mut *audio.borrow_mut(),
-            now,
-            &scene.ending(),
-            &scene.grades,
-            scene.combo_w4,
-        );
-        let spoken = announcer.report.spoken;
-        let mut end = now;
-        for (f, at) in &spoken {
-            let Some(l) = Line::parse(f) else {
-                continue;
-            };
-            let len = self.length(n, l);
-            end = end.max(at + len);
-            // Its words as it is said.
-            self.later(n, at - now, move |s| s.say(n, l, len));
-        }
-        let wall = js_sys::Date::now();
-        self.with_scene(n, |sc| {
-            sc.spoken = spoken
-                .into_iter()
-                .map(|(f, at)| (f, wall + (at - now) * 1000.0))
-                .collect();
-        });
-        self.after(n, end - now + SCENE_TAIL, Next::End);
-        self.publish();
-    }
-
-    /// Scene `n`'s next step in `seconds`, by the input a player would
-    /// give: Start (Singleplayer on the start menu, the chart on song
-    /// select), Back to leave (the start menu, which Back does not leave,
-    /// leaves as Singleplayer is chosen).
-    fn after(self: &Rc<Self>, n: u64, seconds: f64, next: Next) {
-        // Long enough to see the screen.
-        let seconds = match (next, self.scene.borrow().as_ref()) {
-            (Next::End, Some(sc)) => {
-                seconds.max(SCENE_SECONDS - (js_sys::Date::now() - sc.began) / 1000.0)
-            }
-            _ => seconds,
-        };
-        if matches!(next, Next::End) {
-            self.until(n, seconds);
-        }
-        let weak = Rc::downgrade(self);
-        let timer = Timeout::new((seconds.max(0.0) * 1000.0) as u32, move || {
-            let Some(s) = weak.upgrade() else {
-                return;
-            };
-            let action = s.with_scene(n, |sc| match next {
-                Next::Start if sc.chosen => None,
-                Next::Start => Some(MenuAction::Start),
-                Next::End | Next::Leave if sc.screen == Shows::Start => {
-                    sc.leaving = true;
-                    Some(MenuAction::Start)
-                }
-                Next::End | Next::Leave => Some(MenuAction::Back),
-            });
-            let (Some(Some(action)), Some(host)) = (action, s.weak_host()) else {
-                return;
-            };
-            for down in [true, false] {
-                ui_dev::dispatch(
-                    &host,
-                    UiEvent::Menu(MenuEvent {
-                        action,
-                        down,
-                        source: u32::MAX,
-                        gesture: false,
-                        time: 0.0,
-                    }),
-                );
+            match voiced {
+                Ok(v) => this.director.show_results(n, scene, v),
+                Err(e) => this
+                    .director
+                    .give_up(n, ms::status_example_unreadable(error_text(&e))),
             }
         });
-        self.with_scene(n, |sc| sc.timer = Some(timer));
-    }
-
-    /// Scene `n` leaves (its screen closed in `cx`, the frame going):
-    /// back in the studio, which says what was heard.
-    fn leave_scene(&self, n: u64, cx: &mut Cx) {
-        let Some(sc) = self.scene.borrow_mut().take_if(|s| s.n == n) else {
-            return;
-        };
-        cx.close(true);
-        cx.broadcast(Message::new(stage::END));
-        self.on_ui(|ui| ui.mark(None));
-        crate::announcers::stage(None);
-        if sc.preview {
-            crate::select_preview::close();
-        }
-        self.stop();
-        // What was heard: the lines begun by now (one scheduled later was
-        // cut).
-        let wall = js_sys::Date::now();
-        let heard: Vec<String> = sc
-            .spoken
-            .into_iter()
-            .filter(|(_, at)| *at <= wall)
-            .map(|(f, _)| f)
-            .collect();
-        for l in heard.iter().filter_map(|f| Line::parse(f)) {
-            match sc.said {
-                Said::Draft => *self.turns.borrow_mut().entry(l).or_insert(0) += 1,
-                Said::Example(set) => {
-                    *self
-                        .example_turns
-                        .borrow_mut()
-                        .entry((set.key(), l))
-                        .or_insert(0) += 1
-                }
-            }
-        }
-        let lines: Vec<Line> = heard.iter().filter_map(|f| Line::parse(f)).collect();
-        let example = match sc.said {
-            Said::Draft => None,
-            Said::Example(set) => Some(set.pack()),
-        };
-        self.view.borrow_mut().status = studio::heard(sc.line, &lines, example).into();
-        *self.heard.borrow_mut() = Some((sc.line, heard, sc.said.key()));
-        self.send();
     }
 
     /// A press on the page, inside its handler.
@@ -2262,6 +1443,157 @@ impl Studio {
                 self.hear(line);
                 None
             }
+        }
+    }
+}
+
+/// What the director asks of the page.
+struct WebScenes(Weak<Studio>);
+
+impl SceneHost for WebScenes {
+    type Sound = AudioBuffer;
+
+    fn now_ms(&self) -> f64 {
+        js_sys::Date::now()
+    }
+
+    fn timer(&self, seconds: f64, f: Box<dyn FnOnce()>) -> Timer {
+        Box::new(Timeout::new((seconds.max(0.0) * 1000.0) as u32, f))
+    }
+
+    fn env(&self) -> Option<ddi_ui::screens::Env> {
+        self.0.upgrade()?.env.borrow().clone()
+    }
+
+    fn on_ui(&self, f: UiFn) {
+        if let Some(s) = self.0.upgrade() {
+            s.on_ui(f);
+        }
+    }
+
+    fn show(&self, f: UiFn) -> bool {
+        let Some(host) = self
+            .0
+            .upgrade()
+            .and_then(|s| s.weak_host())
+            .and_then(|w| w.upgrade())
+        else {
+            return false;
+        };
+        let Ok(mut h) = host.try_borrow_mut() else {
+            return false;
+        };
+        f(&mut h.ui);
+        drop(h);
+        ui_dev::wake(&host);
+        true
+    }
+
+    fn press(&self, action: MenuAction) {
+        let Some(host) = self.0.upgrade().and_then(|s| s.weak_host()) else {
+            return;
+        };
+        for down in [true, false] {
+            ui_dev::dispatch(
+                &host,
+                UiEvent::Menu(MenuEvent {
+                    action,
+                    down,
+                    source: u32::MAX,
+                    gesture: false,
+                    time: 0.0,
+                }),
+            );
+        }
+    }
+
+    fn preview_open(&self, volume: f32) {
+        crate::select_preview::set_volume(volume);
+        crate::select_preview::gesture();
+    }
+
+    fn preview_select(&self, song: Option<String>) {
+        let entry = song.and_then(|id| {
+            self.0
+                .upgrade()?
+                .songs
+                .borrow()
+                .iter()
+                .find(|e| e.id == id)
+                .cloned()
+        });
+        crate::select_preview::select(entry);
+    }
+
+    fn preview_stop(&self) {
+        crate::select_preview::stop();
+    }
+
+    fn preview_volume(&self, volume: f32) {
+        crate::select_preview::set_volume(volume);
+    }
+
+    fn preview_hush(&self) {
+        crate::select_preview::hush();
+    }
+
+    fn preview_close(&self) {
+        crate::select_preview::close();
+    }
+
+    fn stage_voice(&self, staged: Option<StagedVoice<AudioBuffer>>) {
+        crate::announcers::stage(staged);
+    }
+
+    fn open_results_sound(&self, line: Line) -> bool {
+        self.0
+            .upgrade()
+            .and_then(|s| s.new_sound(format!("scene:{}", line.folder())))
+            .is_some()
+    }
+
+    fn say_results(
+        &self,
+        scene: &scene::ResultsScene,
+        voice: Voice<AudioBuffer>,
+    ) -> Option<(Vec<(String, f64)>, f64)> {
+        let s = self.0.upgrade()?;
+        let audio = s.sound.borrow().clone()?;
+        let share = crate::settings::Settings::load().announcer_volume;
+        let now = audio.borrow().context().current_time();
+        let spoken = director::say_results(&mut *audio.borrow_mut(), now, scene, voice, share);
+        Some((spoken, now))
+    }
+
+    fn stop_sound(&self) {
+        if let Some(s) = self.0.upgrade() {
+            s.stop();
+        }
+    }
+
+    fn changed(&self) {
+        if let Some(s) = self.0.upgrade() {
+            s.changed();
+        }
+    }
+
+    fn publish(&self) {
+        if let Some(s) = self.0.upgrade() {
+            s.publish();
+        }
+    }
+
+    fn gave_up(&self, why: UiText) {
+        if let Some(s) = self.0.upgrade() {
+            s.status(why);
+        }
+    }
+
+    fn heard(&self, status: UiText, line: Line, spoken: Vec<String>, said: Said) {
+        if let Some(s) = self.0.upgrade() {
+            s.view.borrow_mut().status = status.into();
+            *s.heard.borrow_mut() = Some((line, spoken, said.key()));
+            s.send();
         }
     }
 }

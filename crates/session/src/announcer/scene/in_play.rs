@@ -10,6 +10,8 @@
 //! - [`stage`]: the play once the chart is loaded, under the rules and
 //!   options it is played with.
 
+use std::collections::HashMap;
+
 use ddi_chart::{Difficulty, NoteKind, Song};
 use ddi_engine::autoplay;
 use ddi_engine::player::{PlayOptions, Player};
@@ -214,6 +216,35 @@ fn simulate(
         danger: p.ruleset().gauge.danger(),
         failed: p.failed(),
     }
+}
+
+/// The results of a scene at a play's end show this long before the
+/// studio again, seconds (their line and its cheer said).
+pub const RESULTS_SECONDS: f64 = 6.5;
+
+/// The scene of play line `line` on `song`'s chart `chart`, played under
+/// `rules` and `options` ([`stage`], `lengths` each line's sound's
+/// length), and how long it lasts from its play's start, seconds: to its
+/// end, and its results' (the frame's bar).
+pub fn staged(
+    line: Line,
+    song: &Song,
+    chart: usize,
+    rules: &Ruleset,
+    options: PlayOptions,
+    lengths: &HashMap<Line, f64>,
+) -> (Option<PlayScene>, f64) {
+    let length = |l: Line| l.chain().iter().find_map(|c| lengths.get(c).copied());
+    let Some(scene) = stage(line, song, chart, rules, options, &length) else {
+        return (None, 0.0);
+    };
+    let end = scene
+        .staging
+        .until
+        .unwrap_or_else(|| Player::new(song, chart, rules.fresh(), options).song_end_time());
+    let results = if scene.results { RESULTS_SECONDS } else { 0.0 };
+    let seconds = (end - scene.staging.from).max(0.0) / options.clock.rate.max(0.1) + results;
+    (Some(scene), seconds)
 }
 
 /// The scene of play line `line` on `song`'s chart `chart` (its

@@ -755,6 +755,7 @@ fn graded(stage: &Stage, table: &GradeTable, g: Grade) -> Option<(Results, Rules
     None
 }
 
+pub mod director;
 pub mod in_play;
 
 #[cfg(test)]

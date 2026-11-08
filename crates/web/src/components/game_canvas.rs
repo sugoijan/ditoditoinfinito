@@ -420,7 +420,7 @@ pub(crate) struct GameCanvas {
 /// `crate::studio_scene`): what it is said with and how it is staged.
 struct SceneState {
     line: ddi_library::announcer::Line,
-    said: String,
+    said: ddi_session::announcer::scene::director::Said,
     name: String,
     voice_label: String,
     lengths: std::collections::HashMap<ddi_library::announcer::Line, f64>,
@@ -437,10 +437,6 @@ struct SceneState {
     /// Back to the studio once the results' line is said.
     leave: Option<gloo::timers::callback::Timeout>,
 }
-
-/// The results of a scene at a play's end show this long before the
-/// studio again, ms (their line and its cheer said).
-const SCENE_RESULTS_MS: u32 = 6500;
 
 /// Where keeping the play in the history is.
 #[derive(Clone, Debug, PartialEq)]
@@ -2093,27 +2089,12 @@ impl GameCanvas {
         let spec = config
             .session
             .player_spec(&play_song, chart, &self.settings);
-        let staged = spec.as_ref().ok().and_then(|(rules, options)| {
-            let length = |l: ddi_library::announcer::Line| {
-                l.chain().iter().find_map(|c| lengths.get(c).copied())
-            };
-            in_play::stage(line, &play_song, chart, rules, *options, &length)
-        });
-        // How long it lasts, seconds: to its end (and its results').
-        let seconds = match (&staged, &spec) {
-            (Some(p), Ok((rules, options))) => {
-                let end = p.staging.until.unwrap_or_else(|| {
-                    ddi_engine::player::Player::new(&play_song, chart, rules.fresh(), *options)
-                        .song_end_time()
-                });
-                let results = if p.results {
-                    f64::from(SCENE_RESULTS_MS) / 1000.0
-                } else {
-                    0.0
-                };
-                (end - p.staging.from).max(0.0) / options.clock.rate.max(0.1) + results
+        // And how long it lasts, seconds.
+        let (staged, seconds) = match &spec {
+            Ok((rules, options)) => {
+                in_play::staged(line, &play_song, chart, rules, *options, &lengths)
             }
-            _ => 0.0,
+            Err(_) => (None, 0.0),
         };
         if let Some(sc) = self.scene.as_mut() {
             sc.staged = Some(staged);
@@ -3158,7 +3139,8 @@ impl GameCanvas {
             ui.push_chrome(frame);
             // Back to the studio once their line (and its cheer) is said.
             let link = ctx.link().clone();
-            let leave = gloo::timers::callback::Timeout::new(SCENE_RESULTS_MS, move || {
+            let ms = (in_play::RESULTS_SECONDS * 1000.0) as u32;
+            let leave = gloo::timers::callback::Timeout::new(ms, move || {
                 link.send_message(Msg::BackRequested)
             });
             if let Some(sc) = self.scene.as_mut() {
