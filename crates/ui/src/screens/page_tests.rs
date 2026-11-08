@@ -333,3 +333,59 @@ fn fields_buttons_and_zones() {
     // Lit, it is still found under a drop.
     assert!(h.ui.visible_bounds("Zone.z").is_some());
 }
+
+/// A page shown again after its screen went opens where it was left: its
+/// folds, its scroll, the item focused; one no longer there focuses none.
+#[test]
+fn a_page_opens_where_it_was_left() {
+    use super::page::{PagePlace, SharedPlace};
+    let open = |place: &SharedPlace| {
+        let env = env();
+        let state = env.state.clone();
+        let page = PageScreen::new(env, "credits", credits::doc(&credits::sample()))
+            .with_place(place.clone());
+        let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+        h.push(page);
+        h.run(0.3);
+        (h, state)
+    };
+    // Left somewhere: the place follows the page.
+    let place = SharedPlace::default();
+    let (mut h, state) = open(&place);
+    let items = state.borrow().page_items.clone();
+    let height = state.borrow().page_height;
+    for _ in 0..3 {
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.05);
+    }
+    let left = place.borrow().clone();
+    let focus = state.borrow().page_focus;
+    assert!(focus >= 0, "{left:?}");
+    assert_eq!(
+        left.focused.as_deref(),
+        Some(items[focus as usize].as_str())
+    );
+
+    // Opened again, on a fold left open and scrolled down.
+    let fold = items
+        .iter()
+        .find_map(|i| i.strip_prefix("fold:"))
+        .expect("a fold")
+        .to_string();
+    *place.borrow_mut() = PagePlace {
+        open: [fold].into(),
+        scroll: 120.0,
+        focused: left.focused.clone(),
+    };
+    let (_, state) = open(&place);
+    let st = state.borrow();
+    assert_eq!(st.page_focus, focus);
+    assert_eq!(st.scroll, 120.0);
+    assert!(st.page_height > height, "the fold shows again");
+    drop(st);
+
+    // What was focused went from the page: nothing is.
+    place.borrow_mut().focused = Some("button:gone".into());
+    let (_, state) = open(&place);
+    assert_eq!(state.borrow().page_focus, -1);
+}

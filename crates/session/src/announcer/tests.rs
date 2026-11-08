@@ -193,6 +193,25 @@ fn a_voice_gives_each_lines_sounds_in_turn_and_follows_the_chains() {
 }
 
 #[test]
+fn a_voice_speaks_sounds_decoded_out_of_order_in_their_ranks() {
+    let mut v: Voice<f64> = Voice::default();
+    v.add_ranked(Line::Ready, 2, 3.0);
+    v.add_ranked(Line::Ready, 0, 1.0);
+    v.add_ranked(Line::Ready, 1, 2.0);
+    let spoken: Vec<f64> = (0..4).map(|_| *v.next(Line::Ready).unwrap().1).collect();
+    assert_eq!(spoken, [1.0, 2.0, 3.0, 1.0]);
+}
+
+#[test]
+fn a_sound_decoded_late_does_not_repeat_the_one_spoken() {
+    let mut v: Voice<f64> = Voice::default();
+    v.add_ranked(Line::Ready, 1, 2.0);
+    assert_eq!(v.next(Line::Ready), Some((Line::Ready, &2.0)));
+    v.add_ranked(Line::Ready, 0, 1.0);
+    assert_eq!(v.next(Line::Ready), Some((Line::Ready, &1.0)));
+}
+
+#[test]
 fn ready_and_here_we_go_fit_the_lead_in_or_give_way() {
     let lines = [(Line::Ready, 1.0), (Line::HereWeGo, 1.5)];
     // Room for both: ready at once, here we go ending half a second

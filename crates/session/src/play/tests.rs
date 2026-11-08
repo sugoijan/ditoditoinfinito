@@ -2045,6 +2045,20 @@ fn no_stretch_is_played_and_replayed_independently_of_the_hand_setting() {
 /// at a play's end plays on into its results; the restart's plays again
 /// from the same place, opened by its line.
 #[test]
+fn each_line_said_in_play_is_ringed_on_something() {
+    use ddi_library::announcer::{Line, Spoken};
+    for line in Line::all()
+        .into_iter()
+        .filter(|l| l.spoken() == Spoken::Play)
+    {
+        assert!(
+            crate::announcer::scene::in_play::mark(line).is_some(),
+            "{line:?}"
+        );
+    }
+}
+
+#[test]
 fn each_play_lines_scene_says_it() {
     use crate::announcer::scene::in_play;
     use ddi_library::announcer::Line;

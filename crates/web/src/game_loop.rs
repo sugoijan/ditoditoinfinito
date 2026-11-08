@@ -1064,6 +1064,9 @@ impl GameLoop {
         self.play_script_sounds();
         // Over the play: the 2D pass (the lyrics, with the browser's text);
         // a scene's frame, the play's picture in it, over the canvas.
+        if let Some(f) = self.framed.as_ref() {
+            f.set_spots(self.renderer.hud_spots());
+        }
         let framed = match self.framed.as_mut() {
             Some(f) => {
                 if let Some(session) = self.session.as_ref() {

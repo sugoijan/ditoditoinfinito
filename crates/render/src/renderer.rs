@@ -42,6 +42,8 @@ pub struct Renderer {
     textured: TexturedPipeline,
     text: TextPipeline,
     hud: crate::hud::Hud,
+    /// Where the last frame showed the HUD's parts.
+    hud_spots: crate::hud::HudSpots,
     /// [`SkinBlending::Offscreen`]: every frame is drawn offscreen, while
     /// skins are drawn ([`Renderer::set_skins_drawn`]).
     offscreen: Option<Offscreen>,
@@ -106,6 +108,7 @@ impl Renderer {
             textured,
             text: TextPipeline::new(device, queue, scene_format, fonts),
             hud: crate::hud::Hud::new(device, queue, scene_format, srgb),
+            hud_spots: Default::default(),
             offscreen_format: offscreen.as_ref().map(|_| scene_format),
             offscreen,
             format,
@@ -553,6 +556,10 @@ impl Renderer {
     }
 
     /// Start a new play without life trails or a combo pulse from its predecessor.
+    pub fn hud_spots(&self) -> crate::hud::HudSpots {
+        self.hud_spots
+    }
+
     pub fn reset_hud(&mut self) {
         self.hud.reset();
     }
@@ -681,6 +688,7 @@ impl Renderer {
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
         self.hud
             .prepare(queue, frame, layout, &geo, opts, self.quit_button);
+        self.hud_spots = crate::hud::spots(frame.combo, layout, &geo);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
         // Skins' quads go to the plain view, in passes of their own between
         // the scene's (`skins_blend_encoded`); offscreen, to a plain texture

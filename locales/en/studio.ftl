@@ -377,6 +377,34 @@ studio-picker-line-results = { $line } · Results screen
 #   $file (String) - the recording's file name
 studio-picker-note = { $file } plays as you choose.
 
+## The frame's caption while a line other than the one asked for is said
+## first in a scene: why the game says it there (one line, about 80
+## letters, beside the frame's Back button).
+
+# Ready, Here we go or Restart.
+# Variables:
+#   $line (String) - the line said (its name, as studio-line-…)
+studio-why-opening = “{ $line }” comes first: a play opens with it.
+
+# Variables:
+#   $line (String) - the line said (its name, as studio-line-…)
+studio-why-comment = “{ $line }” comes first: the announcer comments when it has been quiet for a while.
+
+# Variables:
+#   $line (String) - the line said (its name, as studio-line-…)
+studio-why-combo = “{ $line }” comes first: the combo got there on the way.
+
+# Any other line.
+# Variables:
+#   $line (String) - the line said (its name, as studio-line-…)
+studio-why-on-the-way = “{ $line }” comes first: the game says it on the way.
+
+# The line asked for has no recording, and another stands in for it.
+# Variables:
+#   $asked (String) - the line asked for (its name, as studio-line-…)
+#   $line (String) - the line said instead (its name, as studio-line-…)
+studio-why-in-its-place = “{ $asked }” has no recording yet: “{ $line }” speaks in its place.
+
 ## The status line under the page's buttons: what the studio is doing, or
 ## did (a sentence or two, wrapped). Errors are as the browser says them.
 

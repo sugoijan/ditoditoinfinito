@@ -567,19 +567,43 @@ impl Screen for StageFrame {
 pub struct Picture {
     source: String,
     screen: [f32; 2],
+    spots: SharedSpots,
+    /// What the actors were last placed for.
+    placed: PlaySpots,
 }
+
+/// Where a play shows what its lines are said for, each `[left, top,
+/// right, bottom]` as shares of the picture (`[0; 4]`: not known yet).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PlaySpots {
+    pub life: [f32; 4],
+    pub combo: [f32; 4],
+    pub receptors: [f32; 4],
+}
+
+/// The play's shell keeps these current; the picture rings them.
+pub type SharedSpots = Rc<std::cell::Cell<PlaySpots>>;
 
 impl Picture {
     pub fn new(source: &str) -> Picture {
         Picture {
             source: source.into(),
             screen: [0.0; 2],
+            spots: Rc::default(),
+            placed: PlaySpots::default(),
         }
+    }
+
+    /// Where the play shows what can be ringed, kept current by the shell.
+    pub fn with_spots(mut self, spots: SharedSpots) -> Picture {
+        self.spots = spots;
+        self
     }
 
     fn tree(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
         self.screen = [vp.width, vp.height];
+        self.placed = self.spots.get();
         let [w, h] = self.screen;
         let mut picture = quad("Picture", [w, h], [1.0; 4]);
         let texture = cx.texture(&self.source, w.max(h));
@@ -587,7 +611,20 @@ impl Picture {
             s.texture = texture;
         }
         call(&mut picture, "xy", &[w / 2.0, h / 2.0]);
-        frame("", vec![picture])
+        let mut children = vec![picture];
+        let s = self.placed;
+        // Nothing drawn: what the mark goes around.
+        for (name, [l, t, r, b]) in [
+            ("Spot.Life", s.life),
+            ("Spot.Combo", s.combo),
+            ("Spot.Receptors", s.receptors),
+        ] {
+            let mut spot = quad(name, [(r - l) * w, (b - t) * h], [0.0; 4]);
+            call(&mut spot, "xy", &[(l + r) / 2.0 * w, (t + b) / 2.0 * h]);
+            spot.decoration = true;
+            children.push(spot);
+        }
+        frame("", children)
     }
 }
 
@@ -602,9 +639,21 @@ impl Screen for Picture {
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         let vp = cx.viewport().screen;
-        if [vp.width, vp.height] != self.screen {
+        if [vp.width, vp.height] != self.screen || self.spots.get() != self.placed {
             *root = self.tree(cx);
         }
+    }
+
+    fn spot(&self, what: crate::Mark) -> Option<crate::Spot> {
+        use crate::Mark;
+        let s = self.placed;
+        let (name, r) = match what {
+            Mark::Life => ("Spot.Life", s.life),
+            Mark::Combo => ("Spot.Combo", s.combo),
+            Mark::Receptors => ("Spot.Receptors", s.receptors),
+            _ => return None,
+        };
+        (r[2] > r[0]).then(|| crate::Spot::new(name, &[]))
     }
 }
 

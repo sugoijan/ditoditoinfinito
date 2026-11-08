@@ -111,6 +111,8 @@ pub struct Generated {
     texture: Option<(wgpu::Texture, wgpu::TextureView, [u32; 2])>,
     id: Option<usize>,
     series: Option<Rc<Series>>,
+    /// How many analyses it was given: which one a held frame shows.
+    analyses: u32,
     /// The song picture bound to the pass (its id), over it.
     picture: Option<usize>,
     /// Frames drawn.
@@ -122,7 +124,7 @@ pub struct Generated {
 
 /// A held frame's inputs: the wanted look, the analysis, the picture,
 /// the brightness and the texture's size.
-type Held = (Want, Option<*const Series>, Option<usize>, u32, [u32; 2]);
+type Held = (Want, u32, Option<usize>, u32, [u32; 2]);
 
 /// What the debug state says of it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -144,6 +146,7 @@ impl Generated {
             texture: None,
             id: None,
             series: None,
+            analyses: 0,
             picture: None,
             drawn: 0,
             held: None,
@@ -153,6 +156,7 @@ impl Generated {
     /// The music's signals, analyzed.
     pub fn set_series(&mut self, series: Rc<Series>) {
         self.series = Some(series);
+        self.analyses += 1;
     }
 
     pub fn analyzed(&self) -> bool {
@@ -288,7 +292,7 @@ impl Generated {
         }
         let held = reduced.then_some((
             self.want,
-            self.series.as_ref().map(Rc::as_ptr),
+            self.analyses,
             picture,
             brightness.to_bits(),
             *size,

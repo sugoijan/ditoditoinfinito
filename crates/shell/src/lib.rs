@@ -37,6 +37,16 @@ use ddi_render::{ColorScheme, RenderOptions, ScoreDelta};
 use ddi_ui::state::history::GhostDelta;
 use ddi_ui::state::settings::{BackgroundFrame, INFINITO, NoteColors, Settings};
 
+/// Where the renderer showed the HUD's parts, as the announcer studio's
+/// picture of a play rings them.
+pub fn play_spots(s: ddi_render::HudSpots) -> ddi_ui::screens::stage::PlaySpots {
+    ddi_ui::screens::stage::PlaySpots {
+        life: s.life,
+        combo: s.combo,
+        receptors: s.receptors,
+    }
+}
+
 /// The renderer's color scheme for a [`NoteColors`] setting.
 pub fn note_scheme(colors: NoteColors) -> ColorScheme {
     match colors {

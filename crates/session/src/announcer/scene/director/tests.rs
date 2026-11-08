@@ -25,6 +25,8 @@ impl Drop for Handle {
 }
 
 type Pending = (f64, Rc<Cell<bool>>, Box<dyn FnOnce()>);
+/// What the studio was told: its status, the line, what was heard, by whom.
+type Told = (String, Line, Vec<String>, Said);
 
 #[derive(Default)]
 struct Inner {
@@ -34,7 +36,7 @@ struct Inner {
     presses: RefCell<Vec<MenuAction>>,
     previews: RefCell<Vec<String>>,
     voice: RefCell<Option<StagedVoice<Sound>>>,
-    heard: RefCell<Option<(String, Line, Vec<String>, Said)>>,
+    heard: RefCell<Option<Told>>,
     gave_up: Cell<bool>,
 }
 
@@ -208,7 +210,7 @@ impl Test {
     }
 
     /// Runs until the scene is over, at most `seconds`.
-    fn until_over(&mut self, seconds: f64) -> (String, Line, Vec<String>, Said) {
+    fn until_over(&mut self, seconds: f64) -> Told {
         let mut left = seconds;
         while left > 0.0 && self.host.0.heard.borrow().is_none() {
             self.run(0.1);
@@ -386,10 +388,21 @@ fn what_a_scene_in_play_said_is_told_to_the_studio() {
     assert!(t.host.0.heard.borrow().is_some());
 }
 
+fn message_texts(m: &[Message], name: &str) -> Vec<String> {
+    m.iter()
+        .filter(|m| m.name == name)
+        .filter_map(|m| match m.get("Text") {
+            Some(Param::Str(t)) => Some(t.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The words of what a play says, as each line starts and never twice.
 #[test]
 fn a_plays_lines_words_come_as_each_starts() {
     let mut words = SaidWords::new(
+        Line::Ready,
         [(Line::Ready, "Ready?".to_string())].into(),
         [(Line::Ready, 0.8)].into(),
     );
@@ -398,11 +411,70 @@ fn a_plays_lines_words_come_as_each_starts() {
         ("gameplay cleared".to_string(), 12.0),
     ];
     assert!(words.next(&spoken, 9.0).is_empty());
-    assert_eq!(words.next(&spoken, 10.5).len(), 1);
+    let first = words.next(&spoken, 10.5);
+    assert_eq!(message_texts(&first, stage::SAY), ["Ready?"]);
+    assert!(message_texts(&first, stage::CAPTION).is_empty());
     assert_eq!(words.told(), 1);
     assert_eq!(words.next(&spoken, 11.0).len(), 0);
     assert_eq!(words.next(&spoken, 12.5).len(), 1);
     assert_eq!(words.next(&spoken, 20.0).len(), 0);
+}
+
+/// What comes before the line asked for says why, and the scene's own
+/// caption comes back with the line.
+#[test]
+fn a_line_before_the_one_asked_for_says_why_it_came() {
+    let mut words = SaidWords::new(Line::Combo(100), HashMap::new(), HashMap::new());
+    words.set_caption("The combo reaches 100.");
+    let spoken = vec![
+        ("gameplay comment good".to_string(), 1.0),
+        ("gameplay 100 combo".to_string(), 3.0),
+        ("gameplay comment hot".to_string(), 5.0),
+    ];
+    let why = message_texts(&words.next(&spoken, 1.0), stage::CAPTION);
+    assert_eq!(why.len(), 1);
+    assert!(
+        why[0].contains(&*studio::name(Line::CommentGood)),
+        "{why:?}"
+    );
+    assert_eq!(
+        message_texts(&words.next(&spoken, 3.0), stage::CAPTION),
+        ["The combo reaches 100."]
+    );
+    // Said after it: nothing to explain.
+    assert!(message_texts(&words.next(&spoken, 5.0), stage::CAPTION).is_empty());
+}
+
+/// Said in the place of a line with no recording: the caption says so.
+#[test]
+fn what_speaks_in_a_lines_place_is_said_to() {
+    let mut words = SaidWords::new(Line::FullComboW(1), HashMap::new(), HashMap::new());
+    let spoken = vec![("gameplay full combo".to_string(), 1.0)];
+    let said = message_texts(&words.next(&spoken, 1.0), stage::CAPTION);
+    assert!(
+        said[0].contains(&*studio::name(Line::FullComboW(1))),
+        "{said:?}"
+    );
+    assert!(
+        said[0].contains(&*studio::name(Line::FullCombo)),
+        "{said:?}"
+    );
+}
+
+/// A restart's first play opens as any does; only the play again says
+/// what stands in for the restart's line.
+#[test]
+fn a_restarts_first_play_is_not_said_in_its_place() {
+    let mut words = SaidWords::new(Line::Restart, HashMap::new(), HashMap::new());
+    words.set_caption("The player restarts.");
+    let first = vec![("gameplay ready".to_string(), 1.0)];
+    let why = message_texts(&words.next(&first, 1.0), stage::CAPTION);
+    assert!(!why[0].contains(&*studio::name(Line::Restart)), "{why:?}");
+    // Its report begins again.
+    words.restarted();
+    let again = vec![("gameplay ready".to_string(), 1.0)];
+    let said = message_texts(&words.next(&again, 1.0), stage::CAPTION);
+    assert!(said[0].contains(&*studio::name(Line::Restart)), "{said:?}");
 }
 
 /// The draft as a voice: the line's next recording first, the length its.

@@ -90,7 +90,12 @@ pub struct RealFft {
 }
 
 impl RealFft {
+    /// A transform of `n` values, a power of two of at least 2.
     pub fn new(n: usize) -> RealFft {
+        assert!(
+            n >= 2 && n.is_power_of_two(),
+            "RealFft needs a power of two of at least 2, not {n}"
+        );
         let half = n / 2;
         RealFft {
             fft: Fft::new(half),
@@ -164,6 +169,12 @@ pub fn downmix_interleaved(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "power of two")]
+    fn a_real_transform_refuses_a_size_it_cannot_halve() {
+        RealFft::new(1000);
+    }
 
     #[test]
     fn the_transform_finds_a_sine() {

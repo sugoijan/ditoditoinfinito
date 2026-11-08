@@ -222,6 +222,12 @@ studio-picker-line-results = { $line } · リザルト画面
 
 studio-picker-note = セリフを選んでいる間、「{ $file }」を再生します。
 
+studio-why-opening = 「{ $line }」が先に流れます。プレイはこのセリフで始まります。
+studio-why-comment = 「{ $line }」が先に流れます。しばらく何も言っていないと、アナウンサーがコメントします。
+studio-why-combo = 「{ $line }」が先に流れます。途中でそのコンボに達しました。
+studio-why-on-the-way = 「{ $line }」が先に流れます。ゲームが途中で言うセリフです。
+studio-why-in-its-place = 「{ $asked }」はまだ録音がありません。代わりに「{ $line }」が流れます。
+
 studio-status-adding = ファイルを{ $count }個追加しています…
 
 studio-status-added = 録音を{ $added }件追加しました。{ $passed ->

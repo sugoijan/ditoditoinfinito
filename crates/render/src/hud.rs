@@ -44,6 +44,58 @@ pub(crate) fn mark_rect(geo: &FieldGeometry) -> [f32; 4] {
     [24.0 * s, geo.height - (22.0 + h) * s, 170.0 * s, h * s]
 }
 
+/// Where a play's frame shows what the announcer speaks of, each
+/// `[left, top, right, bottom]` as shares of the frame (the announcer
+/// studio rings them over its picture of the play).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HudSpots {
+    pub life: [f32; 4],
+    pub combo: [f32; 4],
+    pub receptors: [f32; 4],
+}
+
+/// Where a play at `combo` shows them on a field of `geo` (the combo at its resting
+/// size, at least three digits wide: its place, shown or not, which keeps
+/// still as a combo grows or breaks).
+pub(crate) fn spots(combo: u32, layout: &Layout, geo: &FieldGeometry) -> HudSpots {
+    let share = |[l, t, r, b]: [f32; 4]| {
+        [
+            l / geo.width.max(1.0),
+            t / geo.height.max(1.0),
+            r / geo.width.max(1.0),
+            b / geo.height.max(1.0),
+        ]
+    };
+    let span = field_span(layout);
+    let s = scale(geo);
+    let [x, y, w, h] = life_rect(geo, span);
+    let life = [x, y, x + w, y + h];
+    let center = geo.center_x(span);
+    let tier = (combo / 100).min(10);
+    let count = ((combo.checked_ilog10().unwrap_or(0) + 1) as f32).max(3.0);
+    let cs = s * if tier == 10 { 1.2 } else { 1.0 };
+    let cs = cs.min((geo.width - 16.0 * s).max(1.0) / (count * 32.0 + 32.0));
+    let half = (count * 32.0 + 32.0) * cs / 2.0;
+    let top = geo.height / 2.0 - 16.0 * cs;
+    let place = [center - half, top, center + half, top + 96.0 * cs];
+    let receptors = crate::scene::receptor_areas(geo, layout)
+        .into_iter()
+        .reduce(|a, b| {
+            [
+                a[0].min(b[0]),
+                a[1].min(b[1]),
+                a[2].max(b[2]),
+                a[3].max(b[3]),
+            ]
+        })
+        .unwrap_or_default();
+    HudSpots {
+        life: share(life),
+        combo: share(place),
+        receptors: share(receptors),
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Tween {
     from: f32,
@@ -449,6 +501,29 @@ mod tests {
         }
         // A loss from full shows larger than it is.
         assert!(1.0 - shown(0.95) > 0.05 * 1.7);
+    }
+
+    #[test]
+    fn the_spots_are_where_the_hud_draws_as_shares_of_the_frame() {
+        let layout = ddi_chart::Layout::dance_single();
+        let geo = FieldGeometry::new(1280.0, 720.0, field_span(&layout), false);
+        let s = spots(70, &layout, &geo);
+        let [x, y, w, h] = life_rect(&geo, field_span(&layout));
+        let want = [x / 1280.0, y / 720.0, (x + w) / 1280.0, (y + h) / 720.0];
+        assert_eq!(s.life, want);
+        // Centered on the field, below the middle's top.
+        assert!(((s.combo[0] + s.combo[2]) / 2.0 - 0.5).abs() < 1e-4);
+        assert!(s.combo[1] < 0.5 && s.combo[3] > 0.5);
+        // Its place stays as the combo breaks, and widens past 999.
+        assert_eq!(spots(0, &layout, &geo).combo, s.combo);
+        let wide = spots(1000, &layout, &geo).combo;
+        assert!(wide[2] - wide[0] > s.combo[2] - s.combo[0]);
+        // The receptors, near the top, over the field.
+        assert!(s.receptors[1] < 0.3 && s.receptors[3] < 0.5);
+        assert!(s.receptors[0] < s.life[0] && s.receptors[2] > s.life[2]);
+        // Reversed: near the bottom.
+        let reversed = FieldGeometry::new(1280.0, 720.0, field_span(&layout), true);
+        assert!(spots(70, &layout, &reversed).receptors[1] > 0.5);
     }
 
     #[test]

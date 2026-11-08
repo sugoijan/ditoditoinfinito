@@ -14,6 +14,7 @@ use ddi_library::announcer::Line;
 use ddi_session::announcer::{Bags, SharedVoice};
 
 use crate::audio::Sound;
+use crate::library::announcers::DiskAnnouncer;
 
 /// The lines' shuffles, for the run of the game.
 static BAGS: LazyLock<Mutex<Bags>> = LazyLock::new(|| {
@@ -61,12 +62,12 @@ impl VoiceLoad {
             .spawn(move || {
                 // Ours without walking the song folders; the folders'
                 // as found since the library last scanned.
-                let found = if ddi_library::announcer::is_bundled(&key) {
-                    crate::library::announcers::bundled()
+                let found: Arc<[DiskAnnouncer]> = if ddi_library::announcer::is_bundled(&key) {
+                    crate::library::announcers::bundled().into()
                 } else {
                     crate::library::announcers::found(&folders)
                 };
-                let Some(a) = found.into_iter().find(|a| a.key() == key) else {
+                let Some(a) = found.iter().find(|a| a.key() == key) else {
                     let _ = tx.send(Arrived::Failed(format!(
                         "no announcer {key} in the song folders"
                     )));

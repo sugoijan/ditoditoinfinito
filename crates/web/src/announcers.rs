@@ -236,7 +236,12 @@ pub(crate) fn load_voice(
                 .ok_or("this browser cannot decode sounds ahead")?;
             let queue = wanted
                 .into_iter()
-                .flat_map(|(line, files)| files.into_iter().map(move |f| (line, f)))
+                .flat_map(|(line, files)| {
+                    files
+                        .into_iter()
+                        .enumerate()
+                        .map(move |(rank, f)| (line, rank, f))
+                })
                 .collect();
             Ok::<_, String>((source, decoder, queue))
         }
@@ -269,8 +274,9 @@ struct Load {
     alive: Rc<Cell<bool>>,
     source: Source,
     decoder: crate::web::audio::AudioDecoder,
-    /// The sounds not asked for yet, in the order asked for.
-    queue: RefCell<VecDeque<(Line, RelPathBuf)>>,
+    /// The sounds not asked for yet, in the order asked for, each with
+    /// its rank among its line's: their decodes finish in any order.
+    queue: RefCell<VecDeque<(Line, usize, RelPathBuf)>>,
 }
 
 impl Load {
@@ -278,7 +284,7 @@ impl Load {
     /// is.
     async fn run(self: Rc<Load>) {
         while self.alive.get() {
-            let Some((line, file)) = self.queue.borrow_mut().pop_front() else {
+            let Some((line, rank, file)) = self.queue.borrow_mut().pop_front() else {
                 return;
             };
             let path = file.to_string();
@@ -287,7 +293,7 @@ impl Load {
                 Err(e) => Err(e),
             };
             match decoded {
-                Ok(buffer) => self.voice.borrow_mut().add(line, buffer),
+                Ok(buffer) => self.voice.borrow_mut().add_ranked(line, rank, buffer),
                 Err(e) => web_sys::console::warn_1(&format!("announcer: {path}: {e}").into()),
             }
             if self.of == For::Menu {

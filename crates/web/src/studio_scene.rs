@@ -54,6 +54,8 @@ pub(crate) const SOURCE: &str = ddi_ui::screens::stage::PICTURE;
 
 /// What the frame around a staged play says.
 pub(crate) struct FrameSpec {
+    /// The line the scene is for.
+    pub(crate) line: Line,
     pub(crate) name: String,
     pub(crate) voice_label: String,
     pub(crate) caption: String,
@@ -76,6 +78,8 @@ pub(crate) struct Framed {
     last: Option<f64>,
     /// The lines' words, told to the frame as each starts.
     words: SaidWords,
+    /// Where the play shows what can be ringed.
+    spots: ddi_ui::screens::stage::SharedSpots,
 }
 
 impl Framed {
@@ -86,7 +90,8 @@ impl Framed {
         ));
         let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, false);
         ui.set_focus_ring(false);
-        ui.push(Picture::new(SOURCE));
+        let spots = ddi_ui::screens::stage::SharedSpots::default();
+        ui.push(Picture::new(SOURCE).with_spots(spots.clone()));
         // Its way back: the page's (the keys' Escape, the button's press
         // through `back_at`).
         let back: ddi_ui::screens::stage::BackFn = std::rc::Rc::new(|_| {});
@@ -107,7 +112,8 @@ impl Framed {
             list: ddi_render::DrawList::new(),
             viewport: None,
             last: None,
-            words: SaidWords::new(spec.words, spec.lengths),
+            words: SaidWords::new(spec.line, spec.words, spec.lengths),
+            spots,
         }
     }
 
@@ -141,8 +147,24 @@ impl Framed {
         &self.picture.as_ref().expect("made above").1
     }
 
+    /// Where the renderer's last frame showed the HUD's parts.
+    pub(crate) fn set_spots(&self, spots: ddi_render::HudSpots) {
+        self.spots.set(ddi_shell::play_spots(spots));
+    }
+
+    /// What the frame points at (`None`: nothing).
+    pub(crate) fn mark(&mut self, what: Option<ddi_ui::Mark>) {
+        self.ui.mark(what);
+    }
+
+    /// The play began again: the lines said are counted afresh.
+    pub(crate) fn restarted(&mut self) {
+        self.words.restarted();
+    }
+
     /// The frame's caption now.
     pub(crate) fn caption(&mut self, text: &str) {
+        self.words.set_caption(text);
         let m = ddi_ui::Message::new(ddi_ui::screens::stage::CAPTION)
             .with("Text", ddi_ui::Param::Str(text.into()));
         self.ui.broadcast(m);
@@ -254,6 +276,12 @@ impl Framed {
         }
         set("back", back.into());
         set("told", (self.words.told() as f64).into());
+        // The ring, in the frame's virtual pixels, and what it is around.
+        let ring = js_sys::Array::new();
+        for v in self.ui.mark_bounds().into_iter().flatten() {
+            ring.push(&f64::from(v).into());
+        }
+        set("ring", ring.into());
         set(
             "picture",
             self.picture

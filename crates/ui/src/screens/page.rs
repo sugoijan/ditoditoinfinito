@@ -164,6 +164,21 @@ pub type PageShell = Rc<dyn Fn(PageCall, &mut Cx) -> Option<PageDoc>>;
 /// A new page from the shell (loaded later), with [`PAGE_CHANGED`].
 pub type PageFeed = Rc<RefCell<Option<PageDoc>>>;
 
+/// Where a page is: its folds open, how far it is scrolled, the item
+/// focused. A page given one ([`PageScreen::with_place`]) keeps it current
+/// and opens there, so that one shown again after its screen went (the
+/// announcer studio after a scene on the play route) is where it was.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PagePlace {
+    pub open: HashSet<String>,
+    pub scroll: f32,
+    /// The item focused, as the page's debug state names it
+    /// (`button:hear:gameplay ready`).
+    pub focused: Option<String>,
+}
+
+pub type SharedPlace = Rc<RefCell<PagePlace>>;
+
 /// One drawn line of the column.
 #[derive(Clone, Debug)]
 struct Row {
@@ -261,6 +276,8 @@ pub struct PageScreen {
     target: Option<String>,
     /// The field being typed into.
     typing: Option<String>,
+    /// Kept current, and opened at ([`PagePlace`]).
+    place: Option<SharedPlace>,
 }
 
 const LINE: f32 = 6.0;
@@ -292,7 +309,14 @@ impl PageScreen {
             fields: Default::default(),
             target: None,
             typing: None,
+            place: None,
         }
+    }
+
+    /// Opens at `place`, and keeps it current.
+    pub fn with_place(mut self, place: SharedPlace) -> PageScreen {
+        self.place = Some(place);
+        self
     }
 
     pub fn with_shell(mut self, shell: PageShell, feed: PageFeed) -> PageScreen {
@@ -1109,18 +1133,38 @@ impl PageScreen {
         st.screen = self.name.clone();
         st.compact = self.compact;
         st.scroll = self.scroll;
-        st.page_items = self
-            .items
-            .iter()
-            .map(|i| match i {
-                Item::Link(u) => format!("link:{u}"),
-                Item::Button(b) => format!("button:{b}"),
-                Item::Fold(f) => format!("fold:{f}"),
-                Item::Field(f) => format!("field:{f}"),
-            })
-            .collect();
+        st.page_items = self.items.iter().map(Self::item_key).collect();
         st.page_focus = self.focus.map(|f| f as i32).unwrap_or(-1);
         st.page_height = self.total();
+    }
+
+    /// How the debug state and a [`PagePlace`] name item `item`.
+    fn item_key(item: &Item) -> String {
+        match item {
+            Item::Link(u) => format!("link:{u}"),
+            Item::Button(b) => format!("button:{b}"),
+            Item::Fold(f) => format!("fold:{f}"),
+            Item::Field(f) => format!("field:{f}"),
+        }
+    }
+
+    /// What is in its place now, for the next time it opens.
+    fn keep_place(&self) {
+        let Some(place) = &self.place else {
+            return;
+        };
+        let focused = self
+            .focus
+            .and_then(|i| self.items.get(i))
+            .map(Self::item_key);
+        let mut p = place.borrow_mut();
+        p.scroll = self.scroll;
+        if p.focused != focused {
+            p.focused = focused;
+        }
+        if p.open != self.open {
+            p.open = self.open.clone();
+        }
     }
 
     fn item_of(t: &hit::Target) -> Option<usize> {
@@ -1182,7 +1226,18 @@ impl Screen for PageScreen {
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.place(cx.viewport().screen);
+        // Where it was left, if it was.
+        let at = self.place.as_ref().map(|p| p.borrow().clone());
+        if let Some(p) = &at {
+            self.open = p.open.clone();
+        }
         self.lay_out();
+        if let Some(p) = at {
+            self.scroll = p.scroll.clamp(0.0, self.max_scroll());
+            self.focus = p
+                .focused
+                .and_then(|f| self.items.iter().position(|i| Self::item_key(i) == f));
+        }
         let root = self.tree(cx);
         self.publish();
         root
@@ -1203,6 +1258,7 @@ impl Screen for PageScreen {
         if !cx.is_current_screen() {
             return;
         }
+        self.keep_place();
         self.live.tick(root, "Wordmark", &self.env, cx);
         if self.place(cx.viewport().screen) {
             self.lay_out();

@@ -17,6 +17,7 @@ use ddi_engine::autoplay;
 use ddi_engine::player::{PlayOptions, Player};
 use ddi_engine::rules::{FailType, Judgement, LifeType, Ruleset, presets};
 use ddi_library::announcer::Line;
+use ddi_ui::Mark;
 use ddi_ui::screens::stage::Caption;
 use ddi_ui::state::settings::Settings;
 
@@ -216,6 +217,30 @@ fn simulate(
         danger: p.ruleset().gauge.danger(),
         failed: p.failed(),
     }
+}
+
+/// What play line `line` is said for, ringed in its scene (`None`: not
+/// one said in play): the gauge for what is said of the life, the combo
+/// for what is said of it (a broken one vanishes inside the ring), the
+/// receptors for the play's opening.
+pub fn mark(line: Line) -> Option<Mark> {
+    Some(match line {
+        Line::Ready | Line::HereWeGo | Line::Restart => Mark::Receptors,
+        Line::CommentHot
+        | Line::CommentGood
+        | Line::CommentDanger
+        | Line::CommentOni
+        | Line::LifeLost
+        | Line::LastLife
+        | Line::Cleared
+        | Line::Failed => Mark::Life,
+        Line::Combo(_)
+        | Line::ComboOverflow
+        | Line::ComboStopped
+        | Line::FullComboW(_)
+        | Line::FullCombo => Mark::Combo,
+        _ => return None,
+    })
 }
 
 /// The results of a scene at a play's end show this long before the

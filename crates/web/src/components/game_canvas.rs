@@ -920,6 +920,7 @@ impl Component for GameCanvas {
             .scene
             .as_ref()
             .map(|sc| crate::studio_scene::FrameSpec {
+                line: sc.line,
                 name: sc.name.clone(),
                 voice_label: sc.voice_label.clone(),
                 caption: String::new(),
@@ -1433,8 +1434,11 @@ impl GameCanvas {
             Msg::Session(SessionEvent::Restart) => {
                 if let Some(sc) = self.scene.as_mut() {
                     sc.restarted = true;
-                    if let Some(g) = self.game.borrow().as_ref() {
+                    if let Some(g) = self.game.borrow_mut().as_mut() {
                         sc.spoken.extend(g.spoken());
+                        if let Some(f) = g.framed.as_mut() {
+                            f.restarted();
+                        }
                     }
                 }
                 let session = self
@@ -2121,6 +2125,7 @@ impl GameCanvas {
         {
             f.caption(&caption);
             f.until(sc.seconds);
+            f.mark(in_play::mark(sc.line));
         }
         if let Some(prompt) = &self.prompt
             && let Ok(mut h) = prompt.host.try_borrow_mut()
@@ -3008,8 +3013,6 @@ impl GameCanvas {
             title: song.title.clone(),
             subtitle: String::new(),
             artist: song.subtitle.clone(),
-            // No pack named (the play knows none).
-            pack: Some(String::new()),
             bpm: bpm_text.parse().unwrap_or(0.0),
             bpm_text,
             length: self.song_length as f32,

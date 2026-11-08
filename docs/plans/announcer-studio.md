@@ -528,9 +528,25 @@ play on Beatucada's Medium in Single, shown in the studio's frame:
   frame first, their line said, for 6.5 s. Each line's next recording or
   example, and the decoded sounds, are kept for the session across the
   trip.
-- **Not yet:** a ring on what a line in play is said for (the combo, the
-  life: drawn by the renderer, not the UI's actors); the caption does not
-  yet say why a line other than the one asked for came first.
+- **What a line is said for is ringed, in play too** (`in_play::mark`):
+  the life gauge for what is said of the life (the comments, a life
+  lost, the last life, a clear, a fail), the combo for what is said of
+  it (a broken one vanishes inside the ring), the receptors for how a
+  play opens. The renderer says where it drew them
+  (`Renderer::hud_spots`, as shares of the frame); the picture
+  (`ddi_ui::screens::stage::Picture`) keeps actors there for the ring
+  (`Mark::Life`, `Combo`, `Receptors`). It shows from the play's start,
+  so the eye is on the place before the moment.
+- **Why another line came first** (`director::SaidWords`): while a line
+  other than the one asked for is said before it, the frame's caption
+  says why (a play opens with it, the announcer comments when it has
+  been quiet, the combo got there on the way), and the scene's caption
+  comes back with the line. Where the line asked for has no recording and
+  what speaks in its place is said (`Line::chain`), the caption says that,
+  on song select and the results too.
+- **The page comes back where it was:** after a scene in play, which
+  leaves the page on the web, its folds, scroll and focus are as they
+  were (`PagePlace`, `PageScreen::with_place`).
 
 Checked: the engine's staged start (`crates/engine/tests/staged.rs`);
 every play line's scene on the fake clock under three rulesets; headless

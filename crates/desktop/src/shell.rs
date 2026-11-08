@@ -444,6 +444,10 @@ impl Shell {
         self.target.as_ref().and_then(Target::window)
     }
 
+    fn window_mut(&mut self) -> Option<&mut Surface> {
+        self.target.as_mut().and_then(Target::window_mut)
+    }
+
     /// The device the UI draws with: the window's, or the offscreen one.
     fn gpu_mut(&mut self) -> Option<&mut Gpu> {
         self.target.as_mut().map(Target::gpu_mut)
@@ -611,7 +615,7 @@ impl Shell {
             self.error = Some(e);
             return;
         }
-        if let (Some(s), Some(field)) = (self.target.as_mut().and_then(Target::window_mut), field) {
+        if let (Some(s), Some(field)) = (self.window_mut(), field) {
             s.gpu.field = field;
             s.gpu.editor = crate::editor_field::EditorFieldHost::for_new_device();
         }
@@ -631,7 +635,7 @@ impl Shell {
     fn resized(&mut self) {
         self.occluded = false;
         self.shown();
-        let Some(s) = self.target.as_mut().and_then(Target::window_mut) else {
+        let Some(s) = self.window_mut() else {
             return;
         };
         screen_height(&s.window);
@@ -641,10 +645,9 @@ impl Shell {
         s.surface.configure(&s.gpu.device, &s.config);
         // Another size, or fullscreen entered or left: late pacing tries
         // again where it had fallen back (`crate::pacing`).
-        self.pacer.set_surface(
-            (s.config.width, s.config.height),
-            s.window.fullscreen().is_some(),
-        );
+        let surface = (s.config.width, s.config.height);
+        let fullscreen = s.window.fullscreen().is_some();
+        self.pacer.set_surface(surface, fullscreen);
         let logical = size.to_logical::<f32>(self.scale);
         // The theme's design for this size (compact for a small window).
         if let Some((_, look)) = &self.theme {
@@ -854,10 +857,10 @@ impl Shell {
             Some(_) => self.retry_at = None,
             None => {}
         }
-        if let Some(s) = self.target.as_ref().and_then(Target::window) {
+        if let Some(s) = self.window() {
+            s.window.request_redraw();
             self.pending = true;
             self.asked += 1;
-            s.window.request_redraw();
         }
     }
 
@@ -1370,7 +1373,7 @@ impl Shell {
     fn present_mode(&mut self, play: bool) {
         let fifo = self.pacer.mode() == pacing::Mode::Late || self.pacing_report.is_some();
         let in_flight = self.pacer.in_flight();
-        let Some(s) = self.target.as_mut().and_then(Target::window_mut) else {
+        let Some(s) = self.window_mut() else {
             return;
         };
         let (mode, latency) = if !play {
@@ -1756,9 +1759,7 @@ impl ApplicationHandler for Shell {
                 _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
             }
         }
-        if let Some(s) = self.target.as_mut().and_then(Target::window_mut) {
-            self.loaded |= s.gpu.images_ready();
-        }
+        self.loaded |= self.window_mut().is_some_and(|s| s.gpu.images_ready());
         let field = self
             .window()
             .is_some_and(|s| s.gpu.field.animating() || s.gpu.movie.busy() || s.gpu.editor.busy())

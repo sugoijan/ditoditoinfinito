@@ -34,7 +34,8 @@ pub fn pack_label(name: Option<&str>) -> ddi_l10n::UiText {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Listed {
     pub entry: ManifestEntry,
-    /// Its pack; `None` for a bundled song.
+    /// Its pack; `None` for a bundled song, and on the entries a play's
+    /// prompt and results are given, which show no pack.
     pub pack: Option<String>,
     /// The pack's own cover, separately from the song banner.
     pub pack_banner: Option<String>,

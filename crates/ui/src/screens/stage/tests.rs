@@ -152,6 +152,43 @@ fn a_frame_shown_as_the_last_one_goes_is_the_frame() {
     assert!(close(h.ui.bounds("Thing").unwrap(), small));
 }
 
+/// What a line in play is said for is ringed on the picture, where the
+/// play shows it, inside the frame.
+#[test]
+fn the_mark_rings_a_plays_parts_on_its_picture() {
+    let spots: SharedSpots = Rc::default();
+    let mut h = Harness::new([1280.0, 720.0], [1280.0, 720.0], 1.0, TextMode::Own);
+    h.push(Picture::new(PICTURE).with_spots(spots.clone()));
+    h.ui.push_chrome(frame_of(Rc::default()));
+    h.run(0.5);
+    // Not known yet: nothing to ring.
+    h.ui.mark(Some(Mark::Combo));
+    h.frame(0.016);
+    assert_eq!(h.ui.mark_bounds(), None);
+    spots.set(PlaySpots {
+        combo: [0.4, 0.5, 0.6, 0.6],
+        life: [0.3, 0.03, 0.7, 0.04],
+        ..PlaySpots::default()
+    });
+    h.frame(0.016);
+    let (scale, at, _, _) = geometry([1280.0, 720.0]);
+    let want = [
+        0.4 * 1280.0 * scale + at[0],
+        0.5 * 720.0 * scale + at[1],
+        0.6 * 1280.0 * scale + at[0],
+        0.6 * 720.0 * scale + at[1],
+    ];
+    let ringed = h.ui.mark_bounds().expect("the combo");
+    assert!(close(ringed, want), "{ringed:?} {want:?}");
+    h.ui.mark(Some(Mark::Life));
+    h.frame(0.016);
+    assert!(h.ui.mark_bounds().is_some());
+    // What the picture does not show is not ringed.
+    h.ui.mark(Some(Mark::Grade));
+    h.frame(0.016);
+    assert_eq!(h.ui.mark_bounds(), None);
+}
+
 #[test]
 fn the_progress_fills_until_the_scene_ends() {
     let log: Log = Rc::default();

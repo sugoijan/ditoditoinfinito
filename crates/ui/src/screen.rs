@@ -79,6 +79,12 @@ pub enum Mark {
     Lamp,
     /// The results' FAILED.
     Failed,
+    /// A play's life gauge.
+    Life,
+    /// A play's combo.
+    Combo,
+    /// A play's receptors.
+    Receptors,
 }
 
 impl Mark {
@@ -93,6 +99,9 @@ impl Mark {
             Mark::Score => "score",
             Mark::Lamp => "lamp",
             Mark::Failed => "failed",
+            Mark::Life => "life",
+            Mark::Combo => "combo",
+            Mark::Receptors => "receptors",
         }
     }
 }

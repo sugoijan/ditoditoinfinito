@@ -12,7 +12,7 @@
 //! folder holding a key wins, as for skins.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use ddi_library::announcer::{self, Kept, Kind};
 use ddi_library::path::{RelPath, RelPathBuf};
@@ -282,19 +282,20 @@ static FOUND: Mutex<Found> = Mutex::new(Found {
 });
 
 struct Found {
-    /// The library's scans so far: a list found during one is not kept.
+    /// How many times the list was let go ([`forget`]): one looked for
+    /// across that is out of date and is not kept.
     scan: u64,
     /// The folders looked in and what was found there.
-    last: Option<(Vec<PathBuf>, Vec<DiskAnnouncer>)>,
+    last: Option<(Vec<PathBuf>, Arc<[DiskAnnouncer]>)>,
 }
 
 /// [`all`], as found since the library last scanned: looked for again
 /// only once it scans again (an announcer added to a song folder then
 /// appears, as its songs do) or in other folders.
-pub fn found(folders: &[PathBuf]) -> Vec<DiskAnnouncer> {
+pub fn found(folders: &[PathBuf]) -> Arc<[DiskAnnouncer]> {
     let scan = {
         let Ok(f) = FOUND.lock() else {
-            return all(folders);
+            return all(folders).into();
         };
         if let Some((at, list)) = &f.last
             && at == folders
@@ -303,7 +304,7 @@ pub fn found(folders: &[PathBuf]) -> Vec<DiskAnnouncer> {
         }
         f.scan
     };
-    let list = all(folders);
+    let list: Arc<[DiskAnnouncer]> = all(folders).into();
     if let Ok(mut f) = FOUND.lock()
         && f.scan == scan
     {
@@ -424,9 +425,9 @@ mod tests {
     #[test]
     fn an_announcer_added_is_found_once_the_library_scans_again() {
         let root = scratch("announcers-found");
-        let keys = |found: Vec<DiskAnnouncer>| -> Vec<String> {
+        let keys = |found: Arc<[DiskAnnouncer]>| -> Vec<String> {
             found
-                .into_iter()
+                .iter()
                 .filter(|a| !a.kept.bundled)
                 .map(|a| a.key())
                 .collect()

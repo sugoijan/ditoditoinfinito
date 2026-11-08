@@ -108,6 +108,8 @@ struct Kept {
     turns: HashMap<Line, usize>,
     example_turns: HashMap<(&'static str, Line), usize>,
     example_sounds: HashMap<String, AudioBuffer>,
+    /// Where the page was (a scene in play comes back to it).
+    place: ddi_ui::screens::page::SharedPlace,
 }
 
 thread_local! {
@@ -121,6 +123,7 @@ impl Drop for Studio {
             k.turns = std::mem::take(&mut *self.director.turns.borrow_mut());
             k.example_turns = std::mem::take(&mut *self.director.example_turns.borrow_mut());
             k.example_sounds = std::mem::take(&mut *self.example_sounds.borrow_mut());
+            k.place = self.place.clone();
         });
     }
 }
@@ -168,6 +171,8 @@ struct Studio {
     heard: RefCell<Option<(Line, Vec<String>, String)>>,
     /// Our packs' sounds a scene took, decoded (by pack and path).
     example_sounds: RefCell<HashMap<String, AudioBuffer>>,
+    /// Where the page is, kept across a scene in play.
+    place: ddi_ui::screens::page::SharedPlace,
     /// `__DDI_DEBUG.studio` as last built; `None` once the studio changed
     /// since (each frame's debug state takes it as it is).
     debug: RefCell<Option<js_sys::Object>>,
@@ -208,6 +213,7 @@ impl Studio {
             example_sounds: RefCell::new(
                 KEPT.with_borrow_mut(|k| std::mem::take(&mut k.example_sounds)),
             ),
+            place: KEPT.with_borrow(|k| k.place.clone()),
             debug: RefCell::new(None),
             frame: RefCell::new(None),
         });
@@ -1707,8 +1713,9 @@ impl StudioPage {
             let weak = Rc::downgrade(&studio);
             Rc::new(move |call, cx| weak.upgrade()?.call(call, cx))
         };
-        let screen =
-            PageScreen::new(env, studio::NAME, studio.doc()).with_shell(shell, studio.feed.clone());
+        let screen = PageScreen::new(env, studio::NAME, studio.doc())
+            .with_shell(shell, studio.feed.clone())
+            .with_place(studio.place.clone());
         let mut ui = ui_dev::theme_ui();
         ui.push(screen);
         let mut listeners = Vec::new();

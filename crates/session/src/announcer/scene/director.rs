@@ -154,21 +154,62 @@ pub struct Heard {
     pub spoken: Vec<String>,
 }
 
-/// The words of the lines a staged play says, as each starts.
-#[derive(Default)]
+/// The frame's caption for a line other than the one asked for, said
+/// before it: why the game says it there (`docs/plans/announcer-studio.md`,
+/// step 4).
+fn why_first(found: Line) -> UiText {
+    let line = studio::name(found);
+    match found {
+        Line::Ready | Line::HereWeGo | Line::Restart => ms::why_opening(line),
+        Line::CommentHot | Line::CommentGood | Line::CommentDanger | Line::CommentOni => {
+            ms::why_comment(line)
+        }
+        Line::Combo(_) | Line::ComboOverflow => ms::why_combo(line),
+        _ => ms::why_on_the_way(line),
+    }
+}
+
+/// The frame's caption while `found` is said in the place of `asked`,
+/// which has no recording.
+fn in_its_place(asked: Line, found: Line) -> UiText {
+    ms::why_in_its_place(studio::name(asked), studio::name(found))
+}
+
+/// The words of the lines a staged play says, as each starts, and why
+/// one came before the line asked for.
 pub struct SaidWords {
+    /// The line the scene is for.
+    asked: Line,
     /// The lines said so far, told to the frame.
     told: usize,
     words: HashMap<Line, String>,
     lengths: HashMap<Line, f64>,
+    /// What the frame says happens, when no line needs explaining.
+    caption: String,
+    /// The frame says why a line came first, for now.
+    explaining: bool,
+    /// The line asked for was said (or what speaks in its place).
+    arrived: bool,
+    /// The play began again (a restart's: what speaks for its line is
+    /// said only now).
+    again: bool,
 }
 
 impl SaidWords {
-    pub fn new(words: HashMap<Line, String>, lengths: HashMap<Line, f64>) -> SaidWords {
+    pub fn new(
+        asked: Line,
+        words: HashMap<Line, String>,
+        lengths: HashMap<Line, f64>,
+    ) -> SaidWords {
         SaidWords {
+            asked,
             told: 0,
             words,
             lengths,
+            caption: String::new(),
+            explaining: false,
+            arrived: false,
+            again: false,
         }
     }
 
@@ -177,8 +218,41 @@ impl SaidWords {
         self.told
     }
 
+    /// What the frame says happens in this scene.
+    pub fn set_caption(&mut self, caption: &str) {
+        self.caption = caption.into();
+    }
+
+    /// The play began again (its report of what was said begins again).
+    pub fn restarted(&mut self) {
+        self.told = 0;
+        self.again = true;
+    }
+
+    /// The frame's caption, as it should be with `found` said now.
+    fn caption_for(&mut self, found: Line) -> Option<String> {
+        if self.arrived {
+            return None;
+        }
+        let asked = self.asked;
+        // A restart's first play says ready as any play does.
+        let opening_first = asked == Line::Restart && !self.again;
+        if found == asked {
+            self.arrived = true;
+            return std::mem::take(&mut self.explaining).then(|| self.caption.clone());
+        }
+        if asked.chain().contains(&found) && !opening_first {
+            self.arrived = true;
+            self.explaining = true;
+            return Some(in_its_place(asked, found).to_string());
+        }
+        self.explaining = true;
+        Some(why_first(found).to_string())
+    }
+
     /// For each of the lines said so far (`spoken`: folder, context time)
-    /// begun by `now` and not told yet: the frame's message showing it.
+    /// begun by `now` and not told yet: the frame's messages showing it
+    /// and, where it is not the line asked for and came before it, why.
     pub fn next(&mut self, spoken: &[(String, f64)], now: f64) -> Vec<Message> {
         let mut out = Vec::new();
         while let Some((folder, at)) = spoken.get(self.told) {
@@ -189,6 +263,9 @@ impl SaidWords {
             let Some(line) = Line::parse(folder) else {
                 continue;
             };
+            if let Some(caption) = self.caption_for(line) {
+                out.push(Message::new(stage::CAPTION).with("Text", Param::Str(caption)));
+            }
             let text = self
                 .words
                 .get(&line)
@@ -566,9 +643,13 @@ impl<H: SceneHost> Director<H> {
     /// The frame shows the words of `line` (said now) for `seconds`: an
     /// example's as its pack says them, a recording's line by name.
     fn say(&self, n: u64, line: Line, seconds: f64) {
-        let Some(words) = self.with_scene(n, |sc| sc.words.get(&line).cloned()) else {
+        let Some((words, asked)) = self.with_scene(n, |sc| (sc.words.get(&line).cloned(), sc.line))
+        else {
             return;
         };
+        if line != asked && asked.chain().contains(&line) {
+            self.caption_now(n, &in_its_place(asked, line));
+        }
         let text = match words {
             Some(w) => UiText::data(w),
             None => ms::stage_said(studio::name(line)),

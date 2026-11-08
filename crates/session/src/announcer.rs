@@ -147,7 +147,8 @@ fn take(
 /// The announcer's sounds as decoded, by line.
 #[derive(Debug)]
 pub struct Voice<B> {
-    lines: BTreeMap<Line, Vec<B>>,
+    /// Each line's sounds with their ranks, in the order spoken.
+    lines: BTreeMap<Line, Vec<(usize, B)>>,
     /// The lines being decoded: one of these not there when it is due
     /// was not decoded in time ([`Report::missing`]); any other the pack
     /// lacks ([`Report::absent`]).
@@ -174,7 +175,23 @@ impl<B> Voice<B> {
 
     /// A sound of `line`, decoded.
     pub fn add(&mut self, line: Line, buffer: B) {
-        self.lines.entry(line).or_default().push(buffer);
+        let sounds = self.lines.entry(line).or_default();
+        let rank = sounds.len();
+        sounds.push((rank, buffer));
+    }
+
+    /// A sound of `line`, the `rank`th of those asked for, decoded in
+    /// any order: it is spoken in its place among them, and what was
+    /// spoken already stays behind the line's next sound.
+    pub fn add_ranked(&mut self, line: Line, rank: usize, buffer: B) {
+        let sounds = self.lines.entry(line).or_default();
+        let at = sounds.partition_point(|(r, _)| *r < rank);
+        sounds.insert(at, (rank, buffer));
+        if let Some(next) = self.cursor.get_mut(&line)
+            && at < *next
+        {
+            *next += 1;
+        }
     }
 
     /// The sounds decoded so far.
@@ -204,7 +221,7 @@ impl<B> Voice<B> {
         let found = self.find(line)?;
         let sounds = &self.lines[&found];
         let i = self.cursor.get(&found).copied().unwrap_or(0) % sounds.len();
-        Some((found, &sounds[i]))
+        Some((found, &sounds[i].1))
     }
 
     /// [`Voice::peek`], the line's next sound then the one after.
@@ -214,7 +231,7 @@ impl<B> Voice<B> {
         let at = *i;
         *i += 1;
         let sounds = &self.lines[&found];
-        Some((found, &sounds[at % sounds.len()]))
+        Some((found, &sounds[at % sounds.len()].1))
     }
 }
 

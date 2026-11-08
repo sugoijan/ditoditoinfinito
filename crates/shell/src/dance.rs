@@ -12,6 +12,8 @@ struct Surface {
     device: wgpu::Device,
     painter: Painter,
     list: DrawList,
+    /// The hand's texture bound in the painter, once one was.
+    bound: Option<Option<wgpu::Texture>>,
 }
 #[derive(Default)]
 pub struct Preview {
@@ -420,12 +422,17 @@ impl Preview {
                 device: device.clone(),
                 painter: Painter::new(device, queue, format),
                 list: DrawList::new(),
+                bound: None,
             });
         }
         let s = self.surface.as_mut().unwrap();
         s.painter.submitted();
-        s.painter
-            .set_external_image(device, ddi_render::character::SOURCE, self.host.texture());
+        let texture = self.host.texture();
+        if s.bound.as_ref().is_none_or(|b| b.as_ref() != texture) {
+            s.painter
+                .set_external_image(device, ddi_render::character::SOURCE, texture);
+            s.bound = Some(texture.cloned());
+        }
         let [_, _, pw, ph] = rect;
         let texture = s
             .painter

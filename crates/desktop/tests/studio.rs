@@ -408,6 +408,13 @@ fn the_studio_on_desktop() {
         n
     };
     assert!(lit(320, 180, 640, 360) > 1000, "nothing in the picture");
+    // What the line is said for is ringed: the life gauge, at the top of
+    // the picture, over the field.
+    let ring = t.shell.ui.mark_bounds().expect("the life gauge ringed");
+    assert!(
+        ring[1] < 200.0 && ring[0] > 320.0 && ring[2] < 960.0,
+        "{ring:?}"
+    );
     t.shell.play.back_from_scene();
     t.until("the studio again", |t| {
         t.studio.last_heard() != before && t.studio_on_top()

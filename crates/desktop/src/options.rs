@@ -13,6 +13,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use ddi_engine::ConnectedPad;
 use ddi_ui::message::Message;
@@ -44,8 +45,8 @@ pub struct Shared {
     skins: RefCell<Option<std::sync::mpsc::Receiver<Skins>>>,
     /// The song folders' announcers, listed on a thread of their own,
     /// and what came.
-    announcers: RefCell<Option<std::sync::mpsc::Receiver<Vec<DiskAnnouncer>>>>,
-    found: RefCell<Vec<DiskAnnouncer>>,
+    announcers: RefCell<Option<std::sync::mpsc::Receiver<Arc<[DiskAnnouncer]>>>>,
+    found: RefCell<Arc<[DiskAnnouncer]>>,
     /// The shares read (or one deleted and the rest read) on a thread
     /// (`crate::share`): into the dialog's feed when they come.
     shares: RefCell<
@@ -59,7 +60,7 @@ pub struct Shared {
 /// Looks for the announcers on a thread (ours where there is no library).
 fn list_announcers(
     songs: Option<&Rc<crate::songs::Songs>>,
-) -> std::sync::mpsc::Receiver<Vec<DiskAnnouncer>> {
+) -> std::sync::mpsc::Receiver<Arc<[DiskAnnouncer]>> {
     let (tx, rx) = std::sync::mpsc::channel();
     let folders = songs.map(|s| s.folders()).unwrap_or_default();
     let wake = songs.and_then(|s| s.wake.borrow().clone());

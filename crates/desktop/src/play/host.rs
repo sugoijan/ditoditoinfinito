@@ -129,11 +129,13 @@ struct SceneRun {
     words: SaidWords,
     /// Back to the studio then, once its results' line is said.
     leave_at: Option<Instant>,
+    /// Where the play shows what can be ringed.
+    spots: stage::SharedSpots,
 }
 
 impl SceneRun {
     fn new(order: Rc<super::SceneOrder>) -> SceneRun {
-        let words = SaidWords::new(order.words.clone(), order.lengths.clone());
+        let words = SaidWords::new(order.line, order.words.clone(), order.lengths.clone());
         SceneRun {
             order,
             staged: None,
@@ -142,6 +144,7 @@ impl SceneRun {
             spoken: Vec::new(),
             words,
             leave_at: None,
+            spots: Default::default(),
         }
     }
 
@@ -150,7 +153,6 @@ impl SceneRun {
         let report = play.session.announcer_report();
         self.spoken
             .extend(report.spoken.iter().map(|(f, _)| f.clone()));
-        self.words = SaidWords::new(self.order.words.clone(), self.order.lengths.clone());
     }
 }
 
@@ -294,6 +296,10 @@ impl ddi_ui::Screen for PlayScreen {
         if !self.in_play.get() {
             cx.close(false);
         }
+    }
+
+    fn spot(&self, what: ddi_ui::Mark) -> Option<ddi_ui::Spot> {
+        self.picture.as_ref()?.spot(what)
     }
 }
 
@@ -1318,8 +1324,8 @@ impl Host {
             in_play: self.in_play.clone(),
             picture: r
                 .scene
-                .is_some()
-                .then(|| PictureScreen::new(stage::PICTURE)),
+                .as_ref()
+                .map(|s| PictureScreen::new(stage::PICTURE).with_spots(s.spots.clone())),
         });
         r.prompt.borrow_mut().finish();
         ui.update(0.0);
@@ -1403,6 +1409,7 @@ impl Host {
                         ddi_ui::Message::new(stage::UNTIL)
                             .with("Seconds", ddi_ui::Param::Num(run.seconds)),
                     );
+                    ui.mark(in_play::mark(run.order.line));
                 }
                 // Kept with the play's options as they were.
                 play.overrides = r
@@ -1503,6 +1510,10 @@ impl Host {
                 dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
             self.feed.borrow_mut().quit_at = v.quit_at;
+            // Where the play showed what its scene can ring.
+            if let Some(run) = &r.scene {
+                run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));
+            }
             // The scripts' sounds, at once on the play's sound.
             for sound in v.take_script_sounds() {
                 if let Err(e) = play.session.play_now(&sound) {
@@ -1536,6 +1547,7 @@ impl Host {
             let mut r = r;
             if let Some(run) = r.scene.as_mut() {
                 run.keep_said(&play);
+                run.words.restarted();
                 if let Some(Some(p)) = &run.staged {
                     r.request.staging = p.restarted.clone().or(r.request.staging.take());
                 }
@@ -1694,6 +1706,7 @@ impl Host {
             return Stage::Idle;
         };
         self.in_play.set(false);
+        ui.mark(None);
         ui.broadcast(ddi_ui::Message::new(stage::END));
         (run.order.heard)(Heard {
             line: run.order.line,
@@ -1992,9 +2005,10 @@ fn tell_frame(r: &mut Readied, ui: &mut Ui) {
     };
     run.tell = false;
     if let Some(Some(p)) = &run.staged {
+        let caption = p.caption.text().to_string();
+        run.words.set_caption(&caption);
         ui.broadcast(
-            ddi_ui::Message::new(stage::CAPTION)
-                .with("Text", ddi_ui::Param::Str(p.caption.text().to_string())),
+            ddi_ui::Message::new(stage::CAPTION).with("Text", ddi_ui::Param::Str(caption)),
         );
     }
 }
