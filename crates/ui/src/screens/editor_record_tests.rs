@@ -88,11 +88,7 @@ fn setup(size: [f32; 2], design: [f32; 2]) -> Setup {
     let host = Rc::new(Host::default());
     let mut h = Harness::new(design, size, 1.0, TextMode::Own);
     h.ui.set_design(design);
-    let place = EditorPlace {
-        listen: true,
-        playtest: true,
-        ..EditorPlace::default()
-    };
+    let place = EditorPlace::default();
     // 120 BPM from 0 s: a beat each half second.
     let screen = EditorScreen::new(
         env.clone(),

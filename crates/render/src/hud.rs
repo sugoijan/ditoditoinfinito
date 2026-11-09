@@ -78,16 +78,8 @@ pub(crate) fn spots(combo: u32, layout: &Layout, geo: &FieldGeometry) -> HudSpot
     let half = (count * 32.0 + 32.0) * cs / 2.0;
     let top = geo.height / 2.0 - 16.0 * cs;
     let place = [center - half, top, center + half, top + 96.0 * cs];
-    let receptors = crate::scene::receptor_areas(geo, layout)
-        .into_iter()
-        .reduce(|a, b| {
-            [
-                a[0].min(b[0]),
-                a[1].min(b[1]),
-                a[2].max(b[2]),
-                a[3].max(b[3]),
-            ]
-        })
+    let receptors = crate::scene::receptor_rows(geo, layout)
+        .reduce(ddi_actor::rect::union)
         .unwrap_or_default();
     HudSpots {
         life: share(life),
@@ -291,12 +283,7 @@ impl Hud {
             },
             texture.size(),
         );
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("ddi-hud-atlas"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let sampler = crate::gpu::linear_sampler(device, "ddi-hud-atlas");
         let atlas = crate::gpu::texture_sampler_group(
             device,
             "ddi-hud-atlas",
@@ -386,9 +373,7 @@ impl Hud {
         let overlaps = |r: [f32; 4]| {
             mark[0] < r[2] && mark[0] + mark[2] > r[0] && mark[1] < r[3] && mark[1] + mark[3] > r[1]
         };
-        if crate::scene::receptor_areas(geo, layout)
-            .into_iter()
-            .any(overlaps)
+        if crate::scene::receptor_rows(geo, layout).any(overlaps)
             || quit.is_some_and(|[x, y, r]| overlaps([x - r, y - r, x + r, y + r]))
         {
             mark[2] = 0.0;

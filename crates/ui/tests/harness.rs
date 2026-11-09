@@ -213,9 +213,7 @@ impl Screen for Menu {
                 gesture: Gesture::LongPress,
                 ..
             } if t.within("Play") => {
-                cx.request(UiRequest::PlayPreview {
-                    song: "dito".into(),
-                });
+                cx.request(UiRequest::StartAudio);
             }
             Input::Pointer {
                 target: Some(t),
@@ -516,10 +514,7 @@ fn long_presses_fire_from_frames_and_wait_for_a_gesture() {
     h.run(0.6);
     assert!(logged(&log, "menu: long").contains(&"menu: long PlayLabel".to_string()));
     // The preview needs a gesture: refused, the screen told.
-    assert_eq!(
-        logged(&log, "menu: needs"),
-        vec![r#"menu: needs PlayPreview { song: "dito" }"#]
-    );
+    assert_eq!(logged(&log, "menu: needs"), vec!["menu: needs StartAudio"]);
     // The lift after a long press is no tap (Play is not activated) and no
     // gesture either (P2).
     h.now += 100.0;
@@ -527,10 +522,7 @@ fn long_presses_fire_from_frames_and_wait_for_a_gesture() {
     assert!(up.is_empty());
     assert!(logged(&log, "menu: release").contains(&"menu: release PlayLabel".to_string()));
     assert!(logged(&log, "menu: activate").is_empty());
-    assert_eq!(
-        h.requested(|r| matches!(r, UiRequest::PlayPreview { .. })),
-        0
-    );
+    assert_eq!(h.requested(|r| matches!(r, UiRequest::StartAudio)), 0);
 
     // The first frame after the shell idled spans the gap: no long press.
     let (mut h, log) = harness(TextMode::Mirror);
@@ -543,10 +535,7 @@ fn long_presses_fire_from_frames_and_wait_for_a_gesture() {
     h.push(Menu { log: log.clone() });
     h.pointer(1, PointerKind::Touch, PointerPhase::Down, at);
     h.run(0.6);
-    assert_eq!(
-        h.requested(|r| matches!(r, UiRequest::PlayPreview { .. })),
-        1
-    );
+    assert_eq!(h.requested(|r| matches!(r, UiRequest::StartAudio)), 1);
 }
 
 #[test]

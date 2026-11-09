@@ -9,7 +9,7 @@ use std::rc::Rc;
 use ddi_l10n::msg::{common, pages as pm};
 
 use super::Env;
-use super::options_dialogs::ConfirmDialog;
+use super::dialog::ConfirmDialog;
 use super::options_model::device_name;
 use super::page::{Block, PAGE_CHANGED, PageDoc, PageFeed, PageTitle};
 use crate::message::Message;

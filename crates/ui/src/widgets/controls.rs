@@ -1,5 +1,5 @@
-//! Buttons, toggles, option rows and sliders, by focus (keys, pads),
-//! mouse and touch.
+//! Toggles, option rows and sliders, by focus (keys, pads), mouse and
+//! touch.
 //!
 //! Each is a named component the look builds; focus moves to it by name
 //! (it is a [`crate::Focusable`]), Start or a tap activates it (the Ui's
@@ -40,41 +40,11 @@ pub(crate) fn press_look(input: &Input, name: &str, root: &mut Actor) {
     }
 }
 
-/// A button.
-pub struct Button {
-    pub name: String,
-    pub label: String,
-    /// Centre and size, virtual pixels.
-    pub centre: [f32; 2],
-    pub size: [f32; 2],
-}
-
-impl Button {
-    pub fn new(name: &str, label: &str, centre: [f32; 2], size: [f32; 2]) -> Button {
-        Button {
-            name: name.into(),
-            label: label.into(),
-            centre,
-            size,
-        }
-    }
-
-    pub fn build(&self, look: &dyn Look) -> Actor {
-        let a = look::component(look, "Button", &Spec::new(self.size, &self.label));
-        place(a, &self.name, self.centre)
-    }
-
-    /// Whether it was activated.
-    pub fn input(&mut self, input: &Input, root: &mut Actor) -> bool {
-        press_look(input, &self.name, root);
-        matches!(input, Input::Activate { name } if *name == self.name)
-    }
-}
-
 /// A toggle.
 pub struct Toggle {
     pub name: String,
     pub label: String,
+    /// Centre and size, virtual pixels.
     pub centre: [f32; 2],
     pub size: [f32; 2],
     pub on: bool,

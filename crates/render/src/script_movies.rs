@@ -1,25 +1,25 @@
 //! A song's scripts' movies drawn into textures their quads sample
 //! (`docs/plans/phase-8-gaps.md`, step 3). The shells' movie decks put a
 //! movie's frames on [`ScriptMovies::renderer_mut`] as they put a play's
-//! background movies on its renderer (YUV planes, NV12 planes, the
+//! background movies on its pipeline (YUV planes, NV12 planes, the
 //! browser's own frames); [`ScriptMovies::draw`] records the latest frame
 //! into the movie's texture of the play's renderer
 //! ([`Renderer::add_movie_target`]), in encoded values (as song select's
 //! preview movie is drawn, [`crate::movie_picture`]), which a sprite of
 //! the movie samples as it samples an image.
 //!
-//! The converter has a renderer of its own: the backdrop's drawing keeps
-//! state for the frame it prepares (its sizes, its blurred copies, one
+//! The converter is a background pipeline of its own: the backdrop's
+//! drawing keeps state for the frame it prepares (its sizes, its blurred copies, one
 //! buffer of parameters), which a play's backdrop must not share. Each
 //! drawing is submitted on its own, so two movies drawn in one frame do
 //! not share that buffer either.
 
-use crate::background::Backdrop;
-use crate::renderer::{Renderer, SkinBlending};
+use crate::background::{Backdrop, BackgroundPipeline};
+use crate::renderer::Renderer;
 
 /// The format movies are drawn in: encoded values, through the plain view
 /// of their texture.
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const FORMAT: wgpu::TextureFormat = crate::gpu::PICTURE_FORMAT;
 
 /// A movie's texture in the play's renderer.
 struct Target {
@@ -33,21 +33,22 @@ struct Target {
 /// The converter and each movie's texture, by the movie's index among the
 /// song's ([`ddi_actor::movie_texture`]).
 pub struct ScriptMovies {
-    converter: Renderer,
+    converter: BackgroundPipeline,
     targets: Vec<Option<Target>>,
 }
 
 impl ScriptMovies {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> ScriptMovies {
+    pub fn new(device: &wgpu::Device) -> ScriptMovies {
         ScriptMovies {
-            converter: Renderer::new(device, queue, FORMAT, SkinBlending::Scene, &[]),
+            converter: BackgroundPipeline::new(device, FORMAT, FORMAT.is_srgb()),
             targets: Vec::new(),
         }
     }
 
-    /// The renderer the movies' frames go on (`Renderer::add_video`,
-    /// `Renderer::set_video_frame`, a browser frame's texture).
-    pub fn renderer_mut(&mut self) -> &mut Renderer {
+    /// The pipeline the movies' frames go on
+    /// ([`BackgroundPipeline::add_video`],
+    /// [`BackgroundPipeline::set_video_frame`], a browser frame's texture).
+    pub fn renderer_mut(&mut self) -> &mut BackgroundPipeline {
         &mut self.converter
     }
 

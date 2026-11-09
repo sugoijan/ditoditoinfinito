@@ -160,8 +160,7 @@ fn id3_text(data: &[u8]) -> Option<String> {
 }
 
 fn le32(b: &[u8], at: usize) -> Option<usize> {
-    let b = b.get(at..at + 4)?;
-    Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    crate::bytes::le32(b, at).map(|v| v as usize)
 }
 
 /// A Vorbis comment block (after its packet's own header): its title
@@ -262,14 +261,11 @@ fn flac(mut b: &[u8]) -> Tags {
 
 fn wav(head: &[u8]) -> Tags {
     let mut tags = Tags::default();
-    let mut at = 12;
-    while let (Some(id), Some(len)) = (head.get(at..at + 4), le32(head, at + 4)) {
-        let start = at + 8;
-        at = start + len + (len & 1);
-        if id != b"LIST" || head.get(start..start + 4) != Some(b"INFO") {
+    for (id, start, end) in crate::bytes::riff_chunks(head, 12, head.len(), usize::MAX) {
+        if &id != b"LIST" || head.get(start..start + 4) != Some(b"INFO") {
             continue;
         }
-        let end = (start + len).min(head.len());
+        let end = end.min(head.len());
         let mut i = start + 4;
         while let (Some(sub), Some(n)) = (head.get(i..i + 4), le32(head, i + 4)) {
             let text = head.get(i + 8..(i + 8 + n).min(end)).unwrap_or_default();

@@ -7,7 +7,6 @@
 //! ([`crate::images::Loader`]); a frame after they are in shows them.
 
 use ddi_render::cosmic::{Bundled, CosmicRasterizer};
-use ddi_render::texture_cache::TextureKey;
 use ddi_render::{DrawList, Painter};
 use ddi_ui::Ui;
 
@@ -199,32 +198,8 @@ impl Gpu {
         scene: Option<&mut Scene<'_>>,
     ) {
         self.receive(false);
-        let vp = *ui.viewport();
-        let scale = vp.scale;
-        let shift = [
-            1.0,
-            0.0,
-            0.0,
-            1.0,
-            vp.offset[0] / scale,
-            vp.offset[1] / scale,
-        ];
-        let drawn = {
-            let mut measure = self.painter.measure(scale);
-            ui.draw_in(&mut measure, shift)
-        };
-        self.list.clear();
-        // Actor textures to the cache's, by source and the size drawn.
-        let painter = &mut self.painter;
-        ddi_render::actors2d::append(&drawn, &mut self.list, &mut |t| {
-            let image = ui.texture_source(t)?;
-            let key = if image.blurred {
-                TextureKey::blurred(image.source, image.side)
-            } else {
-                TextureKey::drawn(image.source, image.side * scale)
-            };
-            Some(painter.texture(key))
-        });
+        let scale = ui.viewport().scale;
+        ddi_shell::ui_list(ui, &mut self.painter, &mut self.list);
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ui") });

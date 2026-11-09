@@ -2,7 +2,7 @@ use std::path::Path;
 
 use ddi_chart::formats::sm::parse_ssc;
 use ddi_chart::formats::sm_write::{SSC_VERSION, write_ssc};
-use ddi_chart::{Difficulty, NoteKind, Song, SourceFormat, SpeedUnit, Tick};
+use ddi_chart::{Difficulty, DisplayBpm, NoteKind, Song, SourceFormat, SpeedUnit, Tick};
 use ddi_engine::transform::Turn;
 
 use super::*;
@@ -24,6 +24,38 @@ fn bundled() -> Vec<Song> {
 
 fn beat(b: i64) -> Tick {
     Tick::from_beats(b)
+}
+
+/// What the field reads of the chart shown is what the chart says.
+fn assert_index(e: &Editor, what: &str) {
+    let t = e.timing();
+    let at = |tick: Tick| (t.seconds_at(tick), t.displayed_beat(tick.beat()));
+    let notes = &e.chart().notes;
+    for (i, n) in notes.iter().enumerate() {
+        let got = e.note_at_time(i);
+        assert_eq!(got.head, at(n.tick), "{what}: note {i}'s head");
+        assert_eq!(got.tail, at(n.end_tick()), "{what}: note {i}'s tail");
+    }
+    let end = notes.iter().map(Note::end_tick).max();
+    assert_eq!(
+        e.end(),
+        end.unwrap_or(Tick::ZERO).max(Tick(MEASURE)),
+        "{what}: the end"
+    );
+    let last = end.map_or(0, |e| e.0);
+    for (first, to) in [
+        (0, last),
+        (-48, 5),
+        (last / 3, last / 2),
+        (last / 2, last / 2),
+        (last + 1, last + 2),
+    ] {
+        let near: Vec<usize> = e.notes_near(first, to).map(|(i, _)| i).collect();
+        let every: Vec<usize> = (0..notes.len())
+            .filter(|&i| notes[i].end_tick().0 >= first && notes[i].tick.0 <= to)
+            .collect();
+        assert_eq!(near, every, "{what}: the notes near {first} to {to}");
+    }
 }
 
 /// What a file keeps of a chart: sorted, one note to a cell, nothing
@@ -475,6 +507,7 @@ fn random_edits_undo_to_the_song_and_read_back() {
             for step in 0..60 {
                 random_edit(&mut rng, &mut e);
                 assert_tidy(&e, &format!("song {s} seed {seed} step {step}"));
+                assert_index(&e, &format!("song {s} seed {seed} step {step}"));
             }
             assert_round_trips(e.song(), &format!("song {s} seed {seed}"));
             let end = e.song().clone();
@@ -482,10 +515,12 @@ fn random_edits_undo_to_the_song_and_read_back() {
             while e.can_undo() {
                 e.undo();
                 undone += 1;
+                assert_index(&e, &format!("song {s} seed {seed}: undoing"));
             }
             assert!(e.song() == &start, "song {s} seed {seed}: undoing all");
             for _ in 0..undone {
                 e.redo();
+                assert_index(&e, &format!("song {s} seed {seed}: redoing"));
             }
             assert!(e.song() == &end, "song {s} seed {seed}: redoing all");
         }

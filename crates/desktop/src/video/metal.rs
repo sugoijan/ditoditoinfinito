@@ -413,7 +413,7 @@ pub(super) fn protect(device: &wgpu::Device, encoder: &wgpu::CommandEncoder) {
     });
 }
 pub(super) fn show(
-    renderer: &mut ddi_render::Renderer,
+    background: &mut ddi_render::BackgroundPipeline,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     id: usize,
@@ -445,7 +445,7 @@ pub(super) fn show(
     });
     match result {
         Ok(p) => {
-            renderer.set_video_nv12(
+            background.set_video_nv12(
                 device,
                 id,
                 &p[0],
@@ -460,7 +460,7 @@ pub(super) fn show(
             WARNED.call_once(|| eprintln!("[video] Metal planes use copies: {e}"));
             COPIED.fetch_add(1, Ordering::Relaxed);
             match surface.copy() {
-                Ok(p) => renderer.set_video_frame(
+                Ok(p) => background.set_video_frame(
                     device,
                     queue,
                     id,

@@ -15,6 +15,13 @@ pub fn epoch() -> Instant {
     *EPOCH.get_or_init(Instant::now)
 }
 
+/// Milliseconds since the Unix epoch.
+pub fn epoch_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+}
+
 /// Nanoseconds since the epoch, now.
 pub fn now_ns() -> u64 {
     nanos_since(Instant::now())

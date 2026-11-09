@@ -6,10 +6,10 @@
 
 mod common;
 
+use common::{autoplayed, run};
+
 use ddi_chart::{Difficulty, Note, NoteKind, Tick, TimingMap};
-use ddi_engine::autoplay;
-use ddi_engine::history::replay;
-use ddi_engine::player::{PlayOptions, Player, Results};
+use ddi_engine::player::Results;
 use ddi_engine::rules::ddr::{DdrClear, DdrGauge, FLARE_EX};
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{
@@ -53,27 +53,6 @@ fn ddr_a(gauge: DdrGauge, fail: FailType) -> Ruleset {
     })
 }
 
-/// Plays `song` with `edges` (`(song seconds, lane, pressed)`) to the end;
-/// checks that its key and log judge the same again.
-fn run(song: &ddi_chart::Song, rules: Ruleset, mut edges: Vec<(f64, u8, bool)>) -> Results {
-    edges.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut p = Player::new(song, 0, rules, PlayOptions::default());
-    p.start(0.0, 0.0);
-    for (t, lane, pressed) in edges {
-        p.update_at(t);
-        p.input_at(lane, pressed, t);
-    }
-    p.update_at(1e6);
-    let r = p.results();
-    let key = p.ruleset().key();
-    assert_eq!(
-        replay(song, 0, &key, &PlayOptions::default(), p.log()),
-        r,
-        "{key:?}"
-    );
-    r
-}
-
 /// Plays a chart of taps, pressing note `i` `late(i)` seconds off its time
 /// (`None`: not pressed) for 30 ms.
 fn play(song: &ddi_chart::Song, rules: Ruleset, late: impl Fn(usize) -> Option<f64>) -> Results {
@@ -84,14 +63,7 @@ fn play(song: &ddi_chart::Song, rules: Ruleset, late: impl Fn(usize) -> Option<f
         .filter_map(|(i, n)| Some((n.tick.beat() / 2.0 + late(i)?, n.lane)))
         .flat_map(|(t, lane)| [(t, lane, true), (t + 0.03, lane, false)])
         .collect();
-    run(song, rules, edges)
-}
-
-/// Autoplayed with the engine's script.
-fn autoplayed(song: &ddi_chart::Song, rules: Ruleset) -> Results {
-    let probe = Player::new(song, 0, rules.fresh(), PlayOptions::default());
-    let edges = autoplay::edges(autoplay::script(probe.judge().notes(), 0.0));
-    run(song, rules, edges)
+    run(song, rules, edges).0
 }
 
 #[test]
@@ -591,7 +563,7 @@ fn ddr_x_freezes_and_shocks() {
         })
         .collect();
     edges.extend([(6.0, 1, true), (6.03, 1, false)]);
-    let r = run(&song, ddr_x(&song), edges);
+    let (r, _) = run(&song, ddr_x(&song), edges);
     assert_eq!((r.tally.held, r.tally.let_go), (0, 3));
     assert_eq!(r.score.money, Some(8 * 1_000_000 / 11 / 10 * 10));
     assert_eq!(r.full_combo, FullCombo::None);

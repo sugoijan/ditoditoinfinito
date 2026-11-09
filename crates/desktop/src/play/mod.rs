@@ -152,30 +152,15 @@ impl Request {
     pub fn calibration(mode: CalMode, auto: bool) -> Request {
         Request {
             song: format!("calibration:{}", mode.id()),
-            chart: 0,
-            auto,
-            backdrop: None,
-            auto_pad: false,
             calibration: Some(mode),
-            bias: 0.0,
-            replay: None,
-            view_results: false,
-            refused: None,
-            ghost: None,
-            edited: None,
-            start: None,
-            countdown: false,
-            prior: None,
-            restart: false,
-            scene: None,
-            staging: None,
+            ..Request::song("", 0, auto)
         }
     }
 
     /// The settings the play runs with: the stored ones, or a replay's
     /// over them (`Replay::settings`).
     pub fn settings(&self) -> Settings {
-        let here = crate::store::settings_cached();
+        let here = Settings::cached();
         match &self.replay {
             Some(r) => r.settings(&here),
             None => here,
@@ -235,8 +220,6 @@ pub struct Feed {
     /// radius), for the presses on it, and whether one is down on it.
     pub quit_at: Option<[f32; 3]>,
     pub quit_down: bool,
-    /// The controllers connected now.
-    pub pads: Vec<ConnectedPad>,
     /// The window was hidden or the sound stopped.
     pub interrupted: bool,
     /// The display or the audio device changed.
@@ -314,7 +297,7 @@ impl ddi_session::play::Inputs for DesktopInputs {
     }
 
     fn connected_pads(&self) -> Vec<ConnectedPad> {
-        let mut pads = self.feed.borrow().pads.clone();
+        let mut pads = crate::input::connected_pads();
         if self.auto_pad {
             pads.push(DesktopInputs::test_pad());
         }
@@ -409,13 +392,6 @@ fn random_seed() -> u64 {
             .map_or(0, |d| d.as_nanos()),
     );
     h.finish()
-}
-
-/// Milliseconds since the Unix epoch.
-pub fn epoch_ms() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 impl Play {
@@ -579,7 +555,7 @@ impl Play {
         let mut settings = Settings::load();
         self.overrides.apply(&mut settings);
         // Whole milliseconds, as the web's `Date.now()`.
-        let time = epoch_ms().round();
+        let time = crate::clock::epoch_ms().round();
         let played = ddi_session::record::Played {
             song_id: &self.request.song,
             song: &self.loaded.song,

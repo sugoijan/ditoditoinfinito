@@ -33,7 +33,7 @@ use super::data::{OptionDef, OptionKind, OptionsData};
 use super::{Env, footer, frame, ground, header, left, right};
 use crate::gesture::Gesture;
 use crate::hit;
-use crate::look::{self, Spec, call, quad};
+use crate::look::{self, Spec, call, quad, quad_at};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::UiRequest;
@@ -368,7 +368,7 @@ impl OptionsScreen {
                 ("Link.Back", back.as_str()),
                 ("Link.Calibrate", calibrate.as_str()),
             ];
-            let (f, texts) = footer(
+            let f = footer(
                 &env,
                 screen,
                 &[
@@ -393,7 +393,6 @@ impl OptionsScreen {
                 },
                 cx,
             );
-            env.state.borrow_mut().hints = texts;
             children.push(f);
         }
         children.push(super::more_button(&env, [screen[0] - 44.0, 28.0]));
@@ -486,8 +485,7 @@ impl OptionsScreen {
                 );
                 set_text(&mut a, "Title", &s.name);
                 // The whole of it takes a tap, drawn plate or not.
-                let mut hit = quad("Hit", [sw, 44.0], [0.0, 0.0, 0.0, 0.004]);
-                call(&mut hit, "xy", &[sw / 2.0, 22.0]);
+                let hit = quad_at("Hit", [sw, 44.0], [0.0, 0.0, 0.0, 0.004], [sw / 2.0, 22.0]);
                 if let Kind::Frame(c) = &mut a.kind {
                     c.insert(0, hit);
                 }
@@ -704,13 +702,12 @@ impl OptionsScreen {
                 } else {
                     0.0
                 };
-                let mut hit = quad(
+                c.push(quad_at(
                     &format!("Option{i}.Track"),
                     [tw + 16.0, ROW - 8.0],
                     [0.0, 0.0, 0.0, 0.004],
-                );
-                call(&mut hit, "xy", &[x0 + tw / 2.0, mid]);
-                c.push(hit);
+                    [x0 + tw / 2.0, mid],
+                ));
                 let line = env.color("Line2");
                 let mut track = quad("", [tw, 4.0], line);
                 call(&mut track, "cornerradius", &[2.0]);
@@ -819,18 +816,7 @@ impl OptionsScreen {
         {
             super::refill(selector, fresh);
         }
-        let (label, description) = self
-            .selected_option()
-            .map(|o| {
-                let label = if o.label.is_empty() {
-                    o.heading.clone().unwrap_or_default()
-                } else {
-                    o.label.clone()
-                };
-                (label, o.description.clone())
-            })
-            .unwrap_or_default();
-        self.describe(root, &label, &description);
+        self.describe_selected(root);
         if let Some(n) = hit::find_mut(root, "Saved") {
             let text: String = if self.data.notice.is_empty() {
                 if self.places.compact {
@@ -851,6 +837,61 @@ impl OptionsScreen {
         self.publish();
     }
 
+    /// The focused row moved from row `from`: those two rows relit, the
+    /// list scrolled to show it and the description changed, the rest
+    /// (rows, sections, the preview) as they were.
+    fn move_focus(&mut self, from: usize, root: &mut Actor) {
+        self.reveal();
+        for i in [from, self.focus] {
+            let selected = i == self.focus && !self.preview_focused;
+            let Some(row) = hit::find_mut(root, &format!("Option{i}")) else {
+                continue;
+            };
+            crate::widgets::play(row, if selected { "Select" } else { "Deselect" });
+            if let Some(OptionDef {
+                kind: OptionKind::Actions(buttons),
+                index,
+                ..
+            }) = self.options().get(i)
+            {
+                for j in 0..buttons.len() {
+                    if let Some(b) = hit::find_mut(row, &format!("Option{i}.Button{j}")) {
+                        crate::widgets::play(
+                            b,
+                            if selected && j == *index {
+                                "GainFocus"
+                            } else {
+                                "LoseFocus"
+                            },
+                        );
+                    }
+                }
+            }
+            row.finish_tweening();
+        }
+        if let Some(r) = hit::find_mut(root, "Rows") {
+            call(r, "y", &[-self.scroll]);
+        }
+        self.describe_selected(root);
+        self.publish();
+    }
+
+    /// The focused option's name and sentence in the description.
+    fn describe_selected(&self, root: &mut Actor) {
+        let (label, description) = self
+            .selected_option()
+            .map(|o| {
+                let label = if o.label.is_empty() {
+                    o.heading.clone().unwrap_or_default()
+                } else {
+                    o.label.clone()
+                };
+                (label, o.description.clone())
+            })
+            .unwrap_or_default();
+        self.describe(root, &label, &description);
+    }
+
     /// A description panel `w` wide holding the longest sentence (six
     /// lines at most).
     fn desc_height(&self, w: f32) -> f32 {
@@ -859,13 +900,8 @@ impl OptionsScreen {
         {
             return h;
         }
-        let lines = self
-            .data
-            .sections
-            .iter()
-            .flat_map(|s| &s.options)
-            .chain(self.data.preview_layout.iter())
-            .map(|o| super::select_dialogs::wrap_lines(&o.description, w - 40.0, 13.0).len())
+        let lines = descriptions(&self.data)
+            .map(|d| super::dialog::wrap_lines(d, w - 40.0, 13.0).len())
             .max()
             .unwrap_or(1)
             .clamp(1, 6);
@@ -883,7 +919,7 @@ impl OptionsScreen {
         let line = 17.0;
         let top = 36.0;
         let room = (((dh - top - 6.0) / line).floor() as usize).max(1);
-        let mut lines = super::select_dialogs::wrap_lines(description, dw - 40.0, size);
+        let mut lines = super::dialog::wrap_lines(description, dw - 40.0, size);
         if lines.len() > room {
             lines.truncate(room);
             if let Some(l) = lines.last_mut() {
@@ -913,8 +949,10 @@ impl OptionsScreen {
     fn set_data(&mut self, data: OptionsData, root: &mut Actor) {
         let section = self.data.sections.get(self.section).map(|s| s.id.clone());
         let id = self.options().get(self.focus).map(|o| o.id.clone());
+        if !descriptions(&self.data).eq(descriptions(&data)) {
+            self.desc_cache.set(None);
+        }
         self.data = data;
-        self.desc_cache.set(None);
         if let Some(i) = section.and_then(|n| self.data.sections.iter().position(|s| s.id == n)) {
             self.section = i;
         }
@@ -970,12 +1008,7 @@ impl OptionsScreen {
         let Some(o) = option else {
             return;
         };
-        let n = o.values().len() as i32;
-        let to = if wrap && n > 0 {
-            (o.index as i32 + by).rem_euclid(n) as usize
-        } else {
-            (o.index as i32 + by).clamp(0, (n - 1).max(0)) as usize
-        };
+        let to = o.stepped(by, wrap);
         if to == o.index {
             return;
         }
@@ -1273,7 +1306,7 @@ impl Screen for OptionsScreen {
         let before = self.places;
         self.place(vp);
         if self.places != before {
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.build_tree(cx);
             self.attach_texture(root, cx);
             self.refresh(root);
@@ -1288,7 +1321,7 @@ impl Screen for OptionsScreen {
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == crate::controller_hints::CHANGED {
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.build_tree(cx);
             self.attach_texture(root, cx);
             self.refresh(root);
@@ -1336,8 +1369,9 @@ impl Screen for OptionsScreen {
                     Handled::Yes
                 }
                 MenuAction::Up if on_rows => {
-                    self.focus = self.focus.saturating_sub(1);
-                    self.refresh(root);
+                    let from = self.focus;
+                    self.focus = from.saturating_sub(1);
+                    self.move_focus(from, root);
                     Handled::Yes
                 }
                 MenuAction::Down
@@ -1352,8 +1386,9 @@ impl Screen for OptionsScreen {
                     Handled::Yes
                 }
                 MenuAction::Down if on_rows => {
-                    self.focus = (self.focus + 1).min(n.saturating_sub(1));
-                    self.refresh(root);
+                    let from = self.focus;
+                    self.focus = (from + 1).min(n.saturating_sub(1));
+                    self.move_focus(from, root);
                     Handled::Yes
                 }
                 MenuAction::Left if on_rows || on_preview => {
@@ -1561,6 +1596,15 @@ impl Screen for OptionsScreen {
             _ => Handled::No,
         }
     }
+}
+
+/// Every row's description, the preview selector's after them.
+fn descriptions(data: &OptionsData) -> impl Iterator<Item = &String> {
+    data.sections
+        .iter()
+        .flat_map(|s| &s.options)
+        .chain(data.preview_layout.iter())
+        .map(|o| &o.description)
 }
 
 fn ellipsize(a: &mut Actor) {

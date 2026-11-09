@@ -21,6 +21,7 @@ use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, S
 use ddi_engine::rules::Judgement;
 use ddi_lua::Failure;
 use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build, build_colored};
+use ddi_noteskin::load::LongElement;
 use ddi_noteskin::lua::{
     Env, FrameBudget, LoadBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position,
 };
@@ -181,23 +182,13 @@ impl ColorSet {
             "Tap Mine" => return Some(&mut self.mine),
             _ => {}
         }
-        let mut words = name.split(' ');
-        let parts = match words.next()? {
-            "Hold" => &mut self.hold,
-            "Roll" => &mut self.roll,
-            _ => return None,
+        let e = LongElement::parse(name)?;
+        let parts = if e.roll {
+            &mut self.roll
+        } else {
+            &mut self.hold
         };
-        let part_name = words.next()?;
-        let part = ["Head", "Tail", "Topcap", "Body", "Bottomcap"]
-            .iter()
-            .position(|p| *p == part_name)?;
-        let state = match words.next()? {
-            "Inactive" => 0,
-            "Active" => 1,
-            "Dropped" => 2,
-            _ => return None,
-        };
-        Some(&mut parts[part][state])
+        Some(&mut parts[e.part][e.state])
     }
 
     fn get_mut(&mut self, slot: Slot) -> &mut Option<Element> {
@@ -307,11 +298,15 @@ pub struct NoteskinPlay {
     /// The lanes as built, for a retry (StepMania loads the actors again).
     initial: Vec<Lane>,
     /// Positions actually drawn last frame, keyed by transformed note identity.
-    last_note_positions: std::collections::HashMap<usize, f32>,
+    last_note_positions: Vec<(usize, f32)>,
     /// Quads drawn in the last frame (debug).
     quads: std::cell::Cell<usize>,
     /// Models' triangles drawn this frame (at most [`MAX_FRAME_TRIANGLES`]).
     triangles: std::cell::Cell<usize>,
+    /// A frame's notes in drawing order, by index, and a long note's
+    /// head's quads, their room reused.
+    note_order: Vec<usize>,
+    head_draws: Vec<TexQuad>,
     /// What an actor drew, reused by each [`NoteskinPlay::emit`].
     drawn: std::cell::Cell<Vec<Drawn>>,
     /// A model's triangles and meshes, reused by each
@@ -441,23 +436,6 @@ fn lane_elements(dropped: bool) -> impl Iterator<Item = &'static str> {
     LANE_ELEMENTS
         .into_iter()
         .filter(move |name| dropped || !name.ends_with(" Dropped"))
-}
-
-/// The part whose metrics a lane element of a StepMania 3.9 skin takes,
-/// for its per-note-type files (fakes as tap notes; lifts are drawn built
-/// in).
-fn legacy_part(name: &str) -> Option<Part> {
-    let mut words = name.split(' ');
-    Some(match (words.next()?, words.next()?) {
-        ("Tap", "Note" | "Fake") => Part::TapNote,
-        ("Tap", "Mine") => Part::TapMine,
-        ("Hold" | "Roll", "Head") => Part::HoldHead,
-        ("Hold" | "Roll", "Tail") => Part::HoldTail,
-        ("Hold" | "Roll", "Topcap") => Part::HoldTopCap,
-        ("Hold" | "Roll", "Body") => Part::HoldBody,
-        ("Hold" | "Roll", "Bottomcap") => Part::HoldBottomCap,
-        _ => return None,
-    })
 }
 
 /// The engine's tier as StepMania names it (`TapNoteScoreNames`).
@@ -792,7 +770,7 @@ impl NoteskinPlay {
             let colored: Vec<&str> = lane_elements(metrics.hold_use_dropped_state)
                 .filter(|name| {
                     ColorSet::default().place(name).is_some()
-                        && legacy_part(name).is_some_and(|p| metrics.part(p).note_color)
+                        && Part::of_element(name).is_some_and(|p| metrics.part(p).note_color)
                 })
                 .collect();
             let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
@@ -812,6 +790,13 @@ impl NoteskinPlay {
             assembled.turn(lane_button.turn);
             assembled
         }
+    }
+
+    /// Whether a play is built natively ([`NoteskinPlay::new`]): a skin
+    /// with no Lua to run ([`ddi_noteskin::Skin::runs_lua`]), or one whose
+    /// Lua stopped while loading ([`NoteskinPlay::load_lua`]).
+    pub fn native_fallback(with_lua: bool, lua_error: Option<&str>) -> bool {
+        !with_lua || lua_error.is_some()
     }
 
     /// Builds skin `name` among `folders` (its fallbacks' too) through its
@@ -970,15 +955,17 @@ impl NoteskinPlay {
                 bodies.insert(name, loaded);
             }
             let owned = |name: &str| {
-                let mut words = name.split(' ');
-                let (kind, part, state) = (words.next(), words.next(), words.next());
-                part != Some("Body")
-                    && matches!(part, Some("Head" | "Tail" | "Topcap" | "Bottomcap"))
-                    && bodies.iter().any(|(body, (built, _))| {
-                        matches!(built.built, Built::LongNote(_))
-                            && *body
-                                == format!("{} Body {}", kind.unwrap_or(""), state.unwrap_or(""))
-                    })
+                LongElement::parse(name).is_some_and(|e| {
+                    let body_of = Some(LongElement {
+                        part: LongElement::BODY,
+                        ..e
+                    });
+                    e.part != LongElement::BODY
+                        && bodies.iter().any(|(body, (built, _))| {
+                            matches!(built.built, Built::LongNote(_))
+                                && LongElement::parse(body) == body_of
+                        })
+                })
             };
             let skipped: Vec<&str> = lane_elements(metrics.hold_use_dropped_state)
                 .filter(|n| owned(n))
@@ -1056,6 +1043,8 @@ impl NoteskinPlay {
             },
             initial: lanes.clone(),
             last_note_positions: Default::default(),
+            note_order: Vec::new(),
+            head_draws: Vec::new(),
             lanes,
             textures,
             texture_ids: vec![None; count],
@@ -1222,42 +1211,25 @@ impl NoteskinPlay {
                 elements.extend(lane.colors.iter().filter_map(|c| c.mine.as_ref()));
             }
             _ => {
-                let mut words = name.split(' ');
-                let kind = words.next();
-                let Some(parts) = (match kind {
-                    Some("Hold") => Some(&lane.hold),
-                    Some("Roll") => Some(&lane.roll),
-                    _ => None,
-                }) else {
+                let Some(e) = LongElement::parse(name) else {
                     return Vec::new();
                 };
-                let part = words.next();
-                let state = match words.next() {
-                    Some("Active") => 1,
-                    Some("Inactive") => 0,
-                    Some("Dropped") => 2,
-                    _ => return Vec::new(),
-                };
-                let (entries, index) = match part {
-                    Some("Head") => (&parts.head, 0),
-                    Some("Tail") => (&parts.tail, 1),
-                    Some("Topcap") => (&parts.topcap, 2),
-                    Some("Body") => (&parts.body, 3),
-                    Some("Bottomcap") => (&parts.bottomcap, 4),
-                    _ => return Vec::new(),
-                };
-                if let Some(element) = entries.get(state) {
+                let parts = if e.roll { &lane.roll } else { &lane.hold };
+                let entries = [
+                    &parts.head,
+                    &parts.tail,
+                    &parts.topcap,
+                    &parts.body,
+                    &parts.bottomcap,
+                ][e.part];
+                if let Some(element) = entries.get(e.state) {
                     elements.push(element);
                 }
                 for color in &lane.colors {
-                    let slots = if kind == Some("Hold") {
-                        &color.hold
-                    } else {
-                        &color.roll
-                    };
+                    let slots = if e.roll { &color.roll } else { &color.hold };
                     if let Some(element) = slots
-                        .get(index)
-                        .and_then(|s| s.get(state))
+                        .get(e.part)
+                        .and_then(|s| s.get(e.state))
                         .and_then(Option::as_ref)
                     {
                         elements.push(element);
@@ -1438,6 +1410,32 @@ impl NoteskinPlay {
     /// The slot of a material's parameters this frame
     /// ([`crate::material::MaterialQuad::slot`]): the same parameters the
     /// same slot; `None` once every slot is taken.
+    fn material_quad(
+        &mut self,
+        m: &ddi_noteskin::component::PartMaterial,
+        phase: f32,
+        seed: f32,
+    ) -> Option<crate::material::MaterialQuad> {
+        let index = m.compiled?;
+        let slot = self.material_slot(m.params)?;
+        let image_id = |n: usize| {
+            m.images
+                .get(n)
+                .and_then(|&t| self.texture_id(t))
+                .unwrap_or(UNTEXTURED)
+        };
+        Some(crate::material::MaterialQuad {
+            material: crate::material::LOCAL | index,
+            slot,
+            axes: [0.0; 4],
+            origin: [0.0; 2],
+            phase,
+            seed,
+            value: [0.0; 4],
+            images: [image_id(0), image_id(1)],
+        })
+    }
+
     fn material_slot(&mut self, params: crate::material::MaterialParams) -> Option<u16> {
         if let Some(i) = self.materials.iter().position(|p| *p == params) {
             return Some(i as u16);
@@ -1496,6 +1494,7 @@ impl NoteskinPlay {
                 lane.ended = None;
                 lane.step = None;
             }
+            self.last_note_positions.clear();
         }
         self.presses
             .resize(frame.receptors.len(), LanePresses::default());
@@ -1513,12 +1512,6 @@ impl NoteskinPlay {
             if let Element::Actor(a) = &lane.explosion {
                 lane.explosion_rotation = a.base_rotation[2];
             }
-        }
-        if self
-            .last_song_time
-            .is_some_and(|last| frame.song_time < last)
-        {
-            self.last_note_positions.clear();
         }
         if let Some(lua) = &mut self.lua {
             lua.begin_frame(
@@ -1648,10 +1641,13 @@ impl NoteskinPlay {
                     ("DanoniJudgments", Param::Bool(e.danoni_judgments)),
                 ];
                 if let Some(hit) = e.note {
+                    // Where it was drawn last (a note drawn twice: its
+                    // later place).
                     let y = last_note_positions
-                        .get(&hit.index)
-                        .copied()
-                        .unwrap_or(hit.y);
+                        .iter()
+                        .rev()
+                        .find(|(index, _)| *index == hit.index)
+                        .map_or(hit.y, |&(_, y)| y);
                     let y = y
                         * 64.0
                         * if reverse != (lane.scroll_sign < 0) {
@@ -2280,18 +2276,18 @@ impl NoteLayer for NoteskinPlay {
         self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
-        let mut order: Vec<&NoteSprite> = frame
-            .notes
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n.kind,
-                    SpriteKind::HoldHead { .. } | SpriteKind::RollHead { .. }
-                )
-            })
-            .collect();
-        order.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-        for note in order {
+        let mut head_draws = std::mem::take(&mut self.head_draws);
+        let mut order = std::mem::take(&mut self.note_order);
+        order.clear();
+        order.extend((0..frame.notes.len()).filter(|&n| {
+            matches!(
+                frame.notes[n].kind,
+                SpriteKind::HoldHead { .. } | SpriteKind::RollHead { .. }
+            )
+        }));
+        order.sort_by(|&a, &b| frame.notes[a].beat.total_cmp(&frame.notes[b].beat));
+        for &n in &order {
+            let note = &frame.notes[n];
             let (tail_y, active, dropped, roll) = match note.kind {
                 SpriteKind::HoldHead {
                     tail_y,
@@ -2312,7 +2308,7 @@ impl NoteLayer for NoteskinPlay {
             // The hold in its head's color (the copies swapped back below).
             let note_type = note_type(note.beat);
             lane.swap_hold_colors(note_type, roll);
-            self.last_note_positions.insert(note.note_index, note.y);
+            self.last_note_positions.push((note.note_index, note.y));
             let m = &lane.metrics;
             // The Active sprites while the button is held (always inside a
             // roll; `Player.cpp:1381-1386`, `1414-1424`).
@@ -2342,43 +2338,23 @@ impl NoteLayer for NoteskinPlay {
             if let Element::LongNote(ln) = &parts.body[state] {
                 let clocks = self.note_clocks(i, note.beat, frame);
                 let seed = note_seed(note.note_index);
-                let fill = match ln
+                let fill = ln
                     .fill
                     .as_ref()
-                    .and_then(|f| Some((f, f.material.as_deref()?)))
-                {
-                    Some((f, mat)) => match (mat.compiled, self.material_slot(mat.params)) {
-                        (Some(index), Some(slot)) => {
-                            let image_id = |n: usize| {
-                                mat.images
-                                    .get(n)
-                                    .and_then(|&t| self.texture_id(t))
-                                    .unwrap_or(UNTEXTURED)
-                            };
-                            hold_material::Fill::Skin {
-                                quad: crate::material::MaterialQuad {
-                                    material: crate::material::LOCAL | index,
-                                    slot,
-                                    axes: [0.0; 4],
-                                    origin: [0.0; 2],
-                                    phase: f
-                                        .value(ddi_noteskin::component::Property::Phase, &clocks),
-                                    seed,
-                                    value: [0.0; 4],
-                                    images: [image_id(0), image_id(1)],
-                                },
-                                anchor: ln.anchor,
-                                origin: mat.origin,
-                            }
-                        }
-                        _ => hold_material::Fill::Nothing,
-                    },
-                    None => hold_material::Fill::Nothing,
-                };
+                    .and_then(|f| {
+                        let mat = f.material.as_deref()?;
+                        let phase = f.value(ddi_noteskin::component::Property::Phase, &clocks);
+                        Some(hold_material::Fill::Skin {
+                            quad: self.material_quad(mat, phase, seed)?,
+                            anchor: ln.anchor,
+                            origin: mat.origin,
+                        })
+                    })
+                    .unwrap_or(hold_material::Fill::Nothing);
                 let layers = hold_material::HoldLayers::of_long_note(ln, &clocks, fill);
                 // The head's parts: its band into the mask, its shadow
                 // outside the envelope, the rest over everything.
-                let mut head_draws = Vec::new();
+                head_draws.clear();
                 if let Some(h) = &ln.head {
                     self.draw_component(
                         h,
@@ -2494,6 +2470,8 @@ impl NoteLayer for NoteskinPlay {
             }
             lane.swap_hold_colors(note_type, roll);
         }
+        self.note_order = order;
+        self.head_draws = head_draws;
         self.lanes = lanes;
     }
 
@@ -2511,13 +2489,15 @@ impl NoteLayer for NoteskinPlay {
         let mut lanes = std::mem::take(&mut self.lanes);
         let mut electricity = Vec::new();
         let joined = self.mine_links(frame, layout, geo, &mut lanes, out, &mut electricity);
-        let mut order: Vec<&NoteSprite> = frame
-            .notes
-            .iter()
-            .filter(|n| n.alpha > 0.0 || n.glow > 0.0)
-            .collect();
-        order.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-        for note in order {
+        let mut order = std::mem::take(&mut self.note_order);
+        order.clear();
+        order.extend(
+            (0..frame.notes.len())
+                .filter(|&n| frame.notes[n].alpha > 0.0 || frame.notes[n].glow > 0.0),
+        );
+        order.sort_by(|&a, &b| frame.notes[a].beat.total_cmp(&frame.notes[b].beat));
+        for &n in &order {
+            let note = &frame.notes[n];
             let i = usize::from(note.lane);
             let (Some(l), Some(lane)) = (layout.lanes.get(i), lanes.get_mut(i)) else {
                 continue;
@@ -2536,7 +2516,7 @@ impl NoteLayer for NoteskinPlay {
                 let dir = geo.lane_direction(l.scroll_sign);
                 self.component_lift(lift, i, note, frame, at, k, dir, out);
                 *lane.note_slot(slot, note_type) = e;
-                self.last_note_positions.insert(note.note_index, note.y);
+                self.last_note_positions.push((note.note_index, note.y));
                 continue;
             }
             if let Element::Component(c) = &e {
@@ -2552,7 +2532,7 @@ impl NoteLayer for NoteskinPlay {
                     out,
                 );
                 *lane.note_slot(slot, note_type) = e;
-                self.last_note_positions.insert(note.note_index, note.y);
+                self.last_note_positions.push((note.note_index, note.y));
                 continue;
             }
             let split =
@@ -2604,9 +2584,10 @@ impl NoteLayer for NoteskinPlay {
                 restore_mine_layers(&mut e, visibility);
             }
             *lane.note_slot(slot, note_type) = e;
-            self.last_note_positions.insert(note.note_index, note.y);
+            self.last_note_positions.push((note.note_index, note.y));
         }
         out.extend(electricity);
+        self.note_order = order;
         self.lanes = lanes;
     }
 }
@@ -3043,12 +3024,7 @@ impl NoteskinPlay {
             let Some(mask) = mask_of(pose.part) else {
                 continue;
             };
-            let Some(texture) = self
-                .texture_ids
-                .get(pose.texture as usize)
-                .copied()
-                .flatten()
-            else {
+            let Some(texture) = self.texture_id(pose.texture) else {
                 continue;
             };
             let part = affine_mul(
@@ -3062,29 +3038,17 @@ impl NoteskinPlay {
             // so moving a part moves its mask through the paint, not the
             // paint.
             let material = pose.part.material.as_deref().and_then(|m| {
-                let index = m.compiled?;
-                let slot = self.material_slot(m.params)?;
+                let quad = self.material_quad(m, pose.phase, seed)?;
                 let space = match m.space {
                     ddi_noteskin::component::Space::Note => affine_mul(part, image),
                     ddi_noteskin::component::Space::Lane => {
                         affine_mul(lane, affine_mul(part, image))
                     }
                 };
-                let image_id = |i: usize| {
-                    m.images
-                        .get(i)
-                        .and_then(|&t| self.texture_id(t))
-                        .unwrap_or(UNTEXTURED)
-                };
                 Some(crate::material::MaterialQuad {
-                    material: crate::material::LOCAL | index,
-                    slot,
                     axes: [space[0], space[1], space[2], space[3]],
                     origin: [space[4] - m.origin[0], space[5] - m.origin[1]],
-                    phase: pose.phase,
-                    seed,
-                    value: [0.0; 4],
-                    images: [image_id(0), image_id(1)],
+                    ..quad
                 })
             });
             out.push(TexQuad {

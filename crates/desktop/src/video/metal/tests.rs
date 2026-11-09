@@ -87,12 +87,12 @@ fn retained_play_frames_obey_gpu_leases_and_fallback() {
     );
     for _ in 0..LIMIT {
         let id = renderer.add_video(&device, 128, 96);
-        assert!(show(&mut renderer, &device, &queue, id, &frame));
+        assert!(show(renderer.background_mut(), &device, &queue, id, &frame));
     }
     assert_eq!(stats().imported, LIMIT as u64);
     assert_eq!(stats().retained, LIMIT);
     let id = renderer.add_video(&device, 128, 96);
-    assert!(show(&mut renderer, &device, &queue, id, &frame));
+    assert!(show(renderer.background_mut(), &device, &queue, id, &frame));
     assert_eq!(
         stats().copied,
         1,
@@ -136,7 +136,7 @@ fn retained_play_frames_obey_gpu_leases_and_fallback() {
         &[],
     );
     let id = renderer.add_video(&device, 128, 96);
-    assert!(show(&mut renderer, &device, &queue, id, &frame));
+    assert!(show(renderer.background_mut(), &device, &queue, id, &frame));
     let encoder = device.create_command_encoder(&Default::default());
     protect(&device, &encoder);
     queue.submit(Some(encoder.finish()));
@@ -153,7 +153,7 @@ fn retained_play_frames_obey_gpu_leases_and_fallback() {
         &[],
     );
     let id = renderer.add_video(&new, 128, 96);
-    assert!(show(&mut renderer, &new, &queue, id, &frame));
+    assert!(show(renderer.background_mut(), &new, &queue, id, &frame));
     if after.disabled {
         assert!(
             stats().copied >= 2,
@@ -173,7 +173,7 @@ fn retained_play_frames_obey_gpu_leases_and_fallback() {
     assert!(before.disabled);
     assert!(before.retained <= LIMIT);
     let id = renderer.add_video(&new, 128, 96);
-    assert!(show(&mut renderer, &new, &queue, id, &frame));
+    assert!(show(renderer.background_mut(), &new, &queue, id, &frame));
     assert!(
         stats().copied > before.copied,
         "unconfirmed completion forces copied recovery"

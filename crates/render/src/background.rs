@@ -45,7 +45,7 @@ pub const BLACK: usize = usize::MAX - 1;
 const SLOTS: u64 = 3 * DRAWS as u64;
 /// `blur.wgsl`'s `Blur` uniform.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub(crate) struct BlurParams {
     pub(crate) step: [f32; 2],
     pub(crate) brightness: f32,
@@ -317,6 +317,8 @@ struct Wide {
     b: wgpu::TextureView,
     groups: [wgpu::BindGroup; 5],
     params: [wgpu::Buffer; 5],
+    /// What `params` hold, as last written.
+    written: [Option<BlurParams>; 5],
 }
 
 pub struct BackgroundPipeline {
@@ -340,6 +342,10 @@ pub struct BackgroundPipeline {
     sampler: wgpu::Sampler,
     /// The frame's parameters, every draw's ([`SLOTS`]).
     params: wgpu::Buffer,
+    /// This frame's parameters as bytes of the buffer's layout, and what
+    /// the buffer was last given: unchanged, it is left alone.
+    params_bytes: Vec<u8>,
+    params_written: Vec<u8>,
     images: Vec<Image>,
     /// The black base and the plain backdrop, made when first drawn.
     solids: Option<Solids>,
@@ -370,35 +376,12 @@ impl BackgroundPipeline {
             label: Some("ddi-background"),
             source: wgpu::ShaderSource::Wgsl(include_str!("background.wgsl").into()),
         });
-        let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let uniform = |dynamic| wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: dynamic,
-                min_binding_size: None,
-            },
-            count: None,
-        };
+        use crate::gpu::{sampler_entry, texture_entry, uniform_entry};
+        let uniform = |dynamic| uniform_entry(0, wgpu::ShaderStages::VERTEX_FRAGMENT, dynamic);
         let common = [
             uniform(true),
-            texture_entry(1),
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
+            texture_entry(1, true),
+            sampler_entry(2, true),
         ];
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ddi-background-bgl"),
@@ -410,8 +393,8 @@ impl BackgroundPipeline {
                 common[0],
                 common[1],
                 common[2],
-                texture_entry(3),
-                texture_entry(4),
+                texture_entry(3, true),
+                texture_entry(4, true),
             ],
         });
         let blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -432,14 +415,7 @@ impl BackgroundPipeline {
         let [pipeline_layout, yuv_pipeline_layout, _] = &pipeline_layouts;
         let [pipeline, yuv_pipeline, blur_pipeline, composite_pipeline] =
             Self::pipelines(device, format, &pipeline_layouts, [&shader, &blur_shader]);
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("ddi-background-sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let sampler = crate::gpu::linear_sampler(device, "ddi-background-sampler");
         let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment)
             .max(std::mem::size_of::<Params>() as u64);
         let params = device.create_buffer(&wgpu::BufferDescriptor {
@@ -495,6 +471,8 @@ impl BackgroundPipeline {
             blur_shader,
             sampler,
             params,
+            params_bytes: Vec::new(),
+            params_written: Vec::new(),
             images: Vec::new(),
             solids: None,
             plain: [0, 0, 0, 255],
@@ -877,6 +855,37 @@ impl BackgroundPipeline {
         self.revision = self.revision.wrapping_add(1);
     }
 
+    /// Records `backdrop` alone, at full brightness and covering the whole
+    /// `width × height` target (no field, no frame, no entrance) into
+    /// `view`, over black.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_backdrop(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        backdrop: Backdrop,
+    ) {
+        let prepared = self.prepare(
+            device,
+            queue,
+            width as f32,
+            height as f32,
+            1.0,
+            backdrop,
+            None,
+            None,
+            Default::default(),
+        );
+        self.draw_extension(encoder, &prepared);
+        let black = wgpu::LoadOp::Clear(wgpu::Color::BLACK);
+        let mut pass = crate::gpu::color_pass(encoder, "ddi-scene", view, black, None);
+        self.draw(&mut pass, &prepared);
+    }
+
     /// The color of [`PLAIN`] (sRGB-encoded RGBA; opaque however given).
     pub fn set_plain_color(&mut self, rgba: [u8; 4]) {
         let plain = [rgba[0], rgba[1], rgba[2], 255];
@@ -987,6 +996,7 @@ impl BackgroundPipeline {
             b,
             params,
             groups,
+            written: [None; 5],
         }
     }
 
@@ -1089,6 +1099,13 @@ impl BackgroundPipeline {
         // The frame in the filtered sources (their shape the first image's):
         // what the content composite shows of them.
         let (in_wide, wide_offset) = cover_uv(fw, fh, aspect, 1.0);
+        let mut bytes = std::mem::take(&mut self.params_bytes);
+        bytes.clear();
+        let drawn = layers
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(0, |k| k + 1);
+        bytes.resize(drawn * 3 * self.stride as usize, 0);
         for (k, draw) in layers
             .into_iter()
             .enumerate()
@@ -1148,14 +1165,17 @@ impl BackgroundPipeline {
                     add: if draw.add { 1.0 } else { 0.0 },
                     _pad: 0.0,
                 };
-                queue.write_buffer(
-                    &self.params,
-                    (3 * k + slot) * self.stride,
-                    bytemuck::bytes_of(&params),
-                );
+                let at = ((3 * k + slot) * self.stride) as usize;
+                bytes[at..at + std::mem::size_of::<Params>()]
+                    .copy_from_slice(bytemuck::bytes_of(&params));
             }
         }
-        for (soft, wide) in [(false, self.wide.as_ref()), (true, self.soft.as_ref())] {
+        if bytes != self.params_written {
+            queue.write_buffer(&self.params, 0, &bytes);
+            std::mem::swap(&mut bytes, &mut self.params_written);
+        }
+        self.params_bytes = bytes;
+        for (soft, wide) in [(false, self.wide.as_mut()), (true, self.soft.as_mut())] {
             let Some(wide) = wide else { continue };
             for k in 0..5 {
                 let content = k >= 3;
@@ -1185,7 +1205,10 @@ impl BackgroundPipeline {
                     base: if content { 0.0 } else { 1.0 },
                     _pad2: [0.0; 2],
                 };
-                queue.write_buffer(&wide.params[k], 0, bytemuck::bytes_of(&params));
+                if wide.written[k] != Some(params) {
+                    queue.write_buffer(&wide.params[k], 0, bytemuck::bytes_of(&params));
+                    wide.written[k] = Some(params);
+                }
             }
         }
         prepared
@@ -1302,22 +1325,8 @@ fn wide_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,
 ) -> wgpu::RenderPass<'e> {
-    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("ddi-background-wide"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: target,
-            resolve_target: None,
-            depth_slice: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        multiview_mask: None,
-    })
+    let clear = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
+    crate::gpu::color_pass(encoder, "ddi-background-wide", target, clear, None)
 }
 
 /// Fills a one-pixel texture.

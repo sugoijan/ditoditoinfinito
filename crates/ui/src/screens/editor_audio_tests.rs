@@ -339,11 +339,7 @@ fn setup(size: [f32; 2], design: [f32; 2], skin: bool) -> Setup {
     );
     assert_eq!(editor.timing(), &t);
     editor.mark_saved();
-    let place = EditorPlace {
-        listen: true,
-        playtest: true,
-        ..EditorPlace::default()
-    };
+    let place = EditorPlace::default();
     let screen = EditorScreen::new(env.clone(), editor, place).with_host(host.clone());
     h.push(screen);
     h.run(0.4);

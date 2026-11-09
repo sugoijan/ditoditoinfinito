@@ -165,6 +165,16 @@ pub fn chart_env(
 }
 
 impl Env {
+    /// What a skin of `game` is told on `layout`: its own game, and the
+    /// style it plays.
+    pub fn for_skin(self, game: &str, layout: &ddi_chart::Layout) -> Env {
+        Env {
+            game: game.to_string(),
+            style: style_for(game, layout).into(),
+            ..self
+        }
+    }
+
     /// The env with its timing moved as [`ddi_chart::Song::shift_notes`]
     /// moves the song's: what a skin sees of a play shifted by the song
     /// offset, whose positions it is given (StepMania's offset edit
@@ -414,6 +424,9 @@ pub struct LuaSkin {
     clock: Box<dyn FnMut() -> f64>,
     /// Why the Lua stopped: every later call fails the same way.
     failed: Option<Failure>,
+    /// The children still to update of each actor being updated (each
+    /// actor's as they stood when its own update ended), deepest last.
+    update_stack: Vec<u32>,
 }
 
 impl LuaSkin {
@@ -508,6 +521,7 @@ impl LuaSkin {
             frame_fuel: 0,
             clock,
             failed: None,
+            update_stack: Vec::new(),
         };
         let results = skin
             .run(
@@ -1109,6 +1123,7 @@ impl LuaSkin {
     /// the native update, with the commands its tweens queued and the
     /// frames' update functions played through Lua. The tree must be lent.
     pub fn update(&mut self, id: u32, dt: f32, clocks: &Clocks) -> Result<(), Failure> {
+        self.update_stack.clear();
         self.update_depth(id, dt, clocks, 0)
     }
 
@@ -1144,7 +1159,8 @@ impl LuaSkin {
             let Some(command) = command else { break };
             self.play(id, &command, &[])?;
         }
-        let children = {
+        let start = self.update_stack.len();
+        {
             let mut host = self.host.borrow_mut();
             if let Some(a) = host.stage.get_mut(id) {
                 a.update_end(dt);
@@ -1152,11 +1168,13 @@ impl LuaSkin {
             for p in problems.messages {
                 host.warn(p);
             }
-            host.stage.children(id)
-        };
-        for c in children {
+            host.stage.children_into(id, &mut self.update_stack);
+        }
+        for i in start..self.update_stack.len() {
+            let c = self.update_stack[i];
             self.update_depth(c, dt, clocks, depth + 1)?;
         }
+        self.update_stack.truncate(start);
         if self.host.borrow().updating.contains(&id) {
             let update = self.driver.update.clone();
             let r = now(self.run(

@@ -404,9 +404,9 @@ impl OptionsModel {
     pub fn data(&self) -> OptionsData {
         let s = &self.settings;
         let shown = self.preview_layout.as_deref().unwrap_or(&s.style);
-        let style = self
-            .bind_layouts()
-            .into_iter()
+        let layouts = self.bind_layouts();
+        let style = layouts
+            .iter()
             .find(|l| l.id == shown)
             .map_or_else(|| UiText::data(shown), |l| style_name(&l.id, &l.name));
         // A line of tags, " · " between them.
@@ -430,14 +430,14 @@ impl OptionsModel {
                 self.sound(),
                 self.display(),
                 self.arrows(),
-                self.controls(),
+                self.controls(&layouts),
                 self.data_section(),
             ]
             .into_iter()
             .chain(self.folders())
             .chain(self.sharing())
             .collect(),
-            preview_layout: Some(self.preview_layout_option()),
+            preview_layout: Some(self.preview_layout_option(&layouts)),
             preview_whole_play: s.dancing_hand_for(shown),
             preview: preview.join(" · "),
             notice: self.notice.clone(),
@@ -500,7 +500,7 @@ impl OptionsModel {
                 choice(
                     "speed_source",
                     m::speed_source(),
-                    [m::speed_source_mine(), m::speed_source_chart()],
+                    labels(&SPEED_SOURCES),
                     pos(&SPEED_SOURCES, s.speed_source),
                     m::speed_source_description(),
                 ),
@@ -514,12 +514,7 @@ impl OptionsModel {
                 choice(
                     "scroll_action",
                     m::scroll_action(),
-                    [
-                        m::scroll_action_normal(),
-                        m::scroll_action_boost(),
-                        m::scroll_action_brake(),
-                        m::scroll_action_wave(),
-                    ],
+                    labels(&SCROLL_ACTIONS),
                     pos(&SCROLL_ACTIONS, s.scroll_action),
                     m::scroll_action_description(),
                 ),
@@ -546,7 +541,7 @@ impl OptionsModel {
         let mut cut = choice(
             "cut",
             m::cut(),
-            [m::cut_all(), m::cut_quarters(), m::cut_eighths()],
+            labels(&CUTS),
             pos(&CUTS, t.cut),
             m::cut_description(),
         );
@@ -556,38 +551,21 @@ impl OptionsModel {
             choice(
                 "turn",
                 m::turn(),
-                [
-                    common::off(),
-                    m::turn_mirror(),
-                    m::turn_left(),
-                    m::turn_right(),
-                    m::turn_shuffle(),
-                ],
+                labels(&TURNS),
                 pos(&TURNS, t.turn),
                 m::turn_description(),
             ),
             choice(
                 "appearance",
                 m::appearance(),
-                [
-                    m::appearance_normal(),
-                    m::appearance_hidden(),
-                    m::appearance_sudden(),
-                    m::appearance_both(),
-                    m::appearance_stealth(),
-                ],
+                labels(&APPEARANCES),
                 pos(&APPEARANCES, s.appearance),
                 m::appearance_description(),
             ),
             choice(
                 "lane_cover",
                 m::lane_cover(),
-                [
-                    common::off(),
-                    m::lane_cover_sudden(),
-                    m::lane_cover_hidden(),
-                    m::lane_cover_both(),
-                ],
+                labels(&COVER_MODES),
                 pos(&COVER_MODES, cover.mode),
                 self.cover_description(),
             ),
@@ -620,18 +598,14 @@ impl OptionsModel {
             choice(
                 "simplify_center",
                 m::simplify_center(),
-                [
-                    common::off(),
-                    m::simplify_center_missing(),
-                    m::simplify_center_all(),
-                ],
+                labels(&CENTER_VERSIONS),
                 pos(&CENTER_VERSIONS, s.simplify_center),
                 m::simplify_center_description(),
             ),
             choice(
                 "at_once",
                 m::at_once(),
-                [m::at_once_any(), m::at_once_two(), m::at_once_one()],
+                labels(&AT_ONCE),
                 pos(&AT_ONCE, t.at_once),
                 m::at_once_description(),
             ),
@@ -712,11 +686,7 @@ impl OptionsModel {
                 choice(
                     "ruleset_mode",
                     m::ruleset_mode(),
-                    [
-                        m::ruleset_mode_ruleset(),
-                        m::ruleset_mode_game(),
-                        m::ruleset_mode_danoni(),
-                    ],
+                    labels(&RULESET_MODES),
                     pos(&RULESET_MODES, s.ruleset_mode),
                     m::ruleset_mode_description(),
                 ),
@@ -730,20 +700,15 @@ impl OptionsModel {
                 choice(
                     "holds",
                     m::holds(),
-                    [m::holds_by_game(), m::holds_dance(), m::holds_ticked()],
+                    labels(&HOLD_STYLES),
                     pos(&HOLD_STYLES, s.holds),
                     m::holds_description(),
                 ),
                 choice(
                     "fail",
                     m::fail(),
-                    [
-                        m::fail_immediate(),
-                        m::fail_delayed(),
-                        m::fail_at_end(),
-                        common::off(),
-                    ],
-                    pos(&FailType::ALL, s.stepmania.fail),
+                    labels(&FAIL_TYPES),
+                    pos(&FAIL_TYPES, s.stepmania.fail),
                     m::fail_description(),
                 ),
                 row(
@@ -768,8 +733,8 @@ impl OptionsModel {
                 choice(
                     "life_type",
                     m::life_type(),
-                    [m::life_type_bar(), m::life_type_battery()],
-                    pos(&LifeType::ALL, s.stepmania.life_type),
+                    labels(&LIFE_TYPES),
+                    pos(&LIFE_TYPES, s.stepmania.life_type),
                     m::life_type_description(),
                 ),
                 row(
@@ -1035,7 +1000,7 @@ impl OptionsModel {
         let motion = choice(
             "reduced_motion",
             m::reduced_motion(),
-            [m::reduced_motion_system(), common::on(), common::off()],
+            labels(&REDUCED_MOTION),
             pos(&REDUCED_MOTION, s.reduced_motion),
             m::reduced_motion_description(),
         );
@@ -1046,13 +1011,7 @@ impl OptionsModel {
                 choice(
                     "field_place",
                     m::field_place(),
-                    [
-                        m::field_place_center(),
-                        m::field_place_left(),
-                        m::field_place_right(),
-                        m::field_place_near_left(),
-                        m::field_place_near_right(),
-                    ],
+                    labels(&FIELD_PLACES),
                     pos(&FIELD_PLACES, s.field_place),
                     m::field_place_description(),
                 ),
@@ -1073,16 +1032,8 @@ impl OptionsModel {
                 choice(
                     "hand_layout",
                     m::hand_layout(),
-                    [
-                        m::hand_layout_follow(),
-                        m::hand_layout_right_left(),
-                        m::hand_layout_left_right(),
-                        m::hand_layout_center_right(),
-                        m::hand_layout_center_left(),
-                        m::hand_layout_near_right_left(),
-                        m::hand_layout_near_left_right(),
-                    ],
-                    pos(&HandLayout::ALL, s.hand_layout),
+                    labels(&HAND_LAYOUTS),
+                    pos(&HAND_LAYOUTS, s.hand_layout),
                     m::hand_layout_description(),
                 ),
                 choice(
@@ -1124,7 +1075,7 @@ impl OptionsModel {
                 choice(
                     "video",
                     m::video(),
-                    [m::video_auto(), common::on(), common::off()],
+                    labels(&VIDEOS),
                     pos(&VIDEOS, s.video),
                     m::video_description(),
                 ),
@@ -1138,13 +1089,7 @@ impl OptionsModel {
                 choice(
                     "generated_background",
                     m::generated_background(),
-                    [
-                        common::off(),
-                        m::generated_background_bars(),
-                        m::generated_background_kaleidoscope(),
-                        m::generated_background_field(),
-                        m::generated_background_rain(),
-                    ],
+                    labels(&GENERATED),
                     pos(&GENERATED, s.generated_background),
                     m::generated_background_description(),
                 ),
@@ -1158,25 +1103,14 @@ impl OptionsModel {
                 choice(
                     "generated_palette",
                     m::generated_palette(),
-                    [
-                        m::generated_palette_ink(),
-                        m::generated_palette_dusk(),
-                        m::generated_palette_moss(),
-                        m::generated_palette_ember(),
-                        m::generated_palette_mono(),
-                    ],
-                    pos(&Palette::ALL, s.generated_palette),
+                    labels(&PALETTES),
+                    pos(&PALETTES, s.generated_palette),
                     m::generated_palette_description(),
                 ),
                 choice(
                     "background_frame",
                     m::background_frame(),
-                    [
-                        m::background_frame_auto(),
-                        UiText::data("4:3"),
-                        UiText::data("16:9"),
-                        m::background_frame_screen(),
-                    ],
+                    labels(&FRAMES),
                     pos(&FRAMES, s.background_frame),
                     m::background_frame_description(),
                 ),
@@ -1196,11 +1130,7 @@ impl OptionsModel {
                 choice(
                     "cursor_style",
                     m::cursor(),
-                    [
-                        m::cursor_infinito(),
-                        m::cursor_pointer(),
-                        m::cursor_system(),
-                    ],
+                    labels(&CURSORS),
                     pos(&CURSORS, s.cursor_style),
                     m::cursor_description(),
                 ),
@@ -1230,7 +1160,7 @@ impl OptionsModel {
                 choice(
                     "graphics",
                     m::graphics(),
-                    [m::graphics_auto(), m::graphics_webgl2()],
+                    labels(&GRAPHICS),
                     pos(&GRAPHICS, s.graphics),
                     m::graphics_description(),
                 ),
@@ -1375,8 +1305,7 @@ impl OptionsModel {
         }
     }
 
-    fn preview_layout_option(&self) -> OptionDef {
-        let layouts = self.bind_layouts();
+    fn preview_layout_option(&self, layouts: &[Layout]) -> OptionDef {
         let shown = self
             .preview_layout
             .as_deref()
@@ -1395,10 +1324,9 @@ impl OptionsModel {
         )
     }
 
-    fn controls(&self) -> OptionSection {
+    fn controls(&self, layouts: &[Layout]) -> OptionSection {
         let s = &self.settings;
         let layout = &self.bind_layout;
-        let layouts = self.bind_layouts();
         let at = layouts.iter().position(|l| l.id == layout.id).unwrap_or(0);
         let mut rows = vec![
             row(
@@ -1453,8 +1381,9 @@ impl OptionsModel {
                 m::key_description(),
             ));
         }
+        let one_pad = self.layout_is_one_pad();
         for (j, (id, standard, count)) in self.pads().into_iter().enumerate() {
-            rows.extend(self.pad_rows(j, &id, standard, count));
+            rows.extend(self.pad_rows(j, &id, standard, count, one_pad));
         }
         let mut poll = choice(
             "fast_pad_poll",
@@ -1477,9 +1406,9 @@ impl OptionsModel {
         section("Controls", m::section_controls(), rows)
     }
 
-    /// What controller `id` (`count` of them connected) plays in the
-    /// layout shown.
-    fn pad_use(&self, id: &str, standard: bool, count: usize) -> PadUse {
+    /// The controllers connected and, with `count` of them connected
+    /// none, a placeholder for saved controller `id`.
+    fn pads_with(&self, id: &str, standard: bool, count: usize) -> Vec<ConnectedPad> {
         let mut pads = self.world.connected.clone();
         if count == 0 {
             pads.push(ConnectedPad {
@@ -1489,24 +1418,46 @@ impl OptionsModel {
                 standard,
             });
         }
+        pads
+    }
+
+    /// What controller `id` plays in the layout shown, of `pads`.
+    fn pad_use(&self, id: &str, pads: &[ConnectedPad]) -> PadUse {
         self.settings
             .controls
-            .plan(&self.bind_layout, &pads)
+            .plan(&self.bind_layout, pads)
             .into_iter()
             .find(|(c, _)| c.id == id)
             .map_or(PadUse::Unused, |(_, u)| u)
     }
 
-    /// Controller `id`'s buttons, in their order.
-    fn pad_buttons(&self, id: &str, standard: bool, count: usize) -> Vec<PadButton> {
-        let layout = &self.bind_layout;
+    /// Controller `id`'s saved entry, and whether it has a table for the
+    /// layout shown.
+    fn saved_pad(&self, id: &str) -> (Option<&PadBindings>, bool) {
         let saved = self.settings.controls.pads.iter().find(|p| p.id == id);
-        let has_table = saved.is_some_and(|p| p.table(&layout.id).is_some());
-        let is_one_pad = Layout::builtins()
-            .iter()
-            .any(|l| l.one_pad_layout().is_some_and(|one| one.id == layout.id));
+        let has_table = saved.is_some_and(|p| p.table(&self.bind_layout.id).is_some());
+        (saved, has_table)
+    }
+
+    /// Whether the layout shown is the one-pad layout of a built-in one.
+    fn layout_is_one_pad(&self) -> bool {
+        Layout::builtins().iter().any(|l| {
+            l.one_pad_layout()
+                .is_some_and(|one| one.id == self.bind_layout.id)
+        })
+    }
+
+    /// Controller `id`'s buttons, in their order.
+    fn pad_buttons(
+        &self,
+        id: &str,
+        standard: bool,
+        pad_use: &PadUse,
+        is_one_pad: bool,
+    ) -> Vec<PadButton> {
+        let (saved, has_table) = self.saved_pad(id);
         let mut buttons = vec![PadButton::Bind];
-        if self.pad_use(id, standard, count).plays() || has_table {
+        if pad_use.plays() || has_table {
             buttons.push(PadButton::Clear);
         }
         if has_table && (!is_one_pad || standard) {
@@ -1521,8 +1472,8 @@ impl OptionsModel {
     /// A controller's lane rows' buttons: one more control (while it is
     /// connected) and Clear, or none where it plays one pad of the
     /// layout with its bindings of the one-pad layout (changed there).
-    fn pad_lane_buttons(&self, id: &str, standard: bool, count: usize) -> &'static [LaneButton] {
-        let own = !matches!(self.pad_use(id, standard, count), PadUse::OnePad { .. });
+    fn pad_lane_buttons(pad_use: &PadUse, count: usize) -> &'static [LaneButton] {
+        let own = !matches!(pad_use, PadUse::OnePad { .. });
         match (own, count > 0) {
             (false, _) => &[],
             (true, true) => &[LaneButton::Add, LaneButton::Clear],
@@ -1532,21 +1483,19 @@ impl OptionsModel {
 
     /// A controller: what it plays, its bindings, and what can be done
     /// with them.
-    fn pad_rows(&self, j: usize, id: &str, standard: bool, count: usize) -> Vec<OptionDef> {
+    fn pad_rows(
+        &self,
+        j: usize,
+        id: &str,
+        standard: bool,
+        count: usize,
+        is_one_pad: bool,
+    ) -> Vec<OptionDef> {
         let layout = &self.bind_layout;
-        let saved = self.settings.controls.pads.iter().find(|p| p.id == id);
-        let has_table = saved.is_some_and(|p| p.table(&layout.id).is_some());
+        let (_, has_table) = self.saved_pad(id);
         let bindings = self.settings.pad_bindings(id, standard);
-        let mut pads = self.world.connected.clone();
-        if count == 0 {
-            pads.push(ConnectedPad {
-                vendor_product: None,
-                id: id.to_string(),
-                index: u32::MAX,
-                standard,
-            });
-        }
-        let pad_use = self.pad_use(id, standard, count);
+        let pads = self.pads_with(id, standard, count);
+        let pad_use = self.pad_use(id, &pads);
         let one_name = layout
             .one_pad_layout()
             .map(|l| style_name(&l.id, &l.name))
@@ -1566,7 +1515,7 @@ impl OptionsModel {
         let mut head = actions(
             &format!("pad.{j}"),
             "",
-            self.pad_buttons(id, standard, count)
+            self.pad_buttons(id, standard, &pad_use, is_one_pad)
                 .into_iter()
                 .map(PadButton::label),
             // Two tags.
@@ -1629,12 +1578,12 @@ impl OptionsModel {
                 .collect(),
         };
         let own = !matches!(pad_use, PadUse::OnePad { .. });
+        let lane_buttons = Self::pad_lane_buttons(&pad_use, count);
         let table = match pad_use {
             PadUse::Table { table, .. } | PadUse::OnePad { single: table, .. } => table,
             PadUse::Unused => Vec::new(),
         };
         let b = bindings.unwrap_or_default();
-        let lane_buttons = self.pad_lane_buttons(id, standard, count);
         for (lane, name) in lanes.into_iter().enumerate() {
             rows.push(actions(
                 &format!("pad.{j}.lane.{lane}"),
@@ -1891,7 +1840,7 @@ impl OptionsModel {
                 s.hand_layout = HandLayout::FollowField;
             }
             "hand_layout" => {
-                s.hand_layout = at(&HandLayout::ALL, i);
+                s.hand_layout = at(&HAND_LAYOUTS, i);
                 if let Some(place) = s.hand_layout.field() {
                     s.field_place = place;
                 }
@@ -1919,10 +1868,10 @@ impl OptionsModel {
                 }
             }
             "holds" => s.holds = at(&HOLD_STYLES, i),
-            "fail" => s.stepmania.fail = at(&FailType::ALL, i),
+            "fail" => s.stepmania.fail = at(&FAIL_TYPES, i),
             "life" => s.stepmania.life = level_at(i, LIFE_SCALES.len()),
             "judge" => s.stepmania.judge = level_at(i, JUDGE_SCALES.len()),
-            "life_type" => s.stepmania.life_type = at(&LifeType::ALL, i),
+            "life_type" => s.stepmania.life_type = at(&LIFE_TYPES, i),
             "lives" => s.stepmania.lives = level_at(i, usize::from(StepManiaOptions::MAX_LIVES)),
             "ddr_gauge" => s.stepmania.gauge = DdrGauge::ALL.get(i).copied().unwrap_or_default(),
             "danoni.gauge" => {
@@ -1960,7 +1909,7 @@ impl OptionsModel {
             "random_movies" => s.random_movies = on,
             "generated_background" => s.generated_background = at(&GENERATED, i),
             "generated_over_pictures" => s.generated_over_pictures = on,
-            "generated_palette" => s.generated_palette = at(&Palette::ALL, i),
+            "generated_palette" => s.generated_palette = at(&PALETTES, i),
             "bg_brightness" => s.bg_brightness = i as f32 / 20.0,
             "video" => s.video = at(&VIDEOS, i),
             "background_frame" => s.background_frame = at(&FRAMES, i),
@@ -2155,7 +2104,12 @@ impl OptionsModel {
             return Act::Nothing;
         };
         let layout = self.bind_layout.clone();
-        match self.pad_buttons(&id, standard, count).get(button) {
+        let pad_use = self.pad_use(&id, &self.pads_with(&id, standard, count));
+        let is_one_pad = self.layout_is_one_pad();
+        match self
+            .pad_buttons(&id, standard, &pad_use, is_one_pad)
+            .get(button)
+        {
             Some(PadButton::Bind) => Act::Bind(Some(DeviceId::Gamepad(id))),
             Some(PadButton::Clear) => {
                 let mut pad = self.pad_entry(&id, standard);
@@ -2185,7 +2139,8 @@ impl OptionsModel {
         let Some((id, standard, count)) = self.pads().into_iter().nth(j) else {
             return Act::Nothing;
         };
-        match self.pad_lane_buttons(&id, standard, count).get(button) {
+        let pad_use = self.pad_use(&id, &self.pads_with(&id, standard, count));
+        match Self::pad_lane_buttons(&pad_use, count).get(button) {
             Some(LaneButton::Add) => Act::AddButton { id, lane },
             Some(LaneButton::Clear) => {
                 let layout = self.bind_layout.clone();
@@ -2643,12 +2598,20 @@ fn offset_at(i: usize) -> f64 {
     (i as f64 - 500.0).clamp(-500.0, 500.0) / 1000.0
 }
 
-fn pos<T: PartialEq>(table: &[T], v: T) -> usize {
-    table.iter().position(|x| *x == v).unwrap_or(0)
+/// A row's value and the words for it: one table, in the order shown.
+type Labeled<T> = (T, fn() -> UiText);
+
+/// The words for each of a table's values, in its order.
+fn labels<T>(table: &[Labeled<T>]) -> impl Iterator<Item = UiText> + '_ {
+    table.iter().map(|(_, label)| label())
 }
 
-fn at<T: Copy + Default>(table: &[T], i: usize) -> T {
-    table.get(i).copied().unwrap_or_default()
+fn pos<T: PartialEq>(table: &[Labeled<T>], v: T) -> usize {
+    table.iter().position(|(x, _)| *x == v).unwrap_or(0)
+}
+
+fn at<T: Copy + Default>(table: &[Labeled<T>], i: usize) -> T {
+    table.get(i).map_or_else(T::default, |(v, _)| *v)
 }
 
 /// Levels `1..=n` as a stepper shows them.
@@ -2779,38 +2742,41 @@ pub(crate) fn device_name(p: &crate::state::settings::OffsetProfile) -> UiText {
     }
 }
 
-const SPEED_SOURCES: [SpeedSource; 2] = [SpeedSource::Player, SpeedSource::Chart];
-const SCROLL_ACTIONS: [ScrollAction; 4] = [
-    ScrollAction::Normal,
-    ScrollAction::Boost,
-    ScrollAction::Brake,
-    ScrollAction::Wave,
+const SPEED_SOURCES: [Labeled<SpeedSource>; 2] = [
+    (SpeedSource::Player, m::speed_source_mine),
+    (SpeedSource::Chart, m::speed_source_chart),
 ];
-const TURNS: [Turn; 5] = [
-    Turn::Off,
-    Turn::Mirror,
-    Turn::Left,
-    Turn::Right,
-    Turn::Shuffle,
+const SCROLL_ACTIONS: [Labeled<ScrollAction>; 4] = [
+    (ScrollAction::Normal, m::scroll_action_normal),
+    (ScrollAction::Boost, m::scroll_action_boost),
+    (ScrollAction::Brake, m::scroll_action_brake),
+    (ScrollAction::Wave, m::scroll_action_wave),
 ];
-const APPEARANCES: [Appearance; 5] = [
-    Appearance::Visible,
-    Appearance::Hidden,
-    Appearance::Sudden,
-    Appearance::HiddenSudden,
-    Appearance::Stealth,
+const TURNS: [Labeled<Turn>; 5] = [
+    (Turn::Off, common::off),
+    (Turn::Mirror, m::turn_mirror),
+    (Turn::Left, m::turn_left),
+    (Turn::Right, m::turn_right),
+    (Turn::Shuffle, m::turn_shuffle),
 ];
-const CENTER_VERSIONS: [CenterVersions; 3] = [
-    CenterVersions::Off,
-    CenterVersions::Missing,
-    CenterVersions::All,
+const APPEARANCES: [Labeled<Appearance>; 5] = [
+    (Appearance::Visible, m::appearance_normal),
+    (Appearance::Hidden, m::appearance_hidden),
+    (Appearance::Sudden, m::appearance_sudden),
+    (Appearance::HiddenSudden, m::appearance_both),
+    (Appearance::Stealth, m::appearance_stealth),
+];
+const CENTER_VERSIONS: [Labeled<CenterVersions>; 3] = [
+    (CenterVersions::Off, common::off),
+    (CenterVersions::Missing, m::simplify_center_missing),
+    (CenterVersions::All, m::simplify_center_all),
 ];
 
-const COVER_MODES: [CoverMode; 4] = [
-    CoverMode::Off,
-    CoverMode::Sudden,
-    CoverMode::Hidden,
-    CoverMode::HiddenSudden,
+const COVER_MODES: [Labeled<CoverMode>; 4] = [
+    (CoverMode::Off, common::off),
+    (CoverMode::Sudden, m::lane_cover_sudden),
+    (CoverMode::Hidden, m::lane_cover_hidden),
+    (CoverMode::HiddenSudden, m::lane_cover_both),
 ];
 
 /// A cover's height row: its heights 0 to 100% by 1.
@@ -2827,14 +2793,26 @@ fn cover_height(id: &str, label: UiText, description: UiText, height: u8) -> Opt
 // A lane cover's stepper is its percentages.
 const _: () = assert!(LaneCover::FULL == 100);
 
-const CUTS: [TimingCut; 3] = [TimingCut::Off, TimingCut::Quarters, TimingCut::Eighths];
-const AT_ONCE: [AtOnce; 3] = [AtOnce::Any, AtOnce::Two, AtOnce::One];
-const RULESET_MODES: [RulesetMode; 3] = [
-    RulesetMode::AllStepMania,
-    RulesetMode::Original,
-    RulesetMode::AllDanoni,
+const CUTS: [Labeled<TimingCut>; 3] = [
+    (TimingCut::Off, m::cut_all),
+    (TimingCut::Quarters, m::cut_quarters),
+    (TimingCut::Eighths, m::cut_eighths),
 ];
-const HOLD_STYLES: [HoldStyle; 3] = [HoldStyle::ByGame, HoldStyle::Dance, HoldStyle::Ticked];
+const AT_ONCE: [Labeled<AtOnce>; 3] = [
+    (AtOnce::Any, m::at_once_any),
+    (AtOnce::Two, m::at_once_two),
+    (AtOnce::One, m::at_once_one),
+];
+const RULESET_MODES: [Labeled<RulesetMode>; 3] = [
+    (RulesetMode::AllStepMania, m::ruleset_mode_ruleset),
+    (RulesetMode::Original, m::ruleset_mode_game),
+    (RulesetMode::AllDanoni, m::ruleset_mode_danoni),
+];
+const HOLD_STYLES: [Labeled<HoldStyle>; 3] = [
+    (HoldStyle::ByGame, m::holds_by_game),
+    (HoldStyle::Dance, m::holds_dance),
+    (HoldStyle::Ticked, m::holds_ticked),
+];
 /// Dancing☆Onigiri's gauges by their names (`None`: the chart's first),
 /// and whether each fails below a border.
 const DANONI_GAUGES: [(Option<&str>, bool); 10] = [
@@ -2849,36 +2827,75 @@ const DANONI_GAUGES: [(Option<&str>, bool); 10] = [
     (Some("Easy"), true),
     (Some("Hard"), true),
 ];
-const VIDEOS: [VideoMode; 3] = [VideoMode::Auto, VideoMode::On, VideoMode::Off];
-const FIELD_PLACES: [FieldPlace; 5] = [
-    FieldPlace::Center,
-    FieldPlace::Left,
-    FieldPlace::Right,
-    FieldPlace::NearLeft,
-    FieldPlace::NearRight,
+const VIDEOS: [Labeled<VideoMode>; 3] = [
+    (VideoMode::Auto, m::video_auto),
+    (VideoMode::On, common::on),
+    (VideoMode::Off, common::off),
+];
+const FIELD_PLACES: [Labeled<FieldPlace>; 5] = [
+    (FieldPlace::Center, m::field_place_center),
+    (FieldPlace::Left, m::field_place_left),
+    (FieldPlace::Right, m::field_place_right),
+    (FieldPlace::NearLeft, m::field_place_near_left),
+    (FieldPlace::NearRight, m::field_place_near_right),
 ];
 
-const GENERATED: [GeneratedBackground; 5] = [
-    GeneratedBackground::Off,
-    GeneratedBackground::Bars,
-    GeneratedBackground::Kaleidoscope,
-    GeneratedBackground::Field,
-    GeneratedBackground::Rain,
+const GENERATED: [Labeled<GeneratedBackground>; 5] = [
+    (GeneratedBackground::Off, common::off),
+    (GeneratedBackground::Bars, m::generated_background_bars),
+    (
+        GeneratedBackground::Kaleidoscope,
+        m::generated_background_kaleidoscope,
+    ),
+    (GeneratedBackground::Field, m::generated_background_field),
+    (GeneratedBackground::Rain, m::generated_background_rain),
 ];
-const FRAMES: [BackgroundFrame; 4] = [
-    BackgroundFrame::Auto,
-    BackgroundFrame::FourThree,
-    BackgroundFrame::SixteenNine,
-    BackgroundFrame::Screen,
+const FRAMES: [Labeled<BackgroundFrame>; 4] = [
+    (BackgroundFrame::Auto, m::background_frame_auto),
+    (BackgroundFrame::FourThree, || UiText::data("4:3")),
+    (BackgroundFrame::SixteenNine, || UiText::data("16:9")),
+    (BackgroundFrame::Screen, m::background_frame_screen),
 ];
-const REDUCED_MOTION: [ReducedMotion; 3] =
-    [ReducedMotion::Auto, ReducedMotion::On, ReducedMotion::Off];
-const CURSORS: [CursorStyle; 3] = [
-    CursorStyle::InfinitoArrow,
-    CursorStyle::PointerTip,
-    CursorStyle::System,
+const REDUCED_MOTION: [Labeled<ReducedMotion>; 3] = [
+    (ReducedMotion::Auto, m::reduced_motion_system),
+    (ReducedMotion::On, common::on),
+    (ReducedMotion::Off, common::off),
 ];
-const GRAPHICS: [Graphics; 2] = [Graphics::Auto, Graphics::WebGl2];
+const CURSORS: [Labeled<CursorStyle>; 3] = [
+    (CursorStyle::InfinitoArrow, m::cursor_infinito),
+    (CursorStyle::PointerTip, m::cursor_pointer),
+    (CursorStyle::System, m::cursor_system),
+];
+const GRAPHICS: [Labeled<Graphics>; 2] = [
+    (Graphics::Auto, m::graphics_auto),
+    (Graphics::WebGl2, m::graphics_webgl2),
+];
+const FAIL_TYPES: [Labeled<FailType>; 4] = [
+    (FailType::Immediate, m::fail_immediate),
+    (FailType::ImmediateContinue, m::fail_delayed),
+    (FailType::EndOfSong, m::fail_at_end),
+    (FailType::Off, common::off),
+];
+const LIFE_TYPES: [Labeled<LifeType>; 2] = [
+    (LifeType::Bar, m::life_type_bar),
+    (LifeType::Battery, m::life_type_battery),
+];
+const HAND_LAYOUTS: [Labeled<HandLayout>; 7] = [
+    (HandLayout::FollowField, m::hand_layout_follow),
+    (HandLayout::FieldRight, m::hand_layout_right_left),
+    (HandLayout::FieldLeft, m::hand_layout_left_right),
+    (HandLayout::CenterHandRight, m::hand_layout_center_right),
+    (HandLayout::CenterHandLeft, m::hand_layout_center_left),
+    (HandLayout::NearRight, m::hand_layout_near_right_left),
+    (HandLayout::NearLeft, m::hand_layout_near_left_right),
+];
+const PALETTES: [Labeled<Palette>; 5] = [
+    (Palette::Ink, m::generated_palette_ink),
+    (Palette::Dusk, m::generated_palette_dusk),
+    (Palette::Moss, m::generated_palette_moss),
+    (Palette::Ember, m::generated_palette_ember),
+    (Palette::Mono, m::generated_palette_mono),
+];
 
 #[cfg(test)]
 mod tests {
@@ -3060,7 +3077,7 @@ mod tests {
     fn cursor_choices_and_size_round_trip_and_old_settings_get_the_arrow() {
         let mut m = model();
         assert_eq!(find(&m.data(), "cursor_style").value(), "Infinito arrow");
-        for (i, style) in CURSORS.into_iter().enumerate() {
+        for (i, (style, _)) in CURSORS.into_iter().enumerate() {
             m.change("cursor_style", i);
             assert_eq!(m.settings.cursor_style, style);
             let text = serde_json::to_string(&m.settings).unwrap();

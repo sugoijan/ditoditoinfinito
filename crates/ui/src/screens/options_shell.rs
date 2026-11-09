@@ -9,8 +9,9 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use super::Env;
+use super::dialog::ConfirmDialog;
 use super::options::{OPTIONS_CHANGED, OptionsCall, OptionsFeed, OptionsShell};
-use super::options_dialogs::{BindDialog, ConfirmDialog, KeyDialog};
+use super::options_dialogs::{BindDialog, KeyDialog};
 use super::options_model::{Act, Effect, OptionsModel, Reset, Sample};
 use crate::message::Message;
 use crate::screen::Cx;

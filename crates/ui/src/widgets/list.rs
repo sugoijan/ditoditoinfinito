@@ -51,6 +51,7 @@ use crate::hit;
 use crate::look::{self, Look, Spec, call, named};
 use crate::nav::MenuAction;
 use crate::screen::{Cx, Handled, Input};
+use crate::widgets::scrollbar::Scrollbar;
 
 /// How fast a flick slows: velocity × e^(−FRICTION·t).
 pub const FRICTION: f64 = 3.5;
@@ -177,6 +178,19 @@ struct Slot {
     image: bool,
 }
 
+/// What the rows were last placed for: while it holds and no slot was
+/// filled, every row is where it should be.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Placed {
+    pos: f64,
+    selected: usize,
+    blur: f32,
+    /// Images hidden for speed.
+    fast: bool,
+    /// How open the wheel's room is ([`Look::wheel_open`]).
+    open: f32,
+}
+
 /// A trackpad's stream of wheel events, while it lasts.
 #[derive(Clone, Copy, Debug)]
 struct Stream {
@@ -212,8 +226,7 @@ pub struct List {
     selected: usize,
     selected_key: Option<u64>,
     slots: Vec<Slot>,
-    /// Whether images were hidden for speed at the last update.
-    fast: bool,
+    placed: Option<Placed>,
     /// Items filled since the start, for tests.
     pub fills: usize,
 }
@@ -237,7 +250,7 @@ impl List {
             selected: 0,
             selected_key: None,
             slots: Vec::new(),
-            fast: false,
+            placed: None,
             fills: 0,
         };
         list.reload(model);
@@ -265,6 +278,7 @@ impl List {
             s.item = None;
             s.selected = None;
         }
+        self.placed = None;
         let before = self.selected;
         let by_key = self
             .selected_key
@@ -448,26 +462,31 @@ impl List {
         self.velocity = 0.0;
         // Keys and taps end a trackpad's stream: its end would snap back.
         self.stream = None;
-        let (top, bottom) = (self.offsets[self.selected], self.offsets[self.selected + 1]);
-        let to = match self.focus_line() {
-            Some(f) => self.centre(self.selected) - f,
-            None => {
-                let pad = f64::from(self.config.row) * 0.5;
-                // Judged where the list is going, within its ends; landing
-                // on an item's top, as a snap does.
-                let at = self.clamp(self.target.unwrap_or(self.pos));
-                if top < at + pad {
-                    self.offsets[self.item_at((top - pad).max(0.0))]
-                } else if bottom > at + self.height_shown() - pad {
-                    let i = self.item_at(bottom - self.height_shown() + pad);
-                    self.offsets[(i + 1).min(self.kinds.len())]
-                } else {
-                    self.target = (self.target.is_some()).then_some(at);
-                    return;
-                }
-            }
+        self.target = match self.scroll_to_show(self.selected) {
+            Some(to) => Some(to),
+            // In view: a glide goes on, within the ends.
+            None => self.target.map(|t| self.clamp(t)),
         };
-        self.target = Some(self.clamp(to));
+    }
+
+    /// Where to scroll to bring item `i` into view; `None` when it is in
+    /// view already. Judged where the list is going, within its ends;
+    /// landing on an item's top, as a snap does.
+    fn scroll_to_show(&self, i: usize) -> Option<f64> {
+        if let Some(f) = self.focus_line() {
+            return Some(self.clamp(self.centre(i) - f));
+        }
+        let pad = f64::from(self.config.row) * 0.5;
+        let at = self.clamp(self.target.unwrap_or(self.pos));
+        let (top, bottom) = (self.offsets[i], self.offsets[i + 1]);
+        if top < at + pad {
+            Some(self.clamp(self.offsets[self.item_at((top - pad).max(0.0))]))
+        } else if bottom > at + self.height_shown() - pad {
+            let j = self.item_at(bottom - self.height_shown() + pad);
+            Some(self.clamp(self.offsets[(j + 1).min(self.kinds.len())]))
+        } else {
+            None
+        }
     }
 
     /// The name of the actor showing item `i`, if one does.
@@ -480,6 +499,13 @@ impl List {
     /// tree): rows are made afresh at the next update.
     pub fn reset_actors(&mut self) {
         self.slots.clear();
+        self.placed = None;
+    }
+
+    /// Something other than the list changed a row: it places them again
+    /// at the next update.
+    pub fn touch(&mut self) {
+        self.placed = None;
     }
 
     /// Ends any glide at once, where it was going (a list laid out
@@ -497,20 +523,8 @@ impl List {
         if self.is_empty() {
             return self.pos;
         }
-        let i = i.min(self.len() - 1);
-        if let Some(f) = self.focus_line() {
-            return self.clamp(self.centre(i) - f);
-        }
-        let pad = f64::from(self.config.row) * 0.5;
-        let at = self.clamp(self.target.unwrap_or(self.pos));
-        if self.offsets[i] < at + pad {
-            self.clamp(self.offsets[self.item_at((self.offsets[i] - pad).max(0.0))])
-        } else if self.offsets[i + 1] > at + self.height_shown() - pad {
-            let j = self.item_at(self.offsets[i + 1] - self.height_shown() + pad);
-            self.clamp(self.offsets[(j + 1).min(self.len())])
-        } else {
-            at
-        }
+        self.scroll_to_show(i.min(self.len() - 1))
+            .unwrap_or_else(|| self.clamp(self.target.unwrap_or(self.pos)))
     }
 
     /// Commits selection while a screen owns the scrolling trajectory.
@@ -754,6 +768,7 @@ impl List {
         let Some(items) = hit::actor_at_mut(root, &path) else {
             return;
         };
+        let mut filled = false;
         for i in first..last {
             if self.slots.iter().any(|s| s.item == Some(i)) {
                 continue;
@@ -794,6 +809,7 @@ impl List {
             if let Some(a) = items.children_mut().get_mut(k) {
                 model.fill(i, a, cx);
                 self.fills += 1;
+                filled = true;
                 self.slots[k].image = hit::find_mut(a, "Banner").is_some_and(|b| b.visible);
             }
         }
@@ -810,6 +826,17 @@ impl List {
             0.0
         };
         self.blur = blur;
+        let placed = Some(Placed {
+            pos: self.pos,
+            selected: self.selected,
+            blur,
+            fast,
+            open: look.wheel_open(&name),
+        });
+        if !filled && self.placed == placed {
+            return;
+        }
+        self.placed = placed;
         let children = items.children_mut();
         for (k, s) in self.slots.iter_mut().enumerate() {
             let Some(a) = children.get_mut(k) else {
@@ -875,30 +902,22 @@ impl List {
                 );
             }
         }
-        self.fast = fast;
         // The scrollbar.
         if let Some(bar) = hit::find_mut(root, &format!("{name}.Bar")) {
             let range = self.max_scroll() - self.min_scroll();
             bar.visible = range > 0.0 && focus.is_none();
             if bar.visible {
-                let thumb = self.thumb_size();
-                let y =
-                    ((self.pos - self.min_scroll()) / range * (h - thumb)).clamp(0.0, h - thumb);
-                if let Some(t) = hit::find_mut(bar, "Thumb") {
-                    if let Kind::Sprite(s) = &mut t.kind {
-                        s.size = [self.config.bar, thumb as f32];
-                    }
-                    call(t, "y", &[y as f32]);
-                }
+                self.scrollbar(range).place_thumb(
+                    bar,
+                    self.config.bar,
+                    self.pos - self.min_scroll(),
+                );
             }
         }
     }
 
-    /// The thumb's length: the share shown, at least 24 (or the whole bar
-    /// when shorter).
-    fn thumb_size(&self) -> f64 {
-        let h = self.height_shown();
-        (h * h / self.content().max(1.0)).clamp(24.0_f64.min(h), h)
+    fn scrollbar(&self, range: f64) -> Scrollbar {
+        Scrollbar::new(self.height_shown(), self.content(), range)
     }
 
     /// The item an actor shows, from a target's chain.
@@ -1040,37 +1059,21 @@ impl List {
 
     /// The scrollbar: a press on the track jumps there, the thumb drags.
     fn bar(&mut self, gesture: Gesture, y: f64) -> Handled {
-        let h = self.height_shown();
-        let range = self.max_scroll() - self.min_scroll();
+        let min = self.min_scroll();
+        let range = self.max_scroll() - min;
         if range <= 0.0 {
             return Handled::Yes;
         }
-        let thumb = self.thumb_size();
-        let min = self.min_scroll();
-        let thumb_y = (self.pos - min) / range * (h - thumb);
-        let to = |grab: f64| {
-            let top = (y - grab).clamp(0.0, (h - thumb).max(0.0));
-            min + top / (h - thumb).max(1.0) * range
-        };
-        match gesture {
-            Gesture::Press => {
-                self.velocity = 0.0;
-                self.target = None;
-                self.stream = None;
-                let grab = if (thumb_y..thumb_y + thumb).contains(&y) {
-                    y - thumb_y
-                } else {
-                    thumb / 2.0
-                };
-                self.thumb = Some(grab);
-                self.pos = self.clamp(to(grab));
-            }
-            Gesture::Drag { .. } | Gesture::DragStart => {
-                if let Some(grab) = self.thumb {
-                    self.pos = self.clamp(to(grab));
-                }
-            }
-            _ => self.thumb = None,
+        if matches!(gesture, Gesture::Press) {
+            self.velocity = 0.0;
+            self.target = None;
+            self.stream = None;
+        }
+        let to = self
+            .scrollbar(range)
+            .gesture(gesture, y, self.pos - min, &mut self.thumb);
+        if let Some(to) = to {
+            self.pos = self.clamp(min + to);
         }
         Handled::Yes
     }

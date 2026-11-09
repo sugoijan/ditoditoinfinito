@@ -56,6 +56,37 @@ pub(crate) struct Load {
 }
 
 impl Load {
+    /// Loads skin `key` for `layout` in a task; `done` runs once it is in.
+    pub(crate) fn start(
+        key: &str,
+        layout: &ddi_chart::Layout,
+        env: ddi_noteskin::lua::Env,
+        done: impl FnOnce() + 'static,
+    ) -> Load {
+        let load = Load {
+            cell: Rc::default(),
+            cancelled: Rc::default(),
+        };
+        let (cell, cancelled) = (load.cell.clone(), load.cancelled.clone());
+        let (key, layout) = (key.to_string(), layout.clone());
+        wasm_bindgen_futures::spawn_local(async move {
+            let wanted: crate::noteskins::Wanted = {
+                let cancelled = cancelled.clone();
+                Rc::new(move || !cancelled.get())
+            };
+            let prepared = crate::noteskins::prepare_while(&key, &layout, env, wanted, None).await;
+            if cancelled.get() {
+                if let Some(p) = prepared {
+                    p.close();
+                }
+                return;
+            }
+            *cell.borrow_mut() = Some(prepared);
+            done();
+        });
+        load
+    }
+
     /// The skin is in, for the next step to show.
     fn done(&self) -> bool {
         self.cell.borrow().is_some()
@@ -111,7 +142,7 @@ impl FieldPreviewHost {
             &gfx.device,
             &gfx.queue,
             gfx.float_format(),
-            &[crate::game_loop::FONT],
+            &[ddi_render::HUD_FONT],
         );
         FieldPreviewHost {
             preview,
@@ -256,26 +287,8 @@ impl FieldPreviewHost {
         let mut started = None;
         let skin = self.skin.step(|key, layout, env| {
             started = Some(key.to_string());
-            let load = Load {
-                cell: Rc::default(),
-                cancelled: Rc::default(),
-            };
-            let (cell, cancelled) = (load.cell.clone(), load.cancelled.clone());
-            let (key, layout, host) = (key.to_string(), layout.clone(), host.clone());
-            wasm_bindgen_futures::spawn_local(async move {
-                let wanted: crate::noteskins::Wanted = {
-                    let cancelled = cancelled.clone();
-                    Rc::new(move || !cancelled.get())
-                };
-                let prepared =
-                    crate::noteskins::prepare_while(&key, &layout, env, wanted, None).await;
-                if cancelled.get() {
-                    if let Some(p) = prepared {
-                        p.close();
-                    }
-                    return;
-                }
-                *cell.borrow_mut() = Some(prepared);
+            let host = host.clone();
+            Load::start(key, layout, env, move || {
                 // Shown now, its textures uploaded, so the screen that
                 // draws it next (the prompt's diagram) has it from its
                 // first frame; by the next frame where the device is gone.
@@ -289,8 +302,7 @@ impl FieldPreviewHost {
                 {
                     h.step(&gfx, &host);
                 }
-            });
-            load
+            })
         });
         if let Some(key) = started {
             self.status = format!("loading {key}…");
@@ -313,23 +325,16 @@ impl FieldPreviewHost {
             (None, None) => format!("built-in arrows on {}", gfx.backend_name()),
             (None, Some(key)) => format!("no noteskin {key}: the built-in arrows"),
         };
-        let mut uploaded = Vec::new();
         self.preview.set_noteskin(
             &gfx.device,
             &gfx.queue,
             play,
             |renderer: &mut Renderer, play: &mut NoteskinPlay| {
-                uploaded = crate::game_loop::upload_noteskin(
-                    renderer,
-                    &gfx.device,
-                    &gfx.queue,
-                    play,
-                    &images,
-                );
+                crate::game_loop::upload_noteskin(renderer, &gfx.device, &gfx.queue, play, &images);
             },
         );
         // On the device once the frame is submitted (WebGL2 copies then):
         // closed after it, not before.
-        crate::web::screen::close_after_submit(uploaded);
+        crate::web::screen::close_after_submit(images.into_iter().flatten());
     }
 }

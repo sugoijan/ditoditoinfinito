@@ -23,7 +23,7 @@ pub use model::{
     Quantization, Song, SourceFormat, SourceInfo, Tick,
 };
 pub use timing::{
-    BpmSegment, ComboSegment, FakeSegment, Label, ScrollSegment, SpeedSegment, SpeedUnit,
+    BeatWalk, BpmSegment, ComboSegment, FakeSegment, Label, ScrollSegment, SpeedSegment, SpeedUnit,
     StopSegment, TickCount, TimePosition, TimeSignature, TimingMap, WarpSegment,
 };
 

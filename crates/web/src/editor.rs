@@ -38,16 +38,15 @@ use ddi_library::pack::ChartFormat;
 use ddi_library::path::RelPathBuf;
 use ddi_platform::storage::{self, Area};
 use ddi_session::listen::{Cues, Listener};
-use ddi_ui::message::{Message, Param};
-use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, SAVED};
+use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, save_failed, saved};
 use ddi_ui::state::editor::audio::{Analysis, Builder};
 use ddi_ui::state::editor::autosave::{self, Autosave};
 use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::{Cx, UiRequest};
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::JsValue;
 
 use crate::components::ui_dev;
-use crate::router::Route;
+use crate::router::{PlayRoute, Route};
 use crate::web::audio::{AudioDecoder, WebAudio};
 use crate::web::idb::{self, Db, Write};
 
@@ -153,14 +152,10 @@ pub(crate) fn place(id: &str) -> EditorPlace {
     let imported = crate::songs::is_imported_id(id);
     let fresh = fresh(id);
     EditorPlace {
-        platform: ddi_ui::screens::data::Platform::Web,
         save: imported.then(|| "this browser's copy of the song".into()),
         // The song stored in this browser is replaced (its question says
         // so): no file.
         confirm: (imported && !fresh).then(String::new),
-        export: true,
-        listen: true,
-        playtest: true,
         new_song: fresh,
     }
 }
@@ -312,10 +307,9 @@ impl EditorHost for WebEditorHost {
                                     s.fresh = false;
                                 }
                             });
-                            Message::new(SAVED)
-                                .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64)))
+                            saved(revision)
                         }
-                        Err(e) => Message::new(SAVED).with("Error", Param::Str(e)),
+                        Err(e) => save_failed(e),
                     };
                     if let Some(host) = ui.borrow().clone() {
                         ui_dev::broadcast_message_soon(host, m);
@@ -326,7 +320,7 @@ impl EditorHost for WebEditorHost {
                 let (text, ext) = export::simfile(editor.song(), sm);
                 let stem = export::file_stem(&editor.song().title);
                 if let Err(e) = download(&text, &format!("{stem}.{ext}")) {
-                    cx.broadcast(Message::new(SAVED).with("Error", Param::Str(e.into())));
+                    cx.broadcast(save_failed(e));
                 }
             }
             EditorCall::Playtest { from_cursor, auto } => {
@@ -336,19 +330,12 @@ impl EditorHost for WebEditorHost {
                         s.playtest = Some((song, start));
                     }
                 });
-                let route = Route::Play {
-                    song: self.id.clone(),
-                    chart,
+                let route = Route::Play(PlayRoute {
                     force_gl: crate::router::testing().split('&').any(|kv| kv == "gfx=gl"),
                     auto,
-                    auto_pad: false,
-                    bias_ms: 0,
-                    slow: false,
-                    replay: None,
-                    view_results: false,
                     edit: true,
-                    scene: None,
-                };
+                    ..PlayRoute::song(self.id.clone(), chart)
+                });
                 cx.request(UiRequest::Navigate(route.to_hash()));
             }
             EditorCall::Listen { from } | EditorCall::Record { from, .. } => {
@@ -457,7 +444,7 @@ impl EditorHost for WebEditorHost {
 
     fn show_field(
         &self,
-        picture: Option<&ddi_ui::screens::editor_field::FieldPicture>,
+        picture: Option<Rc<ddi_ui::screens::editor_field::FieldPicture>>,
         editor: &Editor,
     ) {
         crate::editor_field::show(picture, editor);
@@ -625,22 +612,7 @@ fn download(text: &str, name: &str) -> Result<(), &'static str> {
         &options,
     )
     .map_err(|_| "no file")?;
-    let url = crate::web::files::object_url(&blob).ok_or("no object URL")?;
-    let document = web_sys::window()
-        .and_then(|w| w.document())
-        .ok_or("no document")?;
-    let a: web_sys::HtmlElement = document
-        .create_element("a")
-        .map_err(|_| "no link")?
-        .unchecked_into();
-    let _ = a.set_attribute("href", &url);
-    let _ = a.set_attribute("download", name);
-    a.click();
-    gloo::timers::callback::Timeout::new(10_000, move || {
-        crate::web::files::revoke_object_url(&url)
-    })
-    .forget();
-    Ok(())
+    crate::web::files::save_blob(&blob, name)
 }
 
 /// Writes `text` as imported song `id`'s chart: its stored `chart.ssc`,

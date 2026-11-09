@@ -14,7 +14,7 @@
 //! ([`HEADER_LEN`] is enough for every file seen), [`Avi::idx1_at`] says
 //! where the legacy index would be, [`Avi::odml`] where the OpenDML ones are.
 
-use crate::bytes::{le16, le32, le64};
+use crate::bytes::{le16, le32, le64, riff_chunks};
 
 /// Bytes to read from the start of the file for [`parse_header`].
 pub const HEADER_LEN: usize = 256 * 1024;
@@ -71,24 +71,8 @@ fn fourcc(b: &[u8], at: usize) -> Option<[u8; 4]> {
 
 /// RIFF chunks of `b[at..end]`: `(id, data start, declared data end)`;
 /// the end may lie past `b` (a list read only in part).
-fn chunks(b: &[u8], mut at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
-    let mut out = Vec::new();
-    while at + 8 <= end.min(b.len()) && out.len() < 4096 {
-        let (Some(id), Some(size)) = (fourcc(b, at), le32(b, at + 4)) else {
-            break;
-        };
-        let data = at + 8;
-        let Some(data_end) = data.checked_add(size as usize) else {
-            break;
-        };
-        out.push((id, data, data_end));
-        // Chunks are padded to an even size.
-        let Some(next) = data_end.checked_add(size as usize & 1) else {
-            break;
-        };
-        at = next;
-    }
-    out
+fn chunks(b: &[u8], at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
+    riff_chunks(b, at, end, 4096)
 }
 
 /// The stream number in a chunk id `##xx`.

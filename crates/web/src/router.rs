@@ -6,38 +6,62 @@
 use ddi_library::share::percent_encode;
 use std::collections::BTreeMap;
 
+/// What `#/play` plays, and how.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PlayRoute {
+    pub(crate) song: String,
+    pub(crate) chart: usize,
+    /// `gfx=gl` forces the WebGL2 backend.
+    pub(crate) force_gl: bool,
+    /// `auto=1` plays the chart automatically (testing / demo).
+    pub(crate) auto: bool,
+    /// `auto=pad` autoplays through a test gamepad the headless tests
+    /// install (`window.__DDI_FAKE_PAD`); implies `auto`.
+    pub(crate) auto_pad: bool,
+    /// `bias=<ms>` makes autoplay press late by that much (testing).
+    pub(crate) bias_ms: i64,
+    /// `slow=1` makes each frame 40 ms longer while a background movie
+    /// is drawn, to test the automatic video setting.
+    pub(crate) slow: bool,
+    /// `replay=<play id>`: a kept play watched again (its song and
+    /// chart are the record's; `auto` and `bias` mean nothing then).
+    pub(crate) replay: Option<String>,
+    /// `view=results`: the kept play's results, not its replay.
+    pub(crate) view_results: bool,
+    /// `edit=1`: the chart editor's playtest (`crate::editor`): the
+    /// song as edited, never kept, back to the editor.
+    pub(crate) edit: bool,
+    /// `scene=<line folder>`: the announcer studio's scene in play of
+    /// that line (`crate::studio_scene`): staged, never kept, back to
+    /// the studio.
+    pub(crate) scene: Option<String>,
+}
+
+impl PlayRoute {
+    /// Chart `chart` of the song `song`.
+    pub(crate) fn song(song: impl Into<String>, chart: usize) -> PlayRoute {
+        PlayRoute {
+            song: song.into(),
+            chart,
+            ..PlayRoute::default()
+        }
+    }
+
+    /// The kept play `id`: its replay, or its results.
+    pub(crate) fn replay(id: impl Into<String>, view_results: bool) -> PlayRoute {
+        PlayRoute {
+            replay: Some(id.into()),
+            view_results,
+            ..PlayRoute::default()
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Route {
     Home,
     Songs,
-    Play {
-        song: String,
-        chart: usize,
-        /// `gfx=gl` forces the WebGL2 backend.
-        force_gl: bool,
-        /// `auto=1` plays the chart automatically (testing / demo).
-        auto: bool,
-        /// `auto=pad` autoplays through a test gamepad the headless tests
-        /// install (`window.__DDI_FAKE_PAD`); implies `auto`.
-        auto_pad: bool,
-        /// `bias=<ms>` makes autoplay press late by that much (testing).
-        bias_ms: i64,
-        /// `slow=1` makes each frame 40 ms longer while a background movie
-        /// is drawn, to test the automatic video setting.
-        slow: bool,
-        /// `replay=<play id>`: a kept play watched again (its song and
-        /// chart are the record's; `auto` and `bias` mean nothing then).
-        replay: Option<String>,
-        /// `view=results`: the kept play's results, not its replay.
-        view_results: bool,
-        /// `edit=1`: the chart editor's playtest (`crate::editor`): the
-        /// song as edited, never kept, back to the editor.
-        edit: bool,
-        /// `scene=<line folder>`: the announcer studio's scene in play of
-        /// that line (`crate::studio_scene`): staged, never kept, back to
-        /// the studio.
-        scene: Option<String>,
-    },
+    Play(PlayRoute),
     /// The chart editor on a song (`components::edit_page`).
     Edit {
         song: String,
@@ -113,7 +137,7 @@ impl Route {
         match path {
             "" => Route::Home,
             "select" => Route::Songs,
-            "play" => Route::Play {
+            "play" => Route::Play(PlayRoute {
                 song: params.get("song").cloned().unwrap_or_default(),
                 chart: params
                     .get("chart")
@@ -128,7 +152,7 @@ impl Route {
                 view_results: params.get("view").is_some_and(|v| v == "results"),
                 edit: params.get("edit").is_some_and(|v| v == "1"),
                 scene: params.get("scene").filter(|s| !s.is_empty()).cloned(),
-            },
+            }),
             "edit" => Route::Edit {
                 song: params.get("song").cloned().unwrap_or_default(),
                 chart: params
@@ -192,7 +216,7 @@ impl Route {
                 t if t.is_empty() => "#/select".into(),
                 t => format!("#/select?{t}"),
             },
-            Route::Play {
+            Route::Play(PlayRoute {
                 song,
                 chart,
                 force_gl,
@@ -204,7 +228,7 @@ impl Route {
                 view_results,
                 edit,
                 scene,
-            } => {
+            }) => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
                 let slow = if *slow { "&slow=1" } else { "" };
                 let edit = match scene {
@@ -302,9 +326,12 @@ impl Route {
     }
 }
 
+/// The names of the testing parameters kept for the session.
+pub(crate) const TESTING_KEYS: [&str; 4] = ["gfx", "auto", "bias", "slow"];
+
 thread_local! {
-    /// The testing parameters (`gfx`, `auto`, `bias`, `slow`) the page was
-    /// opened with, as written.
+    /// The testing parameters ([`TESTING_KEYS`]) the page was opened
+    /// with, as written.
     static TESTING: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
@@ -325,6 +352,7 @@ pub(crate) fn keep_testing(hash: &str) {
     if !matches!(path, "" | "select" | "play" | "calibrate") {
         return;
     }
+    crate::perf::note_address(query);
     // The chart editor's playtest and the announcer studio's scenes say
     // nothing about the session's plays (their `auto` is their own).
     if path == "play"
@@ -336,7 +364,7 @@ pub(crate) fn keep_testing(hash: &str) {
     }
     let kept: Vec<&str> = query
         .split('&')
-        .filter(|kv| matches!(kv.split('=').next(), Some("gfx" | "auto" | "bias" | "slow")))
+        .filter(|kv| TESTING_KEYS.iter().any(|k| *k == param_name(kv)))
         .collect();
     if path == "select" || path.is_empty() && !kept.is_empty() {
         TESTING.with(|t| {
@@ -406,6 +434,22 @@ fn share_switch(hash: &str) {
 /// The testing parameters kept ([`keep_testing`]), `&`-joined.
 pub(crate) fn testing() -> String {
     TESTING.with(|t| t.borrow().clone())
+}
+
+/// `hash` with the testing parameters kept among `keys` added, as they
+/// were written.
+pub(crate) fn with_testing(mut hash: String, keys: &[&str]) -> String {
+    for kv in testing().split('&') {
+        if keys.contains(&param_name(kv)) {
+            hash.push('&');
+            hash.push_str(kv);
+        }
+    }
+    hash
+}
+
+fn param_name(kv: &str) -> &str {
+    kv.split('=').next().unwrap_or(kv)
 }
 
 /// Whether plays started from song select are autoplayed (`auto=` in
@@ -569,7 +613,7 @@ pub(crate) fn back() {
     let current = Route::current();
     // A shared song's play opened directly: its share is its list.
     let shared = match &current {
-        Route::Play { song, .. } => {
+        Route::Play(PlayRoute { song, .. }) => {
             ddi_library::share::parse_song_id(song).map(|(share, _)| Route::Shared {
                 id: share.to_string(),
             })
@@ -579,7 +623,7 @@ pub(crate) fn back() {
     let destination = match current {
         Route::Home => Destination::Start,
         Route::Songs | Route::Shared { .. } => Destination::Songs,
-        Route::Play { .. } | Route::Edit { .. } => Destination::Play,
+        Route::Play(_) | Route::Edit { .. } => Destination::Play,
         // Options opens the studio: a direct launch goes back to Start
         // as from Options.
         Route::Options | Route::Studio => Destination::Options,
@@ -732,19 +776,12 @@ mod tests {
         let r = Route::parse("#/play?song=into%2Dmy%2Ddream&chart=2&gfx=gl&auto=1&slow=1");
         assert_eq!(
             r,
-            Route::Play {
-                song: "into-my-dream".into(),
-                chart: 2,
+            Route::Play(PlayRoute {
                 force_gl: true,
                 auto: true,
-                auto_pad: false,
-                bias_ms: 0,
                 slow: true,
-                replay: None,
-                view_results: false,
-                edit: false,
-                scene: None,
-            }
+                ..PlayRoute::song("into-my-dream", 2)
+            })
         );
         let r = Route::parse("#/edit?song=a%20b&chart=3");
         assert_eq!(
@@ -758,7 +795,7 @@ mod tests {
         let r = Route::parse("#/play?replay=000001760000000-0a1b2c3d&view=results");
         assert!(matches!(
             &r,
-            Route::Play { replay: Some(id), view_results: true, .. } if id == "000001760000000-0a1b2c3d"
+            Route::Play(PlayRoute { replay: Some(id), view_results: true, .. }) if id == "000001760000000-0a1b2c3d"
         ));
         assert_eq!(Route::parse(&r.to_hash()), r);
         assert_eq!(Route::parse(""), Route::Home);

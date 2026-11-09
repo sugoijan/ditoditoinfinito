@@ -59,10 +59,7 @@ impl Preview {
         on_end: impl FnOnce() + 'static,
     ) -> Result<(), String> {
         let length = ddi_session::preview::length(self.entry.preview_length);
-        let start = self
-            .entry
-            .preview_start
-            .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
+        let start = ddi_session::preview::start(self.entry.preview_start, buffer.duration());
         self.audio.play_preview(buffer, start, length, volume)?;
         self.timer = Some(Timeout::new((length * 1000.0) as u32 + 200, on_end));
         Ok(())

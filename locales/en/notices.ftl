@@ -59,3 +59,11 @@ notices-only-zips = Only zips are read as packs; left out: { $files }. A folder 
 # Variables:
 #   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
 notices-new-song-failed = The new song could not be made: { $error }
+
+# A notice over song select: the player asked to remove something or to
+# read a folder again while an import runs.
+notices-import-running-remove-reread = An import is running: removing and reading folders again wait until it ends.
+
+# A notice over song select: the player asked to remove the unreadable
+# songs while an import runs.
+notices-import-running-remove = An import is running: removing waits until it ends.

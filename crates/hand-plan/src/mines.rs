@@ -44,9 +44,7 @@ impl Search {
                     && a.panel == target
                     && a.time == time
                     && self.rows.iter().skip(self.row).flatten().any(|n| {
-                        !n.mine
-                            && !n.lift
-                            && !n.roll_refresh
+                        n.is_head()
                             && note_has_panel(&self.layout, n, target)
                             && n.time - self.origin == time
                     })
@@ -81,10 +79,21 @@ impl Search {
         scored: bool,
         head: Option<f64>,
     ) -> Option<f64> {
+        // Every boundary below lies within a mine's ±90 ms window, and only
+        // one inside the flight matters: the mines (sorted) whose windows meet it.
+        let reach = 0.09 + 1e-6;
+        let first = self
+            .mines
+            .partition_point(|m| m.time - self.origin + reach <= release);
+        let near = &self.mines[first..];
+        let near = &near[..near.partition_point(|m| m.time - self.origin - reach < land)];
+        if near.is_empty() {
+            return (height <= 0.075).then_some(height);
+        }
         let xy = |panel| self.position(panel);
         let a = xy(from);
         let b = xy(to);
-        for mine in &self.mines {
+        for mine in near {
             let time = mine.time - self.origin;
             let center = xy(super::panel(mine));
             let departure = head
@@ -110,7 +119,7 @@ impl Search {
                     continue;
                 }
                 let u = (boundary - release) / (land - release);
-                let w = u.powi(3) * (10. + u * (-15. + 6. * u));
+                let w = ddi_hand_pose::smoother(u);
                 // The centered runtime changes within-tile offsets only. Leave
                 // an extra millimeter around the tile for that fitting step.
                 if (0..2).any(|i| (a[i] + (b[i] - a[i]) * w - center[i]).abs() > 12.5) {
@@ -245,7 +254,7 @@ impl Search {
                 .iter()
                 .skip(self.row + 1)
                 .flatten()
-                .filter(|n| !n.mine && !n.lift && !n.roll_refresh)
+                .filter(|n| n.is_head())
                 .take_while(|n| n.time - self.origin <= time + if direct { 0.45 } else { 0.170 })
                 .flat_map(|n| crate::note_choices(&self.layout, *n))
                 .find_map(|n| {
@@ -523,9 +532,12 @@ impl Search {
             // Avoid an unscored return stealing a nearby same-panel head.
             // Reuse its exact touchdown instead, if the flight remains local.
             if active.is_none()
-                && let Some(n) = self.rows.iter().skip(self.row + 1).flatten().find(|n| {
-                    !n.mine && !n.lift && !n.roll_refresh && note_has_panel(&self.layout, n, source)
-                })
+                && let Some(n) = self
+                    .rows
+                    .iter()
+                    .skip(self.row + 1)
+                    .flatten()
+                    .find(|n| n.is_head() && note_has_panel(&self.layout, n, source))
             {
                 let t = n.time - self.origin;
                 if t >= last_hazard + 0.1099 && t - last_hazard <= 0.170 {
@@ -683,9 +695,7 @@ fn guarded_departure(
                 && e.time == incoming.land
                 && input.notes.iter().any(|n| {
                     n.judgeable
-                        && !n.mine
-                        && !n.lift
-                        && !n.roll_refresh
+                        && n.is_head()
                         && n.tick == e.tick
                         && note_has_panel(&p.layout, n, e.panel)
                         && (n.time - p.source_music_origin_seconds - e.time).abs() < 1e-9
@@ -697,11 +707,7 @@ pub(crate) fn validate_auxiliary(
     p: &ContactPlan,
     a: &Auxiliary,
 ) -> Result<(), String> {
-    let track = if a.foot == Foot::L {
-        &p.tracks.left
-    } else {
-        &p.tracks.right
-    };
+    let track = p.tracks.of(a.foot);
     let index = track
         .iter()
         .position(|s| s.land == a.time && s.to == a.panel)
@@ -726,9 +732,7 @@ pub(crate) fn validate_auxiliary(
                     && a.time <= t + 0.450
                     && input.notes.iter().any(|head| {
                         head.judgeable
-                            && !head.mine
-                            && !head.lift
-                            && !head.roll_refresh
+                            && head.is_head()
                             && note_has_panel(&p.layout, head, a.panel)
                             && (head.time - p.source_music_origin_seconds - a.time).abs() < 1e-9
                     })))

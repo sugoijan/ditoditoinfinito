@@ -246,7 +246,7 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    skin's texture only for a change, the play view and the compact
    field).
 4. **The screen** (`ddi_ui::screens::editor`, dialogs in
-   `editor_dialogs.rs`): the field (lanes, the beat grid at the snap,
+   `editor_dialogs.rs` and `dialog.rs`): the field (lanes, the beat grid at the snap,
    measure and beat numbers, notes as their lanes' arrows on plates
    colored by beat, holds and rolls, mines, lifts, fakes, the selection,
    the timing's markers, the cursor line) drawn with the menus' actors;

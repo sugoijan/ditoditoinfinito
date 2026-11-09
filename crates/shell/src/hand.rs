@@ -160,6 +160,7 @@ impl Host {
                 tiles: self.lights.values,
                 strikes: self.lights.strikes,
                 seconds: p.seconds,
+                contacts: &contacts,
             },
         );
         self.last = Some(key);

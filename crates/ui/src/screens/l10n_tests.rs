@@ -203,25 +203,20 @@ fn studio_texts() -> Vec<String> {
     let mut other = draft.clone();
     other.tidy = false;
     other.stepmania = true;
-    for (d, v) in [
-        (&draft, view.clone()),
-        (&other, View::default()),
+    for (d, v, platform) in [
+        (&draft, view.clone(), Platform::Web),
+        (&other, View::default(), Platform::Web),
         (
             &draft,
             View {
                 ready: None,
                 ..view.clone()
             },
+            Platform::Web,
         ),
-        (
-            &draft,
-            View {
-                platform: super::data::Platform::Desktop,
-                ..view.clone()
-            },
-        ),
+        (&draft, view.clone(), Platform::Desktop),
     ] {
-        doc_texts(&studio::doc(d, &v, &examples).blocks, &mut out);
+        doc_texts(&studio::doc(d, &v, &examples, platform).blocks, &mut out);
     }
     for t in &draft.takes {
         let p = studio::picker(&draft, t.id).expect("a take");
@@ -366,6 +361,8 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     ));
     shown(&mut h, found);
     for platform in [Platform::Web, Platform::Desktop] {
+        let mut env = env.clone();
+        env.platform = platform;
         // Removing (hiding) a pack, a song: confirmed.
         let pack = PackEntry {
             name: Some("Pack".into()),
@@ -392,13 +389,13 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             ),
         ] {
             let mut h = harness();
-            h.push(ManageDialog::new(env.clone(), what.clone(), None, false).on(platform));
+            h.push(ManageDialog::new(env.clone(), what.clone(), None, false));
             shown(&mut h, found);
             h.tap(PointerKind::Mouse, button);
             shown(&mut h, found);
             // While an import runs.
             let mut h = harness();
-            h.push(ManageDialog::new(env.clone(), what, None, true).on(platform));
+            h.push(ManageDialog::new(env.clone(), what, None, true));
             shown(&mut h, found);
         }
         // The import: a browser keeping a folder, importing, its report
@@ -441,17 +438,14 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             checked(texts, found);
             vec![
                 ImportView {
-                    platform,
                     folders: true,
                     ..Default::default()
                 },
                 ImportView {
-                    platform,
                     running: Some(steps[4].clone().into()),
                     ..Default::default()
                 },
                 ImportView {
-                    platform,
                     report: Some(ImportReportView::Files {
                         report: report.clone(),
                         details: true,
@@ -463,7 +457,6 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             // On the URL tab (an address typed is the player's, drawn
             // by the field as typed).
             let danoni = |danoni: DanoniImportView| ImportView {
-                platform,
                 danoni_urls: true,
                 danoni_cancel: true,
                 danoni,
@@ -603,28 +596,22 @@ fn type_in(h: &mut Harness, text: &str) {
     h.key("Enter", "Enter");
 }
 
-/// The chart editor on `platform`'s wording and everything it opens (with
+/// The chart editor on `env`'s wording and everything it opens (with
 /// `all`; else what that wording changes: the menu, the questions): its
 /// panel and status lines, the menu page by page, the note tools, the
 /// timing at the cursor and each change's form (typed too, and refused),
 /// the song's and the chart's fields, tap tempo, the questions before
 /// saving and leaving.
-fn editor_walk(
-    env: &Env,
-    harness: &dyn Fn() -> Harness,
-    platform: Platform,
-    all: bool,
-    found: &mut BTreeSet<String>,
-) {
+fn editor_walk(env: &Env, harness: &dyn Fn() -> Harness, all: bool, found: &mut BTreeSet<String>) {
     use super::editor::{ACTION, CHART, SONG, TIMING};
     let open = |new_song: bool| {
         let mut h = harness();
-        h.push(sample::editor_screen(env, platform, new_song));
+        h.push(sample::editor_screen(env, new_song));
         h.run(0.3);
         h
     };
     let pick = |h: &mut Harness, menu: &'static str, id: &str| {
-        h.ui.broadcast(Message::new(menu).with("Id", Param::Str(id.into())));
+        h.ui.broadcast(Message::new(menu).with("Action", Param::Str(id.into())));
         h.run(0.3);
     };
     let taps = |h: &mut Harness| {
@@ -798,7 +785,9 @@ fn walk() -> BTreeSet<String> {
             ),
         ] {
             let mut h = harness();
-            h.push(sample::prompt_screen_on(&env, step, platform));
+            let mut env = env.clone();
+            env.platform = platform;
+            h.push(sample::prompt_screen(&env, step));
             shown(&mut h, &mut found);
         }
         let mut h = harness();
@@ -829,18 +818,13 @@ fn walk() -> BTreeSet<String> {
             shown(&mut h, &mut found);
         }
         for platform in [Platform::Web, Platform::Desktop] {
+            let mut env = env.clone();
+            env.platform = platform;
             let mut h = harness();
-            let c = credits::Credits {
-                platform,
-                ..credits::sample()
-            };
-            h.push(sample::credits_screen(&env, &c));
+            h.push(sample::credits_screen(&env, &credits::sample()));
             shown(&mut h, &mut found);
             let mut h = harness();
-            let view = super::data::ImportView {
-                platform,
-                ..Default::default()
-            };
+            let view = super::data::ImportView::default();
             h.push(ImportDialog::new(
                 env.clone(),
                 Rc::new(std::cell::RefCell::new(view)),
@@ -867,16 +851,10 @@ fn walk() -> BTreeSet<String> {
                 Manage::Unreadable { count: 2 },
             ] {
                 let mut h = harness();
-                h.push(ManageDialog::new(env.clone(), what, None, false).on(platform));
+                h.push(ManageDialog::new(env.clone(), what, None, false));
                 shown(&mut h, &mut found);
             }
-            editor_walk(
-                &env,
-                &harness,
-                platform,
-                platform == Platform::Web,
-                &mut found,
-            );
+            editor_walk(&env, &harness, platform == Platform::Web, &mut found);
         }
         // The number forms, each kind, their fields named as their
         // callers name them.
@@ -1232,10 +1210,9 @@ fn moved_screens_show_no_text_written_in_code() {
             check("the folders offer", &|h| h.push(folders_offer(&env, count)));
         }
         for platform in [Platform::Web, Platform::Desktop] {
-            let c = credits::Credits {
-                platform,
-                ..credits::sample()
-            };
+            let mut env = env.clone();
+            env.platform = platform;
+            let c = credits::sample();
             check("the credits", &|h| h.push(sample::credits_screen(&env, &c)));
         }
     }
@@ -1275,11 +1252,7 @@ fn moved_screens_show_no_text_written_in_code() {
         ("the credits", credits::waiting(Some("No such file"))),
     ];
     for platform in [Platform::Web, Platform::Desktop] {
-        let c = credits::Credits {
-            platform,
-            ..credits::sample()
-        };
-        docs.push(("the credits", credits::doc(&c)));
+        docs.push(("the credits", credits::doc(&credits::sample(), platform)));
     }
     for (what, doc) in docs {
         let mut texts = vec![doc.title.text.clone(), doc.title.heading.clone()];
@@ -1338,7 +1311,9 @@ fn moved_screens_show_no_text_written_in_code() {
         let mut found = BTreeSet::new();
         let harness = || Harness::new(design, size, 1.0, TextMode::Own);
         for platform in [Platform::Web, Platform::Desktop] {
-            editor_walk(&env, &harness, platform, true, &mut found);
+            let mut env = env.clone();
+            env.platform = platform;
+            editor_walk(&env, &harness, true, &mut found);
         }
         assert!(found.is_empty(), "the editor at {size:?}: {found:?}");
     }
@@ -1349,9 +1324,10 @@ fn moved_screens_show_no_text_written_in_code() {
 fn the_editor_speaks_japanese() {
     storage::install(Rc::new(MemoryStore::default()));
     ddi_l10n::set_language("ja");
-    let env = env();
+    let mut env = env();
+    env.platform = Platform::Desktop;
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
-    h.push(sample::editor_screen(&env, Platform::Desktop, false));
+    h.push(sample::editor_screen(&env, false));
     h.run(0.5);
     let texts = h.texts();
     for t in [
@@ -1363,7 +1339,9 @@ fn the_editor_speaks_japanese() {
     ] {
         assert!(texts.iter().any(|s| s == t), "{t}: {texts:?}");
     }
-    h.ui.broadcast(Message::new(super::editor::TIMING).with("Id", Param::Str("seg:speed".into())));
+    h.ui.broadcast(
+        Message::new(super::editor::TIMING).with("Action", Param::Str("seg:speed".into())),
+    );
     h.run(0.5);
     let texts = h.texts();
     assert!(texts.iter().any(|s| s == "4拍目のスピード"), "{texts:?}");

@@ -338,17 +338,12 @@ impl RunRasterizer for CosmicRasterizer {
                 (g.left + g.width as i32) as f32,
                 (g.top + g.height as i32) as f32,
             ];
-            if any {
-                ink = [
-                    ink[0].min(r[0]),
-                    ink[1].min(r[1]),
-                    ink[2].max(r[2]),
-                    ink[3].max(r[3]),
-                ];
+            ink = if any {
+                ddi_actor::rect::union(ink, r)
             } else {
-                ink = r;
-                any = true;
-            }
+                r
+            };
+            any = true;
         }
         RunMetrics {
             advance,

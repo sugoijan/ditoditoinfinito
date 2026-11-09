@@ -25,6 +25,7 @@ mod mods;
 mod movies;
 mod noteskin_cache;
 mod noteskins;
+mod perf;
 mod play;
 mod preload;
 mod preview;

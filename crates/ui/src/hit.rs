@@ -21,7 +21,7 @@
 //! Actors are addressed by path (child indices from the root), valid
 //! until the tree changes, or by name ([`find`], depth first).
 
-use ddi_actor::{Actor, Kind};
+use ddi_actor::{Actor, Kind, rect};
 
 /// A 2D affine transform, `x' = m[0]x + m[2]y + m[4]`,
 /// `y' = m[1]x + m[3]y + m[5]` (the actor crate's).
@@ -73,17 +73,42 @@ impl Target {
 /// parent space to; the root's own placement applies), topmost first.
 pub fn hits(root: &Actor, transform: &Affine, point: [f32; 2]) -> Vec<Hit> {
     let mut out = Vec::new();
-    let mut path = Vec::new();
-    walk(root, transform, [1.0, 0.0], point, &mut path, &mut out, 0);
-    out.reverse();
+    let mut visit = |path: &[usize], local| {
+        out.push(Hit {
+            path: path.to_vec(),
+            local,
+        });
+        false
+    };
+    walk(
+        root,
+        transform,
+        [1.0, 0.0],
+        point,
+        &mut Vec::new(),
+        0,
+        &mut visit,
+    );
     out
 }
 
 /// The topmost target under `point` ([`hits`] resolved to named actors).
 pub fn target_at(root: &Actor, transform: &Affine, point: [f32; 2]) -> Option<Target> {
-    hits(root, transform, point)
-        .iter()
-        .find_map(|h| target_of(root, &h.path))
+    let mut target = None;
+    let mut visit = |path: &[usize], _| {
+        target = target_of(root, path);
+        target.is_some()
+    };
+    walk(
+        root,
+        transform,
+        [1.0, 0.0],
+        point,
+        &mut Vec::new(),
+        0,
+        &mut visit,
+    );
+    target
 }
 
 /// The nearest named actor at or above `path`, the root aside.
@@ -109,18 +134,20 @@ pub fn target_of(root: &Actor, path: &[usize]) -> Option<Target> {
 
 const MAX_DEPTH: usize = 40;
 
-/// `under` is the alpha and the glow's alpha a frame hands its children.
+/// Calls `visit` with each box under the point, topmost first, until it
+/// says to stop; whether it did. `under` is the alpha and the glow's alpha
+/// a frame hands its children.
 fn walk(
     a: &Actor,
     parent: &Affine,
     under: [f32; 2],
     point: [f32; 2],
     path: &mut Vec<usize>,
-    out: &mut Vec<Hit>,
     depth: usize,
-) {
+    visit: &mut dyn FnMut(&[usize], [f32; 2]) -> bool,
+) -> bool {
     if !a.visible || a.decoration || a.hibernating() || depth > MAX_DEPTH {
-        return;
+        return false;
     }
     // `Actor::draw`'s `PartiallyOpaque`: the corners' alphas times what
     // is handed down; the glow screened.
@@ -134,60 +161,56 @@ fn walk(
         g
     };
     if !(alpha.iter().any(|&c| c > 0.0) || glow > 0.0) {
-        return;
+        return false;
     }
     let m = mul(parent, &a.local_transform());
-    let Some(inv) = invert(&m) else { return };
+    let Some(inv) = invert(&m) else { return false };
     let p = apply(&inv, point);
     let size = a.size();
-    if matches!(a.kind, Kind::Sprite(_) | Kind::Text(_))
-        && size[0] > 0.0
-        && size[1] > 0.0
-        && p[0].abs() <= size[0] / 2.0
-        && p[1].abs() <= size[1] / 2.0
-    {
-        out.push(Hit {
-            path: path.clone(),
-            local: [p[0] + size[0] / 2.0, p[1] + size[1] / 2.0],
-        });
-    }
     let Kind::Frame(children) = &a.kind else {
-        return;
+        return matches!(a.kind, Kind::Sprite(_) | Kind::Text(_))
+            && size[0] > 0.0
+            && size[1] > 0.0
+            && p[0].abs() <= size[0] / 2.0
+            && p[1].abs() <= size[1] / 2.0
+            && visit(path, [p[0] + size[0] / 2.0, p[1] + size[1] / 2.0]);
     };
-    if let Some(r) = a.clip {
-        if !(p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3]) {
-            // Nothing inside can be hit here.
-            return;
-        }
-        out.push(Hit {
-            path: path.clone(),
-            local: [p[0] - r[0], p[1] - r[1]],
-        });
+    if let Some(r) = a.clip
+        && !(p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3])
+    {
+        // Nothing inside can be hit here.
+        return false;
     }
-    for i in draw_order(a, children) {
+    // The last drawn is on top.
+    let by_z = a.draw_by_z.then(|| sorted_by_z(children));
+    for drawn in (0..children.len()).rev() {
+        let i = by_z.as_ref().map_or(drawn, |order| order[drawn]);
         path.push(i);
-        walk(
+        let stop = walk(
             &children[i],
             &m,
             [alpha[0], glow],
             point,
             path,
-            out,
             depth + 1,
+            visit,
         );
         path.pop();
+        if stop {
+            return true;
+        }
     }
+    a.clip
+        .is_some_and(|r| visit(path, [p[0] - r[0], p[1] - r[1]]))
 }
 
-/// The children's indices in the order they are drawn.
-fn draw_order(frame: &Actor, children: &[Actor]) -> Vec<usize> {
+/// The children's indices in the order a frame drawing by z draws them.
+fn sorted_by_z(children: &[Actor]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..children.len()).collect();
-    if frame.draw_by_z {
-        order.sort_by(|&a, &b| {
-            let (za, zb) = (children[a].current().pos[2], children[b].current().pos[2]);
-            za.partial_cmp(&zb).unwrap_or(std::cmp::Ordering::Equal)
-        });
-    }
+    order.sort_by(|&a, &b| {
+        let (za, zb) = (children[a].current().pos[2], children[b].current().pos[2]);
+        za.partial_cmp(&zb).unwrap_or(std::cmp::Ordering::Equal)
+    });
     order
 }
 
@@ -232,8 +255,18 @@ pub fn find(root: &Actor, name: &str) -> Option<Vec<usize>> {
 
 /// The first actor named `name`.
 pub fn find_mut<'a>(root: &'a mut Actor, name: &str) -> Option<&'a mut Actor> {
-    let path = find(root, name)?;
-    actor_at_mut(root, &path)
+    fn go<'a>(a: &'a mut Actor, name: &str, depth: usize) -> Option<&'a mut Actor> {
+        if a.name == name {
+            return Some(a);
+        }
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        a.children_mut()
+            .iter_mut()
+            .find_map(|c| go(c, name, depth + 1))
+    }
+    go(root, name, 0)
 }
 
 /// The transform from the actor at `path`'s own space to the space
@@ -274,12 +307,7 @@ pub fn visible_rect(root: &Actor, transform: &Affine, path: &[usize]) -> Option<
         if actor_at(root, &path[..d]).is_some_and(|a| a.clip.is_some())
             && let Some(c) = bounds(root, transform, &path[..d])
         {
-            r = [
-                r[0].max(c[0]),
-                r[1].max(c[1]),
-                r[2].min(c[2]),
-                r[3].min(c[3]),
-            ];
+            r = rect::intersect(r, c);
         }
     }
     (r[2] > r[0] && r[3] > r[1]).then_some(r)
@@ -317,28 +345,15 @@ pub fn bounds(root: &Actor, transform: &Affine, path: &[usize]) -> Option<[f32; 
 /// The rectangle `rect` (`[left, top, right, bottom]`) covers once mapped
 /// by `m`: around its four corners.
 pub fn rect_bounds(m: &Affine, rect: [f32; 4]) -> [f32; 4] {
-    let corners = [
-        [rect[0], rect[1]],
-        [rect[2], rect[1]],
-        [rect[0], rect[3]],
-        [rect[2], rect[3]],
-    ]
-    .map(|p| apply(m, p));
-    let mut b = [
-        f32::INFINITY,
-        f32::INFINITY,
-        f32::NEG_INFINITY,
-        f32::NEG_INFINITY,
-    ];
-    for c in corners {
-        b = [
-            b[0].min(c[0]),
-            b[1].min(c[1]),
-            b[2].max(c[0]),
-            b[3].max(c[1]),
-        ];
-    }
-    b
+    rect::around(
+        [
+            [rect[0], rect[1]],
+            [rect[2], rect[1]],
+            [rect[0], rect[3]],
+            [rect[2], rect[3]],
+        ]
+        .map(|p| apply(m, p)),
+    )
 }
 
 /// The rectangle a named actor covers, or the union of what its
@@ -357,15 +372,7 @@ pub fn bounds_deep(root: &Actor, transform: &Affine, path: &[usize]) -> Option<[
             && shown(root, &child)
             && let Some(b) = bounds_deep(root, transform, &child)
         {
-            out = Some(match out {
-                None => b,
-                Some(o) => [
-                    o[0].min(b[0]),
-                    o[1].min(b[1]),
-                    o[2].max(b[2]),
-                    o[3].max(b[3]),
-                ],
-            });
+            out = Some(out.map_or(b, |o| rect::union(o, b)));
         }
         child.pop();
     }

@@ -209,7 +209,6 @@ impl Framed {
         ratio: f64,
         now: f64,
     ) {
-        use ddi_render::texture_cache::TextureKey;
         if self.viewport != Some((css.0, css.1, ratio)) {
             self.viewport = Some((css.0, css.1, ratio));
             self.ui.handle(ddi_ui::UiEvent::Resize {
@@ -222,14 +221,6 @@ impl Framed {
         self.ui.set_clock(now);
         self.ui.update(dt as f32);
         let vp = *self.ui.viewport();
-        let shift = [
-            1.0,
-            0.0,
-            0.0,
-            1.0,
-            vp.offset[0] / vp.scale,
-            vp.offset[1] / vp.scale,
-        ];
         let picture = self.picture.as_ref().map(|(t, _)| t);
         let registered = &mut self.registered;
         let ui = &mut self.ui;
@@ -239,15 +230,7 @@ impl Framed {
                 p.set_external_image(&gfx.device, SOURCE, picture);
                 *registered = true;
             }
-            let drawn = {
-                let mut measure = p.measure(vp.scale);
-                ui.draw_in(&mut measure, shift)
-            };
-            list.clear();
-            ddi_render::actors2d::append(&drawn, list, &mut |t| {
-                let image = ui.texture_source(t)?;
-                Some(p.texture(TextureKey::drawn(image.source, image.side * vp.scale)))
-            });
+            ddi_shell::ui_list(ui, p, list);
             p.draw(
                 &gfx.device,
                 &gfx.queue,

@@ -12,7 +12,8 @@
 //! reaching pack-level shared files), and missing references fall back to
 //! guessing from file names.
 
-use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ddi_chart::Song;
 
@@ -120,7 +121,7 @@ pub fn pack_banner<S: AsRef<str>>(pack_dir: &RelPath, paths: &[S]) -> Option<Rel
         paths
             .iter()
             .map(AsRef::as_ref)
-            .filter(|p| !is_ignored(p) && matches(p))
+            .filter(|p| matches(p) && !is_ignored(p))
             .filter_map(|p| Some((ext_rank(p)?, p.to_ascii_lowercase(), p)))
             .min()
             .map(|(_, _, p)| RelPathBuf::from(p))
@@ -148,11 +149,7 @@ pub fn is_ignored(path: &str) -> bool {
             return true;
         }
         if components.peek().is_none() {
-            let backup = matches!(
-                extension(c).map(str::to_ascii_lowercase).as_deref(),
-                Some("old" | "bak" | "ats" | "tmp")
-            );
-            return backup || c.ends_with('~');
+            return has_extension(c, &["old", "bak", "ats", "tmp"]) || c.ends_with('~');
         }
     }
     false
@@ -207,6 +204,74 @@ pub const AUDIO_EXTENSIONS: &[&str] = &["ogg", "oga", "opus", "mp3", "wav", "fla
 /// Image extensions tried for the banner and background fallbacks:
 /// StepMania's `FT_Bitmap` (`bmp`, `gif`, `jpeg`, `jpg`, `png`) plus `webp`.
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp"];
+
+/// Whether `path`'s extension is one of `list` (any case).
+pub fn has_extension(path: &str, list: &[&str]) -> bool {
+    extension(path).is_some_and(|e| list.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// Whether `path` is a sound file a song's music may be, by its extension.
+pub fn is_audio(path: &str) -> bool {
+    has_extension(path, AUDIO_EXTENSIONS)
+}
+
+/// A file listing's paths, found without regard to case as StepMania's
+/// file database finds them, and what each folder holds. Made once for
+/// the songs a listing serves; a path's first spelling in the list is the
+/// one found.
+#[derive(Debug, Default)]
+pub struct PathIndex<'a> {
+    paths: Vec<&'a str>,
+    files: HashMap<String, &'a str>,
+    folders: HashMap<String, &'a str>,
+    children: HashMap<&'a str, Vec<&'a str>>,
+}
+
+impl<'a> PathIndex<'a> {
+    pub fn new<S: AsRef<str>>(paths: &'a [S]) -> PathIndex<'a> {
+        let mut index = PathIndex {
+            paths: Vec::with_capacity(paths.len()),
+            ..PathIndex::default()
+        };
+        for p in paths.iter().map(AsRef::as_ref) {
+            index.paths.push(p);
+            if !p.ends_with('/') {
+                index.files.entry(p.to_lowercase()).or_insert(p);
+                index.children.entry(parent(p)).or_default().push(p);
+            }
+            // A folder seen before has had its parents listed too.
+            let mut end = p.len();
+            while let Some(slash) = p[..end].rfind('/') {
+                let Entry::Vacant(folder) = index.folders.entry(p[..slash].to_lowercase()) else {
+                    break;
+                };
+                folder.insert(&p[..slash]);
+                end = slash;
+            }
+        }
+        index
+    }
+
+    /// Every path, as listed.
+    pub fn paths(&self) -> &[&'a str] {
+        &self.paths
+    }
+
+    /// The file whose path in lower case is `lower`.
+    pub fn file(&self, lower: &str) -> Option<&'a str> {
+        self.files.get(lower).copied()
+    }
+
+    /// The folder holding a file whose path in lower case is `lower`.
+    pub fn folder(&self, lower: &str) -> Option<&'a str> {
+        self.folders.get(lower).copied()
+    }
+
+    /// The files directly in folder `dir`, spelled exactly so, as listed.
+    pub fn children(&self, dir: &RelPath) -> &[&'a str] {
+        self.children.get(dir.as_str()).map_or(&[], Vec::as_slice)
+    }
+}
 
 /// Asset paths of a song, relative to the import root (not to the song
 /// directory, since `../` references leave it).
@@ -298,38 +363,27 @@ impl std::fmt::Display for MissingTag {
 /// images whose names mark them as another kind (name without extension
 /// containing `cdtitle`, `jacket` or `albumart`, starting with `jk_`, or
 /// ending in `-cd`, ` disc` or ` title`).
-pub fn resolve_assets<S: AsRef<str>>(
-    song: &Song,
-    dir: &RelPath,
-    all_paths: &[S],
-) -> ResolvedAssets {
-    let mut lookup: BTreeMap<String, &str> = BTreeMap::new();
-    let mut children: Vec<&str> = Vec::new();
-    for p in all_paths {
-        let p = p.as_ref();
-        if is_ignored(p) || p.ends_with('/') {
-            continue;
-        }
-        lookup.entry(p.to_lowercase()).or_insert(p);
-        if parent(p) == dir {
-            children.push(p);
-        }
-    }
+pub fn resolve_assets(song: &Song, dir: &RelPath, paths: &PathIndex) -> ResolvedAssets {
+    let mut children: Vec<&str> = paths
+        .children(dir)
+        .iter()
+        .copied()
+        .filter(|p| !is_ignored(p))
+        .collect();
     children.sort_unstable();
 
     let find = |reference: Option<&str>| -> Option<RelPathBuf> {
         let path = dir.resolve(reference?)?;
-        lookup
-            .get(&path.as_str().to_lowercase())
-            .map(|p| RelPathBuf::from(*p))
+        paths
+            .file(&path.as_str().to_lowercase())
+            .filter(|p| !is_ignored(p))
+            .map(RelPathBuf::from)
     };
     let with_ext = |exts: &[&str]| -> Vec<&str> {
         children
             .iter()
             .copied()
-            .filter(|p| {
-                extension(p).is_some_and(|e| exts.iter().any(|x| e.eq_ignore_ascii_case(x)))
-            })
+            .filter(|p| has_extension(p, exts))
             .collect()
     };
 
@@ -498,7 +552,7 @@ const INSTALL_FOLDERS: [&str; 12] = [
 /// announcers' folders wherever they are ([`crate::announcer`]).
 pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(RelPathBuf, RelPathBuf)> {
     let announcers = crate::announcer::announcer_dirs(paths);
-    let mut charts: Vec<&str> = Vec::new();
+    let mut charts: BTreeSet<&str> = BTreeSet::new();
     let mut music: BTreeMap<&str, &str> = BTreeMap::new();
     for p in paths {
         let p = p.as_ref();
@@ -506,15 +560,24 @@ pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(RelPathBuf, R
             continue;
         }
         if ChartFormat::of(p).is_some() {
-            charts.push(parent(p));
-        } else if extension(p)
-            .is_some_and(|e| AUDIO_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
-        {
+            charts.insert(parent(p));
+        } else if is_audio(p) {
             music.entry(parent(p)).or_insert(p);
         }
     }
     let within = |inner: &str, outer: &str| {
         inner == outer || outer.is_empty() || inner.starts_with(&format!("{outer}/"))
+    };
+    // A simfile at `dir`, in a folder above it or in one below it.
+    let has_chart = |dir: &str| {
+        let above = std::iter::successors(Some(dir), |d| d.rfind('/').map(|i| &d[..i]));
+        let below = format!("{dir}/");
+        above.chain([""]).any(|d| charts.contains(d))
+            || (dir.is_empty() && !charts.is_empty())
+            || charts
+                .range(below.as_str()..)
+                .next()
+                .is_some_and(|c| c.starts_with(&below))
     };
     let install = |dir: &str| {
         dir.split('/')
@@ -523,9 +586,7 @@ pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(RelPathBuf, R
     music
         .into_iter()
         .filter(|(dir, _)| {
-            !install(dir)
-                && !charts.iter().any(|c| within(dir, c) || within(c, dir))
-                && !announcers.iter().any(|a| within(dir, a.as_str()))
+            !install(dir) && !has_chart(dir) && !announcers.iter().any(|a| within(dir, a.as_str()))
         })
         .map(|(dir, file)| (dir.into(), file.into()))
         .collect()
@@ -663,6 +724,23 @@ pub fn decode_legacy_names(
             .unwrap_or_else(|| raws.iter().map(|r| crate::zip::decode_cp437(r)).collect())
     };
     names.into_iter().map(|n| n.replace('\\', "/")).collect()
+}
+
+/// Gives a zip's entries with a legacy name ([`crate::zip::ZipEntry::legacy_name`])
+/// the names [`decode_legacy_names`] reads, decided for the whole archive.
+pub fn apply_legacy_names(
+    entries: &mut [crate::zip::ZipEntry],
+    legacy: impl Fn(Legacy, &[u8]) -> Option<String>,
+) {
+    let (at, raws): (Vec<usize>, Vec<&[u8]>) = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| Some((i, e.legacy_name.as_deref()?)))
+        .unzip();
+    let names = decode_legacy_names(&raws, legacy);
+    for (i, name) in at.into_iter().zip(names) {
+        entries[i].name = name;
+    }
 }
 
 /// Whether text decoded as Shift-JIS reads as Japanese rather than as
@@ -812,6 +890,10 @@ fn stem(path: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assets_of<S: AsRef<str>>(song: &Song, dir: &RelPath, paths: &[S]) -> ResolvedAssets {
+        resolve_assets(song, dir, &PathIndex::new(paths))
+    }
     use ddi_chart::formats::sm::parse_sm;
 
     fn song(header: &str) -> Song {
@@ -957,7 +1039,7 @@ mod tests {
         let mut s = song("#BANNER:../Shared-BN.png;\n#BACKGROUND:./bg.jpg;");
         // Set directly: the MSD parser treats a backslash as an escape.
         s.music = Some(" audio\\song.ogg ".into());
-        let r = resolve_assets(&s, RelPath::new("P/S"), &paths);
+        let r = assets_of(&s, RelPath::new("P/S"), &paths);
         assert_eq!(
             r.music.as_deref().map(RelPath::as_str),
             Some("P/S/Audio/Song.OGG")
@@ -984,7 +1066,7 @@ mod tests {
     #[test]
     fn references_cannot_escape_the_root() {
         let s = song("#MUSIC:../../../etc/passwd;");
-        let r = resolve_assets(&s, RelPath::new("S"), &["S/a.sm", "etc/passwd"]);
+        let r = assets_of(&s, RelPath::new("S"), &["S/a.sm", "etc/passwd"]);
         assert_eq!(r.music, None);
     }
 
@@ -1002,7 +1084,7 @@ mod tests {
             "S/._fake.ogg",
         ];
         let s = song("#MUSIC:missing.ogg;\n#BANNER:;");
-        let r = resolve_assets(&s, RelPath::new("S"), &paths);
+        let r = assets_of(&s, RelPath::new("S"), &paths);
         assert_eq!(r.music.as_deref().map(RelPath::as_str), Some("S/main.mp3"));
         assert_eq!(
             r.banner.as_deref().map(RelPath::as_str),
@@ -1020,11 +1102,11 @@ mod tests {
         );
 
         // A single intro-named file is still the music.
-        let r = resolve_assets(&song(""), RelPath::new("S"), &["S/s.sm", "S/Intro.wav"]);
+        let r = assets_of(&song(""), RelPath::new("S"), &["S/s.sm", "S/Intro.wav"]);
         assert_eq!(r.music.as_deref().map(RelPath::as_str), Some("S/Intro.wav"));
 
         // Never the same image twice: "banner background.png" is the banner.
-        let r = resolve_assets(
+        let r = assets_of(
             &song(""),
             RelPath::new("S"),
             &["S/s.sm", "S/banner background.png", "S/x background.jpg"],
@@ -1037,7 +1119,7 @@ mod tests {
             r.background.as_deref().map(RelPath::as_str),
             Some("S/x background.jpg")
         );
-        let r = resolve_assets(
+        let r = assets_of(
             &song(""),
             RelPath::new("S"),
             &["S/s.sm", "S/banner background.png"],
@@ -1046,7 +1128,7 @@ mod tests {
 
         // Nothing at all.
         assert_eq!(
-            resolve_assets(&song(""), RelPath::new("S"), &["S/s.sm"]),
+            assets_of(&song(""), RelPath::new("S"), &["S/s.sm"]),
             ResolvedAssets::default()
         );
     }
@@ -1055,7 +1137,7 @@ mod tests {
     fn unclassified_images() {
         let mut s = song("#JACKET:art.png;");
         s.cd_title = Some("logo.gif".into());
-        let r = resolve_assets(
+        let r = assets_of(
             &s,
             RelPath::new("S"),
             &[

@@ -4,10 +4,47 @@
 #![allow(dead_code)]
 
 use ddi_chart::{
-    BpmSegment, Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo,
-    StopSegment, Tick, TimingMap,
+    BpmSegment, Chart, Difficulty, Note, NoteKind, Song, StopSegment, Tick, TimingMap,
 };
-use ddi_engine::player::Player;
+use ddi_engine::JudgeEvent;
+use ddi_engine::autoplay;
+use ddi_engine::history::replay;
+use ddi_engine::player::{PlayOptions, Player, Results};
+use ddi_engine::rules::Ruleset;
+
+/// Plays `song` under `rules` with `edges` (`(song seconds, lane,
+/// pressed)`) to the end: its results and events in order, its key and
+/// log judged again to the same results.
+pub fn run(
+    song: &Song,
+    rules: Ruleset,
+    mut edges: Vec<(f64, u8, bool)>,
+) -> (Results, Vec<JudgeEvent>) {
+    autoplay::sort_edges(&mut edges);
+    let mut p = Player::new(song, 0, rules, PlayOptions::default());
+    p.start(0.0, 0.0);
+    let mut events = Vec::new();
+    for (t, lane, pressed) in edges {
+        events.extend(p.update_at(t));
+        events.extend(p.input_at(lane, pressed, t));
+    }
+    events.extend(p.update_at(1e6));
+    let r = p.results();
+    let key = p.ruleset().key();
+    assert_eq!(
+        replay(song, 0, &key, &PlayOptions::default(), p.log()),
+        r,
+        "{key:?}"
+    );
+    (r, events)
+}
+
+/// [`run`] with the engine's autoplay script.
+pub fn autoplayed(song: &Song, rules: Ruleset) -> Results {
+    let probe = Player::new(song, 0, rules.fresh(), PlayOptions::default());
+    let edges = autoplay::edges(autoplay::script(probe.judge().notes(), 0.0));
+    run(song, rules, edges).0
+}
 
 /// A small deterministic generator (xorshift64*).
 pub struct Rng(pub u64);
@@ -35,46 +72,12 @@ impl Rng {
 }
 
 pub fn song(layout: &str, timing: TimingMap, notes: Vec<Note>) -> Song {
-    Song {
-        title: "Cadence".into(),
-        subtitle: String::new(),
-        artist: "test".into(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
+    Song::generated(
+        "Cadence",
         timing,
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: layout.into(),
-            difficulty: Difficulty::Hard,
-            meter: 9,
-            name: "cadence".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    }
+        Chart::plain(layout, Difficulty::Hard, 9, notes),
+        "test",
+    )
 }
 
 /// A chart of four lanes on a 48ths grid: taps, jumps, holds and rolls

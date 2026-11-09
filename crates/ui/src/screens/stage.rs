@@ -19,16 +19,16 @@ use ddi_l10n::msg::studio as m;
 use ddi_library::announcer::Comment;
 
 use super::{Env, frame, left, right};
-use crate::look::{Spec, call, mono_width, quad, tracked};
-use crate::message::{Message, Param};
+use crate::look::{Spec, call, ellipsized, mono_width, quad, quad_at, tracked};
+use crate::message::Message;
 use crate::screen::{Cx, Handled, Input, Screen, Stage};
 
-/// What a step shows: [`Param::Str`] `Text`, the caption.
+/// What a step shows: `Str` `Text`, the caption.
 pub const CAPTION: &str = "Stage.Caption";
-/// The scene ends in [`Param::Num`] `Seconds` (the progress bar's end).
+/// The scene ends in `Num` `Seconds` (the progress bar's end).
 pub const UNTIL: &str = "Stage.Until";
-/// A line said now: [`Param::Str`] `Text` (its words, or its name), for
-/// [`Param::Num`] `Seconds`.
+/// A line said now: `Str` `Text` (its words, or its name), for
+/// `Num` `Seconds`.
 pub const SAY: &str = "Stage.Say";
 /// The scene is over: the frame goes.
 pub const END: &str = "Stage.End";
@@ -291,7 +291,7 @@ impl StageFrame {
             x0,
             line_y,
         );
-        cut(&mut heard, x1 - x0 - voice_w - 24.0);
+        ellipsized(&mut heard, (x1 - x0 - voice_w - 24.0).max(40.0));
         children.push(heard);
         children.push(right(
             env.text("Stage.Voice", &self.voice, 13.0, 400, "Muted"),
@@ -301,8 +301,12 @@ impl StageFrame {
         // Below: how far along, what happens, the way back.
         let below = top + 2.0 * BEZEL + h * scale;
         let bar_w = x1 - x0;
-        let mut track = quad("Stage.Track", [bar_w, 3.0], env.color("Line2"));
-        call(&mut track, "xy", &[x0 + bar_w / 2.0, below + 8.0]);
+        let track = quad_at(
+            "Stage.Track",
+            [bar_w, 3.0],
+            env.color("Line2"),
+            [x0 + bar_w / 2.0, below + 8.0],
+        );
         let mut fill = quad("Stage.Progress", [bar_w, 3.0], env.color("Accent"));
         call(&mut fill, "xy", &[x0, below + 8.0]);
         call(&mut fill, "halign", &[0.0]);
@@ -332,7 +336,7 @@ impl StageFrame {
             x0,
             row_y,
         );
-        cut(&mut caption, bar_w - button_w - 24.0);
+        ellipsized(&mut caption, (bar_w - button_w - 24.0).max(40.0));
         children.push(caption);
         // Over the picture: the words said.
         let mut plate = quad("Stage.SubtitlePlate", [1.0, 1.0], [0.0, 0.0, 0.0, 0.72]);
@@ -344,7 +348,7 @@ impl StageFrame {
             600,
             "Text",
         );
-        cut(&mut words, w * scale - 48.0);
+        ellipsized(&mut words, (w * scale - 48.0).max(40.0));
         let mut subtitle = frame("Stage.SubtitleFrame", vec![plate, words]);
         subtitle.visible = false;
         subtitle.decoration = true;
@@ -417,27 +421,12 @@ impl StageFrame {
     }
 }
 
-/// `a` (a run of text) cut to `width`, with an ellipsis.
-fn cut(a: &mut Actor, width: f32) {
-    if let Kind::Text(t) = &mut a.kind {
-        t.max_width = width.max(40.0);
-        t.ellipsis = true;
-    }
-}
-
 fn text_of(m: &Message, key: &str) -> String {
-    match m.get(key) {
-        Some(Param::Str(s)) => s.clone(),
-        _ => String::new(),
-    }
+    m.str(key).unwrap_or_default().to_string()
 }
 
 fn seconds_of(m: &Message) -> Option<f64> {
-    match m.get("Seconds") {
-        Some(Param::Num(n)) if n.is_finite() => Some(*n),
-        Some(Param::Int(n)) => Some(*n as f64),
-        _ => None,
-    }
+    m.num("Seconds").filter(|n| n.is_finite())
 }
 
 impl Screen for StageFrame {

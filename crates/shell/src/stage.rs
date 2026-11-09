@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use ddi_engine::sprites::{SpriteSource, SpriteTrack};
 use ddi_render::Renderer;
+use ddi_render::noteskin::NoteskinPlay;
 use ddi_render::stage::{self, StageTexture};
 use ddi_render::textured::TexQuad;
 use ddi_session::stage::StageLayers;
@@ -25,6 +26,56 @@ pub trait StageContent {
     /// Copies it into `texture`'s first level, `size` pixels (its size,
     /// each side at least 1).
     fn write(&self, queue: &wgpu::Queue, texture: &wgpu::Texture, size: [u32; 2]);
+
+    /// Copies it to a new texture registered as a noteskin image's (a
+    /// model's with `mipmaps`, as StepMania's are), and says which.
+    fn upload(
+        &self,
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mipmaps: bool,
+    ) -> u32 {
+        let [w, h] = self.size();
+        let pixels = [w.max(1), h.max(1)];
+        renderer.add_noteskin_image(device, queue, pixels, mipmaps, |texture| {
+            self.write(queue, texture, pixels);
+        })
+    }
+}
+
+impl<C: StageContent> StageContent for &C {
+    fn size(&self) -> [u32; 2] {
+        (**self).size()
+    }
+
+    fn write(&self, queue: &wgpu::Queue, texture: &wgpu::Texture, size: [u32; 2]) {
+        (**self).write(queue, texture, size);
+    }
+}
+
+/// Gives the renderer `play`'s textures: the built-in art, and the decoded
+/// `images` (in texture order; none for built-in art), a model's with
+/// mipmaps.
+pub fn upload_noteskin<C: StageContent>(
+    renderer: &mut Renderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    play: &mut NoteskinPlay,
+    images: impl IntoIterator<Item = Option<C>>,
+) {
+    let mut images = images.into_iter();
+    let keys = play.texture_keys().to_vec();
+    for (i, key) in keys.iter().enumerate() {
+        let id = match (key, images.next().flatten()) {
+            (ddi_noteskin::build::TextureKey::BuiltIn(name), _) => {
+                renderer.add_builtin_art(device, queue, name)
+            }
+            (_, Some(image)) => image.upload(renderer, device, queue, play.texture_mipmaps(i)),
+            (_, None) => continue,
+        };
+        play.set_texture(i, id);
+    }
 }
 
 /// The layers in a play: the contents decoded, their textures, the
@@ -36,6 +87,8 @@ pub struct StageView<C> {
     contents: HashMap<SpriteSource, (C, (f32, f32))>,
     /// Contents copied to the GPU since the textures were last cleared.
     textures: HashMap<SpriteSource, StageTexture>,
+    /// A content decoded is not on the GPU yet.
+    pending: bool,
 }
 
 impl<C> Default for StageView<C> {
@@ -44,6 +97,7 @@ impl<C> Default for StageView<C> {
             layers: StageLayers::default(),
             contents: HashMap::new(),
             textures: HashMap::new(),
+            pending: false,
         }
     }
 }
@@ -64,29 +118,30 @@ impl<C: StageContent> StageView<C> {
     pub fn add(&mut self, source: SpriteSource, content: C, size: (f32, f32)) {
         self.textures.remove(&source);
         self.contents.insert(source, (content, size));
+        self.pending = true;
     }
 
     /// The renderer's skin textures were cleared, and these with them.
     pub fn forget_textures(&mut self) {
         self.textures.clear();
+        self.pending = !self.contents.is_empty();
     }
 
     /// Whether a decoded content is not on the GPU yet.
     pub fn pending(&self) -> bool {
-        self.contents.keys().any(|s| !self.textures.contains_key(s))
+        self.pending
     }
 
     /// Copies the decoded contents not on the GPU yet.
     pub fn upload(&mut self, renderer: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue) {
+        if !std::mem::take(&mut self.pending) {
+            return;
+        }
         for (source, (content, size)) in &self.contents {
             if self.textures.contains_key(source) {
                 continue;
             }
-            let [w, h] = content.size();
-            let pixels = [w.max(1), h.max(1)];
-            let id = renderer.add_noteskin_image(device, queue, pixels, false, |texture| {
-                content.write(queue, texture, pixels);
-            });
+            let id = content.upload(renderer, device, queue, false);
             self.textures
                 .insert(source.clone(), StageTexture { id, size: *size });
         }

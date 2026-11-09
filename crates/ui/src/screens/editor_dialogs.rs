@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use ddi_actor::Actor;
 
-use super::select_dialogs::{button, fitted_dialog, shell, wrap, wrap_lines};
+use super::dialog::{button_rows, fitted_dialog, shell, wrap_lines};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode};
@@ -16,172 +16,8 @@ use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::set_text;
 use ddi_l10n::msg::editor as em;
 
-/// What picking an action does (its id).
-pub type PickFn = Rc<dyn Fn(&str, &mut Cx)>;
-
 /// What a typed value does: `Err` says why it was not taken.
 pub type SubmitFn = Rc<dyn Fn(&str, &mut Cx) -> Result<(), String>>;
-
-/// Height of an action's button and the gap after it.
-const ROW: f32 = 40.0;
-const GAP: f32 = 8.0;
-
-/// A list of actions: picking one closes the list, then does it.
-pub struct ActionsDialog {
-    env: Env,
-    title: String,
-    note: String,
-    /// `(id, label)`.
-    items: Vec<(String, String)>,
-    on_pick: PickFn,
-    page: usize,
-    per_page: usize,
-}
-
-impl ActionsDialog {
-    pub fn new(env: Env, title: &str, items: Vec<(String, String)>, on_pick: PickFn) -> Self {
-        ActionsDialog {
-            env,
-            title: title.into(),
-            note: String::new(),
-            items,
-            on_pick,
-            page: 0,
-            per_page: usize::MAX,
-        }
-    }
-
-    /// With a line of text under the title.
-    pub fn with_note(mut self, note: &str) -> Self {
-        self.note = note.into();
-        self
-    }
-
-    fn name(id: &str) -> String {
-        format!("Item.{id}")
-    }
-}
-
-impl Screen for ActionsDialog {
-    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
-        Some(self.env.presentation())
-    }
-
-    fn name(&self) -> &str {
-        "editor-actions"
-    }
-
-    fn build(&mut self, cx: &mut Cx) -> Actor {
-        let vp = cx.viewport().screen;
-        let (screen, scale) = super::narrow_fit(&self.env, vp);
-        let env = self.env.clone();
-        let top = if self.note.is_empty() { 64.0 } else { 86.0 };
-        let fit = (((screen[1] - 32.0 - top - 20.0) / (ROW + GAP)).floor() as usize).max(3);
-        let columns = if screen[0] >= 720.0 { 2 } else { 1 };
-        self.per_page = (fit * columns).saturating_sub(3).max(1);
-        self.page = self
-            .page
-            .min(self.items.len().saturating_sub(1) / self.per_page);
-        let start = self.page * self.per_page;
-        let end = (start + self.per_page).min(self.items.len());
-        let n = end - start + 1 + usize::from(self.page > 0) + usize::from(end < self.items.len());
-        let columns = columns.min(n);
-        let rows = n.div_ceil(columns);
-        let col_w =
-            ((screen[0] - 32.0 - 48.0 - (columns - 1) as f32 * 10.0) / columns as f32).min(300.0);
-        let w = (columns as f32 * col_w + (columns - 1) as f32 * 10.0 + 48.0).max(320.0);
-        let w = w.min(screen[0] - 16.0);
-        let h = top + rows as f32 * (ROW + GAP) + 20.0;
-        let (mut c, [x, y]) = shell(&env, screen, [w, h], &self.title);
-        if !self.note.is_empty() {
-            let mut t = env.text("Note", &self.note, 13.0, 400, "Muted");
-            wrap(&mut t, w - 48.0);
-            c.push(left(t, x + 24.0, y + 58.0));
-        }
-        let ids = self
-            .items
-            .iter()
-            .skip(start)
-            .take(self.per_page)
-            .map(|(id, label)| (Self::name(id), label.clone()))
-            .chain((self.page > 0).then(|| ("PreviousPage".into(), em::previous_page().into())))
-            .chain((end < self.items.len()).then(|| ("NextPage".into(), em::next_page().into())))
-            .chain(std::iter::once((
-                "Close".to_string(),
-                ddi_l10n::msg::common::close().into(),
-            )));
-        for (i, (name, label)) in ids.enumerate() {
-            let (col, row) = (i / rows, i % rows);
-            let cx_ = x + 24.0 + col as f32 * (col_w + 10.0) + col_w / 2.0;
-            let cy = y + top + row as f32 * (ROW + GAP) + ROW / 2.0;
-            c.push(button(&env, &name, &label, [cx_, cy], col_w, "Button"));
-        }
-        // Where the shells' debug views find the buttons.
-        env.state.borrow_mut().page_items = self.focusables().into_iter().map(|f| f.name).collect();
-        fitted_dialog(c, screen, h, scale)
-    }
-
-    fn focusables(&self) -> Vec<Focusable> {
-        let start = self.page.saturating_mul(self.per_page);
-        let mut names: Vec<_> = self
-            .items
-            .iter()
-            .skip(start)
-            .take(self.per_page)
-            .map(|(id, _)| Self::name(id))
-            .collect();
-        if self.page > 0 {
-            names.push("PreviousPage".into());
-        }
-        if start.saturating_add(self.per_page) < self.items.len() {
-            names.push("NextPage".into());
-        }
-        names.push("Close".into());
-        names
-            .iter()
-            .enumerate()
-            .map(|(i, n)| {
-                let mut f = Focusable::new(n);
-                f.up = i.checked_sub(1).map(|j| names[j].clone());
-                f.down = names.get(i + 1).cloned();
-                f
-            })
-            .collect()
-    }
-
-    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
-        match input {
-            Input::Activate { name } if name == "PreviousPage" || name == "NextPage" => {
-                if name == "PreviousPage" {
-                    self.page = self.page.saturating_sub(1);
-                } else {
-                    self.page += 1;
-                }
-                *root = self.build(cx);
-                if let Some(f) = self.focusables().first() {
-                    cx.focus(f.name.clone());
-                }
-                Handled::Yes
-            }
-            Input::Activate { name } if name == "Close" => {
-                cx.close(true);
-                Handled::Yes
-            }
-            Input::Activate { name } => {
-                if let Some(id) = name.strip_prefix("Item.") {
-                    cx.close(false);
-                    (self.on_pick)(id, cx);
-                }
-                Handled::Yes
-            }
-            Input::Outside => {
-                cx.close(true);
-                Handled::Yes
-            }
-            _ => Handled::No,
-        }
-    }
-}
 
 /// A value to type: Enter or OK takes it (when it can be), Escape or
 /// Cancel leaves it as it was.
@@ -271,26 +107,14 @@ impl Screen for ValueDialog {
         self.field.look = env.look.clone();
         c.push(self.field.build(&*env.look));
         let mut error = env.text("Error", &self.error, 13.0, 400, "Accent");
-        wrap(&mut error, w - 48.0);
+        crate::look::ellipsized(&mut error, w - 48.0);
         c.push(left(error, x + 24.0, at + 58.0));
-        let bw = ((w - 58.0) / 2.0).min(160.0);
-        let by = y + h - 36.0;
-        c.push(button(
-            &env,
-            "Cancel",
-            &ddi_l10n::msg::common::cancel(),
-            [x + w - 24.0 - bw * 1.5 - 10.0, by],
-            bw,
-            "Button",
-        ));
-        c.push(button(
-            &env,
-            "Ok",
-            &em::ok(),
-            [x + w - 24.0 - bw / 2.0, by],
-            bw,
-            "Button",
-        ));
+        let buttons = [
+            ("Cancel", ddi_l10n::msg::common::cancel().into(), "Button"),
+            ("Ok", em::ok().into(), "Button"),
+        ];
+        // Eight lower than the other dialogs' buttons.
+        c.extend(button_rows(&env, &buttons, 2, [x, y + 8.0, w, h], 160.0));
         let mut root = fitted_dialog(c, screen, h, scale);
         if !self.started {
             // Typing at once: the dialog is opened by a press.

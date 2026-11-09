@@ -523,25 +523,36 @@ pub fn hud_areas(geo: &FieldGeometry, span: f32) -> Vec<[f32; 4]> {
 /// and an arrow's height of the approach on the side the notes come from:
 /// what lyrics never cover.
 pub fn receptor_areas(geo: &FieldGeometry, layout: &Layout) -> Vec<[f32; 4]> {
+    receptor_rows(geo, layout).collect()
+}
+
+/// [`receptor_areas`] one by one: a frame asks for them, and a lane's
+/// receptors lie at one of two places ([`FieldGeometry::lane_receptor_y`]),
+/// so there are two rows at most.
+pub(crate) fn receptor_rows(
+    geo: &FieldGeometry,
+    layout: &Layout,
+) -> impl Iterator<Item = [f32; 4]> {
     let a = geo.arrow;
     let span = field_span(layout);
     let (x0, x1) = (geo.left - a * 0.2, geo.left + a * span + a * 0.2);
-    let mut rows: Vec<f32> = Vec::new();
+    let height = geo.height;
+    let mut rows = [None::<f32>; 2];
     for l in &layout.lanes {
         let y = geo.lane_receptor_y(l.scroll_sign);
-        if !rows.iter().any(|r| (r - y).abs() < 0.5) {
-            rows.push(y);
+        if !rows.iter().flatten().any(|r| (r - y).abs() < 0.5)
+            && let Some(free) = rows.iter_mut().find(|r| r.is_none())
+        {
+            *free = Some(y);
         }
     }
-    rows.into_iter()
-        .map(|y| {
-            if y < geo.height / 2.0 {
-                [x0, y - a * 0.6, x1, y + a]
-            } else {
-                [x0, y - a, x1, y + a * 0.6]
-            }
-        })
-        .collect()
+    rows.into_iter().flatten().map(move |y| {
+        if y < height / 2.0 {
+            [x0, y - a * 0.6, x1, y + a]
+        } else {
+            [x0, y - a, x1, y + a * 0.6]
+        }
+    })
 }
 
 /// Draws the quit button ([`quit_button`]) over everything else: a dark

@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ddi_actor::commands::{Arg, Call, color_from_string, to_lua};
+use ddi_actor::commands::{Arg, color_from_string, to_lua};
 use ddi_actor::{METHODS, Problems, Value as Got};
 use ddi_lua::lunita::{
     Callback, CallbackReturn, Context, Error, Execution, Table, UserData, Value,
@@ -1399,10 +1399,6 @@ fn native_method<'gc>(
         for i in 1..stack.len().min(17) {
             args.push(arg(ctx, stack.get(i), m, i)?);
         }
-        let call = Call {
-            method: m.to_string(),
-            args,
-        };
         let mut host = shared.borrow_mut();
         let Some(actor) = host.stage.get_mut(id) else {
             return Err(error(ctx, format!("{m}: the actor is gone")));
@@ -1411,7 +1407,7 @@ fn native_method<'gc>(
         // visit.
         charge(&mut exec, actor.work(m) * 64);
         let mut problems = Problems::default();
-        let r = actor.call(&call, &mut problems, 0);
+        let r = actor.invoke(m, &args, &mut problems, 0);
         for p in problems.messages {
             host.warn(p);
         }

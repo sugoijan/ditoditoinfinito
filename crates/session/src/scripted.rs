@@ -342,26 +342,21 @@ impl Scripts {
         };
         let mut textures = Textures::default();
         let mut notes = Vec::new();
-        let mut list: Vec<Background> = Vec::new();
-        for (script, color) in layers.iter().flatten().filter_map(scripted) {
-            if list.iter().any(|b| b.script == script && b.color == color) {
-                continue;
-            }
-            let tree = match (&animations, lua.as_mut()) {
-                (Some(skin), _) if native(&script) => Some(Drawn::native(animation(
+        let mut tree_of = async |script: &str, color: Option<[f32; 4]>| {
+            let tint = color.map(|[r, g, b, a]| format!("{r},{g},{b},{a}"));
+            Ok::<_, String>(match (&animations, lua.as_mut()) {
+                (Some(skin), _) if native(script) => Some(Drawn::native(animation(
                     skin,
-                    &script,
-                    Some(color),
+                    script,
+                    color,
                     screen,
                     (&mut textures, images, &mut notes),
                 ))),
                 (_, Some(lua)) => {
-                    let [r, g, b, a] = color;
-                    let tint = format!("{r},{g},{b},{a}");
                     let path = format!("{root}{script}");
                     build(
                         lua,
-                        (&path, Some(&tint)),
+                        (&path, tint.as_deref()),
                         (&mut textures, images, &mut notes),
                         pause.as_deref_mut(),
                     )
@@ -369,7 +364,14 @@ impl Scripts {
                     .map(Drawn::Lua)
                 }
                 _ => None,
-            };
+            })
+        };
+        let mut list: Vec<Background> = Vec::new();
+        for (script, color) in layers.iter().flatten().filter_map(scripted) {
+            if list.iter().any(|b| b.script == script && b.color == color) {
+                continue;
+            }
+            let tree = tree_of(&script, Some(color)).await?;
             list.push(Background {
                 script,
                 color,
@@ -378,30 +380,9 @@ impl Scripts {
         }
         let mut fgs = Vec::new();
         for fg in foregrounds {
-            let tree = match (&animations, lua.as_mut()) {
-                (Some(skin), _) if native(&fg.script) => Some(Drawn::native(animation(
-                    skin,
-                    &fg.script,
-                    None,
-                    screen,
-                    (&mut textures, images, &mut notes),
-                ))),
-                (_, Some(lua)) => {
-                    let path = format!("{root}{}", fg.script);
-                    build(
-                        lua,
-                        (&path, None),
-                        (&mut textures, images, &mut notes),
-                        pause.as_deref_mut(),
-                    )
-                    .await?
-                    .map(Drawn::Lua)
-                }
-                _ => None,
-            };
             fgs.push(Foreground {
                 seconds: fg.seconds,
-                tree,
+                tree: tree_of(&fg.script, None).await?,
                 until: None,
                 done: false,
             });
@@ -602,6 +583,9 @@ impl Scripts {
         let Some(lua) = self.lua.as_mut() else {
             return;
         };
+        if lua.movies().is_empty() {
+            return;
+        }
         let mut given: Vec<(u32, f64)> = Vec::new();
         let mut stack: Vec<&mut Actor> = self
             .backgrounds

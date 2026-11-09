@@ -157,6 +157,27 @@ pub struct JudgeTable {
 }
 
 impl JudgeTable {
+    /// What a preset does not say: StepMania's dance game, as
+    /// [`presets::sm5`] (no tiers until the preset names them).
+    pub const DANCE: JudgeTable = JudgeTable {
+        tiers: [None; 5],
+        scale: 1.0,
+        add: 0.0,
+        hold_window: 0.25,
+        roll_window: 0.5,
+        mine_window: 0.09,
+        w0: None,
+        empty_press: EmptyPress::Ignore,
+        hold: HoldRules::Decay,
+        hold_start: HoldStart::JUDGED,
+        supersede: None,
+        just: None,
+        judge_offset: 0.0,
+        shock_rows: false,
+        miss_at: None,
+        taps_only: false,
+    };
+
     /// Fast/slow dead zone when a ruleset names none: 1 ms, so presses on
     /// time (autoplay) count as neither.
     pub const DEFAULT_JUST: Window = Window::symmetric(0.001);
@@ -345,6 +366,21 @@ pub struct ComboRules {
     /// purposes)", RemyWiki's AC DDRMAX).
     #[serde(default)]
     pub jumps_add_each: bool,
+}
+
+impl ComboRules {
+    /// What a preset does not say: StepMania's dance game, a Great or
+    /// better adding one a note and nothing else touching the combo.
+    pub const DANCE: ComboRules = ComboRules {
+        continue_min: Judgement::W3,
+        per_row: false,
+        held_increments: false,
+        let_go_breaks: false,
+        mine_breaks: false,
+        neutral: None,
+        let_go_loses_full_combo: false,
+        jumps_add_each: false,
+    };
 }
 
 /// What happens when the gauge says "failed".
@@ -820,8 +856,6 @@ pub trait ScoreRules {
     fn begin(&mut self, ctx: &ScoreCtx);
     fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx);
     fn view(&self) -> ScoreView;
-    /// Called once when the song ends.
-    fn finish(&mut self);
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn ScoreRules>;
 }
@@ -977,12 +1011,23 @@ impl Ruleset {
     /// Dancing☆Onigiri's or FFR's rules, not calibration's): those the
     /// player's [`StepManiaOptions`] apply to.
     pub fn is_stepmania(&self) -> bool {
-        !matches!(self.id.as_str(), "danoni" | "ffr" | "calibration")
+        self.takes_chart_combos() && self.id != "calibration"
     }
 
     /// Whether these are FFR's rules ([`presets::ffr`]).
     pub fn is_ffr(&self) -> bool {
         self.id == "ffr"
+    }
+
+    /// Whether these are Dancing☆Onigiri's rules ([`danoni::ruleset`]).
+    pub fn is_danoni(&self) -> bool {
+        self.id == "danoni"
+    }
+
+    /// Whether a chart's `#COMBOS` counts: a StepMania rule, so neither
+    /// under Dancing☆Onigiri's nor FFR's.
+    pub fn takes_chart_combos(&self) -> bool {
+        !self.is_danoni() && !self.is_ffr()
     }
 
     /// Whether the player's DDR gauge ([`StepManiaOptions::gauge`])
@@ -1067,21 +1112,7 @@ mod tests {
     fn table(tiers: [f64; 5]) -> JudgeTable {
         JudgeTable {
             tiers: tiers.map(|s| Some(Window::symmetric(s))),
-            scale: 1.0,
-            add: 0.0,
-            hold_window: 0.25,
-            roll_window: 0.5,
-            mine_window: 0.09,
-            w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
-            shock_rows: false,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         }
     }
 
@@ -1121,16 +1152,7 @@ mod tests {
 
     #[test]
     fn full_combo_lamps() {
-        let combo = ComboRules {
-            continue_min: Judgement::W3,
-            per_row: false,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
-        };
+        let combo = ComboRules::DANCE;
         let mut tally = Tally::default();
         tally.taps[0] = 10;
         assert_eq!(FullCombo::evaluate(&tally, &combo), FullCombo::MarvelousFC);

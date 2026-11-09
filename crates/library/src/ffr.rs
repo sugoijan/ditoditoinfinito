@@ -30,7 +30,7 @@ use ddi_chart::Song;
 use ddi_chart::formats::ffr::{LevelInfo, Value, parse_beatbox_text, song_from_beatbox};
 
 use crate::manifest::{EntryMeta, ManifestEntry, summarize};
-use crate::pack::{self, AUDIO_EXTENSIONS};
+use crate::pack;
 use crate::path::{RelPath, RelPathBuf};
 use crate::report::Finding;
 
@@ -138,10 +138,7 @@ fn music_beside(level: &RelPath, paths: &[&str]) -> Option<RelPathBuf> {
         .iter()
         .map(RelPath::new)
         .filter(|p| {
-            p.parent() == dir
-                && !pack::is_ignored(p.as_str())
-                && p.extension()
-                    .is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+            p.parent() == dir && !pack::is_ignored(p.as_str()) && pack::is_audio(p.as_str())
         })
         .collect();
     let stem = level.file_stem().to_lowercase();
@@ -165,6 +162,23 @@ pub struct LevelSong {
     /// The level as the web stores it ([`STORED_CHART`]): its `beatBox`
     /// and where its music starts (R^3's `mp3Frame`), as JSON.
     pub beatbox: String,
+}
+
+/// The song of a `beatBox` titled `title`, its music starting at game
+/// frame `music_frame` (`frame_start`: [`LevelInfo::frame_start`]).
+fn song_of(
+    beatbox: &Value,
+    title: &str,
+    music_frame: i64,
+    frame_start: bool,
+) -> Result<Song, String> {
+    let info = LevelInfo {
+        title: title.to_string(),
+        music_frame,
+        frame_start,
+        ..LevelInfo::default()
+    };
+    song_from_beatbox(beatbox, &info).map_err(|e| e.to_string())
 }
 
 /// A level's `beatBox` and the game frame its music starts at, as the web
@@ -213,12 +227,7 @@ pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>,
         }
         (beatbox, None, 0)
     };
-    let info = LevelInfo {
-        title: c.title.clone(),
-        music_frame,
-        ..LevelInfo::default()
-    };
-    let song = song_from_beatbox(&beatbox, &info).map_err(|e| Finding::Other(e.to_string()))?;
+    let song = song_of(&beatbox, &c.title, music_frame, false).map_err(Finding::Other)?;
     Ok(Some(LevelSong {
         song,
         mp3,
@@ -230,7 +239,7 @@ pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>,
 /// its folder in place; [`STORED_CHART`] and the stored music's name on
 /// the web).
 pub fn entry(c: &LevelCandidate, song: &Song, chart: &str, music: &str) -> ManifestEntry {
-    let mut entry = summarize(
+    summarize(
         EntryMeta {
             id: c.id.clone(),
             title: c.title.clone(),
@@ -239,9 +248,7 @@ pub fn entry(c: &LevelCandidate, song: &Song, chart: &str, music: &str) -> Manif
             ..EntryMeta::default()
         },
         song,
-    );
-    crate::works::fill_chart_keys(&mut entry, song);
-    entry
+    )
 }
 
 /// The names a level's files have in place, relative to its folder:
@@ -291,13 +298,7 @@ pub fn chart_song_and_music(
             0,
         )
     };
-    let info = LevelInfo {
-        title: title.to_string(),
-        music_frame,
-        ..LevelInfo::default()
-    };
-    let song = song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())?;
-    Ok((song, mp3))
+    Ok((song_of(&beatbox, title, music_frame, false)?, mp3))
 }
 
 /// A level the web stored ([`STORED_CHART`]: [`LevelSong::beatbox`]) read
@@ -326,13 +327,7 @@ pub fn stored_chart_song(bytes: &[u8], title: &str) -> Result<Song, String> {
             true,
         )
     };
-    let info = LevelInfo {
-        title: title.to_string(),
-        music_frame,
-        frame_start,
-        ..LevelInfo::default()
-    };
-    song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())
+    song_of(&beatbox, title, music_frame, frame_start)
 }
 
 /// A song's music file's bytes as audio: a SWF's MP3 taken out of it

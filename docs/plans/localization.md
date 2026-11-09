@@ -293,7 +293,7 @@ As built in step 2:
   Hangul) as a full em, which these faces keep.
 - **Line breaking**: Unicode's rules (UAX #14, the `unicode-linebreak`
   crate), `ddi_actor::text::wrap`, in place of
-  `select_dialogs::wrap_lines`' spaces and the lyrics' own wrap
+  `dialog::wrap_lines`' spaces and the lyrics' own wrap
   (`crates/render/src/lyrics.rs`). Japanese breaks between characters but
   never before 。、」ー, small kana and their kind, nor after 「（; the
   rest at UAX #14's opportunities (after a hyphen too). No-break spaces

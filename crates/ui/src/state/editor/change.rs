@@ -124,10 +124,9 @@ impl Change {
                     i += 1;
                     !gone[i - 1]
                 });
-                for n in added {
-                    let at = notes.partition_point(|m| (m.tick, m.lane) < (n.tick, n.lane));
-                    notes.insert(at, n.clone());
-                }
+                // Sorted, and only the new ones out of place: one merge.
+                notes.extend(added.iter().cloned());
+                notes.sort_by_key(|n| (n.tick, n.lane));
             }
             Change::Timing {
                 chart: None, after, ..

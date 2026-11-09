@@ -120,12 +120,7 @@ impl PlaySession {
     /// Advance to the current host time. Returns judge events for effects.
     pub(crate) fn tick(&mut self, host_now: HostTime) -> (Vec<JudgeEvent>, Option<SessionEvent>) {
         let out = self.core.tick(host_now);
-        let view = self.core.view;
-        self.render.hide_notes = view.hide_notes;
-        self.render.cancel_progress = view.cancel_progress;
-        self.render.cancel_hint = view.cancel_hint;
-        self.render.restarting = view.restarting;
-        self.render.ghost = self.core.ghost_delta().map(ddi_shell::score_delta);
+        ddi_shell::apply_view(&mut self.render, self.core.view, self.core.ghost_delta());
         out
     }
 
@@ -265,17 +260,7 @@ impl ddi_session::play::Inputs for WebInputs {
     fn connected_pads(&self) -> Vec<ConnectedPad> {
         self.gamepads
             .as_ref()
-            .map(|g| {
-                g.pads()
-                    .into_iter()
-                    .map(|p| ConnectedPad {
-                        vendor_product: None,
-                        id: p.id,
-                        index: p.index,
-                        standard: p.standard,
-                    })
-                    .collect()
-            })
+            .map(Gamepads::connected)
             .unwrap_or_default()
     }
 

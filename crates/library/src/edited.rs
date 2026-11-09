@@ -52,7 +52,6 @@ pub fn entry_after_edit(
                 .and_then(|o| o.music.clone());
         }
     }
-    crate::works::fill_chart_keys(&mut entry, &song);
     Ok(entry)
 }
 
@@ -75,9 +74,7 @@ pub fn entry_for_new(
         music,
         ..EntryMeta::default()
     };
-    let mut entry = summarize(meta, &song);
-    crate::works::fill_chart_keys(&mut entry, &song);
-    Ok(entry)
+    Ok(summarize(meta, &song))
 }
 
 #[cfg(test)]

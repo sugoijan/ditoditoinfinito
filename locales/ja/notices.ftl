@@ -25,3 +25,7 @@ notices-keep-songs = 保持する
 notices-only-zips = パックとして読み込めるのはZIPファイルだけです。除外したもの：{ $files }。曲のフォルダーは「フォルダーを選択」で追加します。
 
 notices-new-song-failed = 新しい曲を作成できませんでした：{ $error }
+
+notices-import-running-remove-reread = インポート中です。完了するまで、削除とフォルダーの読み直しは行えません。
+
+notices-import-running-remove = インポート中です。完了するまで、削除は行えません。

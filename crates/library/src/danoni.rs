@@ -116,18 +116,21 @@ impl StoredWork {
 
     /// The song this stored work file describes.
     pub fn song(&self, shared: Option<&str>) -> Result<Song, String> {
-        let import = danoni::import(&self.dos(shared)?)?;
-        import
-            .music
-            .iter()
-            .position(|m| *m == self.music)
-            .map(|k| {
-                let mut song = import.songs[k].clone();
-                song.add_chart_versions();
-                song
-            })
-            .ok_or_else(|| format!("the work has no music number {}", self.music))
+        numbered_song(danoni::import(&self.dos(shared)?)?, self.music)
     }
+}
+
+/// The song of music number `music_no` of an imported work, with its
+/// generated chart versions.
+pub(crate) fn numbered_song(mut import: danoni::Import, music_no: usize) -> Result<Song, String> {
+    let k = import
+        .music
+        .iter()
+        .position(|m| *m == music_no)
+        .ok_or_else(|| format!("the work has no music number {music_no}"))?;
+    let mut song = import.songs.swap_remove(k);
+    song.add_chart_versions();
+    Ok(song)
 }
 
 /// A place a work may be.

@@ -11,7 +11,7 @@ use ddi_engine::frame::Frame;
 use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
-use ddi_engine::rules::{JudgeNames, Ruleset};
+use ddi_engine::rules::Ruleset;
 use ddi_engine::{ConnectedPad, ControlBindings, FieldPlace, PadBindings};
 use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, RawInput};
 use ddi_ui::state::history::{
@@ -335,7 +335,6 @@ impl<I: Inputs> Drop for Running<I> {
 pub struct PlaySession<A: AudioBackend, I: Inputs> {
     pub player: Player,
     pub layout: Layout,
-    pub names: JudgeNames,
     /// The ruleset played by, fresh (its windows and gauge for the
     /// results).
     pub rules: Ruleset,
@@ -404,10 +403,8 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     ghost_delta: Option<GhostDelta>,
     /// The mine sound and the assist clap (none in calibration).
     sounds: EventSounds<A::Buffer>,
-    /// Where the music's song second `t` plays on the audio clock:
-    /// `start_ctx + (t − song_offset) / rate`.
-    start_ctx: f64,
-    song_offset: f64,
+    /// Where the music's song seconds play on the audio clock.
+    timing: Timing,
     /// The announcer: its lines over the play and on its results (off in
     /// calibration; silent until the shell hands it a voice).
     announcer: Announcer<A::Buffer>,
@@ -587,7 +584,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // A replay is never autoplayed; a staged play always is.
         let staging = config.staging.clone().filter(|_| config.replay.is_none());
         let auto_play = (config.auto || staging.is_some()) && config.replay.is_none();
-        let names = ruleset.names.clone();
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
         // Any key for the one lane (calibration by ear): judged there, shown
@@ -728,17 +724,18 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .filter(|n| n.judgeable && n.seconds >= song_offset)
             .map(|n| n.seconds)
             .reduce(f64::min);
+        let timing = Timing {
+            start: start_ctx,
+            offset: song_offset,
+            rate: player.clock().options().rate,
+        };
         let announcer = Announcer::new(
             config.calibration.is_none(),
             config.voice_volume,
             config
                 .prior
                 .filter(|_| config.replay.is_none() && !auto_play),
-            Timing {
-                start: start_ctx,
-                offset: song_offset,
-                rate: player.clock().options().rate,
-            },
+            timing,
             first_note,
         );
         let announcer = if config.restart {
@@ -782,7 +779,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             volume: config.volume,
             player,
             layout,
-            names,
             rules,
             length: duration,
             view: SessionView {
@@ -823,8 +819,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             ghost: config.ghost.as_ref().map(Ghost::run),
             ghost_delta: None,
             sounds,
-            start_ctx,
-            song_offset,
+            timing,
             announcer,
             scene_until: staging.as_ref().and_then(|s| s.until),
             scene_restart: staging.as_ref().and_then(|s| s.restart),
@@ -852,8 +847,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         Some(cal.outcome(t.taps[0], t.taps[5]))
     }
 
-    /// [`Outcome::should_stop_early`] of [`Self::calibration_outcome`],
-    /// without working out the residuals every frame.
+    /// [`ddi_engine::calibration::stop_early`] on what
+    /// [`Self::calibration_outcome`] counts, without working out the
+    /// residuals every frame.
     fn calibration_stops_early(&self) -> bool {
         self.calibration.is_some() && {
             let t = self.player.tally();
@@ -1052,13 +1048,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
         // The event sounds: a mine stepped on now (the step that failed
         // the play too), the claps due soon while it goes on.
-        let now = self.audio.now().context_time;
+        let now = sample.context_time;
         self.sounds.judged(&mut *self.audio, now, &events);
         if !self.player.finished() {
-            let (start, offset) = (self.start_ctx, self.song_offset);
-            let rate = self.player.clock().options().rate;
+            let timing = self.timing;
             self.sounds
-                .schedule(&mut *self.audio, now, |t| start + (t - offset) / rate);
+                .schedule(&mut *self.audio, now, |t| timing.at(t));
         }
         for ev in &events {
             if let JudgeEventKind::Tap(j, delta) = ev.kind

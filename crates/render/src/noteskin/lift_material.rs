@@ -57,14 +57,14 @@ impl NoteskinPlay {
                     * frame.appearance.visibility(note.y + y / 64.0).0
             };
             let rows = |from: f32, to: f32| {
-                let mut out = Vec::new();
                 let mut y = from;
-                while y < to {
-                    let end = (y + 4.0).min(to);
-                    out.push((y, end));
-                    y = end;
-                }
-                out
+                std::iter::from_fn(move || {
+                    (y < to).then(|| {
+                        let row = (y, (y + 4.0).min(to));
+                        y = row.1;
+                        row
+                    })
+                })
             };
             let posed = |role: &str| {
                 trail
@@ -119,24 +119,12 @@ impl NoteskinPlay {
                     .as_ref()
                     .and_then(|f| Some((f, f.material.as_deref()?)));
                 if let (Some(mask), Some((fill, m))) = (posed("trail"), material)
-                    && let (Some(index), Some(slot)) = (m.compiled, self.material_slot(m.params))
-                {
-                    let image_id = |n: usize| {
-                        m.images
-                            .get(n)
-                            .and_then(|&t| self.texture_id(t))
-                            .unwrap_or(UNTEXTURED)
-                    };
-                    let base = crate::material::MaterialQuad {
-                        material: crate::material::LOCAL | index,
-                        slot,
-                        axes: [0.0; 4],
-                        origin: [0.0; 2],
-                        phase: fill.value(ddi_noteskin::component::Property::Phase, &clocks),
+                    && let Some(base) = self.material_quad(
+                        m,
+                        fill.value(ddi_noteskin::component::Property::Phase, &clocks),
                         seed,
-                        value: [0.0; 4],
-                        images: [image_id(0), image_id(1)],
-                    };
+                    )
+                {
                     out.push(clear_quad());
                     out.push(quad(mask, far, near, Mask::Write, [1.0; 2]));
                     out.extend(&protect);

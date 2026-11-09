@@ -3,9 +3,53 @@
 use std::borrow::Cow;
 
 use crate::layout::Layout;
-use crate::model::{Chart, Difficulty, Song, SourceFormat, SourceInfo};
+use crate::model::{Chart, Difficulty, DisplayBpm, Song, SourceFormat, SourceInfo};
+use crate::timing::TimingMap;
 
 impl Song {
+    /// A song of `format` with nothing in it yet (what an importer fills
+    /// in): no charts, no files, 60 BPM.
+    pub fn empty(format: SourceFormat) -> Song {
+        Song {
+            title: String::new(),
+            subtitle: String::new(),
+            artist: String::new(),
+            title_translit: String::new(),
+            subtitle_translit: String::new(),
+            artist_translit: String::new(),
+            genre: String::new(),
+            credit: String::new(),
+            music: None,
+            preview_start: 0.0,
+            preview_length: 0.0,
+            banner: None,
+            background: None,
+            jacket: None,
+            cd_title: None,
+            timing: TimingMap::constant(60.0, 0.0),
+            display_bpm: DisplayBpm::Actual,
+            charts: Vec::new(),
+            effects: Vec::new(),
+            keysounds: Vec::new(),
+            layouts: Vec::new(),
+            source: SourceInfo {
+                format,
+                unknown_tags: Vec::new(),
+            },
+        }
+    }
+
+    /// A song made in code: `title`, `timing` and the one `chart`, its
+    /// format `SourceFormat::Other(tag)`.
+    pub fn generated(title: &str, timing: TimingMap, chart: Chart, tag: &str) -> Song {
+        Song {
+            title: title.to_string(),
+            timing,
+            charts: vec![chart],
+            ..Song::empty(SourceFormat::Other(tag.to_string()))
+        }
+    }
+
     /// First chart with the given layout id (e.g. `dance-single`) and difficulty.
     pub fn chart_by(&self, layout: &str, difficulty: Difficulty) -> Option<&Chart> {
         self.charts
@@ -21,6 +65,11 @@ impl Song {
             .find(|l| l.id == chart.layout)
             .cloned()
             .or_else(|| Layout::builtin(&chart.layout))
+    }
+
+    /// Whether the game knows a chart's layout ([`Song::layout_of`]).
+    pub fn has_layout(&self, chart: &Chart) -> bool {
+        self.layouts.iter().any(|l| l.id == chart.layout) || Layout::is_builtin(&chart.layout)
     }
 
     /// The file a tag the model keeps as written (`source.unknown_tags`)
@@ -77,7 +126,7 @@ impl Song {
 
     /// Charts whose layout is known (the ones the game can play).
     pub fn playable_charts(&self) -> impl Iterator<Item = &Chart> {
-        self.charts.iter().filter(|c| self.layout_of(c).is_some())
+        self.charts.iter().filter(|c| self.has_layout(c))
     }
 
     /// Moves every note `seconds` later relative to the music (negative:

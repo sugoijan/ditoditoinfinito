@@ -63,7 +63,7 @@ a `NoteskinPlay` and its images) depends on more than the lanes' buttons:
 - The skin's Lua VM stays with the play and was run with the load's
   `Env`. The diagram's is the demo song's at 150 BPM
   (`SkinWant::env`, `crates/render/src/field_preview.rs` 166-185); the
-  play's is the chart's (`ddi_shell::play_skin`/`play_skins`:
+  play's is the chart's (`ddi_shell::play_skins`:
   `chart_env` timing, difficulty, first and last beat, shifted by the
   song offset). A skin reading `GetTimingData` or the difficulty at load
   would be wrong for the play.
@@ -143,8 +143,8 @@ Each shell keeps its load starter, putting a skin on its `FieldPreview`
   `ready()`. Callers unchanged: `ui_dev.rs` 2120-2170, `preload.rs`
   233-257.
 
-Later, the editor field hosts can hold a `SkinSlot` too (their want is a
-`SkinWant` and its layout); not part of these steps.
+The editor field hosts hold a `SkinSlot` too (their want is a `SkinWant`
+and its layout, each load started with the chart's `Env`).
 
 ### Design: shared prepare work, and no poll
 

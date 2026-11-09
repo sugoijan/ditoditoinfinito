@@ -7,31 +7,33 @@
 //! play reads it (`crate::play::skins`), the built-in arrows until then.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
-use ddi_chart::Layout;
 use ddi_render::Painter;
 use ddi_render::editor_field::{EditorField, SOURCE};
-use ddi_render::field_preview::SkinWant;
 use ddi_shell::editor_field::Shown;
+use ddi_shell::field_preview::SkinSlot;
 use ddi_ui::screens::editor_field::FieldPicture;
 use ddi_ui::state::editor::Editor;
+use ddi_ui::state::settings::Settings;
+
+use crate::field_preview::Load;
 
 thread_local! {
     static SHOWN: RefCell<Shown> = RefCell::default();
 }
 
 /// The editor's picture from now on (`None`: none; the texture goes).
-pub fn show(picture: Option<&FieldPicture>, editor: &Editor) {
-    SHOWN.with_borrow_mut(|s| s.show(picture, editor, crate::store::settings_cached));
+pub fn show(picture: Option<Rc<FieldPicture>>, editor: &Editor) {
+    SHOWN.with_borrow_mut(|s| s.show(picture, editor, Settings::cached));
 }
 
 /// The field on the device, while the editor shows it.
 #[derive(Default)]
 pub struct EditorFieldHost {
     field: Option<EditorField>,
-    /// The skin shown, and the one being read.
-    shown: Option<SkinWant>,
-    reading: Option<(SkinWant, crate::play::skins::Reading, Layout)>,
+    /// The skin wanted, shown and being read.
+    skin: SkinSlot<Load>,
     /// The texture generation the painter was given.
     registered: Option<u64>,
 }
@@ -45,7 +47,7 @@ impl EditorFieldHost {
 
     /// A skin is being read: frames go on until it comes.
     pub fn busy(&self) -> bool {
-        self.reading.is_some()
+        self.skin.loading()
     }
 
     /// The noteskin drawn (`None`: the built-in arrows), its name.
@@ -77,18 +79,15 @@ impl EditorFieldHost {
         encoder: &mut wgpu::CommandEncoder,
         painter: &mut Painter,
     ) {
-        let (picture, want, colors, changed) = SHOWN.with_borrow_mut(|s| {
-            let changed = std::mem::take(&mut s.changed);
-            (s.picture.clone(), s.want.clone(), s.colors, changed)
-        });
-        let Some(picture) = picture else {
+        let shown = SHOWN.with_borrow_mut(Shown::take);
+        let Some(picture) = shown.picture else {
             if self.registered.take().is_some() {
                 painter.set_external_image(device, SOURCE, None);
             }
             if let Some(f) = &mut self.field {
                 f.release_targets();
             }
-            self.reading = None;
+            self.skin.cancel();
             return;
         };
         let field = self.field.get_or_insert_with(|| {
@@ -99,44 +98,27 @@ impl EditorFieldHost {
                 &[ddi_render::HUD_FONT],
             )
         });
-        let mut redraw = changed || !field.has_targets();
+        let mut redraw = shown.changed || !field.has_targets();
         // The skin wanted: read on a thread (an older read let go).
-        if let Some((want, env)) = want
-            && self.shown.as_ref() != Some(&want)
-            && self.reading.as_ref().is_none_or(|(w, ..)| *w != want)
-        {
-            let layout = want.layout();
-            match &want.key {
-                Some(key) => {
-                    let reading = crate::play::skins::Reading::start(key, &layout, env, None);
-                    self.reading = Some((want, reading, layout));
-                }
-                None => {
-                    field.set_noteskin(device, queue, None, |_, _| {});
-                    self.reading = None;
-                    self.shown = Some(want);
-                    redraw = true;
-                }
+        if let Some(want) = &shown.want {
+            self.skin.want_own_layout(&want.0);
+            let skin = self
+                .skin
+                .step(|key, layout, _| Load::start(key, layout, want.1.clone()));
+            if let Some(prepared) = skin {
+                let (play, images) = match prepared {
+                    Some(p) => (Some(p.play), p.images),
+                    None => (None, Vec::new()),
+                };
+                field.set_noteskin(device, queue, play, |renderer, play| {
+                    crate::play::view::upload_noteskin(renderer, device, queue, play, &images);
+                });
+                redraw = true;
             }
-        }
-        if let Some((want, reading, layout)) = &self.reading
-            && let Some(read) = reading.poll()
-        {
-            let prepared = read.and_then(|r| crate::play::skins::build(r, layout));
-            let (play, images) = match prepared {
-                Some(p) => (Some(p.play), p.images),
-                None => (None, Vec::new()),
-            };
-            field.set_noteskin(device, queue, play, |renderer, play| {
-                crate::play::view::upload_noteskin(renderer, device, queue, play, &images);
-            });
-            self.shown = Some(want.clone());
-            self.reading = None;
-            redraw = true;
         }
         if redraw {
             let layout = ddi_shell::editor_field::layout(&picture);
-            let d = ddi_shell::editor_field::draw(&picture, &layout, colors);
+            let d = ddi_shell::editor_field::draw(&picture, &layout, shown.colors);
             let size = ddi_shell::editor_field::size(&picture);
             field.draw(device, queue, encoder, size, &d);
         }

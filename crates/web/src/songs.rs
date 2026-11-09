@@ -10,9 +10,11 @@ use std::collections::BTreeMap;
 
 use ddi_chart::Song;
 use ddi_library::backgrounds::BgImage;
+pub(crate) use ddi_library::backgrounds::SharedFound;
 use ddi_library::path::RelPath;
 use ddi_library::scan::parse_simfile;
 use ddi_ui::screens::failures::LoadFailure;
+use ddi_ui::state::place::same_pack;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::Blob;
@@ -309,6 +311,25 @@ pub(crate) struct Library {
 }
 
 impl Library {
+    /// Every song, the bundled ones first.
+    pub(crate) fn entries(&self) -> impl Iterator<Item = &ManifestEntry> + Clone {
+        self.bundled
+            .iter()
+            .chain(self.imported.iter().map(|s| &s.entry))
+    }
+
+    /// The song `id`.
+    pub(crate) fn entry(&self, id: &str) -> Option<&ManifestEntry> {
+        self.entries().find(|e| e.id == id)
+    }
+
+    /// The imported songs of the pack `name`.
+    pub(crate) fn of_pack<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a ImportedSong> {
+        self.imported
+            .iter()
+            .filter(move |s| same_pack(&s.pack, name))
+    }
+
     /// A share's songs alone, as a library (`crate::share`): song select
     /// in its shared mode lists them.
     pub(crate) fn of_share(share: &crate::share::Share) -> Library {
@@ -627,10 +648,6 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, LoadFailur
         })
 }
 
-/// Background-change images a song shows at most, its own and shared ones
-/// together (each is decoded and kept on the GPU during play).
-pub(crate) const MAX_BG_IMAGES: usize = 32;
-
 /// Storage key of an image from a shared background folder
 /// (`RandomMovies/…`, `SongMovies/…`), kept for the whole library.
 pub(crate) fn shared_key(shared_path: &str) -> String {
@@ -944,9 +961,7 @@ async fn fill_digests(found: &Found, song: &Song) {
 pub(crate) async fn find_by_digest(digests: &[ddi_chart::ChartDigest]) -> Option<String> {
     let library = Library::load().await.ok()?;
     library
-        .bundled
-        .iter()
-        .chain(library.imported.iter().map(|s| &s.entry))
+        .entries()
         .find(|e| {
             e.charts
                 .iter()
@@ -1019,13 +1034,7 @@ pub(crate) async fn load_song(id: &str, chart: usize) -> Result<LoadedSong, Load
 pub(crate) async fn shared_found(entry: &ManifestEntry, pack: &str) -> Result<SharedFound, String> {
     let db = Db::open().await?;
     let shared = shared_paths(&db).await.unwrap_or_default();
-    let found = ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
-    let (videos, mut images): (Vec<_>, Vec<_>) = found
-        .into_iter()
-        .map(|(name, path)| (name.into_string(), path.into_string()))
-        .partition(|(name, _)| ddi_library::video::is_movie(name));
-    images.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
-    Ok((images, videos))
+    Ok(ddi_library::backgrounds::shared_split(entry, pack, &shared))
 }
 
 /// The random movies an imported song of `pack` plays
@@ -1058,9 +1067,6 @@ pub(crate) async fn random_found(
         .map(|p| (p.clone(), p))
         .collect()
 }
-
-/// [`shared_found`]'s images and movies.
-pub(crate) type SharedFound = (Vec<(String, String)>, Vec<(String, String)>);
 
 /// The song a stored Dancing☆Onigiri work file describes, with the work's
 /// fields read from where they are stored once for all its songs.

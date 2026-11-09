@@ -13,8 +13,8 @@
 
 use ddi_platform::video::{VideoCodec, VideoContainer, VideoFormat};
 
-use crate::bytes::{be16, be32, be64, le32};
-use crate::pack::extension;
+use crate::bytes::{be16, be32, be64, le32, riff_chunks};
+use crate::pack::has_extension;
 
 /// File extensions StepMania treats as movies (`ActorUtil.cpp`, 5_1-new).
 pub const MOVIE_EXTENSIONS: &[&str] = &[
@@ -31,7 +31,7 @@ pub const MP4_INDEX_LEN: usize = 4 << 20;
 
 /// Whether StepMania would load `path` as a movie.
 pub fn is_movie(path: &str) -> bool {
-    extension(path).is_some_and(|e| MOVIE_EXTENSIONS.iter().any(|m| e.eq_ignore_ascii_case(m)))
+    has_extension(path, MOVIE_EXTENSIONS)
 }
 
 /// What the movie whose first bytes are `head` is. Never fails: bytes it
@@ -99,30 +99,14 @@ pub fn dimensions(head: &[u8]) -> Option<(u32, u32)> {
 /// An AVI's video stream's `BITMAPINFOHEADER` size (`strf`: `biWidth` at
 /// 4, `biHeight` at 8, negative for a top-down image).
 fn avi_size(b: &[u8]) -> Option<(u32, u32)> {
-    for (id, start, end) in riff_chunks(b, 12, b.len()) {
-        if &id != b"LIST" || b.get(start..start + 4) != Some(b"hdrl") {
-            continue;
-        }
-        for (id, start, end) in riff_chunks(b, start + 4, end) {
-            if &id != b"LIST" || b.get(start..start + 4) != Some(b"strl") {
-                continue;
-            }
-            let chunks = riff_chunks(b, start + 4, end);
-            let strh = chunks.iter().find(|(id, ..)| id == b"strh");
-            let Some(&(_, h, _)) = strh else { continue };
-            if b.get(h..h + 4) != Some(b"vids") {
-                continue;
-            }
-            let &(_, f, fe) = chunks.iter().find(|(id, ..)| id == b"strf")?;
-            if f + 12 > fe {
-                return None;
-            }
-            let w = le32(b, f + 4)? as i32;
-            let h = le32(b, f + 8)? as i32;
-            return Some((w.unsigned_abs(), h.unsigned_abs()));
-        }
+    let (_, strf) = avi_video_stream(b)?;
+    let (f, fe) = strf?;
+    if f + 12 > fe {
+        return None;
     }
-    None
+    let w = le32(b, f + 4)? as i32;
+    let h = le32(b, f + 8)? as i32;
+    Some((w.unsigned_abs(), h.unsigned_abs()))
 }
 
 /// An MP4's first video track's sample entry size (`stsd`'s first entry:
@@ -293,51 +277,51 @@ fn vfw_codec(code: &[u8]) -> VideoCodec {
 
 /// RIFF chunks of `b` from `at` to `end`: `(id, data start, data end)`, the
 /// data clipped to what `b` holds.
-fn riff_chunks(b: &[u8], mut at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
-    let end = end.min(b.len());
-    let mut out = Vec::new();
-    while end.checked_sub(at).is_some_and(|left| left >= 8) && out.len() < 256 {
-        let Some(id) = b.get(at..at + 4).and_then(|s| <[u8; 4]>::try_from(s).ok()) else {
-            break;
-        };
-        let size = le32(b, at + 4).unwrap_or(0) as usize;
-        let data = at + 8;
-        out.push((id, data, data.saturating_add(size).min(end)));
-        // Chunks are padded to an even size.
-        at = match data.checked_add(size).and_then(|e| e.checked_add(size & 1)) {
-            Some(next) => next,
-            None => break,
-        };
+fn clipped_chunks(b: &[u8], at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
+    let limit = end.min(b.len());
+    let mut chunks = riff_chunks(b, at, end, 256);
+    for (_, _, data_end) in &mut chunks {
+        *data_end = (*data_end).min(limit);
     }
-    out
+    chunks
 }
 
-/// The codec of an AVI's first video stream: `strf`'s compression, else
-/// `strh`'s handler.
-fn avi(b: &[u8]) -> VideoCodec {
-    for (id, start, end) in riff_chunks(b, 12, b.len()) {
+/// An AVI's first video stream in its `hdrl` list: where `strh`'s data
+/// starts, and `strf`'s data, if it has one.
+fn avi_video_stream(b: &[u8]) -> Option<(usize, Option<(usize, usize)>)> {
+    for (id, start, end) in clipped_chunks(b, 12, b.len()) {
         if &id != b"LIST" || b.get(start..start + 4) != Some(b"hdrl") {
             continue;
         }
-        for (id, start, end) in riff_chunks(b, start + 4, end) {
+        for (id, start, end) in clipped_chunks(b, start + 4, end) {
             if &id != b"LIST" || b.get(start..start + 4) != Some(b"strl") {
                 continue;
             }
-            let chunks = riff_chunks(b, start + 4, end);
+            let chunks = clipped_chunks(b, start + 4, end);
             let strh = chunks.iter().find(|(id, ..)| id == b"strh");
             let Some(&(_, h, _)) = strh else { continue };
             if b.get(h..h + 4) != Some(b"vids") {
                 continue;
             }
-            if let Some(&(_, f, fe)) = chunks.iter().find(|(id, ..)| id == b"strf")
-                && let Some(code) = b.get(f + 16..f + 20).filter(|_| f + 20 <= fe)
-            {
-                return vfw_codec(code);
-            }
-            return b.get(h + 4..h + 8).map_or(VideoCodec::Unknown, vfw_codec);
+            let strf = chunks.iter().find(|(id, ..)| id == b"strf");
+            return Some((h, strf.map(|&(_, f, fe)| (f, fe))));
         }
     }
-    VideoCodec::Unknown
+    None
+}
+
+/// The codec of an AVI's first video stream: `strf`'s compression, else
+/// `strh`'s handler.
+fn avi(b: &[u8]) -> VideoCodec {
+    let Some((h, strf)) = avi_video_stream(b) else {
+        return VideoCodec::Unknown;
+    };
+    if let Some((f, fe)) = strf
+        && let Some(code) = b.get(f + 16..f + 20).filter(|_| f + 20 <= fe)
+    {
+        return vfw_codec(code);
+    }
+    b.get(h + 4..h + 8).map_or(VideoCodec::Unknown, vfw_codec)
 }
 
 /// Where an MP4's index (`moov`) starts when the first bytes, `head`, do

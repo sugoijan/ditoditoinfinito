@@ -139,6 +139,12 @@ pub struct Debug {
 }
 
 impl Generated {
+    /// Makes its pass ahead of its first frame (behind the start prompt).
+    pub fn warm(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.pipeline
+            .get_or_insert_with(|| GenerativePipeline::new(device, queue));
+    }
+
     pub fn new(want: Want) -> Generated {
         Generated {
             want,

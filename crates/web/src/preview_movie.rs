@@ -111,7 +111,7 @@ impl PreviewMovieHost {
                         // Read: the deck opens it.
                         Some((_, Ok((blob, format)))) => {
                             let mut deck = MovieDeck::default();
-                            deck.add_source(name.clone(), blob, format, false);
+                            deck.add_source(name, blob, format, false);
                             self.deck = Some(deck);
                         }
                         Some((_, Err(e))) => {
@@ -123,9 +123,9 @@ impl PreviewMovieHost {
                 }
                 if let Some(deck) = &mut self.deck {
                     // Made for the first movie of the page.
-                    let (_, picture) = self.picture.get_or_insert_with(|| {
-                        (gfx.generation, MoviePicture::new(&gfx.device, &gfx.queue))
-                    });
+                    let (_, picture) = self
+                        .picture
+                        .get_or_insert_with(|| (gfx.generation, MoviePicture::new(&gfx.device)));
                     deck.update(&layers, t, picture.renderer_mut(), &gfx.device, &gfx.queue);
                     let shown = deck.stats().shown;
                     let id = deck
@@ -212,7 +212,9 @@ impl PreviewMovieHost {
         );
         set(
             "decoder",
-            self.deck.as_ref().map_or(null, |d| d.debug().into()),
+            self.deck
+                .as_ref()
+                .map_or(null, |d| crate::web::json(&d.debug())),
         );
         obj
     }

@@ -44,8 +44,6 @@ pub struct PlayInfo<'a> {
     /// The song's offset: as played, as set now (seconds); `None`: no
     /// editor (not a song).
     pub offset: Option<(f64, f64)>,
-    /// The panel set the player chose last.
-    pub panels: String,
     /// Autoplayed (`&auto=1`, the song list's switch): never counted.
     pub autoplay: bool,
 }
@@ -303,7 +301,6 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     let panel_sets = panel_sets();
     // The main set, whatever the setting says: the others wait for a
     // picker (the tabs went; `Settings::results_panels` stays for it).
-    let _ = &p.panels;
     let panel_set = 0;
     ResultsData {
         // The chart, the ruleset by its name and the autoplay's mark:
@@ -352,7 +349,6 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         }),
         panel_sets,
         panel_set,
-        note: String::new(),
         song: p.song.clone(),
         kind: Default::default(),
     }
@@ -668,7 +664,6 @@ mod tests {
             device_changed: false,
             video_notes: Vec::new(),
             offset: Some((0.0, 0.0)),
-            panels: "Timing".into(),
             autoplay: false,
         }
     }

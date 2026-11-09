@@ -41,6 +41,7 @@ use ddi_library::pack;
 use ddi_library::report::Finding;
 use ddi_library::scan::{self, Reader};
 use ddi_platform::storage::{self, Area};
+use ddi_ui::state::place::same_pack;
 use serde::{Deserialize, Serialize};
 
 use files::{DirReader, Listed, ZipReader};
@@ -96,13 +97,6 @@ pub fn all_folders() -> Vec<PathBuf> {
 pub fn set_folders(list: &[PathBuf]) {
     let v: Vec<String> = list.iter().map(|p| p.display().to_string()).collect();
     let _ = storage::save(Area::Local, FOLDERS_KEY, &v);
-}
-
-/// Whether `a` and `b` name the same pack: equal ignoring case, as song
-/// select groups packs (`select_view::select_data`, by `str::to_lowercase`),
-/// so "Ünïcode" and "üNÏCODE" are one pack here too.
-pub fn same_pack(a: &str, b: &str) -> bool {
-    a == b || a.to_lowercase() == b.to_lowercase()
 }
 
 /// What the player removed from the list: packs by name as song select
@@ -665,6 +659,10 @@ fn scan_songs(
         .unwrap_or_default();
     let mut seen = scan::Duplicates::default();
     let songs = pack::find_songs(paths, &root.fallback);
+    // Made when a song is first read: a scan that reuses them all has
+    // no use for them.
+    let mut packs = scan::PackIndexes::new(paths);
+    let mut shared = None;
     for c in &songs {
         if let Some(why) = seen.check(c) {
             out.failed.push((c.dir.to_string(), why, 0));
@@ -691,13 +689,8 @@ fn scan_songs(
             return Err(Superseded);
         }
         report.parsed += 1;
-        match scan::scan_song(
-            files,
-            scan::pack_paths(paths, c),
-            c,
-            &root.shared,
-            &legacy_text,
-        ) {
+        let shared = shared.get_or_insert_with(|| pack::PathIndex::new(&root.shared));
+        match scan::scan_song(files, packs.of(c), c, shared, &legacy_text) {
             Ok(s) => out.songs.push(CachedSong {
                 listing: hash,
                 song: lib_song(root, s),
@@ -1028,7 +1021,7 @@ pub fn decode_with(bytes: &[u8], label: Option<&str>) -> String {
 }
 
 fn parent_of(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(d, _)| d)
+    RelPath::new(path).parent().as_str()
 }
 
 /// Failures named by where they are: the root's path and the folder
@@ -1250,7 +1243,7 @@ impl Library {
 
     fn merge_songs(&mut self) -> bool {
         let mut seen = HashSet::new();
-        let songs: Vec<_> = self
+        let mut songs: Vec<_> = self
             .folder_songs
             .iter()
             .chain(&self.managed_songs)
@@ -1258,6 +1251,8 @@ impl Library {
             .filter(|s| seen.insert(s.entry.id.as_str()))
             .cloned()
             .collect();
+        // The list's order, by pack and title; what reads it only filters.
+        songs.sort_by_cached_key(|s| (s.pack.to_lowercase(), s.entry.title.to_lowercase()));
         if self.songs == songs {
             register(&songs);
             return false;
@@ -1459,7 +1454,7 @@ fn stepmania_root(s: &LibSong) -> Option<PathBuf> {
 /// The files song `id`'s background changes name that its folder lacks
 /// (`ManifestEntry::bg_shared`), found in its StepMania root's
 /// `SongMovies/` and `RandomMovies/` in StepMania's order
-/// (`ddi_library::backgrounds::shared_images`), read in place, as the
+/// (`ddi_library::backgrounds::shared_split`), read in place, as the
 /// web's `songs::shared_found` finds them in the library: `(name as
 /// written, file)`, images within the song's budget, then movies.
 pub fn shared_found(id: &str) -> Vec<(String, PathBuf)> {
@@ -1484,20 +1479,18 @@ pub fn shared_found(id: &str) -> Vec<(String, PathBuf)> {
         }
     }
     let paths: Vec<&str> = listed.iter().map(|(p, _)| p.as_str()).collect();
-    let found = ddi_library::backgrounds::shared_images(&s.entry.bg_shared, &s.pack, &paths);
-    let file = |path: &RelPath| {
+    let (images, movies) = ddi_library::backgrounds::shared_split(&s.entry, &s.pack, &paths);
+    let file = |path: &str| {
         listed
             .iter()
-            .find(|(p, _)| p.as_str() == path.as_str())
+            .find(|(p, _)| p == path)
             .map(|(_, f)| f.clone())
     };
-    let (movies, mut images): (Vec<_>, Vec<_>) = found
-        .iter()
-        .filter_map(|(name, path)| Some((name.to_string(), file(path)?)))
-        .partition(|(name, _)| ddi_library::video::is_movie(name));
-    images.truncate(scan::MAX_BG_IMAGES.saturating_sub(s.entry.bg_images.len()));
-    images.extend(movies);
     images
+        .into_iter()
+        .chain(movies)
+        .filter_map(|(name, path)| Some((name, file(&path)?)))
+        .collect()
 }
 
 /// The random movies song `id` of the library plays where StepMania 5.1
@@ -1954,7 +1947,9 @@ mod managed_merge_tests {
         tx.send((1, News::Cached(vec![folder.clone()], 1.0)))
             .unwrap();
         assert!(library.take());
-        assert_eq!(library.songs, vec![folder.clone(), imported.clone()]);
+        // The songs in the list's order: by pack (a folder copy would
+        // win a collision whatever its place).
+        assert_eq!(library.songs, vec![imported.clone(), folder.clone()]);
         assert!(
             library
                 .rereadable_packs()
@@ -1969,11 +1964,11 @@ mod managed_merge_tests {
         ))
         .unwrap();
         assert!(library.take());
-        assert_eq!(library.songs, vec![folder.clone(), collision]);
+        assert_eq!(library.songs, vec![collision, folder.clone()]);
         tx.send((1, News::Scanned(vec![folder.clone()], Report::default())))
             .unwrap();
         assert!(library.take());
-        assert_eq!(library.songs, vec![folder.clone(), imported.clone()]);
+        assert_eq!(library.songs, vec![imported.clone(), folder.clone()]);
         assert!(!library.set_managed(vec![imported.clone()]));
         preps()
             .lock()
@@ -1989,7 +1984,7 @@ mod managed_merge_tests {
                 .iter()
                 .any(|(id, _)| id == &replaced.entry.id)
         );
-        assert_eq!(library.songs, vec![folder.clone(), replaced]);
+        assert_eq!(library.songs, vec![replaced, folder.clone()]);
         assert!(library.set_managed(Vec::new()));
         assert_eq!(library.songs, vec![folder]);
     }

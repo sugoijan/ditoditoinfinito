@@ -9,9 +9,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
+use ddi_library::share::{Created, NewShare, ShareDoc, ShareFileDoc, ShareSongDoc};
 use ddi_ui::screens::data::{ShareState, ShareView};
 
 use crate::songs::ImportedSong;
@@ -38,43 +38,14 @@ pub(crate) fn base() -> String {
     from_page
         .or_else(|| option_env!("DDI_API_URL").map(str::to_string))
         .or_else(beside_the_page)
-        .unwrap_or_else(|| "https://sugoijan.dev/ditoditoinfinito/api".to_string())
+        .unwrap_or_else(|| ddi_library::share::DEFAULT_BASE.to_string())
         .trim_end_matches('/')
         .to_string()
 }
 
-/// A share as the Worker answers `GET <base>/s/<id>`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Share {
-    #[serde(default)]
-    pub(crate) pack: String,
-    /// Unix seconds; `None`: never.
-    #[serde(default)]
-    pub(crate) expires_at: Option<f64>,
-    #[serde(default)]
-    pub(crate) created_at: f64,
-    pub(crate) songs: Vec<SharedSong>,
-    #[serde(default)]
-    pub(crate) pack_art: Option<String>,
-    /// The share's id, as loaded (not in the Worker's answer).
-    #[serde(skip)]
-    pub(crate) id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SharedSong {
-    pub(crate) record: ImportedSong,
-    #[serde(default)]
-    pub(crate) files: Vec<SharedFile>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SharedFile {
-    pub(crate) path: String,
-    #[serde(default)]
-    pub(crate) bytes: f64,
-    pub(crate) url: String,
-}
+/// A share as the Worker answers `GET <base>/s/<id>`, its records as
+/// the library stores them.
+pub(crate) type Share = ShareDoc<ImportedSong>;
 
 pub(crate) use ddi_library::share::ShareError;
 
@@ -98,7 +69,10 @@ pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
     let (share, n) = parse_song_id(song_id)?;
     if let Some(s) = current().filter(|s| s.id == share)
         && let Some(song) = s.songs.get(n)
-        && let Some(f) = song.files.iter().find(|f| f.path == path)
+        && let Some(f) = song
+            .files
+            .iter()
+            .find(|f| f.path == path && !f.url.is_empty())
     {
         return Some(ddi_library::share::resolve_url(&base(), &f.url));
     }
@@ -130,22 +104,17 @@ pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
     let resp = gloo::net::http::Request::get(&url)
         .send()
         .await
-        .map_err(|e| ShareError::Failed {
-            doing: "reading the share",
-            error: e.to_string(),
-        })?;
-    let result = match resp.status() {
-        404 => Err(ShareError::Gone { expired: false }),
-        410 => Err(ShareError::Gone { expired: true }),
-        status if !resp.ok() => Err(ShareError::Status { status, body: None }),
-        _ => resp
-            .text()
+        .map_err(ShareError::failed("reading the share"))?;
+    let status = resp.status();
+    let result = if let Some(gone) = ddi_library::share::gone_of(status) {
+        Err(gone)
+    } else if !resp.ok() {
+        Err(ShareError::Status { status, body: None })
+    } else {
+        resp.text()
             .await
-            .map_err(|e| ShareError::Failed {
-                doing: "reading the share",
-                error: e.to_string(),
-            })
-            .and_then(|t| from_json(id, &t)),
+            .map_err(ShareError::failed("reading the share"))
+            .and_then(|t| from_json(id, &t))
     };
     match &result {
         Ok(share) => {
@@ -184,14 +153,6 @@ pub(crate) fn from_json(id: &str, text: &str) -> Result<Rc<Share>, ShareError> {
     Ok(Rc::new(share))
 }
 
-impl Share {
-    /// How long it has left, as song select says it; `None`: forever.
-    pub(crate) fn expires_in(&self, now_secs: f64) -> Option<String> {
-        self.expires_at
-            .map(|at| ddi_ui::screens::options_dialogs::expires_in(Some(at), now_secs).into())
-    }
-}
-
 /// `window.__DDI_SHARE`, for tests (its own object: the UI host writes
 /// `__DDI_DEBUG` whole each frame): `{id, state, pack, songs,
 /// expiresAt, expiresIn}`, `state` among `loading`, `ready`, `missing`,
@@ -222,35 +183,6 @@ fn publish(id: &str, state: &str, share: Option<&Share>) {
         );
     }
     let _ = js_sys::Reflect::set(&w, &"__DDI_SHARE".into(), &o);
-}
-
-/// What `POST <base>/s` is sent: the share to make, its files by path
-/// and size (their bytes follow, one `PUT` each).
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub(crate) struct NewShare {
-    pub(crate) pack: String,
-    /// `1h`, `1d`, `1w`, `1m` or `never`.
-    pub(crate) expires: String,
-    pub(crate) songs: Vec<NewSong>,
-    pub(crate) pack_art: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub(crate) struct NewSong {
-    pub(crate) record: ImportedSong,
-    pub(crate) files: Vec<NewFile>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub(crate) struct NewFile {
-    pub(crate) path: String,
-    pub(crate) bytes: f64,
-}
-
-/// The Worker's answer to `POST <base>/s`.
-#[derive(Deserialize)]
-struct Created {
-    id: String,
 }
 
 /// Told how the upload goes (each file sent, the end).
@@ -294,14 +226,6 @@ pub(crate) async fn upload(
     result
 }
 
-/// What failed while `doing` (for the logs), the browser's words kept.
-fn failed<E: std::fmt::Display>(doing: &'static str) -> impl FnOnce(E) -> ShareError {
-    move |e| ShareError::Failed {
-        doing,
-        error: e.to_string(),
-    }
-}
-
 async fn upload_inner(
     pack: &str,
     ids: &[String],
@@ -317,7 +241,7 @@ async fn upload_inner(
         return Err(ShareError::Nothing);
     }
     let reading = "reading the library";
-    let db = Db::open().await.map_err(failed(reading))?;
+    let db = Db::open().await.map_err(ShareError::failed(reading))?;
     // Every song's record and files first: the sizes go in the request
     // that makes the share.
     let mut songs = Vec::new();
@@ -330,7 +254,7 @@ async fn upload_inner(
         let mut paths: Vec<String> = db
             .keys_with_prefix(idb::FILES, &prefix)
             .await
-            .map_err(failed(reading))?
+            .map_err(ShareError::failed(reading))?
             .into_iter()
             .filter_map(|k| k.strip_prefix(&prefix).map(String::from))
             // The opening still is this library's, not the song's.
@@ -349,25 +273,26 @@ async fn upload_inner(
                 .map_err(|e| {
                     ShareError::of(
                         record.entry.title.clone(),
-                        ShareError::of(path.clone(), failed(reading)(e.message())),
+                        ShareError::of(path.clone(), ShareError::failed(reading)(e.message())),
                     )
                 })?;
             let bytes = blob.size();
             view.bytes += bytes;
-            files.push(NewFile {
+            files.push(ShareFileDoc {
                 path: path.clone(),
                 bytes,
+                url: String::new(),
             });
             these.push((path, blob));
         }
-        songs.push(NewSong { record, files });
+        songs.push(ShareSongDoc { record, files });
         blobs.push(these);
     }
     let art_key = crate::songs::pack_art_key(pack);
     let art = db
         .get(idb::FILES, &art_key)
         .await
-        .map_err(failed(reading))?
+        .map_err(ShareError::failed(reading))?
         .and_then(|v| v.dyn_into::<web_sys::Blob>().ok());
     if let Some(a) = &art {
         view.bytes += a.size();
@@ -383,10 +308,10 @@ async fn upload_inner(
     let created: Created = gloo::net::http::Request::post(&format!("{base}/s"))
         .header("Authorization", &format!("Bearer {token}"))
         .json(&new)
-        .map_err(failed("making the share"))?
+        .map_err(ShareError::failed("making the share"))?
         .send()
         .await
-        .map_err(failed("making the share"))
+        .map_err(ShareError::failed("making the share"))
         .and_then(checked)?
         .json()
         .await
@@ -413,7 +338,7 @@ async fn upload_inner(
         .header("Authorization", &format!("Bearer {token}"))
         .send()
         .await
-        .map_err(failed("finishing the share"))
+        .map_err(ShareError::failed("finishing the share"))
         .and_then(checked)?;
     Ok(link(&id))
 }
@@ -423,10 +348,10 @@ async fn put(url: &str, token: &str, blob: &web_sys::Blob) -> Result<(), ShareEr
     gloo::net::http::Request::put(url)
         .header("Authorization", &format!("Bearer {token}"))
         .body(blob)
-        .map_err(failed("sending a file"))?
+        .map_err(ShareError::failed("sending a file"))?
         .send()
         .await
-        .map_err(failed("sending a file"))
+        .map_err(ShareError::failed("sending a file"))
         .and_then(checked)
         .map(|_| ())
 }
@@ -449,7 +374,7 @@ pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesVie
         .header("Authorization", &format!("Bearer {token}"))
         .send()
         .await
-        .map_err(failed("reading the shares"))
+        .map_err(ShareError::failed("reading the shares"))
         .and_then(checked)?;
     let listing: ddi_library::share::ShareListing = resp
         .json()
@@ -466,7 +391,7 @@ pub(crate) async fn delete(token: &str, id: &str) -> Result<(), ShareError> {
         .header("Authorization", &format!("Bearer {token}"))
         .send()
         .await
-        .map_err(failed("deleting the share"))
+        .map_err(ShareError::failed("deleting the share"))
         .and_then(checked)
         .map(|_| ())
 }

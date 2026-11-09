@@ -44,6 +44,13 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Whether a version of this kind leaves notes out, so that its plays
+    /// are assisted. A conversion moves every note to a lane of its own
+    /// and is not.
+    pub fn assisted(self) -> bool {
+        matches!(self, Kind::WithoutOnigiri | Kind::WithoutCenter)
+    }
+
     fn mapping(self, layout: &str) -> Option<(&'static str, &'static [Option<u8>])> {
         match self {
             Kind::WithoutOnigiri => without_onigiri(layout),
@@ -106,14 +113,9 @@ impl Derivation {
         )
     }
 
-    /// Whether the version leaves notes out, so that its plays are
-    /// assisted. A conversion moves every note to a lane of its own and
-    /// is not.
+    /// [`Kind::assisted`] of this version.
     pub fn assisted(&self) -> bool {
-        matches!(
-            self,
-            Self::WithoutOnigiri { .. } | Self::WithoutCenter { .. }
-        )
+        self.kind().assisted()
     }
 }
 

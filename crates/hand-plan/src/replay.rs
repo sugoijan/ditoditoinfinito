@@ -44,11 +44,7 @@ fn same(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9
 }
 fn landing(p: &ContactPlan, foot: Foot, panel: u8, time: f64) -> bool {
-    let tr = if foot == Foot::L {
-        &p.tracks.left
-    } else {
-        &p.tracks.right
-    };
+    let tr = p.tracks.of(foot);
     let i = tr.partition_point(|s| s.land < time - 1e-9);
     tr.get(i)
         .is_some_and(|s| s.to == panel && same(s.land, time))
@@ -73,9 +69,7 @@ fn scored_companion_landing(
         })
         && input.notes.iter().any(|head| {
             head.judgeable
-                && !head.mine
-                && !head.lift
-                && !head.roll_refresh
+                && head.is_head()
                 && same(head.time, time)
                 && note_has_panel(&p.layout, head, a.panel)
                 && p.events.iter().any(|e| {
@@ -140,12 +134,10 @@ pub(crate) fn validate_events(
             || !same(e.time + p.source_music_origin_seconds, n.time)
             || e.lift != n.lift
             || if e.lift {
-                let tr = if e.foot == Foot::L {
-                    &p.tracks.left
-                } else {
-                    &p.tracks.right
-                };
-                !tr.iter().any(|s| s.release == e.time && s.from == e.panel)
+                !p.tracks
+                    .of(e.foot)
+                    .iter()
+                    .any(|s| s.release == e.time && s.from == e.panel)
             } else {
                 !landing(p, e.foot, e.panel, e.time)
             }
@@ -173,9 +165,7 @@ pub(crate) fn validate_events(
                 || !crate::support_tiles(&p.layout).contains(&a.panel)
                 || !input.notes.iter().any(|n| {
                     n.judgeable
-                        && !n.mine
-                        && !n.lift
-                        && !n.roll_refresh
+                        && n.is_head()
                         && n.tick == a.end_tick
                         && same(n.time, a.time + p.source_music_origin_seconds)
                 })
@@ -195,13 +185,7 @@ pub(crate) fn validate_events(
                     && !n.mine
                     && !n.lift
                     && n.tick == a.end_tick
-                    && (if a.foot == Foot::L {
-                        &p.tracks.left
-                    } else {
-                        &p.tracks.right
-                    })
-                    .iter()
-                    .any(|s| {
+                    && p.tracks.of(a.foot).iter().any(|s| {
                         s.land == a.time
                             && s.to == a.panel
                             && lane(&p.layout, s.from) == Some(n.lane)

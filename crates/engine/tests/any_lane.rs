@@ -4,9 +4,7 @@
 //! Chart (60 BPM, beat `b` at `b` seconds), dance-single: taps in lane 1
 //! (Down) at beats 1, 2 and 3.
 
-use ddi_chart::{
-    Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick, TimingMap,
-};
+use ddi_chart::{Chart, Difficulty, Note, NoteKind, Song, Tick, TimingMap};
 use ddi_engine::frame::SkinEventKind;
 use ddi_engine::player::{PlayOptions, Player};
 use ddi_engine::rules::{Judgement, presets};
@@ -17,46 +15,12 @@ fn song() -> Song {
     let notes = (1..=3)
         .map(|b| Note::new(Tick::from_beats(b), 1, NoteKind::Tap))
         .collect();
-    Song {
-        title: "Any key".into(),
-        subtitle: String::new(),
-        artist: "test".into(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(60.0, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: "dance-single".into(),
-            difficulty: Difficulty::Challenge,
-            meter: 9,
-            name: "any key".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    }
+    Song::generated(
+        "Any key",
+        TimingMap::constant(60.0, 0.0),
+        Chart::plain("dance-single", Difficulty::Challenge, 9, notes),
+        "test",
+    )
 }
 
 #[test]

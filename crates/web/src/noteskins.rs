@@ -423,7 +423,7 @@ async fn lua_summary(
         }
         Ok(None) => SkinDrawn::NoLanes,
         Err(e) => SkinDrawn::LuaStopped {
-            error: e.to_string(),
+            error: e,
             without: native_summary(skin, button),
         },
     }
@@ -1426,16 +1426,8 @@ async fn prepare_until(
         return None;
     }
     // Skins are found by name, and an imported one may share a bundled
-    // one's: the chosen skin first; a bundled skin's fallbacks only among
-    // the bundled ones (no import, not an imported `default` or `common`,
-    // changes the default skin), an imported one's among the imported
-    // ones, then the bundled ones.
-    let chosen = stored.iter().position(|s| s.key() == key)?;
-    let first = stored.remove(chosen);
-    if first.bundled.is_some() {
-        stored.retain(|s| s.bundled.is_some());
-    }
-    stored.insert(0, first);
+    // one's.
+    ddi_noteskin::skin::load_order(&mut stored, |s| s.key() == key, |s| s.bundled.is_some())?;
     let chosen = 0;
     // The `.lua` texts of the folders the skin falls back on.
     let mut folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
@@ -1490,15 +1482,8 @@ async fn prepare_until(
             &format!("noteskin {}: its Lua is off ({why})", chosen.name).into(),
         );
     }
-    // Skins with no Lua of their own (nor their fallbacks) play natively:
-    // the same as StepMania's stand-ins' Lua, without its costs. A pump
-    // skin's elements are pump/default's Lua's (the right side's taken
-    // from the left's): it always runs.
-    let with_lua = chosen.lua_broken.is_none() && (skin.has_lua() || chosen.game == "pump");
-    // The skin's Lua is told its own game, and the style it plays.
-    let mut env = env;
-    env.game = chosen.game.clone();
-    env.style = ddi_noteskin::lua::style_for(&chosen.game, layout).into();
+    let with_lua = chosen.lua_broken.is_none() && skin.runs_lua();
+    let env = env.for_skin(&chosen.game, layout);
     let seed = hash_seed();
     let mut lua_error = None;
     // The SVG worker compiled while the first pass runs, for a skin with
@@ -1532,7 +1517,7 @@ async fn prepare_until(
             Err(e) => lua_error = Some(e),
         }
     }
-    if !with_lua || lua_error.is_some() {
+    if NoteskinPlay::native_fallback(with_lua, lua_error.as_deref()) {
         NoteskinPlay::new(&skin, layout, &sizes, true)?;
     }
     let mut bitmaps: HashMap<(usize, String), ImageBitmap> = HashMap::new();
@@ -1608,7 +1593,7 @@ async fn prepare_until(
         )
         .await;
     }
-    if play.is_none() && (!with_lua || lua_error.is_some()) {
+    if play.is_none() && NoteskinPlay::native_fallback(with_lua, lua_error.as_deref()) {
         play = NoteskinPlay::new(&skin, layout, &sizes, true);
     }
     let Some(mut play) = play else {

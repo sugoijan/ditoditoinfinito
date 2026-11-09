@@ -157,7 +157,7 @@ pub fn check_at_hz(model: &Model, input: Input, kind: &str, mirror: bool, hz: i3
                     .iter()
                     .filter(|e| e.time > checked && e.time <= end)
                 {
-                    let d = usize::from(e.foot == "R");
+                    let d = e.foot.index();
                     assert_ne!(
                         pose.targets(e.time - 1e-6).contact[d],
                         pose.targets(e.time).contact[d]

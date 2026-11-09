@@ -365,16 +365,22 @@ fn solve_impl(
         let g = model.evaluate_into(q, &mut kin[base]);
         (g, residual(&g, q, prior, goal))
     });
-    out.target_error_mm = (0..2)
-        .map(|d| {
-            (0..3)
-                .map(|i| (g.tips[d][i] - goal.tips[d][i]).powi(2))
-                .sum::<f64>()
-                .sqrt()
-        })
-        .fold(0., f64::max);
+    out.target_error_mm = max_tip_error(&g.tips, &goal.tips);
     out.objective = energy(&r);
     out
+}
+/// A fingertip's distance from its target, millimeters.
+pub(crate) fn tip_error(tip: &Point, target: &Point) -> f64 {
+    (0..3)
+        .map(|i| (tip[i] - target[i]).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+/// The larger of the two fingertips' [`tip_error`]s.
+pub(crate) fn max_tip_error(tips: &[Point; 2], targets: &[Point; 2]) -> f64 {
+    (0..2)
+        .map(|d| tip_error(&tips[d], &targets[d]))
+        .fold(0., f64::max)
 }
 
 #[cfg(test)]

@@ -25,42 +25,10 @@ impl Backing {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("character-backing"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                crate::gpu::texture_entry(0, true),
+                crate::gpu::texture_entry(1, true),
+                crate::gpu::sampler_entry(2, true),
+                crate::gpu::uniform_entry(3, wgpu::ShaderStages::FRAGMENT, false),
             ],
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -86,12 +54,7 @@ impl Backing {
         Self {
             layout,
             pipelines,
-            sampler: device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("character-backing"),
-                min_filter: wgpu::FilterMode::Linear,
-                mag_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            }),
+            sampler: crate::gpu::linear_sampler(device, "character-backing"),
             settings: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("character-backing-settings"),
                 contents: bytemuck::cast_slice(&[0_f32; 8]),
@@ -190,22 +153,9 @@ impl Backing {
                     },
                 ],
             });
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("character-backing"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: output,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            let clear = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
+            let mut pass =
+                crate::gpu::color_pass(encoder, "character-backing", output, clear, None);
             pass.set_pipeline(&self.pipelines[i]);
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);

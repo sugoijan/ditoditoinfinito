@@ -8,8 +8,8 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Blob, BlobPropertyBag, DataTransfer, File, FileList, FileSystemDirectoryEntry, FileSystemEntry,
-    FileSystemFileEntry, HtmlInputElement,
+    Blob, BlobPropertyBag, DataTransfer, DragEvent, Element, File, FileList,
+    FileSystemDirectoryEntry, FileSystemEntry, FileSystemFileEntry, HtmlElement, HtmlInputElement,
 };
 
 use super::js_err;
@@ -35,6 +35,56 @@ pub(crate) fn object_url(blob: &Blob) -> Option<String> {
 
 pub(crate) fn revoke_object_url(url: &str) {
     let _ = web_sys::Url::revoke_object_url(url);
+}
+
+/// `blob` downloaded as `name` (inside the press: a link clicked); its
+/// URL let go a minute later, the download having read it.
+pub(crate) fn save_blob(blob: &Blob, name: &str) -> Result<(), &'static str> {
+    let url = object_url(blob).ok_or("no object URL")?;
+    let clicked = (|| {
+        let doc = web_sys::window()?.document()?;
+        let a: HtmlElement = doc.create_element("a").ok()?.dyn_into().ok()?;
+        a.set_attribute("href", &url).ok()?;
+        a.set_attribute("download", name).ok()?;
+        doc.body()?.append_child(&a).ok()?;
+        a.click();
+        a.remove();
+        Some(())
+    })();
+    gloo::timers::callback::Timeout::new(60_000, move || revoke_object_url(&url)).forget();
+    clicked.ok_or("no link")
+}
+
+/// Whether a drag brings files.
+pub(crate) fn carries_files(e: &DragEvent) -> bool {
+    e.data_transfer()
+        .is_some_and(|dt| dt.types().includes(&"Files".into(), 0))
+}
+
+/// An `<input type="file">` in `parent`, out of the keyboard's way, for
+/// a screen's button to click inside its press: taking `accept`'s kinds
+/// of file, or a folder (`None`).
+pub(crate) fn file_input(
+    parent: &Element,
+    accept: Option<&str>,
+    multiple: bool,
+) -> HtmlInputElement {
+    let input: HtmlInputElement = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.create_element("input").ok())
+        .and_then(|e| e.dyn_into().ok())
+        .expect("an input");
+    let _ = parent.append_child(&input);
+    input.set_type("file");
+    input.set_multiple(multiple);
+    let _ = input.set_attribute("tabindex", "-1");
+    match accept {
+        Some(kinds) => input.set_accept(kinds),
+        None => {
+            let _ = input.set_attribute("webkitdirectory", "");
+        }
+    }
+    input
 }
 
 /// Wraps bytes produced in wasm (an inflated zip entry) in a `Blob` of the

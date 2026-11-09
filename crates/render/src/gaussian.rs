@@ -17,37 +17,7 @@ impl Gaussian {
             label: Some("ddi-cached-gaussian"),
             source: wgpu::ShaderSource::Wgsl(include_str!("blur.wgsl").into()),
         });
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-cached-gaussian-layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let layout = crate::gpu::uniform_texture_layout(device, "ddi-cached-gaussian-layout");
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ddi-cached-gaussian-pipeline-layout"),
             bind_group_layouts: &[Some(&layout)],
@@ -65,12 +35,8 @@ impl Gaussian {
         Self {
             pipeline,
             layout,
-            sampler: device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("ddi-cached-gaussian-sampler"),
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                ..Default::default() // Clamp edges, without a dark border.
-            }),
+            // Clamp edges, without a dark border.
+            sampler: crate::gpu::linear_sampler(device, "ddi-cached-gaussian-sampler"),
         }
     }
 
@@ -130,19 +96,9 @@ impl Gaussian {
                 input,
                 &self.sampler,
             );
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ddi-cached-gaussian"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
+            let clear = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
+            let mut pass =
+                crate::gpu::color_pass(encoder, "ddi-cached-gaussian", target, clear, None);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);

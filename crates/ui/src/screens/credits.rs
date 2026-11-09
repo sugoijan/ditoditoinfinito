@@ -7,11 +7,14 @@
 //! the Rust libraries of the build (folded: the web's in `credits.json`,
 //! the desktop's in `credits-desktop.json`), with their notices.
 
-use std::collections::BTreeMap;
-
 use ddi_l10n::UiText;
 use ddi_l10n::msg::pages as pm;
 use serde::Deserialize;
+
+pub use ddi_library::credits::{
+    AnnouncerCredit, CodeCredit, ComponentCredit, FontCredit, PartCredit, SkinCredit, SongCredit,
+    TrainedOnCredit, VideoCredit,
+};
 
 use super::page::{Block, PageDoc, PageTitle};
 
@@ -29,21 +32,6 @@ pub struct Credits {
     /// The build's Rust libraries and their licences' notices.
     #[serde(default)]
     pub rust: Option<RustCredits>,
-    /// Whose wording (the shell sets it: the file is the same).
-    #[serde(skip)]
-    pub platform: super::data::Platform,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct CodeCredit {
-    pub name: String,
-    pub what: String,
-    pub license: String,
-    pub holders: Vec<String>,
-    pub source: String,
-    pub commit: String,
-    pub license_url: String,
-    pub notice: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -70,107 +58,6 @@ pub struct RustNotice {
     pub text: String,
     /// `name version` of the crates it covers.
     pub crates: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct SongCredit {
-    pub title: String,
-    pub artist: String,
-    pub source_url: String,
-    pub source_path: String,
-    pub source_commit: String,
-    #[serde(default)]
-    pub retrieved: String,
-    pub parts: Vec<PartCredit>,
-    #[serde(default)]
-    pub chart_authors: BTreeMap<String, Vec<String>>,
-    #[serde(default)]
-    pub excluded: Vec<String>,
-    #[serde(default)]
-    pub modifications: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct SkinCredit {
-    pub name: String,
-    pub author: String,
-    pub source_url: String,
-    pub source_path: String,
-    pub source_commit: String,
-    #[serde(default)]
-    pub retrieved: String,
-    pub parts: Vec<PartCredit>,
-    #[serde(default)]
-    pub excluded: Vec<String>,
-    #[serde(default)]
-    pub modifications: Vec<String>,
-}
-
-/// One of our announcers: what made it, its licence, and the recordings
-/// its voice learned from where they ask for credit.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct AnnouncerCredit {
-    pub name: String,
-    pub author: String,
-    pub language: String,
-    pub made_with: String,
-    pub model_url: String,
-    pub revision: String,
-    #[serde(default)]
-    pub made: String,
-    pub parts: Vec<PartCredit>,
-    #[serde(default)]
-    pub trained_on: Vec<TrainedOnCredit>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct TrainedOnCredit {
-    pub voice: String,
-    pub what: String,
-    pub url: String,
-    pub spdx: String,
-    pub holders: Vec<String>,
-    pub license_url: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct PartCredit {
-    pub part: String,
-    pub spdx: String,
-    pub holders: Vec<String>,
-    pub url: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct VideoCredit {
-    pub name: String,
-    pub version: String,
-    pub spdx: String,
-    pub homepage: String,
-    pub source_url: String,
-    pub tarball_url: String,
-    pub tarball: String,
-    pub tarball_sha256: String,
-    pub configure: Vec<String>,
-    pub components: Vec<ComponentCredit>,
-    pub notices: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ComponentCredit {
-    pub name: String,
-    pub spdx: String,
-    pub url: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct FontCredit {
-    pub file: String,
-    pub spdx: String,
-    pub holders: String,
-    pub source: String,
-    #[serde(default)]
-    pub modified: String,
 }
 
 /// The game's own source.
@@ -241,7 +128,7 @@ fn excluded_and_modified(excluded: &[String], modifications: &[String]) -> Vec<B
 }
 
 /// The page: what the Yew credits showed, in the same order.
-pub fn doc(c: &Credits) -> PageDoc {
+pub fn doc(c: &Credits, platform: super::data::Platform) -> PageDoc {
     let mut b = vec![Block::Text(pm::credits_about().into())];
     b.push(Block::Link {
         label: pm::credits_source(SOURCE).into(),
@@ -343,7 +230,7 @@ pub fn doc(c: &Credits) -> PageDoc {
     }
     let v = &c.video;
     let tarball = v.tarball.rsplit('/').next().unwrap_or(&v.tarball);
-    let platform = c.platform.l10n();
+    let platform = platform.l10n();
     b.push(Block::Heading(pm::credits_video().into()));
     b.push(Block::Text(
         pm::credits_video_about(platform, &v.name, &v.version, &v.spdx, &v.tarball_sha256).into(),
@@ -511,7 +398,7 @@ mod rust_tests {
     /// The Rust libraries come last, folded: the list and the notices.
     #[test]
     fn rust_libraries_are_a_folded_section() {
-        let d = doc(&sample());
+        let d = doc(&sample(), Default::default());
         let at = d
             .blocks
             .iter()
@@ -542,7 +429,7 @@ mod rust_tests {
     /// credited with a link to them.
     #[test]
     fn announcers_credit_what_their_voices_learned_from() {
-        let d = doc(&sample());
+        let d = doc(&sample(), Default::default());
         let at = |b: &Block| d.blocks.iter().position(|x| x == b).expect("the block");
         let heading = at(&Block::Heading(pm::credits_announcers().into()));
         assert!(heading > at(&Block::Heading(pm::credits_noteskins().into())));

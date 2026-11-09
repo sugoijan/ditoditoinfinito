@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::pack::{extension, file_name, is_ignored, parent};
+use crate::pack::{file_name, is_audio, is_ignored, parent};
 use crate::path::{RelPath, RelPathBuf};
 use crate::report::{AnnouncerSummary, Finding};
 
@@ -684,18 +684,6 @@ pub struct Found {
     pub left_out: usize,
 }
 
-/// A sound file read in a line folder: StepMania's
-/// (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which both
-/// shells decode as they do songs' music (StepMania passes them over; the
-/// studio keeps them as recorded, `draft`): a song's music's formats.
-fn is_audio(path: &str) -> bool {
-    extension(path).is_some_and(|e| {
-        crate::pack::AUDIO_EXTENSIONS
-            .iter()
-            .any(|x| e.eq_ignore_ascii_case(x))
-    })
-}
-
 /// The announcers' folders among `paths` (files, `/`-separated), each with
 /// the announcers nested in it. A folder is one when at least three of its
 /// folders are lines StepMania or we know (by name or alias, not a theme's
@@ -704,6 +692,10 @@ fn is_audio(path: &str) -> bool {
 /// named `Empty` (StepMania's template, which it hides).
 fn detect<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<(String, Vec<RelPathBuf>)> {
     let mut audio_dirs: std::collections::BTreeSet<&str> = Default::default();
+    // A line folder's sounds come in a song's music's formats: StepMania's
+    // (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which both
+    // shells decode as they do songs' music (StepMania passes them over;
+    // the studio keeps them as recorded, `draft`).
     for p in paths {
         if !is_ignored(p) && is_audio(p) {
             audio_dirs.insert(parent(p));

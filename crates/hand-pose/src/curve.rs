@@ -15,6 +15,58 @@ pub(crate) struct Curve {
     pub(crate) knots: Vec<Knot>,
     pub(crate) periodic_yaw: bool,
 }
+/// Guide poses are smoothed by a Gaussian of this sigma, density-weighted and
+/// truncated at `SMOOTH_REACH`, before their refit: with both fingers in the
+/// air, fingertip targets leave the root free, and independent fits wander.
+pub(crate) const SMOOTH_SIGMA: f64 = 0.04;
+pub(crate) const SMOOTH_REACH: f64 = 0.16;
+/// The quintic smoothstep, rising from 0 to 1 as `u` does, with zero first
+/// and second derivatives at both ends.
+pub fn smoother(u: f64) -> f64 {
+    u * u * u * (10. + u * (-15. + 6. * u))
+}
+/// The smoothed pose of `n` around the `f`th (`time(j)` and `pose(j)` give
+/// each). World yaw is averaged near the `f`th's, never through zero.
+pub(crate) fn smoothed_pose<'a>(
+    n: usize,
+    f: usize,
+    time: impl Fn(usize) -> f64,
+    pose: impl Fn(usize) -> &'a Parameters,
+    periodic: bool,
+) -> Parameters {
+    let t = time(f);
+    let (mut sum, mut weight) = ([0.; 14], 0.);
+    for j in 0..n {
+        let dt = time(j) - t;
+        if dt.abs() > SMOOTH_REACH {
+            continue;
+        }
+        let density = if n == 1 {
+            1.
+        } else if j == 0 {
+            time(1) - time(0)
+        } else if j + 1 == n {
+            time(n - 1) - time(n - 2)
+        } else {
+            (time(j + 1) - time(j - 1)) / 2.
+        };
+        let w = (-0.5 * (dt / SMOOTH_SIGMA).powi(2)).exp() * density;
+        weight += w;
+        for (c, (s, v)) in sum.iter_mut().zip(pose(j)).enumerate() {
+            let v = if c == 13 && periodic {
+                near_yaw(*v, pose(f)[13])
+            } else {
+                *v
+            };
+            *s += w * v;
+        }
+    }
+    let mut out = sum.map(|v| v / weight);
+    if periodic {
+        out[13] = wrap_yaw(out[13]);
+    }
+    out
+}
 pub(crate) fn mix(q: Parameters, c: [f64; 2]) -> V {
     let mut p = [0.; 16];
     p[..14].copy_from_slice(&q);
@@ -23,6 +75,23 @@ pub(crate) fn mix(q: Parameters, c: [f64; 2]) -> V {
 }
 pub(crate) fn value(p: V) -> (Parameters, [f64; 2]) {
     (p[..14].try_into().unwrap(), [p[14], p[15]])
+}
+/// Channel `j`'s polynomial coefficients on a segment of length `d`.
+fn coefficients(a: &Knot, b: &Knot, d: f64, j: usize) -> [f64; 6] {
+    let c0 = a.p[j];
+    let c1 = a.v[j] * d;
+    let c2 = a.a[j] * d * d / 2.;
+    let dx = b.p[j] - c0 - c1 - c2;
+    let dv = b.v[j] * d - c1 - 2. * c2;
+    let da = b.a[j] * d * d - 2. * c2;
+    [
+        c0,
+        c1,
+        c2,
+        10. * dx - 4. * dv + da / 2.,
+        -15. * dx + 7. * dv - da,
+        6. * dx - 3. * dv + da / 2.,
+    ]
 }
 pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
     let d = b.t - a.t;
@@ -34,21 +103,7 @@ pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
         a: [0.; 16],
     };
     for j in 0..16 {
-        let c0 = a.p[j];
-        let c1 = a.v[j] * d;
-        let c2 = a.a[j] * d * d / 2.;
-        let dx = b.p[j] - c0 - c1 - c2;
-        let dv = b.v[j] * d - c1 - 2. * c2;
-        let da = b.a[j] * d * d - 2. * c2;
-        let c = [
-            c0,
-            c1,
-            c2,
-            10. * dx - 4. * dv + da / 2.,
-            -15. * dx + 7. * dv - da,
-            6. * dx - 3. * dv + da / 2.,
-        ];
-        for (k, &v) in c.iter().enumerate() {
+        for (k, &v) in coefficients(a, b, d, j).iter().enumerate() {
             out.p[j] += v * u.powi(k as i32);
             if k > 0 {
                 out.v[j] += k as f64 * v * u.powi(k as i32 - 1) / d;
@@ -59,6 +114,17 @@ pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
         }
     }
     out
+}
+/// `quintic`'s position alone, by the same sums.
+fn quintic_position(a: &Knot, b: &Knot, t: f64) -> V {
+    let d = b.t - a.t;
+    let u = ((t - a.t) / d).clamp(0., 1.);
+    std::array::from_fn(|j| {
+        coefficients(a, b, d, j)
+            .iter()
+            .enumerate()
+            .fold(0., |sum, (k, &v)| sum + v * u.powi(k as i32))
+    })
 }
 /// Equivalent world-yaw phase nearest a reference. This never changes a
 /// finger joint or widens a model bound; only internal curve phase is unwrapped.
@@ -93,13 +159,21 @@ impl Curve {
             ],
         }
     }
-    pub(crate) fn at(&self, t: f64) -> Knot {
-        let k = self
-            .knots
+    /// The segment holding `t`.
+    fn segment(&self, t: f64) -> usize {
+        self.knots
             .partition_point(|k| k.t <= t)
             .saturating_sub(1)
-            .min(self.knots.len() - 2);
+            .min(self.knots.len() - 2)
+    }
+    pub(crate) fn at(&self, t: f64) -> Knot {
+        let k = self.segment(t);
         quintic(&self.knots[k], &self.knots[k + 1], t)
+    }
+    /// `at`'s position alone, for the many readers of nothing else.
+    pub(crate) fn position(&self, t: f64) -> V {
+        let k = self.segment(t);
+        quintic_position(&self.knots[k], &self.knots[k + 1], t)
     }
     /// Normalize only world-yaw position at the model boundary. Velocity and
     /// acceleration remain derivatives of the continuous internal phase.
@@ -203,8 +277,8 @@ impl Curve {
         // velocity and acceleration at the committed boundary stay untouched.
         let phase_shift = if self.periodic_yaw {
             let middle = (start + end) * 0.5;
-            let a = self.at(middle).p[13];
-            let b = new.at(middle).p[13];
+            let a = self.position(middle)[13];
+            let b = new.position(middle)[13];
             near_yaw(b, a) - b
         } else {
             0.

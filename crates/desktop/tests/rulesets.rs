@@ -94,7 +94,6 @@ fn ddr_rulesets_from_the_settings_to_the_results() {
         device_changed: false,
         video_notes: Vec::new(),
         offset: None,
-        panels: String::new(),
         autoplay: false,
     });
     assert!(

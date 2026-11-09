@@ -1535,9 +1535,14 @@ impl Actor {
 
     /// Sets command `name` (without `Command`), replacing one already there.
     pub fn set_command(&mut self, name: &str, calls: Vec<Call>) {
+        self.set_command_shared(name, calls.into());
+    }
+
+    /// [`Actor::set_command`] with calls already shared.
+    pub fn set_command_shared(&mut self, name: &str, calls: Arc<[Call]>) {
         match self.commands.iter_mut().find(|(n, _)| n == name) {
-            Some((_, c)) => *c = calls.into(),
-            None => self.commands.push((name.to_string(), calls.into())),
+            Some((_, c)) => *c = calls,
+            None => self.commands.push((name.to_string(), calls)),
         }
     }
 
@@ -1594,12 +1599,26 @@ impl Actor {
 
     /// Every sprite texture the actor and its children draw.
     pub fn textures(&self) -> Vec<u32> {
+        let mut textures = Vec::new();
+        self.collect_textures(&mut textures);
+        textures
+    }
+
+    fn collect_textures(&self, textures: &mut Vec<u32>) {
         match &self.kind {
-            Kind::Sprite(s) if s.texture == UNTEXTURED => Vec::new(),
-            Kind::Sprite(s) => vec![s.texture],
-            Kind::Frame(c) => c.iter().flat_map(Actor::textures).collect(),
-            Kind::Model(m) => m.materials.iter().flat_map(|m| m.frames.clone()).collect(),
-            Kind::Actor | Kind::Text(_) => Vec::new(),
+            Kind::Sprite(s) if s.texture == UNTEXTURED => {}
+            Kind::Sprite(s) => textures.push(s.texture),
+            Kind::Frame(children) => {
+                for child in children {
+                    child.collect_textures(textures);
+                }
+            }
+            Kind::Model(m) => {
+                for material in &m.materials {
+                    textures.extend_from_slice(&material.frames);
+                }
+            }
+            Kind::Actor | Kind::Text(_) => {}
         }
     }
 
@@ -2093,7 +2112,18 @@ impl Actor {
 
     /// Runs one method call.
     pub fn call(&mut self, call: &Call, problems: &mut Problems, depth: u32) -> Result<(), String> {
-        let a = &call.args;
+        self.invoke(&call.method, &call.args, problems, depth)
+    }
+
+    /// [`Actor::call`] on a method and its arguments as they are, for a
+    /// caller with no [`Call`] to keep.
+    pub fn invoke(
+        &mut self,
+        method: &str,
+        a: &[Arg],
+        problems: &mut Problems,
+        depth: u32,
+    ) -> Result<(), String> {
         let num = |i: usize| -> Result<f32, String> {
             match a.get(i) {
                 Some(Arg::Num(n)) => Ok(*n),
@@ -2101,23 +2131,15 @@ impl Actor {
                 Some(Arg::Str(s)) => s
                     .trim()
                     .parse()
-                    .map_err(|_| format!("{}: argument {} is not a number", call.method, i + 1)),
-                _ => Err(format!(
-                    "{}: argument {} is not a number",
-                    call.method,
-                    i + 1
-                )),
+                    .map_err(|_| format!("{}: argument {} is not a number", method, i + 1)),
+                _ => Err(format!("{}: argument {} is not a number", method, i + 1)),
             }
         };
         let text = |i: usize| -> Result<String, String> {
             match a.get(i) {
                 Some(Arg::Str(s)) => Ok(s.clone()),
                 Some(Arg::Num(n)) => Ok(n.to_string()),
-                _ => Err(format!(
-                    "{}: argument {} is not a string",
-                    call.method,
-                    i + 1
-                )),
+                _ => Err(format!("{}: argument {} is not a string", method, i + 1)),
             }
         };
         // `BIArg`: a boolean, or a number (non-zero is true).
@@ -2126,11 +2148,7 @@ impl Actor {
                 Some(Arg::Bool(b)) => Ok(*b),
                 Some(Arg::Num(n)) => Ok(*n != 0.0),
                 Some(Arg::Nil) | None => Ok(false),
-                _ => Err(format!(
-                    "{}: argument {} is not a boolean",
-                    call.method,
-                    i + 1
-                )),
+                _ => Err(format!("{}: argument {} is not a boolean", method, i + 1)),
             }
         };
         // `RageColor::FromStackCompat`: a color table, or four numbers.
@@ -2147,12 +2165,9 @@ impl Actor {
             Ok((t >= 0.0).then_some(t))
         };
         let negative = |problems: &mut Problems, name: &str| {
-            problems.push(
-                name,
-                format!("{}: tween time must not be negative", call.method),
-            );
+            problems.push(name, format!("{}: tween time must not be negative", method));
         };
-        match call.method.as_str() {
+        match method {
             // Tweens.
             "linear" | "accelerate" | "decelerate" | "spring" | "smooth" | "bouncebegin"
             | "bounceend" | "drop" | "sleep" => {
@@ -2160,7 +2175,7 @@ impl Actor {
                     negative(problems, &self.name);
                     return Ok(());
                 };
-                match call.method.as_str() {
+                match method {
                     "linear" => self.begin_tweening(t, Ease::Linear),
                     "accelerate" => self.begin_tweening(t, Ease::Accelerate),
                     "decelerate" => self.begin_tweening(t, Ease::Decelerate),
@@ -2218,7 +2233,7 @@ impl Actor {
             }
             // `ZoomToWidth`, `ZoomToHeight`: one side's zoom only.
             "zoomtowidth" | "zoomtoheight" => {
-                let i = usize::from(call.method == "zoomtoheight");
+                let i = usize::from(method == "zoomtoheight");
                 let (v, size) = (num(0)?, self.size());
                 if size[i] != 0.0 {
                     self.dest().scale[i] = v / size[i];
@@ -2234,7 +2249,7 @@ impl Actor {
                 let (w, h) = (r - l, b - t);
                 let size = self.size();
                 let zoom = [w / size[0], h / size[1]].map(|z| if z.is_finite() { z } else { 0.0 });
-                let stretch = call.method == "stretchto";
+                let stretch = method == "stretchto";
                 let d = self.dest();
                 d.pos[0] = l + w / 2.0;
                 d.pos[1] = t + h / 2.0;
@@ -2243,7 +2258,7 @@ impl Actor {
                     d.scale[1] = zoom[1];
                 } else {
                     let [x, y] = zoom.map(f32::abs);
-                    let z = if call.method == "scaletocover" {
+                    let z = if method == "scaletocover" {
                         x.max(y)
                     } else {
                         x.min(y)
@@ -2294,7 +2309,7 @@ impl Actor {
             "diffuseupperleft" | "diffuseupperright" | "diffuselowerleft" | "diffuselowerright"
             | "diffusetopedge" | "diffuserightedge" | "diffusebottomedge" | "diffuseleftedge" => {
                 let c = color(0)?;
-                let corners: &[usize] = match call.method.as_str() {
+                let corners: &[usize] = match method {
                     "diffuseupperleft" => &[0],
                     "diffuseupperright" => &[1],
                     "diffuselowerleft" => &[2],
@@ -2428,7 +2443,7 @@ impl Actor {
                 };
                 self.effect = Effect::Pulse;
                 self.set_effect_period(2.0);
-                self.timing = if call.method == "thump" {
+                self.timing = if method == "thump" {
                     // `effecttiming(0,0,0.75p,0.25p)`: hold at zero is the
                     // fourth argument.
                     [0.0, 0.0, 0.75 * period, 0.0, 0.25 * period]
@@ -2591,7 +2606,7 @@ impl Actor {
                 let v = num(0)?;
                 if let Kind::Sprite(sp) = &mut self.kind {
                     let shape = &mut sp.shape;
-                    match call.method.as_str() {
+                    match method {
                         "cornerradius" => shape.radius = v.max(0.0),
                         "softedge" => shape.soft = v.max(0.0),
                         "outline" => shape.outline = v.max(0.0),
@@ -2633,10 +2648,10 @@ impl Actor {
             "SetWidth" | "SetHeight" => {
                 let v = num(0)?;
                 if let Some(t) = &mut self.target {
-                    t.size[usize::from(call.method == "SetHeight")] = v;
+                    t.size[usize::from(method == "SetHeight")] = v;
                 }
                 if let Kind::Sprite(s) = &mut self.kind {
-                    s.size[usize::from(call.method == "SetHeight")] = v;
+                    s.size[usize::from(method == "SetHeight")] = v;
                 }
             }
             "SetUpdateRate" => {
@@ -2720,7 +2735,7 @@ impl Actor {
             "EnableAlphaBuffer" | "EnablePreserveTexture" => {
                 let on = flag(0)?;
                 if let Some(t) = &mut self.target {
-                    if call.method == "EnableAlphaBuffer" {
+                    if method == "EnableAlphaBuffer" {
                         t.alpha = on;
                     } else {
                         t.preserve = on;
@@ -2847,8 +2862,18 @@ impl Actor {
             camera: FrameCamera::Drawer,
             scissor: None,
             blur: [0.0; 2],
+            three: self.drawn_in_3d(0),
         };
         self.draw_depth(&under, view, out, 0);
+    }
+
+    /// Whether anything under the actor reads the 3D placement: a model,
+    /// or an `fov` frame's camera.
+    fn drawn_in_3d(&self, depth: u32) -> bool {
+        depth <= MAX_DEPTH
+            && (self.fov != -1.0
+                || matches!(self.kind, Kind::Model(_))
+                || self.children().iter().any(|c| c.drawn_in_3d(depth + 1)))
     }
 
     fn draw_depth(&mut self, under: &Under, view: &View, out: &mut Vec<Drawn>, depth: u32) {
@@ -2887,20 +2912,24 @@ impl Actor {
         // In 3D (models, perspective, and what they are drawn under): the
         // same order, the rotation `Rx(-x)·Ry(-y)·Rz(z)`
         // (`RageMatrixRotationXYZ`).
-        let local3 = mul4(
-            &mul4(
-                &translation4([s.pos[0], s.pos[1], s.pos[2]]),
+        let m3 = if under.three {
+            let local3 = mul4(
                 &mul4(
-                    &mul4(&rotation_x4(-rot[0]), &rotation_y4(-rot[1])),
-                    &rotation_z4(rot[2]),
+                    &translation4([s.pos[0], s.pos[1], s.pos[2]]),
+                    &mul4(
+                        &mul4(&rotation_x4(-rot[0]), &rotation_y4(-rot[1])),
+                        &rotation_z4(rot[2]),
+                    ),
                 ),
-            ),
-            &mul4(
-                &scale4([scale[0], scale[1], s.scale[2] * self.base_scale[2]]),
-                &translation4([align[0], align[1], 0.0]),
-            ),
-        );
-        let m3 = mul4(&under.m3, &local3);
+                &mul4(
+                    &scale4([scale[0], scale[1], s.scale[2] * self.base_scale[2]]),
+                    &translation4([align[0], align[1], 0.0]),
+                ),
+            );
+            mul4(&under.m3, &local3)
+        } else {
+            under.m3
+        };
         // Its own motion blur, along its y on the target, adds to what is
         // around it.
         let blur = if self.motion_blur > 0.0 {
@@ -2925,7 +2954,11 @@ impl Actor {
             Kind::Actor => {}
             Kind::Sprite(sprite) => {
                 let sized = mul(&m, &[size[0], 0.0, 0.0, size[1], 0.0, 0.0]);
-                let sized3 = mul4(&m3, &scale4([size[0], size[1], 1.0]));
+                let sized3 = if under.three {
+                    mul4(&m3, &scale4([size[0], size[1], 1.0]))
+                } else {
+                    m3
+                };
                 let uv_of =
                     |sprite: &Sprite| sprite.custom.unwrap_or(sprite.states[sprite.current].rect);
                 let quad = |transform: Mat,
@@ -3007,7 +3040,11 @@ impl Actor {
                 // The pen: the box's left, on the baseline.
                 let pen = [-size[0] / 2.0, -size[1] / 2.0 + metrics.baseline];
                 let run = mul(&m, &[1.0, 0.0, 0.0, 1.0, pen[0], pen[1]]);
-                let run3 = mul4(&m3, &translation4([pen[0], pen[1], 0.0]));
+                let run3 = if under.three {
+                    mul4(&m3, &translation4([pen[0], pen[1], 0.0]))
+                } else {
+                    m3
+                };
                 let draw = |transform, transform3, diffuse, glow| {
                     Drawn::Text(TextDraw {
                         curve: text.curve,
@@ -3063,6 +3100,7 @@ impl Actor {
                     camera: FrameCamera::Drawer,
                     scissor: None,
                     blur: [0.0; 2],
+                    three: under.three,
                 };
                 let mut drawn = Vec::new();
                 for c in children {
@@ -3122,6 +3160,7 @@ impl Actor {
                     camera: framed,
                     scissor,
                     blur,
+                    three: under.three,
                 };
                 if self.draw_by_z {
                     // `ActorUtil::SortByZPosition`: far first, stable.
@@ -3430,6 +3469,9 @@ struct Under {
     scissor: Option<[f32; 4]>,
     /// The motion blur around, on the target ([`Actor::motion_blur`]).
     blur: [f32; 2],
+    /// Whether anything under the tree reads `m3` ([`Actor::drawn_in_3d`]);
+    /// otherwise it is left as the root's.
+    three: bool,
 }
 
 /// `m` moved by `by` on the target.
@@ -3470,27 +3512,9 @@ fn clip(
             (corners, straight)
         }
     };
-    let mut b = [
-        f32::INFINITY,
-        f32::INFINITY,
-        f32::NEG_INFINITY,
-        f32::NEG_INFINITY,
-    ];
-    for c in corners {
-        b = [
-            b[0].min(c[0]),
-            b[1].min(c[1]),
-            b[2].max(c[0]),
-            b[3].max(c[1]),
-        ];
-    }
+    let mut b = crate::rect::around(corners);
     if let Some(s) = scissor {
-        b = [
-            b[0].max(s[0]),
-            b[1].max(s[1]),
-            b[2].min(s[2]),
-            b[3].min(s[3]),
-        ];
+        b = crate::rect::intersect(b, s);
     }
     (b[0] < b[2] && b[1] < b[3]).then_some(Clip {
         corners,
@@ -4167,6 +4191,22 @@ mod tests {
 
     fn frame_of(children: Vec<Actor>) -> Actor {
         Actor::new(Kind::Frame(children))
+    }
+
+    #[test]
+    fn textures_keep_tree_order_and_repeated_model_frames() {
+        let sprite = |texture| {
+            let mut sprite = Sprite::quad([1.0, 1.0]);
+            sprite.texture = texture;
+            Actor::new(Kind::Sprite(sprite))
+        };
+        let actor = frame_of(vec![
+            sprite(7),
+            frame_of(vec![sprite(UNTEXTURED), model(), Actor::new(Kind::Actor)]),
+            sprite(3),
+            model(),
+        ]);
+        assert_eq!(actor.textures(), [7, 3, 4, 3, 3, 4]);
     }
 
     #[test]

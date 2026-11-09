@@ -5,6 +5,7 @@ use ddi_actor::{Actor, Kind};
 
 use super::*;
 use crate::look::{Plain, call, quad};
+use crate::message::Param;
 use crate::testing::Harness;
 use crate::{Mark, PointerKind, Spot, TextMode};
 

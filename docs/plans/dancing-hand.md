@@ -1586,7 +1586,7 @@ through the empty tail. At 7 s the remaining overlap is too short for its
 existing smooth publication splice.
 
 Gameplay already uses the correct signal: `RuntimePreview::request_motion`
-passes `known >= duration`, and `prepare_inner` requests the retained plan every
+passes `known >= duration`, and `prepare` requests the retained plan every
 frame, including after the last contact publication. Matching that signal alone
 clears the original experiment. The shared test helper now also matches the
 per-frame request cadence, caps received time at the motion endpoint, and checks

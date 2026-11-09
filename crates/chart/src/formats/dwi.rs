@@ -60,7 +60,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 use crate::TICKS_PER_BEAT;
 use crate::formats::ParseError;
 use crate::formats::msd::{MsdTag, parse_msd_raw};
-use crate::formats::sm::{empty_song, opt_string, parse_difficulty, sm_float, sm_int};
+use crate::formats::sm::{opt_string, parse_difficulty, sm_float, sm_int};
 use crate::model::{Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, Tick};
 use crate::timing::{BpmSegment, StopSegment, TimingMap};
 
@@ -69,7 +69,7 @@ use crate::timing::{BpmSegment, StopSegment, TimingMap};
 /// Never fails in practice: like StepMania, malformed entries are skipped.
 /// The `Result` keeps the signature in line with the other importers.
 pub fn parse_dwi(text: &str) -> Result<Song, ParseError> {
-    let mut song = empty_song(SourceFormat::Dwi);
+    let mut song = Song::empty(SourceFormat::Dwi);
     let mut offset = 0.0;
     let mut bpms: Vec<BpmSegment> = Vec::new();
     let mut stops: Vec<StopSegment> = Vec::new();

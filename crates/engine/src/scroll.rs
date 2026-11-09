@@ -217,6 +217,19 @@ impl ScrollState {
         }
     }
 
+    /// Whether a note later in the chart is drawn no lower than one
+    /// before it, at this moment: not with a speed or a `#SPEEDS` ratio
+    /// that is zero, negative or not a number.
+    pub fn runs_forward(&self) -> bool {
+        let positive = |v: f64| v > 0.0 && v.is_finite();
+        match self.options.speed {
+            SpeedMod::XMod(mult) => {
+                positive(mult) && positive(self.speed_ratio) && self.displayed_beat.is_finite()
+            }
+            SpeedMod::CMod(bpm) => positive(bpm) && self.song_time.is_finite(),
+        }
+    }
+
     /// Height of a note above the receptor. `note_seconds` is the note's
     /// judged second (`timing.seconds_at(note_tick)`), precomputed by the
     /// caller.

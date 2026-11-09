@@ -485,39 +485,22 @@ impl Gpu {
         if self.pipelines.get(key).is_some() {
             return;
         }
-        let p = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ddi-painter-pipeline"),
-            layout: Some(&self.layout),
-            vertex: wgpu::VertexState {
-                module: &self.shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &Instance::ATTRIBUTES,
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &self.shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: self.format,
-                    blend: Some(crate::textured::blend_state(key.0)),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
+        let p = crate::gpu::QuadPipeline {
+            label: "ddi-painter-pipeline",
+            layout: &self.layout,
+            shader: &self.shader,
+            fragment: "fs_main",
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &Instance::ATTRIBUTES,
+            })],
+            format: self.format,
+            blend: Some(crate::textured::blend_state(key.0)),
+            write_mask: wgpu::ColorWrites::ALL,
             depth_stencil: key.1.map(stencil::state),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        }
+        .make(device);
         self.pipelines.insert(key, p);
     }
 }
@@ -1277,28 +1260,15 @@ impl Painter {
             };
             if let Some(load) = load {
                 passes += 1;
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("ddi-painter"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: target,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    // Cleared in the frame's first pass, kept after.
-                    depth_stencil_attachment: stencil_view
-                        .map(|v| stencil::Attachment::pass(v, passes == 1)),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
+                // The stencil is cleared in the frame's first pass, kept after.
+                let stencil = stencil_view.map(|v| stencil::Attachment::pass(v, passes == 1));
+                let mut pass =
+                    crate::gpu::color_pass(encoder, "ddi-painter", target, load, stencil);
                 pass.set_bind_group(0, &gpu.globals_group, &[]);
                 let mut blend = None;
                 let mut reference = None;
                 let mut scissor_now = None;
+                let mut bound = crate::textured::Bound::default();
                 for step in &steps[at..end] {
                     let Step::Draw(b) = step else { continue };
                     let group = match b.bind {
@@ -1329,9 +1299,9 @@ impl Painter {
                         pass.set_scissor_rect(x, y, w, h);
                         scissor_now = Some(b.scissor);
                     }
-                    pass.set_bind_group(1, group, &[]);
+                    bound.texture(&mut pass, group);
                     for (buffer, range) in gpu.instances.pieces(b.start..b.end) {
-                        pass.set_vertex_buffer(0, buffer.slice(..));
+                        bound.instances(&mut pass, buffer);
                         pass.draw(0..6, range);
                         draws += 1;
                     }

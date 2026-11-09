@@ -10,8 +10,8 @@ use ddi_actor::Actor;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::pages as pm;
 
-use super::select_dialogs::{button, dialog_root, shell, wrap, wrap_lines};
-use super::{Env, left};
+use super::Env;
+use super::dialog::{button_rows, dialog_body, dialog_root, shell, wrap_lines};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 
@@ -76,29 +76,17 @@ impl Screen for FoldersOfferDialog {
         let lines = self.lines(w - 48.0);
         let h = (140.0 + lines.len() as f32 * 18.0).min(screen[1] - 32.0);
         let (mut c, [x, y]) = shell(&env, screen, [w, h], &pm::offer_title());
-        for (i, (line, color)) in lines.iter().enumerate() {
-            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, color);
-            wrap(&mut b, w - 48.0);
-            c.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
-        }
-        let bw = ((w - 58.0) / 2.0).min(180.0);
-        let by = y + h - 44.0;
-        c.push(button(
-            &env,
-            "Decline",
-            &pm::offer_decline(),
-            [x + w - 24.0 - bw * 1.5 - 10.0, by],
-            bw,
-            "Button",
-        ));
-        c.push(button(
-            &env,
-            "Add",
-            &pm::offer_add(self.folders.len()),
-            [x + w - 24.0 - bw / 2.0, by],
-            bw,
-            "PlayButton",
-        ));
+        let texts: Vec<&str> = lines.iter().map(|(line, _)| line.as_str()).collect();
+        dialog_body(&env, &mut c, &texts, [x, y], w, |i| lines[i].1);
+        let buttons = [
+            ("Decline", pm::offer_decline().into(), "Button"),
+            (
+                "Add",
+                pm::offer_add(self.folders.len()).into(),
+                "PlayButton",
+            ),
+        ];
+        c.extend(button_rows(&env, &buttons, 2, [x, y, w, h], 180.0));
         dialog_root(c)
     }
 

@@ -9,6 +9,17 @@ pub const MAX_LENGTH: f64 = 30.0;
 pub const FADE: f64 = 0.5;
 /// After the start is asked for, when it starts (context seconds).
 pub const LEAD: f64 = 0.05;
+/// Wait after a selection before its preview loads, ms: once the wheel
+/// has settled.
+pub const SETTLE_MS: u32 = 300;
+/// The pause between a preview's loops, ms.
+pub const AGAIN_MS: u32 = 600;
+
+/// Where a preview starts in music `duration` seconds long: the
+/// simfile's `#SAMPLESTART`, kept a second before the end.
+pub fn start(sample_start: f64, duration: f64) -> f64 {
+    sample_start.clamp(0.0, (duration - 1.0).max(0.0))
+}
 
 /// How long a preview plays, from the simfile's `#SAMPLELENGTH`.
 pub fn length(sample_length: f64) -> f64 {

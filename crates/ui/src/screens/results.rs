@@ -45,7 +45,7 @@ use super::data::{PanelKind, ResultsData, ResultsKind};
 use super::{Backdrop, Env, footer, frame, ground, header, left, right};
 use crate::graph;
 use crate::hit;
-use crate::look::{self, Spec, call, named, quad};
+use crate::look::{self, Spec, call, named, quad, quad_at, with_alpha};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::widgets::{part, set_image, set_text};
@@ -235,31 +235,24 @@ impl ResultsScreen {
         let score_w = if sideways { (w * 0.44).min(380.0) } else { w };
         let (score, score_h) = self.score_column_sized([0.0, 0.0, score_w]);
         let mut children = vec![score];
-        let kinds = self
-            .data
-            .panel_sets
-            .get(self.data.panel_set)
-            .map(|s| s.panels.clone())
-            .unwrap_or_default();
+        let kinds = self.data.panels();
         let (px, pw, mut py) = if sideways {
             (score_w + gap, w - score_w - gap, 0.0)
         } else {
             (0.0, w, score_h + gap)
         };
         let ph = if sideways { 190.0 } else { 200.0 };
-        for kind in kinds {
+        for &kind in kinds {
             children.push(self.panel_of(kind, [px, py, pw, ph]));
             py += ph + gap;
         }
         let mut end = py.max(score_h);
         // What is worth saying, under it all.
-        let mut notes = self.data.notes.clone();
-        if !self.data.note.is_empty() {
-            notes.push(self.data.note.clone());
-        }
-        for (i, line) in notes
+        for (i, line) in self
+            .data
+            .notes
             .iter()
-            .flat_map(|n| super::select_dialogs::wrap_lines(n, w, 13.0))
+            .flat_map(|n| super::dialog::wrap_lines(n, w, 13.0))
             .enumerate()
         {
             let t = env.text(&format!("Note{i}"), &line, 13.0, 400, "Muted");
@@ -321,7 +314,7 @@ impl ResultsScreen {
         let screen = self.screen;
         let (left_col, panels, bar_y) = self.places();
         let mut children = vec![ground(&env, screen), self.backdrop.build(&env, screen)];
-        children.push(self.score_column(left_col, cx));
+        children.push(self.score_column_sized(left_col).0);
         children.push(self.panels_actor(panels));
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
         children.push(header(&env, cx, screen[0], &rm::title()));
@@ -329,13 +322,7 @@ impl ResultsScreen {
         if let Some(b) = self.top_replay([panels[0], 32.0]) {
             children.push(b);
         }
-        let mut note = self.data.notes.join(" · ");
-        if !self.data.note.is_empty() {
-            if !note.is_empty() {
-                note.push_str(" · ");
-            }
-            note.push_str(&self.data.note);
-        }
+        let note = self.data.notes.join(" · ");
         let (song_list, retry, watch_again, watch_replay, activate, more) = (
             rm::song_list(),
             rm::retry(),
@@ -366,14 +353,8 @@ impl ResultsScreen {
                 &retry
             },
         ));
-        let (f, texts) = footer(&env, screen, &hints, &controller, &note, &[], cx);
-        env.state.borrow_mut().hints = texts;
-        children.push(f);
+        children.push(footer(&env, screen, &hints, &controller, &note, &[], cx));
         self.finish_root(children, cx)
-    }
-
-    fn score_column(&self, [x, y, w]: [f32; 3], _cx: &mut Cx) -> Actor {
-        self.score_column_sized([x, y, w]).0
     }
 
     /// The score column at `[x, y]`, `w` wide, and its height.
@@ -383,8 +364,12 @@ impl ResultsScreen {
         let mut children = Vec::new();
         // The banner, with its placeholder under it.
         let bh = (w * 100.0 / 400.0).round();
-        let mut ph = quad("BannerPlaceholder", [w, bh], env.color("BannerEmpty"));
-        call(&mut ph, "xy", &[w / 2.0, bh / 2.0]);
+        let mut ph = quad_at(
+            "BannerPlaceholder",
+            [w, bh],
+            env.color("BannerEmpty"),
+            [w / 2.0, bh / 2.0],
+        );
         call(&mut ph, "cornerradius", &[6.0]);
         let mut banner = named(Kind::Sprite(Sprite::quad([w, bh])), "Banner");
         call(&mut banner, "xy", &[w / 2.0, bh / 2.0]);
@@ -394,10 +379,7 @@ impl ResultsScreen {
         children.push(ph);
         children.push(holder);
         let cut = |mut a: Actor, w: f32| {
-            if let Kind::Text(t) = &mut a.kind {
-                t.max_width = w;
-                t.ellipsis = true;
-            }
+            look::ellipsized(&mut a, w);
             a
         };
         let mut ty = bh + 16.0;
@@ -555,9 +537,12 @@ impl ResultsScreen {
         }
         ty += 8.0;
         // The stats, two columns.
-        let mut line = quad("StatsLine", [w, 1.0], env.color("Line"));
-        call(&mut line, "xy", &[w / 2.0, ty]);
-        children.push(line);
+        children.push(quad_at(
+            "StatsLine",
+            [w, 1.0],
+            env.color("Line"),
+            [w / 2.0, ty],
+        ));
         ty += 14.0;
         // Two a row; one with a long value takes a row of its own.
         let (mut col, mut yy) = (0, ty);
@@ -626,12 +611,7 @@ impl ResultsScreen {
     /// odd count across.
     fn panels_actor(&self, [x, y, w, h]: [f32; 4]) -> Actor {
         let gap = 16.0;
-        let kinds = self
-            .data
-            .panel_sets
-            .get(self.data.panel_set)
-            .map(|s| s.panels.clone())
-            .unwrap_or_default();
+        let kinds = self.data.panels();
         let mut children = Vec::new();
         let n = kinds.len();
         let rects: Vec<[f32; 4]> = match n {
@@ -658,7 +638,7 @@ impl ResultsScreen {
                     .collect()
             }
         };
-        for (kind, rect) in kinds.into_iter().zip(rects) {
+        for (kind, rect) in kinds.iter().copied().zip(rects) {
             children.push(self.panel_of(kind, rect));
         }
         frame("Panels", children)
@@ -727,9 +707,12 @@ impl ResultsScreen {
         // The best window's band.
         if let Some(win) = self.data.windows.first() {
             let (a, b) = (px(-win.early), px(win.late));
-            let mut band = quad("Window", [b - a, ih], env.color("Window"));
-            call(&mut band, "xy", &[(a + b) / 2.0, iy + ih / 2.0]);
-            c.push(band);
+            c.push(quad_at(
+                "Window",
+                [b - a, ih],
+                env.color("Window"),
+                [(a + b) / 2.0, iy + ih / 2.0],
+            ));
         }
         // The zero line behind the bars, so a bar on it is not cut.
         c.push(graph::segment(
@@ -820,11 +803,12 @@ impl ResultsScreen {
         if let Some((_, from, to)) = drop {
             let px = |t: f32| ix + iw * (t / len).clamp(0.0, 1.0);
             let (a, b) = (px(from), px(to).max(px(from) + 2.0));
-            let mut color = env.color("Danger");
-            color[3] *= 0.18;
-            let mut q = quad("Life.Drop", [b - a, ih], color);
-            call(&mut q, "xy", &[(a + b) / 2.0, iy + ih / 2.0]);
-            band.push(q);
+            band.push(quad_at(
+                "Life.Drop",
+                [b - a, ih],
+                with_alpha(env.color("Danger"), 0.18),
+                [(a + b) / 2.0, iy + ih / 2.0],
+            ));
         }
         // As steps: life holds until it changes.
         let mut steps = Vec::with_capacity(self.data.life.len() * 2 + 1);
@@ -946,8 +930,12 @@ impl ResultsScreen {
             let bh = counts[l] as f32 / max * ih;
             let cxl = ix + slot * (l as f32 + 0.5);
             if counts[l] > 0 {
-                let mut q = quad("", [slot * 0.5, bh], env.color("Graph.Bar"));
-                call(&mut q, "xy", &[cxl, iy + ih - bh / 2.0]);
+                let mut q = quad_at(
+                    "",
+                    [slot * 0.5, bh],
+                    env.color("Graph.Bar"),
+                    [cxl, iy + ih - bh / 2.0],
+                );
                 call(&mut q, "cornerradius", &[2.0]);
                 c.push(q);
             }
@@ -958,10 +946,7 @@ impl ResultsScreen {
                 lane.symbol.clone()
             };
             let mut t = env.text(&format!("Lane{l}"), &name, 13.0, 600, "Secondary");
-            if let Kind::Text(tx) = &mut t.kind {
-                tx.max_width = slot - 4.0;
-                tx.ellipsis = true;
-            }
+            look::ellipsized(&mut t, slot - 4.0);
             call(&mut t, "xy", &[cxl, iy + ih + 14.0]);
             c.push(t);
             let note = if roomy {
@@ -1004,10 +989,7 @@ impl ResultsScreen {
                 rm::beats_not_kept()
             };
             let mut t = env.text("Beats.Empty", &why, 13.0, 400, "Muted");
-            if let Kind::Text(tx) = &mut t.kind {
-                tx.max_width = iw;
-                tx.ellipsis = true;
-            }
+            look::ellipsized(&mut t, iw);
             c.push(left(t, ix, iy + ih / 2.0));
             return self.panel("Beats", &rm::panel_beats(), "", rect, c);
         }
@@ -1020,9 +1002,12 @@ impl ResultsScreen {
         let span = row * groups.len() as f32;
         if let Some(win) = self.data.windows.first() {
             let (a, b) = (px(-win.early), px(win.late));
-            let mut band = quad("Window", [b - a, span], env.color("Window"));
-            call(&mut band, "xy", &[(a + b) / 2.0, top + span / 2.0]);
-            c.push(band);
+            c.push(quad_at(
+                "Window",
+                [b - a, span],
+                env.color("Window"),
+                [(a + b) / 2.0, top + span / 2.0],
+            ));
         }
         c.push(graph::segment(
             [px(0.0), top],
@@ -1054,15 +1039,20 @@ impl ResultsScreen {
                     px(g.mean - g.sd),
                     px(g.mean + g.sd).max(px(g.mean - g.sd) + 2.0),
                 );
-                let mut color = env.color("Graph.Point");
-                color[3] *= 0.45;
-                let mut spread = quad("", [b - a, 6.0], color);
-                call(&mut spread, "xy", &[(a + b) / 2.0, y]);
+                let mut spread = quad_at(
+                    "",
+                    [b - a, 6.0],
+                    with_alpha(env.color("Graph.Point"), 0.45),
+                    [(a + b) / 2.0, y],
+                );
                 call(&mut spread, "cornerradius", &[3.0]);
                 c.push(spread);
-                let mut mean = quad("", [2.0, 14.0], env.color("Graph.Point"));
-                call(&mut mean, "xy", &[px(g.mean), y]);
-                c.push(mean);
+                c.push(quad_at(
+                    "",
+                    [2.0, 14.0],
+                    env.color("Graph.Point"),
+                    [px(g.mean), y],
+                ));
             }
             // A readout, the same in every language.
             let stats = if g.count > g.misses {
@@ -1472,7 +1462,7 @@ impl Screen for ResultsScreen {
         }
         if self.place(cx.viewport().screen) {
             self.scroll = 0.0;
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.make_root(cx);
             super::relaid(root, left, cx);
             self.publish();
@@ -1484,7 +1474,7 @@ impl Screen for ResultsScreen {
 
     fn message(&mut self, m: &crate::Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == crate::controller_hints::CHANGED {
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.make_root(cx);
             super::relaid(root, left, cx);
             self.publish();

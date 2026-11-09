@@ -18,12 +18,12 @@ use ddi_platform::video::VideoFormat;
 
 use crate::image::{IMAGE_HEADER_LEN, image_size};
 use crate::manifest::{EntryMeta, ManifestEntry, VideoRef, simfile_names, summarize};
-use crate::pack::{self, MissingTag, SongCandidate};
+use crate::pack::{self, MissingTag, PathIndex, SongCandidate};
 use crate::path::{RelPath, RelPathBuf};
 use crate::report::Finding;
 
-/// The most background-change images a song keeps (the web's
-/// `songs::MAX_BG_IMAGES`).
+/// Background-change images a song shows at most, its own and shared
+/// ones together (each is decoded and kept on the GPU during play).
 pub const MAX_BG_IMAGES: usize = 32;
 
 /// Files of a song's scripted backgrounds and foregrounds kept, at most
@@ -95,16 +95,17 @@ pub struct Scanned {
     pub notes: Vec<Finding>,
 }
 
-/// The song of `c` among the root's `paths`, read through `files`;
-/// `shared` are the library's shared folders' files (movies and images a
-/// pack shares, as `RandomMovies/`), `legacy` decodes a simfile that is
-/// not UTF-8 (`encoding_rs` on desktop, `TextDecoder` on the web). Its
-/// files are named in place, every movie the game can play is kept.
+/// The song of `c` among `paths` (its pack's, [`PackIndexes`]), read
+/// through `files`; `shared` are the library's shared folders' files
+/// (movies and images a pack shares, as `RandomMovies/`), `legacy` decodes
+/// a simfile that is not UTF-8 (`encoding_rs` on desktop, `TextDecoder` on
+/// the web). Its files are named in place, every movie the game can play
+/// is kept.
 pub fn scan_song(
     files: &dyn Reader,
-    paths: &[RelPathBuf],
+    paths: &PathIndex,
     c: &SongCandidate,
-    shared: &[RelPathBuf],
+    shared: &PathIndex,
     legacy: crate::legacy::Decoder,
 ) -> Result<Scanned, Finding> {
     let bytes = files.read(&c.chart)?;
@@ -189,7 +190,6 @@ pub enum Naming {
 #[derive(Clone, Debug)]
 pub struct Built {
     pub scanned: Scanned,
-    pub song: ddi_chart::Song,
     /// The simfile as text.
     pub text: String,
     pub music: RelPathBuf,
@@ -219,24 +219,24 @@ pub struct Built {
 }
 
 /// Reads the simfile `chart` (the bytes of `c.chart`) and finds the
-/// song's files among `paths` (its pack's, [`pack_paths`]). Fails when
+/// song's files among `paths` (its pack's, [`PackIndexes`]). Fails when
 /// the simfile does not parse or has no chart this game plays.
 pub fn read_song(
     c: &SongCandidate,
     chart: &[u8],
-    paths: &[RelPathBuf],
+    paths: &PathIndex,
     legacy: crate::legacy::Decoder,
 ) -> Result<Reading, Finding> {
     let mut notes = Vec::new();
     let text = pack::decode_text_with(chart, legacy);
     let mut song =
         parse_simfile(&text, c.format.extension()).map_err(|e| Finding::Other(e.to_string()))?;
-    debug_assert!(paths.is_sorted(), "a song's paths are sorted");
-    song.resolve_change_names(&song_dir_names(&c.dir, paths_under(paths, &c.dir)));
+    debug_assert!(paths.paths().is_sorted(), "a song's paths are sorted");
+    song.resolve_change_names(&song_dir_names(&c.dir, paths_under(paths.paths(), &c.dir)));
     let mut unplayed: Vec<String> = song
         .charts
         .iter()
-        .filter(|ch| song.layout_of(ch).is_none())
+        .filter(|ch| !song.has_layout(ch))
         .map(|ch| ch.layout.clone())
         .collect();
     unplayed.sort_unstable();
@@ -303,8 +303,8 @@ impl Reading {
     /// Fails when the song has no music.
     pub fn finish(
         self,
-        paths: &[RelPathBuf],
-        shared: &[RelPathBuf],
+        paths: &PathIndex,
+        shared: &PathIndex,
         movies: Vec<Movie>,
         naming: Naming,
     ) -> Result<Built, Finding> {
@@ -361,7 +361,7 @@ impl Reading {
         let named = |role: &str, path: &RelPath| -> RelPathBuf {
             match naming {
                 Naming::InPlace => path.relative_to(&c.dir),
-                Naming::Stored => match extension(path) {
+                Naming::Stored => match path.lower_extension() {
                     Some(ext) => format!("{role}.{ext}").into(),
                     None => role.into(),
                 },
@@ -463,8 +463,9 @@ impl Reading {
                 files: left_out.iter().map(|p| p.to_string()).collect(),
             });
         }
-        let missing = crate::backgrounds::missing_files(&song, &c.dir, paths, &c.pack, shared);
-        let unshown = crate::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
+        let changes = crate::backgrounds::change_files(&song);
+        let missing = crate::backgrounds::missing_files(&changes, &c.dir, paths, &c.pack, shared);
+        let unshown = crate::backgrounds::unshown_files(&changes, &c.dir, paths, &c.pack, shared);
         let (present, absent): (Vec<_>, Vec<_>) =
             unshown.into_iter().partition(|(_, exists)| *exists);
         let scripted: Vec<RelPathBuf> = present.iter().map(|(n, _)| n.into()).collect();
@@ -510,7 +511,7 @@ impl Reading {
                 background: background.as_ref().map(|(n, _)| n.clone()),
                 bg_images: bg_images.iter().map(|(r, _)| r.clone()).collect(),
                 bg_videos,
-                bg_shared: crate::backgrounds::absent_files(&song, &c.dir, paths),
+                bg_shared: crate::backgrounds::absent_files(&changes, &c.dir, paths),
                 credit: song.credit.trim().to_string(),
             },
             &song,
@@ -522,28 +523,13 @@ impl Reading {
         entry.preview = preview.as_ref().map(|(n, _)| n.clone());
         entry.preview_video = preview_video;
         entry.bg_scripts = script_files.iter().map(|(r, _)| r.clone()).collect();
-        // The keys the song list finds its charts' bests by (a work's
-        // chart's own excessive setting among them).
         for chart in &mut entry.charts {
-            if chart.index < song.charts.len() {
-                chart.digest = Some(song.chart_digest(chart.index));
-                chart.excessive =
-                    ddi_engine::rules::danoni::chart_excessive(&song.charts[chart.index]);
-                let own = song.effects_chart(chart.index);
-                chart.music = music_of
-                    .iter()
-                    .find(|(i, _)| *i == own)
-                    .map(|(_, n)| n.clone())
-                    .filter(|n| *n != entry.music);
-            }
-        }
-        // A non-finite float does not survive JSON (`#SAMPLESTART:1e999`
-        // parses to inf, which would not read back and would hide the
-        // song).
-        for v in [&mut entry.preview_start, &mut entry.preview_length] {
-            if !v.is_finite() {
-                *v = 0.0;
-            }
+            let own = song.effects_chart(chart.index);
+            chart.music = music_of
+                .iter()
+                .find(|(i, _)| *i == own)
+                .map(|(_, n)| n.clone())
+                .filter(|n| *n != entry.music);
         }
         Ok(Built {
             scanned: Scanned {
@@ -553,7 +539,6 @@ impl Reading {
                 warnings,
                 notes,
             },
-            song,
             text,
             music,
             banner,
@@ -570,12 +555,6 @@ impl Reading {
             videos_left_out: left_out.len(),
         })
     }
-}
-
-/// Lowercase extension of a path's file name.
-fn extension(path: &RelPath) -> Option<String> {
-    let (_, ext) = path.file_name().rsplit_once('.')?;
-    (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
 }
 
 /// What a movie is ([`crate::video::sniff`], the MP4 index read where its
@@ -614,13 +593,14 @@ pub fn scan_root(
 ) -> RootScan {
     let mut out = RootScan::default();
     let mut seen = Duplicates::default();
+    let mut packs = PackIndexes::new(paths);
+    let shared = PathIndex::new(shared);
     for c in pack::find_songs(paths, fallback_pack) {
         if let Some(e) = seen.check(&c) {
             out.failed.push((c.dir.clone(), e));
             continue;
         }
-        let paths = pack_paths(paths, &c);
-        match scan_song(files, paths, &c, shared, legacy) {
+        match scan_song(files, packs.of(&c), &c, &shared, legacy) {
             Ok(s) => out.songs.push(s),
             Err(e) => out.failed.push((c.dir.clone(), e)),
         }
@@ -656,7 +636,7 @@ impl Duplicates {
 /// The paths a song's files may come from: its pack folder's (where a
 /// simfile's `../` reaches), out of the root's sorted `paths`, so a scan
 /// does not go through the whole library for each song.
-pub fn pack_paths<'a>(paths: &'a [RelPathBuf], c: &SongCandidate) -> &'a [RelPathBuf] {
+fn pack_paths<'a>(paths: &'a [RelPathBuf], c: &SongCandidate) -> &'a [RelPathBuf] {
     match c.pack_dir() {
         Some(dir) => paths_under(paths, dir),
         None => paths,
@@ -664,14 +644,51 @@ pub fn pack_paths<'a>(paths: &'a [RelPathBuf], c: &SongCandidate) -> &'a [RelPat
 }
 
 /// The paths under folder `dir` (all for the root) out of sorted `paths`.
-fn paths_under<'a>(paths: &'a [RelPathBuf], dir: &RelPath) -> &'a [RelPathBuf] {
+fn paths_under<'a, S: AsRef<str>>(paths: &'a [S], dir: &RelPath) -> &'a [S] {
     if dir.is_empty() {
         return paths;
     }
     let prefix = format!("{dir}/");
-    let start = paths.partition_point(|p| p.as_str() < prefix.as_str());
-    let len = paths[start..].partition_point(|p| p.as_str().starts_with(&prefix));
+    let start = paths.partition_point(|p| p.as_ref() < prefix.as_str());
+    let len = paths[start..].partition_point(|p| p.as_ref().starts_with(&prefix));
     &paths[start..start + len]
+}
+
+/// The [`PathIndex`] of each song's pack (see [`pack_paths`]) out of a
+/// root's sorted `paths`, kept while the songs asked about stay in one
+/// pack, as a scan's do.
+pub struct PackIndexes<'a> {
+    paths: &'a [RelPathBuf],
+    current: Option<(Option<RelPathBuf>, PathIndex<'a>)>,
+}
+
+impl<'a> PackIndexes<'a> {
+    pub fn new(paths: &'a [RelPathBuf]) -> PackIndexes<'a> {
+        PackIndexes {
+            paths,
+            current: None,
+        }
+    }
+
+    /// The paths song `c`'s files may come from.
+    pub fn of(&mut self, c: &SongCandidate) -> &PathIndex<'a> {
+        let dir = c.pack_dir();
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|(d, _)| d.as_deref() != dir)
+        {
+            self.current = None;
+        }
+        let paths = self.paths;
+        let (_, index) = self.current.get_or_insert_with(|| {
+            (
+                dir.map(RelPath::to_owned),
+                PathIndex::new(pack_paths(paths, c)),
+            )
+        });
+        index
+    }
 }
 
 #[cfg(test)]
@@ -1021,9 +1038,11 @@ mod tests {
         );
         // Stored on the web by role.
         let c = &pack::find_songs(&paths, "Mine")[0];
+        let paths = PathIndex::new(&paths);
         let reading = read_song(c, ssc.as_bytes(), &paths, &crate::legacy::none).unwrap();
+        let none: [&str; 0] = [];
         let built = reading
-            .finish(&paths, &[], Vec::new(), Naming::Stored)
+            .finish(&paths, &PathIndex::new(&none), Vec::new(), Naming::Stored)
             .unwrap();
         let e = &built.scanned.entry;
         assert_eq!(e.jacket.as_deref().map(RelPath::as_str), Some("jacket.png"));

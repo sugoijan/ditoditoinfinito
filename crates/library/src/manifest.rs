@@ -333,7 +333,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .charts
         .iter()
         .enumerate()
-        .filter(|(_, c)| song.layout_of(c).is_some())
+        .filter(|(_, c)| song.has_layout(c))
         .collect();
     if danoni {
         // Works order their charts themselves.
@@ -362,8 +362,14 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .collect();
     let charts = indexed
         .into_iter()
-        .map(|(index, c)| ChartInfo::of(index, c, Some(song.chart_digest(index))))
+        .map(|(index, c)| ChartInfo {
+            excessive: ddi_engine::rules::danoni::chart_excessive(c),
+            ..ChartInfo::of(index, c, Some(song.chart_digest(index)))
+        })
         .collect();
+    // A non-finite float does not survive JSON (`#SAMPLESTART:1e999` parses
+    // to inf, which would not read back and would hide the song).
+    let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
     ManifestEntry {
         variants_version: chart_variants_version(song),
         id: meta.id,
@@ -387,8 +393,8 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         credit: meta.credit,
         layouts,
         bpm,
-        preview_start: song.preview_start,
-        preview_length: song.preview_length,
+        preview_start: finite(song.preview_start),
+        preview_length: finite(song.preview_length),
         length: song_length(song),
         charts,
         title_translit: [song.title_translit.trim(), song.subtitle_translit.trim()]
@@ -409,7 +415,7 @@ fn is_zero(v: &f64) -> bool {
 pub fn song_length(song: &Song) -> f64 {
     song.charts
         .iter()
-        .filter(|c| song.layout_of(c).is_some())
+        .filter(|c| song.has_layout(c))
         .filter_map(|c| {
             let timing = c.timing(song);
             c.notes
@@ -455,6 +461,13 @@ mod tests {
 #NOTES:\n     dance-single:\n     :\n     Hard:\n     9:\n     0,0,0,0,0:\n1000\n0100\n0010\n0001\n;\n\
 #NOTES:\n     pump-couple:\n     :\n     Easy:\n     2:\n     0,0,0,0,0:\n10000\n01000\n00100\n00010\n;\n\
 #NOTES:\n     dance-single:\n     :\n     Easy:\n     3:\n     0,0,0,0,0:\n1000\n0000\n0010\n0000\n;\n";
+
+    #[test]
+    fn a_preview_that_is_not_a_number_is_none() {
+        let song = parse_sm(&SM.replace("12.5", "1e999").replace(":15;", ":-1e999;")).unwrap();
+        let entry = summarize(EntryMeta::default(), &song);
+        assert_eq!((entry.preview_start, entry.preview_length), (0.0, 0.0));
+    }
 
     #[test]
     fn summarize_sorts_and_filters_charts() {

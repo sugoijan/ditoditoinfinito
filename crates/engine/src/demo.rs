@@ -7,10 +7,7 @@
 //! modes too). The skin previews draw its frames (`#/skin-preview?demo=1`,
 //! Options).
 
-use ddi_chart::{
-    Chart, Difficulty, DisplayBpm, Layout, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick,
-    TimingMap,
-};
+use ddi_chart::{Chart, Difficulty, Layout, Note, NoteKind, Song, Tick, TimingMap};
 use ddi_platform::{ClockSample, HostTime};
 
 use crate::InputEvent;
@@ -109,46 +106,15 @@ pub fn song(layout: &str, bpm: f64) -> Option<Song> {
         }
     }
     notes.sort_by_key(|n| (n.tick, n.lane));
-    Some(Song {
-        title: "Noteskin demo".into(),
-        subtitle: String::new(),
-        artist: String::new(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(bpm, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: layout.into(),
-            difficulty: Difficulty::Beginner,
-            meter: 1,
+    Some(Song::generated(
+        "Noteskin demo",
+        TimingMap::constant(bpm, 0.0),
+        Chart {
             name: "demo".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("generated".into()),
-            unknown_tags: Vec::new(),
+            ..Chart::plain(layout, Difficulty::Beginner, 1, notes)
         },
-    })
+        "generated",
+    ))
 }
 
 /// The demo playing.

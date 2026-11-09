@@ -13,6 +13,12 @@ pub(super) fn refreshes(
 ) -> Result<(Vec<InputNote>, usize), String> {
     let mut out = Vec::new();
     let mut skipped = 0;
+    let tail_budget = input
+        .rules
+        .iter()
+        .map(|(_, rule)| rule.roll_window_seconds())
+        .fold(0.250, f64::min)
+        - 0.001;
     for head in input
         .notes
         .iter()
@@ -86,12 +92,6 @@ pub(super) fn refreshes(
             // Final recovery may omit a redundant tail refresh. A short roll
             // can finish from its preceding press, freeing that finger for a
             // scored transfer. The actual judge replay validates the budget.
-            let tail_budget = input
-                .rules
-                .iter()
-                .map(|(_, rule)| rule.roll_window_seconds())
-                .fold(0.250, f64::min)
-                - 0.001;
             if adaptive && t > end - tail_budget && end - previous <= tail_budget {
                 skipped += usize::from(t > after);
                 continue;
@@ -228,9 +228,9 @@ impl Search {
     }
 }
 
-pub(super) fn pulses(holds: &[Hold], tracks: &[Vec<Swing>; 2]) -> Vec<ddi_hand_pose::RollPulse> {
+pub(super) fn pulses(holds: &[Hold], tracks: &Tracks) -> Vec<ddi_hand_pose::RollPulse> {
     let mut pulses = Vec::new();
-    for (d, track) in tracks.iter().enumerate() {
+    for (d, track) in [&tracks.left, &tracks.right].into_iter().enumerate() {
         for s in track {
             if holds
                 .iter()
@@ -241,7 +241,7 @@ pub(super) fn pulses(holds: &[Hold], tracks: &[Vec<Swing>; 2]) -> Vec<ddi_hand_p
                     land: s.land,
                     from: s.from,
                     panel: s.to,
-                    foot: if d == 0 { "L".into() } else { "R".into() },
+                    foot: Foot::at(d),
                 });
             }
         }
@@ -255,11 +255,7 @@ pub(crate) fn validate_auxiliary(
     p: &ContactPlan,
     a: &Auxiliary,
 ) -> Result<(), String> {
-    let tr = if a.foot == Foot::L {
-        &p.tracks.left
-    } else {
-        &p.tracks.right
-    };
+    let tr = p.tracks.of(a.foot);
     if !input.notes.iter().any(|n| {
         n.judgeable
             && n.roll
@@ -287,7 +283,7 @@ pub(crate) fn validate_pulses(p: &ContactPlan) -> Result<(), String> {
         }
         return Ok(());
     }
-    if p.roll_pulses != pulses(&p.holds, &[p.tracks.left.clone(), p.tracks.right.clone()]) {
+    if p.roll_pulses != pulses(&p.holds, &p.tracks) {
         return Err("roll motion declarations differ from physical refreshes".into());
     }
     Ok(())

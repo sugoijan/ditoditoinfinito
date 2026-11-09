@@ -158,12 +158,15 @@ impl Stage {
 
     /// The ids of an actor's children, in order.
     pub fn children(&self, id: u32) -> Vec<u32> {
-        self.get(id).map_or_else(Vec::new, |a| {
-            a.children()
-                .iter()
-                .map(|c| c.id)
-                .filter(|&c| c != 0)
-                .collect()
-        })
+        let mut out = Vec::new();
+        self.children_into(id, &mut out);
+        out
+    }
+
+    /// Appends the ids of an actor's children to `out`, in order.
+    pub fn children_into(&self, id: u32, out: &mut Vec<u32>) {
+        if let Some(a) = self.get(id) {
+            out.extend(a.children().iter().map(|c| c.id).filter(|&c| c != 0));
+        }
     }
 }

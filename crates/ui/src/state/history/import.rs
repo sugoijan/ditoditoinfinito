@@ -363,8 +363,7 @@ fn log_error(part: LinePart, e: LogError) -> Refused {
 /// it is not taken.
 pub fn read_line(text: &str) -> Result<Imported, Refused> {
     let invalid = Refused::Invalid;
-    let mut entry =
-        PlayEntry::from_json(text).map_err(|e| invalid(LineProblem::NotAPlay(e.to_string())))?;
+    let mut entry = PlayEntry::from_json(text).map_err(|e| invalid(LineProblem::NotAPlay(e)))?;
     if !is_play_id(&entry.id) {
         return Err(invalid(LineProblem::NotAPlayId));
     }

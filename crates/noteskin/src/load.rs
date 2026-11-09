@@ -257,6 +257,43 @@ pub const DROPPED_ELEMENTS: &[&str] = &[
     "Roll Bottomcap Dropped",
 ];
 
+/// A long note's element, by its name's words ("Hold Topcap Dropped").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LongElement {
+    pub roll: bool,
+    /// Which part: head, tail, topcap, body, bottomcap, by index
+    /// ([`LongElement::BODY`]).
+    pub part: usize,
+    /// Inactive, active, dropped: 0, 1 or 2.
+    pub state: usize,
+}
+
+impl LongElement {
+    pub const BODY: usize = 3;
+
+    /// `name`'s long-note element (words past the three are not looked
+    /// at); `None` for any other element.
+    pub fn parse(name: &str) -> Option<LongElement> {
+        let mut words = name.split(' ');
+        let roll = match words.next()? {
+            "Hold" => false,
+            "Roll" => true,
+            _ => return None,
+        };
+        let part_name = words.next()?;
+        let part = ["Head", "Tail", "Topcap", "Body", "Bottomcap"]
+            .iter()
+            .position(|p| *p == part_name)?;
+        let state = match words.next()? {
+            "Inactive" => 0,
+            "Active" => 1,
+            "Dropped" => 2,
+            _ => return None,
+        };
+        Some(LongElement { roll, part, state })
+    }
+}
+
 /// The parts `common/common`'s `Fallback Explosion.lua` loads for each
 /// column.
 pub const EXPLOSION_PARTS: &[&str] = &[

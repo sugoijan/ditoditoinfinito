@@ -61,18 +61,11 @@ pub struct Shared {
 fn list_announcers(
     songs: Option<&Rc<crate::songs::Songs>>,
 ) -> std::sync::mpsc::Receiver<Arc<[DiskAnnouncer]>> {
-    let (tx, rx) = std::sync::mpsc::channel();
     let folders = songs.map(|s| s.folders()).unwrap_or_default();
     let wake = songs.and_then(|s| s.wake.borrow().clone());
-    let _ = std::thread::Builder::new()
-        .name("ddi-announcers".into())
-        .spawn(move || {
-            let _ = tx.send(crate::library::announcers::found(&folders));
-            if let Some(w) = wake {
-                w();
-            }
-        });
-    rx
+    crate::os::background("ddi-announcers", wake, move || {
+        crate::library::announcers::found(&folders)
+    })
 }
 
 impl Shared {
@@ -262,21 +255,14 @@ pub fn screen(
         env: env.clone(),
         shares: RefCell::default(),
         skins: RefCell::new(songs.as_ref().map(|s| {
-            let (tx, rx) = std::sync::mpsc::channel();
             let folders = s.folders();
             let wake = s.wake.borrow().clone();
-            let _ = std::thread::Builder::new()
-                .name("ddi-noteskins".into())
-                .spawn(move || {
-                    let skins = crate::library::noteskins::all(&folders);
-                    let choices = crate::library::noteskins::choices(&skins);
-                    let parameters = crate::library::noteskins::parameters(&skins, &choices);
-                    let _ = tx.send((choices, parameters));
-                    if let Some(w) = wake {
-                        w();
-                    }
-                });
-            rx
+            crate::os::background("ddi-noteskins", wake, move || {
+                let skins = crate::library::noteskins::all(&folders);
+                let choices = crate::library::noteskins::choices(&skins);
+                let parameters = crate::library::noteskins::parameters(&skins, &choices);
+                (choices, parameters)
+            })
         })),
         // Ours too where there is no library.
         announcers: RefCell::new(Some(list_announcers(songs.as_ref()))),
@@ -300,10 +286,7 @@ struct Desktop(Rc<Shared>);
 
 /// Today as the export's file name has it (`YYYY-MM-DD`, UTC).
 fn today() -> String {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis()) as f64;
-    let mut time = ddi_ui::state::history::local_time(ms, 0);
+    let mut time = ddi_ui::state::history::local_time(crate::clock::epoch_ms(), 0);
     // "YYYY-MM-DD HH:MM": the date.
     time.truncate(time.find(' ').unwrap_or(time.len()));
     time
@@ -314,31 +297,20 @@ impl Desktop {
     /// polled by the shell ([`Shared::take_shares`]).
     fn shares_on_thread(&self, into: SharesFeed, delete: Option<String>) {
         let token = Settings::load().share_token;
-        let (tx, rx) = std::sync::mpsc::channel();
         let wake = self.0.songs.as_ref().and_then(|s| s.wake.borrow().clone());
-        *self.0.shares.borrow_mut() = Some((into, rx));
-        let _ = std::thread::Builder::new()
-            .name("ddi-shares".into())
-            .spawn(move || {
-                let result = match delete {
-                    Some(id) => {
-                        crate::share::delete(&token, &id).and_then(|()| crate::share::list(&token))
-                    }
-                    None => crate::share::list(&token),
-                };
-                let view = match result {
-                    Ok(v) => v,
-                    Err(e) => ddi_ui::screens::data::SharesView {
-                        state: ddi_ui::screens::data::SharesState::Failed,
-                        error: Some(e),
-                        ..Default::default()
-                    },
-                };
-                let _ = tx.send(view);
-                if let Some(w) = wake {
-                    w();
+        let rx = crate::os::background("ddi-shares", wake, move || {
+            let result = match delete {
+                Some(id) => {
+                    crate::share::delete(&token, &id).and_then(|()| crate::share::list(&token))
                 }
-            });
+                None => crate::share::list(&token),
+            };
+            match result {
+                Ok(v) => v,
+                Err(e) => ddi_ui::screens::data::SharesView::failed(e),
+            }
+        });
+        *self.0.shares.borrow_mut() = Some((into, rx));
     }
 }
 

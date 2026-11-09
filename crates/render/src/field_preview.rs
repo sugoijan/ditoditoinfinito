@@ -48,7 +48,7 @@ use crate::scene::{ColorScheme, RenderOptions};
 /// A receptor-only diagram, with an independent presentation clock.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReceptorPreview {
-    pub layout: Layout,
+    pub layout: std::rc::Rc<Layout>,
     pub time: f32,
     pub active: Option<usize>,
 }
@@ -58,7 +58,7 @@ pub const SOURCE: &str = "field-preview";
 
 /// The format of the texture the preview is drawn into: encoded values,
 /// as the 2D pass's images.
-pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub const FORMAT: wgpu::TextureFormat = crate::gpu::PICTURE_FORMAT;
 
 /// The demo's tempo: a common one, so the speed reads as it would on a
 /// song.
@@ -219,10 +219,7 @@ impl FieldPreview {
         float: Option<wgpu::TextureFormat>,
         fonts: &[&'static [u8]],
     ) -> FieldPreview {
-        let blending = match float {
-            Some(f) => SkinBlending::Encoded(f),
-            None => SkinBlending::Scene,
-        };
+        let blending = SkinBlending::for_picture(float);
         let mut renderer = Renderer::new(device, queue, FORMAT, blending, fonts);
         let (w, h, rgba) = plate();
         let plate = renderer.add_background_image(device, [w, h], |texture| {
@@ -276,7 +273,7 @@ impl FieldPreview {
     /// The demo again for the options, at the time it had reached.
     fn replay(&mut self) {
         let (layout, play, rules) = self.options.demo_key();
-        let layout = if Layout::builtin(layout).is_some() {
+        let layout = if Layout::is_builtin(layout) {
             layout
         } else {
             "dance-single"
@@ -315,7 +312,7 @@ impl FieldPreview {
             return;
         };
         let mut frame = demo.step(0.0).frame;
-        frame.song_time = 2.0 + f64::from(pose.time);
+        frame.song_time = crate::editor_field::REST + f64::from(pose.time);
         frame.beat = 0.0;
         frame.lanes = pose.layout.lane_count() as u8;
         frame.notes.clear();
@@ -331,13 +328,8 @@ impl FieldPreview {
         if let Some(skin) = &mut self.noteskin
             && self.receptor_time.is_none_or(|last| pose.time < last)
         {
-            skin.restart();
-            for i in 0..=8 {
-                frame.song_time = f64::from(i) * 0.25;
-                skin.update(&frame, std::iter::empty(), reverse);
-            }
+            crate::editor_field::settle(skin, &frame, reverse);
             self.receptor_active = None;
-            frame.song_time = 2.0 + f64::from(pose.time);
         }
         if let Some(i) = pose.active.and_then(|i| frame.receptors.get_mut(i)) {
             i.pressed = true;

@@ -387,7 +387,8 @@ pub struct Timing {
 }
 
 impl Timing {
-    fn at(&self, t: f64) -> f64 {
+    /// Where song second `t` falls on the audio clock.
+    pub fn at(&self, t: f64) -> f64 {
         self.start + (t - self.offset) / self.rate.max(1e-6)
     }
 }

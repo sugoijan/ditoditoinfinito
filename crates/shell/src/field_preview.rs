@@ -48,6 +48,18 @@ impl<L: SkinLoad> SkinSlot<L> {
         self.wanted = Some((want, layout));
     }
 
+    /// Wants `want`, readied for its own layout, unless it is wanted now.
+    pub fn want_own_layout(&mut self, want: &SkinWant) {
+        if self.wanted.as_ref().is_none_or(|(w, _)| w != want) {
+            self.want(want.clone(), want.layout());
+        }
+    }
+
+    /// Gives up the load running (the next step starts it again).
+    pub fn cancel(&mut self) {
+        self.loading = None;
+    }
+
     /// Options' demo under `settings`: its options, and the skin they
     /// draw with wanted.
     pub fn set_settings(&mut self, settings: &Settings) -> FieldPreviewOptions {
@@ -62,8 +74,14 @@ impl<L: SkinLoad> SkinSlot<L> {
     /// wanted.
     pub fn set_receptors(&mut self, p: &Picture) -> (FieldPreviewOptions, ReceptorPreview) {
         let (options, want, pose) = self.receptor_skin.options(p);
-        self.want(want, pose.layout.clone());
-        (options, pose)
+        let unchanged = self
+            .wanted
+            .as_ref()
+            .is_some_and(|(w, l)| w == want && l == &*pose.layout);
+        if !unchanged {
+            self.wanted = Some((want.clone(), (*pose.layout).clone()));
+        }
+        (options.clone(), pose)
     }
 
     /// The diagram's skin for `controls` (a chart song select shows)
@@ -327,7 +345,7 @@ mod tests {
         };
         let (options, pose) = slot.set_receptors(&picture);
         assert_eq!(options, warmed);
-        assert_eq!(Some(&pose.layout), slot.shown_layout());
+        assert_eq!(Some(&*pose.layout), slot.shown_layout());
         assert_eq!(loads.step(&mut slot), None);
         assert!(slot.ready());
         assert_eq!(loads.started.len(), 1);

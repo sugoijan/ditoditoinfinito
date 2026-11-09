@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
+use common::double_plan as plan;
 use ddi_chart::{Note, NoteKind, Tick};
 use ddi_hand_plan::{Input, Options, PlannerJob};
 mod common;
@@ -85,24 +86,6 @@ fn input(kind: &str, mirror: bool, native: bool) -> Input {
         input.rules = vec![("danoni".into(), ddi_engine::rules::presets::danoni().judge)];
     }
     input
-}
-fn plan(i: &Input) -> ddi_hand_plan::ContactPlan {
-    let mut job = PlannerJob::new(i.clone(), Options::default());
-    for _ in 0..1_000_000 {
-        if job.step() {
-            break;
-        }
-    }
-    let (p, r) = job.finish().unwrap();
-    let p = p.unwrap_or_else(|| panic!("{r:?}"));
-    assert!(ddi_hand_plan::replay(i, &p).unwrap().passed);
-    assert_eq!(p.version, 2);
-    assert_eq!(p.mat.unwrap().pads(), 2);
-    p.pose_plan().unwrap();
-    for e in &p.events {
-        assert_eq!(e.music_time, i.timing.seconds_at(Tick(e.tick)));
-    }
-    p
 }
 const KINDS: [&str; 8] = [
     "walking",

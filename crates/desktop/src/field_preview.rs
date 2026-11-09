@@ -33,6 +33,16 @@ pub struct Load {
     layout: Layout,
 }
 
+impl Load {
+    /// Reads skin `key` for `layout`.
+    pub fn start(key: &str, layout: &Layout, env: ddi_noteskin::lua::Env) -> Load {
+        Load {
+            reading: Reading::start(key, layout, env, None),
+            layout: layout.clone(),
+        }
+    }
+}
+
 impl SkinLoad for Load {
     type Skin = Prepared;
     fn poll(&mut self) -> Option<Option<Prepared>> {
@@ -198,10 +208,7 @@ impl Field {
         });
         preview.set_options(self.options.clone());
         preview.set_receptors(self.receptors.clone());
-        let skin = self.skin.step(|key, layout, env| Load {
-            reading: Reading::start(key, layout, env, None),
-            layout: layout.clone(),
-        });
+        let skin = self.skin.step(Load::start);
         if let Some(prepared) = skin {
             let (play, images) = match prepared {
                 Some(p) => (Some(p.play), p.images),

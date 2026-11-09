@@ -17,6 +17,8 @@
 //!   one way they become OS paths.
 //! - [`scan`]: a song's list entry from its folder, read in place.
 //! - [`backgrounds`]: `#BGCHANGES` as a timed schedule of still images.
+//! - [`credits`]: the schema of `credits/credits.json`, written by `xtask
+//!   gen-credits` and read by the Credits screen.
 //! - [`h264`]: H.264 parameters and the FFmpeg module's frame times, for other decoders.
 //! - [`danoni`]: Dancing☆Onigiri works (pages and dumps) in an import.
 //! - [`video`]: which background-change files are movies and what they are.
@@ -38,6 +40,7 @@ pub mod announcer;
 pub mod avi;
 pub mod backgrounds;
 pub(crate) mod bytes;
+pub mod credits;
 pub mod danoni;
 pub mod date;
 pub mod edited;

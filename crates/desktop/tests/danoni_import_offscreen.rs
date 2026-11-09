@@ -24,13 +24,13 @@ fn url_import_and_progress_draw_at_desktop_and_compact_sizes() {
     let mut gpu = Gpu::new(device, queue, format);
     for size in [[1280, 720], [844, 390], [390, 844]] {
         let compact = size[0] < 600 || size[1] < 480;
-        let env = Env::new(
+        let mut env = Env::new(
             Rc::new(ddi_theme::Infinito::new()),
             Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_desktop::Nfkd, s)),
         );
+        env.platform = Platform::Desktop;
         env.reduced_motion.set(true);
         let view = Rc::new(RefCell::new(ImportView {
-            platform: Platform::Desktop,
             danoni_urls: true,
             danoni: DanoniImportView {
                 url: "https://example.invalid/work/".into(),

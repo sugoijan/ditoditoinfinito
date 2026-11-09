@@ -457,18 +457,7 @@ impl<'gc> Convert<'_, 'gc> {
         };
         // Relative to the file that wrote it, else (`Load` runs under a
         // `pcall`, which hides its file) to the skin's own folder.
-        let path = if file.starts_with('/') {
-            file.clone()
-        } else {
-            let dir = text(self.get(t, "_Dir"))
-                .filter(|d| !d.is_empty())
-                .or_else(|| {
-                    let skin = &self.host.skin;
-                    skin.chain.first().map(|&d| skin.dir_path(d))
-                })
-                .unwrap_or_default();
-            format!("{dir}{file}")
-        };
+        let path = self.relative_path(t, &file, true).unwrap_or(file);
         let found = match self.host.skin.resolve_path(&path) {
             Ok(f) => f,
             Err(e) => {
@@ -631,18 +620,7 @@ impl<'gc> Convert<'_, 'gc> {
             return Ok(None);
         }
         let resolve = |c: &mut Self, file: &str| -> Option<crate::skin::FileRef> {
-            let path = if file.starts_with('/') {
-                file.to_string()
-            } else {
-                let dir = text(c.get(t, "_Dir"))
-                    .filter(|d| !d.is_empty())
-                    .or_else(|| {
-                        let skin = &c.host.skin;
-                        skin.chain.first().map(|&d| skin.dir_path(d))
-                    })
-                    .unwrap_or_default();
-                format!("{dir}{file}")
-            };
+            let path = c.relative_path(t, file, true)?;
             match c.host.skin.resolve_path(&path) {
                 Ok(f) => Some(f),
                 Err(e) => {
@@ -891,6 +869,28 @@ impl<'gc> Convert<'_, 'gc> {
         t.get_value(self.ctx, key)
     }
 
+    /// `file` as `t` names it: an absolute path, else relative to the
+    /// file that wrote it (`_Dir`, as `ActorUtil::GetAttrPath` has it).
+    /// Where that is unknown: `None`, or with `skin_folder` (`Load` runs
+    /// under a `pcall`, which hides its file) the skin's own folder.
+    fn relative_path(&self, t: Table<'gc>, file: &str, skin_folder: bool) -> Option<String> {
+        if file.starts_with('/') {
+            return Some(file.to_string());
+        }
+        let dir = text(self.get(t, "_Dir"));
+        let dir = if skin_folder {
+            dir.filter(|d| !d.is_empty())
+                .or_else(|| {
+                    let skin = &self.host.skin;
+                    skin.chain.first().map(|&d| skin.dir_path(d))
+                })
+                .unwrap_or_default()
+        } else {
+            dir?
+        };
+        Some(format!("{dir}{file}"))
+    }
+
     /// The entries of `t`: the array from 1 on, then the rest (as
     /// `FOREACH_LUATABLEI` then `FOREACH_LUATABLE`).
     fn visit(&mut self, n: usize) -> Result<(), Failure> {
@@ -1009,14 +1009,8 @@ impl<'gc> Convert<'_, 'gc> {
                 // A song's: its file, for `play` (`ActorSound`).
                 // `ActorUtil::GetAttrPath`: relative to the file that
                 // wrote it.
-                let dir = text(self.get(t, "_Dir")).unwrap_or_default();
-                let path = text(self.get(t, "File")).map(|f| {
-                    if f.starts_with('/') {
-                        f
-                    } else {
-                        format!("{dir}{f}")
-                    }
-                });
+                let path = text(self.get(t, "File"))
+                    .map(|f| self.relative_path(t, &f, false).unwrap_or(f));
                 if self.host.skin.is_song()
                     && let Some(path) = path
                     && let Ok(found) = self.host.skin.resolve_path(&path)
@@ -1130,19 +1124,12 @@ impl<'gc> Convert<'_, 'gc> {
                 return Ok(Actor::new(Kind::Actor));
             };
             self.visit(name.len() / 64)?;
-            let path = if name.starts_with('/') {
-                name.clone()
-            } else {
-                match text(self.get(t, "_Dir")) {
-                    Some(dir) => format!("{dir}{name}"),
-                    None => {
-                        self.note(format!(
-                            "{where_}: relative path \"{name}\", but path is unknown"
-                        ));
-                        self.unsupported = true;
-                        return Ok(Actor::new(Kind::Actor));
-                    }
-                }
+            let Some(path) = self.relative_path(t, &name, false) else {
+                self.note(format!(
+                    "{where_}: relative path \"{name}\", but path is unknown"
+                ));
+                self.unsupported = true;
+                return Ok(Actor::new(Kind::Actor));
             };
             match self.host.skin.resolve_path(&path) {
                 Ok(f) => files.push(f),
@@ -1193,18 +1180,11 @@ impl<'gc> Convert<'_, 'gc> {
         };
         self.visit(texture.len() / 64)?;
         // `ActorUtil::GetAttrPath`: relative to the file that wrote it.
-        let path = if texture.starts_with('/') {
-            texture.clone()
-        } else {
-            match text(self.get(t, "_Dir")) {
-                Some(dir) => format!("{dir}{texture}"),
-                None => {
-                    self.note(format!(
-                        "{where_}: relative path \"{texture}\", but path is unknown"
-                    ));
-                    return Ok(Actor::new(Kind::Actor));
-                }
-            }
+        let Some(path) = self.relative_path(t, &texture, false) else {
+            self.note(format!(
+                "{where_}: relative path \"{texture}\", but path is unknown"
+            ));
+            return Ok(Actor::new(Kind::Actor));
         };
         let file = match self.host.skin.resolve_path(&path) {
             Ok(f) => f,

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 //! Fit-oriented model evaluation. Every value uses exactly the operations,
-//! operands and order of the original `Model::geometry` and `Model::transforms`,
-//! so results are bit-for-bit identical; only work whose result is unused or
-//! unchanged is skipped. Tests compare against the retained original code.
+//! operands and order of the original `Model::geometry` and `Model::transforms`
+//! (now built from the same helpers), so results are bit-for-bit identical;
+//! only work whose result is unused or unchanged is skipped.
 use crate::{IDENTITY, Matrix, Model, Parameters, Point, mul, point, vector};
 
 /// Fingertip skin vertices, derived from `Model::tips` at load. Each digit's
@@ -162,7 +162,7 @@ impl Skin {
 }
 
 impl Model {
-    fn root(&self, q: &Parameters) -> Matrix {
+    pub(crate) fn root(&self, q: &Parameters) -> Matrix {
         let [ax, ay, az] = [
             -1.40 + q[11].to_radians(),
             -0.32 + q[12].to_radians(),
@@ -190,7 +190,7 @@ impl Model {
     }
 
     /// One digit joint (`i` = digit * 3 + joint) applied to the chain `p`.
-    fn joint(&self, q: &Parameters, p: &Matrix, d: usize, j: usize) -> Matrix {
+    pub(crate) fn joint(&self, q: &Parameters, p: &Matrix, d: usize, j: usize) -> Matrix {
         let i = d * 3 + j;
         let bend = q[d * 4 + j];
         let (sa, ca) = bend.to_radians().sin_cos();
@@ -214,8 +214,19 @@ impl Model {
     }
 
     /// Joint matrix `g[bone]` from body transform `b` (bones 3..19).
-    fn bone(&self, bone: usize, b: &Matrix) -> Matrix {
+    pub(crate) fn bone(&self, bone: usize, b: &Matrix) -> Matrix {
         mul(&mul(&self.a, b), &self.bind[bone - 3])
+    }
+
+    /// Joint matrix 1 or 2: they follow the palm's (`g[3]`) without turning.
+    pub(crate) fn palm_follower(&self, palm_bone: &Matrix) -> Matrix {
+        let palm = self.helper_origins[3];
+        let moved = point(palm_bone, palm);
+        let mut g = IDENTITY;
+        for k in 0..3 {
+            g[k][3] = moved[k] - palm[k];
+        }
+        g
     }
 
     /// Recompute the skin's joint matrices for bones in `mask`, given the
@@ -234,15 +245,8 @@ impl Model {
             }
         }
         if palm_moved {
-            let palm = self.helper_origins[3];
-            let moved = point(&kin.g[3], palm);
-            for i in 1..3 {
-                let mut g = IDENTITY;
-                for k in 0..3 {
-                    g[k][3] = moved[k] - palm[k];
-                }
-                kin.g[i] = g;
-            }
+            kin.g[1] = self.palm_follower(&kin.g[3]);
+            kin.g[2] = kin.g[1];
         }
     }
 

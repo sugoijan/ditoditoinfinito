@@ -98,20 +98,7 @@ pub enum UiRequest {
     /// Make (or resume) the audio context. Placeholder until the screens
     /// that need it move over.
     StartAudio,
-    /// Start a song's preview. Placeholder.
-    PlayPreview {
-        song: String,
-    },
-    StopPreview,
-    /// Draw a frame (the UI changed outside a frame).
-    Redraw,
     SetCursor(Cursor),
-    /// Store a value (settings, the list's place). Placeholder until the
-    /// state moves out of the app (P12).
-    Persist {
-        key: String,
-        value: String,
-    },
     /// Put text on the clipboard.
     CopyText(String),
     /// Read the clipboard and answer with [`crate::UiEvent::Paste`]
@@ -142,10 +129,7 @@ impl UiRequest {
     /// clipboard needs transient activation (a key, a click, a touch's
     /// release), which a pad press never gives.
     pub fn pad_may_start(&self) -> bool {
-        matches!(
-            self,
-            UiRequest::StartAudio | UiRequest::PlayPreview { .. } | UiRequest::StopPreview
-        )
+        matches!(self, UiRequest::StartAudio)
     }
 
     /// Whether the shell must carry it out inside a user gesture's
@@ -159,7 +143,6 @@ impl UiRequest {
                 | UiRequest::PickFiles { .. }
                 | UiRequest::OpenUrl(_)
                 | UiRequest::StartAudio
-                | UiRequest::PlayPreview { .. }
                 | UiRequest::CopyText(_)
                 | UiRequest::Paste
         )

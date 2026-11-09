@@ -130,10 +130,7 @@ impl Imports {
     }
     /// Song select's import view now (as `Songs::data` builds it).
     pub fn current_view(&self) -> ImportView {
-        let mut view = ImportView {
-            platform: ddi_ui::screens::data::Platform::Desktop,
-            ..Default::default()
-        };
+        let mut view = ImportView::default();
         self.view(&mut view);
         view
     }
@@ -204,11 +201,12 @@ impl Imports {
         drop(progress);
         if allow && remember {
             self.origins.insert(origin, decision.unwrap());
-            if let Err(e) = ddi_platform::storage::save(
+            let kept = ddi_platform::storage::save(
                 ddi_platform::storage::Area::Local,
                 ORIGINS,
                 &self.origins,
-            ) {
+            );
+            if let Err(e) = kept.and_then(|()| ddi_platform::storage::flush()) {
                 self.report = Some(Report::new(Summary::NotRemembered(e)));
             }
         }

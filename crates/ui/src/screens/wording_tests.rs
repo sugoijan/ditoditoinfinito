@@ -26,6 +26,13 @@ fn env() -> Env {
     Env::new(Rc::new(Plain), fold)
 }
 
+/// [`env`] in `platform`'s wording.
+fn env_on(platform: Platform) -> Env {
+    let mut e = env();
+    e.platform = platform;
+    e
+}
+
 /// What a URL import runs, as its importer words it.
 fn worded(text: &str) -> Option<super::data::ImportRunning> {
     Some(super::data::ImportRunning::Worded(text.into()))
@@ -44,14 +51,11 @@ fn check(what: &str, text: &str) {
 #[test]
 fn desktop_screens_do_not_talk_of_the_browser() {
     storage::install(Rc::new(MemoryStore::default()));
-    let env = env();
+    let env = env_on(Platform::Desktop);
     for (size, design) in [([1280.0, 720.0], DESIGN), ([844.0, 390.0], COMPACT)] {
         // The import dialog.
         let mut h = Harness::new(design, size, 1.0, TextMode::Own);
-        let view = super::data::ImportView {
-            platform: Platform::Desktop,
-            ..Default::default()
-        };
+        let view = super::data::ImportView::default();
         h.push(ImportDialog::new(
             env.clone(),
             Rc::new(std::cell::RefCell::new(view)),
@@ -89,7 +93,7 @@ fn desktop_screens_do_not_talk_of_the_browser() {
             (Manage::Unreadable { count: 2 }, ""),
         ] {
             let mut h = Harness::new(design, size, 1.0, TextMode::Own);
-            h.push(ManageDialog::new(env.clone(), what, None, false).on(Platform::Desktop));
+            h.push(ManageDialog::new(env.clone(), what, None, false));
             h.run(0.3);
             for t in h.texts() {
                 check("the manage dialog", &t);
@@ -143,14 +147,11 @@ fn desktop_screens_do_not_talk_of_the_browser() {
         }
     }
     // The credits.
-    let c = credits::Credits {
-        platform: Platform::Desktop,
-        ..credits::sample()
-    };
+    let c = credits::sample();
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
     h.push(sample::credits_screen(&env, &c));
     h.run(0.3);
-    let doc = format!("{:?}", credits::doc(&c));
+    let doc = format!("{:?}", credits::doc(&c, Platform::Desktop));
     for w in ["the browser", "served next to"] {
         assert!(!doc.contains(w), "the credits say “{w}” on desktop");
     }
@@ -187,9 +188,8 @@ fn danoni_tabs_are_desktop_capability_gated_and_submit_inline_parameters() {
     ] {
         let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
         h.push(ImportDialog::new(
-            env(),
+            env_on(platform),
             Rc::new(RefCell::new(ImportView {
-                platform,
                 danoni_urls: capability,
                 ..Default::default()
             })),
@@ -200,11 +200,10 @@ fn danoni_tabs_are_desktop_capability_gated_and_submit_inline_parameters() {
         assert!(h.ui.bounds("PickFolder").is_some());
     }
     let view = Rc::new(RefCell::new(ImportView {
-        platform: Platform::Desktop,
         danoni_urls: true,
         ..Default::default()
     }));
-    let env = env();
+    let env = env_on(Platform::Desktop);
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
     h.push(ImportDialog::new(env.clone(), view.clone(), Some(shell)));
     h.run(0.2);
@@ -253,7 +252,6 @@ fn danoni_progress_cancel_retry_and_close_are_separate_from_the_job() {
         let seen = calls.clone();
         let shell = Rc::new(move |call, _: &mut crate::Cx| seen.borrow_mut().push(call));
         let view = Rc::new(RefCell::new(ImportView {
-            platform: Platform::Desktop,
             danoni_urls: true,
             danoni_cancel: true,
             running: worded("Importing…"),
@@ -265,7 +263,7 @@ fn danoni_progress_cancel_retry_and_close_are_separate_from_the_job() {
             },
             ..Default::default()
         }));
-        let env = env();
+        let env = env_on(Platform::Desktop);
         let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
         h.push(ImportDialog::new(env.clone(), view.clone(), Some(shell)));
         h.run(0.2);
@@ -329,7 +327,6 @@ fn danoni_origin_decisions_are_inline_identified_and_fit_compact_dialogs() {
             let seen = calls.clone();
             let shell = Rc::new(move |call, _: &mut crate::Cx| seen.borrow_mut().push(call));
             let view = Rc::new(RefCell::new(ImportView {
-                platform: Platform::Desktop,
                 danoni_urls: true,
                 danoni_cancel: true,
                 running: worded("Checking files…"),
@@ -340,7 +337,11 @@ fn danoni_origin_decisions_are_inline_identified_and_fit_compact_dialogs() {
                 ..Default::default()
             }));
             let mut h = Harness::new(design, size, 1.0, TextMode::Mirror);
-            h.push(ImportDialog::new(env(), view.clone(), Some(shell)));
+            h.push(ImportDialog::new(
+                env_on(Platform::Desktop),
+                view.clone(),
+                Some(shell),
+            ));
             h.run(0.2);
             view.borrow_mut().danoni.origin = Some(DanoniOriginRequest {
                 request_id: 42,
@@ -409,9 +410,8 @@ fn danoni_url_controls_fit_tabs_and_can_be_reached_by_a_pad() {
     ] {
         let mut h = Harness::new(design, size, 1.0, TextMode::Mirror);
         h.push(ImportDialog::new(
-            env(),
+            env_on(Platform::Desktop),
             Rc::new(RefCell::new(ImportView {
-                platform: Platform::Desktop,
                 danoni_urls: true,
                 ..Default::default()
             })),
@@ -455,7 +455,6 @@ fn a_pointer_release_for_an_old_origin_cannot_answer_the_next_request() {
     let calls = Rc::new(RefCell::new(Vec::new()));
     let seen = calls.clone();
     let view = Rc::new(RefCell::new(ImportView {
-        platform: Platform::Desktop,
         danoni_urls: true,
         danoni_cancel: true,
         running: worded("Checking files…"),
@@ -470,7 +469,7 @@ fn a_pointer_release_for_an_old_origin_cannot_answer_the_next_request() {
     }));
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
     h.push(ImportDialog::new(
-        env(),
+        env_on(Platform::Desktop),
         view.clone(),
         Some(Rc::new(move |call, _: &mut crate::Cx| {
             seen.borrow_mut().push(call)
@@ -501,9 +500,8 @@ fn danoni_saved_url_does_not_overlap_the_empty_field_hint() {
     let url = "https://example.invalid/work/";
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
     h.push(ImportDialog::new(
-        env(),
+        env_on(Platform::Desktop),
         Rc::new(std::cell::RefCell::new(ImportView {
-            platform: Platform::Desktop,
             danoni_urls: true,
             danoni: DanoniImportView {
                 url: url.into(),
@@ -525,10 +523,9 @@ fn busy_danoni_bar_moves_without_counts_and_respects_reduced_motion() {
     use super::select::IMPORT_CHANGED;
     use std::cell::RefCell;
     for reduced in [false, true] {
-        let env = env();
+        let env = env_on(Platform::Desktop);
         env.reduced_motion.set(reduced);
         let view = Rc::new(RefCell::new(ImportView {
-            platform: Platform::Desktop,
             danoni_urls: true,
             danoni_cancel: true,
             running: worded("Reading chart data…"),

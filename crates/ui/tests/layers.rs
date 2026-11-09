@@ -64,7 +64,7 @@ impl Screen for Wheel {
     fn update(&mut self, _dt: f32, _r: &mut Actor, cx: &mut Cx) {
         self.frames += 1;
         if self.frames == 2 {
-            cx.request(UiRequest::PlayPreview { song: "old".into() });
+            cx.request(UiRequest::StartAudio);
         }
     }
 
@@ -83,7 +83,7 @@ impl Screen for Wheel {
                 Handled::Yes
             }
             Input::Activate { name } if name == "Btn" => {
-                cx.request(UiRequest::StopPreview);
+                cx.request(UiRequest::Quit);
                 cx.replace(Base("base2"));
                 Handled::Yes
             }
@@ -167,23 +167,17 @@ fn pad(action: MenuAction, down: bool, gesture: bool) -> UiEvent {
 fn requests_outside_a_gesture_are_refused_not_kept() {
     let (mut h, log) = setup();
     // The preview asked for from a frame was refused, the screen told.
-    assert!(
-        log.borrow()
-            .contains(&r#"needs PlayPreview { song: "old" }"#.to_string())
-    );
-    // A pad press Safari does not count activates Btn: the stop goes out
+    assert!(log.borrow().contains(&"needs StartAudio".to_string()));
+    // A pad press Safari does not count activates Btn: the quit goes out
     // (it needs no gesture), the screen leaves.
     let r = h.send(pad(MenuAction::Start, true, false));
-    assert_eq!(r, vec![UiRequest::StopPreview]);
+    assert_eq!(r, vec![UiRequest::Quit]);
     h.run(0.5);
     assert_eq!(names(&h), vec!["base", "base2"]);
     // A later, unrelated tap starts nothing old.
     let r = h.tap_at(PointerKind::Touch, [10.0, 10.0]);
     assert!(r.is_empty(), "{r:?}");
-    assert_eq!(
-        h.requested(|r| matches!(r, UiRequest::PlayPreview { .. })),
-        0
-    );
+    assert_eq!(h.requested(|r| matches!(r, UiRequest::StartAudio)), 0);
 }
 
 #[test]

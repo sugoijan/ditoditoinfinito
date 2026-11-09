@@ -310,17 +310,39 @@ pub(crate) fn blend_state(blend: QuadBlend) -> wgpu::BlendState {
     wgpu::BlendState { color, alpha }
 }
 
+/// How many [`QuadBlend`]s and stencil cases ([`stencil_index`]) a
+/// [`Pipelines`] holds a pipeline for.
+const BLENDS: usize = QuadBlend::NoEffect as usize + 1;
+const STENCILS: usize = 7;
+
+/// Where a stencil case is among a blend's pipelines.
+const fn stencil_index(kind: Option<Kind>) -> usize {
+    match kind {
+        None => 0,
+        Some(Kind::Level) => 1,
+        Some(Kind::Masked) => 2,
+        Some(Kind::MaskWrite) => 3,
+        Some(Kind::MaskClear) => 4,
+        Some(Kind::ClipIn) => 5,
+        Some(Kind::ClipOut) => 6,
+    }
+}
+
 /// Pipelines made as they are first needed: by blend mode and stencil
-/// state (`None`: a pass with no stencil).
+/// state ([`Kind`]; `None`: a pass without a stencil).
 pub(crate) struct Pipelines {
-    made: HashMap<(QuadBlend, Option<Kind>), wgpu::RenderPipeline>,
+    made: [Option<wgpu::RenderPipeline>; BLENDS * STENCILS],
 }
 
 impl Pipelines {
     pub(crate) fn new() -> Pipelines {
         Pipelines {
-            made: HashMap::new(),
+            made: std::array::from_fn(|_| None),
         }
+    }
+
+    const fn index((blend, kind): (QuadBlend, Option<Kind>)) -> usize {
+        blend as usize * STENCILS + stencil_index(kind)
     }
 
     pub(crate) fn insert(
@@ -328,11 +350,11 @@ impl Pipelines {
         key: (QuadBlend, Option<Kind>),
         pipeline: wgpu::RenderPipeline,
     ) {
-        self.made.insert(key, pipeline);
+        self.made[Self::index(key)] = Some(pipeline);
     }
 
     pub(crate) fn get(&self, key: (QuadBlend, Option<Kind>)) -> Option<&wgpu::RenderPipeline> {
-        self.made.get(&key)
+        self.made[Self::index(key)].as_ref()
     }
 }
 
@@ -401,7 +423,7 @@ pub struct TexturedPipeline {
     image_groups: HashMap<([u32; 2], bool), wgpu::BindGroup>,
     /// The skins' materials registered, by their shader's source's hash
     /// (the source, and the id).
-    by_source: HashMap<u64, (String, u32)>,
+    by_source: HashMap<u64, (std::sync::Arc<str>, u32)>,
     /// Textures packed into an atlas page ([`TexturedPipeline::pack`]):
     /// by texture id, the page's id and the rectangle there (texture
     /// fractions); the pages, by format.
@@ -411,6 +433,8 @@ pub struct TexturedPipeline {
     sources: Vec<Option<wgpu::Texture>>,
     /// This frame's materials' uniforms, for the next upload.
     material_uniforms: Vec<u8>,
+    /// A frame's skin materials' ids, its room reused.
+    material_ids: Vec<u32>,
 }
 
 /// A texture quads are drawn into, with what draws it.
@@ -464,27 +488,12 @@ impl TexturedPipeline {
             MATERIAL_UNIFORMS,
             wgpu::ShaderStages::FRAGMENT,
         );
-        let image = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
         let image_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ddi-textured-material-images-bgl"),
             entries: &[
-                image(0),
-                image(1),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                crate::gpu::texture_entry(0, true),
+                crate::gpu::texture_entry(1, true),
+                crate::gpu::sampler_entry(2, true),
             ],
         });
         let material_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -549,6 +558,7 @@ impl TexturedPipeline {
             pages: Vec::new(),
             sources: Vec::new(),
             material_uniforms: Vec::new(),
+            material_ids: Vec::new(),
         };
         let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
@@ -566,7 +576,7 @@ impl TexturedPipeline {
     ) -> u32 {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ddi-textured-material"),
-            source: wgpu::ShaderSource::Wgsl(compiled.source.as_str().into()),
+            source: wgpu::ShaderSource::Wgsl((&*compiled.source).into()),
         });
         let id = self.materials.len();
         self.materials.push(MaterialShader {
@@ -607,10 +617,9 @@ impl TexturedPipeline {
         skins: &[material::Compiled],
         quads: &mut [TexQuad],
     ) {
-        let ids: Vec<u32> = skins
-            .iter()
-            .map(|c| self.skin_material(device, c))
-            .collect();
+        let mut ids = std::mem::take(&mut self.material_ids);
+        ids.clear();
+        ids.extend(skins.iter().map(|c| self.skin_material(device, c)));
         for q in quads {
             if let Some(m) = &mut q.material
                 && m.material & material::LOCAL != 0
@@ -621,6 +630,56 @@ impl TexturedPipeline {
                 }
             }
         }
+        self.material_ids = ids;
+    }
+
+    /// Registers the first of `skins` not registered yet, its pipelines
+    /// made ([`TexturedPipeline::skin_material`]); whether all already were.
+    pub fn warm_material(&mut self, device: &wgpu::Device, skins: &[material::Compiled]) -> bool {
+        let missing = skins.iter().find(|c| {
+            self.by_source
+                .get(&c.key)
+                .is_none_or(|(source, _)| *source != c.source)
+        });
+        if let Some(c) = missing {
+            self.skin_material(device, c);
+        }
+        missing.is_none()
+    }
+
+    /// Makes up to `most` of the pipelines quads draw through in normal
+    /// and additive blending and those writing the mask, with each material
+    /// and without any (the others stay for a skin that uses them); whether
+    /// none was left.
+    pub fn warm_pipelines(&mut self, device: &wgpu::Device, mut most: usize) -> bool {
+        const DRAWING: [Option<Kind>; 5] = [
+            None,
+            Some(Kind::Level),
+            Some(Kind::Masked),
+            Some(Kind::MaskWrite),
+            Some(Kind::MaskClear),
+        ];
+        const MASKING: [Option<Kind>; 2] = [Some(Kind::MaskWrite), Some(Kind::MaskClear)];
+        let materials = self.materials.len() as u32;
+        for material in std::iter::once(None).chain((0..materials).map(Some)) {
+            for (blend, kinds) in [
+                (QuadBlend::Normal, &DRAWING[..]),
+                (QuadBlend::Add, &DRAWING[..]),
+                (QuadBlend::NoEffect, &MASKING[..]),
+            ] {
+                for &kind in kinds {
+                    for gamma in [false, true] {
+                        if self.ensure_pipeline(device, material, (blend, kind), gamma) {
+                            most -= 1;
+                            if most == 0 {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// The materials' inputs of the next frame prepared.
@@ -724,17 +783,12 @@ impl TexturedPipeline {
         srgb: bool,
         mipmaps: bool,
     ) -> wgpu::Texture {
-        let plain = [wgpu::TextureFormat::Rgba8Unorm];
-        let srgb = srgb && !self.plain_textures;
+        let (format, views) = self.image_format(srgb, self.gamma.is_some());
         crate::gpu::texture_2d(
             device,
             "ddi-textured-image",
             [width.max(1), height.max(1)],
-            if srgb {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            } else {
-                wgpu::TextureFormat::Rgba8Unorm
-            },
+            format,
             if mipmaps {
                 crate::mipmaps::levels(width, height)
             } else {
@@ -744,12 +798,30 @@ impl TexturedPipeline {
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            if srgb && self.gamma.is_some() {
-                &plain
-            } else {
-                &[]
-            },
+            views,
         )
+    }
+
+    /// The format of an image's texture (sRGB when asked and textures are
+    /// not plain), and the views it allows beside its own: its plain one
+    /// when it is sRGB and `plain_view`.
+    fn image_format(
+        &self,
+        srgb: bool,
+        plain_view: bool,
+    ) -> (wgpu::TextureFormat, &'static [wgpu::TextureFormat]) {
+        if srgb && !self.plain_textures {
+            (
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                if plain_view {
+                    &[wgpu::TextureFormat::Rgba8Unorm]
+                } else {
+                    &[]
+                },
+            )
+        } else {
+            (wgpu::TextureFormat::Rgba8Unorm, &[])
+        }
     }
 
     /// A texture a song's scripts' movie is drawn into (`crate::script_movies`),
@@ -763,22 +835,17 @@ impl TexturedPipeline {
         height: u32,
         srgb: bool,
     ) -> (u32, wgpu::Texture) {
-        let plain = [wgpu::TextureFormat::Rgba8Unorm];
-        let srgb = srgb && !self.plain_textures;
+        let (format, views) = self.image_format(srgb, true);
         let texture = crate::gpu::texture_2d(
             device,
             "ddi-textured-movie",
             [width.max(1), height.max(1)],
-            if srgb {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            } else {
-                wgpu::TextureFormat::Rgba8Unorm
-            },
+            format,
             1,
             wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            if srgb { &plain } else { &[] },
+            views,
         );
         let id = self.add_texture(device, &texture);
         (id, texture)
@@ -1018,20 +1085,12 @@ impl TexturedPipeline {
             format: Some(format),
             ..Default::default()
         });
-        let globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-textured-target-globals"),
-            size: std::mem::size_of::<Globals>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let globals_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ddi-textured-target-globals-bg"),
-            layout: &self.globals_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
-        });
+        let (globals, globals_group) = crate::gpu::uniform_group_in(
+            device,
+            "ddi-textured-target-globals",
+            std::mem::size_of::<Globals>(),
+            &self.globals_layout,
+        );
         self.targets.push(Target {
             id,
             view,
@@ -1125,26 +1184,13 @@ impl TexturedPipeline {
                     wgpu::Color::BLACK
                 })
             };
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ddi-textured-target"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &t.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            let mut pass =
+                crate::gpu::color_pass(encoder, "ddi-textured-target", &t.view, load, None);
             pass.set_bind_group(0, &t.globals_group, &[]);
             let pipelines = &self.target_pipelines[usize::from(alpha)];
             let gamma = self.gamma.is_some();
             let mut current = None;
+            let mut bound = Bound::default();
             for b in &t.batches {
                 let tex = if b.texture == UNTEXTURED {
                     self.blank.as_ref()
@@ -1165,9 +1211,9 @@ impl TexturedPipeline {
                     (Some([clamp, repeat]), true) => [clamp, repeat],
                     _ => [&tex.clamp, &tex.repeat],
                 };
-                pass.set_bind_group(1, groups[usize::from(b.wrap)], &[]);
+                bound.texture(&mut pass, groups[usize::from(b.wrap)]);
                 for (buffer, range) in t.instances.pieces(b.start..b.end) {
-                    pass.set_vertex_buffer(0, buffer.slice(..));
+                    bound.instances(&mut pass, buffer);
                     pass.draw(0..6, range);
                 }
             }
@@ -1197,39 +1243,22 @@ impl TexturedPipeline {
             ),
             None => (&self.shader, &self.layout, "fs_main"),
         };
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ddi-textured-pipeline"),
-            layout: Some(layout),
-            vertex: wgpu::VertexState {
-                module,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &Instance::ATTRIBUTES,
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module,
-                entry_point: Some(fragment),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(blend),
-                    write_mask: write,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
+        crate::gpu::QuadPipeline {
+            label: "ddi-textured-pipeline",
+            layout,
+            shader: module,
+            fragment,
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &Instance::ATTRIBUTES,
+            })],
+            format,
+            blend: Some(blend),
+            write_mask: write,
             depth_stencil,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        })
+        }
+        .make(device)
     }
 
     /// Whether some of the prepared quads use the mask: the runs holding
@@ -1302,7 +1331,9 @@ impl TexturedPipeline {
                 self.set_materials(MaterialFrame::default());
             }
             let size = [width, height, 0.0, 0.0];
-            self.material_uniforms[16..32].copy_from_slice(bytemuck::cast_slice(&size));
+            let at = std::mem::offset_of!(MaterialHeader, size);
+            self.material_uniforms[at..at + std::mem::size_of_val(&size)]
+                .copy_from_slice(bytemuck::cast_slice(&size));
             queue.write_buffer(&self.material_buffer, 0, &self.material_uniforms);
         }
         self.instances
@@ -1347,6 +1378,7 @@ impl TexturedPipeline {
         let mut current: Option<(Option<u32>, QuadBlend, Option<Kind>)> = None;
         let mut materials_bound = false;
         let mut images_bound: Option<[u32; 2]> = None;
+        let mut bound = Bound::default();
         for b in &self.batches {
             let (start, end) = (b.start.max(range.start), b.end.min(range.end));
             let t = if b.texture == UNTEXTURED {
@@ -1397,14 +1429,70 @@ impl TexturedPipeline {
                 (Some([clamp, repeat]), true) => [clamp, repeat],
                 _ => [&t.clamp, &t.repeat],
             };
-            pass.set_bind_group(1, groups[usize::from(b.wrap)], &[]);
+            bound.texture(pass, groups[usize::from(b.wrap)]);
             // Past one buffer's worth, a run is drawn from each buffer.
             for (buffer, range) in self.instances.pieces(start..end) {
-                pass.set_vertex_buffer(0, buffer.slice(..));
+                bound.instances(pass, buffer);
                 pass.draw(0..6, range);
             }
         }
     }
+}
+
+/// The texture's group (set 1) and the instance buffer bound in a pass so
+/// far: a run sharing them with the last (a boundary that is only a blend
+/// or a mask) does not bind them again.
+#[derive(Default)]
+pub(crate) struct Bound<'a> {
+    group: Option<&'a wgpu::BindGroup>,
+    buffer: Option<&'a wgpu::Buffer>,
+}
+
+impl<'a> Bound<'a> {
+    pub(crate) fn texture(&mut self, pass: &mut wgpu::RenderPass<'_>, group: &'a wgpu::BindGroup) {
+        if !self.group.is_some_and(|g| std::ptr::eq(g, group)) {
+            pass.set_bind_group(1, group, &[]);
+            self.group = Some(group);
+        }
+    }
+
+    pub(crate) fn instances(&mut self, pass: &mut wgpu::RenderPass<'_>, buffer: &'a wgpu::Buffer) {
+        if !self.buffer.is_some_and(|b| std::ptr::eq(b, buffer)) {
+            pass.set_vertex_buffer(0, buffer.slice(..));
+            self.buffer = Some(buffer);
+        }
+    }
+}
+
+/// A quad (`transform` of the unit square, texture rectangle `uv`) cut to
+/// `clip` (`[left, top, right, bottom]`) when it is not turned; `None`
+/// when nothing of it is inside.
+pub(crate) fn cut(m: [f32; 6], uv: [f32; 4], clip: [f32; 4]) -> Option<Shape> {
+    let whole = Shape::Quad { transform: m, uv };
+    if m[1] != 0.0 || m[2] != 0.0 {
+        return Some(whole);
+    }
+    // One axis: centre `c`, signed size `s`, texture span `t0..t1`.
+    let axis = |c: f32, s: f32, t0: f32, t1: f32, lo: f32, hi: f32| {
+        let half = s.abs() / 2.0;
+        let (a, b) = ((c - half).max(lo), (c + half).min(hi));
+        if b <= a || half <= 0.0 {
+            return None;
+        }
+        // The texture at screen position p (a negative size mirrors).
+        let at = |p: f32| {
+            let f = (p - (c - half)) / (2.0 * half);
+            let f = if s < 0.0 { 1.0 - f } else { f };
+            t0 + (t1 - t0) * f
+        };
+        Some((a, b, at(a), at(b)))
+    };
+    let (x0, x1, u0, u1) = axis(m[4], m[0], uv[0], uv[2], clip[0], clip[2])?;
+    let (y0, y1, v0, v1) = axis(m[5], m[3], uv[1], uv[3], clip[1], clip[3])?;
+    Some(Shape::Quad {
+        transform: [x1 - x0, 0.0, 0.0, y1 - y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0],
+        uv: [u0, v0, u1, v1],
+    })
 }
 
 /// `quads`' instances, in order, and their runs of one texture, blend,

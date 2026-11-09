@@ -140,18 +140,19 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
             .filter_map(|e| e.ok())
             .map(|e| format!("{id}/{}", e.file_name().to_string_lossy()))
             .collect();
+        let index = ddi_library::pack::PathIndex::new(&files);
         let background = p.background.as_ref().map(|b| format!("{id}/{b}"));
         let bg_images = ddi_library::backgrounds::referenced_images(
             &song,
             RelPath::new(id),
-            &files,
+            &index,
             background.as_deref().map(RelPath::new),
         )
         .into_iter()
         .map(|(relative, _)| relative)
         .collect();
         let bg_videos =
-            ddi_library::backgrounds::referenced_movies(&song, RelPath::new(id), &files)
+            ddi_library::backgrounds::referenced_movies(&song, RelPath::new(id), &index)
                 .into_iter()
                 .map(|(name, _)| {
                     Ok(ddi_library::manifest::VideoRef {

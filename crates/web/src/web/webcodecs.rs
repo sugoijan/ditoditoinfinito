@@ -668,19 +668,16 @@ fn start_decoder(inner: &Rc<RefCell<Inner>>, media: Media) -> Result<(), String>
             });
         }
     });
-    let on_error = Closure::<dyn FnMut(JsValue)>::new({
+    let on_error = Closure::<dyn FnMut(JsValue)>::new(move |e: JsValue| {
         let weak = weak.clone();
-        move |e: JsValue| {
-            let weak = weak.clone();
-            spawn_local(async move {
-                if let Some(inner) = weak.upgrade() {
-                    let message = get(&e, "message")
-                        .as_string()
-                        .unwrap_or_else(|| format!("{e:?}"));
-                    fail(&inner, format!("the browser's decoder failed: {message}"));
-                }
-            });
-        }
+        spawn_local(async move {
+            if let Some(inner) = weak.upgrade() {
+                let message = get(&e, "message")
+                    .as_string()
+                    .unwrap_or_else(|| format!("{e:?}"));
+                fail(&inner, format!("the browser's decoder failed: {message}"));
+            }
+        });
     });
     let init = Object::new();
     set(&init, "output", on_frame.as_ref().clone());

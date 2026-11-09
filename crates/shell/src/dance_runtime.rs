@@ -17,6 +17,31 @@ pub(crate) fn bundled_model() -> Rc<Model> {
     MODEL.with(Rc::clone)
 }
 
+/// The longest a frame prepares motion, seconds.
+const MOST_PER_FRAME: f64 = 0.008;
+/// The share of the time between frames preparing motion takes, as much
+/// as a frame of 60 Hz spends in 4 ms.
+const SHARE: f64 = 0.24;
+/// With this much motion ready (seconds) it takes half its share, so the
+/// clusters of work when a plan is published spread over more frames.
+const AMPLE: f64 = 1.5;
+/// With less than this ready it takes twice its share, to the most a frame
+/// may: motion running out ends the hand for the play.
+const SHORT: f64 = 0.75;
+
+/// How long a frame may prepare motion, for a display refreshing every
+/// `period` seconds and `ready` seconds of motion ready (none before the
+/// first is). It follows the refresh and not the frame just shown: time
+/// given to a late frame makes the next one late too.
+fn frame_budget(period: f64, ready: Option<f64>) -> f64 {
+    let share = match ready {
+        Some(r) if r >= AMPLE => SHARE / 2.,
+        Some(r) if r < SHORT => SHARE * 2.,
+        _ => SHARE,
+    };
+    (share * period).min(MOST_PER_FRAME)
+}
+
 pub struct RuntimePreview {
     model: Rc<Model>,
     mat: ddi_character::appearance::Geometry,
@@ -39,6 +64,8 @@ pub struct RuntimePreview {
     error: Option<String>,
     pub payload: Rc<RefCell<ProceduralPose>>,
     last_time: Option<f64>,
+    /// The time between frames (seconds), a late frame moving it little.
+    period: f64,
     presentation_revisions: usize,
     pub available: bool,
     pub work_ms: f64,
@@ -52,7 +79,6 @@ impl RuntimePreview {
     /// to two`) and No Stretch, on a copy of the hand's own. The play itself
     /// judges every note, the hand an autoplay beside it.
     pub fn for_player(player: &ddi_engine::player::Player, layout: &str) -> Result<Self, String> {
-        use ddi_chart::NoteKind;
         if usize::from(player.lanes()) != ddi_hand_plan::layout_lanes(layout)? {
             return Err("dancing hand layout/lane count mismatch".into());
         }
@@ -65,18 +91,10 @@ impl RuntimePreview {
             return Err("dancing hand judge windows are outside supported contact budgets".into());
         }
         let judged = player.judge().notes();
-        if judged.iter().any(|n| {
-            n.judgeable
-                && !matches!(
-                    n.note.kind,
-                    NoteKind::Tap
-                        | NoteKind::HoldHead { .. }
-                        | NoteKind::RollHead { .. }
-                        | NoteKind::Mine
-                        | NoteKind::Shock
-                        | NoteKind::Lift
-                )
-        }) {
+        if judged
+            .iter()
+            .any(|n| n.judgeable && !n.note.kind.hand_supported())
+        {
             return Err(
                 "dancing hand supports taps, holds, rolls, mines, shocks and lifts; this chart has other judged note types"
                     .into(),
@@ -152,6 +170,7 @@ impl RuntimePreview {
             error: None,
             payload,
             last_time: None,
+            period: 1. / 120.,
             presentation_revisions: 0,
             available: false,
             work_ms: 0.,
@@ -218,12 +237,14 @@ impl RuntimePreview {
             );
         }
     }
-    fn step(&mut self, now: f64, clock: &dyn Fn() -> f64) -> bool {
+    /// One checkpoint begun at `began`: when it ended, or `None` if there
+    /// was nothing to do or it failed.
+    fn step(&mut self, now: f64, began: f64, clock: &dyn Fn() -> f64) -> Option<f64> {
         if self.planner.stage() != "idle" {
             let search = self.planner.stage() == "search";
-            let start = clock();
             self.planner.step();
-            let elapsed = clock() - start;
+            let ended = clock();
+            let elapsed = ended - began;
             if search {
                 self.planner.charge_search(elapsed);
             }
@@ -234,7 +255,7 @@ impl RuntimePreview {
             if let Some(e) = &self.planner.report.failure {
                 self.error = Some(e.clone());
                 self.available = false;
-                return false;
+                return None;
             }
             if let Some(publication) = self.planner.take_publication() {
                 match publication.plan.pose_plan() {
@@ -256,22 +277,21 @@ impl RuntimePreview {
                     Err(e) => {
                         self.error = Some(e);
                         self.available = false;
-                        return false;
+                        return None;
                     }
                 }
             }
 
-            return true;
+            return Some(ended);
         }
 
-        self.runtime
+        let worked = self
+            .runtime
             .as_mut()
-            .is_some_and(|r| r.step(&self.model, now))
+            .is_some_and(|r| r.step(&self.model, now));
+        worked.then(clock)
     }
     pub fn prepare(&mut self, time: f64, clock: &dyn Fn() -> f64) {
-        self.prepare_inner(time, clock);
-    }
-    fn prepare_inner(&mut self, time: f64, clock: &dyn Fn() -> f64) {
         self.work_ms = 0.;
         if !time.is_finite() || self.error.is_some() {
             return;
@@ -287,7 +307,7 @@ impl RuntimePreview {
                 // Display predictions can revise an upcoming refresh slightly
                 // backwards. Sample its exact already-checked pose, without
                 // rewinding received notes, committed contacts or preparation.
-                if self.runtime.as_ref().unwrap().sample(timeline).is_none() {
+                if self.runtime.as_ref().unwrap().pose(timeline).is_none() {
                     self.reject_seek();
                     return;
                 }
@@ -308,8 +328,16 @@ impl RuntimePreview {
         // No output prefix exists during bootstrap. Prepare its fixed first
         // window deterministically; the first actual contact is the deadline.
         let now = if ready { timeline } else { 0. };
-        let budget = (0.004 * delta.max(1. / 120.) * 60. * if self.window < 3. { 2. } else { 1. })
-            .min(0.008);
+        if delta > 0. {
+            self.period += (delta.min(self.period * 1.25) - self.period) * 0.05;
+        }
+        let ahead = self
+            .runtime
+            .as_ref()
+            .filter(|r| r.report.ready)
+            .map(|r| r.report.covered_until - now);
+        let budget = (frame_budget(self.period, ahead) * if self.window < 3. { 2. } else { 1. })
+            .min(MOST_PER_FRAME);
         let start = clock();
         if start.is_finite() {
             self.receive(now);
@@ -319,18 +347,17 @@ impl RuntimePreview {
             }
             self.request_motion(now);
 
+            // One read a pass: each checkpoint begins when the last one ended.
+            let mut at = clock();
             for _ in 0..100000 {
-                if clock() - start >= budget {
+                let elapsed = at - start;
+                if !(elapsed >= 0. && elapsed < budget) {
                     break;
                 }
-
-                if !self.step(now, clock) {
+                let Some(ended) = self.step(now, at, clock) else {
                     break;
-                }
-                let elapsed = clock() - start;
-                if !elapsed.is_finite() || elapsed < 0. || elapsed >= budget {
-                    break;
-                }
+                };
+                at = ended;
             }
             let elapsed = clock() - start;
             if elapsed.is_finite() {
@@ -357,17 +384,16 @@ impl RuntimePreview {
         let Some(runtime) = &self.runtime else {
             return;
         };
-        let sample = runtime.sample(timeline);
-        self.available =
-            sample.is_some() && runtime.report.failure.is_none() && self.error.is_none();
-        if sample.is_none() && runtime.report.ready && time >= 0. {
+        let pose = runtime.pose(timeline);
+        self.available = pose.is_some() && runtime.report.failure.is_none() && self.error.is_none();
+        if pose.is_none() && runtime.report.ready && time >= 0. {
             self.starved_frames += 1;
         }
-        if let Some(s) = sample {
+        if let Some(pose) = pose {
             let mut payload = self.payload.borrow_mut();
-            payload.worlds = self.model.joint_worlds(&s.pose);
-            payload.weights = self.model.morph_weights(&s.pose);
-            self.shown = Some((timeline, s.pose));
+            payload.worlds = self.model.joint_worlds(&pose);
+            payload.weights = self.model.morph_weights(&pose);
+            self.shown = Some((timeline, pose));
         }
     }
     /// The last sample shown against its targets, worked out when the
@@ -402,6 +428,19 @@ impl RuntimePreview {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn a_frames_budget_follows_the_refresh_and_what_is_ready() {
+        let refresh = 1. / 120.;
+        // Nothing ready yet, and the middle of the range: the share.
+        assert!((frame_budget(refresh, None) - 0.002).abs() < 1e-12);
+        assert!((frame_budget(refresh, Some(1.)) - 0.002).abs() < 1e-12);
+        // Plenty ready: half; running out: twice.
+        assert!((frame_budget(refresh, Some(2.)) - 0.001).abs() < 1e-12);
+        assert!((frame_budget(refresh, Some(0.5)) - 0.004).abs() < 1e-12);
+        // Never over a frame's most, however slow the display.
+        assert_eq!(frame_budget(1. / 30., Some(0.5)), MOST_PER_FRAME);
+    }
 
     fn ordinary_song(offset: f64) -> ddi_chart::Song {
         ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary four-panel;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:dance-single::Medium:5:0,0,0,0,0:\n1000\n0100\n0010\n0001,\n1100\n0011\n2000\n0000,\n0000\n0001\n3000\n0111,\n1111\n0100\n0001\n1000;" )).unwrap()
@@ -593,7 +632,7 @@ mod tests {
                         .sample(time)
                         .expect("prepared exact head");
                     let g = r.model.geometry(&sample.pose);
-                    let d = usize::from(e.foot == "R");
+                    let d = e.foot.index();
                     assert!(g.tips[d][2].abs() <= 0.25, "{time}: {:?}", g.tips[d]);
                     let target = plan.targets(time).tips[d];
                     assert!(

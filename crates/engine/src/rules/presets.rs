@@ -6,15 +6,15 @@ use serde::{Deserialize, Serialize};
 use super::danoni::DanoniOptions;
 use super::{
     ComboRules, DancePoints, DdrMoney, DdrVariant, EmptyPress, FailPolicy, FixedPercent,
-    GradeBasis, GradeTable, HoldRules, HoldStart, JudgeNames, JudgeTable, Judgement, LifeBar,
-    LifeDeltas, Max2, Ruleset, StepManiaOptions, Weights, Window,
+    GradeBasis, GradeTable, HoldRules, JudgeNames, JudgeTable, Judgement, LifeBar, LifeDeltas,
+    Max2, Ruleset, StepManiaOptions, Weights, Window,
 };
 
 fn symmetric(tiers: [f64; 5]) -> [Option<Window>; 5] {
     tiers.map(|s| Some(Window::symmetric(s)))
 }
 
-fn grades(basis: GradeBasis, tiers: &[(&str, f64)]) -> GradeTable {
+pub(super) fn grades(basis: GradeBasis, tiers: &[(&str, f64)]) -> GradeTable {
     GradeTable {
         basis,
         tiers: tiers.iter().map(|(n, m)| (n.to_string(), *m)).collect(),
@@ -22,6 +22,23 @@ fn grades(basis: GradeBasis, tiers: &[(&str, f64)]) -> GradeTable {
         all_w2: None,
         failed: None,
     }
+}
+
+/// `LifeMeterBar`'s changes: [`sm5`]'s bar and [`sm39_bar`].
+const SM_LIFE_DELTAS: LifeDeltas = LifeDeltas::new(
+    [0.008, 0.008, 0.004, 0.0, -0.040, -0.080],
+    0.008,
+    -0.080,
+    -0.160,
+);
+
+/// StepMania 3.9's life bar ([`ddr_extreme`], [`ddr_x`]), in danger below
+/// `danger`.
+fn sm39_bar(danger: f32) -> LifeBar {
+    let mut bar = LifeBar::new(SM_LIFE_DELTAS, 0.5, danger, 5, 10);
+    bar.merciful_drain = true;
+    bar.hot_penalty = true;
+    bar
 }
 
 /// ITG's dance points (`PercentScoreWeight*`), [`itg`]'s and
@@ -36,33 +53,15 @@ pub fn itg() -> Ruleset {
         approximate: false,
         judge: JudgeTable {
             tiers: symmetric([0.0215, 0.043, 0.102, 0.135, 0.180]),
-            scale: 1.0,
             add: 0.0015,
             hold_window: 0.32,
             roll_window: 0.35,
             mine_window: 0.07,
             // The FA+ split is ITG FA+'s ([`itg_fa_plus`]).
             w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
-            shock_rows: false,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         },
-        combo: ComboRules {
-            continue_min: Judgement::W3,
-            per_row: false,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
-        },
+        combo: ComboRules::DANCE,
         score: Box::new(DancePoints::new(
             ITG_WEIGHTS,
             None,
@@ -174,31 +173,14 @@ pub fn calibration() -> Ruleset {
                 None,
                 None,
             ],
-            scale: 1.0,
-            add: 0.0,
             hold_window: 0.32,
             roll_window: 0.35,
             mine_window: 0.07,
-            w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
-            shock_rows: false,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         },
         combo: ComboRules {
             continue_min: Judgement::W1,
-            per_row: false,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
+            ..ComboRules::DANCE
         },
         score: Box::new(DancePoints::new(
             Weights::new([1, 0, 0, 0, 0, 0], 0, 0, 0),
@@ -228,49 +210,15 @@ pub fn sm5() -> Ruleset {
         approximate: false,
         judge: JudgeTable {
             tiers: symmetric([0.0225, 0.045, 0.090, 0.135, 0.180]),
-            scale: 1.0,
-            add: 0.0,
-            hold_window: 0.25,
-            roll_window: 0.5,
-            mine_window: 0.09,
-            w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
-            shock_rows: false,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         },
-        combo: ComboRules {
-            continue_min: Judgement::W3,
-            per_row: false,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
-        },
+        combo: ComboRules::DANCE,
         score: Box::new(DancePoints::new(
             Weights::new([3, 2, 1, 0, 0, 0], 3, 0, -2),
             Some(Weights::new([2, 2, 1, 0, -4, -8], 6, 0, -8)),
             None,
         )),
-        gauge: Box::new(LifeBar::new(
-            LifeDeltas::new(
-                [0.008, 0.008, 0.004, 0.0, -0.040, -0.080],
-                0.008,
-                -0.080,
-                -0.160,
-            ),
-            0.5,
-            0.2,
-            5,
-            5,
-        )),
+        gauge: Box::new(LifeBar::new(SM_LIFE_DELTAS, 0.5, 0.2, 5, 5)),
         fail: FailPolicy::Immediate,
         grades: GradeTable {
             all_w1: Some("AAAA".into()),
@@ -316,31 +264,17 @@ pub fn ddr_a() -> Ruleset {
                 Some(Window::symmetric(0.141667)),
                 None,
             ],
-            scale: 1.0,
-            add: 0.0,
-            hold_window: 0.25,
             roll_window: 0.25,
             mine_window: 0.07,
-            w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
             shock_rows: true,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         },
         combo: ComboRules {
             continue_min: Judgement::W4,
             per_row: true,
-            held_increments: false,
             let_go_breaks: true,
             mine_breaks: true,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
+            ..ComboRules::DANCE
         },
         score: Box::new(DdrMoney::new(DdrVariant::A)),
         gauge: Box::new(FixedPercent::ddr_a20()),
@@ -392,20 +326,6 @@ pub fn ddr_a() -> Ruleset {
 /// defaults with `MercifulDrain`, a regen lockout up to 10 and the harsh
 /// penalty from a full bar.
 pub fn ddr_extreme() -> Ruleset {
-    let mut bar = LifeBar::new(
-        LifeDeltas::new(
-            [0.008, 0.008, 0.004, 0.0, -0.040, -0.080],
-            0.008,
-            -0.080,
-            -0.160,
-        ),
-        0.5,
-        0.2,
-        5,
-        10,
-    );
-    bar.merciful_drain = true;
-    bar.hot_penalty = true;
     Ruleset {
         id: "ddr-extreme".into(),
         name: "DDR EXTREME".into(),
@@ -427,34 +347,15 @@ pub fn ddr_extreme() -> Ruleset {
                     late: 0.183_333,
                 }),
             ],
-            scale: 1.0,
-            add: 0.0,
-            hold_window: 0.25,
-            roll_window: 0.5,
-            mine_window: 0.09,
-            w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
-            shock_rows: false,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         },
         combo: ComboRules {
-            continue_min: Judgement::W3,
             per_row: true,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
-            neutral: None,
-            let_go_loses_full_combo: false,
             jumps_add_each: true,
+            ..ComboRules::DANCE
         },
         score: Box::new(Max2::new()),
-        gauge: Box::new(bar),
+        gauge: Box::new(sm39_bar(0.2)),
         fail: FailPolicy::Immediate,
         grades: GradeTable {
             failed: Some("E".into()),
@@ -504,54 +405,25 @@ pub fn ddr_extreme() -> Ruleset {
 /// on the chart's difficulty ([`ddr_x_grades`], [`ddr_x_for`]); for no
 /// chart, Expert's.
 pub fn ddr_x() -> Ruleset {
-    let mut bar = LifeBar::new(
-        LifeDeltas::new(
-            [0.008, 0.008, 0.004, 0.0, -0.040, -0.080],
-            0.008,
-            -0.080,
-            -0.160,
-        ),
-        0.5,
-        0.0,
-        5,
-        10,
-    );
-    bar.merciful_drain = true;
-    bar.hot_penalty = true;
     Ruleset {
         id: "ddr-x".into(),
         name: "DDR X".into(),
         approximate: true,
         judge: JudgeTable {
             tiers: symmetric([0.016_667, 0.033_333, 0.091_667, 0.141_667, 0.225]),
-            scale: 1.0,
-            add: 0.0,
-            hold_window: 0.25,
             roll_window: 0.25,
             mine_window: 0.07,
-            w0: None,
-            empty_press: EmptyPress::Ignore,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
             shock_rows: true,
-            miss_at: None,
-            taps_only: false,
+            ..JudgeTable::DANCE
         },
         combo: ComboRules {
-            continue_min: Judgement::W3,
             per_row: true,
-            held_increments: false,
             let_go_breaks: true,
             mine_breaks: true,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
+            ..ComboRules::DANCE
         },
         score: Box::new(DdrMoney::new(DdrVariant::Sn2)),
-        gauge: Box::new(bar),
+        gauge: Box::new(sm39_bar(0.0)),
         fail: FailPolicy::Immediate,
         grades: ddr_x_grades(Difficulty::Hard),
         names: JudgeNames::new(
@@ -659,32 +531,18 @@ pub fn ffr() -> Ruleset {
                 }),
                 None,
             ],
-            scale: 1.0,
-            add: 0.0,
             // Holds, rolls and mines are not played.
             hold_window: 0.0,
             roll_window: 0.0,
             mine_window: 0.0,
-            w0: None,
             empty_press: EmptyPress::BooFromFirstNote,
-            judge_offset: 0.0,
-            hold: HoldRules::Decay,
-            hold_start: HoldStart::JUDGED,
-            supersede: None,
-            just: None,
-            shock_rows: false,
             miss_at: Some(5.5 * FFR_FRAME),
             taps_only: true,
+            ..JudgeTable::DANCE
         },
         combo: ComboRules {
             continue_min: Judgement::W4,
-            per_row: false,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
-            neutral: None,
-            let_go_loses_full_combo: false,
-            jumps_add_each: false,
+            ..ComboRules::DANCE
         },
         score: Box::new(super::ffr::FfrRaw::new()),
         gauge: Box::new(super::ffr::FfrLife::new()),

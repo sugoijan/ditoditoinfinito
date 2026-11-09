@@ -15,6 +15,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use ddi_chart::formats::sm::parse_simfile;
+use ddi_library::credits::{
+    AnnouncerCredit, CodeCredit, ComponentCredit, FontCredit, PartCredit, SkinCredit, SongCredit,
+    TrainedOnCredit, VideoCredit,
+};
 use serde::Serialize;
 
 use crate::{noteskins, songs};
@@ -45,23 +49,6 @@ struct CreditsJson {
 #[derive(serde::Deserialize)]
 struct SiteMetadata {
     canonical_url: String,
-}
-
-/// Code or data from another project compiled into the game
-/// (`THIRD_PARTY.toml`), with the notice its licence asks to ship.
-#[derive(Debug, Serialize)]
-struct CodeCredit {
-    name: String,
-    what: String,
-    files: Vec<String>,
-    spdx: String,
-    /// The licence's name as shown.
-    license: String,
-    holders: Vec<String>,
-    source: String,
-    commit: String,
-    license_url: String,
-    notice: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -133,110 +120,6 @@ fn code_credits(root: &Path) -> Result<Vec<CodeCredit>> {
         });
     }
     Ok(out)
-}
-
-#[derive(Debug, Serialize)]
-struct SongCredit {
-    id: String,
-    title: String,
-    artist: String,
-    source_url: String,
-    source_path: String,
-    source_commit: String,
-    retrieved: String,
-    parts: Vec<PartCredit>,
-    /// Chart author → playable charts credited to them.
-    chart_authors: BTreeMap<String, Vec<String>>,
-    excluded: Vec<String>,
-    modifications: Vec<String>,
-}
-
-/// A bundled noteskin (`assets/noteskins/<game>/<name>/`).
-#[derive(Debug, Serialize)]
-struct SkinCredit {
-    name: String,
-    author: String,
-    source_url: String,
-    source_path: String,
-    source_commit: String,
-    retrieved: String,
-    parts: Vec<PartCredit>,
-    excluded: Vec<String>,
-    modifications: Vec<String>,
-}
-
-/// One of our announcers (`assets/announcers/<name>/PROVENANCE.toml`):
-/// what made it, and what its voice learned from where that asks for
-/// credit.
-#[derive(Debug, Serialize)]
-struct AnnouncerCredit {
-    name: String,
-    author: String,
-    language: String,
-    /// "Kokoro-82M (hexgrad, Apache-2.0), voice bm_george".
-    made_with: String,
-    model_url: String,
-    revision: String,
-    made: String,
-    parts: Vec<PartCredit>,
-    trained_on: Vec<TrainedOnCredit>,
-}
-
-#[derive(Debug, Serialize)]
-struct TrainedOnCredit {
-    voice: String,
-    what: String,
-    url: String,
-    spdx: String,
-    holders: Vec<String>,
-    license_url: String,
-}
-
-#[derive(Debug, Serialize)]
-struct PartCredit {
-    part: String,
-    spdx: String,
-    holders: Vec<String>,
-    url: String,
-}
-
-#[derive(Debug, Serialize)]
-struct FontCredit {
-    file: String,
-    spdx: String,
-    holders: String,
-    source: String,
-    modified: String,
-}
-
-/// The video decoder module: FFmpeg and what is linked with it
-/// (`video/build.sh` serves the licence texts next to the module).
-#[derive(Debug, Serialize)]
-struct VideoCredit {
-    name: String,
-    version: String,
-    spdx: String,
-    homepage: String,
-    source_url: String,
-    /// The release tarball at FFmpeg, and the same file served next to the
-    /// module (`xtask stage-video`), as a path relative to the site.
-    tarball_url: String,
-    tarball: String,
-    tarball_sha256: String,
-    /// The flags after the toolchain ones, the decoders last.
-    configure: Vec<String>,
-    /// The desktop helper's (`video/build-native.sh`), the decoders last.
-    native_configure: Vec<String>,
-    components: Vec<ComponentCredit>,
-    /// Served next to the module, when the build has it.
-    notices: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ComponentCredit {
-    name: String,
-    spdx: String,
-    url: String,
 }
 
 /// `video/FFMPEG.toml`: the fields the credits name (the build script

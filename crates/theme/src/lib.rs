@@ -27,6 +27,7 @@ use ddi_actor::{Actor, Fit, Kind, Rgba, Sprite};
 use ddi_ui::look::{
     Look, Spec, WheelPlace, call, command_of, mono_width, named, quad, text_weighted, tracked,
 };
+use ddi_ui::screens::{frame, left as at_left, right as at_right};
 /// The tunables as shipped (`build.rs` makes the tables below of it).
 pub const TUNABLES: &str = include_str!("infinito.toml");
 
@@ -218,10 +219,6 @@ fn inset(mut a: Actor) -> Actor {
     frame("", vec![a])
 }
 
-fn frame(name: &str, children: Vec<Actor>) -> Actor {
-    named(Kind::Frame(children), name)
-}
-
 /// A quad with its top left at `at`.
 fn plate(name: &str, at: [f32; 2], size: [f32; 2], color: Rgba) -> Actor {
     let mut q = quad(name, size, color);
@@ -279,19 +276,6 @@ fn dashed(name: &str, [x, y, w, h]: [f32; 4], color: Rgba) -> Actor {
     frame(name, c)
 }
 
-/// Text with its left edge at `x`, its middle at `y`.
-fn at_left(mut a: Actor, x: f32, y: f32) -> Actor {
-    call(&mut a, "xy", &[x, y]);
-    call(&mut a, "halign", &[0.0]);
-    a
-}
-
-fn at_right(mut a: Actor, x: f32, y: f32) -> Actor {
-    call(&mut a, "xy", &[x, y]);
-    call(&mut a, "halign", &[1.0]);
-    a
-}
-
 fn at(mut a: Actor, x: f32, y: f32) -> Actor {
     call(&mut a, "xy", &[x, y]);
     a
@@ -310,10 +294,7 @@ fn hide(a: &mut Actor) {
 
 /// No wider than `w`: squeezed a little, then cut with "…".
 fn max_width(a: &mut Actor, w: f32) {
-    if let Kind::Text(t) = &mut a.kind {
-        t.max_width = w.max(1.0);
-        t.ellipsis = true;
-    }
+    ddi_ui::look::ellipsized(a, w.max(1.0));
 }
 
 /// Song select's stat line (wide layout): where the BPM's value starts,
@@ -365,6 +346,16 @@ fn place_after_bpm(root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeas
         pack.measure(measure);
     }
 }
+
+/// The wide wheel's row: its banner's left, its size at rest and on the
+/// selected row, the title's size at rest and selected, and the room
+/// the meters take at its right.
+const WHEEL_BANNER_X: f32 = 12.0;
+const WHEEL_BANNER: [f32; 2] = [144.0, 45.0];
+const WHEEL_BANNER_BIG: [f32; 2] = [224.0, 70.0];
+const WHEEL_TITLE: f32 = 17.0;
+const WHEEL_TITLE_BIG: f32 = 21.0;
+const WHEEL_METERS: f32 = 5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0;
 
 const DIFFICULTIES: [&str; 6] = ["Beginner", "Easy", "Medium", "Hard", "Challenge", "Edit"];
 const JUDGEMENTS: [&str; 6] = ["W1", "W2", "W3", "W4", "W5", "Miss"];
@@ -456,7 +447,7 @@ impl Infinito {
         let (bw, bh, bx) = if compact {
             (96.0, 30.0, 6.0)
         } else {
-            (144.0, 45.0, 12.0)
+            (WHEEL_BANNER[0], WHEEL_BANNER[1], WHEEL_BANNER_X)
         };
         let by = (row - bh) / 2.0;
         let mut back = round(
@@ -470,72 +461,17 @@ impl Infinito {
         call(&mut banner, "xy", &[bx, by]);
         banner.visible = false;
         let tx = bx + bw + if compact { 10.0 } else { 14.0 };
-        let (ts, ss) = if compact { (15.0, 12.0) } else { (17.0, 13.0) };
+        let (ts, ss) = if compact {
+            (15.0, 12.0)
+        } else {
+            (WHEEL_TITLE, 13.0)
+        };
         let mut title = at_left(self.text("Title", "", ts, 600, "Text"), tx, row * 0.36);
         let mut sub = at_left(self.text("Subtitle", "", ss, 400, "Muted"), tx, row * 0.72);
         // Room for the meters at the right.
-        let cells = if compact {
-            0.0
-        } else {
-            5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0
-        };
+        let cells = if compact { 0.0 } else { WHEEL_METERS };
         max_width(&mut title, w - tx - cells - 8.0);
         max_width(&mut sub, w - tx - cells - 8.0);
-        if !compact {
-            // Selected: the banner and the texts grow into the taller row.
-            let (bw2, bh2) = (224.0, 70.0);
-            let by2 = (big - bh2) / 2.0;
-            for b in [&mut back, &mut banner] {
-                command_of(
-                    b,
-                    "Select",
-                    &format!("stoptweening;decelerate,{t};zoom,{};y,{by2}", bw2 / bw),
-                );
-                command_of(
-                    b,
-                    "Deselect",
-                    &format!("stoptweening;decelerate,{t};zoom,1;y,{by}"),
-                );
-            }
-            let tx2 = bx + bw2 + 16.0;
-            // Narrower once moved right and grown (`maxwidth` is before
-            // the zoom).
-            let zoom = 21.0 / 17.0;
-            let (room, room2) = (w - tx - cells - 8.0, w - tx2 - cells - 8.0);
-            command_of(
-                &mut title,
-                "Select",
-                &format!(
-                    "stoptweening;maxwidth,{};decelerate,{t};xy,{tx2},{};zoom,{zoom}",
-                    room2 / zoom,
-                    big * 0.38
-                ),
-            );
-            command_of(
-                &mut title,
-                "Deselect",
-                &format!(
-                    "stoptweening;maxwidth,{room};decelerate,{t};xy,{tx},{};zoom,1",
-                    row * 0.36
-                ),
-            );
-            command_of(
-                &mut sub,
-                "Select",
-                &format!(
-                    "stoptweening;maxwidth,{room2};decelerate,{t};xy,{tx2},{}",
-                    big * 0.66
-                ),
-            );
-            command_of(
-                &mut sub,
-                "Deselect",
-                &format!(
-                    "stoptweening;maxwidth,{room};decelerate,{t};xy,{tx},{}",
-                    row * 0.72
-                ),
-            );
-        }
         // Greyed: a dim plate, grey art, muted titles.
         command_of(&mut back, "Unavailable", "diffusealpha,0.5");
         command_of(&mut back, "Available", "diffusealpha,1");
@@ -591,20 +527,7 @@ impl Infinito {
         command_of(&mut none, "Unavailable", "diffusealpha,1");
         command_of(&mut none, "Available", "diffusealpha,0");
         right.push(none);
-        let mut right = frame("Right", right);
-        if !compact {
-            let dy = (big - row) / 2.0;
-            command_of(
-                &mut right,
-                "Select",
-                &format!("stoptweening;decelerate,{t};y,{dy}"),
-            );
-            command_of(
-                &mut right,
-                "Deselect",
-                &format!("stoptweening;decelerate,{t};y,0"),
-            );
-        }
+        let right = frame("Right", right);
         inset(frame("", vec![shadow, p, back, banner, title, sub, right]))
     }
 
@@ -670,15 +593,8 @@ impl Infinito {
         call(&mut cover, "xy", &[78.0, row / 2.0]);
         call(&mut cover, "cornerradius", &[3.0]);
         cover.visible = false;
-        let mut middle = frame("Middle", vec![chevron, cover, title]);
-        let mut right = frame("Right", vec![count]);
-        if !compact {
-            let dy = (big - row) / 2.0;
-            for a in [&mut middle, &mut right] {
-                command_of(a, "Select", &format!("stoptweening;decelerate,{t};y,{dy}"));
-                command_of(a, "Deselect", &format!("stoptweening;decelerate,{t};y,0"));
-            }
-        }
+        let middle = frame("Middle", vec![chevron, cover, title]);
+        let right = frame("Right", vec![count]);
         inset(frame("", vec![p, line, middle, right]))
     }
 
@@ -913,11 +829,7 @@ impl Infinito {
             w - 14.0,
             h / 2.0,
         );
-        for d in DIFFICULTIES {
-            let c = rgba(self.c(&format!("Difficulty.{d}")));
-            command_of(&mut bar, d, &format!("diffuse,{c}"));
-            command_of(&mut meter, d, &format!("diffuse,{c}"));
-        }
+        self.difficulty_commands(&mut [&mut bar, &mut meter]);
         let small = h < 40.0;
         let grade = at_right(
             self.num("Grade", "", if small { 15.0 } else { 17.0 }, "Text"),
@@ -962,11 +874,7 @@ impl Infinito {
     /// `Lamp.<name>` commands: the lamp's color, or hidden for none.
     fn lamp_commands(&self, a: &mut Actor) {
         hide(a);
-        command_of(a, "Lamp.None", "diffusealpha,0");
-        for name in LAMPS {
-            let c = rgba(self.c(&format!("Lamp.{name}")));
-            command_of(a, &format!("Lamp.{name}"), &format!("diffuse,{c}"));
-        }
+        self.lamp_commands_text(a);
     }
 
     /// The same for a lamp's text (shown in its color).
@@ -975,6 +883,17 @@ impl Infinito {
         for name in LAMPS {
             let c = rgba(self.c(&format!("Lamp.{name}")));
             command_of(a, &format!("Lamp.{name}"), &format!("diffuse,{c}"));
+        }
+    }
+
+    /// A command for each difficulty, by its name, coloring `parts` as
+    /// that difficulty.
+    fn difficulty_commands(&self, parts: &mut [&mut Actor]) {
+        for d in DIFFICULTIES {
+            let diffuse = format!("diffuse,{}", rgba(self.c(&format!("Difficulty.{d}"))));
+            for a in parts.iter_mut() {
+                command_of(a, d, &diffuse);
+            }
         }
     }
 
@@ -1034,11 +953,7 @@ impl Infinito {
             1.5,
         );
         let mut meter = self.num("Meter", &spec.text, 20.0, "Text");
-        for d in DIFFICULTIES {
-            let c = rgba(self.c(&format!("Difficulty.{d}")));
-            command_of(&mut top, d, &format!("diffuse,{c}"));
-            command_of(&mut meter, d, &format!("diffuse,{c}"));
-        }
+        self.difficulty_commands(&mut [&mut top, &mut meter]);
         let mut lamp = round(
             plate(
                 "Lamp",
@@ -1674,6 +1589,10 @@ impl Look for Infinito {
         self.wheel_open.set(open.clamp(0.0, 1.0));
     }
 
+    fn wheel_open(&self, _list: &str) -> f32 {
+        self.wheel_open.get()
+    }
+
     fn wheel_focus(&self, list: &str, actor: &mut Actor, width: f32, weight: f32) -> bool {
         if list != "Wheel" {
             return false;
@@ -1718,17 +1637,25 @@ impl Look for Infinito {
                     actor,
                     name,
                     &[
-                        ("zoom", &[mix(1.0, 224.0 / 144.0)]),
-                        ("y", &[mix((row - 45.0) / 2.0, (big - 70.0) / 2.0)]),
+                        ("zoom", &[mix(1.0, WHEEL_BANNER_BIG[0] / WHEEL_BANNER[0])]),
+                        (
+                            "y",
+                            &[mix(
+                                (row - WHEEL_BANNER[1]) / 2.0,
+                                (big - WHEEL_BANNER_BIG[1]) / 2.0,
+                            )],
+                        ),
                     ],
                 );
             }
-            let tx = 12.0 + 144.0 + 14.0;
-            let tx2 = 12.0 + 224.0 + 16.0;
-            let cells = 5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0;
+            let tx = WHEEL_BANNER_X + WHEEL_BANNER[0] + 14.0;
+            let tx2 = WHEEL_BANNER_X + WHEEL_BANNER_BIG[0] + 16.0;
             let width = width - 2.0 * ROW_INSET;
-            let room = mix(width - tx - cells - 8.0, width - tx2 - cells - 8.0);
-            let zoom = mix(1.0, 21.0 / 17.0);
+            let room = mix(
+                width - tx - WHEEL_METERS - 8.0,
+                width - tx2 - WHEEL_METERS - 8.0,
+            );
+            let zoom = mix(1.0, WHEEL_TITLE_BIG / WHEEL_TITLE);
             set(
                 actor,
                 "Title",

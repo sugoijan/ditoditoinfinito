@@ -153,6 +153,10 @@ fn mapping(timing: &TimingMap, shown: f64, play: Option<ScrollOptions>, beat_h: 
 
 /// The picture of `chart` with `m`, as the editor makes it.
 fn picture(chart: &Chart, timing: &TimingMap, m: &Mapping) -> FieldPicture {
+    let mut song = Editor::new_song(None, "T").song().clone();
+    song.timing = timing.clone();
+    song.charts = vec![chart.clone()];
+    let editor = Editor::open(song, 0);
     FieldPicture {
         rect: [0.0, 0.0, SIZE[0] as f32, SIZE[1] as f32],
         layout: "dance-single".into(),
@@ -161,8 +165,7 @@ fn picture(chart: &Chart, timing: &TimingMap, m: &Mapping) -> FieldPicture {
         receptor_y: m.line_y,
         reverse: m.dir() < 0.0,
         frame: frame(
-            chart,
-            timing,
+            &editor,
             m,
             0.0,
             SIZE[1] as f32,

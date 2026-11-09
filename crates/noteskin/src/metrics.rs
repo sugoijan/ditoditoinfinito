@@ -20,6 +20,26 @@ pub enum Part {
 }
 
 impl Part {
+    /// The part whose metrics element `element` takes (rolls take the
+    /// holds', fakes the tap note's; lifts are drawn built in): the
+    /// metrics that color a file per note type (`NoteDisplay::Load`).
+    pub fn of_element(element: &str) -> Option<Part> {
+        let mut words = element.split(' ');
+        match (words.next()?, words.next()?) {
+            ("Tap", "Note" | "Fake") => Some(Part::TapNote),
+            ("Tap", "Mine") => Some(Part::TapMine),
+            ("Hold" | "Roll", part) => match part.to_ascii_lowercase().as_str() {
+                "head" => Some(Part::HoldHead),
+                "tail" => Some(Part::HoldTail),
+                "topcap" => Some(Part::HoldTopCap),
+                "body" => Some(Part::HoldBody),
+                "bottomcap" => Some(Part::HoldBottomCap),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub const ALL: [Part; 9] = [
         Part::TapNote,
         Part::TapMine,

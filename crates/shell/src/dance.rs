@@ -225,6 +225,10 @@ impl Preview {
         self.visible = false;
     }
 
+    /// The milliseconds the last frame spent preparing motion.
+    pub fn prepare_ms(&self) -> f64 {
+        self.runtime.as_ref().map_or(0., |r| r.work_ms)
+    }
     /// Numerical preparation runs before drawing, under a host clock shared
     /// by all its stages. Sampling/rendering below never calls the pose solver.
     pub fn prepare(&mut self, song_time: f64, clock: &dyn Fn() -> f64) {

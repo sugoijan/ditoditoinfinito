@@ -495,6 +495,14 @@ impl Layout {
         }
     }
 
+    /// Whether [`Layout::builtin`] has a layout `id`, without making it.
+    pub fn is_builtin(id: &str) -> bool {
+        BUILTIN_LAYOUTS.contains(&id)
+            || id
+                .strip_prefix("danoni-")
+                .is_some_and(|mode| PLAYED_DANONI_MODES.contains(&mode))
+    }
+
     /// Ids of every built-in layout, in the order the game lists them.
     pub fn builtin_ids() -> Vec<String> {
         BUILTIN_LAYOUTS
@@ -516,6 +524,21 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_builtin_agrees_with_builtin() {
+        let ids = Layout::builtin_ids()
+            .into_iter()
+            .chain(danoni::builtin_modes().map(danoni::layout_id))
+            .chain(["dance-couple", "danoni-", "", "danoni-5 "].map(String::from));
+        for id in ids {
+            assert_eq!(
+                Layout::is_builtin(&id),
+                Layout::builtin(&id).is_some(),
+                "{id}"
+            );
+        }
+    }
 
     #[test]
     fn builtins_are_consistent() {

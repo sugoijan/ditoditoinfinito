@@ -22,7 +22,12 @@ fn credits_page() -> (Harness, SharedTheme, Rc<RefCell<Vec<String>>>) {
     let calls: Rc<RefCell<Vec<String>>> = Rc::default();
     let c = calls.clone();
     let feed: PageFeed = Rc::default();
-    let page = PageScreen::new(env, "credits", credits::doc(&credits::sample())).with_shell(
+    let page = PageScreen::new(
+        env,
+        "credits",
+        credits::doc(&credits::sample(), Default::default()),
+    )
+    .with_shell(
         Rc::new(move |call, _cx| {
             c.borrow_mut().push(format!("{call:?}"));
             None
@@ -159,7 +164,7 @@ fn credits_take_any_commit_text() {
     for k in &mut c.code {
         k.commit = "é".repeat(12);
     }
-    let doc = credits::doc(&c);
+    let doc = credits::doc(&c, Default::default());
     let shown = format!("{doc:?}");
     assert!(shown.contains("commit コミットコミットコミ,"), "{shown}");
 }
@@ -168,7 +173,7 @@ fn credits_take_any_commit_text() {
 fn long_words_are_cut_wherever_they_fall() {
     let size = 12.0;
     let width = crate::look::mono_width("0123456789", size);
-    let lines = super::select_dialogs::wrap_lines(
+    let lines = super::dialog::wrap_lines(
         "--enable-a --disable-everything-at-once-and-more x",
         width,
         size,
@@ -342,8 +347,12 @@ fn a_page_opens_where_it_was_left() {
     let open = |place: &SharedPlace| {
         let env = env();
         let state = env.state.clone();
-        let page = PageScreen::new(env, "credits", credits::doc(&credits::sample()))
-            .with_place(place.clone());
+        let page = PageScreen::new(
+            env,
+            "credits",
+            credits::doc(&credits::sample(), Default::default()),
+        )
+        .with_place(place.clone());
         let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
         h.push(page);
         h.run(0.3);

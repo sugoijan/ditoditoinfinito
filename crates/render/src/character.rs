@@ -6,7 +6,7 @@ mod backing;
 mod tiles;
 use bytemuck::{Pod, Zeroable};
 use ddi_character::appearance::{Appearance, Geometry, MAX_TILES, tile_center, tile_color};
-use ddi_character::math::{Mat4, mul, normalize};
+use ddi_character::math::{Mat4, cross, dot, mul, normalize};
 use ddi_character::{Character, Pose, SurfaceKind};
 use wgpu::util::DeviceExt;
 pub const SOURCE: &str = "dancing-hand-preview";
@@ -36,13 +36,15 @@ impl Default for Camera {
     }
 }
 /// Render state independent from asset deformation.
-pub struct Presentation {
+pub struct Presentation<'a> {
     pub camera: Camera,
     pub size: [u32; 2],
     pub appearance: Option<Appearance>,
     pub tiles: [f32; MAX_TILES],
     pub strikes: [u32; MAX_TILES],
     pub seconds: f32,
+    /// The pose's fingertip contacts (`Character::contacts`).
+    pub contacts: &'a [[f32; 3]],
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -98,16 +100,6 @@ pub struct CharacterScene {
     backing_active: bool,
     upload: Vec<Vertex>,
     occluder_joints: [[Option<usize>; 3]; 2],
-}
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 pub fn animated_camera(mut camera: Camera, appearance: Option<Appearance>, seconds: f32) -> Camera {
     if let Some(a) = appearance {
@@ -212,16 +204,11 @@ impl CharacterScene {
     pub fn new(device: &wgpu::Device, asset: &Character) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("character-camera"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+            entries: &[crate::gpu::uniform_entry(
+                0,
+                wgpu::ShaderStages::VERTEX_FRAGMENT,
+                false,
+            )],
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("character-camera"),
@@ -239,16 +226,11 @@ impl CharacterScene {
         });
         let ml = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("character-material"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+            entries: &[crate::gpu::uniform_entry(
+                0,
+                wgpu::ShaderStages::FRAGMENT,
+                false,
+            )],
         });
         let materials = asset
             .primitives
@@ -429,6 +411,7 @@ impl CharacterScene {
             tiles,
             strikes,
             seconds,
+            contacts,
         } = presentation;
         camera = animated_camera(camera, appearance, seconds);
         if self.mat != camera.mat {
@@ -473,7 +456,6 @@ impl CharacterScene {
             v.normal = pose.normals[i];
         }
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(&self.upload));
-        let contacts = asset.contacts(pose);
         let tips = std::array::from_fn(|i| {
             let p = contacts.get(i).copied().unwrap_or([10., 10., 10.]);
             [p[0], p[2], p[1], 0.]
@@ -510,7 +492,7 @@ impl CharacterScene {
             }
         }
 
-        let heights = ddi_character::appearance::tile_heights_on(camera.mat, &contacts);
+        let heights = ddi_character::appearance::tile_heights_on(camera.mat, contacts);
         let u = Uniform {
             vp: view_projection(camera, size[0] as f32 / size[1] as f32),
             light: if appearance.is_some() {

@@ -196,7 +196,7 @@ impl PreviewMovieHost {
         };
         let picture = self
             .picture
-            .get_or_insert_with(|| MoviePicture::new(device, queue));
+            .get_or_insert_with(|| MoviePicture::new(device));
         crate::video::protect_external_frames(device, encoder);
         deck.update(&layers, t, picture.renderer_mut(), device, queue);
         if let Some((_, e)) = deck.failed().first() {

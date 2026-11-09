@@ -6,14 +6,18 @@
 
 use ddi_actor::{Actor, Kind, Rgba};
 
-use crate::look::{self, Look, call, named, quad};
+use crate::look::{self, Look, call, named, quad, quad_at};
 
 /// A segment from `a` to `b`, `width` thick.
 pub fn segment(a: [f32; 2], b: [f32; 2], width: f32, color: Rgba) -> Actor {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let len = dx.hypot(dy).max(0.001);
-    let mut q = quad("", [len, width], color);
-    call(&mut q, "xy", &[(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]);
+    let mut q = quad_at(
+        "",
+        [len, width],
+        color,
+        [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0],
+    );
     call(&mut q, "rotationz", &[dy.atan2(dx).to_degrees()]);
     q
 }
@@ -56,11 +60,7 @@ pub fn bars(name: &str, values: &[f32], max: f32, rect: [f32; 4], gap: f32, colo
 pub fn points(name: &str, points: &[[f32; 2]], size: f32, color: Rgba) -> Actor {
     let quads = points
         .iter()
-        .map(|p| {
-            let mut q = quad("", [size, size], color);
-            call(&mut q, "xy", &[p[0], p[1]]);
-            q
-        })
+        .map(|p| quad_at("", [size, size], color, [p[0], p[1]]))
         .collect();
     named(Kind::Frame(quads), name)
 }

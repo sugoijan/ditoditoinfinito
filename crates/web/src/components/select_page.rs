@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use crate::component::{Callback, Component, Context, NodeRef};
-use ddi_engine::{ConnectedPad, PadUse};
+use ddi_engine::PadUse;
 use ddi_l10n::msg::notices as nm;
 use ddi_ui::UiRequest;
 use ddi_ui::screens::data::{Notice, style_name};
@@ -33,14 +33,15 @@ use ddi_ui::screens::select::{
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::{Interval, Timeout};
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{DragEvent, HtmlElement, HtmlInputElement};
+use web_sys::{DragEvent, HtmlInputElement};
 
-use crate::components::ui_dev::{self, Host, Started};
+use crate::components::ui_dev::{self, Host, UiPage};
 use crate::import;
+use crate::router::{PlayRoute, Route};
 use crate::select_data;
 use crate::settings::Settings;
 use crate::songs::{Library, delete_imported, keep_folder, kept_folders};
-use crate::web::files::{self, PickedFile};
+use crate::web::files::{self, PickedFile, carries_files};
 use crate::web::{folders, storage};
 use ddi_ui::state::place::MenuPlace;
 
@@ -136,12 +137,10 @@ struct Dom {
 }
 
 pub(crate) struct SelectPage {
-    root: NodeRef,
+    ui: UiPage,
     dom: std::cell::RefCell<Option<Dom>>,
     shared: Rc<Shared>,
-    started: Option<Started>,
     page: Vec<EventListener>,
-    failure: Option<String>,
     load_error: Option<String>,
     dragging: bool,
     usage: Option<f64>,
@@ -217,12 +216,10 @@ impl Component for SelectPage {
             }))
         };
         SelectPage {
-            root: NodeRef::default(),
+            ui: UiPage::default(),
             dom: std::cell::RefCell::new(None),
             shared,
-            started: None,
             page: page_listeners(ctx),
-            failure: None,
             load_error: None,
             dragging: false,
             usage: None,
@@ -263,7 +260,7 @@ impl Component for SelectPage {
                 } else {
                     self.usage = None;
                 }
-                if self.started.is_none() {
+                if self.ui.started.is_none() {
                     self.start(ctx);
                 } else {
                     self.send_data();
@@ -300,7 +297,7 @@ impl Component for SelectPage {
             }
             Msg::HistoryChanged => {
                 let g = crate::history::plays().generation();
-                if g != self.history_seen && self.started.is_some() {
+                if g != self.history_seen && self.ui.started.is_some() {
                     self.history_seen = g;
                     self.send_data();
                 }
@@ -309,7 +306,7 @@ impl Component for SelectPage {
                 let dropped = self.dragging;
                 self.dragging = false;
                 import::report_error(e);
-                if dropped && self.started.is_some() {
+                if dropped && self.ui.started.is_some() {
                     self.shared.feed.borrow_mut().open_import = true;
                     self.send_import();
                 }
@@ -322,7 +319,7 @@ impl Component for SelectPage {
                     crate::select_preview::stop();
                 }
                 // Dropped on the page: the dialog shows how it goes.
-                if dropped && self.started.is_some() {
+                if dropped && self.ui.started.is_some() {
                     self.shared.feed.borrow_mut().open_import = true;
                     self.send_import();
                 }
@@ -339,8 +336,9 @@ impl Component for SelectPage {
                 );
             }
             Msg::NewSong(Err(e)) => {
+                let reason = ddi_ui::screens::errors::error_text(&e);
                 ctx.link()
-                    .send_message(Msg::Say(format!("The new song could not be made: {e}")));
+                    .send_message(Msg::Say(nm::new_song_failed(reason).into()));
             }
             Msg::FromFolder(_, Err(e)) => import::report_error(e),
             Msg::FromFolder(origin, Ok(files)) => {
@@ -396,10 +394,7 @@ impl Component for SelectPage {
                 }
             }
             Msg::Failed(e) => {
-                self.failure = Some(e);
-                if let Some((host, _, pads)) = &self.started {
-                    ui_dev::stop_ui(host, pads.as_ref());
-                }
+                self.ui.fail(e);
                 return true;
             }
         }
@@ -407,33 +402,22 @@ impl Component for SelectPage {
     }
 
     fn view(&self, ctx: &Context<Self>) {
-        let root = ctx.root();
-        if let Some(e) = &self.failure {
+        if !self.ui.view(ctx, "select-page") {
             self.dom.borrow_mut().take();
-            crate::component::no_gpu(root, e);
             return;
         }
+        let root = ctx.root();
         let shared = &self.shared;
         let mut dom = self.dom.borrow_mut();
         let dom = dom.get_or_insert_with(|| {
             use crate::component::element;
-            root.set_class_name("select-page");
-            self.root.set(root);
             // The import's real inputs, hidden: the screen's buttons click
             // them inside the gesture; tests set files on them.
             let panel = element(root, "section", "import-panel");
             let _ = panel.set_attribute("aria-hidden", "true");
             let mut listeners = Vec::new();
             let mut input = |which: &NodeRef, folder: bool| {
-                let el = element(&panel, "input", "");
-                let _ = el.set_attribute("type", "file");
-                let _ = el.set_attribute("multiple", "");
-                let _ = el.set_attribute("tabindex", "-1");
-                if folder {
-                    let _ = el.set_attribute("webkitdirectory", "");
-                } else {
-                    let _ = el.set_attribute("accept", ACCEPT);
-                }
+                let el = files::file_input(&panel, (!folder).then_some(ACCEPT), true);
                 which.set(&el);
                 let link = shared.link.clone();
                 let which = which.clone();
@@ -453,10 +437,7 @@ impl Component for SelectPage {
             }
             input(&shared.file_input, false);
             // A new song's music: one file, opened in the editor.
-            let el = element(&panel, "input", "");
-            let _ = el.set_attribute("type", "file");
-            let _ = el.set_attribute("tabindex", "-1");
-            let _ = el.set_attribute("accept", ACCEPT_MUSIC);
+            let el = files::file_input(&panel, Some(ACCEPT_MUSIC), false);
             shared.music_input.set(&el);
             let (link, which) = (shared.link.clone(), shared.music_input.clone());
             listeners.push(EventListener::new(&el, "change", move |_| {
@@ -519,20 +500,14 @@ impl Component for SelectPage {
             .movie
             .borrow_mut()
             .release(crate::web::screen::current().as_deref());
-        if let Some((host, _, pads)) = &self.started {
-            ui_dev::stop_ui(host, pads.as_ref());
-        }
         // What the screen said goes with it.
-        crate::web::forget_debug(&["songs", "ui"]);
+        self.ui.destroy(&["songs", "ui"]);
     }
 }
 
 impl SelectPage {
     /// The screen, once the library is there.
     fn start(&mut self, ctx: &Context<Self>) {
-        let Some(el) = self.root.cast::<HtmlElement>() else {
-            return;
-        };
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
         let place = self.shared.place.borrow().clone();
@@ -581,22 +556,18 @@ impl SelectPage {
             let shared = self.shared.clone();
             Box::new(move |obj: &js_sys::Object| debug_into(&shared, obj))
         };
-        match ui_dev::start_ui(&el, ui, Some(theme), Some(extra)) {
-            Ok(started) => {
-                *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-                ui_dev::use_warm_cell(&started.0, self.shared.warm.clone());
-                ui_dev::set_frame_hook(&started.0, Some(movie_hook(&self.shared, env.clone())));
-                let link = ctx.link().clone();
-                ui_dev::attach_gfx(started.0.clone(), move |e| {
-                    link.send_message(Msg::Failed(e))
-                });
-                self.started = Some(started);
-                self.history_seen = crate::history::plays().generation();
-                self.send_import();
-                self.send_notices();
-            }
-            Err(e) => ctx.link().send_message(Msg::Failed(e)),
-        }
+        let Some(started) = self
+            .ui
+            .start(ctx, ui, Some(theme), Some(extra), Msg::Failed)
+        else {
+            return;
+        };
+        *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+        ui_dev::use_warm_cell(&started.0, self.shared.warm.clone());
+        ui_dev::set_frame_hook(&started.0, Some(movie_hook(&self.shared, env)));
+        self.history_seen = crate::history::plays().generation();
+        self.send_import();
+        self.send_notices();
     }
 
     fn data(&self, place: &MenuPlace) -> ddi_ui::screens::data::SelectData {
@@ -627,7 +598,7 @@ impl SelectPage {
 
     /// The library, the bests: to the screen.
     fn send_data(&self) {
-        if self.started.is_none() {
+        if self.ui.started.is_none() {
             return;
         }
         let place = self.shared.place.borrow().clone();
@@ -638,7 +609,7 @@ impl SelectPage {
     }
 
     fn send_import(&self) {
-        if self.started.is_none() {
+        if self.ui.started.is_none() {
             return;
         }
         self.shared.feed.borrow_mut().import = Some(select_data::import_view(&Settings::load()));
@@ -646,7 +617,7 @@ impl SelectPage {
     }
 
     fn send_notices(&self) {
-        if self.started.is_none() {
+        if self.ui.started.is_none() {
             return;
         }
         self.shared.feed.borrow_mut().notices = Some(self.notices());
@@ -658,20 +629,14 @@ impl SelectPage {
     fn notices(&self) -> Vec<Notice> {
         let mut out = Vec::new();
         if let Some((_, text)) = &self.said {
-            out.push(Notice {
-                text: text.clone(),
-                link: None,
-                error: true,
-            });
+            out.push(Notice::error(text));
         }
         // A share's list is not the stored library: nothing of its state.
         if let (false, Some(l)) = (self.shared.of_share, self.shared.library.borrow().as_ref()) {
             if let Some(e) = &l.imported_error {
-                out.push(Notice {
-                    text: nm::imported_unavailable(ddi_ui::screens::errors::error_text(e)).into(),
-                    link: None,
-                    error: true,
-                });
+                out.push(Notice::error(nm::imported_unavailable(
+                    ddi_ui::screens::errors::error_text(e),
+                )));
             }
             let n = l.unreadable.len();
             if n > 0 {
@@ -708,16 +673,18 @@ impl SelectPage {
     /// Controllers connected with neither saved bindings nor the
     /// standard mapping, for the style shown.
     fn check_pads(&mut self) {
-        let Some(pads) = self.started.as_ref().and_then(|s| s.2.as_ref()) else {
+        let Some(pads) = self.ui.started.as_ref().and_then(|s| s.2.as_ref()) else {
             return;
         };
         let settings = Settings::load();
-        let place = self.shared.place.borrow().clone();
         // The style shown, the songs' own layouts too.
-        let style = place
+        let style = self
+            .shared
+            .place
+            .borrow()
             .style
             .clone()
-            .unwrap_or_else(|| settings.style.clone());
+            .unwrap_or(settings.style);
         let layout = self
             .shared
             .library
@@ -731,18 +698,9 @@ impl SelectPage {
             .or_else(|| ddi_chart::Layout::builtin(&style));
         let layout_name = (
             style.clone(),
-            layout.as_ref().map_or(style.clone(), |l| l.name.clone()),
+            layout.as_ref().map_or(style, |l| l.name.clone()),
         );
-        let connected: Vec<ConnectedPad> = pads
-            .pads()
-            .into_iter()
-            .map(|p| ConnectedPad {
-                vendor_product: None,
-                id: p.id,
-                index: p.index,
-                standard: p.standard,
-            })
-            .collect();
+        let connected = pads.connected();
         let count = layout.as_ref().map_or(1, |l| l.pads());
         let plan = layout
             .map(|l| settings.controls.plan(&l, &connected))
@@ -781,32 +739,19 @@ fn play_hash(song: &str, chart: usize) -> String {
         .and_then(|w| w.location().hash().ok())
         .unwrap_or_default();
     crate::router::keep_testing(&current);
-    let mut hash = format!(
-        "#/play?song={}&chart={chart}",
-        js_sys::encode_uri_component(song)
-    );
-    let kept = crate::router::testing();
-    if !kept.is_empty() {
-        hash.push('&');
-        hash.push_str(&kept);
-    }
-    hash
+    crate::router::with_testing(
+        Route::Play(PlayRoute::song(song, chart)).to_hash(),
+        &crate::router::TESTING_KEYS,
+    )
 }
 
 /// The play route for a kept play: its replay, or its results; with the
 /// testing parameters kept that mean something there (`gfx`, `slow`).
 fn replay_hash(id: &str, results: bool) -> String {
-    let mut hash = format!("#/play?replay={}", js_sys::encode_uri_component(id));
-    if results {
-        hash.push_str("&view=results");
-    }
-    for kv in crate::router::testing().split('&') {
-        if matches!(kv.split('=').next(), Some("gfx" | "slow")) {
-            hash.push('&');
-            hash.push_str(kv);
-        }
-    }
-    hash
+    crate::router::with_testing(
+        Route::Play(PlayRoute::replay(id, results)).to_hash(),
+        &["gfx", "slow"],
+    )
 }
 
 /// Song select's preview movie in each frame (`crate::preview_movie`):
@@ -817,15 +762,7 @@ fn movie_hook(shared: &Rc<Shared>, env: ddi_ui::screens::Env) -> ui_dev::FrameHo
     Box::new(move |gfx, encoder, _ui, now_ms| {
         let song = env.state.borrow().song_id.clone();
         let song = shared.shown.get().then_some(song.as_str());
-        let entry = |id: &str| {
-            let library = shared.library.borrow();
-            let l = library.as_ref()?;
-            l.bundled
-                .iter()
-                .chain(l.imported.iter().map(|s| &s.entry))
-                .find(|e| e.id == id)
-                .cloned()
-        };
+        let entry = |id: &str| shared.library.borrow().as_ref()?.entry(id).cloned();
         let (busy, news) =
             shared
                 .movie
@@ -877,19 +814,11 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             }
             // Recorded even without an audio context yet: the next gesture
             // starts the song wanted.
-            let entry = song.and_then(|id| {
-                let library = shared.library.borrow();
-                let l = library.as_ref()?;
-                l.bundled
-                    .iter()
-                    .chain(l.imported.iter().map(|s| &s.entry))
-                    .find(|e| e.id == id)
-                    .cloned()
-            });
+            let entry = song.and_then(|id| shared.library.borrow().as_ref()?.entry(&id).cloned());
             crate::select_preview::select(entry);
         }
         SelectCall::Place(p) => {
-            let mut place = MenuPlace::load();
+            let mut place = shared.place.borrow().clone();
             place.remember(&p);
             if *shared.place.borrow() != place {
                 place.save();
@@ -897,7 +826,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             }
             // The style the settings keep (the play's bindings and the
             // options' preview follow it).
-            let mut settings = Settings::load();
+            let mut settings = Settings::cached();
             if settings.style != p.style && !p.style.is_empty() {
                 settings.style = p.style;
                 settings.save();
@@ -907,11 +836,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             if let (Some(song), Some(chart)) = (&p.song, p.chart) {
                 let library = shared.library.borrow();
                 let controls = library.as_ref().and_then(|l| {
-                    let entry = l
-                        .bundled
-                        .iter()
-                        .chain(l.imported.iter().map(|s| &s.entry))
-                        .find(|e| e.id == *song)?;
+                    let entry = l.entry(song)?;
                     let c = ddi_ui::screens::prompt_controls::Controls::for_chart(
                         entry, chart, &settings,
                     )?;
@@ -1014,24 +939,15 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             if import::status().0.is_some() =>
         {
             // Removing clears up shared files the import may be writing.
-            link.send_message(Msg::Say(
-                "An import is running: removing and reading folders again wait until it ends."
-                    .into(),
-            ));
+            link.send_message(Msg::Say(nm::import_running_remove_reread().into()));
         }
         SelectCall::Notice(id) if id == "remove-unreadable" && import::status().0.is_some() => {
-            link.send_message(Msg::Say(
-                "An import is running: removing waits until it ends.".into(),
-            ));
+            link.send_message(Msg::Say(nm::import_running_remove().into()));
         }
         SelectCall::Reread(pack) => {
             let library = shared.library.borrow();
             let Some(l) = library.as_ref() else { return };
-            let songs: Vec<_> = l
-                .imported
-                .iter()
-                .filter(|s| s.pack.to_lowercase() == pack.to_lowercase())
-                .collect();
+            let songs: Vec<_> = l.of_pack(&pack).collect();
             let Some(folder) = songs.iter().find_map(|s| s.folder.clone()) else {
                 return;
             };
@@ -1059,11 +975,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
         }
         SelectCall::RemovePack(pack) => {
             let ids = shared.library.borrow().as_ref().map_or(Vec::new(), |l| {
-                l.imported
-                    .iter()
-                    .filter(|s| s.pack.to_lowercase() == pack.to_lowercase())
-                    .map(|s| s.entry.id.clone())
-                    .collect()
+                l.of_pack(&pack).map(|s| s.entry.id.clone()).collect()
             });
             link.send_message(Msg::Remove(ids));
         }
@@ -1156,10 +1068,6 @@ fn page_listeners(ctx: &Context<SelectPage>) -> Vec<EventListener> {
             },
         ));
     }
-    let carries_files = |e: &DragEvent| {
-        e.data_transfer()
-            .is_some_and(|dt| dt.types().includes(&"Files".into(), 0))
-    };
     let opts = EventListenerOptions::enable_prevent_default();
     {
         let link = ctx.link().clone();

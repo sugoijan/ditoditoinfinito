@@ -904,7 +904,7 @@ fn many_styles_named_charts_and_counts_in_the_theme() {
         .unwrap();
     song.charts.push(ChartEntry {
         style: "dance-single".into(),
-        difficulty: ddi_ui::screens::data::DIFFICULTIES[5],
+        difficulty: ddi_ui::screens::data::Difficulty::Edit,
         meter: 0,
         name: "Hyper Edit".into(),
         index: 40,
@@ -913,7 +913,7 @@ fn many_styles_named_charts_and_counts_in_the_theme() {
     for (i, st) in d.styles.clone().iter().skip(first_new).enumerate() {
         song.charts.push(ChartEntry {
             style: st.id.clone(),
-            difficulty: ddi_ui::screens::data::DIFFICULTIES[3],
+            difficulty: ddi_ui::screens::data::Difficulty::Hard,
             meter: 5,
             index: 50 + i,
             ..Default::default()
@@ -1775,7 +1775,7 @@ fn the_song_is_the_only_active_element_even_when_a_chart_is_selected() {
 
 #[test]
 fn options_pages_and_dialogs_share_one_active_decoration() {
-    use ddi_ui::screens::options_dialogs::ConfirmDialog;
+    use ddi_ui::screens::dialog::ConfirmDialog;
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     let mut h = harness([1280.0, 720.0], DESIGN);
@@ -2034,7 +2034,10 @@ fn a_page_filled_later_keeps_its_entrance() {
     );
     h.frame(1.0 / 60.0);
     let early = h.ui.bounds("Column").unwrap();
-    *feed.borrow_mut() = Some(screens::credits::doc(&screens::credits::sample()));
+    *feed.borrow_mut() = Some(screens::credits::doc(
+        &screens::credits::sample(),
+        Default::default(),
+    ));
     h.ui.broadcast(ddi_ui::Message::new(PAGE_CHANGED));
     h.run(0.1);
     let filled = h.ui.bounds("Column").unwrap();
@@ -2210,4 +2213,115 @@ fn the_length_follows_a_wide_bpm() {
     assert_eq!(narrower, room - shift);
     let (shift, label, back) = place(&mut info, "150");
     assert_eq!((shift, label, back), (0.0, INFO_LENGTH_X, room));
+}
+
+/// What an actor and everything under it show (the active outline, a
+/// decoration left where it was, aside).
+fn summary(a: &Actor, out: &mut Vec<String>) {
+    if a.name == "ActiveOutline" {
+        return;
+    }
+    let s = a.current();
+    let text = match &a.kind {
+        Kind::Text(t) => t.text().to_string(),
+        _ => String::new(),
+    };
+    out.push(format!(
+        "{} {text:?} {} {:?} {:?} {:?}",
+        a.name, a.visible, s.pos, s.scale, s.diffuse
+    ));
+    for c in a.children() {
+        summary(c, out);
+    }
+}
+
+/// A song reached by moving down the wheel shows the ladder and the tabs
+/// a screen opened on that song shows (their rows are refilled, not made
+/// again, and the tabs kept while their counts and selection hold).
+#[test]
+fn refilled_ladder_rows_and_kept_tabs_match_ones_made_afresh() {
+    fn state(h: &Harness) -> Vec<String> {
+        let mut out = Vec::new();
+        summary(h.actor("Ladder"), &mut out);
+        summary(h.actor("Tabs"), &mut out);
+        out
+    }
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let songs = sample::select().songs;
+    let open = |id: &str| {
+        let play: screens::select::PlayFn = Rc::new(|_, _, _: &Env, _: &mut ddi_ui::Cx| {});
+        let options: screens::select::OpenFn = Rc::new(|_: &Env, _: &mut ddi_ui::Cx| {});
+        screens::select::SelectScreen::new(env.clone(), sample::select(), Some(id), play, options)
+    };
+    let mut browsed = harness([1280.0, 720.0], DESIGN);
+    browsed.push(sample::select_screen(&env, None));
+    browsed.run(0.5);
+    let mut seen = 0;
+    for step in 0..songs.len().min(12) {
+        for _ in 0..30 {
+            browsed.frame(1.0 / 60.0);
+        }
+        let id = env.state.borrow().song_id.clone();
+        let mut fresh = harness([1280.0, 720.0], DESIGN);
+        fresh.push(open(&id));
+        fresh.run(0.5);
+        assert_eq!(state(&browsed), state(&fresh), "step {step}, song {id}");
+        seen += 1;
+        browsed.key("ArrowDown", "ArrowDown");
+    }
+    assert!(seen > 3);
+}
+
+/// Moving the focus along the rows leaves them, the lit buttons of a row
+/// of actions and the description as a screen built with that focus has
+/// them.
+#[test]
+fn a_focus_moved_along_the_rows_matches_a_screen_built_with_it() {
+    fn state(h: &Harness) -> Vec<String> {
+        let mut out = Vec::new();
+        summary(h.actor("RowsClip"), &mut out);
+        summary(h.actor("Description"), &mut out);
+        out
+    }
+    use screens::data::OptionKind;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let data = || {
+        let mut d = sample::options(0);
+        let rows = &mut d.sections[0].options;
+        for i in [1, 2] {
+            rows[i].kind = OptionKind::Actions(vec!["One".into(), "Two".into(), "Three".into()]);
+            rows[i].index = 1;
+        }
+        d
+    };
+    let mut moved = harness([1280.0, 720.0], DESIGN);
+    moved.push(screens::options::OptionsScreen::new(
+        env.clone(),
+        data(),
+        None,
+    ));
+    moved.run(0.5);
+    let n = data().sections[0].options.len();
+    // Stopping short of the preview selector after the last row.
+    for key in std::iter::repeat_n("ArrowDown", n - 1).chain(std::iter::repeat_n("ArrowUp", n / 2))
+    {
+        moved.key(key, key);
+        moved.run(0.2);
+        let (section, option, scroll) = {
+            let st = env.state.borrow();
+            (st.section.clone(), st.option_id.clone(), st.scroll)
+        };
+        let mut fresh = harness([1280.0, 720.0], DESIGN);
+        fresh.push(
+            screens::options::OptionsScreen::new(env.clone(), data(), None).with_position(Some((
+                section,
+                option.clone(),
+                scroll,
+            ))),
+        );
+        fresh.run(0.5);
+        assert!(state(&moved) == state(&fresh), "{key} to {option}");
+    }
 }

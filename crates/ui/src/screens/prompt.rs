@@ -38,10 +38,10 @@ use std::rc::Rc;
 use ddi_actor::{Actor, Kind, Sprite};
 use ddi_l10n::{UiText, msg};
 
-use super::select_dialogs::{wrap, wrap_lines};
+use super::dialog::wrap_lines;
 use super::{Env, footer, frame, left, right};
 use crate::gesture::Gesture;
-use crate::look::{self, Spec, call, named, quad};
+use crate::look::{self, Spec, call, named, quad, quad_at};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 
@@ -245,8 +245,6 @@ pub struct PromptState {
     pub options: Vec<super::data::OptionDef>,
     pub options_differ: bool,
     pub options_saved: bool,
-    /// Whose wording (the shell's platform: why a play was cut off).
-    pub platform: super::data::Platform,
     pub version: u64,
 }
 
@@ -417,10 +415,7 @@ impl PromptChart {
             layout: c.layout.clone(),
             difficulty: c.difficulty,
             meter: c.meter,
-            style: song
-                .layout_of(c)
-                .map(|l| l.name.clone())
-                .unwrap_or_default(),
+            style: song.layout_of(c).map(|l| l.name).unwrap_or_default(),
         })
     }
 }
@@ -444,7 +439,7 @@ impl PromptInfo {
                     c.meter,
                     &super::data::style_name(&c.layout, &c.style),
                 ),
-                super::data::difficulty_name(c.difficulty).to_string(),
+                c.difficulty.name().to_string(),
             )
         });
         PromptInfo {
@@ -474,10 +469,7 @@ impl PromptInfo {
 /// names are never translated) and its style as shown (the caller's,
 /// `super::data::style_name`).
 pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) -> String {
-    let difficulty = UiText::data(format!(
-        "{} {meter}",
-        super::data::difficulty_name(difficulty)
-    ));
+    let difficulty = UiText::data(format!("{} {meter}", difficulty.name()));
     format!("{difficulty} · {style}")
 }
 
@@ -542,6 +534,15 @@ pub struct PromptScreen {
     /// When the diagram's picture came in (the screen's time): it fades
     /// in from then, over [`RECEPTORS_FADE`] s, through rebuilds.
     receptors_fade_at: Option<f64>,
+    /// The focus the rows were last lit for (built again: none).
+    lit: Option<Option<String>>,
+    /// The diagram's caps as built, and the lane its keys last showed
+    /// pressed (built again: none).
+    caps: RefCell<Vec<Option<crate::keycaps::Keycap>>>,
+    keys_active: Option<Option<usize>>,
+    /// The view's strings are to be made again (the state or the hints
+    /// changed: a rebuild).
+    view_dirty: bool,
 }
 
 /// Where the countdown is (`docs/plans/start-prompt.md`).
@@ -682,6 +683,10 @@ impl PromptScreen {
             preview_size: std::cell::Cell::new(None),
             preview_told: None,
             receptors_fade_at: None,
+            lit: None,
+            caps: RefCell::default(),
+            keys_active: None,
+            view_dirty: true,
         }
     }
 
@@ -724,16 +729,7 @@ impl PromptScreen {
         else {
             return;
         };
-        let n = o.values().len() as i32;
-        if n == 0 {
-            return;
-        }
-        let to = o.index as i32 + by;
-        let to = if wrap {
-            to.rem_euclid(n)
-        } else {
-            to.clamp(0, n - 1)
-        } as usize;
+        let to = o.stepped(by, wrap);
         if to != o.index {
             self.choose(
                 PromptChoice::Option {
@@ -798,14 +794,7 @@ impl PromptScreen {
         self.vp = [vp.width, vp.height];
         // A phone upright: 480 wide (as options, results and song select
         // are), zoomed to the width; else the screen as it is.
-        let narrow = self.env.metric("Options.Narrow.Width", 480.0);
-        (self.screen, self.zoom) = if super::is_compact(&*self.env.look, vp) && vp.height > vp.width
-        {
-            let z = (vp.width / narrow).max(1.0);
-            ([vp.width / z, vp.height / z], z)
-        } else {
-            ([vp.width, vp.height], 1.0)
-        };
+        (self.screen, self.zoom, _) = super::compact_fit(&self.env, vp);
         self.preview_size.set(None);
         let state = self.state.borrow().clone();
         self.built = state.version;
@@ -814,12 +803,12 @@ impl PromptScreen {
         let screen = self.screen;
         // The play's own field color (`Play.Field`): a song without a
         // picture opens on it.
-        let mut field = quad(
+        let field = quad_at(
             "Ground",
             [screen[0] + 8.0, screen[1] + 8.0],
             env.color("Play.Field"),
+            [screen[0] / 2.0, screen[1] / 2.0],
         );
-        call(&mut field, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
         let mut children = vec![field];
         children.push(picture(&env, screen, &state, cx));
         if matches!(state.step, PromptStep::Loading) {
@@ -855,7 +844,7 @@ impl PromptScreen {
             );
             let hints: &[(&[&str], &str)] =
                 &[(&["ENTER"], start.as_str()), (&["ESC"], back.as_str())];
-            let (f, texts) = footer(
+            children.push(footer(
                 &env,
                 screen,
                 hints,
@@ -866,9 +855,7 @@ impl PromptScreen {
                 "",
                 &[],
                 cx,
-            );
-            env.state.borrow_mut().hints = texts;
-            children.push(f);
+            ));
         } else if !matches!(state.step, PromptStep::Loading) {
             env.state.borrow_mut().hints = Vec::new();
         }
@@ -913,7 +900,7 @@ impl PromptScreen {
                     y: &mut f32| {
             for (i, l) in wrap_lines(text, inner, size).into_iter().enumerate() {
                 let mut t = env.text(&format!("{name}{i}"), &l, size, weight, color);
-                wrap(&mut t, inner);
+                look::ellipsized(&mut t, inner);
                 *y += size * 0.65;
                 c.push(left(t, 24.0, *y));
                 *y += size * 0.65;
@@ -928,7 +915,7 @@ impl PromptScreen {
         };
         if !title.is_empty() {
             let mut title = env.text("SongTitle", &title, TITLE, 700, "Text");
-            wrap(&mut title, inner);
+            look::ellipsized(&mut title, inner);
             y += TITLE * 0.6;
             c.push(left(title, 24.0, y));
             y += TITLE * 0.6 + 4.0;
@@ -966,11 +953,12 @@ impl PromptScreen {
             && let Some(binding) = &state.bindings
         {
             y += 12.0;
-            let (actors, height, size) =
+            let (actors, height, size, caps) =
                 super::prompt_controls::draw(env, binding, inner, y, sh < 480.0, cx);
             c.extend(actors);
             y += height;
             self.preview_size.set(Some(size));
+            *self.caps.borrow_mut() = caps;
         }
         if state.step == PromptStep::Ready && !state.options.is_empty() {
             y += 14.0;
@@ -989,15 +977,13 @@ impl PromptScreen {
             if state.options_differ {
                 let label = msg::prompt::save_as_default();
                 let bw = look::mono_width(&label, 13.0) + 24.0;
-                let mut b = look::component_or(
-                    &*env.look,
+                c.push(env.component(
                     "Button",
                     "Button",
                     &Spec::new([bw, 26.0], &*label),
-                );
-                b.name = "SaveOptions".into();
-                call(&mut b, "xy", &[w - 24.0 - bw / 2.0, save_y]);
-                c.push(b);
+                    "SaveOptions",
+                    [w - 24.0 - bw / 2.0, save_y],
+                ));
                 controls.push("SaveOptions".into());
             } else if state.options_saved {
                 c.push(right(
@@ -1105,7 +1091,7 @@ impl PromptScreen {
                 line(
                     &mut c,
                     "Why",
-                    &msg::prompt::interrupted_why(state.platform.l10n()),
+                    &msg::prompt::interrupted_why(self.env.platform.l10n()),
                     BODY,
                     400,
                     "Muted",
@@ -1197,16 +1183,14 @@ impl PromptScreen {
                 call(&mut text, "maxwidth", &[tw]);
                 c.push(left(text, 24.0, mid));
             }
-            let mut link = look::component_or(
-                &*env.look,
+            let gap = if link_only { 0.0 } else { 8.0 };
+            c.push(env.component(
                 "Link",
                 "Button",
                 &Spec::new([link_w, 26.0], &*calibrate),
-            );
-            link.name = "Calibrate".into();
-            let gap = if link_only { 0.0 } else { 8.0 };
-            call(&mut link, "xy", &[24.0 + tw + gap + link_w / 2.0, mid]);
-            c.push(link);
+                "Calibrate",
+                [24.0 + tw + gap + link_w / 2.0, mid],
+            ));
             controls.push("Calibrate".into());
         };
         if timing.is_some() && !inline && !link_only {
@@ -1291,12 +1275,15 @@ impl PromptScreen {
     }
 
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
+        self.lit = None;
+        self.keys_active = None;
+        self.view_dirty = true;
         let focused = cx.focused().map(str::to_string);
         let before = std::mem::discriminant(&self.state.borrow().step);
         let step = self.built_step;
         // The card's entrance going on goes on (a rebuild never cuts it
         // short); the rest shows as it is.
-        let left = crate::hit::find_mut(root, "Prompt").map_or(0.0, |c| super::time_left(c));
+        let left = crate::hit::find_mut(root, "Prompt").map_or(0.0, |c| c.tween_time_left());
         *root = self.tree(cx);
         root.finish_tweening();
         if let Some(card) = crate::hit::find_mut(root, "Prompt") {
@@ -1413,8 +1400,9 @@ impl PromptScreen {
                 time: self.demo_time,
                 active,
             });
-        if let Some(p) = &picture {
-            for (i, cap) in p.controls.caps(cx.hints()).iter().enumerate() {
+        if picture.is_some() && self.keys_active != Some(active) {
+            self.keys_active = Some(active);
+            for (i, cap) in self.caps.borrow().iter().enumerate() {
                 if let Some(key) = crate::hit::find_mut(root, &format!("KeyMotion{i}")) {
                     let pressed = active == Some(i) && cap.is_some();
                     let controller = matches!(cap, Some(crate::keycaps::Keycap::Controller(_)));
@@ -1460,18 +1448,39 @@ impl PromptScreen {
         }
     }
 
-    fn publish_view(&self, hints: &crate::controller_hints::Hints) {
-        let view = PromptView {
-            loading: self.loading.is_some(),
-            label: self.loading.is_some_and(|l| l.shown >= LOADING_DELAY),
-            countdown: self.counting().map(|(left, _)| left),
-            countdown_state: match self.countdown {
-                Countdown::Off => "off",
-                Countdown::Running(..) => "running",
-                Countdown::Cancelled => "cancelled",
-                Countdown::Done => "done",
+    fn publish_view(&mut self, hints: &crate::controller_hints::Hints) {
+        let loading = self.loading.is_some();
+        let label = self.loading.is_some_and(|l| l.shown >= LOADING_DELAY);
+        let countdown = self.counting().map(|(left, _)| left);
+        let countdown_state = match self.countdown {
+            Countdown::Off => "off",
+            Countdown::Running(..) => "running",
+            Countdown::Cancelled => "cancelled",
+            Countdown::Done => "done",
+        };
+        let active_lane = self.active_lane();
+        // Only these change without a rebuild; the rest is kept as made.
+        if !std::mem::take(&mut self.view_dirty)
+            && let Some(view) = &mut self.env.state.borrow_mut().prompt
+        {
+            view.loading = loading;
+            view.label = label;
+            view.countdown = countdown;
+            if view.countdown_state != countdown_state {
+                view.countdown_state = countdown_state.into();
             }
-            .into(),
+            let state = self.state.borrow();
+            if view.waiting != state.waiting {
+                view.waiting.clone_from(&state.waiting);
+            }
+            view.active_lane = active_lane;
+            return;
+        }
+        let view = PromptView {
+            loading,
+            label,
+            countdown,
+            countdown_state: countdown_state.into(),
             options: st_options(&self.state.borrow()),
             options_differ: self.state.borrow().options_differ,
             options_saved: self.state.borrow().options_saved,
@@ -1499,12 +1508,9 @@ impl PromptScreen {
                     }
                 })
                 .unwrap_or_default(),
-            active_lane: self.active_lane(),
+            active_lane,
         };
-        let mut st = self.env.state.borrow_mut();
-        if st.prompt.as_ref() != Some(&view) {
-            st.prompt = Some(view);
-        }
+        self.env.state.borrow_mut().prompt = Some(view);
     }
 
     fn publish(&self) {
@@ -1553,10 +1559,7 @@ fn pbutton(
     w: f32,
     kind: &str,
 ) -> Actor {
-    let mut b = look::component_or(&*env.look, kind, "Button", &Spec::new([w, h], label));
-    b.name = name.into();
-    call(&mut b, "xy", &centre);
-    b
+    env.component(kind, "Button", &Spec::new([w, h], label), name, centre)
 }
 
 /// A continuous blurred base, with a copy emerging into the content frame;
@@ -1621,13 +1624,12 @@ fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Act
         if let Some(([mid, width], dark)) = p.filter
             && dark > 0.0
         {
-            let mut filter = quad(
+            children.push(quad_at(
                 "Filter",
                 [width * w, h],
                 [0.0, 0.0, 0.0, dark.clamp(0.0, 1.0) * progress],
-            );
-            call(&mut filter, "xy", &[mid * w, h / 2.0]);
-            children.push(filter);
+                [mid * w, h / 2.0],
+            ));
         }
     }
     frame("Backdrop", children)
@@ -1871,8 +1873,11 @@ impl Screen for PromptScreen {
         if self.env.state.borrow().screen != "prompt" {
             self.publish();
         }
-        let focused = cx.focused().map(str::to_string);
-        self.light(root, focused.as_deref());
+        if self.lit.as_ref().map(Option::as_deref) != Some(cx.focused()) {
+            let focused = cx.focused().map(str::to_string);
+            self.light(root, focused.as_deref());
+            self.lit = Some(focused);
+        }
         self.draw_controls(root, cx);
         self.publish_view(cx.hints());
     }
@@ -2129,7 +2134,16 @@ mod tests {
     }
 
     fn prompt_with(state: &SharedPrompt, reduced: bool) -> (Harness, Seen) {
-        let env = Env::new(Rc::new(look::Plain), Rc::new(|s: &str| s.to_string()));
+        prompt_on(state, reduced, Default::default())
+    }
+
+    fn prompt_on(
+        state: &SharedPrompt,
+        reduced: bool,
+        platform: super::super::data::Platform,
+    ) -> (Harness, Seen) {
+        let mut env = Env::new(Rc::new(look::Plain), Rc::new(|s: &str| s.to_string()));
+        env.platform = platform;
         env.reduced_motion.set(reduced);
         LAST_ENV.with(|e| *e.borrow_mut() = Some(env.clone()));
         let seen: Seen = Rc::default();
@@ -2872,12 +2886,8 @@ mod tests {
     fn an_interrupted_play_says_why_in_its_shells_words() {
         let why = |platform| {
             let state = SharedPrompt::default();
-            {
-                let mut st = state.borrow_mut();
-                st.platform = platform;
-                st.set_step(PromptStep::Interrupted);
-            }
-            let (h, _) = prompt(&state);
+            state.borrow_mut().set_step(PromptStep::Interrupted);
+            let (h, _) = prompt_on(&state, false, platform);
             h.texts()
                 .into_iter()
                 .find(|t| t.ends_with("changed.") || t.ends_with("suspended."))

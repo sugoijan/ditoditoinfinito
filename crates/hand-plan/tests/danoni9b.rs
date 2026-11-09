@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 use ddi_chart::{Glyph, Note, NoteKind, Tick};
-use ddi_hand_plan::{ContactPlan, Input, Options, PlannerJob, RollingPlanner, layout_panels};
+use ddi_hand_plan::{Input, Options, PlannerJob, RollingPlanner, layout_panels};
+mod common;
+use common::plan as solve;
 fn song(mirror: bool) -> ddi_chart::Song {
     let mut song = ddi_chart::formats::sm::parse_sm(
         "#BPMS:0=120;#NOTES:danoni-9B::Hard:1:0,0,0,0,0:\n100000000;",
@@ -31,18 +33,6 @@ fn song(mirror: bool) -> ddi_chart::Song {
     notes.extend((0..9).map(|n| Note::new(Tick(1560), lane(n), NoteKind::Mine)));
     song.charts[0].notes = notes;
     song
-}
-fn solve(input: &Input) -> ContactPlan {
-    let mut job = PlannerJob::new(input.clone(), Options::default());
-    for _ in 0..100_000 {
-        if job.step() {
-            break;
-        }
-    }
-    let (plan, report) = job.finish().expect("bounded planner completed");
-    let plan = plan.unwrap_or_else(|| panic!("{report:?}"));
-    assert!(ddi_hand_plan::replay(input, &plan).unwrap().passed);
-    plan
 }
 #[test]
 fn nine_key_mapping_matches_displayed_directions_including_oni() {

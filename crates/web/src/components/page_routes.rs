@@ -14,13 +14,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::component::{Component, Context, NodeRef};
+use crate::component::{Component, Context};
 use ddi_ui::screens::calibration::{self, CalAct};
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
 use ddi_ui::{Cx, UiRequest};
-use web_sys::HtmlElement;
 
-use crate::components::ui_dev::{self, Host, Started};
+use crate::components::ui_dev::{self, Host, UiPage};
 use crate::router::Route;
 
 /// Which page.
@@ -45,11 +44,9 @@ pub(crate) enum Msg {
 }
 
 pub(crate) struct PagePage {
-    root: NodeRef,
+    ui: UiPage,
     feed: PageFeed,
     host: Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>>,
-    started: Option<Started>,
-    failure: Option<String>,
 }
 
 impl Component for PagePage {
@@ -63,11 +60,9 @@ impl Component for PagePage {
             });
         }
         PagePage {
-            root: NodeRef::default(),
+            ui: UiPage::default(),
             feed: Rc::new(RefCell::new(None)),
             host: Rc::new(RefCell::new(None)),
-            started: None,
-            failure: None,
         }
     }
 
@@ -81,44 +76,32 @@ impl Component for PagePage {
         match msg {
             Msg::Credits(r) => {
                 let doc = match r.and_then(|t| ddi_ui::screens::credits::parse(&t)) {
-                    Ok(c) => ddi_ui::screens::credits::doc(&c),
+                    Ok(c) => {
+                        ddi_ui::screens::credits::doc(&c, ddi_ui::screens::data::Platform::Web)
+                    }
                     Err(e) => ddi_ui::screens::credits::waiting(Some(&e)),
                 };
                 send(&self.feed, &self.host, doc);
                 false
             }
             Msg::Failed(e) => {
-                self.failure = Some(e);
-                if let Some((host, _, pads)) = &self.started {
-                    ui_dev::stop_ui(host, pads.as_ref());
-                }
+                self.ui.fail(e);
                 true
             }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) {
-        if let Some(e) = &self.failure {
-            crate::component::no_gpu(ctx.root(), e);
-            return;
-        }
-        ctx.root().set_class_name("select-page");
-        self.root.set(ctx.root());
+        self.ui.view(ctx, "select-page");
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
-        if let Some((host, _, pads)) = &self.started {
-            ui_dev::stop_ui(host, pads.as_ref());
-        }
-        crate::web::forget_debug(&["ui"]);
+        self.ui.destroy(&["ui"]);
     }
 }
 
 impl PagePage {
     fn start(&mut self, ctx: &Context<Self>) {
-        let Some(el) = self.root.cast::<HtmlElement>() else {
-            return;
-        };
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
         let which = ctx.props().which.clone();
@@ -178,21 +161,14 @@ impl PagePage {
         } else {
             ui.push(screen);
         }
-        match ui_dev::start_ui(&el, ui, Some(theme), None) {
-            Ok(started) => {
-                *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-                let link = ctx.link().clone();
-                ui_dev::attach_gfx(started.0.clone(), move |e| {
-                    link.send_message(Msg::Failed(e))
-                });
-                self.started = Some(started);
-                // The credits may have come first.
-                if self.feed.borrow().is_some() {
-                    let doc = self.feed.borrow_mut().take().expect("checked");
-                    send(&self.feed, &self.host, doc);
-                }
-            }
-            Err(e) => ctx.link().send_message(Msg::Failed(e)),
+        let Some(started) = self.ui.start(ctx, ui, Some(theme), None, Msg::Failed) else {
+            return;
+        };
+        *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+        // The credits may have come first.
+        if self.feed.borrow().is_some() {
+            let doc = self.feed.borrow_mut().take().expect("checked");
+            send(&self.feed, &self.host, doc);
         }
     }
 }
@@ -238,17 +214,15 @@ fn calibration_button(
 ) -> Option<PageDoc> {
     match calibration::button(id) {
         CalAct::Run(mode) => {
-            let mut hash = format!("#/calibrate/run?mode={mode}");
-            let testing: Vec<String> = crate::router::testing()
-                .split('&')
-                .filter(|kv| matches!(kv.split('=').next(), Some("auto" | "bias")))
-                .map(str::to_string)
-                .collect();
-            if !testing.is_empty() {
-                hash.push('&');
-                hash.push_str(&testing.join("&"));
-            }
-            cx.request(UiRequest::Navigate(hash));
+            let run = Route::CalibrateRun {
+                mode,
+                auto: false,
+                bias_ms: 0,
+            };
+            cx.request(UiRequest::Navigate(crate::router::with_testing(
+                run.to_hash(),
+                &["auto", "bias"],
+            )));
             None
         }
         CalAct::Options => {

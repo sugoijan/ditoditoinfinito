@@ -1,6 +1,6 @@
 //! Resumable version of the strict fit. Yielding never changes arithmetic order.
 use crate::kinematics::{Eval, Kin};
-use crate::solve::{STRICT, Stop, energy, jacobian, linear, residual};
+use crate::solve::{STRICT, Stop, energy, jacobian, linear, max_tip_error, residual};
 use crate::{Goal, Model, Parameters, SolveReport};
 
 #[derive(Clone, Copy)]
@@ -8,7 +8,7 @@ enum Phase {
     Residual,
     Jacobian,
     Column(usize),
-    Row(usize),
+    Normal,
     Direction,
     Bounds(usize),
     Search(usize),
@@ -120,8 +120,8 @@ impl PoseFit {
         };
     }
 
-    /// Perform one bounded checkpoint: at most one geometry evaluation, one
-    /// normal-matrix row or one 14-variable linear solve. Returns true when done.
+    /// Perform one bounded checkpoint: at most one geometry evaluation, the
+    /// normal matrix or one 14-variable linear solve. Returns true when done.
     pub fn advance(&mut self, m: &Model) -> bool {
         match self.phase {
             Phase::Residual => {
@@ -148,7 +148,7 @@ impl PoseFit {
                     if let Some(j) = jacobian(m, &self.q, &self.kin[self.base], &self.geometry) {
                         self.j = j;
                         self.report.evaluations += 1;
-                        Phase::Row(0)
+                        Phase::Normal
                     } else {
                         Phase::Column(0)
                     };
@@ -173,24 +173,22 @@ impl PoseFit {
                     self.j[row][c] = (rr[row] - self.r[row]) / 0.002;
                 }
                 self.phase = if c == 13 {
-                    Phase::Row(0)
+                    Phase::Normal
                 } else {
                     Phase::Column(c + 1)
                 };
             }
-            Phase::Row(c) => {
-                for k in 0..14 {
-                    self.a[c][k] = (0..24)
-                        .map(|row| self.j[row][c] * self.j[row][k])
-                        .sum::<f64>()
-                        + if c == k { 0.001 } else { 0. };
+            Phase::Normal => {
+                for c in 0..14 {
+                    for k in 0..14 {
+                        self.a[c][k] = (0..24)
+                            .map(|row| self.j[row][c] * self.j[row][k])
+                            .sum::<f64>()
+                            + if c == k { 0.001 } else { 0. };
+                    }
+                    self.b[c] = -(0..24).map(|row| self.j[row][c] * self.r[row]).sum::<f64>();
                 }
-                self.b[c] = -(0..24).map(|row| self.j[row][c] * self.r[row]).sum::<f64>();
-                self.phase = if c == 13 {
-                    Phase::Direction
-                } else {
-                    Phase::Row(c + 1)
-                };
+                self.phase = Phase::Direction;
             }
             Phase::Direction => {
                 self.delta = linear(self.a, self.b);
@@ -276,15 +274,7 @@ impl PoseFit {
                     self.r = residual(&self.geometry, &self.q, &self.prior, &self.goal);
                     self.known = true;
                 }
-                let g = &self.geometry;
-                self.report.target_error_mm = (0..2)
-                    .map(|d| {
-                        (0..3)
-                            .map(|i| (g.tips[d][i] - self.goal.tips[d][i]).powi(2))
-                            .sum::<f64>()
-                            .sqrt()
-                    })
-                    .fold(0., f64::max);
+                self.report.target_error_mm = max_tip_error(&self.geometry.tips, &self.goal.tips);
                 self.report.objective = energy(&self.r);
                 self.phase = Phase::Done;
             }

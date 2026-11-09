@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 //! Cooperative rolling output for a known contact plan. No clocks or I/O.
+use crate::correction::correct_contact_pose_with;
+use crate::kinematics::Kin;
 use crate::{
     ContactCurve, ContactCurveError, ContactCurvePreparation, ContactCurvePublication,
-    ContactCurveSample, Model, Parameters, Plan, Rolling, correct_contact_pose,
+    ContactCurveSample, Model, Parameters, Plan, Rolling,
 };
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -124,6 +126,7 @@ pub struct DanceRuntime {
     work: Work,
     output: Option<ContactCurve>,
     output_stream: Vec<[f64; 2]>,
+    kin: Box<Kin>,
     pub report: RuntimeReport,
 }
 impl DanceRuntime {
@@ -148,6 +151,7 @@ impl DanceRuntime {
             work: Work::Idle,
             output: None,
             output_stream: Vec::new(),
+            kin: Box::default(),
             report: RuntimeReport::default(),
         })
     }
@@ -226,8 +230,9 @@ impl DanceRuntime {
         self.report.known_until = known;
         self.certified_until = certified_until.min(p.duration);
         self.report.certified_until = self.certified_until;
+        // `snapshot` is this request's visible plan: the same lookahead.
         self.rolling
-            .request_known(p.clone(), now, received, finished);
+            .request_visible(self.snapshot.clone(), p.duration, now, received, finished);
         self.work = Work::Guide;
     }
     pub fn step(&mut self, m: &Model, now: f64) -> bool {
@@ -312,9 +317,11 @@ impl DanceRuntime {
                             });
                         }
                         let q = if r.stream_weight == 0. {
-                            correct_contact_pose(m, self.snapshot.targets(t), q).0
+                            let targets = self.snapshot.targets(t);
+                            correct_contact_pose_with(m, targets, q, &mut self.kin).0
                         } else if r.stream_weight < 1. {
-                            let c = correct_contact_pose(m, self.snapshot.targets(t), q).0;
+                            let targets = self.snapshot.targets(t);
+                            let c = correct_contact_pose_with(m, targets, q, &mut self.kin).0;
                             std::array::from_fn(|i| q[i] + (1. - r.stream_weight) * (c[i] - q[i]))
                         } else {
                             q
@@ -423,10 +430,10 @@ impl DanceRuntime {
             } => {
                 let e = &self.snapshot.events[events[at]];
                 if let Some([before, after]) = self.snapshot.lift_interval(e) {
-                    let d = usize::from(e.foot == "R");
+                    let d = e.foot.index();
                     let anchor = self.snapshot.targets(before).tips[d];
-                    let a = m.geometry(&curve.sample(before).pose).tips[d];
-                    let b = m.geometry(&curve.sample(after).pose).tips[d];
+                    let a = m.evaluate_into(&curve.pose(before), &mut self.kin).tips[d];
+                    let b = m.evaluate_into(&curve.pose(after), &mut self.kin).tips[d];
                     if a[2].abs() > 0.25
                         || (a[0] - anchor[0]).hypot(a[1] - anchor[1]) > 2.
                         || b[2] <= 0.25
@@ -438,8 +445,8 @@ impl DanceRuntime {
                     }
                 }
                 let tip = m
-                    .geometry(&curve.sample(e.time + probe as f64 / 480.).pose)
-                    .tips[usize::from(e.foot == "R")];
+                    .evaluate_into(&curve.pose(e.time + probe as f64 / 480.), &mut self.kin)
+                    .tips[e.foot.index()];
                 let [x, y] = self
                     .snapshot
                     .physical_position(e.panel)
@@ -524,11 +531,12 @@ impl DanceRuntime {
     fn publish(&mut self, c: ContactCurve) {
         self.report.covered_until = c.time_range()[1];
         self.report.peak_knots = self.report.peak_knots.max(c.report.knots);
+        // Joins before the commit are the last publication's, already counted.
         for (a, b) in self
             .report
             .maximum_join_errors
             .iter_mut()
-            .zip(c.join_errors())
+            .zip(c.join_errors_from(self.report.commit_start))
         {
             *a = a.max(b);
         }
@@ -551,8 +559,15 @@ impl DanceRuntime {
     /// Drawing only evaluates the prepared polynomial. Explicitly refuse an
     /// uncovered time; ContactCurve's endpoint clamp must not hide starvation.
     pub fn sample(&self, t: f64) -> Option<ContactCurveSample> {
+        self.covering(t).map(|c| c.sample(t))
+    }
+    /// [`Self::sample`]'s pose alone, without its derivatives.
+    pub fn pose(&self, t: f64) -> Option<Parameters> {
+        self.covering(t).map(|c| c.pose(t))
+    }
+    fn covering(&self, t: f64) -> Option<&ContactCurve> {
         let c = self.output.as_ref()?;
         let [a, b] = c.time_range();
-        (t.is_finite() && t >= a && t <= b).then(|| c.sample(t))
+        (t.is_finite() && t >= a && t <= b).then_some(c)
     }
 }

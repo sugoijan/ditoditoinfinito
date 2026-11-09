@@ -147,7 +147,7 @@ pub(super) fn draw(
     top: f32,
     compact: bool,
     cx: &mut crate::Cx,
-) -> (Vec<ddi_actor::Actor>, f32, [f32; 2]) {
+) -> (Vec<ddi_actor::Actor>, f32, [f32; 2], Vec<Option<Keycap>>) {
     use crate::look::{call, named};
     use ddi_actor::{Actor, Kind, Sprite, State};
     let caps = controls.caps(cx.hints());
@@ -232,6 +232,7 @@ pub(super) fn draw(
         actors,
         rows as f32 * (cell + extra),
         [cell * n as f32, cell],
+        caps,
     )
 }
 

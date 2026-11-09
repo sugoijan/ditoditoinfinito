@@ -48,6 +48,31 @@ impl Message {
         self.params.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 
+    /// Parameter `key`'s text, if it is text.
+    pub fn str(&self, key: &str) -> Option<&str> {
+        match self.get(key) {
+            Some(Param::Str(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Parameter `key`, if it is a whole number.
+    pub fn int(&self, key: &str) -> Option<i64> {
+        match self.get(key) {
+            Some(Param::Int(i)) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// Parameter `key`, if it is a number, whole or not.
+    pub fn num(&self, key: &str) -> Option<f64> {
+        match self.get(key) {
+            Some(Param::Num(n)) => Some(*n),
+            Some(Param::Int(i)) => Some(*i as f64),
+            _ => None,
+        }
+    }
+
     /// The command actors react with: `<Name>Message`.
     pub fn command(&self) -> String {
         format!("{}Message", self.name)

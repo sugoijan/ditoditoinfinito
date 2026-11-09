@@ -256,20 +256,7 @@ impl ZipReader {
         };
         let dir = read_range(&mut f, cd.offset, cd.size)?;
         let mut list = zip::parse_central_directory(&dir, &cd).map_err(|e| e.to_string())?;
-        // Legacy names decided for the whole archive.
-        let legacy: Vec<usize> = (0..list.len())
-            .filter(|&i| list[i].legacy_name.is_some())
-            .collect();
-        if !legacy.is_empty() {
-            let raws: Vec<&[u8]> = legacy
-                .iter()
-                .filter_map(|&i| list[i].legacy_name.as_deref())
-                .collect();
-            let names = pack::decode_legacy_names(&raws, legacy_text);
-            for (&i, name) in legacy.iter().zip(names) {
-                list[i].name = name;
-            }
-        }
+        pack::apply_legacy_names(&mut list, legacy_text);
         let mut entries = HashMap::new();
         let mut unread = Vec::new();
         for e in list {

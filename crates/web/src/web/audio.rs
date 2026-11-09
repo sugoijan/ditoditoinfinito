@@ -3,16 +3,18 @@
 //! `AudioContext.currentTime` is the master clock. `now()` pairs it with the
 //! host clock through `getOutputTimestamp()` (sanity-checked, since Safari has
 //! shipped a broken implementation) and reports `outputLatency` when the
-//! browser exposes it. Neither property has web-sys bindings, so both go
-//! through `js_sys::Reflect`.
+//! browser exposes it. Neither has web-sys bindings: a clock reading is
+//! one inline-JS call filling a `Float64Array`, as the pads' poll is, and
+//! the other reads of `outputLatency` go through `js_sys::Reflect`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use ddi_platform::{AudioBackend, ClockSample, HostTime, SoundId};
-use js_sys::{Function, Reflect};
+use js_sys::{Float64Array, Reflect};
 use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
@@ -30,6 +32,46 @@ const MAX_BAD_TIMESTAMPS: u32 = 5;
 
 /// Samples the output meter reads per frame.
 const ANALYSER_SIZE: usize = 2048;
+
+/// Floats [`read_audio_clock`] fills.
+const CLOCK_LEN: u32 = 6;
+
+#[wasm_bindgen(inline_js = r#"
+// Fills `out` with one reading of the clock, so a tick makes one call into
+// JS: [baseLatency, outputLatency, currentTime, performance.now(),
+// contextTime, performanceTime]. The latencies are NaN
+// where the browser has none; the last two where `stamped` is false, the
+// context is not running or the browser has no getOutputTimestamp.
+export function ddiReadAudioClock(ctx, out, stamped) {
+    out[0] = ctx.baseLatency;
+    out[1] = ctx.outputLatency;
+    out[2] = ctx.currentTime;
+    out[3] = performance.now();
+    out[4] = NaN;
+    out[5] = NaN;
+    if (stamped && ctx.state === "running" && ctx.getOutputTimestamp) {
+        try {
+            const t = ctx.getOutputTimestamp();
+            out[4] = t.contextTime;
+            out[5] = t.performanceTime;
+        } catch (e) {}
+    }
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = ddiReadAudioClock)]
+    fn read_audio_clock(ctx: &AudioContext, out: &Float64Array, stamped: bool);
+}
+
+/// A latency property's value in seconds, 0 when unsupported or
+/// implausible (anything ≥ 1 s is treated as garbage).
+fn plausible_latency(seconds: f64) -> f64 {
+    if seconds.is_finite() && (0.0..1.0).contains(&seconds) {
+        seconds
+    } else {
+        0.0
+    }
+}
 
 struct Voice {
     source: AudioBufferSourceNode,
@@ -61,6 +103,8 @@ pub(crate) struct WebAudio {
     /// Consecutive implausible `getOutputTimestamp` readings; `None` once
     /// the implementation has been given up on.
     bad_timestamps: Cell<Option<u32>>,
+    /// Where [`read_audio_clock`] leaves its reading.
+    clock: Float64Array,
 }
 
 /// Starts `ctx` resuming without waiting, its promise's rejection caught
@@ -113,6 +157,7 @@ impl WebAudio {
             voices: Rc::new(RefCell::new(Voices::default())),
             next_id: 1,
             bad_timestamps: Cell::new(Some(0)),
+            clock: Float64Array::new_with_length(CLOCK_LEN),
         })
     }
 
@@ -259,8 +304,7 @@ impl WebAudio {
         Reflect::get(&self.ctx, &JsValue::from_str(name))
             .ok()
             .and_then(|v| v.as_f64())
-            .filter(|v| v.is_finite() && *v >= 0.0 && *v < 1.0)
-            .unwrap_or(0.0)
+            .map_or(0.0, plausible_latency)
     }
 
     /// Hardware/OS delay after the audio leaves the graph.
@@ -307,27 +351,21 @@ impl WebAudio {
         )
     }
 
-    /// `(contextTime, performanceTime)` from `getOutputTimestamp()`, or `None`
-    /// if unsupported, implausible, or the context is not running (a
+    /// `(contextTime, performanceTime)` from `getOutputTimestamp()`, as
+    /// [`read_audio_clock`] left them with `now_ctx` and `now_perf`, or
+    /// `None` if unsupported, implausible, or the context is not running (a
     /// suspended context legitimately reports stale or zero values).
-    fn output_timestamp(&self) -> Option<(f64, f64)> {
+    fn output_timestamp(
+        &self,
+        context_time: f64,
+        performance_time: f64,
+        now_ctx: f64,
+        now_perf: f64,
+    ) -> Option<(f64, f64)> {
         let bad = self.bad_timestamps.get()?;
-        if !self.running() {
+        if context_time.is_nan() || performance_time.is_nan() {
             return None;
         }
-        let func = Reflect::get(&self.ctx, &JsValue::from_str("getOutputTimestamp"))
-            .ok()?
-            .dyn_into::<Function>()
-            .ok()?;
-        let ts = func.call0(&self.ctx).ok()?;
-        let context_time = Reflect::get(&ts, &JsValue::from_str("contextTime"))
-            .ok()?
-            .as_f64()?;
-        let performance_time = Reflect::get(&ts, &JsValue::from_str("performanceTime"))
-            .ok()?
-            .as_f64()?;
-        let now_ctx = self.ctx.current_time();
-        let now_perf = PerformanceClock::now_ms();
         // Safari 15.1 reported contextTime ~10,000× too small; also reject
         // pairs that disagree with a direct reading by more than half a second.
         let plausible = context_time.is_finite()
@@ -910,10 +948,13 @@ impl AudioBackend for WebAudio {
     }
 
     fn now(&self) -> ClockSample {
+        read_audio_clock(&self.ctx, &self.clock, self.bad_timestamps.get().is_some());
+        let at = |i| self.clock.get_index(i);
         // Everything between `currentTime` and the speaker: the graph's own
         // buffer (`baseLatency`) plus the hardware/OS path (`outputLatency`).
-        let output_latency = self.base_latency() + self.output_latency();
-        match self.output_timestamp() {
+        let output_latency = plausible_latency(at(0)) + plausible_latency(at(1));
+        let (current_time, now_ms) = (at(2), at(3));
+        match self.output_timestamp(at(4), at(5), current_time, now_ms) {
             Some((heard_context_time, performance_ms)) => ClockSample {
                 // `getOutputTimestamp().contextTime` is the sample frame
                 // leaving the device at `performanceTime`, i.e. it already
@@ -925,16 +966,12 @@ impl AudioBackend for WebAudio {
                 host_time: HostTime(performance_ms / 1000.0),
                 output_latency,
             },
-            None => {
-                // Back-to-back sampling: assume both reads are "now".
-                let host = PerformanceClock::now_ms();
-                let context_time = self.ctx.current_time();
-                ClockSample {
-                    context_time,
-                    host_time: HostTime(host / 1000.0),
-                    output_latency,
-                }
-            }
+            None => ClockSample {
+                // Read back to back: both are "now".
+                context_time: current_time,
+                host_time: HostTime(now_ms / 1000.0),
+                output_latency,
+            },
         }
     }
 

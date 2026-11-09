@@ -3,7 +3,7 @@
 //! through callbacks (`ddi_platform::history::Reply`).
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use ddi_chart::Song;
@@ -62,15 +62,7 @@ impl Plays {
         self.store.summaries(Box::new(move |r| match r {
             Ok(list) => {
                 me.loaded.set(true);
-                let loaded = History::from_summaries(list);
-                let mut h = me.history.borrow_mut();
-                for (id, s) in loaded.iter() {
-                    h.add(id.clone(), s.clone());
-                }
-                for id in loaded.unreadable() {
-                    h.mark_unreadable(id.clone());
-                }
-                drop(h);
+                me.history.borrow_mut().merge(History::from_summaries(list));
                 me.changed();
                 me.recover(done);
             }
@@ -240,14 +232,38 @@ impl Plays {
     /// elsewhere ([`rework_entries`] on a thread, then
     /// [`Plays::set_worked`]).
     pub fn stale_batch(&self, song_id: &str, max: usize) -> Vec<String> {
-        let unmatched = self.unmatched.borrow();
         self.history
             .borrow()
-            .stale_of(song_id)
-            .into_iter()
-            .filter(|id| !unmatched.contains(id))
+            .iter()
+            .filter(|(id, s)| s.chart.song == song_id && self.to_work_out(id, s))
             .take(max)
+            .map(|(id, _)| id.clone())
             .collect()
+    }
+
+    /// Whether a play is stale and has not been tried this session.
+    fn to_work_out(&self, id: &str, s: &PlaySummary) -> bool {
+        s.is_stale() && !self.unmatched.borrow().contains(id)
+    }
+
+    /// Whether `song_id` has a play still to work out this session.
+    pub fn has_stale_of(&self, song_id: &str) -> bool {
+        self.history
+            .borrow()
+            .iter()
+            .any(|(id, s)| s.chart.song == song_id && self.to_work_out(id, s))
+    }
+
+    /// The first song, by id, with a play still to work out this session,
+    /// the songs `skip` leaves out aside.
+    pub fn next_stale_song(&self, skip: impl Fn(&str) -> bool) -> Option<String> {
+        self.history
+            .borrow()
+            .iter()
+            .filter(|(id, s)| self.to_work_out(id, s) && !skip(&s.chart.song))
+            .map(|(_, s)| s.chart.song.as_str())
+            .min()
+            .map(str::to_owned)
     }
 
     /// Plays worked out again ([`rework_entries`]'s answer) into memory;
@@ -273,9 +289,10 @@ impl Plays {
     }
 
     /// The songs with stale plays still to work out this session.
+    #[cfg(test)]
     pub fn stale_songs(&self) -> Vec<String> {
         let unmatched = self.unmatched.borrow();
-        let songs: BTreeSet<String> = self
+        let songs: std::collections::BTreeSet<String> = self
             .history
             .borrow()
             .iter()

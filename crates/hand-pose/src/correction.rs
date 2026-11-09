@@ -1,5 +1,7 @@
 //! Opt-in study policy, shared by numerical regressions and private comparisons.
-use crate::{Goal, Model, Parameters, Targets, refine_contacts};
+use crate::kinematics::Kin;
+use crate::solve::max_tip_error;
+use crate::{Goal, Model, Parameters, Targets, curve::smoother, refine_contacts};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ContactCorrection {
@@ -20,7 +22,17 @@ pub fn correct_contact_pose(
     target: Targets,
     q: Parameters,
 ) -> (Parameters, ContactCorrection) {
-    let g = m.geometry(&q);
+    correct_contact_pose_with(m, target, q, &mut Kin::default())
+}
+
+/// [`correct_contact_pose`] on working storage kept by the caller.
+pub(crate) fn correct_contact_pose_with(
+    m: &Model,
+    target: Targets,
+    q: Parameters,
+    kin: &mut Kin,
+) -> (Parameters, ContactCorrection) {
+    let g = m.evaluate_into(&q, kin);
     let h = (0..2)
         .map(|d| (g.tips[d][2] - target.tips[d][2]).abs())
         .fold(0., f64::max);
@@ -43,15 +55,11 @@ pub fn correct_contact_pose(
         .min(0.5 / root.max(1e-12))
         .min(1. / angle.max(1e-12))
         .min(1.);
-    let blend = u * u * u * (10. + u * (-15. + 6. * u)) * scale;
+    let blend = smoother(u) * scale;
     let candidate = std::array::from_fn(|i| q[i] + blend * (candidate[i] - q[i]));
-    let before = (0..2)
-        .map(|d| norm((0..3).map(|i| g.tips[d][i] - target.tips[d][i])))
-        .fold(0., f64::max);
-    let cg = m.geometry(&candidate);
-    let after = (0..2)
-        .map(|d| norm((0..3).map(|i| cg.tips[d][i] - target.tips[d][i])))
-        .fold(0., f64::max);
+    let before = max_tip_error(&g.tips, &target.tips);
+    let cg = m.evaluate_into(&candidate, kin);
+    let after = max_tip_error(&cg.tips, &target.tips);
     let after_height = (0..2)
         .map(|d| (cg.tips[d][2] - target.tips[d][2]).abs())
         .fold(0., f64::max);

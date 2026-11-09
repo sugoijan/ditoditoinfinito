@@ -97,6 +97,13 @@ pub fn pack_key(pack: Option<&str>) -> String {
     }
 }
 
+/// Whether `a` and `b` name the same pack: equal ignoring case, as song
+/// select groups packs (`select_view::select_data`, by `str::to_lowercase`),
+/// so "Ünïcode" and "üNÏCODE" are one pack here too.
+pub fn same_pack(a: &str, b: &str) -> bool {
+    a == b || a.to_lowercase() == b.to_lowercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

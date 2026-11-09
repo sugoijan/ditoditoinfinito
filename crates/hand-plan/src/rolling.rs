@@ -32,6 +32,7 @@ pub struct ContactPublication {
 pub struct RollingPlanner {
     window: f64,
     input: Input,
+    lanes: ddi_chart::Layout,
     raw_holds: Vec<Note>,
     last_raw_tick: Option<i64>,
     last_raw_time: f64,
@@ -57,6 +58,8 @@ impl RollingPlanner {
         rules: Vec<(String, ddi_engine::rules::JudgeTable)>,
     ) -> Result<Self, String> {
         layout_lanes(layout)?;
+        let lanes =
+            ddi_chart::Layout::builtin(layout).ok_or("dancing hand layout is not built in")?;
         if rules.is_empty() {
             return Err("missing gameplay judge rules".into());
         }
@@ -66,6 +69,7 @@ impl RollingPlanner {
         let checkpoint = Checkpoint::configured(&timing, layout_lanes(layout)?, &rules);
         Ok(Self {
             window,
+            lanes,
             input: Input {
                 notes: Vec::new(),
                 effective_notes: Vec::new(),
@@ -139,12 +143,22 @@ impl RollingPlanner {
             self.publication = None;
             return Err(e.into());
         }
+        // A push without rows only moves the watermark: the holds kept are
+        // what the last push left, and cutting them again keeps them all.
+        if !raw.is_empty() {
+            self.receive(raw)?;
+        }
+        self.finished |= finished;
+        self.received = true;
+        self.now = now.max(0.);
+        self.report.known_until = known_until;
+        Ok(())
+    }
+    /// Cut the new rows as one with the holds still running over them.
+    fn receive(&mut self, raw: &[Note]) -> Result<(), String> {
         let mut source = self.raw_holds.clone();
         source.extend_from_slice(raw);
-        let effective = prepare_notes(
-            &source,
-            &ddi_chart::Layout::builtin(&self.input.layout).unwrap(),
-        );
+        let effective = prepare_notes(&source, &self.lanes);
         let new = effective
             .iter()
             .filter(|n| self.last_raw_tick.is_none_or(|t| n.tick.0 > t))
@@ -155,33 +169,11 @@ impl RollingPlanner {
         self.report.kept += new.len();
         self.report.removed += raw.len() - new.len();
         let panels = layout_panels(&self.input.layout)?;
-        self.input.notes.extend(new.iter().map(|n| {
-            InputNote {
-                tick: n.tick.0,
-                time: self.input.timing.seconds_at(n.tick),
-                lane: n.lane,
-                panel: panels[n.lane as usize],
-                judgeable: self.input.timing.judgeable(n.tick),
-                end: n
-                    .kind
-                    .hold_end()
-                    .map(|e| (e.0, self.input.timing.seconds_at(e))),
-                supported: matches!(
-                    n.kind,
-                    NoteKind::Tap
-                        | NoteKind::HoldHead { .. }
-                        | NoteKind::RollHead { .. }
-                        | NoteKind::Mine
-                        | NoteKind::Shock
-                        | NoteKind::Lift
-                ),
-                mine: matches!(n.kind, NoteKind::Mine | NoteKind::Shock),
-                shock: n.kind == NoteKind::Shock,
-                lift: n.kind == NoteKind::Lift,
-                roll: matches!(n.kind, NoteKind::RollHead { .. }),
-                roll_refresh: false,
-            }
-        }));
+        let timing = &self.input.timing;
+        self.input.notes.extend(
+            new.iter()
+                .map(|n| InputNote::new(n, panels[n.lane as usize], timing)),
+        );
         self.input.effective_notes.extend(new);
         self.last_raw_time = raw
             .last()
@@ -195,10 +187,6 @@ impl RollingPlanner {
                     .is_some_and(|e| self.last_raw_tick.is_none_or(|t| e.0 >= t))
             })
             .collect();
-        self.finished |= finished;
-        self.received = true;
-        self.now = now.max(0.);
-        self.report.known_until = known_until;
         Ok(())
     }
     pub fn request(&mut self, now: f64) {
@@ -223,19 +211,23 @@ impl RollingPlanner {
         }
         self.requested_until = known;
         self.requested_finished = self.finished && self.last_raw_time <= known;
-        let mut input = self.input.clone();
         let mut notes = Vec::new();
         let mut effective = Vec::new();
-        for (n, raw) in input.notes.iter().zip(&input.effective_notes) {
+        for (n, raw) in self.input.notes.iter().zip(&self.input.effective_notes) {
             if n.time <= known {
                 notes.push(*n);
                 effective.push(raw.clone());
             }
         }
-        input.notes = notes;
-        input.effective_notes = effective;
         self.job = Some(PlannerJob::rolling(
-            input,
+            Input {
+                notes,
+                effective_notes: effective,
+                original_notes: self.input.original_notes,
+                timing: self.input.timing.clone(),
+                layout: self.input.layout.clone(),
+                rules: self.input.rules.clone(),
+            },
             RollingContext {
                 seed: self.seed.clone(),
                 checkpoint: self.checkpoint.clone(),

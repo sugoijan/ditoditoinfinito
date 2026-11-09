@@ -35,6 +35,8 @@
 //! Sizes are virtual pixels; components are centred on their origin,
 //! except list rows and headers, whose origin is their top left.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ddi_actor::commands::{Arg, Call, parse};
@@ -177,6 +179,11 @@ pub trait Look {
     /// (the selected row is not on the line then) and opens it at rest.
     fn set_wheel_open(&self, _list: &str, _open: f32) {}
 
+    /// What [`Look::set_wheel_open`] last set.
+    fn wheel_open(&self, _list: &str) -> f32 {
+        1.0
+    }
+
     /// A named number: a region's place or size (`Select.Wheel.X`), a
     /// timing (`Motion.Select`), an amount (`Backdrop.Alpha`). Screens
     /// give their own default for what a look leaves out.
@@ -265,13 +272,15 @@ const MUTED: Rgba = [0.6, 0.62, 0.68, 1.0];
 /// fails).
 pub use ddi_actor::commands::run;
 
-/// One method call with numbers, no parsing (per frame).
+/// One method call with numbers, no parsing and nothing allocated (per
+/// frame). No method reads past its first few arguments.
 pub fn call(a: &mut Actor, method: &str, args: &[f32]) {
-    let c = Call {
-        method: method.into(),
-        args: args.iter().map(|&n| Arg::Num(n)).collect(),
-    };
-    let _ = a.call(&c, &mut Problems::default(), 0);
+    let mut buf = [const { Arg::Num(0.0) }; 8];
+    let n = args.len().min(buf.len());
+    for (slot, &v) in buf.iter_mut().zip(args) {
+        *slot = Arg::Num(v);
+    }
+    let _ = a.invoke(method, &buf[..n], &mut Problems::default(), 0);
 }
 
 pub fn named(kind: Kind, name: &str) -> Actor {
@@ -283,6 +292,27 @@ pub fn named(kind: Kind, name: &str) -> Actor {
 pub fn quad(name: &str, size: [f32; 2], color: Rgba) -> Actor {
     let mut a = named(Kind::Sprite(Sprite::quad(size)), name);
     call(&mut a, "diffuse", &color);
+    a
+}
+
+/// `a` (a run of text) no wider than `w`: squeezed a little, then cut
+/// with "…".
+pub fn ellipsized(a: &mut Actor, w: f32) {
+    if let Kind::Text(t) = &mut a.kind {
+        t.max_width = w;
+        t.ellipsis = true;
+    }
+}
+
+/// `c` at `a` of its opacity.
+pub fn with_alpha(c: Rgba, a: f32) -> Rgba {
+    [c[0], c[1], c[2], c[3] * a]
+}
+
+/// A quad centered on `at`.
+pub fn quad_at(name: &str, size: [f32; 2], color: Rgba, at: [f32; 2]) -> Actor {
+    let mut a = quad(name, size, color);
+    call(&mut a, "xy", &at);
     a
 }
 
@@ -342,10 +372,30 @@ pub fn countdown_button(mut button: Actor, size: [f32; 2], color: Rgba, radius: 
     button
 }
 
+/// Parsed command strings a thread has kept. The strings embed layout
+/// sizes, so a window dragged through many sizes makes new ones: past this
+/// many the memo starts over.
+const COMMANDS_KEPT: usize = 4096;
+
 /// Sets command `name` from a command string (what fails to parse is
-/// left out).
+/// left out). The look's components are built again and again from the
+/// same strings: each is parsed once.
 pub fn command_of(a: &mut Actor, name: &str, s: &str) {
-    a.set_command(name, parse(s).unwrap_or_default());
+    thread_local! {
+        static PARSED: RefCell<HashMap<String, Arc<[Call]>>> = RefCell::default();
+    }
+    let calls = PARSED.with_borrow_mut(|memo| {
+        if let Some(calls) = memo.get(s) {
+            return calls.clone();
+        }
+        if memo.len() >= COMMANDS_KEPT {
+            memo.clear();
+        }
+        let calls: Arc<[Call]> = parse(s).unwrap_or_default().into();
+        memo.insert(s.to_owned(), calls.clone());
+        calls
+    });
+    a.set_command_shared(name, calls);
 }
 
 fn frame(children: Vec<Actor>) -> Actor {
@@ -397,9 +447,7 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 // off), the mark inside it when on.
                 let (s, t) = (h * 0.55, 2.0);
                 let edge = |x: f32, y: f32, size: [f32; 2]| {
-                    let mut q = quad("", size, [0.45, 0.47, 0.53, 1.0]);
-                    call(&mut q, "xy", &[x, y]);
-                    q
+                    quad_at("", size, [0.45, 0.47, 0.53, 1.0], [x, y])
                 };
                 let mut bx = named(
                     Kind::Frame(vec![

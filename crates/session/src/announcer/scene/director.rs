@@ -19,9 +19,9 @@ use std::rc::Rc;
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
-use ddi_library::announcer::Line;
 use ddi_library::announcer::draft::{Draft, Take};
 use ddi_library::announcer::examples::Set;
+use ddi_library::announcer::{Bundled, Line};
 use ddi_platform::AudioBackend;
 use ddi_platform::storage;
 use ddi_ui::message::{Message, Param};
@@ -53,6 +53,41 @@ const ENTRANCE: f64 = 0.4;
 
 /// A voice, each line's length (seconds) and words (where known).
 pub type Voiced<S> = (Voice<S>, HashMap<Line, f64>, HashMap<Line, String>);
+
+/// A line as our pack says it in a scene.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Planned {
+    pub line: Line,
+    /// The sound that says it this time, by its path in the pack.
+    pub path: String,
+    /// What the sound is kept under, decoded.
+    pub key: String,
+    pub words: Option<String>,
+}
+
+/// The voice `plan` says, each sound as `sound` has it (one it has not
+/// is left out), each line's length by `duration`.
+pub fn voiced_from<S: Clone>(
+    plan: Vec<Planned>,
+    sound: impl Fn(&str) -> Option<S>,
+    duration: impl Fn(&S) -> f64,
+) -> Voiced<S> {
+    let mut voice = Voice::default();
+    let mut lengths = HashMap::new();
+    let mut words = HashMap::new();
+    for p in plan {
+        let Some(s) = sound(&p.key) else {
+            continue;
+        };
+        voice.expect([p.line]);
+        lengths.insert(p.line, duration(&s));
+        voice.add(p.line, s);
+        if let Some(w) = p.words {
+            words.insert(p.line, w);
+        }
+    }
+    (voice, lengths, words)
+}
 
 /// A timer of the shell's: dropped, it does not run.
 pub type Timer = Box<dyn Any>;
@@ -93,6 +128,16 @@ pub enum Said {
 }
 
 impl Said {
+    /// Who says `line` in its scene: the draft where it has something
+    /// to say for the line, else our pack of the examples chosen.
+    pub fn of(line: Line, draft: &Draft, examples: Set) -> Said {
+        if studio::recorded(line, draft) {
+            Said::Draft
+        } else {
+            Said::Example(examples)
+        }
+    }
+
     /// As the debug state says it: `draft`, `example:en`.
     pub fn key(self) -> String {
         match self {
@@ -526,6 +571,34 @@ impl<H: SceneHost> Director<H> {
             .unwrap_or(0)
     }
 
+    /// What `pack` (our pack of `set`) says for `lines`: one sound of
+    /// each (as the first of its chain the pack has, once), the line's
+    /// next each scene.
+    pub fn example_plan(&self, pack: &Bundled, set: Set, lines: &[Line]) -> Vec<Planned> {
+        let mut plan = Vec::new();
+        let mut seen = BTreeSet::new();
+        for &line in lines {
+            let Some((found, files)) = line.chain().into_iter().find_map(|l| {
+                let files = pack.kept.lines.get(&l.folder())?;
+                (!files.is_empty()).then_some((l, files))
+            }) else {
+                continue;
+            };
+            if !seen.insert(found) {
+                continue;
+            }
+            let turn = self.example_turn(set, found);
+            let path = files[turn % files.len()].to_string();
+            plan.push(Planned {
+                line: found,
+                key: format!("{}/{path}", pack.path),
+                words: pack.said.get(&path).cloned(),
+                path,
+            });
+        }
+        plan
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn begin(
         &self,
@@ -915,11 +988,11 @@ impl<H: SceneHost> Director<H> {
         &self,
         line: Line,
         said: Said,
-        recorded: &BTreeSet<Line>,
+        draft: &Draft,
     ) -> Option<(u64, ResultsScene)> {
         let settings = Settings::load();
         // Our packs say every line.
-        let has = |l: Line| said != Said::Draft || recorded.contains(&l);
+        let has = |l: Line| said != Said::Draft || draft.takes_of(l).next().is_some();
         let scene = super::results(line, &settings.ruleset, &has)?;
         self.host.env()?;
         if !self.host.open_results_sound(line) {

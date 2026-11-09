@@ -11,10 +11,8 @@ use ddi_chart::Song;
 use ddi_ui::screens::editor::EditorScreen;
 use ddi_ui::state::editor::Editor;
 
-use web_sys::HtmlElement;
-
-use crate::component::{Component, Context, NodeRef};
-use crate::components::ui_dev::{self, Host, Started};
+use crate::component::{Component, Context};
+use crate::components::ui_dev::{self, Host, UiPage};
 use crate::editor::WebEditorHost;
 
 #[derive(Clone, PartialEq)]
@@ -29,10 +27,8 @@ pub(crate) enum Msg {
 }
 
 pub(crate) struct EditPage {
-    root: NodeRef,
+    ui: UiPage,
     host: Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>>,
-    started: Option<Started>,
-    failure: Option<String>,
     /// The song came back from its autosave.
     recovered: bool,
 }
@@ -57,10 +53,8 @@ impl Component for EditPage {
             }
         }
         EditPage {
-            root: NodeRef::default(),
+            ui: UiPage::default(),
             host: Rc::new(RefCell::new(None)),
-            started: None,
-            failure: None,
             recovered,
         }
     }
@@ -82,7 +76,8 @@ impl Component for EditPage {
                             | ddi_chart::SourceFormat::Dwi
                     ) =>
                 {
-                    self.failure = Some("Only StepMania and DWI songs can be edited.".into());
+                    self.ui
+                        .fail("Only StepMania and DWI songs can be edited.".into());
                     true
                 }
                 Ok(song) => {
@@ -92,42 +87,29 @@ impl Component for EditPage {
                     false
                 }
                 Err(e) => {
-                    self.failure = Some(format!("The song could not be read for editing: {e}"));
+                    self.ui
+                        .fail(format!("The song could not be read for editing: {e}"));
                     true
                 }
             },
             Msg::Failed(e) => {
-                self.failure = Some(e);
-                if let Some((host, _, pads)) = &self.started {
-                    ui_dev::stop_ui(host, pads.as_ref());
-                }
+                self.ui.fail(e);
                 true
             }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) {
-        if let Some(e) = &self.failure {
-            crate::component::no_gpu(ctx.root(), e);
-            return;
-        }
-        ctx.root().set_class_name("select-page");
-        self.root.set(ctx.root());
+        self.ui.view(ctx, "select-page");
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
-        if let Some((host, _, pads)) = &self.started {
-            ui_dev::stop_ui(host, pads.as_ref());
-        }
-        crate::web::forget_debug(&["ui"]);
+        self.ui.destroy(&["ui"]);
     }
 }
 
 impl EditPage {
     fn start(&mut self, ctx: &Context<Self>, editor: Rc<RefCell<Editor>>) {
-        let Some(el) = self.root.cast::<HtmlElement>() else {
-            return;
-        };
         let id = ctx.props().song.clone();
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         // The music decoded now, for the first press to play it.
@@ -151,22 +133,18 @@ impl EditPage {
             .with_status(&status);
         let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(screen);
-        match ui_dev::start_ui(&el, ui, Some(theme), Some(debug)) {
-            Ok(started) => {
-                *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-                let link = ctx.link().clone();
-                ui_dev::attach_gfx(started.0.clone(), move |e| {
-                    link.send_message(Msg::Failed(e))
-                });
-                // The field in the player's skin and the audio view's
-                // picture, before the 2D pass.
-                ui_dev::set_frame_hook(
-                    &started.0,
-                    Some(crate::editor_audio::hook(crate::editor_field::hook())),
-                );
-                self.started = Some(started);
-            }
-            Err(e) => ctx.link().send_message(Msg::Failed(e)),
-        }
+        let Some(started) = self
+            .ui
+            .start(ctx, ui, Some(theme), Some(debug), Msg::Failed)
+        else {
+            return;
+        };
+        *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+        // The field in the player's skin and the audio view's picture,
+        // before the 2D pass.
+        ui_dev::set_frame_hook(
+            &started.0,
+            Some(crate::editor_audio::hook(crate::editor_field::hook())),
+        );
     }
 }

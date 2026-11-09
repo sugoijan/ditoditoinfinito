@@ -15,7 +15,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use super::tidy::Measure;
-use super::{CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE, Grade, Line, MAX_BYTES, MAX_FILES};
+use super::{
+    CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE, Grade, Kept, Line, MAX_BYTES, MAX_FILES,
+    find_announcers,
+};
+use crate::path::RelPath;
 
 /// Files a pick or drop takes as recordings by their extension, where
 /// their first bytes say nothing (M4A, AAC, AIFF, WebM…): a song's
@@ -26,22 +30,14 @@ pub const MORE_RECORDINGS: [&str; 11] = [
 
 /// Whether `path`'s extension is a recording's.
 pub fn is_recording(path: &str) -> bool {
-    crate::path::RelPath::new(path)
-        .extension()
-        .map(str::to_ascii_lowercase)
-        .is_some_and(|e| {
-            crate::pack::AUDIO_EXTENSIONS
-                .iter()
-                .chain(&MORE_RECORDINGS)
-                .any(|x| *x == e)
-        })
+    crate::pack::is_audio(path) || crate::pack::has_extension(path, &MORE_RECORDINGS)
 }
 
 /// Whether the file at `path`, starting with `head` (its first [`HEAD`]
 /// bytes), is taken as a recording: not a hidden file, and a format the
 /// game reads or a recording's extension.
 pub fn takes(path: &str, head: &[u8]) -> bool {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = RelPath::new(path).file_name();
     !name.starts_with('.') && (Format::sniff(head) != Format::Other || is_recording(path))
 }
 
@@ -51,11 +47,70 @@ pub fn readme_path<'a>(paths: impl IntoIterator<Item = &'a str>) -> Option<&'a s
     paths
         .into_iter()
         .filter(|p| {
-            p.rsplit('/')
-                .next()
-                .is_some_and(|n| n.eq_ignore_ascii_case("readme.txt"))
+            RelPath::new(p)
+                .file_name()
+                .eq_ignore_ascii_case("readme.txt")
         })
         .min_by_key(|p| p.matches('/').count())
+}
+
+/// A pack made before among `listed` (paths and sizes): the one
+/// announcer in them, and the path of the README that may say who made
+/// it. `None` for files that are not a single pack.
+pub fn made_before(listed: &[(String, u64)]) -> Option<(String, Option<String>)> {
+    let found = find_announcers(listed, "");
+    let [announcer] = found.announcers.as_slice() else {
+        return None;
+    };
+    let readme = readme_path(listed.iter().map(|(p, _)| p.as_str())).map(str::to_string);
+    Some((announcer.name.clone(), readme))
+}
+
+/// What a pack made before says of itself ([`Draft::adopt`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Adopted {
+    pub name: String,
+    pub by: Option<String>,
+    pub license: Option<String>,
+}
+
+impl Adopted {
+    /// The pack `name`, with what `readme`'s text credits.
+    pub fn new(name: String, readme: Option<&str>) -> Adopted {
+        let (by, license) = readme.map(readme_credits).unwrap_or_default();
+        Adopted { name, by, license }
+    }
+}
+
+/// A finished pack's files as an installed announcer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InstallPlan {
+    pub kept: Kept,
+    /// The announcer's folder's name among the files.
+    pub folder: String,
+    /// What each of its files' paths starts with.
+    prefix: String,
+}
+
+impl InstallPlan {
+    /// `path` in the announcer's own folder.
+    pub fn inside<'a>(&self, path: &'a str) -> &'a str {
+        path.strip_prefix(&self.prefix).unwrap_or(path)
+    }
+}
+
+/// How the files `listed` (paths and sizes) install as an announcer.
+pub fn install_plan(listed: &[(String, u64)]) -> Result<InstallPlan, &'static str> {
+    let announcer = find_announcers(listed, "root")
+        .announcers
+        .into_iter()
+        .next()
+        .ok_or("it has no lines yet")?;
+    Ok(InstallPlan {
+        kept: announcer.kept(),
+        folder: announcer.dir.file_name().to_string(),
+        prefix: format!("{}/", announcer.dir),
+    })
 }
 
 /// What a recording is, by its first bytes.
@@ -163,7 +218,7 @@ pub struct Take {
 impl Take {
     /// Its file's name, without the folders it came in.
     pub fn file_name(&self) -> &str {
-        self.source.rsplit('/').next().unwrap_or(&self.source)
+        RelPath::new(&self.source).file_name()
     }
 
     pub fn measure(&self) -> Option<&Measure> {
@@ -303,14 +358,6 @@ fn file_safe(name: &str) -> String {
         .to_string()
 }
 
-/// A file name's stem: without its last extension.
-fn stem(file: &str) -> &str {
-    match file.rsplit_once('.') {
-        Some((s, _)) if !s.is_empty() => s,
-        _ => file,
-    }
-}
-
 /// The line a file is, from its path: a line folder it is in (the
 /// innermost; a pack added whole), else its own name ([`by_name`]), else
 /// the name of the folder it is in. Recording apps' names (`New
@@ -321,7 +368,7 @@ pub fn match_line(path: &str) -> Option<Line> {
     dirs.iter()
         .rev()
         .find_map(|d| Line::parse(d))
-        .or_else(|| by_name(stem(file)))
+        .or_else(|| by_name(RelPath::new(file).file_stem()))
         .or_else(|| dirs.last().and_then(|d| by_name(d)))
 }
 
@@ -405,6 +452,21 @@ impl Draft {
     pub fn remove(&mut self, id: u64) -> Option<Take> {
         let i = self.takes.iter().position(|t| t.id == id)?;
         Some(self.takes.remove(i))
+    }
+
+    /// What a pack made before says of itself, where the draft says
+    /// nothing yet.
+    pub fn adopt(&mut self, pack: Adopted) {
+        let empty = |field: &str| field.trim().is_empty();
+        if empty(&self.name) {
+            self.name = pack.name;
+        }
+        if let Some(by) = pack.by.filter(|_| empty(&self.author)) {
+            self.author = by;
+        }
+        if let Some(license) = pack.license.filter(|_| empty(&self.license)) {
+            self.license = license;
+        }
     }
 
     /// The takes on `line`, in the order they came.
@@ -548,7 +610,7 @@ impl Draft {
                     Write::Opus { .. } => "opus",
                     Write::Wav { .. } => "wav",
                 };
-                let base = Some(file_safe(stem(t.file_name())))
+                let base = Some(file_safe(RelPath::new(t.file_name()).file_stem()))
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| "take".into());
                 let mut file = format!("{base}.{ext}");

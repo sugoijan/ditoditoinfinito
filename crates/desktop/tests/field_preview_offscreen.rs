@@ -394,7 +394,7 @@ fn receptor_diagrams_are_transparent_and_press_only_the_selected_lane() {
     let size = [448, 64]; // Seven 64px lanes, rows aligned for a GPU copy.
     let mut frame = |time, active| {
         preview.set_receptors(Some(ddi_render::field_preview::ReceptorPreview {
-            layout: layout.clone(),
+            layout: std::rc::Rc::new(layout.clone()),
             time,
             active,
         }));

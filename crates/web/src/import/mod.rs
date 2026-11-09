@@ -237,7 +237,7 @@ async fn run(
     // A single picked zip names the pack for songs at its root.
     let zips = files.iter().filter(|f| is_zip(&f.path)).count();
     let fallback = match (zips, files.as_slice()) {
-        (1, [only]) => stem(&only.path).to_string(),
+        (1, [only]) => RelPath::new(&only.path).file_stem().to_string(),
         _ => LOOSE_PACK.to_string(),
     };
     let mut sources: HashMap<String, Source> = HashMap::new();
@@ -291,8 +291,9 @@ async fn run(
     let in_song = |p: &str| song_dirs.iter().any(|d| p.starts_with(d.as_str()));
     let shared_files: Vec<(String, String)> = paths
         .iter()
-        .filter(|p| !in_song(p))
-        .filter_map(|p| Some((pack::shared_path(p)?.into_string(), p.clone())))
+        .filter_map(|p| Some((pack::shared_path(p)?.into_string(), p)))
+        .filter(|(_, p)| !in_song(p))
+        .map(|(shared, p)| (shared, p.clone()))
         .collect();
     let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
     let level_candidates = ddi_library::ffr::find_levels(&paths, &candidates, &fallback);
@@ -332,7 +333,10 @@ async fn run(
         store_announcers(&db, &announcers, &sources, &mut report, &progress).await;
     }
     let keep_videos = crate::settings::Settings::load().import_videos;
-    let images: Vec<&(String, String)> = shared_files.iter().filter(|(s, _)| is_image(s)).collect();
+    let images: Vec<&(String, String)> = shared_files
+        .iter()
+        .filter(|(s, _)| ddi_library::backgrounds::is_image(s))
+        .collect();
     let movies: Vec<&(String, String)> = shared_files
         .iter()
         .filter(|(s, _)| ddi_library::video::is_movie(s))
@@ -368,8 +372,8 @@ async fn run(
     // in the library.
     let mut shared: Vec<String> = shared_files.iter().map(|(s, _)| s.clone()).collect();
     shared.extend(crate::songs::shared_paths(&db).await.unwrap_or_default());
-    let scan_paths: Vec<RelPathBuf> = paths.iter().map(Into::into).collect();
-    let scan_shared: Vec<RelPathBuf> = shared.iter().map(Into::into).collect();
+    let scan_paths = pack::PathIndex::new(&paths);
+    let scan_shared = pack::PathIndex::new(&shared);
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
     let mut seen = scan::Duplicates::default();
@@ -801,7 +805,7 @@ fn report_music_without_simfile(
 ) {
     let used_dirs: HashSet<&str> = used
         .iter()
-        .map(|p| p.rsplit_once('/').map_or("", |(d, _)| d))
+        .map(|p| RelPath::new(p).parent().as_str())
         .collect();
     for (dir, music) in pack::folders_without_simfile(paths) {
         if used_dirs.contains(dir.as_str()) {
@@ -819,9 +823,9 @@ fn report_music_without_simfile(
 /// What an import reads songs from.
 struct Inputs<'a> {
     sources: &'a HashMap<String, Source>,
-    paths: &'a [RelPathBuf],
+    paths: &'a pack::PathIndex<'a>,
     /// Files in the library's shared background folders.
-    shared: &'a [RelPathBuf],
+    shared: &'a pack::PathIndex<'a>,
     /// The kept folder the files come from, recorded on each song (so it
     /// can be re-read).
     folder: Option<&'a str>,
@@ -893,7 +897,6 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     let built = reading.finish(paths, shared, movies, Naming::Stored)?;
     let scan::Built {
         scanned,
-        song,
         text,
         music,
         banner,
@@ -909,12 +912,9 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
         videos_playing,
         videos_left_out,
     } = built;
-    let mut entry = scanned.entry;
+    let entry = scanned.entry;
     let id = entry.id.clone();
     let title = entry.title.clone();
-    // The keys the song list finds its charts' bests by, and which
-    // charts are excessive.
-    ddi_library::works::fill_chart_keys(&mut entry, &song);
     // Charts are stored as decoded UTF-8 so loading never guesses again.
     let mut files: Vec<(String, Blob)> = vec![(
         entry.chart.to_string(),
@@ -1165,14 +1165,6 @@ async fn store_pack_art(
     }
 }
 
-fn is_image(path: &str) -> bool {
-    extension(path).is_some_and(|e| {
-        pack::IMAGE_EXTENSIONS
-            .iter()
-            .any(|x| e.eq_ignore_ascii_case(x))
-    })
-}
-
 fn source(sources: &HashMap<String, Source>, path: impl AsRef<str>) -> Result<&Source, Finding> {
     let path = path.as_ref();
     sources.get(path).ok_or_else(|| Finding::FileMissing {
@@ -1195,18 +1187,9 @@ fn is_zip(path: &str) -> bool {
     zip::archive_stem(path).is_some()
 }
 
-/// Lowercase extension of the last path component ([`RelPath::extension`]).
+/// Lowercase extension of the last path component.
 pub(crate) fn extension(path: &str) -> Option<String> {
-    RelPath::new(path)
-        .extension()
-        .filter(|e| !e.is_empty())
-        .map(str::to_ascii_lowercase)
-}
-
-/// File name without directories or extension.
-fn stem(path: &str) -> &str {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    name.rsplit_once('.').map_or(name, |(s, _)| s)
+    RelPath::new(path).lower_extension()
 }
 
 async fn read_range(blob: &Blob, start: u64, end: u64) -> Result<Vec<u8>, String> {
@@ -1236,20 +1219,7 @@ async fn zip_directory(file: &File) -> Result<Vec<ZipEntry>, Finding> {
     };
     let bytes = read_range(file, cd.offset, cd.offset + cd.size).await?;
     let mut entries = zip::parse_central_directory(&bytes, &cd)?;
-    // Legacy names may be UTF-8 or Shift-JIS rather than CP437, decided
-    // for the whole archive.
-    let legacy: Vec<(usize, Vec<u8>)> = entries
-        .iter_mut()
-        .enumerate()
-        .filter_map(|(i, e)| Some((i, e.legacy_name.take()?)))
-        .collect();
-    let raws: Vec<&[u8]> = legacy.iter().map(|(_, r)| r.as_slice()).collect();
-    for ((i, _), name) in legacy
-        .iter()
-        .zip(pack::decode_legacy_names(&raws, legacy_text))
-    {
-        entries[*i].name = name;
-    }
+    pack::apply_legacy_names(&mut entries, legacy_text);
     Ok(entries)
 }
 

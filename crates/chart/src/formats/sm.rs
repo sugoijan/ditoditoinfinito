@@ -14,8 +14,6 @@
 //!   per column, `[n]` keysound and `{...}` attack suffixes, `&` routine
 //!   separator (only the first player is kept for now).
 
-use std::collections::HashMap;
-
 use crate::formats::ParseError;
 use crate::formats::msd::{MsdTag, parse_msd};
 use crate::layout::Layout;
@@ -696,8 +694,9 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
     let mut notes: Vec<Note> = Vec::new();
     // Per lane: index of the last note placed (for same-row replacement)
     // and indices of hold/roll heads (for `3` matching).
-    let mut last_in_lane: HashMap<u8, usize> = HashMap::new();
-    let mut heads_in_lane: HashMap<u8, Vec<usize>> = HashMap::new();
+    let mut last_in_lane: [Option<usize>; 256] = [None; 256];
+    let mut heads_in_lane: Vec<Vec<usize>> = vec![Vec::new(); 256];
+    let mut chars: Vec<char> = Vec::new();
     let open_end = Tick(i64::MAX);
 
     let mut measure: i64 = 0;
@@ -715,7 +714,8 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
         let row_count = rows.len() as i64;
         for (index, row) in rows.iter().enumerate() {
             let tick = Tick::from_measure_row(measure, index as i64, row_count);
-            let chars: Vec<char> = row.chars().collect();
+            chars.clear();
+            chars.extend(row.chars());
             let mut p = 0;
             let mut lane: usize = 0;
             while p < chars.len() && lanes.is_none_or(|n| lane < n) {
@@ -771,21 +771,19 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
                 if ch == '3' {
                     // Tail: close the most recent head in this lane whose
                     // span covers this row.
-                    if let Some(heads) = heads_in_lane.get(&lane_u8) {
-                        for &hi in heads.iter().rev() {
-                            let covers = notes[hi]
-                                .kind
-                                .hold_end()
-                                .is_some_and(|end| notes[hi].tick <= tick && end >= tick);
-                            if covers {
-                                match &mut notes[hi].kind {
-                                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                                        *end = tick;
-                                    }
-                                    _ => {}
+                    for &hi in heads_in_lane[lane_u8 as usize].iter().rev() {
+                        let covers = notes[hi]
+                            .kind
+                            .hold_end()
+                            .is_some_and(|end| notes[hi].tick <= tick && end >= tick);
+                        if covers {
+                            match &mut notes[hi].kind {
+                                NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
+                                    *end = tick;
                                 }
-                                break;
+                                _ => {}
                             }
+                            break;
                         }
                     }
                 } else if let Some(kind) = kind {
@@ -794,10 +792,8 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
                     let is_head = kind.is_long();
                     // Same (tick, lane) twice (odd row counts rounding onto
                     // one tick): the later note replaces the earlier one.
-                    let replaced = last_in_lane
-                        .get(&lane_u8)
-                        .copied()
-                        .filter(|&li| notes[li].tick == tick);
+                    let replaced =
+                        last_in_lane[lane_u8 as usize].filter(|&li| notes[li].tick == tick);
                     let idx = if let Some(li) = replaced {
                         notes[li] = note;
                         li
@@ -805,9 +801,9 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
                         notes.push(note);
                         notes.len() - 1
                     };
-                    last_in_lane.insert(lane_u8, idx);
+                    last_in_lane[lane_u8 as usize] = Some(idx);
                     if is_head {
-                        heads_in_lane.entry(lane_u8).or_default().push(idx);
+                        heads_in_lane[lane_u8 as usize].push(idx);
                     }
                 }
                 lane += 1;
@@ -1169,36 +1165,6 @@ struct ChartAcc {
     unknown: Vec<(String, String)>,
 }
 
-pub(crate) fn empty_song(format: SourceFormat) -> Song {
-    Song {
-        title: String::new(),
-        subtitle: String::new(),
-        artist: String::new(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(60.0, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: Vec::new(),
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format,
-            unknown_tags: Vec::new(),
-        },
-    }
-}
-
 fn build_chart(
     flavor: Flavor,
     steps_type: &str,
@@ -1238,7 +1204,7 @@ fn build_chart(
 
 fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
     let tags = parse_msd(text);
-    let mut song = empty_song(match flavor {
+    let mut song = Song::empty(match flavor {
         Flavor::Sm => SourceFormat::Sm,
         Flavor::Ssc => SourceFormat::Ssc {
             version: CURRENT_SSC_VERSION,

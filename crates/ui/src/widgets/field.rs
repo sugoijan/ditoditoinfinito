@@ -219,13 +219,10 @@ impl SearchField {
 
     /// A message for the screen: a tap on the popup.
     pub fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) -> Option<FieldEvent> {
-        if m.name != PICK_MESSAGE || m.get("Field") != Some(&Param::Str(self.name.clone())) {
+        if m.name != PICK_MESSAGE || m.str("Field") != Some(self.name.as_str()) {
             return None;
         }
-        let Some(Param::Int(i)) = m.get("Item") else {
-            return None;
-        };
-        self.take(*i as usize, root, cx)
+        self.take(m.int("Item")? as usize, root, cx)
     }
 
     /// An input. `suggest` gives the suggestions (text, a note such as

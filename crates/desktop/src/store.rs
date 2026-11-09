@@ -2,13 +2,17 @@
 //! values (the same keys and JSON the web keeps in `localStorage`) in the
 //! user's configuration folder; the session's in memory.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use ddi_platform::storage::{self, Area, MemoryStore, Store};
-use ddi_ui::state::settings::{self, Settings};
 
 /// `storage.json` in the configuration folder ([`crate::paths`]:
 /// `$DDI_HOME/config` for a run that is not the player's).
@@ -16,12 +20,25 @@ pub fn default_path() -> Option<PathBuf> {
     Some(crate::paths::config_dir()?.join("storage.json"))
 }
 
-/// Local values in a file, written whole on every change.
+/// What the writing thread is given.
+enum Job {
+    /// The file's new contents.
+    Write(String),
+    /// Answered, once what came before is written, with how that went.
+    Flush(Sender<Result<(), String>>),
+}
+
+/// Local values in a file, written whole after every change on a thread
+/// of its own, which only ever writes the newest: reads see the newest
+/// value from memory, and a change never waits for the disk. What is
+/// still to be written is written before the store goes ([`Drop`]) and
+/// on [`Store::flush`], which the shell calls as it quits.
 pub struct FileStore {
-    path: PathBuf,
     values: RefCell<BTreeMap<String, String>>,
+    jobs: Option<Sender<Job>>,
+    thread: Option<JoinHandle<()>>,
     /// The last write failed: the file may not have `values`.
-    unsaved: Cell<bool>,
+    unsaved: Arc<AtomicBool>,
     session: MemoryStore,
 }
 
@@ -45,24 +62,66 @@ impl FileStore {
             },
             Err(_) => BTreeMap::new(),
         };
+        let (jobs, received) = mpsc::channel();
+        let unsaved = Arc::new(AtomicBool::new(false));
+        let flag = unsaved.clone();
+        let thread = std::thread::Builder::new()
+            .name("ddi-store".into())
+            .spawn(move || write_jobs(&path, &received, &flag))
+            .ok();
         FileStore {
-            path,
             values: RefCell::new(values),
-            unsaved: Cell::new(false),
+            jobs: Some(jobs),
+            thread,
+            unsaved,
             session: MemoryStore::default(),
         }
     }
 
+    /// The values to the writing thread.
     fn write(&self) -> Result<(), String> {
-        let written = self.write_file();
-        self.unsaved.set(written.is_err());
-        written
-    }
-
-    fn write_file(&self) -> Result<(), String> {
         let json =
             serde_json::to_string_pretty(&*self.values.borrow()).map_err(|e| e.to_string())?;
-        crate::paths::write_whole(&self.path, json.as_bytes()).map_err(|e| e.to_string())
+        self.send(Job::Write(json))
+    }
+
+    fn send(&self, job: Job) -> Result<(), String> {
+        self.jobs
+            .as_ref()
+            .and_then(|jobs| jobs.send(job).ok())
+            .ok_or_else(|| "the store's thread is gone".to_string())
+    }
+}
+
+impl Drop for FileStore {
+    fn drop(&mut self) {
+        self.jobs = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The writing thread: each turn takes all that is waiting and writes
+/// the newest of it alone.
+fn write_jobs(path: &std::path::Path, jobs: &Receiver<Job>, unsaved: &AtomicBool) {
+    let mut last = Ok(());
+    while let Ok(job) = jobs.recv() {
+        let mut newest = None;
+        let mut waiting = Vec::new();
+        for job in std::iter::once(job).chain(jobs.try_iter()) {
+            match job {
+                Job::Write(json) => newest = Some(json),
+                Job::Flush(answer) => waiting.push(answer),
+            }
+        }
+        if let Some(json) = newest {
+            last = crate::paths::write_whole(path, json.as_bytes()).map_err(|e| e.to_string());
+            unsaved.store(last.is_err(), Ordering::Relaxed);
+        }
+        for answer in waiting {
+            let _ = answer.send(last.clone());
+        }
     }
 }
 
@@ -90,7 +149,7 @@ impl Store for FileStore {
             Area::Local => {
                 let old = self.values.borrow_mut().insert(key.into(), value.into());
                 // The file has it already.
-                if old.as_deref() == Some(value) && !self.unsaved.get() {
+                if old.as_deref() == Some(value) && !self.unsaved.load(Ordering::Relaxed) {
                     return Ok(());
                 }
                 self.write()
@@ -109,29 +168,14 @@ impl Store for FileStore {
             Area::Session => self.session.remove(area, key),
         }
     }
-}
 
-thread_local! {
-    /// The settings last loaded and the stored text they came from.
-    static SETTINGS: RefCell<Option<(Option<String>, Settings)>> = const { RefCell::new(None) };
-}
-
-/// [`Settings::load`], read again only when the stored text changed
-/// (for callers on every turn of the event loop).
-pub fn settings_cached() -> Settings {
-    let raw = storage::get(Area::Local, settings::KEY);
-    let hit = SETTINGS.with_borrow(|c| match c {
-        Some((text, s)) if *text == raw => Some(s.clone()),
-        _ => None,
-    });
-    if let Some(s) = hit {
-        return s;
+    fn flush(&self) -> Result<(), String> {
+        let (answer, answered) = mpsc::channel();
+        self.send(Job::Flush(answer))?;
+        answered
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|e| e.to_string())?
     }
-    let s = Settings::load();
-    // Loading may have stored a sanitized copy.
-    let raw = storage::get(Area::Local, settings::KEY);
-    SETTINGS.set(Some((raw, s.clone())));
-    s
 }
 
 /// Installs the file store (or memory, with no configuration folder) and
@@ -141,7 +185,7 @@ pub fn install() {
         Some(path) => storage::install(Rc::new(FileStore::open(path))),
         None => storage::install(Rc::new(MemoryStore::default())),
     }
-    storage::install_clock(crate::play::epoch_ms);
+    storage::install_clock(crate::clock::epoch_ms);
 }
 
 #[cfg(test)]
@@ -156,6 +200,7 @@ mod tests {
         s.set(Area::Local, "ddi.settings.v1", r#"{"speed":3}"#)
             .unwrap();
         s.set(Area::Session, "ddi.menu.v1", "{}").unwrap();
+        s.flush().unwrap();
         let again = FileStore::open(path);
         assert_eq!(
             again.get(Area::Local, "ddi.settings.v1").as_deref(),
@@ -177,9 +222,53 @@ mod tests {
             ..Default::default()
         };
         place.save();
+        storage::flush().unwrap();
         storage::install(Rc::new(FileStore::open(path.clone())));
         assert_eq!(MenuPlace::load(), place);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn the_newest_value_is_read_at_once_and_written_by_the_flush_or_the_drop() {
+        let dir = std::env::temp_dir().join(format!("ddi-store-late-{}", std::process::id()));
+        let path = dir.join("storage.json");
+        let s = FileStore::open(path.clone());
+        for n in 0..200 {
+            s.set(Area::Local, "k", &n.to_string()).unwrap();
+            assert_eq!(s.get(Area::Local, "k"), Some(n.to_string()));
+        }
+        s.flush().unwrap();
+        assert_eq!(
+            FileStore::open(path.clone()).get(Area::Local, "k").as_deref(),
+            Some("199")
+        );
+        s.set(Area::Local, "k", "last").unwrap();
+        s.remove(Area::Local, "gone");
+        drop(s);
+        assert_eq!(
+            FileStore::open(path).get(Area::Local, "k").as_deref(),
+            Some("last")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_failed_write_is_told_by_the_flush_and_tried_again() {
+        let dir = std::env::temp_dir().join(format!("ddi-store-fail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file where the store's folder should be.
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, "x").unwrap();
+        let path = blocker.join("storage.json");
+        let s = FileStore::open(path.clone());
+        s.set(Area::Local, "k", "v").unwrap();
+        assert!(s.flush().is_err());
+        // The same value again goes to the file, the last write having failed.
+        std::fs::remove_file(&blocker).unwrap();
+        s.set(Area::Local, "k", "v").unwrap();
+        s.flush().unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().contains("\"k\""));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

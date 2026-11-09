@@ -431,7 +431,6 @@ pub(crate) fn export(done: impl FnOnce(Result<usize, String>) + 'static) {
                 options.set_type("application/x-ndjson");
                 let blob = web_sys::Blob::new_with_blob_sequence_and_options(&parts, &options)
                     .map_err(|_| "no file")?;
-                let url = crate::web::files::object_url(&blob).ok_or("no object URL")?;
                 let date = js_sys::Date::new_0();
                 let name = format!(
                     "ditoditoinfinito-plays-{:04}-{:02}-{:02}.jsonl",
@@ -439,21 +438,7 @@ pub(crate) fn export(done: impl FnOnce(Result<usize, String>) + 'static) {
                     date.get_month() + 1,
                     date.get_date()
                 );
-                let document = web_sys::window()
-                    .and_then(|w| w.document())
-                    .ok_or("no document")?;
-                let a: web_sys::HtmlElement = document
-                    .create_element("a")
-                    .map_err(|_| "no link")?
-                    .unchecked_into();
-                let _ = a.set_attribute("href", &url);
-                let _ = a.set_attribute("download", &name);
-                a.click();
-                // After the download has started.
-                gloo::timers::callback::Timeout::new(10_000, move || {
-                    crate::web::files::revoke_object_url(&url)
-                })
-                .forget();
+                crate::web::files::save_blob(&blob, &name)?;
                 Ok(count)
             });
             done(r)

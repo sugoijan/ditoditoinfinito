@@ -249,13 +249,14 @@ fn a_new_song_made_charted_played_saved_and_opened_again() {
     assert!(!song_dir.join("Test Tone.ssc.old").exists());
     wait(&songs);
     songs.poll(&mut h.ui);
-    let listed = songs.listed();
-    let entry = listed
-        .iter()
-        .find(|l| l.entry.id == id)
-        .expect("in song select");
-    assert_eq!(entry.pack.as_deref(), Some("Dito Edits"));
-    assert_eq!(entry.entry.charts[0].notes, 8);
+    songs.listed(|listed| {
+        let entry = listed
+            .iter()
+            .find(|l| l.entry.id == id)
+            .expect("in song select");
+        assert_eq!(entry.pack.as_deref(), Some("Dito Edits"));
+        assert_eq!(entry.entry.charts[0].notes, 8);
+    });
 
     // Left (nothing unsaved: no question), opened again equal.
     key(&mut h, "Escape", "Escape");
@@ -299,8 +300,8 @@ fn a_new_song_made_charted_played_saved_and_opened_again() {
     assert!(ddi_desktop::library::song(&id2).is_none());
     wait(&songs);
     songs.poll(&mut h.ui);
-    assert!(!songs.listed().iter().any(|l| l.entry.id == id2));
-    assert!(songs.listed().iter().any(|l| l.entry.id == id));
+    assert!(!songs.listed(|l| l.iter().any(|l| l.entry.id == id2)));
+    assert!(songs.listed(|l| l.iter().any(|l| l.entry.id == id)));
 
     // `--edit SONG`: once the library has the song (or has read every
     // folder without it, for the editor to say why).

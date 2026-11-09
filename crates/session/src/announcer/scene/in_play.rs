@@ -12,11 +12,12 @@
 
 use std::collections::HashMap;
 
-use ddi_chart::{Difficulty, NoteKind, Song};
+use ddi_chart::{Difficulty, Song};
 use ddi_engine::autoplay;
 use ddi_engine::player::{PlayOptions, Player};
 use ddi_engine::rules::{FailType, Judgement, LifeType, Ruleset, presets};
 use ddi_library::announcer::Line;
+use ddi_library::manifest::ManifestEntry;
 use ddi_ui::Mark;
 use ddi_ui::screens::stage::Caption;
 use ddi_ui::state::settings::Settings;
@@ -82,6 +83,15 @@ impl Pick {
 /// The style the scenes are played in.
 pub const STYLE: &str = "dance-single";
 
+/// The index of `pick`'s chart among `songs`, where it is there.
+pub fn chart_index(pick: &Pick, songs: &[ManifestEntry]) -> Option<usize> {
+    let song = songs.iter().find(|e| e.id == pick.song)?;
+    song.charts
+        .iter()
+        .find(|c| c.layout == STYLE && c.difficulty == pick.difficulty.name())
+        .map(|c| c.index)
+}
+
 /// Each scene's song: Beatucada's Medium, 217 steps from 7.9 s.
 const SONG: (&str, Difficulty) = ("beatucada", Difficulty::Medium);
 
@@ -139,16 +149,7 @@ impl Steps {
             .judge()
             .notes()
             .iter()
-            .filter(|n| {
-                n.judgeable
-                    && matches!(
-                        n.note.kind,
-                        NoteKind::Tap
-                            | NoteKind::HoldHead { .. }
-                            | NoteKind::RollHead { .. }
-                            | NoteKind::Lift
-                    )
-            })
+            .filter(|n| n.judgeable && n.note.kind.is_tap_like())
             .map(|n| n.seconds)
             .collect();
         at.sort_by(f64::total_cmp);

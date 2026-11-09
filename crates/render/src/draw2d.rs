@@ -320,12 +320,7 @@ pub struct ClipStack {
 impl ClipStack {
     pub fn push(&mut self, rect: Rect) {
         let r = match self.stack.last() {
-            Some(o) => [
-                rect[0].max(o[0]),
-                rect[1].max(o[1]),
-                rect[2].min(o[2]),
-                rect[3].min(o[3]),
-            ],
+            Some(&o) => ddi_actor::rect::intersect(rect, o),
             None => rect,
         };
         self.stack.push(r);

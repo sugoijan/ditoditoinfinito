@@ -153,8 +153,8 @@ multiplayer, mobile.
   decoded off the draw path (`images.rs`, PNG and JPEG), settings in
   `storage.json` (`store.rs`), the play history's file store
   (`plays.rs`, nothing records yet). The screens run on sample data
-  (`ddi_ui::screens::sample`). `UiRequest::StartAudio`, `PlayPreview`,
-  `StopPreview`, `Navigate` and `FieldPreview` are ignored.
+  (`ddi_ui::screens::sample`). `UiRequest::StartAudio`, `Navigate` and
+  `FieldPreview` are ignored.
 - **`platform/`:** `ClockSample`, `HostTime`, `RawInput`, `DeviceId`,
   `AudioBackend` (implemented only by `crates/web/src/web/audio.rs`),
   `InputSource`, `HostClock`, `DeviceFingerprint`/`DeviceProfile`,
@@ -1489,8 +1489,8 @@ Built: `crates/desktop/src/audio/` (`mod.rs` the backend and the cpal stream,
 (the process's epoch), `crates/desktop/src/preview.rs` (song select's
 previews, the developer screen's tone), `decode-all` in `platform`
 (`crates/platform/src/decode_all.rs`), `[profile.desktop]` in the workspace's
-`Cargo.toml`, and the shell's wiring (`StartAudio`, `PlayPreview`,
-`StopPreview`, song select's `Selected`, the pulse's `BeatFn`).
+`Cargo.toml`, and the shell's wiring (`StartAudio`, song select's
+`Selected`, the pulse's `BeatFn`).
 
 - **The clock as built.** On CoreAudio a frame is heard at cpal's
   `callback` (`mHostTime`) plus the device's and its output stream's
@@ -2100,8 +2100,8 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   simfiles' (`scan.rs`): a page's dos (`read_page`, then
   `Page::finish` with the external dos), a dump's (`dump_work`), the
   songs, their ids, music, layer images and the report's lines
-  (`plan`), a song's entry with its charts' keys (`entry`,
-  `fill_chart_keys`). The web's import (`crates/web/src/import/danoni.rs`)
+  (`plan`), a song's entry with its charts' keys (`entry`). The web's
+  import (`crates/web/src/import/danoni.rs`)
   reads the files and stores what it found, as before.
 - **The library on disk** (`crates/desktop/src/library/`): each root's works
   scanned after its simfiles (read every scan: a few files each; a

@@ -110,15 +110,7 @@ impl WindowReplay {
             .filter(|n| {
                 checkpoint.known_tick.is_none_or(|t| n.tick.0 > t)
                     && input.timing.judgeable(n.tick)
-                    && matches!(
-                        n.kind,
-                        NoteKind::Tap
-                            | NoteKind::HoldHead { .. }
-                            | NoteKind::RollHead { .. }
-                            | NoteKind::Mine
-                            | NoteKind::Shock
-                            | NoteKind::Lift
-                    )
+                    && n.kind.hand_supported()
             })
             .cloned()
             .collect::<Vec<_>>();

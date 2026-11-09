@@ -61,8 +61,6 @@ impl ScoreRules for FfrRaw {
         }
     }
 
-    fn finish(&mut self) {}
-
     fn fresh(&self) -> Box<dyn ScoreRules> {
         Box::new(FfrRaw::new())
     }
@@ -235,21 +233,7 @@ impl FfrResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ddi_chart::Tick;
-
-    fn ev(kind: JudgeEventKind) -> JudgeEvent {
-        JudgeEvent {
-            note_index: None,
-            lane: 0,
-            tick: Tick::ZERO,
-            kind,
-            song_time: 0.0,
-        }
-    }
-
-    fn tap(j: Judgement) -> JudgeEvent {
-        ev(JudgeEventKind::Tap(j, 0.0))
-    }
+    use crate::judge::test_events::{ev, tap};
 
     fn tally(perfect: u32, good: u32, average: u32, miss: u32, boo: u32) -> Tally {
         let mut t = Tally::default();

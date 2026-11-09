@@ -21,9 +21,8 @@ impl EditorHost for Host {
     fn call(&self, call: EditorCall, _editor: &Editor, cx: &mut Cx) {
         if let EditorCall::Save { revision } = &call {
             let m = match self.fail.borrow().clone() {
-                Some(e) => Message::new(SAVED).with("Error", Param::Str(e)),
-                None => Message::new(SAVED)
-                    .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64))),
+                Some(e) => save_failed(e),
+                None => saved(*revision),
             };
             cx.broadcast(m);
         }
@@ -50,12 +49,8 @@ fn env() -> Env {
 
 fn place() -> EditorPlace {
     EditorPlace {
-        platform: Platform::Web,
         save: Some("Songs/Pack/Song/song.ssc".into()),
         confirm: Some("Songs/Pack/Song/song.ssc".into()),
-        export: true,
-        listen: true,
-        playtest: true,
         new_song: false,
     }
 }
@@ -715,6 +710,33 @@ fn add_songs_offers_a_new_song_where_editing_is() {
             assert_eq!(calls.borrow().len(), 2, "{size:?}");
         }
     }
+}
+
+/// A step of the cursor leaves the footer and the strip; another chart's
+/// lanes change the footer.
+#[test]
+fn the_footer_is_drawn_for_what_it_shows() {
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    let says = |s: &Setup, keys: &str| {
+        s.env
+            .state
+            .borrow()
+            .hints
+            .iter()
+            .any(|t| t.starts_with(keys))
+    };
+    assert!(says(&s, "1–4"));
+    s.env.state.borrow_mut().hints.clear();
+    s.h.key("ArrowDown", "ArrowDown");
+    s.h.run(0.2);
+    assert!(view(&s).cursor > 0);
+    assert!(s.env.state.borrow().hints.is_empty(), "drawn again");
+    s.editor
+        .borrow_mut()
+        .add_chart("dance-double", ddi_chart::Difficulty::Edit);
+    s.h.ui.broadcast(Message::new(CHANGED));
+    s.h.run(0.2);
+    assert!(says(&s, "1–8"), "{:?}", s.env.state.borrow().hints);
 }
 
 /// A new song left before its first save: the question says the song

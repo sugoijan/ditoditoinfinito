@@ -66,16 +66,29 @@ impl HandPreview {
                 self.reference
                     .get_or_insert_with(|| {
                         let model = super::dance_runtime::bundled_model();
-                        let mut plan = if mat.pads()==1 {
+                        let mut plan = if mat.pads() == 1 {
                             ddi_hand_pose::Plan::empty(3.)
                         } else {
-                            ddi_hand_pose::Plan::load(&serde_json::to_vec(&serde_json::json!({
-                                "version":2,"layout":"dance-double","mat":mat,"duration":3.,
-                                "initial":{"L":6,"R":13},"tracks":{"L":[],"R":[]},"events":[],
-                                "placement":{"tile_pitch_mm":24.,"panel_anchor_mm":15.,"center_offset_mm":9.,"other_offset_mm":5.5}
-                            })).unwrap()).expect("double standing reference")
+                            ddi_hand_pose::Plan::new(ddi_hand_pose::PlanParts {
+                                version: 2,
+                                mat: Some(mat),
+                                layout: "dance-double".into(),
+                                duration: 3.,
+                                initial: ddi_hand_pose::Initial { left: 6, right: 13 },
+                                tracks: ddi_hand_pose::Tracks {
+                                    left: Vec::new(),
+                                    right: Vec::new(),
+                                },
+                                placement: Default::default(),
+                                events: Vec::new(),
+                                mines: Vec::new(),
+                                roll_pulses: Vec::new(),
+                            })
+                            .expect("double standing reference")
                         };
-                        if mat.pads()==2 {plan.center_contacts(None);}
+                        if mat.pads() == 2 {
+                            plan.center_contacts(None);
+                        }
                         let q = plan.seed(&model, 0., None);
                         Rc::new(RefCell::new(ProceduralPose {
                             worlds: model.joint_worlds(&q),

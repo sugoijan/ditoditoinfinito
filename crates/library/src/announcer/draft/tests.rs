@@ -389,3 +389,62 @@ fn the_size_counts_what_is_written_anew_by_its_length() {
     assert_eq!(d.size(), (1, 1000));
     assert!(!d.too_big());
 }
+
+/// The files of a pack `Name` in a folder of its own.
+fn pack_files(folder: &str) -> Vec<(String, u64)> {
+    let mut files: Vec<(String, u64)> = ["gameplay ready", "evaluation aaa", "evaluation cheer"]
+        .iter()
+        .map(|line| (format!("{folder}{line}/a.ogg"), 1))
+        .collect();
+    files.push((format!("{folder}README.txt"), 1));
+    files
+}
+
+#[test]
+fn a_pack_made_before_gives_what_the_draft_has_not() {
+    let (name, readme) = made_before(&pack_files("Name/")).expect("a pack");
+    assert_eq!(name, "Name");
+    assert_eq!(readme.as_deref(), Some("Name/README.txt"));
+    assert_eq!(made_before(&[("a.ogg".to_string(), 1)]), None);
+
+    let mut draft = Draft::default();
+    draft.adopt(Adopted {
+        name: "Name".into(),
+        by: Some("Someone".into()),
+        license: None,
+    });
+    assert_eq!(
+        (draft.name.as_str(), draft.author.as_str()),
+        ("Name", "Someone")
+    );
+    // What the draft says stays.
+    draft.adopt(Adopted {
+        name: "Other".into(),
+        by: Some("Another".into()),
+        license: Some("CC0".into()),
+    });
+    assert_eq!(
+        (
+            draft.name.as_str(),
+            draft.author.as_str(),
+            draft.license.as_str()
+        ),
+        ("Name", "Someone", "CC0")
+    );
+}
+
+#[test]
+fn a_finished_packs_files_install_under_its_own_folder() {
+    let plan = install_plan(&pack_files("Name/")).expect("a plan");
+    assert_eq!(plan.kept.name, "Name");
+    assert_eq!(plan.folder, "Name");
+    assert_eq!(
+        plan.inside("Name/gameplay ready/a.ogg"),
+        "gameplay ready/a.ogg"
+    );
+    assert_eq!(plan.inside("elsewhere.ogg"), "elsewhere.ogg");
+    assert_eq!(
+        install_plan(&[("a.ogg".to_string(), 1)]).err(),
+        Some("it has no lines yet")
+    );
+}

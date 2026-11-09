@@ -121,19 +121,19 @@ impl<S: Clone> Reworker<S> {
         if self.playing || self.busy || !plays.loaded() {
             return ReworkStep::Wait;
         }
-        let stale = plays.stale_songs();
-        if let Some((id, chart)) = self.focus.clone() {
-            if stale.contains(&id) {
+        if let Some((id, chart)) = &self.focus {
+            if plays.has_stale_of(id) {
+                let (song, chart) = (id.clone(), chart.clone());
                 self.busy = true;
                 return ReworkStep::Rework {
-                    song: id,
+                    song,
                     chart,
                     next_ms: FOCUS_STEP_MS,
                 };
             }
             self.focus = None;
         }
-        let Some(id) = stale.into_iter().find(|s| !self.skipped.contains(s)) else {
+        let Some(id) = plays.next_stale_song(|song| self.skipped.contains(song)) else {
             self.background = None;
             return ReworkStep::Done;
         };

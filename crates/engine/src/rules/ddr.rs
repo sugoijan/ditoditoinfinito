@@ -244,21 +244,7 @@ pub fn flare_points(meter: u32, rank: u8) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ddi_chart::Tick;
-
-    fn ev(kind: JudgeEventKind) -> JudgeEvent {
-        JudgeEvent {
-            note_index: None,
-            lane: 0,
-            tick: Tick::ZERO,
-            kind,
-            song_time: 0.0,
-        }
-    }
-
-    fn tap(j: Judgement) -> JudgeEvent {
-        ev(JudgeEventKind::Tap(j, 0.0))
-    }
+    use crate::judge::test_events::{ev, tap};
 
     fn after(gauge: &mut dyn GaugeRules, events: &[JudgeEvent]) {
         let ctx = ScoreCtx::default();

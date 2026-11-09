@@ -178,7 +178,7 @@ pub(crate) fn load_bundled_font() {
     descriptors.set_weight("800");
     let face = match web_sys::FontFace::new_with_u8_array_and_descriptors(
         BUNDLED_FAMILY,
-        crate::game_loop::FONT,
+        ddi_render::HUD_FONT,
         &descriptors,
     ) {
         Ok(f) => f,

@@ -595,8 +595,12 @@ impl Screen for WidgetScreen {
         call(&mut status, "xy", &[416.0, 526.0]);
         call(&mut status, "halign", &[0.0]);
         // The screen's ground: the developer screen under it stays drawn.
-        let mut ground = look::quad("", [4000.0, 4000.0], look::color(look, "Background"));
-        call(&mut ground, "xy", &[480.0, 270.0]);
+        let ground = look::quad_at(
+            "",
+            [4000.0, 4000.0],
+            look::color(look, "Background"),
+            [480.0, 270.0],
+        );
         let children = vec![
             ground,
             self.list.build(look),

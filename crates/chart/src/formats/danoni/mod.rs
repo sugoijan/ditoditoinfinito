@@ -529,7 +529,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
 
 /// A song for music number `music`.
 fn new_song(music: usize, titles: &[String], urls: &[String], tuning: &str) -> Song {
-    let mut song = super::sm::empty_song(SourceFormat::Danoni);
+    let mut song = Song::empty(SourceFormat::Danoni);
     // `splitComma`: ", " is not a separator.
     let split = |row: &str| -> Vec<String> {
         row.replace(", ", "\u{1}")

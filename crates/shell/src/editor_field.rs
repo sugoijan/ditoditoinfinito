@@ -5,6 +5,8 @@
 //! the direction drawn), and the picture's geometry as the renderer
 //! places a field.
 
+use std::rc::Rc;
+
 use ddi_chart::{Chart, Layout, Song};
 use ddi_noteskin::lua::Env;
 use ddi_render::editor_field::FieldDraw;
@@ -131,8 +133,7 @@ mod tests {
             receptor_y: 140.0,
             reverse: true,
             frame: ddi_ui::screens::editor_field::frame(
-                editor.chart(),
-                editor.timing(),
+                &editor,
                 &ddi_ui::screens::editor_field::Mapping::edit(140.0, 0.0, 64.0, 64.0),
                 0.0,
                 500.0,
@@ -181,10 +182,19 @@ mod tests {
 /// whether it changed since it was drawn.
 #[derive(Default)]
 pub struct Shown {
-    pub picture: Option<FieldPicture>,
-    pub want: Option<(SkinWant, Env)>,
-    pub colors: NoteColors,
+    picture: Option<Rc<FieldPicture>>,
+    want: Option<Rc<(SkinWant, Env)>>,
+    colors: NoteColors,
     read_for: Option<(String, bool)>,
+    pub changed: bool,
+}
+
+/// What a frame's field is drawn from ([`Shown::take`]).
+pub struct ShownNow {
+    pub picture: Option<Rc<FieldPicture>>,
+    pub want: Option<Rc<(SkinWant, Env)>>,
+    pub colors: NoteColors,
+    /// It changed since it was drawn.
     pub changed: bool,
 }
 
@@ -193,11 +203,11 @@ impl Shown {
     /// the settings read (`settings`) when its layout or direction is new.
     pub fn show(
         &mut self,
-        picture: Option<&FieldPicture>,
+        picture: Option<Rc<FieldPicture>>,
         editor: &ddi_ui::state::editor::Editor,
         settings: impl FnOnce() -> Settings,
     ) {
-        match picture {
+        match picture.as_deref() {
             Some(p)
                 if self
                     .read_for
@@ -206,9 +216,9 @@ impl Shown {
             {
                 let settings = settings();
                 let want = skin(&settings, p);
-                if self.want.as_ref().is_none_or(|(w, _)| *w != want) {
+                if self.want.as_ref().is_none_or(|w| w.0 != want) {
                     let env = skin_env(&want, editor.song(), editor.chart());
-                    self.want = Some((want, env));
+                    self.want = Some(Rc::new((want, env)));
                 }
                 self.colors = note_colors(&settings);
                 self.read_for = Some((p.layout.clone(), p.reverse));
@@ -217,7 +227,17 @@ impl Shown {
             // The settings read again for the next editor.
             None => self.read_for = None,
         }
-        self.picture = picture.cloned();
+        self.picture = picture;
         self.changed = true;
+    }
+
+    /// What this frame draws, its change taken.
+    pub fn take(&mut self) -> ShownNow {
+        ShownNow {
+            picture: self.picture.clone(),
+            want: self.want.clone(),
+            colors: self.colors,
+            changed: std::mem::take(&mut self.changed),
+        }
     }
 }

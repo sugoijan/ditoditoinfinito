@@ -52,18 +52,18 @@ use ddi_actor::{Actor, Kind, Rgba};
 use ddi_chart::{DisplayBpm, Glyph, NoteKind, Quantization, TICKS_PER_BEAT, Tick};
 use ddi_engine::transform::Turn;
 
-use super::data::Platform;
-use super::editor_dialogs::{ActionsDialog, PickFn, SubmitFn, ValueDialog};
+use super::dialog::{ActionsDialog, ConfirmDialog};
+use super::editor_dialogs::{SubmitFn, ValueDialog};
 use super::editor_field::{self, FieldPicture, FieldView, Mapping, SkinField};
-use super::options_dialogs::ConfirmDialog;
-use super::{Env, footer, frame, ground, header, left, right};
+use super::{Env, footer, frame, ground, header, left, named, pick, right};
 use crate::gesture::{Gesture, WheelKind};
 use crate::hit;
-use crate::look::{Spec, call, quad};
+use crate::look::{Spec, call, quad, quad_at, with_alpha};
 use crate::message::{Message, Param};
 use crate::nav::MenuAction;
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::editor::audio::Analysis;
+use crate::state::editor::overview::Overview;
 use crate::state::editor::{
     ChartInfo, Editor, MEASURE, NoteTool, Retime, Segment, SegmentKind, SongInfo, autosave,
     trim_number,
@@ -78,6 +78,16 @@ pub const CHANGED: &str = "EditorChanged";
 /// [`Editor::revision`] saved, -1 for none) on success, `Error` (text)
 /// on failure.
 pub const SAVED: &str = "EditorSaved";
+
+/// [`SAVED`]: the song is saved, at `revision`.
+pub fn saved(revision: Option<u64>) -> Message {
+    Message::new(SAVED).with("Revision", Param::Int(revision.map_or(-1, |r| r as i64)))
+}
+
+/// [`SAVED`]: why the song is not saved.
+pub fn save_failed(error: impl Into<String>) -> Message {
+    Message::new(SAVED).with("Error", Param::Str(error.into()))
+}
 
 /// What the editor asks of its shell.
 #[derive(Clone, Debug, PartialEq)]
@@ -182,15 +192,12 @@ pub trait EditorHost {
     /// [`editor_field::SOURCE`]); `None`: nothing (the plates drawn, the
     /// screen gone). Told only when it changes, with the song (whose
     /// chart a skin's Lua is told of).
-    fn show_field(&self, _picture: Option<&FieldPicture>, _editor: &Editor) {}
+    fn show_field(&self, _picture: Option<Rc<FieldPicture>>, _editor: &Editor) {}
 }
 
 /// What the shell can do with the song.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EditorPlace {
-    /// Whose wording (`$platform` in the messages): what exporting and
-    /// saving over the song mean there.
-    pub platform: Platform,
     /// Where saving puts the song ("Songs/Pack/Song/song.ssc"); `None`:
     /// it cannot be saved there (a bundled song).
     pub save: Option<String>,
@@ -199,13 +206,6 @@ pub struct EditorPlace {
     /// web: empty, the song stored in the browser); `None`: saved
     /// without asking.
     pub confirm: Option<String>,
-    /// A copy can be exported (a download on the web, a file saved
-    /// where the player picks on desktop).
-    pub export: bool,
-    /// The music can be listened to.
-    pub listen: bool,
-    /// Playtests can be started.
-    pub playtest: bool,
     /// A new song never saved: leaving without saving drops the song
     /// too (on desktop its folder); `false` once saved.
     pub new_song: bool,
@@ -321,6 +321,49 @@ struct Geometry {
     scale: f32,
 }
 
+/// `rect` (virtual pixels) on whole physical pixels, `[x, y, w, h]`:
+/// `origin` is where the virtual screen's origin is in them, `scale`
+/// physical pixels a virtual one.
+fn whole_pixels(rect: [f32; 4], origin: [f32; 2], scale: f32) -> [f32; 4] {
+    let [x, y, w, h] = rect;
+    let px = |v: f32, o: f32| (o + v * scale).round();
+    let (x0, y0) = (px(x, origin[0]), px(y, origin[1]));
+    let (x1, y1) = (px(x + w, origin[0]), px(y + h, origin[1]));
+    [x0, y0, x1 - x0, y1 - y0]
+}
+
+impl Geometry {
+    /// A picture of texture `texture` on the whole physical pixels
+    /// `rect`, where a shell draws it.
+    fn picture(&self, name: &str, rect: [f32; 4], texture: u32) -> Actor {
+        let [px, py, pw, ph] = rect;
+        let (x, y) = (
+            (px - self.origin[0]) / self.scale,
+            (py - self.origin[1]) / self.scale,
+        );
+        let (w, h) = (pw / self.scale, ph / self.scale);
+        let mut a = named(Kind::Sprite(ddi_actor::Sprite::quad([w, h])), name);
+        if let Kind::Sprite(s) = &mut a.kind {
+            s.texture = texture;
+        }
+        call(&mut a, "xy", &[x + w / 2.0, y + h / 2.0]);
+        a
+    }
+
+    /// A note's plate: its width and height.
+    fn head(&self) -> (f32, f32) {
+        let size = (self.lane_w * 0.82).min(44.0);
+        (size, (size * 0.62).max(12.0))
+    }
+}
+
+/// What the footer shows: the lanes' count, whether the screen is compact.
+type FooterKey = (u8, bool);
+
+/// What the overview's strip shows: the music's analysis, the seconds it
+/// spans, its place.
+type StripKey = (Option<*const Overview>, (f64, f64), [f32; 4]);
+
 /// A drag along a lane (a hold being drawn).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Drag {
@@ -343,6 +386,10 @@ pub struct EditorScreen {
     shown: f64,
     /// What the field was last drawn for.
     drawn: Option<(f64, u64)>,
+    /// What the footer and the overview's strip were last drawn for:
+    /// neither follows the cursor, so a step leaves them.
+    footer_for: Option<FooterKey>,
+    strip_for: Option<StripKey>,
     /// Bumped by every change: the field and the panel are drawn again.
     version: u64,
     held: Vec<u8>,
@@ -375,7 +422,7 @@ pub struct EditorScreen {
     skin: Option<SkinField>,
     /// The skin's texture, the picture the shell was given last.
     texture: u32,
-    pictured: Option<FieldPicture>,
+    pictured: Option<Rc<FieldPicture>>,
     /// While listening: the second heard, the tick the music's notes
     /// were passed to, and the skin's events (numbered by `seq`).
     heard: Option<f64>,
@@ -403,6 +450,8 @@ impl EditorScreen {
             geo: Geometry::default(),
             shown: 0.0,
             drawn: None,
+            footer_for: None,
+            strip_for: None,
             version: 0,
             held: Vec::new(),
             controller_lane: 0,
@@ -532,12 +581,7 @@ impl EditorScreen {
         // The skin's texture on whole pixels.
         let scale = cx.viewport().scale * zoom;
         let origin = cx.viewport().to_physical([0.0, 0.0]);
-        let px = |v: f32, o: f32| (o + v * scale).round();
-        let (x0, y0) = (px(field[0], origin[0]), px(field[1], origin[1]));
-        let (x1, y1) = (
-            px(field[0] + field[2], origin[0]),
-            px(field[1] + field[3], origin[1]),
-        );
+        let [x0, y0, pw, ph] = whole_pixels(field, origin, scale);
         Geometry {
             size,
             zoom,
@@ -551,7 +595,7 @@ impl EditorScreen {
             lane_w,
             line_y: field[1] + field[3] * 0.28,
             beat_h,
-            pixels: [x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)],
+            pixels: [x0, y0, pw.max(1.0), ph.max(1.0)],
             origin,
             scale,
         }
@@ -611,14 +655,14 @@ impl EditorScreen {
         ];
         children.push(super::more_button(&self.env, [g.size[0] - 48.0, 32.0]));
         children.push(self.field());
+        self.strip_for = Some(self.strip_key());
         children.push(self.overview_strip());
         children.push(self.overview_marks());
         children.push(self.panel());
-        let (f, texts) = self.footer(cx);
-        children.push(f);
+        self.footer_for = Some(self.footer_key());
+        children.push(self.footer(cx));
         let mut root = Actor::new(Kind::Frame(children));
         call(&mut root, "zoom", &[g.zoom]);
-        self.env.state.borrow_mut().hints = texts;
         self.drawn = Some((self.shown, self.version));
         self.send_picture();
         root
@@ -637,9 +681,10 @@ impl EditorScreen {
     /// (nothing once the editor is left).
     fn send_picture(&mut self) {
         let picture = (self.skin_drawn() && !self.left).then(|| self.picture());
-        if picture != self.pictured {
+        if picture.as_ref() != self.pictured.as_deref() {
+            let picture = picture.map(Rc::new);
             if let Some(h) = &self.host {
-                h.show_field(picture.as_ref(), &self.editor.borrow());
+                h.show_field(picture.clone(), &self.editor.borrow());
             }
             self.pictured = picture;
         }
@@ -660,11 +705,11 @@ impl EditorScreen {
             .heard
             .unwrap_or_else(|| editor_field::shown_seconds(timing, self.shown));
         let holding = if self.listening {
-            editor_field::holding(e.chart(), lanes, self.shown)
+            editor_field::holding(&e, lanes, self.shown)
         } else {
             vec![None; lanes]
         };
-        let frame = editor_field::frame(e.chart(), timing, &m, fy, fy + fh, seconds, &holding);
+        let frame = editor_field::frame(&e, &m, fy, fy + fh, seconds, &holding);
         let [px, py, _, _] = g.pixels;
         let ground = self.env.color("Ground");
         let plate = self.env.color("Plate");
@@ -688,7 +733,13 @@ impl EditorScreen {
         }
     }
 
-    fn footer(&self, cx: &mut Cx) -> (Actor, Vec<String>) {
+    /// What the footer shows beside the key hints themselves (those are
+    /// drawn again when the input changes).
+    fn footer_key(&self) -> FooterKey {
+        (self.editor.borrow().lanes(), self.geo.compact)
+    }
+
+    fn footer(&self, cx: &mut Cx) -> Actor {
         let lanes = self.editor.borrow().lanes();
         let lane_keys = format!("1–{}", lanes.min(10) % 10);
         let (moves, snap, notes, listen, record, play, menu, lane, place, back) = (
@@ -709,30 +760,22 @@ impl EditorScreen {
             (vec![lane_keys.as_str()], &notes),
         ];
         if !self.geo.compact {
-            if self.place.listen {
-                hints.push((vec!["SPACE"], &listen));
-                hints.push((vec!["R"], &record));
-            }
-            if self.place.playtest {
-                hints.push((vec!["P"], &play));
-            }
+            hints.push((vec!["SPACE"], &listen));
+            hints.push((vec!["R"], &record));
+            hints.push((vec!["P"], &play));
         }
         hints.push((vec!["TAB"], &menu));
         hints.push((vec!["ESC"], &back));
         let hints: Vec<(&[&str], &str)> = hints.iter().map(|(k, l)| (k.as_slice(), *l)).collect();
-        let mut controller: Vec<(&[HintAction], &str)> = vec![
+        let controller: Vec<(&[HintAction], &str)> = vec![
             (&[HintAction::Up, HintAction::Down], &moves),
             (&[HintAction::Left, HintAction::Right], &snap),
             (&[HintAction::Previous, HintAction::Next], &lane),
             (&[HintAction::Confirm], &place),
+            (&[HintAction::Start], &listen),
+            (&[HintAction::More], &menu),
+            (&[HintAction::Back], &back),
         ];
-        if self.place.listen {
-            controller.push((&[HintAction::Start], &listen));
-        }
-        controller.extend([
-            (&[HintAction::More][..], &*menu),
-            (&[HintAction::Back][..], &*back),
-        ]);
         footer(&self.env, self.geo.size, &hints, &controller, "", &[], cx)
     }
 
@@ -751,20 +794,15 @@ impl EditorScreen {
         let lanes = layout.lane_count();
         let [fx, fy, fw, fh] = g.field;
         let mut c = Vec::new();
-        let mut plate = quad("Field", [fw, fh], with_alpha(env.color("Plate"), 0.55));
-        call(&mut plate, "xy", &[fx + fw / 2.0, fy + fh / 2.0]);
-        c.push(plate);
+        c.push(quad_at(
+            "Field",
+            [fw, fh],
+            with_alpha(env.color("Plate"), 0.55),
+            [fx + fw / 2.0, fy + fh / 2.0],
+        ));
         if skin {
             // The shell's picture, on the whole pixels it is drawn at.
-            let [px, py, pw, ph] = g.pixels;
-            let (x, y) = ((px - g.origin[0]) / g.scale, (py - g.origin[1]) / g.scale);
-            let (w, h) = (pw / g.scale, ph / g.scale);
-            let mut picture = Actor::new(Kind::Sprite(ddi_actor::Sprite::quad([w, h])));
-            if let Kind::Sprite(s) = &mut picture.kind {
-                s.texture = self.texture;
-            }
-            call(&mut picture, "xy", &[x + w / 2.0, y + h / 2.0]);
-            c.push(picture);
+            c.push(g.picture("", g.pixels, self.texture));
         }
         self.audio_layer(&mut c);
         let lanes_w = g.lane_w * lanes as f32;
@@ -839,9 +877,12 @@ impl EditorScreen {
             } else {
                 (0.09, 1.0)
             };
-            let mut line = quad("", [lanes_w, h], [1.0, 1.0, 1.0, alpha]);
-            call(&mut line, "xy", &[g.lanes_x + lanes_w / 2.0, y]);
-            c.push(line);
+            c.push(quad_at(
+                "",
+                [lanes_w, h],
+                [1.0, 1.0, 1.0, alpha],
+                [g.lanes_x + lanes_w / 2.0, y],
+            ));
             self.audio_line_at(&mut c, y, h, [1.0, 1.0, 1.0, alpha.max(0.16)]);
             if t % MEASURE == 0 {
                 let m = env.numbers("", &(t / MEASURE).to_string(), 13.0, "Muted");
@@ -853,12 +894,7 @@ impl EditorScreen {
                 c.push(b);
             }
         }
-        let visible = e
-            .chart()
-            .notes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| n.end_tick().0 >= first && n.tick.0 <= last);
+        let visible = e.notes_near(first, last);
         if skin {
             // Over the skin's notes: a tick at each one's row in its
             // lane's gutter, a line at each tail, what the art cannot
@@ -871,9 +907,12 @@ impl EditorScreen {
                     _ => quant_color(env, n.tick.quantization()),
                 };
                 let tick_w = (g.lane_w * 0.16).max(4.0);
-                let mut tick = quad(&format!("Row.{i}"), [tick_w, 2.0], color);
-                call(&mut tick, "xy", &[x0 + tick_w / 2.0, y]);
-                c.push(tick);
+                c.push(quad_at(
+                    &format!("Row.{i}"),
+                    [tick_w, 2.0],
+                    color,
+                    [x0 + tick_w / 2.0, y],
+                ));
                 if let Some(end) = n.kind.hold_end() {
                     let roll = matches!(n.kind, NoteKind::RollHead { .. });
                     let color = if roll {
@@ -881,9 +920,12 @@ impl EditorScreen {
                     } else {
                         [0.45, 0.85, 0.5, 0.95]
                     };
-                    let mut tail = quad("", [g.lane_w * 0.7, 2.0], color);
-                    call(&mut tail, "xy", &[x0 + g.lane_w / 2.0, y_of(end.0 as f64)]);
-                    c.push(tail);
+                    c.push(quad_at(
+                        "",
+                        [g.lane_w * 0.7, 2.0],
+                        color,
+                        [x0 + g.lane_w / 2.0, y_of(end.0 as f64)],
+                    ));
                 }
                 let badge = match n.kind {
                     NoteKind::Fake => Some(em::badge_fake()),
@@ -904,8 +946,7 @@ impl EditorScreen {
             }
         } else {
             // Holds' bodies first, then the heads over them.
-            let size = (g.lane_w * 0.82).min(44.0);
-            let head_h = (size * 0.62).max(12.0);
+            let (size, head_h) = g.head();
             let mut heads = Vec::new();
             for (_, n) in visible {
                 let x = g.lanes_x + (f32::from(n.lane) + 0.5) * g.lane_w;
@@ -920,12 +961,18 @@ impl EditorScreen {
                     } else {
                         [0.45, 0.85, 0.5, 0.55]
                     };
-                    let mut body = quad("", [size * 0.55, (y1 - y0).max(1.0)], color);
-                    call(&mut body, "xy", &[x, (y0 + y1) / 2.0]);
-                    c.push(body);
-                    let mut tail = quad("", [size * 0.75, 4.0], with_alpha(color, 0.9));
-                    call(&mut tail, "xy", &[x, yt]);
-                    c.push(tail);
+                    c.push(quad_at(
+                        "",
+                        [size * 0.55, (y1 - y0).max(1.0)],
+                        color,
+                        [x, (y0 + y1) / 2.0],
+                    ));
+                    c.push(quad_at(
+                        "",
+                        [size * 0.75, 4.0],
+                        with_alpha(color, 0.9),
+                        [x, yt],
+                    ));
                 }
                 heads.push((x, y, n));
             }
@@ -943,8 +990,7 @@ impl EditorScreen {
                 } else {
                     1.0
                 };
-                let mut p = quad("", [size, head_h], with_alpha(plate_color, alpha));
-                call(&mut p, "xy", &[x, y]);
+                let mut p = quad_at("", [size, head_h], with_alpha(plate_color, alpha), [x, y]);
                 call(&mut p, "cornerradius", &[head_h * 0.3]);
                 c.push(p);
                 let mut glyph = env.text("", text, (head_h * 0.9).min(24.0), 700, "Text");
@@ -954,9 +1000,12 @@ impl EditorScreen {
                 }
                 c.push(glyph);
                 if matches!(n.kind, NoteKind::Lift) {
-                    let mut bar = quad("", [size, 3.0], [1.0, 1.0, 1.0, 0.9]);
-                    call(&mut bar, "xy", &[x, y - head_h / 2.0 - 2.0]);
-                    c.push(bar);
+                    c.push(quad_at(
+                        "",
+                        [size, 3.0],
+                        [1.0, 1.0, 1.0, 0.9],
+                        [x, y - head_h / 2.0 - 2.0],
+                    ));
                 }
             }
             // Receptors: the lanes' arrows, faint, at the cursor line.
@@ -997,7 +1046,7 @@ impl EditorScreen {
                 _ => "Muted",
             };
             let mut m = env.text("", &seg.describe(), 12.0, 600, color);
-            super::select_dialogs::wrap(&mut m, fx + fw - mx - 4.0);
+            crate::look::ellipsized(&mut m, fx + fw - mx - 4.0);
             c.push(left(m, mx, y + k as f32 * 14.0));
         }
         self.audio_marks(&m, timing, &mut c);
@@ -1079,7 +1128,7 @@ impl EditorScreen {
         // A line at `x`, `w` wide (wrapped past it).
         let line = |name: &str, s: &str, weight: u16, color: &str, x: f32, w: f32, y: f32| {
             let mut t = env.text(name, s, size, weight, color);
-            super::select_dialogs::wrap(&mut t, w);
+            crate::look::ellipsized(&mut t, w);
             left(t, x, y)
         };
         let mut push = |c: &mut Vec<Actor>, name: &str, s: &str, weight: u16, color: &str| {
@@ -1200,27 +1249,19 @@ impl EditorScreen {
         if self.place.save.is_some() {
             buttons.push(("Button.Save", common::save()));
         }
-        if self.place.playtest {
-            buttons.push(("Button.Play", em::panel_play()));
-        }
+        buttons.push(("Button.Play", em::panel_play()));
         let n = buttons.len() as f32;
         let bh = if small { 34.0 } else { 40.0 };
         let bw = (pw - 32.0 - (n - 1.0) * 8.0) / n;
         let by = py + ph - 12.0 - bh / 2.0;
         for (i, (name, label)) in buttons.iter().enumerate() {
-            let mut b = crate::look::component_or(
-                &*env.look,
+            c.push(env.component(
                 "Button",
                 "Button",
                 &Spec::new([bw, bh], label.as_str()),
-            );
-            b.name = (*name).into();
-            call(
-                &mut b,
-                "xy",
-                &[px + 16.0 + bw / 2.0 + i as f32 * (bw + 8.0), by],
-            );
-            c.push(b);
+                name,
+                [px + 16.0 + bw / 2.0 + i as f32 * (bw + 8.0), by],
+            ));
         }
         frame("Panel", c)
     }
@@ -1287,22 +1328,26 @@ impl EditorScreen {
             root.finish_tweening();
         } else {
             self.attach_texture(cx);
-            let field = self.field();
-            let panel = self.panel();
-            let (footer, texts) = self.footer(cx);
-            let (strip, marks) = (self.overview_strip(), self.overview_marks());
-            for (name, a) in [
-                ("FieldLayer", field),
-                ("Overview", strip),
-                ("OverviewMarks", marks),
-                ("Panel", panel),
-                ("Footer", footer),
-            ] {
+            let mut parts = vec![
+                ("FieldLayer", self.field()),
+                ("OverviewMarks", self.overview_marks()),
+                ("Panel", self.panel()),
+            ];
+            let strip = self.strip_key();
+            if self.strip_for != Some(strip) {
+                self.strip_for = Some(strip);
+                parts.push(("Overview", self.overview_strip()));
+            }
+            let key = self.footer_key();
+            if self.footer_for != Some(key) {
+                self.footer_for = Some(key);
+                parts.push(("Footer", self.footer(cx)));
+            }
+            for (name, a) in parts {
                 if let Some(old) = hit::find_mut(root, name) {
                     *old = a;
                 }
             }
-            self.env.state.borrow_mut().hints = texts;
             self.drawn = Some((self.shown, self.version));
             self.send_picture();
         }
@@ -1374,9 +1419,6 @@ impl EditorScreen {
 
     fn listen(&mut self, cx: &mut Cx) {
         self.controller_anchor = None;
-        if !self.place.listen {
-            return;
-        }
         if self.listening {
             self.stop_listening(cx);
         } else {
@@ -1419,24 +1461,26 @@ impl EditorScreen {
         }
         let from = self.passed_to.unwrap_or(self.shown);
         let mut passed = editor_field::passed(
-            self.editor.borrow().chart(),
+            &self.editor.borrow(),
             from,
             self.shown,
             seconds,
             &mut self.seq,
         );
         self.events.append(&mut passed);
+        self.keep_events();
+        self.passed_to = Some(self.shown.max(from));
+    }
+
+    /// The last few of the skin's events.
+    fn keep_events(&mut self) {
         let keep = 64;
         if self.events.len() > keep {
             self.events.drain(..self.events.len() - keep);
         }
-        self.passed_to = Some(self.shown.max(from));
     }
 
     fn playtest(&mut self, from_cursor: bool, auto: bool, cx: &mut Cx) {
-        if !self.place.playtest {
-            return;
-        }
         self.stop_listening(cx);
         self.call(EditorCall::Playtest { from_cursor, auto }, cx);
     }
@@ -1467,7 +1511,7 @@ impl EditorScreen {
                     ConfirmDialog::new(
                         self.env.clone(),
                         &em::save_over_title(),
-                        &em::save_over_body(self.place.platform.l10n(), file, name),
+                        &em::save_over_body(self.env.platform.l10n(), file, name),
                         &common::save(),
                         save,
                     ),
@@ -1495,7 +1539,7 @@ impl EditorScreen {
             cx.broadcast(Message::new(LEAVE));
         });
         let body = if self.place.new_song {
-            em::leave_new_song_body(self.place.platform.l10n())
+            em::leave_new_song_body(self.env.platform.l10n())
         } else {
             em::leave_body()
         };
@@ -1513,23 +1557,18 @@ impl EditorScreen {
 
     fn open_menu(&mut self, cx: &mut Cx) {
         let e = self.editor.borrow();
-        let mut items: Vec<(&str, String)> = Vec::new();
-        if self.place.listen {
-            items.push((
-                "listen",
-                if self.listening {
-                    em::menu_stop()
-                } else {
-                    em::menu_listen()
-                }
-                .into(),
-            ));
-        }
-        if self.place.playtest {
-            items.push(("play", em::menu_play_cursor().into()));
-            items.push(("play-start", em::menu_play_start().into()));
-            items.push(("auto", em::menu_autoplay_cursor().into()));
-        }
+        let mut items: Vec<(&str, String)> = vec![(
+            "listen",
+            if self.listening {
+                em::menu_stop()
+            } else {
+                em::menu_listen()
+            }
+            .into(),
+        )];
+        items.push(("play", em::menu_play_cursor().into()));
+        items.push(("play-start", em::menu_play_start().into()));
+        items.push(("auto", em::menu_autoplay_cursor().into()));
         drop(e);
         self.record_items(&mut items);
         self.sound_items(&mut items);
@@ -1554,12 +1593,10 @@ impl EditorScreen {
         if self.place.save.is_some() {
             items.push(("save", common::save().into()));
         }
-        if self.place.export {
-            let platform = self.place.platform.l10n();
-            items.push(("export", em::menu_export(platform, ".ssc").into()));
-            if ddi_chart::formats::sm_write::sm_losses(e.song()).is_empty() {
-                items.push(("export-sm", em::menu_export(platform, ".sm").into()));
-            }
+        let platform = self.env.platform.l10n();
+        items.push(("export", em::menu_export(platform, ".ssc").into()));
+        if ddi_chart::formats::sm_write::sm_losses(e.song()).is_empty() {
+            items.push(("export-sm", em::menu_export(platform, ".sm").into()));
         }
         items.push((
             "view",
@@ -1658,14 +1695,8 @@ impl EditorScreen {
             "jump-end" => self.edit(|e| e.set_cursor(e.end(), false)),
             "measure-back" => self.edit(|e| e.move_measures(-1, false)),
             "measure-forward" => self.edit(|e| e.move_measures(1, false)),
-            "zoom-in" => {
-                self.zoom_steps = (self.zoom_steps + 1).min(3);
-                self.changed();
-            }
-            "zoom-out" => {
-                self.zoom_steps = (self.zoom_steps - 1).max(-3);
-                self.changed();
-            }
+            "zoom-in" => self.zoom(1),
+            "zoom-out" => self.zoom(-1),
             "tap-tempo" => self.open_tap(cx),
             "listen" => self.listen(cx),
             "play" => self.playtest(true, false, cx),
@@ -1703,6 +1734,12 @@ impl EditorScreen {
             "plates" => self.toggle_plates(),
             _ => {}
         }
+    }
+
+    /// The beat's height halved or doubled `by` times.
+    fn zoom(&mut self, by: i32) {
+        self.zoom_steps = (self.zoom_steps + by).clamp(-3, 3);
+        self.changed();
     }
 
     /// The edit view (rows by beat) or the play view (as play has them).
@@ -1750,15 +1787,7 @@ impl EditorScreen {
         let tick = e.cursor();
         let long = matches!(e.tool(), NoteTool::Hold | NoteTool::Roll);
         // Removal is immediate, including a cursor within an existing hold.
-        let covered = e.chart().notes.iter().any(|n| {
-            n.lane == lane
-                && n.tick <= tick
-                && match n.kind {
-                    ddi_chart::NoteKind::HoldHead { end }
-                    | ddi_chart::NoteKind::RollHead { end } => tick <= end,
-                    _ => n.tick == tick,
-                }
-        });
+        let covered = e.note_at(lane, tick).is_some();
         drop(e);
         if long && !covered {
             self.controller_anchor = Some((lane, tick));
@@ -2284,14 +2313,8 @@ impl EditorScreen {
             (false, "ArrowDown") if k.modifiers.alt => self.edit(|e| e.shift_selection(1)),
             (false, "BracketLeft") => self.edit(|e| e.shift_selection(-1)),
             (false, "BracketRight") => self.edit(|e| e.shift_selection(1)),
-            (false, "Minus") => {
-                self.zoom_steps = (self.zoom_steps - 1).max(-3);
-                self.changed();
-            }
-            (false, "Equal") => {
-                self.zoom_steps = (self.zoom_steps + 1).min(3);
-                self.changed();
-            }
+            (false, "Minus") => self.zoom(-1),
+            (false, "Equal") => self.zoom(1),
             _ if k.modifiers.any_but_shift() => return Handled::No,
             _ => match key.as_str() {
                 "m" => self.edit(|e| e.turn_selection(Turn::Mirror)),
@@ -2507,11 +2530,6 @@ impl SongField {
     }
 }
 
-/// A menu's pick broadcast as `message`, its `Id` the item's.
-fn pick(message: &'static str) -> PickFn {
-    Rc::new(move |id, cx| cx.broadcast(Message::new(message).with("Id", Param::Str(id.into()))))
-}
-
 /// The menus' picks, each with its item's `Id`: the editor's menu's,
 /// the timing's, the song's and the chart's.
 pub(super) const ACTION: &str = "EditorAction";
@@ -2520,10 +2538,6 @@ pub(super) const SONG: &str = "EditorSong";
 pub(super) const CHART: &str = "EditorChart";
 /// Leave confirmed.
 const LEAVE: &str = "EditorLeave";
-
-fn with_alpha(c: Rgba, a: f32) -> Rgba {
-    [c[0], c[1], c[2], c[3] * a]
-}
 
 fn parse_number(t: &str) -> Result<f64, String> {
     t.trim()
@@ -2734,18 +2748,17 @@ impl Screen for EditorScreen {
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == crate::controller_hints::CHANGED {
-            let (footer, texts) = self.footer(cx);
+            let footer = self.footer(cx);
             if let Some(old) = crate::hit::find_mut(root, "Footer") {
                 *old = footer;
             }
-            self.env.state.borrow_mut().hints = texts;
         }
         if m.name == "Editor.Tap" {
-            if let Some(Param::Num(time)) = m.get("Time") {
-                self.tap(*time * 1000.0, cx);
+            if let Some(time) = m.num("Time") {
+                self.tap(time * 1000.0, cx);
             }
-            if let Some(Param::Str(action)) = m.get("Action") {
-                match action.as_str() {
+            if let Some(action) = m.str("Action") {
+                match action {
                     "Apply" => self.apply_tap(false),
                     "ApplyOffset" => self.apply_tap(true),
                     "Reset" => self.sound.taps.clear(),
@@ -2758,27 +2771,22 @@ impl Screen for EditorScreen {
             );
             cx.broadcast(Message::new("Editor.TapStatus").with("Text", Param::Str(text.into())));
         }
-        let id = match m.get("Id") {
-            Some(Param::Str(s)) => s.clone(),
-            _ => String::new(),
-        };
+        let id = m.str("Action").unwrap_or_default();
         match m.name.as_str() {
             CHANGED => self.changed(),
-            ACTION => self.action(&id, cx),
-            TIMING => self.timing_action(&id, cx),
-            SONG => self.song_action(&id, cx),
-            CHART => self.chart_action(&id, cx),
+            ACTION => self.action(id, cx),
+            TIMING => self.timing_action(id, cx),
+            SONG => self.song_action(id, cx),
+            CHART => self.chart_action(id, cx),
             LEAVE => {
                 self.gone();
                 cx.close(true);
                 return;
             }
-            SAVED => match (m.get("Revision"), m.get("Error")) {
-                (_, Some(Param::Str(e))) => {
-                    self.say(em::status_not_saved(super::errors::error_text(e)))
-                }
-                (Some(Param::Int(r)), _) => {
-                    let r = (*r >= 0).then_some(*r as u64);
+            SAVED => match (m.int("Revision"), m.str("Error")) {
+                (_, Some(e)) => self.say(em::status_not_saved(super::errors::error_text(e))),
+                (Some(r), _) => {
+                    let r = (r >= 0).then_some(r as u64);
                     self.editor.borrow_mut().mark_saved_at(r);
                     self.place.new_song = false;
                     self.say(em::status_saved());

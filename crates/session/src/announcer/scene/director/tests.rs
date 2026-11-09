@@ -298,6 +298,16 @@ fn the_welcomes_scene_comes_from_the_start_menu() {
     assert_eq!(t.director.example_turn(Set::Japanese, line), 0);
 }
 
+/// A draft with one take on each of `lines`.
+fn draft_saying(lines: &[Line]) -> Draft {
+    let mut draft = Draft::default();
+    for (n, line) in lines.iter().enumerate() {
+        let id = draft.add(&format!("{n}.wav"), 1, &[]);
+        draft.take_mut(id).unwrap().line = Some(*line);
+    }
+    draft
+}
+
 /// A results line's: said as the results open, the cheer after an AA.
 #[test]
 fn a_results_scene_says_its_line_and_the_cheer() {
@@ -305,7 +315,7 @@ fn a_results_scene_says_its_line_and_the_cheer() {
     let line = Line::Grade(Grade::Aa);
     let (n, scene) = t
         .director
-        .begin_results(line, Said::Draft, &[line, Line::Cheer].into())
+        .begin_results(line, Said::Draft, &draft_saying(&[line, Line::Cheer]))
         .unwrap();
     let lines = results_said_lines(&scene);
     assert!(lines.contains(&line) && lines.contains(&Line::Cheer));
@@ -327,7 +337,7 @@ fn a_records_and_a_first_clears_scenes_open_on_the_results() {
         let mut t = test();
         let (n, scene) = t
             .director
-            .begin_results(line, Said::Draft, &[line].into())
+            .begin_results(line, Said::Draft, &draft_saying(&[line]))
             .unwrap();
         t.director.show_results(n, scene, voiced(&[line]));
         t.run(0.5);
@@ -345,7 +355,7 @@ fn a_results_scene_shows_only_its_examples_words() {
     let (grade, cheer) = (Line::Grade(Grade::Aa), Line::Cheer);
     let (n, scene) = t
         .director
-        .begin_results(cheer, Said::Draft, &[grade, cheer].into())
+        .begin_results(cheer, Said::Draft, &draft_saying(&[grade, cheer]))
         .unwrap();
     t.director.show_results(n, scene, voiced(&[grade, cheer]));
     let words = |l: Line| ms::stage_said(studio::name(l)).to_string();
@@ -516,6 +526,47 @@ fn a_restarted_plays_lines_are_told_again() {
     words.restarted();
     assert_eq!(words.told(), 0);
     assert_eq!(message_texts(&words.next(&said, 1.0), stage::SAY).len(), 1);
+}
+
+/// Our pack says the first of a line's chain it has, once, the line's
+/// next sound each scene; a sound not there is left out of the voice.
+#[test]
+fn an_example_plan_says_each_line_once_with_its_next_sound() {
+    use ddi_library::announcer::{Bundled, Kept};
+    use ddi_library::path::RelPathBuf;
+    let t = test();
+    let set = Set::ALL[0];
+    let line = Line::Ready;
+    let files: Vec<RelPathBuf> = vec!["ready/a.ogg".into(), "ready/b.ogg".into()];
+    let mut kept = Kept::default();
+    kept.lines.insert(line.folder(), files);
+    let pack = Bundled {
+        path: "Pack".into(),
+        kept,
+        hashes: Default::default(),
+        said: [("ready/b.ogg".to_string(), "Ready!".to_string())].into(),
+    };
+    t.director
+        .example_turns
+        .borrow_mut()
+        .insert((set.key(), line), 1);
+    let plan = t
+        .director
+        .example_plan(&pack, set, &[line, line, Line::Cheer]);
+    assert_eq!(
+        plan,
+        [Planned {
+            line,
+            path: "ready/b.ogg".into(),
+            key: "Pack/ready/b.ogg".into(),
+            words: Some("Ready!".into()),
+        }]
+    );
+    let (_, lengths, words) = voiced_from(plan.clone(), |_| Some(2.0), |s: &Sound| *s);
+    assert_eq!(lengths.get(&line), Some(&2.0));
+    assert_eq!(words.get(&line).map(String::as_str), Some("Ready!"));
+    let (_, lengths, _) = voiced_from(plan, |_| None, |s: &Sound| *s);
+    assert!(lengths.is_empty());
 }
 
 /// The draft as a voice: the line's next recording first, the length its.

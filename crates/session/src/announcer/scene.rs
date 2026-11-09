@@ -24,10 +24,7 @@
 //!
 //! [`Announcer::results`]: super::Announcer::results
 
-use ddi_chart::{
-    Chart, Difficulty, DisplayBpm, Layout, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick,
-    TimingMap,
-};
+use ddi_chart::{Chart, Difficulty, Layout, Note, NoteKind, Song, Tick, TimingMap};
 use ddi_engine::rules::{
     FailPolicy, FullCombo, GradeTable, Judgement, Ruleset, ScoreView, presets,
 };
@@ -242,46 +239,12 @@ fn staged_song(bpm: f64, steps: u32, meter: u32) -> Song {
             Note::new(tick, LANES[(i % 8) as usize], kind)
         })
         .collect();
-    Song {
-        title: "Staged".into(),
-        subtitle: String::new(),
-        artist: String::new(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(bpm, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: STYLE.into(),
-            difficulty: RESULTS_CHART,
-            meter,
-            name: String::new(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("staged".into()),
-            unknown_tags: Vec::new(),
-        },
-    }
+    Song::generated(
+        "Staged",
+        TimingMap::constant(bpm, 0.0),
+        Chart::plain(STYLE, RESULTS_CHART, meter, notes),
+        "staged",
+    )
 }
 
 /// The steps' timing errors, in standard deviations: the same each time,
@@ -339,7 +302,11 @@ impl Stage {
         let steps = chart.map_or(400, |c| c.notes);
         let meter = chart.map_or(10, |c| c.meter);
         Stage {
-            song: staged_song(f64::from(entry.bpm.max(60.0)), steps, meter),
+            song: staged_song(
+                f64::from(entry.bpm_text.parse().unwrap_or(0.0f32).max(60.0)),
+                steps,
+                meter,
+            ),
             errors: errors(steps as usize),
             id: id.into(),
         }
@@ -681,7 +648,6 @@ fn staged(line: Line, id: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsSce
         device_changed: false,
         video_notes: Vec::new(),
         offset: None,
-        panels: String::new(),
         autoplay: false,
     });
     Some(ResultsScene {

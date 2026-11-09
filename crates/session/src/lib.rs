@@ -37,6 +37,7 @@ pub mod record;
 pub mod scripted;
 pub mod sounds;
 pub mod stage;
+pub mod stutter;
 
 /// Whose decode of an MP3 `song`'s notes are timed against: StepMania's
 /// for a simfile, Chrome's for a Dancing☆Onigiri work (danoniplus plays

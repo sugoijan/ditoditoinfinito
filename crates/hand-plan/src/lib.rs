@@ -13,6 +13,8 @@ mod window_replay;
 pub use burst::{BurstFallback, TapReduction};
 use ddi_chart::{Note, NoteKind, Song, TimingMap};
 use ddi_engine::transform::{self, AtOnce, TransformOptions};
+pub(crate) use ddi_hand_pose::wide_stances;
+pub use ddi_hand_pose::{Event, Foot, Initial, Placement, Swing, Tracks};
 pub use policy::{PlannerJob, PlanningReport, Status};
 pub use replay::{JudgeReport, ReplayReport, replay};
 pub use rolling::{ContactPublication, RollingPlanner, RollingReport};
@@ -45,15 +47,36 @@ pub struct InputNote {
     pub roll: bool,
     pub roll_refresh: bool,
 }
+impl InputNote {
+    /// `n` on tile `panel`, timed by `timing`.
+    pub fn new(n: &Note, panel: u8, timing: &TimingMap) -> Self {
+        Self {
+            tick: n.tick.0,
+            time: timing.seconds_at(n.tick),
+            lane: n.lane,
+            panel,
+            judgeable: timing.judgeable(n.tick),
+            end: n.kind.hold_end().map(|end| (end.0, timing.seconds_at(end))),
+            supported: n.kind.hand_supported(),
+            mine: matches!(n.kind, NoteKind::Mine | NoteKind::Shock),
+            shock: n.kind == NoteKind::Shock,
+            lift: n.kind == NoteKind::Lift,
+            roll: matches!(n.kind, NoteKind::RollHead { .. }),
+            roll_refresh: false,
+        }
+    }
+    /// A head pressed onto its tile: not a mine, a release or a roll's own
+    /// refresh.
+    pub(crate) fn is_head(&self) -> bool {
+        !self.mine && !self.lift && !self.roll_refresh
+    }
+}
 /// Canonical scored tiles in chart-lane order. DanOni 9A Oni defaults to 5;
 /// use `MatLayout::targets` for its two physical choices, never two chart notes.
 pub fn layout_panels(layout: &str) -> Result<&'static [u8], String> {
-    if layout == "danoni-9A" {
-        return Ok(&[4, 2, 8, 6, 5, 13, 11, 17, 15]);
-    }
     ddi_dance_mat::MatLayout::from_id(layout)
         .filter(|mat| mat.pads() == 1 || double_mat(mat.id()))
-        .and_then(ddi_dance_mat::MatLayout::fixed_panels)
+        .map(ddi_dance_mat::MatLayout::panels)
         .ok_or_else(|| "Dancing hand supports dance-single, dance-solo, pump-single, techno-single8, danoni-5, danoni-7, danoni-9B, dance-double, pump-halfdouble, pump-double and danoni-9A charts".into())
 }
 /// Explicit two-pad layouts currently supported by contact planning/gameplay.
@@ -106,30 +129,21 @@ pub(crate) fn escape_stances(layout: &str) -> &'static [[u8; 2]] {
         _ => &[],
     }
 }
-pub(crate) fn lift_escape(layout: &str, source: u8, foot: usize) -> u8 {
-    if layout == "danoni-9A" {
-        9 * ((source - 1) / 9) + if foot == 0 { 7 } else { 3 }
-    } else if double_pump(layout) {
-        9 * ((source - 1) / 9) + if foot == 0 { 4 } else { 6 }
-    } else if layout == "dance-double" {
-        5 + 9 * ((source - 1) / 9)
-    } else {
-        escape_stances(layout).first().map_or(source, |p| p[foot])
+/// Where a released finger lands, by stance on its source's pad.
+fn local_lift_stance(layout: &str) -> Option<[u8; 2]> {
+    match layout {
+        "danoni-9A" => Some([7, 3]),
+        "pump-halfdouble" | "pump-double" => Some([4, 6]),
+        "dance-double" => Some([5, 5]),
+        _ => escape_stances(layout).first().copied(),
     }
 }
-/// Layouts using the full opposite-corner reach and flexible facing.
-pub(crate) fn wide_stances(layout: &str) -> bool {
-    matches!(
-        layout,
-        "pump-single"
-            | "danoni-7"
-            | "techno-single8"
-            | "danoni-9B"
-            | "dance-double"
-            | "pump-halfdouble"
-            | "pump-double"
-            | "danoni-9A"
-    )
+pub(crate) fn lift_escape(layout: &str, source: u8, foot: usize) -> u8 {
+    local_lift_stance(layout).map_or(source, |stance| pad_offset(source) + stance[foot])
+}
+/// The id before a tile's pad's first: 0 on the left (or only) pad, 9 on the right.
+pub(crate) fn pad_offset(tile: u8) -> u8 {
+    9 * ((tile - 1) / 9)
 }
 /// Unique unscored support destinations in stable order.
 pub(crate) fn support_tiles(layout: &str) -> &'static [u8] {
@@ -144,6 +158,22 @@ pub(crate) fn support_tiles(layout: &str) -> &'static [u8] {
         Some(stance) if stance[0] == stance[1] => &stance[..1],
         Some(stance) => stance,
         None => &[],
+    }
+}
+#[cfg(test)]
+#[test]
+fn double_supports_are_the_unscored_tiles() {
+    for layout in [
+        "dance-double",
+        "pump-halfdouble",
+        "pump-double",
+        "danoni-9A",
+    ] {
+        let mat = ddi_dance_mat::MatLayout::from_id(layout).unwrap();
+        assert_eq!(
+            support_tiles(layout),
+            mat.unscored_tiles().map(|t| t.id()).collect::<Vec<_>>()
+        );
     }
 }
 pub fn layout_lanes(layout: &str) -> Result<usize, String> {
@@ -189,27 +219,9 @@ impl Input {
         let timing = c.timing(song).clone();
         let notes = effective
             .iter()
-            .map(|n| InputNote {
-                tick: n.tick.0,
-                time: timing.seconds_at(n.tick),
-                lane: n.lane,
-                panel: panels.get(n.lane as usize).copied().unwrap_or(0),
-                judgeable: timing.judgeable(n.tick),
-                end: n.kind.hold_end().map(|end| (end.0, timing.seconds_at(end))),
-                supported: matches!(
-                    n.kind,
-                    NoteKind::Tap
-                        | NoteKind::HoldHead { .. }
-                        | NoteKind::RollHead { .. }
-                        | NoteKind::Mine
-                        | NoteKind::Shock
-                        | NoteKind::Lift
-                ),
-                mine: matches!(n.kind, NoteKind::Mine | NoteKind::Shock),
-                shock: n.kind == NoteKind::Shock,
-                lift: n.kind == NoteKind::Lift,
-                roll: matches!(n.kind, NoteKind::RollHead { .. }),
-                roll_refresh: false,
+            .map(|n| {
+                let panel = panels.get(n.lane as usize).copied().unwrap_or(0);
+                InputNote::new(n, panel, &timing)
             })
             .collect();
         Ok(Self {
@@ -221,37 +233,6 @@ impl Input {
             rules: standard_rules(),
         })
     }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum Foot {
-    L,
-    R,
-}
-impl Foot {
-    pub fn index(self) -> usize {
-        usize::from(self == Self::R)
-    }
-    pub(crate) fn at(d: usize) -> Self {
-        if d == 0 { Self::L } else { Self::R }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Swing {
-    pub release: f64,
-    pub land: f64,
-    pub from: u8,
-    pub to: u8,
-    pub lift_m: f64,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Event {
-    pub time: f64,
-    pub music_time: f64,
-    pub tick: i64,
-    pub panel: u8,
-    pub foot: Foot,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub lift: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hold {
@@ -309,27 +290,6 @@ pub struct TimingAdjustment {
     pub minimum_swing: f64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Tracks {
-    #[serde(rename = "L")]
-    pub left: Vec<Swing>,
-    #[serde(rename = "R")]
-    pub right: Vec<Swing>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Initial {
-    #[serde(rename = "L")]
-    pub left: u8,
-    #[serde(rename = "R")]
-    pub right: u8,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Placement {
-    pub tile_pitch_mm: f64,
-    pub panel_anchor_mm: f64,
-    pub center_offset_mm: f64,
-    pub other_offset_mm: f64,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ContactPlan {
     #[serde(default = "default_layout", skip_serializing_if = "four")]
     pub layout: String,
@@ -360,7 +320,23 @@ pub struct ContactPlan {
 impl ContactPlan {
     pub fn pose_plan(&self) -> Result<ddi_hand_pose::Plan, String> {
         crate::search::rolls::validate_pulses(self)?;
-        ddi_hand_pose::Plan::load(&serde_json::to_vec(self).map_err(|e| e.to_string())?)
+        ddi_hand_pose::Plan::new(ddi_hand_pose::PlanParts {
+            version: self.version,
+            mat: self.mat,
+            // The default layout goes unnamed, as in the plan's JSON.
+            layout: if four(&self.layout) {
+                String::new()
+            } else {
+                self.layout.clone()
+            },
+            duration: self.duration,
+            initial: self.initial.clone(),
+            tracks: self.tracks.clone(),
+            placement: self.placement.clone(),
+            events: self.events.clone(),
+            mines: self.mines.clone(),
+            roll_pulses: self.roll_pulses.clone(),
+        })
     }
 }
 

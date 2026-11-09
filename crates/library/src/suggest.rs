@@ -151,7 +151,7 @@ impl Suggester {
                 }
         });
         let candidates: Box<dyn Iterator<Item = u32>> = match narrow {
-            Some(l) => Box::new(l.matched.clone().into_iter()),
+            Some(l) => Box::new(l.matched.iter().copied()),
             None => Box::new(0..self.entries.len() as u32),
         };
         let mut found: Vec<(Rank, u32)> = candidates
@@ -167,7 +167,7 @@ impl Suggester {
             .collect();
         *last = Some(Last {
             plain: plain.to_string(),
-            roman: roman.clone(),
+            roman,
             matched: found.iter().map(|&(_, i)| i).collect(),
         });
         let order = |&(ra, ia): &(Rank, u32), &(rb, ib): &(Rank, u32)| {

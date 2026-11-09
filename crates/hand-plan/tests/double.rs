@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
+use common::double_plan as plan;
 use ddi_chart::{Note, NoteKind, Tick};
-use ddi_hand_plan::{ContactPlan, Input, Options, PlannerJob, RollingPlanner};
+use ddi_hand_plan::{Input, RollingPlanner};
 use std::collections::BTreeMap;
 mod common;
 
@@ -75,24 +76,6 @@ fn input(kind: &str, mirror: bool) -> Input {
     notes.sort_by_key(|n| (n.tick, n.lane));
     song.charts[0].notes = notes;
     Input::from_song(&song, 0).unwrap()
-}
-fn plan(input: &Input) -> ContactPlan {
-    let mut job = PlannerJob::new(input.clone(), Options::default());
-    for _ in 0..1_000_000 {
-        if job.step() {
-            break;
-        }
-    }
-    let (plan, report) = job.finish().expect("bounded planner completes");
-    let plan = plan.unwrap_or_else(|| panic!("{report:?}"));
-    assert!(ddi_hand_plan::replay(input, &plan).unwrap().passed);
-    assert_eq!(plan.version, 2);
-    assert_eq!(plan.mat.unwrap().pads(), 2);
-    plan.pose_plan().unwrap();
-    for e in &plan.events {
-        assert_eq!(e.music_time, input.timing.seconds_at(Tick(e.tick)));
-    }
-    plan
 }
 #[test]
 fn double_contacts_cover_crossings_jumps_holds_rolls_lifts_and_hazards() {

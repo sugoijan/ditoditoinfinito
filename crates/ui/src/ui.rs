@@ -55,9 +55,7 @@
 
 use ddi_actor::screen::Viewport;
 use ddi_actor::text::TextMeasure;
-use ddi_actor::{
-    Actor, Blend, Clocks, Depth, Drawn, Kind, Problems, Quad, UNTEXTURED, Value, View,
-};
+use ddi_actor::{Actor, Blend, Clocks, Depth, Drawn, Kind, Problems, Quad, UNTEXTURED, View};
 
 use crate::controller_hints::{self as hints, Hints};
 use crate::event::{
@@ -960,9 +958,7 @@ impl Ui {
         self.time += f64::from(dt);
         self.pointer_art.update(dt);
         if self
-            .decoration_layer()
-            .and_then(|id| self.layer(id))
-            .and_then(|l| l.screen.presentation())
+            .decoration_presentation()
             .is_some_and(|p| !p.reduced_motion)
         {
             // The shell's clock where it gives one (the live art's), so
@@ -1008,19 +1004,14 @@ impl Ui {
                 && !matches!(layer.phase, Phase::Leaving(_))
             {
                 layer.built = size;
-                layer.root = layer.screen.build(&mut cx);
-                // The focused actor lit again.
-                if let Some(a) = layer
-                    .focused
-                    .as_deref()
-                    .and_then(|n| hit::find_mut(&mut layer.root, n))
-                {
-                    a.play("GainFocus", &mut Problems::default());
-                }
-                layer.root.finish_tweening();
+                rebuild(layer, &mut cx);
             }
             let mut problems = Problems::default();
-            layer.root.update(dt, &clocks, &mut problems);
+            // A covered screen at rest has nothing to step; its screen
+            // still runs (a prompt closes itself under the play).
+            if !matches!(layer.phase, Phase::Covered) || layer.root.in_motion() {
+                layer.root.update(dt, &clocks, &mut problems);
+            }
             layer.screen.update(dt, &mut layer.root, &mut cx);
             let mut entered = false;
             let mut covered = None;
@@ -1106,14 +1097,11 @@ impl Ui {
     /// input (or the chrome) in transition, with a tween left in its tree,
     /// or whose screen moves its contents by hand ([`Screen::moving`]).
     fn moving(&self) -> bool {
-        fn tweening(a: &Actor) -> bool {
-            a.tween_time_left() > 0.0 || a.children().iter().any(tweening)
-        }
         let chain = self.input_chain();
         self.layers
             .iter()
             .filter(|l| l.chrome || chain.contains(&l.id))
-            .any(|l| l.phase.in_transition() || l.screen.moving() || tweening(&l.root))
+            .any(|l| l.phase.in_transition() || l.screen.moving() || l.root.tween_time_left() > 0.0)
     }
 
     fn refresh_cursor(&mut self) {
@@ -1143,14 +1131,17 @@ impl Ui {
         self.pointer_art.visible
             && self.mouse.is_some()
             && matches!(self.cursor, Cursor::Default | Cursor::Pointer)
-            && self
-                .decoration_layer()
-                .and_then(|id| self.layer(id))
-                .and_then(|l| l.screen.presentation())
-                .is_some_and(|p| {
-                    p.cursor.0 != crate::state::settings::CursorStyle::System
-                        && p.look.image("PointerMask").is_some()
-                })
+            && self.decoration_presentation().is_some_and(|p| {
+                p.cursor.0 != crate::state::settings::CursorStyle::System
+                    && p.look.image("PointerMask").is_some()
+            })
+    }
+
+    /// The presentation of the layer the decorations are drawn from.
+    fn decoration_presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        self.decoration_layer()
+            .and_then(|id| self.layer(id))
+            .and_then(|l| l.screen.presentation())
     }
 
     fn draw_pointer(
@@ -1164,11 +1155,7 @@ impl Ui {
             return false;
         }
         let Some(pos) = self.mouse else { return false };
-        let Some(p) = self
-            .decoration_layer()
-            .and_then(|id| self.layer(id))
-            .and_then(|l| l.screen.presentation())
-        else {
+        let Some(p) = self.decoration_presentation() else {
             return false;
         };
         let seconds = if p.reduced_motion {
@@ -1252,15 +1239,7 @@ impl Ui {
             let transform = if layer.chrome || k == 1.0 && sh == [0.0, 0.0] {
                 base
             } else {
-                let [a, b, c, d, tx, ty] = base;
-                [
-                    a * k,
-                    b * k,
-                    c * k,
-                    d * k,
-                    a * sh[0] + c * sh[1] + tx,
-                    b * sh[0] + d * sh[1] + ty,
-                ]
+                hit::mul(&base, &[k, 0.0, 0.0, k, sh[0], sh[1]])
             };
             // The field being typed shows the field's text.
             let typing = text.as_ref().filter(|t| t.layer == layer.id).and_then(|t| {
@@ -1351,9 +1330,7 @@ impl Ui {
             || self.pointer_art.hit.is_some()
             || (self.active_animating
                 && self
-                    .decoration_layer()
-                    .and_then(|id| self.layer(id))
-                    .and_then(|l| l.screen.presentation())
+                    .decoration_presentation()
                     .is_some_and(|p| !p.reduced_motion))
             || self.mark_animating
             || self.repeater.holding()
@@ -1671,9 +1648,8 @@ impl Ui {
         self.next_id += 1;
         // A screen or a dialog over the field being typed into ends the
         // typing (a popup, such as its autocomplete, does not).
-        if (!overlay || modal) && self.text.take().is_some() {
-            self.ime_rect = None;
-            self.out.push(UiRequest::StopTextInput);
+        if (!overlay || modal) && self.text.is_some() {
+            self.stop_text();
         }
         let viewport = if self.building_chrome {
             self.viewport
@@ -1809,9 +1785,7 @@ impl Ui {
     /// What a leaving layer held: typing, pointers, hover, held keys.
     fn release_layer(&mut self, id: u64) {
         if self.text.as_ref().is_some_and(|t| t.layer == id) {
-            self.text = None;
-            self.ime_rect = None;
-            self.out.push(UiRequest::StopTextInput);
+            self.stop_text();
         }
         let held: Vec<u64> = self
             .pointers
@@ -1914,9 +1888,7 @@ impl Ui {
                 }
                 Op::EndText => {
                     if self.text.as_ref().is_some_and(|t| t.layer == id) {
-                        self.text = None;
-                        self.ime_rect = None;
-                        self.out.push(UiRequest::StopTextInput);
+                        self.stop_text();
                     }
                 }
             }
@@ -1934,15 +1906,7 @@ impl Ui {
             if matches!(layer.phase, Phase::Leaving(_)) {
                 continue;
             }
-            layer.root = layer.screen.build(&mut cx);
-            if let Some(a) = layer
-                .focused
-                .as_deref()
-                .and_then(|n| hit::find_mut(&mut layer.root, n))
-            {
-                a.play("GainFocus", &mut Problems::default());
-            }
-            layer.root.finish_tweening();
+            rebuild(layer, &mut cx);
             self.apply(id, cx);
         }
     }
@@ -2330,7 +2294,7 @@ impl Ui {
             return;
         }
         if let Some(action) = action {
-            let source = Source::Key(k.code.clone());
+            let source = Source::Key(k.code);
             self.repeater.press(source.clone(), action);
             self.menu_source = Some(source.clone());
             self.menu_key = true;
@@ -2485,6 +2449,13 @@ impl Ui {
             },
             gesture,
         );
+    }
+
+    /// Typing ends with nothing told to its screen.
+    fn stop_text(&mut self) {
+        self.text = None;
+        self.ime_rect = None;
+        self.out.push(UiRequest::StopTextInput);
     }
 
     /// Typing ends from outside the screen (the platform's field lost
@@ -2731,7 +2702,6 @@ impl Ui {
         if e.kind == PointerKind::Mouse && e.phase != PointerPhase::Leave {
             self.mouse = Some(pos);
         }
-        self.refresh_cursor();
     }
 
     fn cancel_pointer(&mut self, id: u64) {
@@ -2866,23 +2836,21 @@ fn start_transition(
     {
         layer.play("StartTransitioning", problems);
     }
-    tween_time_left(root, 0)
+    root.tween_time_left()
 }
 
-/// `ActorFrame::GetTweenTimeLeft`: the longest of the actor's and its
-/// children's.
-fn tween_time_left(a: &Actor, depth: usize) -> f32 {
-    let own = match a.getter("GetTweenTimeLeft") {
-        Some(Value::Num(t)) => t,
-        _ => 0.0,
-    };
-    if depth > 40 {
-        return own;
+/// A layer's screen built again as it is: its focused actor lit again,
+/// nothing left moving.
+fn rebuild(layer: &mut Layer, cx: &mut Cx) {
+    layer.root = layer.screen.build(cx);
+    if let Some(a) = layer
+        .focused
+        .as_deref()
+        .and_then(|n| hit::find_mut(&mut layer.root, n))
+    {
+        a.play("GainFocus", &mut Problems::default());
     }
-    a.children()
-        .iter()
-        .map(|c| tween_time_left(c, depth + 1))
-        .fold(own, f32::max)
+    layer.root.finish_tweening();
 }
 
 /// A solid quad over `[left, top, right, bottom]` under `m`.
@@ -2944,15 +2912,7 @@ fn spot_rect(root: &Actor, spot: &Spot) -> Option<[f32; 4]> {
         let mut p = path.clone();
         p.extend(inside);
         if let Some(r) = hit::visible_rect(root, &IDENTITY, &p) {
-            union = Some(match union {
-                None => r,
-                Some(u) => [
-                    u[0].min(r[0]),
-                    u[1].min(r[1]),
-                    u[2].max(r[2]),
-                    u[3].max(r[3]),
-                ],
-            });
+            union = Some(union.map_or(r, |u| ddi_actor::rect::union(u, r)));
         }
     }
     union.or_else(|| hit::visible_rect(root, &IDENTITY, &path))
@@ -3047,13 +3007,9 @@ fn field_marks(
         &m,
         &[1.0, 0.0, 0.0, 1.0, -w / 2.0, -h / 2.0 + metrics.baseline],
     );
-    let corners = [[caret[0], caret[1]], [caret[2], caret[3]]].map(|p| hit::apply(&in_virtual, p));
-    Some([
-        corners[0][0].min(corners[1][0]),
-        corners[0][1].min(corners[1][1]),
-        corners[0][0].max(corners[1][0]),
-        corners[0][1].max(corners[1][1]),
-    ])
+    Some(ddi_actor::rect::around(
+        [[caret[0], caret[1]], [caret[2], caret[3]]].map(|p| hit::apply(&in_virtual, p)),
+    ))
 }
 
 /// `F1`…`F24`: never bound (the browser's and the system's).

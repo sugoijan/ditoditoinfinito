@@ -13,7 +13,7 @@ use ddi_chart::{TICKS_PER_BEAT, Tick};
 
 use super::{EditorCall, EditorScreen, frame, trim_number, with_alpha};
 use crate::gesture::Gesture;
-use crate::look::{call, quad};
+use crate::look::quad_at;
 use crate::screen::Cx;
 use crate::state::editor::Sounds;
 use crate::state::editor::overview::Overview;
@@ -147,7 +147,7 @@ impl EditorScreen {
     pub(super) fn sound_lines(&self) -> Vec<(&'static str, String, &'static str)> {
         let mut lines = Vec::new();
         let s = self.editor.borrow().sounds();
-        if self.place.listen && (!self.geo.compact || s.metronome || s.clap) {
+        if !self.geo.compact || s.metronome || s.clap {
             // A list of two: "Metronome on · clap off".
             let metronome = if s.metronome {
                 em::panel_metronome_on()
@@ -198,27 +198,25 @@ impl EditorScreen {
 
     /// The menu's items for the sounds and the taps.
     pub(super) fn sound_items(&self, items: &mut Vec<(&'static str, String)>) {
-        if self.place.listen {
-            let s = self.editor.borrow().sounds();
-            items.push((
-                "metronome",
-                if s.metronome {
-                    em::menu_metronome_on()
-                } else {
-                    em::menu_metronome_off()
-                }
-                .into(),
-            ));
-            items.push((
-                "clap",
-                if s.clap {
-                    em::menu_clap_on()
-                } else {
-                    em::menu_clap_off()
-                }
-                .into(),
-            ));
-        }
+        let s = self.editor.borrow().sounds();
+        items.push((
+            "metronome",
+            if s.metronome {
+                em::menu_metronome_on()
+            } else {
+                em::menu_metronome_off()
+            }
+            .into(),
+        ));
+        items.push((
+            "clap",
+            if s.clap {
+                em::menu_clap_on()
+            } else {
+                em::menu_clap_off()
+            }
+            .into(),
+        ));
         if let Some(est) = self.estimate() {
             let bpm = bpm_text(rounded(est.bpm));
             items.push(("tap-bpm", em::menu_apply_tapped(&bpm).into()));
@@ -271,18 +269,26 @@ impl EditorScreen {
         (start, end)
     }
 
+    /// What the strip is drawn from.
+    pub(super) fn strip_key(&self) -> super::StripKey {
+        (
+            self.overview().map(std::ptr::from_ref),
+            self.overview_span(),
+            self.geo.overview,
+        )
+    }
+
     /// The strip: its plate and the music's loudness.
     pub(super) fn overview_strip(&self) -> Actor {
         let [x, y, w, h] = self.geo.overview;
         let env = &self.env;
         let mut c = Vec::new();
-        let mut plate = quad(
+        c.push(quad_at(
             "OverviewPlate",
             [w, h],
             with_alpha(env.color("Plate"), 0.55),
-        );
-        call(&mut plate, "xy", &[x + w / 2.0, y + h / 2.0]);
-        c.push(plate);
+            [x + w / 2.0, y + h / 2.0],
+        ));
         if let Some(o) = self.overview() {
             let (s0, s1) = self.overview_span();
             let n = (h / 3.0).floor().clamp(16.0, 400.0) as usize;
@@ -294,9 +300,12 @@ impl EditorScreen {
                 if level < 0.02 {
                     continue;
                 }
-                let mut bar = quad("", [(w - 4.0) * level, bar_h + 0.5], color);
-                call(&mut bar, "xy", &[x + w / 2.0, y + bar_h * (i as f32 + 0.5)]);
-                c.push(bar);
+                c.push(quad_at(
+                    "",
+                    [(w - 4.0) * level, bar_h + 0.5],
+                    color,
+                    [x + w / 2.0, y + bar_h * (i as f32 + 0.5)],
+                ));
             }
         }
         frame("Overview", c)
@@ -321,18 +330,19 @@ impl EditorScreen {
             )
         };
         let (a, b) = (y_of(top.min(bottom)), y_of(top.max(bottom)));
-        let mut c = Vec::new();
-        let mut band = quad(
+        let band = quad_at(
             "",
             [w, (b - a).max(2.0)],
             with_alpha(env.color("Accent"), 0.22),
+            [x + w / 2.0, (a + b) / 2.0],
         );
-        call(&mut band, "xy", &[x + w / 2.0, (a + b) / 2.0]);
-        c.push(band);
-        let mut line = quad("", [w + 4.0, 2.0], with_alpha(env.color("Accent"), 0.95));
-        call(&mut line, "xy", &[x + w / 2.0, y_of(shown)]);
-        c.push(line);
-        frame("OverviewMarks", c)
+        let line = quad_at(
+            "",
+            [w + 4.0, 2.0],
+            with_alpha(env.color("Accent"), 0.95),
+            [x + w / 2.0, y_of(shown)],
+        );
+        frame("OverviewMarks", vec![band, line])
     }
 
     /// A pointer on the strip: the cursor to the second under it (the
@@ -375,13 +385,13 @@ impl crate::Screen for TapDialog {
         "tap-tempo"
     }
     fn build(&mut self, cx: &mut Cx) -> Actor {
-        use crate::screens::select_dialogs::{button, fitted_dialog, shell, wrap};
+        use crate::screens::dialog::{button, fitted_dialog, shell};
         let vp = cx.viewport().screen;
         let (screen, scale) = crate::screens::narrow_fit(&self.env, vp);
         let w = 480.0_f32.min(screen[0] - 24.0);
         let (mut c, [x, y]) = shell(&self.env, screen, [w, 276.0], &em::tap_title());
         let mut text = self.env.text("Estimate", &self.status, 14.0, 400, "Text");
-        wrap(&mut text, w - 48.0);
+        crate::look::ellipsized(&mut text, w - 48.0);
         c.push(crate::screens::left(text, x + 24.0, y + 64.0));
         let bw = (w - 58.0) / 2.0;
         for (i, (id, label)) in [
@@ -409,23 +419,13 @@ impl crate::Screen for TapDialog {
         fitted_dialog(c, screen, 276.0, scale)
     }
     fn focusables(&self) -> Vec<crate::nav::Focusable> {
-        let names = ["Tap", "Apply", "ApplyOffset", "Reset", "Close"];
-        names
-            .iter()
-            .enumerate()
-            .map(|(i, n)| {
-                let mut f = crate::nav::Focusable::new(*n);
-                f.up = i.checked_sub(1).map(|j| names[j].into());
-                f.down = names.get(i + 1).map(|n| (*n).into());
-                f
-            })
-            .collect()
+        crate::nav::vertical_chain(&["Tap", "Apply", "ApplyOffset", "Reset", "Close"])
     }
     fn message(&mut self, m: &crate::Message, root: &mut Actor, _: &mut Cx) {
         if m.name == "Editor.TapStatus"
-            && let Some(crate::message::Param::Str(text)) = m.get("Text")
+            && let Some(text) = m.str("Text")
         {
-            self.status = text.clone();
+            self.status = text.to_string();
             crate::widgets::set_text(root, "Estimate", text);
         }
     }

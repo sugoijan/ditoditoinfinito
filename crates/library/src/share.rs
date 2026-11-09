@@ -45,41 +45,56 @@ use serde_json::Value;
 
 use crate::manifest::ManifestEntry;
 
-/// The expiries a share is made with: the server's word and the label.
-pub const EXPIRIES: [(&str, &str); 5] = [
-    ("1h", "1 hour"),
-    ("1d", "1 day"),
-    ("1w", "1 week"),
-    ("1m", "1 month"),
-    ("never", "Forever"),
-];
+/// The server's address where a build names no other: the Worker's
+/// route beside the app's page.
+pub const DEFAULT_BASE: &str = "https://sugoijan.dev/ditoditoinfinito/api";
 
-/// A share as the server answers `GET <base>/s/<id>` (and, without the
-/// URLs and the times, as `POST <base>/s` is sent). The records are the
-/// web's stored song records as JSON: the web reads them whole, desktop
-/// takes the entry and the pack ([`record_entry`]).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShareDoc {
+/// The server's words for how long a share lasts.
+pub const EXPIRIES: [&str; 5] = ["1h", "1d", "1w", "1m", "never"];
+
+/// A share as the server answers `GET <base>/s/<id>`. The records are
+/// the web's stored song records as JSON: the web reads them whole (`R`
+/// its record type), desktop takes the entry and the pack
+/// ([`record_entry`]).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ShareDoc<R = Value> {
     #[serde(default)]
     pub pack: String,
     /// Unix seconds; `None`: never.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub expires_at: Option<f64>,
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(default)]
     pub created_at: f64,
-    pub songs: Vec<ShareSongDoc>,
-    /// On reading: the art's URL, if any; on making: whether one comes.
+    pub songs: Vec<ShareSongDoc<R>>,
+    /// The art's URL, if any.
     #[serde(default)]
     pub pack_art: Value,
+    /// The share's id, as loaded (not in the server's answer).
+    #[serde(skip)]
+    pub id: String,
 }
 
-fn is_zero(v: &f64) -> bool {
-    *v == 0.0
+/// What `POST <base>/s` is sent: the share to make, its files by path
+/// and size (their bytes follow, one `PUT` each).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct NewShare<R = Value> {
+    pub pack: String,
+    /// One of [`EXPIRIES`].
+    pub expires: String,
+    pub songs: Vec<ShareSongDoc<R>>,
+    /// Whether the pack's art comes.
+    pub pack_art: bool,
+}
+
+/// The server's answer to `POST <base>/s`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Created {
+    pub id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShareSongDoc {
-    pub record: Value,
+pub struct ShareSongDoc<R = Value> {
+    pub record: R,
     #[serde(default)]
     pub files: Vec<ShareFileDoc>,
 }
@@ -168,6 +183,15 @@ impl ShareError {
         }
     }
 
+    /// What failed while `doing` (for the logs), the system's words kept:
+    /// for `map_err`.
+    pub fn failed<E: std::fmt::Display>(doing: &'static str) -> impl FnOnce(E) -> ShareError {
+        move |e| ShareError::Failed {
+            doing,
+            error: e.to_string(),
+        }
+    }
+
     /// The failure itself, under the names it happened to.
     pub fn root(&self) -> &ShareError {
         match self {
@@ -198,6 +222,16 @@ impl std::fmt::Display for ShareError {
             ShareError::NoChart(title) => write!(f, "{title}: its chart could not be read"),
             ShareError::In { name, error } => write!(f, "{name}: {error}"),
         }
+    }
+}
+
+/// The share's being gone, when `status` says so (a 404, or a 410 for
+/// one expired).
+pub fn gone_of(status: u16) -> Option<ShareError> {
+    match status {
+        404 => Some(ShareError::Gone { expired: false }),
+        410 => Some(ShareError::Gone { expired: true }),
+        _ => None,
     }
 }
 
@@ -447,6 +481,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(doc.songs[0].files[0].url, "s/x/f/0/a.ssc");
+        // Absent fields stay absent in what is sent.
+        let new = NewShare {
+            pack: "P".into(),
+            expires: "1w".into(),
+            songs: vec![ShareSongDoc {
+                record: serde_json::json!({"pack": "P"}),
+                files: vec![ShareFileDoc {
+                    path: "a.ssc".into(),
+                    bytes: 3.0,
+                    url: String::new(),
+                }],
+            }],
+            pack_art: false,
+        };
+        assert_eq!(
+            serde_json::to_string(&new).unwrap(),
+            r#"{"pack":"P","expires":"1w","songs":[{"record":{"pack":"P"},"files":[{"path":"a.ssc","bytes":3.0}]}],"pack_art":false}"#
+        );
+        assert_eq!(gone_of(410), Some(ShareError::Gone { expired: true }));
+        assert_eq!(gone_of(500), None);
         assert_eq!(
             resolve_url("https://w/app/api", &doc.songs[0].files[0].url),
             "https://w/app/api/s/x/f/0/a.ssc"

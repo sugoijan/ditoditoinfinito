@@ -1054,7 +1054,8 @@ fn the_assist_clap_lands_on_each_row_and_a_mine_sounds() {
             inputs,
         )
         .unwrap();
-        let rows = clap_rows(s.player.judge().notes());
+        let notes = s.player.judge().notes().iter();
+        let rows = clap_rows(notes.map(|n| (n.note.kind, n.judgeable, n.seconds)));
         let Some(SessionEvent::Finished { results, .. }) = run(&mut s, &clock, 60.0, 200.0) else {
             panic!("no end");
         };

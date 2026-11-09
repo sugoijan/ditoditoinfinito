@@ -37,7 +37,7 @@ use ddi_platform::DeviceProfile;
 use ddi_session::backgrounds::{MAX_BACKGROUND_SIDE, MAX_CHANGE_SIDE};
 use ddi_session::stage::{MAX_LAYER_SIDE, TEXT_SCALE};
 use gloo::events::{EventListener, EventListenerOptions};
-use gloo::render::{AnimationFrame, request_animation_frame};
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{AudioBuffer, HtmlElement, KeyboardEvent, PointerEvent};
@@ -46,7 +46,7 @@ use crate::calibration::{self, CalMode, Outcome};
 use crate::game_loop::GameLoop;
 use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
-use crate::router::Route;
+use crate::router::{PlayRoute, Route};
 use crate::settings::{Settings, VideoMode};
 use crate::songs::{LoadError, load_background, load_layer_image, load_song};
 use crate::web::audio::WebAudio;
@@ -291,7 +291,7 @@ pub(crate) struct GameCanvas {
     /// handle, the folder's name, and why the last ask failed.
     access: Option<(JsValue, String, Option<String>)>,
     stage: Stage,
-    raf: Rc<RefCell<Option<AnimationFrame>>>,
+    raf: Option<Rc<Frames>>,
     game: Rc<RefCell<Option<GameLoop>>>,
     names: Option<ddi_engine::rules::JudgeNames>,
     /// Layout of the chart played, for the results.
@@ -824,7 +824,7 @@ impl Component for GameCanvas {
             song: Status::Pending,
             access: None,
             stage: Stage::Idle,
-            raf: Rc::new(RefCell::new(None)),
+            raf: None,
             game: Rc::new(RefCell::new(None)),
             music: None,
             analyzing: false,
@@ -984,7 +984,7 @@ impl GameCanvas {
                 // pressure); anything else starts over on the new device.
                 if matches!(self.stage, Stage::Finished { .. }) {
                     self.device_lost = true;
-                    self.raf.borrow_mut().take();
+                    self.raf = None;
                     self.game.borrow_mut().take();
                     // The results' screen draws on the new device, as it was.
                     if let Some(r) = &self.results {
@@ -1634,10 +1634,9 @@ impl GameCanvas {
         }
         self.early_audio = None;
         self.shell.predecoded.take();
-        // The route can change inside a frame (the game loop or its
-        // animation frame borrowed): what is borrowed goes once that
-        // returns.
-        take_later(&self.raf);
+        // The route can change inside a frame (the game loop borrowed):
+        // it goes once that returns.
+        self.raf = None;
         take_later(&self.game);
         self.attachment = None;
     }
@@ -2287,20 +2286,6 @@ impl GameCanvas {
         // On the song's timing as played, so the song offset moves them too.
         let schedule = match &ctx.props().source {
             SongSource::Song { .. } => {
-                // Movies the import found but that do not play, scripted
-                // animations that exist: the second layer shows nothing for
-                // them.
-                let unshowable: Vec<&str> = song
-                    .entry
-                    .iter()
-                    .flat_map(|e| {
-                        e.bg_videos
-                            .iter()
-                            .filter(|v| !v.plays())
-                            .map(|v| v.name.as_str())
-                            .chain(e.bg_scripted.iter().map(|p| p.as_str()))
-                    })
-                    .collect();
                 // Folders with a `default.lua`: scripted backgrounds.
                 let scripts = song.entry.as_ref().map_or(Vec::new(), |e| {
                     backgrounds::script_folders_of(&e.bg_scripts)
@@ -2308,15 +2293,15 @@ impl GameCanvas {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.retime_scripts(&backgrounds::foregrounds(&play_song, &scripts));
                 }
-                backgrounds::layers(
-                    &play_song,
-                    &song.bg_images,
-                    &song.bg_videos,
-                    &scripts,
-                    &unshowable,
-                    &song.random,
-                    song.has_background,
-                )
+                song.entry.as_ref().map_or_else(Default::default, |e| {
+                    backgrounds::layers_of(
+                        &play_song,
+                        e,
+                        &song.bg_images,
+                        &song.bg_videos,
+                        &song.random,
+                    )
+                })
             }
             SongSource::Calibration(_) => Default::default(),
         };
@@ -2330,7 +2315,7 @@ impl GameCanvas {
                 }
                 self.layout = Some(session.layout.clone());
                 // The ruleset is chosen per chart when the session starts.
-                self.names = Some(session.names.clone());
+                self.names = Some(session.rules.names.clone());
                 self.rules = Some(session.rules.fresh());
                 self.song_length = session.length;
                 // The lyrics drawn over the play by the 2D pass
@@ -2406,7 +2391,7 @@ impl GameCanvas {
                     if let Some(game) = self.game.borrow_mut().as_mut() {
                         game.scene_mode();
                     }
-                    schedule(self.raf.clone(), self.game.clone(), GameLoop::frame);
+                    self.raf = Some(schedule(self.game.clone(), GameLoop::frame));
                 }
             }
             return;
@@ -2595,8 +2580,8 @@ impl GameCanvas {
                 PromptInfo {
                     timing: self.timing_hint(ctx),
                     ..PromptInfo::for_chart(
-                        entry.title.clone(),
-                        entry.artist.clone(),
+                        entry.title,
+                        entry.artist,
                         chart,
                         &self.settings,
                         Badge::new(false, props.auto),
@@ -2688,14 +2673,14 @@ impl GameCanvas {
         let state = self.prompt_state.clone();
         let extra = Box::new(move |obj: &js_sys::Object| prompt_debug(obj, &state.borrow()));
         // The play's frames stop; the screen draws, the loop idles.
-        self.raf.borrow_mut().take();
+        self.raf = None;
         match crate::components::ui_dev::embed(&container, ui, theme, extra) {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
                 let pads = self.gamepads.as_ref().map(Gamepads::connected);
                 crate::components::ui_dev::hand_over(&e.host, pads.unwrap_or_default());
                 self.prompt = Some(e);
-                schedule(self.raf.clone(), self.game.clone(), GameLoop::idle);
+                self.raf = Some(schedule(self.game.clone(), GameLoop::idle));
             }
             Err(e) => web_sys::console::warn_1(&format!("start prompt: {e}").into()),
         }
@@ -2730,7 +2715,7 @@ impl GameCanvas {
             return;
         }
         self.results_host.borrow_mut().take();
-        self.raf.borrow_mut().take();
+        self.raf = None;
         crate::generated::set_still(None, None);
         crate::web::forget_debug(&["ui", "prompt", "prompt_backdrop"]);
     }
@@ -3004,8 +2989,6 @@ impl GameCanvas {
             return;
         };
         let settings = Settings::load();
-        let entry = song.entry.clone();
-        let bpm_text = entry.as_ref().map(|e| e.bpm.clone()).unwrap_or_default();
         let played = song.song.charts.get(chart);
         let chart_line = match played {
             Some(c) => ddi_ui::screens::prompt::chart_line(
@@ -3016,12 +2999,9 @@ impl GameCanvas {
             None => layout.name.clone(),
         };
         let song_entry = SongEntry {
-            id: id.clone(),
             title: song.title.clone(),
             subtitle: String::new(),
             artist: song.subtitle.clone(),
-            bpm: bpm_text.parse().unwrap_or(0.0),
-            bpm_text,
             length: self.song_length as f32,
             banner: song.banner.clone(),
             // The background the play read, kept; else the banner.
@@ -3057,7 +3037,6 @@ impl GameCanvas {
             device_changed: *device_changed,
             video_notes,
             offset: Some((self.played_offset, settings.song_offset(&id))),
-            panels: settings.results_panels.clone(),
             autoplay: match &kept {
                 Some(r) => r.record.autoplay.is_some(),
                 None => ctx.props().auto,
@@ -3084,19 +3063,11 @@ impl GameCanvas {
             None => self.play_id.clone(),
         };
         let replay: Option<ActionFn> = replay_id.map(|play| {
-            let route = Route::Play {
-                song: String::new(),
-                chart: 0,
+            let route = Route::Play(PlayRoute {
                 force_gl: ctx.props().backend == BackendPreference::WebGl2,
-                auto: false,
-                auto_pad: false,
-                bias_ms: 0,
                 slow: ctx.props().slow,
-                replay: Some(play),
-                view_results: false,
-                edit: false,
-                scene: None,
-            };
+                ..PlayRoute::replay(play, false)
+            });
             Rc::new(move |_: &ddi_ui::screens::Env, _: &mut ddi_ui::Cx| {
                 let route = route.clone();
                 spawn_local(async move { route.navigate() });
@@ -3141,7 +3112,7 @@ impl GameCanvas {
         } else {
             retry
         };
-        let offset = ddi_ui::screens::play::song_offset_saver(id.clone());
+        let offset = ddi_ui::screens::play::song_offset_saver(id);
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
@@ -3173,7 +3144,7 @@ impl GameCanvas {
             js_debug(obj, &data, &st);
         });
         // The play's frames stop; the screen draws.
-        self.raf.borrow_mut().take();
+        self.raf = None;
         match crate::components::ui_dev::embed(&container, ui, theme, extra) {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
@@ -3461,25 +3432,54 @@ fn coarse_pointer() -> bool {
         .is_some_and(|q| q.matches())
 }
 
+/// The play's loop while it runs: what each animation frame does (one
+/// closure, so a frame makes no garbage) and the frame asked for, which
+/// is called off when this goes.
+struct Frames {
+    tick: Closure<dyn FnMut(f64)>,
+    id: std::cell::Cell<Option<i32>>,
+}
+
+impl Frames {
+    fn request(&self) {
+        if let Some(window) = web_sys::window()
+            && let Ok(id) = window.request_animation_frame(self.tick.as_ref().unchecked_ref())
+        {
+            self.id.set(Some(id));
+        }
+    }
+}
+
+impl Drop for Frames {
+    fn drop(&mut self) {
+        if let (Some(window), Some(id)) = (web_sys::window(), self.id.take()) {
+            let _ = window.cancel_animation_frame(id);
+        }
+    }
+}
+
 /// The play's loop: `step` on each animation frame while the game lives
 /// (`GameLoop::frame`; `GameLoop::idle` while the start prompt draws, which
-/// measures and readies, drawing nothing).
-fn schedule(
-    raf: Rc<RefCell<Option<AnimationFrame>>>,
-    game: Rc<RefCell<Option<GameLoop>>>,
-    step: fn(&mut GameLoop, f64),
-) {
-    let raf2 = raf.clone();
-    let game2 = game.clone();
-    let handle = request_animation_frame(move |time_ms| {
-        if let Some(g) = game2.borrow_mut().as_mut() {
-            step(g, time_ms);
-        } else {
-            return;
+/// measures and readies, drawing nothing) and what it returns is kept.
+fn schedule(game: Rc<RefCell<Option<GameLoop>>>, step: fn(&mut GameLoop, f64)) -> Rc<Frames> {
+    let frames = Rc::new_cyclic(|frames: &Weak<Frames>| {
+        let frames = frames.clone();
+        Frames {
+            tick: Closure::new(move |time_ms| {
+                if let Some(g) = game.borrow_mut().as_mut() {
+                    step(g, time_ms);
+                } else {
+                    return;
+                }
+                if let Some(frames) = frames.upgrade() {
+                    frames.request();
+                }
+            }),
+            id: Default::default(),
         }
-        schedule(raf2, game2, step);
     });
-    *raf.borrow_mut() = Some(handle);
+    frames.request();
+    frames
 }
 
 /// Pixels of a work's layers kept decoded, in all (each is kept twice: the
@@ -3512,21 +3512,11 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             }
             // The song's own images, then those found in shared folders,
             // under the names it uses; the movies that play.
-            let bg_images: Vec<String> = loaded
-                .entry
-                .bg_images
-                .iter()
-                .map(|p| p.to_string())
-                .chain(loaded.shared_bg.iter().map(|(name, _)| name.clone()))
-                .collect();
-            let bg_videos: Vec<String> = loaded
-                .entry
-                .bg_videos
-                .iter()
-                .filter(|v| v.plays())
-                .map(|v| v.name.to_string())
-                .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
-                .collect();
+            let (bg_images, bg_videos) = backgrounds::files_shown(
+                &loaded.entry,
+                loaded.shared_bg.iter().map(|(name, _)| name.as_str()),
+                loaded.shared_videos.iter().map(|(name, _)| name.as_str()),
+            );
             // Random movies apart: a song without changes would take one
             // among its own movies for its folder's one movie.
             if !random_movies {

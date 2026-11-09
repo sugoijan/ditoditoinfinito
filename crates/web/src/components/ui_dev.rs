@@ -51,9 +51,7 @@ use std::collections::VecDeque;
 use std::rc::{Rc, Weak};
 
 use crate::component::{Component, Context, NodeRef};
-use ddi_platform::storage::{self, Area};
 use ddi_render::DrawList;
-use ddi_render::texture_cache::TextureKey;
 use ddi_ui::dev::{self, DevScreen, Shared};
 use ddi_ui::dev_widgets::{FoldFn, LIBRARY_MESSAGE, LibrarySong, SharedWidgets, WidgetScreen};
 use ddi_ui::event::{
@@ -450,6 +448,76 @@ fn document() -> web_sys::Document {
 
 pub(crate) type Started = (Rc<RefCell<Host>>, Vec<EventListener>, Option<Gamepads>);
 
+/// What a page with its UI on the canvas keeps and does alike (song
+/// select, Options, the editor, the studio, the plain pages).
+#[derive(Default)]
+pub(crate) struct UiPage {
+    /// The UI, once started.
+    pub(crate) started: Option<Started>,
+    /// Why the UI cannot run; the page says it instead.
+    failure: Option<String>,
+}
+
+impl UiPage {
+    /// Runs `ui` in the page's root ([`start_ui`]), the device to come
+    /// ([`attach_gfx`]); what started, for the page's own hooks. Why it
+    /// could not start, or the device did not come, goes to `failed`.
+    pub(crate) fn start<C: Component>(
+        &mut self,
+        ctx: &Context<C>,
+        ui: Ui,
+        theme: Option<ThemeHost>,
+        extra: Option<DebugFn>,
+        failed: fn(String) -> C::Message,
+    ) -> Option<&mut Started> {
+        match start_ui(ctx.root(), ui, theme, extra) {
+            Ok(started) => {
+                let link = ctx.link().clone();
+                attach_gfx(started.0.clone(), move |e| link.send_message(failed(e)));
+                Some(self.started.insert(started))
+            }
+            Err(e) => {
+                ctx.link().send_message(failed(e));
+                None
+            }
+        }
+    }
+
+    /// The UI stopped, for `reason`: [`UiPage::view`] says it from now on.
+    pub(crate) fn fail(&mut self, reason: String) {
+        self.failure = Some(reason);
+        self.stop();
+    }
+
+    /// The page's root as `class`, where the UI runs (`true`); else the
+    /// page saying why it does not.
+    pub(crate) fn view<C: Component>(&self, ctx: &Context<C>, class: &str) -> bool {
+        match &self.failure {
+            Some(reason) => {
+                crate::component::no_gpu(ctx.root(), reason);
+                false
+            }
+            None => {
+                ctx.root().set_class_name(class);
+                true
+            }
+        }
+    }
+
+    /// The route left: the UI stopped, what it wrote under `debug_keys`
+    /// forgotten.
+    pub(crate) fn destroy(&self, debug_keys: &[&str]) {
+        self.stop();
+        crate::web::forget_debug(debug_keys);
+    }
+
+    fn stop(&self) {
+        if let Some((host, _, pads)) = &self.started {
+            stop_ui(host, pads.as_ref());
+        }
+    }
+}
+
 /// A page's UI on the theme's design: under the boot shell its screen
 /// comes in as the shell fades; the theme draws its own focus.
 pub(crate) fn theme_ui() -> Ui {
@@ -461,7 +529,7 @@ pub(crate) fn theme_ui() -> Ui {
 
 /// Gives the host the app's device once it is there; `failed` hears why it
 /// is not.
-pub(crate) fn attach_gfx(host: Rc<RefCell<Host>>, failed: impl FnOnce(String) + 'static) {
+fn attach_gfx(host: Rc<RefCell<Host>>, failed: impl FnOnce(String) + 'static) {
     wasm_bindgen_futures::spawn_local(async move {
         match screen::gfx().await {
             Ok(gfx) => {
@@ -639,7 +707,7 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
 /// whole window in `el`, a route of its own: its frame, the hidden inputs,
 /// the listeners, the pads, history for its dialogs; `extra` adds to
 /// `__DDI_DEBUG`. The device comes later ([`attach_gfx`]).
-pub(crate) fn start_ui(
+fn start_ui(
     el: &HtmlElement,
     ui: Ui,
     theme: Option<ThemeHost>,
@@ -764,10 +832,7 @@ fn new_host(
     let mut ui = ui;
     // The menus' controller bindings (Options gives the UI its edits),
     // and whether a pad's press is a user gesture here (not in WebKit).
-    ui.set_controls(
-        settings.controls.clone(),
-        settings.controller_styles.clone(),
-    );
+    ui.set_controls(settings.controls, settings.controller_styles);
     ui.set_pad_gesture(!is_webkit());
     let host = Rc::new(RefCell::new(Host {
         ui,
@@ -1824,9 +1889,7 @@ impl Host {
                 }
                 UiRequest::Quit => {}
                 UiRequest::StartAudio => self.beep(),
-                UiRequest::PlayPreview { .. } | UiRequest::StopPreview => {}
                 UiRequest::Announce(line) => crate::announcers::announce(line),
-                UiRequest::Redraw => {}
                 UiRequest::SetCursor(c) => {
                     let css = match c {
                         Cursor::Hidden => "none",
@@ -1838,9 +1901,6 @@ impl Host {
                     };
                     self.cursor = css;
                     screen::set_shape(css);
-                }
-                UiRequest::Persist { key, value } => {
-                    let _ = storage::set(Area::Local, &key, &value);
                 }
                 UiRequest::CopyText(text) => {
                     if let Some(w) = web_sys::window() {
@@ -2063,34 +2123,10 @@ impl Host {
             return;
         };
         let scale = vp.scale;
-        let shift = [
-            1.0,
-            0.0,
-            0.0,
-            1.0,
-            vp.offset[0] / scale,
-            vp.offset[1] / scale,
-        ];
         let ui = &mut self.ui;
         let list = &mut self.list;
-        let dpr = vp.scale;
         let prepared = screen::with_painter(&gfx, |p| {
-            let drawn = {
-                let mut measure = p.measure(scale);
-                ui.draw_in(&mut measure, shift)
-            };
-            list.clear();
-            // Actor textures to the cache's, by source and the size drawn
-            // (only what is drawn is asked for, P9).
-            ddi_render::actors2d::append(&drawn, list, &mut |t| {
-                let image = ui.texture_source(t)?;
-                let key = if image.blurred {
-                    TextureKey::blurred(image.source, image.side)
-                } else {
-                    TextureKey::drawn(image.source, image.side * dpr)
-                };
-                Some(p.texture(key))
-            });
+            ddi_shell::ui_list(ui, p, list);
             p.stats().textures
         });
         let Some(stats) = prepared else {

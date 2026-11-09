@@ -4,21 +4,8 @@
 
 use std::rc::Rc;
 
-use ddi_chart::{Difficulty, Quantization};
-
-/// The difficulties in their order (StepMania's `Difficulty` enum).
-pub const DIFFICULTIES: [Difficulty; 6] = Difficulty::ALL;
-
-/// A difficulty's place in [`DIFFICULTIES`] (its declaration order).
-pub fn difficulty_index(d: Difficulty) -> usize {
-    d as usize
-}
-
-/// A difficulty's name, as commands and colors are named
-/// (`Difficulty.Hard`).
-pub fn difficulty_name(d: Difficulty) -> &'static str {
-    d.name()
-}
+pub use ddi_chart::Difficulty;
+use ddi_chart::Quantization;
 
 /// A style's name as the screens show it (`common-style-*`): a layout of
 /// ours by its message, a Dancing☆Onigiri mode by its keys, a generic
@@ -94,7 +81,7 @@ pub struct StyleDef {
 }
 
 /// A chart of a song.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChartEntry {
     /// Its style's id.
     pub style: String,
@@ -114,30 +101,16 @@ pub struct ChartEntry {
     /// What kind of version the game made it as, which the list marks
     /// ("Without center", "From Pump single"); `None` for an original.
     pub version: Option<ddi_chart::simplify::Kind>,
-    /// Whether that version leaves notes out, its plays assisted (a
-    /// conversion's are not).
-    pub assisted: bool,
-}
-
-impl Default for ChartEntry {
-    fn default() -> ChartEntry {
-        ChartEntry {
-            style: String::new(),
-            difficulty: Difficulty::Beginner,
-            meter: 0,
-            notes: 0,
-            credit: String::new(),
-            index: 0,
-            name: String::new(),
-            best: None,
-            digest: None,
-            version: None,
-            assisted: false,
-        }
-    }
 }
 
 impl ChartEntry {
+    /// Whether its version leaves notes out, its plays assisted (a
+    /// conversion's are not).
+    pub fn assisted(&self) -> bool {
+        self.version
+            .is_some_and(ddi_chart::simplify::Kind::assisted)
+    }
+
     /// Named: an Edit (or a Dancing☆Onigiri chart) with a name, which it
     /// goes by.
     pub fn named(&self) -> bool {
@@ -150,7 +123,7 @@ impl ChartEntry {
         if self.named() {
             self.name.trim().to_string()
         } else {
-            difficulty_name(self.difficulty).to_string()
+            self.difficulty.name().to_string()
         }
     }
 
@@ -237,6 +210,26 @@ pub struct Notice {
     pub error: bool,
 }
 
+impl Notice {
+    /// An error, without a link.
+    pub fn error(text: impl Into<String>) -> Notice {
+        Notice {
+            text: text.into(),
+            link: None,
+            error: true,
+        }
+    }
+
+    /// A quiet line, without a link.
+    pub fn quiet(text: impl Into<String>) -> Notice {
+        Notice {
+            text: text.into(),
+            link: None,
+            error: false,
+        }
+    }
+}
+
 /// Where the game runs, for the screens' wording: the shell says (the
 /// screens are the same; what keeping songs means is not).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -264,8 +257,6 @@ impl Platform {
 /// The import dialog's state: the options, what runs, the last report.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImportView {
-    /// Whose wording (the shell's platform).
-    pub platform: Platform,
     /// The browser keeps a chosen folder's handle (Chromium): the copy
     /// option applies.
     pub folders: bool,
@@ -404,8 +395,6 @@ pub struct SongEntry {
     pub artist: String,
     /// Its pack's name; `None` for a bundled song.
     pub pack: Option<String>,
-    /// The display BPM.
-    pub bpm: f32,
     /// As shown ("160", "90–180").
     pub bpm_text: String,
     /// Seconds.
@@ -436,7 +425,7 @@ impl SongEntry {
     /// Its charts in style `style`, easiest first.
     pub fn charts_in(&self, style: &str) -> Vec<&ChartEntry> {
         let mut v: Vec<&ChartEntry> = self.charts.iter().filter(|c| c.style == style).collect();
-        v.sort_by_key(|c| (difficulty_index(c.difficulty), c.meter));
+        v.sort_by_key(|c| (c.difficulty as usize, c.meter));
         v
     }
 
@@ -512,10 +501,10 @@ pub fn clock(seconds: f32) -> String {
 /// `ScreenSelectMusic::SwitchToPreferredDifficulty`, which keeps the
 /// first of equal differences in its easiest-first list).
 pub fn closest(charts: &[&ChartEntry], preferred: Difficulty) -> Option<usize> {
-    let want = difficulty_index(preferred) as i32;
+    let want = preferred as i32;
     let mut best: Option<(usize, i32)> = None;
     for (i, c) in charts.iter().enumerate() {
-        let d = (difficulty_index(c.difficulty) as i32 - want).abs();
+        let d = (c.difficulty as i32 - want).abs();
         if best.is_none_or(|(_, b)| d < b) {
             best = Some((i, d));
         }
@@ -600,6 +589,15 @@ pub struct SharesView {
 }
 
 impl SharesView {
+    /// The shares could not be read, for `error`.
+    pub fn failed(error: ddi_library::share::ShareError) -> SharesView {
+        SharesView {
+            state: SharesState::Failed,
+            error: Some(error),
+            ..SharesView::default()
+        }
+    }
+
     /// The server's `listing` read, each share with its link (`link`).
     pub fn from_listing(
         listing: ddi_library::share::ShareListing,
@@ -642,6 +640,15 @@ pub struct SharedView {
     pub pack: String,
     /// "expires in 3 days"; `None`: it never does.
     pub expires: Option<String>,
+}
+
+impl SharedView {
+    /// The share of `pack`, expiring at `expires_at` (`None`: never),
+    /// at `now` (both Unix seconds).
+    pub fn new(pack: String, expires_at: Option<f64>, now: f64) -> SharedView {
+        let expires = expires_at.map(|at| super::options_dialogs::expires_in(Some(at), now).into());
+        SharedView { pack, expires }
+    }
 }
 
 /// A judgement row of results.
@@ -809,8 +816,6 @@ pub struct ResultsData {
     /// The panel sets offered, and the one shown.
     pub panel_sets: Vec<PanelSet>,
     pub panel_set: usize,
-    /// A note under the footer ("Sample play: …").
-    pub note: String,
     /// A play just played, a replay just watched, or a kept play opened.
     pub kind: ResultsKind,
 }
@@ -828,6 +833,13 @@ pub enum ResultsKind {
 }
 
 impl ResultsData {
+    /// The panels of the set shown.
+    pub fn panels(&self) -> &[PanelKind] {
+        self.panel_sets
+            .get(self.panel_set)
+            .map_or(&[], |s| s.panels.as_slice())
+    }
+
     /// The mean and standard deviation of the hits' offsets, ms.
     pub fn timing(&self) -> (f32, f32) {
         let v: Vec<f32> = self.hits.iter().filter_map(|h| h.offset).collect();
@@ -964,6 +976,21 @@ impl OptionDef {
     pub fn value(&self) -> &str {
         self.values().get(self.index).map_or("", String::as_str)
     }
+
+    /// The index `by` values from this one, going round with `wrap`, else
+    /// stopping at the ends; a row without values stays.
+    pub fn stepped(&self, by: i32, wrap: bool) -> usize {
+        let n = self.values().len() as i32;
+        if n == 0 {
+            return self.index;
+        }
+        let to = self.index as i32 + by;
+        (if wrap {
+            to.rem_euclid(n)
+        } else {
+            to.clamp(0, n - 1)
+        }) as usize
+    }
 }
 
 /// A section of options.
@@ -997,12 +1024,12 @@ mod tests {
 
     #[test]
     fn difficulties_in_order_by_name() {
-        for (i, d) in DIFFICULTIES.into_iter().enumerate() {
-            assert_eq!(difficulty_index(d), i);
-            assert_eq!(difficulty_name(d), format!("{d:?}"));
+        for (i, d) in Difficulty::ALL.into_iter().enumerate() {
+            assert_eq!(d as usize, i);
+            assert_eq!(d.name(), format!("{d:?}"));
             assert_eq!(Difficulty::from_name(d.name()), Some(d));
         }
-        assert!(DIFFICULTIES.is_sorted());
+        assert!(Difficulty::ALL.is_sorted());
         assert_eq!(Difficulty::from_name("hard"), None);
     }
 

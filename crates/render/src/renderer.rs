@@ -33,6 +33,18 @@ pub enum SkinBlending {
     Encoded(wgpu::TextureFormat),
 }
 
+impl SkinBlending {
+    /// How a field drawn into a plain texture blends: through `float` (a
+    /// float format the device renders and blends; `None`: straight into
+    /// the plain texture).
+    pub fn for_picture(float: Option<wgpu::TextureFormat>) -> SkinBlending {
+        match float {
+            Some(f) => SkinBlending::Encoded(f),
+            None => SkinBlending::Scene,
+        }
+    }
+}
+
 pub struct Renderer {
     /// The touch screens' quit button, drawn over a play
     /// ([`Renderer::set_quit_button`]).
@@ -144,6 +156,26 @@ impl Renderer {
         self.offscreen = drawn.then(|| Offscreen::new(device, self.format, float));
     }
 
+    /// Makes a little more of what a play's first frames would stop for
+    /// (the skin's materials and atlas, the quads' pipelines), called
+    /// behind the start prompt; whether it is all made.
+    pub fn warm(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        layer: Option<&dyn crate::noteskin::NoteLayer>,
+    ) -> bool {
+        /// A frame's share: a few milliseconds at most, compiled in place.
+        const PIPELINES: usize = 3;
+        if let Some(l) = layer {
+            if !self.textured.warm_material(device, l.skin_materials()) {
+                return false;
+            }
+            self.textured.pack(device, encoder, l.atlas_textures());
+        }
+        self.textured.warm_pipelines(device, PIPELINES)
+    }
+
     /// Lets the textures kept at the frame's size go (offscreen, the
     /// stencil), for a renderer not drawing for a while: the next frame
     /// makes them again. Dropped, not destroyed: an encoder not yet
@@ -224,8 +256,7 @@ impl Renderer {
 
     /// Lets every background image and movie go: ids from
     /// [`Renderer::add_background`] and [`Renderer::add_video`] start
-    /// again from the first (song select's preview movie, one song's at a
-    /// time: `crate::movie_picture`).
+    /// again from the first.
     pub fn clear_backgrounds(&mut self) {
         self.background.clear_images();
     }
@@ -244,20 +275,14 @@ impl Renderer {
         height: u32,
         backdrop: crate::Backdrop,
     ) {
-        let prepared = self.background.prepare(
-            device,
-            queue,
-            width as f32,
-            height as f32,
-            1.0,
-            backdrop,
-            None,
-            None,
-            Default::default(),
-        );
-        self.background.draw_extension(encoder, &prepared);
-        let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK), None);
-        self.background.draw(&mut pass, &prepared);
+        self.background
+            .render_backdrop(device, queue, encoder, view, width, height, backdrop);
+    }
+
+    /// The backgrounds' own pipeline: what a play's movie decks put their
+    /// frames on.
+    pub fn background_mut(&mut self) -> &mut BackgroundPipeline {
+        &mut self.background
     }
 
     /// Refresh filtered copies after an external RGB movie frame upload.
@@ -730,7 +755,7 @@ impl Renderer {
             // is drawn so far (offscreen); one of the same kind (a run of
             // a skin's masked quads) goes on.
             let turned = n > 0 && plans[n - 1].plain != pass_plan.plain;
-            if pass_plan.plain && (turned || n == 0) {
+            if offscreen.is_some() && pass_plan.plain && (turned || n == 0) {
                 // The run's quads, over its passes (a masked run's too);
                 // what draws no color left out.
                 let end = plans[n..]
@@ -776,7 +801,7 @@ impl Renderer {
             {
                 // The conversion's pipelines have no stencil: a pass of
                 // its own before a masked run.
-                let mut pass = begin_pass(encoder, target, load, None);
+                let mut pass = crate::gpu::color_pass(encoder, "ddi-scene", target, load, None);
                 convert(&mut pass, o, r);
                 drop(pass);
                 load = wgpu::LoadOp::Load;
@@ -788,7 +813,7 @@ impl Renderer {
                 )),
                 _ => None,
             };
-            let mut pass = begin_pass(encoder, target, load, depth);
+            let mut pass = crate::gpu::color_pass(encoder, "ddi-scene", target, load, depth);
             if let Some((o, r)) = conversion
                 && !pass_plan.stencil
             {
@@ -812,7 +837,8 @@ impl Renderer {
             }
         }
         if let Some(o) = offscreen {
-            let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK), None);
+            let black = wgpu::LoadOp::Clear(wgpu::Color::BLACK);
+            let mut pass = crate::gpu::color_pass(encoder, "ddi-scene", view, black, None);
             if self.encoded {
                 o.scene_to_plain(&mut pass);
             } else {
@@ -958,31 +984,6 @@ fn filter_path(amount: f32, lanes: bool, behind: bool, in_shaders: bool) -> Filt
     } else {
         FilterPath::Quad
     }
-}
-
-/// A pass drawing to `target`, with `depth` (the stencil) if given.
-fn begin_pass<'e>(
-    encoder: &'e mut wgpu::CommandEncoder,
-    target: &wgpu::TextureView,
-    load: wgpu::LoadOp<wgpu::Color>,
-    depth: Option<wgpu::RenderPassDepthStencilAttachment<'_>>,
-) -> wgpu::RenderPass<'e> {
-    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("ddi-scene"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: target,
-            resolve_target: None,
-            depth_slice: None,
-            ops: wgpu::Operations {
-                load,
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: depth,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        multiview_mask: None,
-    })
 }
 
 #[cfg(test)]

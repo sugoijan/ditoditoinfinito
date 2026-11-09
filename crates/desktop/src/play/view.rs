@@ -570,7 +570,6 @@ impl View {
             .take()
             .unwrap_or_else(|| session.predicted_present(now));
         let frame = session.frame(present);
-        let v = session.view;
         let started = session.player.started();
         let playing = started && !session.player.finished();
         self.upload_backgrounds(device, queue, playing.then_some(frame.song_time));
@@ -587,7 +586,7 @@ impl View {
                 self.movies.update(
                     &self.schedule,
                     frame.song_time,
-                    &mut self.renderer,
+                    self.renderer.background_mut(),
                     device,
                     queue,
                 );
@@ -598,14 +597,11 @@ impl View {
                         .or(self.refresh_hint)
                         .unwrap_or(60.0);
                     let late = self.movies.late();
-                    match self
-                        .guard
-                        .step(now.0 * 1000.0, drawing, second, refresh, late)
+                    if let Some(action) =
+                        self.guard
+                            .step(now.0 * 1000.0, drawing, second, refresh, late)
                     {
-                        Some(ddi_platform::video::GuardAction::Pause) => self.movies.pause(),
-                        Some(ddi_platform::video::GuardAction::Resume) => self.movies.resume(),
-                        Some(ddi_platform::video::GuardAction::Off(r)) => self.movies.turn_off(r),
-                        None => {}
+                        self.movies.obey(action);
                     }
                 }
             }
@@ -614,10 +610,6 @@ impl View {
         let _ = (second, &self.guard, self.video);
         let mut render = render;
         render.hud_time = Some(now.0);
-        render.hide_notes = v.hide_notes;
-        render.cancel_progress = v.cancel_progress;
-        render.cancel_hint = v.cancel_hint;
-        render.restarting = v.restarting;
         render.frame_aspect = frame_aspect;
         if let Some(entrance) = &mut self.entrance {
             let reveal = entrance.sample(now.0);
@@ -657,29 +649,22 @@ impl View {
                 (frame.song_time, frame.beat),
             );
         }
-        let layer = match self.noteskin.as_mut() {
-            Some(n) => {
-                let from = n.next_seq();
-                n.update(
-                    &frame,
-                    session.player.skin_events_since(from),
-                    render.reverse,
-                );
-                // The skin's Lua stopped: the play goes on with the
-                // built-in skin; the next one tries again, and the
-                // second stop turns its Lua off (a stall is not the
-                // skin's: not held against it).
-                if let Some((why, on_clock)) = n.take_lua_stop() {
-                    if on_clock {
-                        eprintln!("noteskin {}: {why}", self.noteskin_key);
-                    } else {
-                        crate::library::noteskins::lua_stopped(&self.noteskin_key, why);
-                    }
+        let layer = self.noteskin.as_mut().map(|n| {
+            // The skin's Lua stopped: the play goes on with the built-in
+            // skin; the next one tries again, and the second stop turns
+            // its Lua off (a stall is not the skin's: not held against
+            // it).
+            if let Some((why, on_clock)) =
+                ddi_shell::update_noteskin(n, &frame, &session.player, render.reverse)
+            {
+                if on_clock {
+                    eprintln!("noteskin {}: {why}", self.noteskin_key);
+                } else {
+                    crate::library::noteskins::lua_stopped(&self.noteskin_key, why);
                 }
-                Some(n as &mut dyn NoteLayer)
             }
-            None => None,
-        };
+            n as &mut dyn NoteLayer
+        });
         // The field's place, for a work's layers and the lyrics.
         let (w, h) = (size[0] as f32, size[1] as f32);
         let span = ddi_render::scene::field_span(&session.layout);
@@ -693,51 +678,44 @@ impl View {
         self.quit_at = quit.map(|b| b.map(|v| v / self.scale));
         // A work's back and mask layers, placed as the web places them;
         // the song's scripts in the background frame.
-        let scripts = self.scripts.running();
-        if self.stage.shown() || scripts {
-            let srgb = self.renderer.skin_colors_linear();
-            let (mut back, mut mask) = (Vec::new(), Vec::new());
-            if self.stage.shown() {
-                self.stage.upload(&mut self.renderer, device, queue);
-                (back, mask) = self
-                    .stage
-                    .quads(frame.song_time, geo.center_x(span), h, srgb);
+        let layers = ddi_shell::scripted::draw_layers(
+            &mut self.stage,
+            &mut self.scripts,
+            (&mut self.renderer, device, queue),
+            (frame.song_time, frame.beat),
+            &self.schedule,
+            ([w, h], frame_aspect),
+            geo.center_x(span),
+            (session.danger_shown(), layer.is_some()),
+            Self::draw_script_texts,
+        );
+        if let Some(l) = &layers {
+            self.stage_drawn = l.quads;
+        }
+        if let Some(drawn) = layers.and_then(|l| l.scripts) {
+            if let Some(why) = drawn.stopped {
+                eprintln!("scripted backgrounds stopped: {why}");
+                self.scripts_stopped = Some(why);
             }
-            if scripts {
-                self.scripts.set_danger(session.danger_shown());
-                let drawn = self.scripts.draw(
-                    (&mut self.renderer, device, queue),
-                    (frame.song_time, frame.beat),
-                    &self.schedule,
-                    ([w, h], frame_aspect),
-                    layer.is_some() || self.stage.shown(),
-                    Self::draw_script_texts,
-                    (&mut back, &mut mask),
-                );
-                if let Some(why) = drawn.stopped {
-                    eprintln!("scripted backgrounds stopped: {why}");
-                    self.scripts_stopped = Some(why);
-                }
-                for f in drawn.sounds {
-                    if let Some(s) = self.script_sounds.get(&f) {
-                        self.sounds_due.push(s.clone());
-                        self.sounds_played += 1;
-                    }
-                }
-                // Their movies drawn, decoded on their clocks and their
-                // new frames drawn into their textures (shown from the
-                // next frame on, the first time).
-                #[cfg(feature = "video")]
-                if self.video != VideoMode::Off && !session.player.finished() {
-                    let deck = &mut self.script_movies;
-                    self.scripts
-                        .play_movies(&mut self.renderer, device, queue, |clips, r| {
-                            deck.update_clips(clips, r, device, queue)
-                        });
+            for f in drawn.sounds {
+                if let Some(s) = self.script_sounds.get(&f) {
+                    self.sounds_due.push(s.clone());
+                    self.sounds_played += 1;
                 }
             }
-            self.stage_drawn = (back.len(), mask.len());
-            self.renderer.set_stage_quads(back, mask);
+            // Their movies drawn, decoded on their clocks and their new
+            // frames drawn into their textures (shown from the next frame
+            // on, the first time).
+            #[cfg(feature = "video")]
+            if session.player.finished() {
+                self.script_movies.stop();
+            } else if self.video != VideoMode::Off {
+                let deck = &mut self.script_movies;
+                self.scripts
+                    .play_movies(&mut self.renderer, device, queue, |clips, r| {
+                        deck.update_clips(clips, r, device, queue)
+                    });
+            }
         }
         #[cfg(feature = "video")]
         crate::video::protect_external_frames(device, encoder);
@@ -763,7 +741,7 @@ impl View {
             size[1],
             &frame,
             &session.layout,
-            &session.names,
+            &session.rules.names,
             render,
             layer,
         );
@@ -966,46 +944,13 @@ impl View {
 /// The background changes of `song` (`loaded`'s, as played or not), a
 /// schedule per layer.
 pub(crate) fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS] {
-    let e = &loaded.entry;
-    // The song's own, then those found in shared folders under the names
-    // it writes (the web's `bg_images` and `bg_videos`).
     let (shared_movies, shared_images): (Vec<&str>, Vec<&str>) = loaded
         .shared
         .iter()
         .map(|(name, _)| name.as_str())
         .partition(|name| ddi_library::video::is_movie(name));
-    let images: Vec<&str> = e
-        .bg_images
-        .iter()
-        .map(|p| p.as_str())
-        .chain(shared_images)
-        .collect();
-    let movies: Vec<&str> = e
-        .bg_videos
-        .iter()
-        .filter(|v| v.plays())
-        .map(|v| v.name.as_str())
-        .chain(shared_movies)
-        .collect();
-    // Movies found but that do not play: the second layer shows nothing
-    // for them.
-    let unshowable: Vec<&str> = e
-        .bg_videos
-        .iter()
-        .filter(|v| !v.plays())
-        .map(|v| v.name.as_str())
-        .chain(e.bg_scripted.iter().map(|p| p.as_str()))
-        .collect();
-    let scripts = backgrounds::script_folders_of(&e.bg_scripts);
-    backgrounds::layers(
-        song,
-        &images,
-        &movies,
-        &scripts,
-        &unshowable,
-        &loaded.random,
-        e.background.is_some(),
-    )
+    let (images, movies) = backgrounds::files_shown(&loaded.entry, shared_images, shared_movies);
+    backgrounds::layers_of(song, &loaded.entry, &images, &movies, &loaded.random)
 }
 
 /// Fills a texture's first level with RGBA rows.
@@ -1014,8 +959,7 @@ pub fn write_rgba(queue: &wgpu::Queue, texture: &wgpu::Texture, image: &Rgba) {
 }
 
 /// Gives the renderer `play`'s textures: the built-in art, and the
-/// decoded `images` (by texture index), a model's with mipmaps (the
-/// web's `game_loop::upload_noteskin`).
+/// decoded `images` (by texture index), a model's with mipmaps.
 pub fn upload_noteskin(
     renderer: &mut Renderer,
     device: &wgpu::Device,
@@ -1023,20 +967,6 @@ pub fn upload_noteskin(
     play: &mut NoteskinPlay,
     images: &[Option<Rgba>],
 ) {
-    let keys = play.texture_keys().to_vec();
-    for (i, key) in keys.iter().enumerate() {
-        let id = match (key, images.get(i).and_then(Option::as_ref)) {
-            (ddi_noteskin::build::TextureKey::BuiltIn(name), _) => {
-                renderer.add_builtin_art(device, queue, name)
-            }
-            (_, Some(image)) => {
-                let mipmaps = play.texture_mipmaps(i);
-                renderer.add_noteskin_image(device, queue, image.size, mipmaps, |texture| {
-                    write_rgba(queue, texture, image);
-                })
-            }
-            (_, None) => continue,
-        };
-        play.set_texture(i, id);
-    }
+    let images = images.iter().map(Option::as_ref);
+    ddi_shell::stage::upload_noteskin(renderer, device, queue, play, images);
 }

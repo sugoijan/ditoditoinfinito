@@ -129,8 +129,8 @@ pub fn styles() -> Vec<StyleDef> {
     ddi_chart::layout::Layout::builtins()
         .into_iter()
         .map(|l| StyleDef {
-            id: l.id.to_string(),
-            name: l.name.to_string(),
+            id: l.id,
+            name: l.name,
         })
         .collect()
 }
@@ -146,7 +146,6 @@ pub fn bundled() -> Vec<SongEntry> {
                 subtitle: subtitle.to_string(),
                 artist: artist.to_string(),
                 pack: None,
-                bpm: *bpm,
                 bpm_text: format!("{bpm}"),
                 length: *length,
                 banner: Some(format!("songs/{id}/{banner}")),
@@ -281,7 +280,6 @@ pub fn select() -> SelectData {
                 subtitle: String::new(),
                 artist: ARTISTS[rng.below(ARTISTS.len())].to_string(),
                 pack: Some(pack.to_string()),
-                bpm,
                 bpm_text: format!("{bpm}"),
                 length: 90.0 + rng.below(90) as f32,
                 banner: None,
@@ -456,7 +454,7 @@ pub fn results() -> ResultsData {
             (rm::fast_slow().into(), format!("{fast} / {slow}")),
             (rm::mean_offset().into(), data("−2.1 ms (σ 9.8)")),
         ],
-        notes: Vec::new(),
+        notes: vec![rm::sample_note().into()],
         hits,
         windows: windows
             .iter()
@@ -479,7 +477,6 @@ pub fn results() -> ResultsData {
         }),
         panel_sets: super::play::panel_sets(),
         panel_set: 0,
-        note: rm::sample_note().into(),
         song,
         kind: Default::default(),
     }
@@ -598,7 +595,11 @@ pub const CREDITS: &str = r#"{
 }"#;
 
 pub fn credits_screen(env: &Env, credits: &super::credits::Credits) -> super::page::PageScreen {
-    super::page::PageScreen::new(env.clone(), "credits", super::credits::doc(credits))
+    super::page::PageScreen::new(
+        env.clone(),
+        "credits",
+        super::credits::doc(credits, env.platform),
+    )
 }
 
 /// Calibration's menu over song select, on the stored settings (its runs
@@ -713,7 +714,6 @@ pub fn studio() -> (
         status: ddi_l10n::msg::studio::status_added(9, 1).into(),
         ready: Some("Announcer.zip".into()),
         busy: false,
-        platform: Default::default(),
     };
     let mut kept = Kept {
         name: Set::English.pack().into(),
@@ -744,7 +744,7 @@ pub fn studio_screen(env: &Env) -> super::page::PageScreen {
     super::page::PageScreen::new(
         env.clone(),
         super::studio::NAME,
-        super::studio::doc(&draft, &view, &examples),
+        super::studio::doc(&draft, &view, &examples, env.platform),
     )
 }
 
@@ -752,15 +752,6 @@ pub fn studio_screen(env: &Env) -> super::page::PageScreen {
 /// its background, its play options changed (never saved), the other
 /// choices ignored (the developer routes, tests).
 pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::prompt::PromptScreen {
-    prompt_screen_on(env, step, super::data::Platform::Web)
-}
-
-/// [`prompt_screen`] in `platform`'s wording.
-pub fn prompt_screen_on(
-    env: &Env,
-    step: super::prompt::PromptStep,
-    platform: super::data::Platform,
-) -> super::prompt::PromptScreen {
     use super::prompt::{
         Badge, PromptChart, PromptChoice, PromptInfo, PromptPicture, PromptScreen, PromptState,
         timing_hint,
@@ -797,7 +788,6 @@ pub fn prompt_screen_on(
         info,
         step,
         notes: vec![ddi_l10n::msg::prompt::video_progress(40).into()],
-        platform,
         picture: Some(PromptPicture {
             source: "songs/some-things-must/sevish-bg.png".into(),
             aspect: 16.0 / 9.0,
@@ -891,13 +881,9 @@ pub fn start_screen(env: &Env, desktop: bool) -> super::start::StartScreen {
 /// The chart editor on a made-up song, unsaved, for headless tests (the
 /// coverage walk, `l10n_tests.rs`): notes of each kind, a change of each
 /// kind of timing at beat 4 where the cursor is, beats 2 to 4 selected,
-/// a second chart; saving asks first, on `platform`'s wording, or the
+/// a second chart; saving asks first, or the
 /// song is `new_song`, never saved.
-pub fn editor_screen(
-    env: &Env,
-    platform: super::data::Platform,
-    new_song: bool,
-) -> super::editor::EditorScreen {
+pub fn editor_screen(env: &Env, new_song: bool) -> super::editor::EditorScreen {
     use crate::state::editor::{Editor, NoteTool, Retime, Segment};
     use ddi_chart::{SpeedUnit, TICKS_PER_BEAT, Tick};
     let beat = |b: f64| Tick((b * TICKS_PER_BEAT as f64) as i64);
@@ -953,12 +939,8 @@ pub fn editor_screen(
     // The cursor at the selection's end.
     e.select(beat(2.0), beat(4.0));
     let place = super::editor::EditorPlace {
-        platform,
         save: Some("Songs/Pack/Some Things Must/song.ssc".into()),
         confirm: (!new_song).then(|| "Songs/Pack/Some Things Must/song.ssc".into()),
-        export: true,
-        listen: true,
-        playtest: true,
         new_song,
     };
     super::editor::EditorScreen::new(env.clone(), e, place)

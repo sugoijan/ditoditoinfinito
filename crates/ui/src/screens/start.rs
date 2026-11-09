@@ -288,7 +288,7 @@ impl Screen for StartScreen {
         }
         let (size, zoom) = super::narrow_fit(&self.env, cx.viewport().screen);
         if self.size != size || self.zoom != zoom {
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.tree(cx);
             if let Some(actor) = cx
                 .focused()

@@ -24,7 +24,7 @@ use ddi_platform::{DeviceId, HostTime, RawInput};
 use super::editor_field::Mapping;
 use super::{EditorCall, EditorScreen, trim_number, with_alpha};
 use crate::gesture::Gesture;
-use crate::look::{call, quad};
+use crate::look::{call, quad_at};
 use crate::screen::{Cx, Handled, Input};
 use crate::state::editor::record::{Mode, Recorded, Take};
 use ddi_l10n::msg::editor as em;
@@ -110,7 +110,7 @@ impl EditorScreen {
     /// R: records from the cursor or over the selection; `add`: adding to
     /// the notes there.
     pub(super) fn record(&mut self, add: bool, cx: &mut Cx) {
-        if !self.place.listen || self.recording() {
+        if self.recording() {
             return;
         }
         self.stop_listening(cx);
@@ -239,10 +239,7 @@ impl EditorScreen {
             note: None,
         });
         self.seq += 1;
-        let keep = 64;
-        if self.events.len() > keep {
-            self.events.drain(..self.events.len() - keep);
-        }
+        self.keep_events();
     }
 
     /// Stops at song second `at` (else where the music is heard).
@@ -283,7 +280,7 @@ impl EditorScreen {
 
     /// The menu's items for recording.
     pub(super) fn record_items(&self, items: &mut Vec<(&'static str, String)>) {
-        if !self.place.listen || self.recording() {
+        if self.recording() {
             return;
         }
         let (record, add) = if self.editor.borrow().selection().is_some() {
@@ -347,12 +344,14 @@ impl EditorScreen {
         // The span: a line at its start, its last row's when it has one.
         let take = &rec.take;
         for t in std::iter::once(take.start()).chain(take.last()) {
-            let mut line = quad("Record.Edge", [lanes_w + 16.0, 2.0], with_alpha(TINT, 0.8));
-            call(&mut line, "xy", &[g.lanes_x + lanes_w / 2.0, y_of(t.0)]);
-            c.push(line);
+            c.push(quad_at(
+                "Record.Edge",
+                [lanes_w + 16.0, 2.0],
+                with_alpha(TINT, 0.8),
+                [g.lanes_x + lanes_w / 2.0, y_of(t.0)],
+            ));
         }
-        let size = (g.lane_w * 0.82).min(44.0);
-        let head_h = (size * 0.62).max(12.0);
+        let (size, head_h) = g.head();
         for (i, n) in take.notes().iter().enumerate() {
             let x = g.lanes_x + (f32::from(n.lane) + 0.5) * g.lane_w;
             let y = y_of(n.tick.0);
@@ -364,20 +363,19 @@ impl EditorScreen {
                 } else {
                     0.55
                 };
-                let mut body = quad(
+                c.push(quad_at(
                     "",
                     [size * 0.55, (y1 - y0).max(1.0)],
                     with_alpha(TINT, alpha),
-                );
-                call(&mut body, "xy", &[x, (y0 + y1) / 2.0]);
-                c.push(body);
+                    [x, (y0 + y1) / 2.0],
+                ));
             }
-            let mut p = quad(
+            let mut p = quad_at(
                 &format!("Record.{i}"),
                 [size, head_h],
                 with_alpha(TINT, 0.85),
+                [x, y],
             );
-            call(&mut p, "xy", &[x, y]);
             call(&mut p, "cornerradius", &[head_h * 0.3]);
             c.push(p);
         }

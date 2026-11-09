@@ -139,6 +139,22 @@ impl NoteKind {
     pub fn is_long(self) -> bool {
         matches!(self, NoteKind::HoldHead { .. } | NoteKind::RollHead { .. })
     }
+
+    /// A tap or the head of a hold or roll: judged when pressed.
+    pub fn is_press_judged(self) -> bool {
+        self == NoteKind::Tap || self.is_long()
+    }
+
+    /// One the player steps on: [`NoteKind::is_press_judged`], or a lift.
+    pub fn is_tap_like(self) -> bool {
+        self.is_press_judged() || self == NoteKind::Lift
+    }
+
+    /// One the dancing hand plays and its streaming judge takes: taps,
+    /// holds, rolls, mines, shocks and lifts.
+    pub fn hand_supported(self) -> bool {
+        self.is_tap_like() || matches!(self, NoteKind::Mine | NoteKind::Shock)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -172,8 +188,11 @@ impl Note {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub enum Difficulty {
+    #[default]
     Beginner,
     Easy,
     Medium,
@@ -287,6 +306,30 @@ pub struct DanoniChart {
 }
 
 impl Chart {
+    /// A chart of `notes` and nothing else: no name, credit or timing of
+    /// its own (one made in code).
+    pub fn plain(
+        layout: impl Into<String>,
+        difficulty: Difficulty,
+        meter: u32,
+        notes: Vec<Note>,
+    ) -> Chart {
+        Chart {
+            derivation: None,
+            layout: layout.into(),
+            difficulty,
+            meter,
+            name: String::new(),
+            description: String::new(),
+            credit: String::new(),
+            notes,
+            timing: None,
+            display_bpm: None,
+            danoni: None,
+            ffr: false,
+        }
+    }
+
     pub fn timing<'a>(&'a self, song: &'a Song) -> &'a TimingMap {
         self.timing.as_ref().unwrap_or(&song.timing)
     }

@@ -59,6 +59,7 @@
 pub mod calibration;
 pub mod credits;
 pub mod data;
+pub mod dialog;
 pub mod editor;
 pub mod editor_dialogs;
 pub mod editor_field;
@@ -103,7 +104,7 @@ use ddi_actor::{Actor, Kind, Rgba, Sprite};
 
 use crate::dev_widgets::FoldFn;
 use crate::hit;
-use crate::look::{self, Look, Spec, call, named, quad, text_weighted};
+use crate::look::{self, Look, Spec, call, named, quad_at, text_weighted};
 
 /// The theme's design size (`docs/plans/theme.md`).
 pub const DESIGN: [f32; 2] = [1280.0, 720.0];
@@ -240,6 +241,9 @@ pub struct Env {
     pub reduced_motion: Rc<Cell<bool>>,
     pub cursor: Rc<Cell<(crate::state::settings::CursorStyle, f32)>>,
     pub state: SharedTheme,
+    /// Whose wording the screens use: the shell's platform. The web's
+    /// until a shell says otherwise, once, as it starts.
+    pub platform: data::Platform,
 }
 
 impl Env {
@@ -253,6 +257,7 @@ impl Env {
                 28.0,
             ))),
             state: SharedTheme::default(),
+            platform: data::Platform::default(),
         }
     }
 
@@ -520,7 +525,7 @@ fn key_hint_prefixed(
 }
 
 /// The footer along the bottom with key hints from the left and links
-/// from the right; the hints' texts.
+/// from the right, its hints' texts kept for the debug state.
 pub fn footer(
     env: &Env,
     screen: [f32; 2],
@@ -529,7 +534,7 @@ pub fn footer(
     note: &str,
     links: &[(&str, &str)],
     cx: &mut crate::Cx,
-) -> (Actor, Vec<String>) {
+) -> Actor {
     let hints: Vec<_> = hints
         .iter()
         .map(|&(keys, label)| FooterHint {
@@ -556,7 +561,7 @@ pub fn footer_hints(
     note: &str,
     links: &[(&str, &str)],
     cx: &mut crate::Cx,
-) -> (Actor, Vec<String>) {
+) -> Actor {
     let h = env.metric("Footer.Height", 40.0);
     let hint_gap = env.metric("Footer.HintGap", 20.0);
     let margin = env.metric("Margin", 32.0);
@@ -630,26 +635,29 @@ pub fn footer_hints(
     let mut rx = screen[0] - margin;
     for (name, label) in links.iter().rev() {
         let w = look::mono_width(label, 13.0) + 16.0;
-        let mut a = look::component_or(&*env.look, "Link", "Button", &Spec::new([w, 32.0], *label));
-        a.name = (*name).into();
-        call(&mut a, "xy", &[rx - w / 2.0, h / 2.0]);
+        children.push(env.component(
+            "Link",
+            "Button",
+            &Spec::new([w, 32.0], *label),
+            name,
+            [rx - w / 2.0, h / 2.0],
+        ));
         rx -= w + 12.0;
-        children.push(a);
     }
     let mut f = frame("Footer", children);
     call(&mut f, "xy", &[0.0, y]);
-    (f, texts)
+    env.state.borrow_mut().hints = texts;
+    f
 }
 
 /// The ground: the look's darkest color over everything.
 pub fn ground(env: &Env, screen: [f32; 2]) -> Actor {
-    let mut g = quad(
+    quad_at(
         "Ground",
         [screen[0] + 8.0, screen[1] + 8.0],
         env.color("Ground"),
-    );
-    call(&mut g, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
-    g
+        [screen[0] / 2.0, screen[1] / 2.0],
+    )
 }
 
 /// The selected song's background behind a screen, blurred and dim
@@ -705,7 +713,7 @@ impl Backdrop {
         // Rebuilt (a new layout): the front layer's image comes back with
         // `restore`, the other one is let go.
         self.shown[1 - self.front] = None;
-        let mut ground = quad(
+        let ground = quad_at(
             "BaseGround",
             screen,
             [
@@ -714,8 +722,8 @@ impl Backdrop {
                 ddi_actor::background::GROUND[2],
                 1.0,
             ],
+            [screen[0] / 2.0, screen[1] / 2.0],
         );
-        call(&mut ground, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
         let mut children = vec![ground];
         children.extend(layers);
         frame("Backdrop", children)
@@ -956,26 +964,17 @@ pub(crate) fn refill(old: &mut Actor, fresh: Actor) {
     old.kind = fresh.kind;
 }
 
-/// How long the tweens anywhere under `a` have left (the longest).
-pub(crate) fn time_left(a: &Actor) -> f32 {
-    a.children()
-        .iter()
-        .map(time_left)
-        .fold(a.tween_time_left(), f32::max)
-}
-
 /// A screen laid out again (a new size, the chrome's room taken at the
 /// top): `fresh` took the old root's place, which had `left` seconds of
-/// tweens to go ([`time_left`]). A screen still coming in goes on coming
-/// in, from as far as it had come; otherwise its first frame shows the
-/// new tree as it is.
+/// tweens to go. A screen still coming in goes on coming in, from as far
+/// as it had come; otherwise its first frame shows the new tree as it is.
 pub(crate) fn relaid(fresh: &mut Actor, left: f32, cx: &crate::Cx) {
     let mut problems = ddi_actor::Problems::default();
     if cx.holding() {
         hold_entrances(fresh);
     }
     fresh.play("On", &mut problems);
-    let total = time_left(fresh);
+    let total = fresh.tween_time_left();
     // Longer tweens than an entrance (a backdrop fading, rows gliding)
     // are not one.
     if left <= 0.0 || left > total {
@@ -1042,29 +1041,25 @@ pub(crate) fn action_menu(
     cx: &mut crate::Cx,
 ) {
     cx.overlay(
-        editor_dialogs::ActionsDialog::new(
-            env.clone(),
-            title,
-            items,
-            std::rc::Rc::new(move |id, cx| {
-                cx.broadcast(
-                    crate::Message::new(message)
-                        .with("Action", crate::message::Param::Str(id.into())),
-                )
-            }),
-        ),
+        dialog::ActionsDialog::new(env.clone(), title, items, pick(message)),
         true,
     );
+}
+
+/// A menu's pick broadcast as `message`, its `Action` the item's.
+pub(crate) fn pick(message: &'static str) -> dialog::PickFn {
+    std::rc::Rc::new(move |id, cx| {
+        cx.broadcast(
+            crate::Message::new(message).with("Action", crate::message::Param::Str(id.into())),
+        )
+    })
 }
 
 pub(crate) fn menu_pick<'a>(m: &'a crate::Message, name: &str) -> Option<&'a str> {
     if m.name != name {
         return None;
     }
-    match m.get("Action") {
-        Some(crate::message::Param::Str(s)) => Some(s),
-        _ => None,
-    }
+    m.str("Action")
 }
 
 /// Rebuilding a dialog keeps its focus name but replaces the actor carrying

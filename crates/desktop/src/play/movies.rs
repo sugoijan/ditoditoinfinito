@@ -2,7 +2,7 @@
 //! helper in its sandbox or the checked OS path ([`crate::video`]) under
 //! the movies both shells share ([`ddi_session::movies`]: which segments
 //! have a decoder, their tracks, the frames due, what shows), frames shown
-//! through `Renderer::add_video`. The same schedule rules
+//! through `BackgroundPipeline::add_video`. The same schedule rules
 //! (`ddi_library::backgrounds`, both layers on the one clock a movie
 //! has), lead time and queue depth as the web's, so a movie changes,
 //! loops and stops where the web's does.
@@ -11,7 +11,7 @@ use ddi_library::backgrounds::BgSegment;
 use ddi_platform::video::{
     VideoBackend, VideoCodec, VideoContainer, VideoError, VideoFormat, VideoFrame,
 };
-use ddi_render::Renderer;
+use ddi_render::BackgroundPipeline;
 use ddi_session::movies::{MovieShell, MovieSlots};
 
 use crate::video::{DesktopVideo, HelperStatus, MovieFile, VideoHost};
@@ -155,7 +155,7 @@ impl Movies {
         &mut self,
         layers: &[Vec<BgSegment>],
         t: f64,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -164,22 +164,22 @@ impl Movies {
         }
         let due = self.slots.update(layers, t);
         for (name, w, h, _) in due.early {
-            self.texture(&name, w, h, renderer, device);
+            self.texture(&name, w, h, background, device);
         }
         for (name, frame) in due.show {
-            self.upload(&name, &frame, renderer, device, queue);
+            self.upload(&name, &frame, background, device, queue);
             self.slots.shell().recycle(frame);
         }
     }
 
     /// Opens, feeds and closes decoders for a song's scripts' movies drawn
     /// now (`clips`, each on its own clock) and puts the frames due on
-    /// `renderer` (the scripts' converter's): the movies shown, `(file,
+    /// `background` (the scripts' converter): the movies shown, `(file,
     /// its id there)`.
     pub fn update_clips(
         &mut self,
         clips: &[ddi_session::movies::Clip],
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Vec<(String, usize)> {
@@ -189,7 +189,7 @@ impl Movies {
         let due = self.slots.update_clips(clips);
         let mut shown = Vec::new();
         for (name, frame) in due.show {
-            self.upload(&name, &frame, renderer, device, queue);
+            self.upload(&name, &frame, background, device, queue);
             self.slots.shell().recycle(frame);
             if let Some(id) = self.slots.texture(&name) {
                 shown.push((name, id));
@@ -203,7 +203,7 @@ impl Movies {
         name: &str,
         width: u32,
         height: u32,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
     ) -> Option<usize> {
         let limit = device.limits().max_texture_dimension_2d;
@@ -213,7 +213,7 @@ impl Movies {
         if let Some(id) = self.slots.texture(name) {
             return Some(id);
         }
-        let id = renderer.add_video(device, width, height);
+        let id = background.add_video(device, width, height);
         self.slots.set_texture(name, id);
         Some(id)
     }
@@ -222,7 +222,7 @@ impl Movies {
         &mut self,
         name: &str,
         frame: &VideoFrame,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -230,10 +230,10 @@ impl Movies {
             self.slots.fail(name, VideoError::BadFrame);
             return;
         }
-        let Some(id) = self.texture(name, frame.width, frame.height, renderer, device) else {
+        let Some(id) = self.texture(name, frame.width, frame.height, background, device) else {
             return;
         };
-        if crate::video::show(renderer, device, queue, id, frame) {
+        if crate::video::show(background, device, queue, id, frame) {
             self.slots.shown(name);
         }
     }

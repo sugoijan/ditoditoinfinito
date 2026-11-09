@@ -689,8 +689,6 @@ impl ScoreRules for DanoniScore {
         }
     }
 
-    fn finish(&mut self) {}
-
     fn fresh(&self) -> Box<dyn ScoreRules> {
         Box::new(DanoniScore::new())
     }
@@ -700,24 +698,23 @@ impl ScoreRules for DanoniScore {
 /// only Ii and Kita, PF for nothing below Shakin, F when failed.
 fn grades() -> GradeTable {
     GradeTable {
-        basis: GradeBasis::Money,
-        tiers: [
-            ("SS", 970_000.0),
-            ("S", 900_000.0),
-            ("SA", 850_000.0),
-            ("AAA", 800_000.0),
-            ("AA", 750_000.0),
-            ("A", 700_000.0),
-            ("B", 650_000.0),
-            ("C", 600_000.0),
-            ("D", 0.0),
-        ]
-        .iter()
-        .map(|(n, m)| (n.to_string(), *m))
-        .collect(),
         all_w1: Some("AP".into()),
         all_w2: Some("PF".into()),
         failed: Some("F".into()),
+        ..super::presets::grades(
+            GradeBasis::Money,
+            &[
+                ("SS", 970_000.0),
+                ("S", 900_000.0),
+                ("SA", 850_000.0),
+                ("AAA", 800_000.0),
+                ("AA", 750_000.0),
+                ("A", 700_000.0),
+                ("B", 650_000.0),
+                ("C", 600_000.0),
+                ("D", 0.0),
+            ],
+        )
     }
 }
 
@@ -761,14 +758,6 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
                 Some(frames(shobon)),
                 None,
             ],
-            scale: 1.0,
-            add: 0.0,
-            // Rolls and mines come only from other formats; they keep
-            // StepMania's windows.
-            hold_window: 0.25,
-            roll_window: 0.5,
-            mine_window: 0.09,
-            w0: None,
             empty_press: if excessive {
                 EmptyPress::ExcessiveEarly {
                     lo: f64::from(shobon) * FRAME,
@@ -778,7 +767,6 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
             } else {
                 EmptyPress::Ignore
             },
-            judge_offset: 0.0,
             hold: HoldRules::ReleaseBudget {
                 budget: f64::from(rules.frz_attempt) * FRAME,
             },
@@ -798,19 +786,15 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
             // `justFrames` (default 1): fast or slow beyond one frame
             // (`displayDiff`, mainWindow.js).
             just: Some(frames(1)),
-            shock_rows: false,
-            miss_at: None,
-            taps_only: false,
+            // Rolls and mines come only from other formats; they keep
+            // StepMania's windows.
+            ..JudgeTable::DANCE
         },
         combo: ComboRules {
             continue_min: Judgement::W2,
-            per_row: false,
-            held_increments: false,
-            let_go_breaks: false,
-            mine_breaks: false,
             neutral: Some(Judgement::W3),
             let_go_loses_full_combo: true,
-            jumps_add_each: false,
+            ..ComboRules::DANCE
         },
         score: Box::new(DanoniScore::new()),
         gauge: Box::new(DanoniGauge::new(
@@ -835,7 +819,7 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ddi_chart::Tick;
+    use crate::judge::test_events::ev;
 
     fn chart(gauge: [&str; 4], headers: &[(&str, &str)], index: usize) -> DanoniChart {
         DanoniChart {
@@ -972,16 +956,6 @@ mod tests {
         let c = chart(["x", "6", "40", "25"], &[("excessiveJdgUse", "true")], 0);
         assert!(ChartRules::of(Some(&c), COUNTS).excessive);
         assert!(!ChartRules::of(None, COUNTS).excessive);
-    }
-
-    fn ev(kind: JudgeEventKind) -> JudgeEvent {
-        JudgeEvent {
-            note_index: None,
-            lane: 0,
-            tick: Tick::ZERO,
-            kind,
-            song_time: 0.0,
-        }
     }
 
     #[test]

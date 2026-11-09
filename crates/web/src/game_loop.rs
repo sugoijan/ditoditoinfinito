@@ -5,9 +5,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::component::Callback;
+use crate::perf::{self, Lap};
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
-use ddi_platform::video::{GuardAction, StopReason};
+use ddi_platform::video::StopReason;
 use ddi_render::{Backdrop, Renderer};
 use ddi_session::backgrounds::{FpsMeter, FrameShape, MovieGuard};
 use wasm_bindgen::JsCast;
@@ -18,6 +19,7 @@ use crate::play::{PlaySession, SessionEvent};
 use crate::settings::{BackgroundFrame, VideoMode};
 use crate::web::gfx::Gfx;
 use ddi_engine::lyrics::{LyricLine, LyricTrack};
+use serde_json::{Value, json};
 
 /// The lyrics' lines of a frame, and where they go.
 type Lyrics = (Vec<LyricLine>, ddi_render::lyrics::Place);
@@ -32,9 +34,6 @@ struct Overlay {
 /// The observer and the closure it calls, kept alive together and
 /// disconnected before the closure is dropped (see `Drop`).
 type ResizeHook = (ResizeObserver, Closure<dyn FnMut(js_sys::Array)>);
-
-pub(crate) const FONT: &[u8] =
-    include_bytes!("../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 
 pub(crate) struct GameLoop {
     pub(crate) dance: ddi_shell::dance::Preview,
@@ -101,14 +100,22 @@ pub(crate) struct GameLoop {
     /// Image and movie textures for the backdrop, rebuilt when either
     /// changes.
     shown_cache: ddi_session::movies::BackdropTextures,
-    /// The movies were stopped at the end of the song.
-    movies_stopped: bool,
     video_mode: VideoMode,
     /// The automatic setting's rule, and the refresh rate measured
     /// before the play started (`ddi_session::backgrounds`).
     guard: MovieGuard,
     /// Testing aid: each frame takes 40 ms longer while a movie is drawn.
     slow: bool,
+    /// Driven by a test, or with the debug overlay asked for: the debug
+    /// state kept fresh, not once a second.
+    automated: bool,
+    /// When the debug state was last made (milliseconds).
+    debug_at: f64,
+    /// What a play's first frames would stop to make is made (for the
+    /// skin installed last).
+    warmed: bool,
+    /// The play ended this frame: its recording ends with it.
+    end_perf_after: bool,
     /// The shape backgrounds are fitted into (`ddi_session::backgrounds`).
     frame_shape: FrameShape,
     /// Main-thread time the movies took this second (sum, longest, frames
@@ -157,14 +164,14 @@ impl GameLoop {
                     Some(f) => ddi_render::SkinBlending::Encoded(f),
                     None => ddi_render::SkinBlending::Scene,
                 },
-                &[FONT],
+                &[ddi_render::HUD_FONT],
             ),
             None => Renderer::new(
                 &gfx.device,
                 &gfx.queue,
                 gfx.view_format(),
                 gfx.skin_blending(),
-                &[FONT],
+                &[ddi_render::HUD_FONT],
             ),
         };
         let rect = canvas.get_bounding_client_rect();
@@ -223,10 +230,16 @@ impl GameLoop {
             movies: crate::movies::MovieDeck::default(),
             script_movies: crate::movies::MovieDeck::default(),
             shown_cache: Default::default(),
-            movies_stopped: false,
             video_mode: VideoMode::Auto,
             guard: MovieGuard::default(),
             slow: false,
+            automated: web_sys::window().is_some_and(|w| {
+                js_sys::Reflect::get(&w.navigator(), &"webdriver".into())
+                    .is_ok_and(|v| v.is_truthy())
+            }),
+            debug_at: f64::NEG_INFINITY,
+            warmed: false,
+            end_perf_after: false,
             frame_shape: FrameShape::default(),
             video_ms: (0.0, 0.0, 0),
             video_ms_last: (0.0, 0.0),
@@ -256,6 +269,8 @@ impl GameLoop {
     }
 
     pub(crate) fn set_session(&mut self, session: PlaySession) {
+        self.end_perf();
+        perf::begin_play();
         // Everything decoded so far goes up before the music starts.
         self.playing_at = None;
         self.guard.start(self.refresh_hz());
@@ -612,6 +627,7 @@ impl GameLoop {
         key: String,
     ) {
         self.noteskin_key = key;
+        self.warmed = false;
         self.renderer.clear_noteskin_textures();
         self.stage.forget_textures();
         self.scripts.forget_textures();
@@ -620,13 +636,14 @@ impl GameLoop {
         let srgb = self.renderer.skin_colors_linear();
         self.noteskin = play.map(|mut play| {
             play.set_srgb(srgb);
-            self.uploaded_images.extend(upload_noteskin(
+            upload_noteskin(
                 &mut self.renderer,
                 &self.gfx.device,
                 &self.gfx.queue,
                 &mut play,
                 &images,
-            ));
+            );
+            self.uploaded_images.extend(images.into_iter().flatten());
             play
         });
     }
@@ -649,6 +666,7 @@ impl GameLoop {
         let _ = self.fps.tick(time_ms);
         self.upload_backgrounds();
         let (w, h) = self.gfx.size();
+        self.warm();
         self.dance.preload_work(
             &self.gfx.device,
             &self.gfx.queue,
@@ -656,12 +674,60 @@ impl GameLoop {
                 .plain_format()
                 .unwrap_or_else(|| self.gfx.view_format()),
             [w, h],
-            &|| crate::web::clock::PerformanceClock::now_ms() / 1000.,
+            &crate::web::clock::PerformanceClock::seconds(),
         );
         self.frames += 1;
-        if self.frames.is_multiple_of(10) {
+        if self.debug_due(time_ms) {
             self.publish_debug(HostTime(time_ms / 1000.0));
         }
+    }
+
+    /// Whether the debug state is due: it makes a large object for JavaScript
+    /// to collect, every 10 frames only where something reads it that often.
+    fn debug_due(&mut self, time_ms: f64) -> bool {
+        if self.automated || self.debug_el.is_some() {
+            return self.frames.is_multiple_of(10);
+        }
+        let due = time_ms - self.debug_at >= 1000.0;
+        if due {
+            self.debug_at = time_ms;
+        }
+        due
+    }
+
+    /// Makes a little more of what the play's first frames would stop for,
+    /// behind the prompt: on WebGL2 a pipeline compiles while the page
+    /// waits, in the first frames of the song otherwise.
+    fn warm(&mut self) {
+        if self.warmed {
+            return;
+        }
+        self.renderer.set_skins_drawn(
+            &self.gfx.device,
+            &self.gfx.queue,
+            self.noteskin.is_some() || self.stage.shown() || self.scripts.running(),
+        );
+        if let Some(g) = self.generated.as_mut() {
+            g.warm(&self.gfx.device, &self.gfx.queue);
+        }
+        if self.lyrics.is_some() {
+            self.ensure_overlay();
+        }
+        if self.video_mode != VideoMode::Off {
+            self.scripts.warm_movies(&self.gfx.device);
+        }
+        let mut encoder = self
+            .gfx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("warm"),
+            });
+        let layer = self
+            .noteskin
+            .as_ref()
+            .map(|n| n as &dyn ddi_render::noteskin::NoteLayer);
+        self.warmed = self.renderer.warm(&self.gfx.device, &mut encoder, layer);
+        self.gfx.queue.submit(Some(encoder.finish()));
     }
 
     /// The background frame's shape as the play would start with it
@@ -723,6 +789,7 @@ impl GameLoop {
         if self.gfx.is_lost() {
             return;
         }
+        perf::frame_start(time_ms);
         self.fit_canvas();
         let second = self.fps.tick(time_ms).map(|fps| self.fps.second(fps));
         if second.is_some() {
@@ -734,6 +801,7 @@ impl GameLoop {
             };
         }
         self.upload_backgrounds();
+        perf::lap(Lap::Upload);
         let drawing = self.movies.drawing(&self.background_schedule);
         // As a movie that costs frames would: not while it is paused.
         if self.slow && drawing.is_some() && !self.movies.paused() {
@@ -747,6 +815,7 @@ impl GameLoop {
 
         let mut outcome = None;
         let mut lyrics: Option<Lyrics> = None;
+        let mut song_second = f64::NAN;
         if let Some(session) = self.session.as_mut()
             && !self.done
         {
@@ -757,6 +826,7 @@ impl GameLoop {
             }
             outcome = event;
         }
+        perf::lap(Lap::Tick);
 
         // A scene of the announcer studio's: the canvas drawn by the 2D
         // pass alone (the frame), the play into its picture.
@@ -764,8 +834,10 @@ impl GameLoop {
             self.gfx.set_mode(crate::web::gfx::SurfaceMode::Plain);
         }
         let Some(surface) = self.gfx.frame() else {
+            perf::frame_end(f64::NAN, 0.0);
             return;
         };
+        perf::lap(Lap::Surface);
         let (surface_w, surface_h) = self.gfx.size();
         let (view, plain_view, play_format) = match self.framed.as_mut() {
             Some(f) => (
@@ -804,7 +876,9 @@ impl GameLoop {
                 let frame = session.frame(session.predicted_present(host_now));
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
-                if let Some(window) = web_sys::window() {
+                if self.automated
+                    && let Some(window) = web_sys::window()
+                {
                     let _ = js_sys::Reflect::set(
                         &window,
                         &"__DDI_SONG_TIME".into(),
@@ -814,17 +888,13 @@ impl GameLoop {
                 // Movies follow the song time the notes are drawn at, until
                 // the song is over (the results show the last frame).
                 if session.player.finished() {
-                    if !self.movies_stopped {
-                        self.movies.stop();
-                        self.movies_stopped = true;
-                    }
+                    self.movies.stop();
                 } else {
-                    self.movies_stopped = false;
                     let before = crate::web::clock::PerformanceClock::now_ms();
                     self.movies.update(
                         &self.background_schedule,
                         frame.song_time,
-                        &mut self.renderer,
+                        self.renderer.background_mut(),
                         &self.gfx.device,
                         &self.gfx.queue,
                     );
@@ -838,14 +908,14 @@ impl GameLoop {
                     if self.video_mode == VideoMode::Auto {
                         let refresh = self.refresh_hz();
                         let late = self.movies.stats().late;
-                        match self.guard.step(time_ms, drawing, second, refresh, late) {
-                            Some(GuardAction::Pause) => self.movies.pause(),
-                            Some(GuardAction::Resume) => self.movies.resume(),
-                            Some(GuardAction::Off(reason)) => self.movies.turn_off(reason),
-                            None => {}
+                        if let Some(action) =
+                            self.guard.step(time_ms, drawing, second, refresh, late)
+                        {
+                            self.movies.obey(action);
                         }
                     }
                 }
+                perf::lap(Lap::Movies);
                 // The field's place on the canvas this frame, and its
                 // pixels to a CSS pixel.
                 let css = self.css_size.get();
@@ -929,84 +999,64 @@ impl GameLoop {
                         lyrics = Some((lines, place));
                     }
                 }
-                let layer = match self.noteskin.as_mut() {
-                    Some(play) => {
-                        let from = play.next_seq();
-                        play.update(
-                            &frame,
-                            session.player.skin_events_since(from),
-                            render.reverse,
-                        );
-                        // The skin's Lua stopped: the play goes on with
-                        // the built-in skin; the next one tries again.
-                        if let Some((why, on_clock)) = play.take_lua_stop() {
-                            let (key, why) = (self.noteskin_key.clone(), why.to_string());
-                            if on_clock {
-                                // A stall, not the skin: not held against it.
-                                web_sys::console::warn_1(&format!("noteskin {key}: {why}").into());
-                            } else {
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    crate::noteskins::lua_stopped(&key, &why).await;
-                                });
-                            }
-                        }
-                        Some(play as &mut dyn ddi_render::noteskin::NoteLayer)
-                    }
-                    None => None,
-                };
-                let scripts = self.scripts.running();
-                if self.stage.shown() || scripts {
-                    let srgb = self.renderer.skin_colors_linear();
-                    let (mut back, mut mask) = (Vec::new(), Vec::new());
-                    if self.stage.shown() {
-                        let stage = &mut self.stage;
-                        // Images decoded late go up as they come.
-                        if stage.pending() {
-                            stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
-                        }
-                        (back, mask) =
-                            stage.quads(frame.song_time, geo.center_x(span), height as f32, srgb);
-                        self.stage_drawn = (back.len(), mask.len());
-                    }
-                    // The song's scripts, in the background frame (they
-                    // load while the play may have begun).
-                    if scripts {
-                        self.scripts.set_danger(session.danger_shown());
-                        let texts = &self.script_texts;
-                        let drawn = self.scripts.draw(
-                            (&mut self.renderer, &self.gfx.device, &self.gfx.queue),
-                            (frame.song_time, frame.beat),
-                            &self.background_schedule,
-                            ([width as f32, height as f32], frame_aspect),
-                            layer.is_some() || self.stage.shown(),
-                            |s| Self::draw_script_texts(s, texts),
-                            (&mut back, &mut mask),
-                        );
-                        if let Some(why) = drawn.stopped {
-                            web_sys::console::warn_1(
-                                &format!("scripted backgrounds stopped: {why}").into(),
-                            );
-                            self.scripts_stopped = Some(why);
-                        }
-                        self.sounds_due.extend(drawn.sounds);
-                        self.scripts_drawn = drawn.drawn;
-                        // Their movies drawn, decoded on their clocks and
-                        // their new frames drawn into their textures.
-                        if self.video_mode != VideoMode::Off && !session.player.finished() {
-                            let (device, queue) = (&self.gfx.device, &self.gfx.queue);
-                            let deck = &mut self.script_movies;
-                            self.scripts.play_movies(
-                                &mut self.renderer,
-                                device,
-                                queue,
-                                |clips, r| deck.update_clips(clips, r, device, queue),
-                            );
-                        } else if session.player.finished() {
-                            self.script_movies.stop();
+                let layer = self.noteskin.as_mut().map(|play| {
+                    // The skin's Lua stopped: the play goes on with the
+                    // built-in skin; the next one tries again.
+                    if let Some((why, on_clock)) =
+                        ddi_shell::update_noteskin(play, &frame, &session.player, render.reverse)
+                    {
+                        let (key, why) = (self.noteskin_key.clone(), why.to_string());
+                        if on_clock {
+                            // A stall, not the skin: not held against it.
+                            web_sys::console::warn_1(&format!("noteskin {key}: {why}").into());
+                        } else {
+                            wasm_bindgen_futures::spawn_local(async move {
+                                crate::noteskins::lua_stopped(&key, &why).await;
+                            });
                         }
                     }
-                    self.renderer.set_stage_quads(back, mask);
+                    play as &mut dyn ddi_render::noteskin::NoteLayer
+                });
+                let texts = &self.script_texts;
+                let layers = ddi_shell::scripted::draw_layers(
+                    &mut self.stage,
+                    &mut self.scripts,
+                    (&mut self.renderer, &self.gfx.device, &self.gfx.queue),
+                    (frame.song_time, frame.beat),
+                    &self.background_schedule,
+                    ([width as f32, height as f32], frame_aspect),
+                    geo.center_x(span),
+                    (session.danger_shown(), layer.is_some()),
+                    |s| Self::draw_script_texts(s, texts),
+                );
+                if let Some(drawn) = layers.as_ref().and_then(|l| l.stage) {
+                    self.stage_drawn = drawn;
                 }
+                // The song's scripts, in the background frame (they load
+                // while the play may have begun).
+                if let Some(drawn) = layers.and_then(|l| l.scripts) {
+                    if let Some(why) = drawn.stopped {
+                        web_sys::console::warn_1(
+                            &format!("scripted backgrounds stopped: {why}").into(),
+                        );
+                        self.scripts_stopped = Some(why);
+                    }
+                    self.sounds_due.extend(drawn.sounds);
+                    self.scripts_drawn = drawn.drawn;
+                    // Their movies drawn, decoded on their clocks and
+                    // their new frames drawn into their textures.
+                    if session.player.finished() {
+                        self.script_movies.stop();
+                    } else if self.video_mode != VideoMode::Off {
+                        let (device, queue) = (&self.gfx.device, &self.gfx.queue);
+                        let deck = &mut self.script_movies;
+                        self.scripts
+                            .play_movies(&mut self.renderer, device, queue, |clips, r| {
+                                deck.update_clips(clips, r, device, queue)
+                            });
+                    }
+                }
+                perf::lap(Lap::Scene);
                 self.dance.before_field(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -1015,8 +1065,9 @@ impl GameLoop {
                     play_format,
                     [width, height],
                     frame.song_time,
-                    &|| crate::web::clock::PerformanceClock::now_ms() / 1000.,
+                    &crate::web::clock::PerformanceClock::seconds(),
                 );
+                perf::lap(Lap::Hand);
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -1027,10 +1078,11 @@ impl GameLoop {
                     height,
                     &frame,
                     &session.layout,
-                    &session.names,
+                    &session.rules.names,
                     render,
                     layer,
                 );
+                perf::lap(Lap::Render);
                 self.dance.after_field(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -1040,6 +1092,8 @@ impl GameLoop {
                     [width, height],
                     frame.song_time,
                 );
+                perf::lap(Lap::Hand);
+                song_second = frame.song_time;
             }
             None => {
                 self.playing_at = None;
@@ -1105,6 +1159,8 @@ impl GameLoop {
             }
         };
         self.gfx.queue.submit(Some(encoder.finish()));
+        perf::submitted(&self.gfx.queue, !self.gfx.is_gl());
+        perf::lap(Lap::Submit);
         if overlaid && let Some(o) = self.overlay.as_mut() {
             o.painter.submitted();
         }
@@ -1118,18 +1174,85 @@ impl GameLoop {
 
         if let Some(event) = outcome {
             self.done = true;
+            self.end_perf_after = true;
             // The announcer's last word (the results' line) for the tests,
             // the frames stopping now.
             if let (Some(s), Some(d)) = (self.session.as_ref(), crate::web::debug_object()) {
-                let report = announcer_debug(s.announcer_report());
+                let report = crate::web::json(&announcer_debug(s.announcer_report()));
                 let _ = js_sys::Reflect::set(&d, &"announcer".into(), &report);
             }
             self.on_event.emit(event);
         }
         self.frames += 1;
-        if self.frames.is_multiple_of(10) {
+        if self.debug_due(time_ms) || self.end_perf_after {
             self.publish_debug(host_now);
         }
+        perf::lap(Lap::Present);
+        perf::frame_end(song_second, self.dance.prepare_ms());
+        if std::mem::take(&mut self.end_perf_after) {
+            self.end_perf();
+        }
+    }
+
+    /// The frames recorded so far kept (`crate::perf`), the play over.
+    fn end_perf(&self) {
+        perf::end_play(|| {
+            let (w, h) = self.gfx.size();
+            let dpr = web_sys::window().map_or(0.0, |w| w.device_pixel_ratio());
+            let (address, agent) = web_sys::window().map_or_else(Default::default, |w| {
+                (
+                    w.location().hash().unwrap_or_default(),
+                    w.navigator().user_agent().unwrap_or_default(),
+                )
+            });
+            let refresh = self.refresh_hz();
+            let meta = serde_json::json!({
+                "address": address,
+                "agent": agent,
+                "backend": self.backend_name(),
+                "refresh_hz": refresh,
+                "device_pixel_ratio": dpr,
+                "canvas": [w, h],
+                "skin": self.noteskin_key,
+                "hand_preparing": self.dance.prepare_ms() > 0.0 || self.dance.preload_pending(),
+            })
+            .to_string();
+            // The object's members, for the file's own.
+            let members = meta
+                .trim_start_matches('{')
+                .trim_end_matches('}')
+                .to_owned();
+            (members, 1.0 / refresh.max(1.0))
+        });
+    }
+
+    /// The 2D pass the lyrics are drawn by, made for the canvas's format.
+    fn ensure_overlay(&mut self) {
+        let format = self
+            .gfx
+            .plain_format()
+            .unwrap_or_else(|| self.gfx.view_format());
+        if self
+            .overlay
+            .as_ref()
+            .is_some_and(|o| o.painter.format() == format)
+        {
+            return;
+        }
+        let mut painter =
+            ddi_render::painter::Painter::new(&self.gfx.device, &self.gfx.queue, format);
+        match crate::web::text::CanvasRasterizer::new(self.gfx.is_gl()) {
+            Ok(r) => painter.set_rasterizer(Box::new(r)),
+            Err(e) => {
+                web_sys::console::warn_1(&format!("lyrics: no text: {e}").into());
+                self.overlay = None;
+                return;
+            }
+        }
+        self.overlay = Some(Overlay {
+            painter,
+            list: ddi_render::DrawList::new(),
+        });
     }
 
     /// Draws the lyrics' lines through the 2D pass over the frame just
@@ -1143,30 +1266,8 @@ impl GameLoop {
         plain_view: Option<&wgpu::TextureView>,
         (lines, place): Lyrics,
     ) -> bool {
-        let format = self
-            .gfx
-            .plain_format()
-            .unwrap_or_else(|| self.gfx.view_format());
         let target = plain_view.unwrap_or(view);
-        if self
-            .overlay
-            .as_ref()
-            .is_none_or(|o| o.painter.format() != format)
-        {
-            let mut painter =
-                ddi_render::painter::Painter::new(&self.gfx.device, &self.gfx.queue, format);
-            match crate::web::text::CanvasRasterizer::new(self.gfx.is_gl()) {
-                Ok(r) => painter.set_rasterizer(Box::new(r)),
-                Err(e) => {
-                    web_sys::console::warn_1(&format!("lyrics: no text: {e}").into());
-                    return false;
-                }
-            }
-            self.overlay = Some(Overlay {
-                painter,
-                list: ddi_render::DrawList::new(),
-            });
-        }
+        self.ensure_overlay();
         let Some(o) = self.overlay.as_mut() else {
             return false;
         };
@@ -1187,22 +1288,23 @@ impl GameLoop {
             &o.list,
             &mut |_, _| {},
         );
-        self.lyrics_shown = lines
-            .iter()
-            .filter(|l| l.opacity > 0.0)
-            .map(|l| l.text.to_string())
-            .collect();
+        let shown = lines.iter().filter(|l| l.opacity > 0.0).map(|l| &*l.text);
+        if !shown
+            .clone()
+            .eq(self.lyrics_shown.iter().map(String::as_str))
+        {
+            self.lyrics_shown = shown.map(str::to_string).collect();
+        }
         true
     }
 
     /// The last frame's background quads, each layer's back to front:
     /// `{layer, file, add, place, alpha}` (`file` as the schedule names it).
-    fn backdrop_debug(&self) -> js_sys::Array {
-        let out = js_sys::Array::new();
+    fn backdrop_debug(&self) -> Vec<Value> {
         let layers = [&self.backdrop_drawn.first, &self.backdrop_drawn.second];
+        let mut out = Vec::new();
         for (layer, draws) in layers.into_iter().enumerate() {
             for d in draws.iter().flatten() {
-                let o = js_sys::Object::new();
                 // A picture's name, else a movie's (its texture).
                 let movie = self.movies.shown_ids().find(|(_, id)| *id == d.id);
                 let file = self
@@ -1222,170 +1324,170 @@ impl GameLoop {
                     backgrounds::Place::Fill { .. } => "fill",
                     backgrounds::Place::Native { .. } => "native",
                 };
-                for (k, v) in [
-                    ("layer", wasm_bindgen::JsValue::from(layer as u32)),
-                    ("file", file.as_str().into()),
-                    ("add", d.add.into()),
-                    ("place", place.into()),
-                    ("alpha", f64::from(d.color[3]).into()),
-                    ("crop_top", f64::from(d.crop[1]).into()),
-                ] {
-                    let _ = js_sys::Reflect::set(&o, &k.into(), &v);
-                }
-                out.push(&o);
+                out.push(json!({
+                    "layer": layer,
+                    "file": file,
+                    "add": d.add,
+                    "place": place,
+                    "alpha": f64::from(d.color[3]),
+                    "crop_top": f64::from(d.crop[1]),
+                }));
             }
         }
         out
     }
 
-    /// Debug text for the overlay element and `window.__DDI_DEBUG`.
-    fn publish_debug(&self, host_now: HostTime) {
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-        let obj = js_sys::Object::new();
-        let set = |k: &str, v: wasm_bindgen::JsValue| {
-            let _ = js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(k), &v);
-        };
-        set("frames", (self.frames as f64).into());
-        // The announcer studio's scene in play: its frame drawn.
-        if let Some(f) = &self.framed {
-            set("stage", f.debug());
-        }
-        if let Ok(value) = js_sys::JSON::parse(&self.dance.debug().to_string()) {
-            set("dance", value);
-        }
-        // The lyrics drawn over the play (their texts).
-        let lyrics = js_sys::Array::new();
-        for l in &self.lyrics_shown {
-            lyrics.push(&l.as_str().into());
-        }
-        set("lyrics", lyrics.into());
-        set("backdrop", self.backdrop_debug().into());
+    /// `__DDI_DEBUG.noteskin` for the skin drawn.
+    fn noteskin_debug(&self, n: &ddi_render::noteskin::NoteskinPlay) -> Value {
+        // What its quads cost the last frame (`noteskin_cost` measures
+        // the same on desktop).
+        let stats = self.renderer.quad_stats();
+        let (fuel, max_fuel) = n.lua_fuel();
+        json!({
+            "name": n.name,
+            "notes": n.notes,
+            "problems": n.problems(),
+            "quads": n.last_quads(),
+            "gpu": {
+                "instances": stats.quads,
+                "runs": stats.runs,
+                "stencil_clears": stats.stencil_clears,
+                "material_quads": stats.material_quads,
+                "pipelines_made": stats.pipelines_made,
+            },
+            // The parameters' values its Lua reads.
+            "params": n.parameters(),
+            "lua": {
+                "runs": n.runs_lua(),
+                "fuel": fuel,
+                "max_fuel": max_fuel,
+                "stopped": n.lua_failure(),
+            },
+        })
+    }
+
+    /// Everything `window.__DDI_DEBUG` says of the play that can be made
+    /// as JSON.
+    fn debug_json(&self, host_now: HostTime) -> Value {
+        let mut debug = json!({
+            "frames": self.frames,
+            "dance": self.dance.debug(),
+            // The lyrics drawn over the play (their texts).
+            "lyrics": self.lyrics_shown,
+            "backdrop": self.backdrop_debug(),
+            // The song's scripts: whether they run, why they stopped, the
+            // fuel of the last frame, the quads drawn (background,
+            // foreground).
+            "scripts": {
+                "running": self.scripts.running(),
+                "stopped": self.scripts_stopped.as_ref().map(ToString::to_string),
+                "fuel": self.scripts.frame_fuel(),
+                "back": self.scripts_drawn.0,
+                "sounds": self.sounds_played,
+                "front": self.scripts_drawn.1,
+            },
+            "noteskin": self.noteskin.as_ref().map(|n| self.noteskin_debug(n)),
+            "backend": self.backend_name(),
+            "srgb_view": self.gfx.view_format().is_srgb(),
+            "skins_encoded": self.renderer.skins_blend_encoded(),
+            "offscreen": self.renderer.offscreen(),
+            "fps": self.fps.fps,
+            // HUD runs shaped so far (a new string or size each).
+            "text_shaped": self.renderer.text_shaped(),
+            // The song's opening still is loaded (what the start prompt
+            // shows is the page's, `prompt_backdrop`).
+            "still": self.background_ids.iter().any(|(w, _)| *w == BgImage::Still),
+        });
+        let mut video = self.movies.debug();
+        video["update_ms"] = json!(self.video_ms_last.0);
+        video["update_ms_max"] = json!(self.video_ms_last.1);
+        video["guard"] = json!(self.guard.guard.state());
+        debug["video"] = video;
         if let Some(g) = &self.generated {
             let d = g.debug();
-            let o = js_sys::Object::new();
-            let put = |k: &str, v: wasm_bindgen::JsValue| {
-                let _ = js_sys::Reflect::set(&o, &k.into(), &v);
-            };
-            put("look", d.look.into());
-            put("palette", d.palette.into());
-            put("over", d.over.into());
-            put(
-                "analyzed",
-                d.analyzed
-                    .map_or(wasm_bindgen::JsValue::NULL, |n| (n as f64).into()),
+            debug["generated"] = json!({
+                "look": d.look,
+                "palette": d.palette,
+                "over": d.over,
+                "analyzed": d.analyzed,
+                "drawn": d.drawn,
+                "width": d.size[0],
+                "height": d.size[1],
+            });
+        }
+        if let Some(s) = &self.session {
+            let p = &s.player;
+            let clock = p.clock();
+            let r = p.results_brief();
+            // A replay's edges fed so far (`__DDI_DEBUG.replay`).
+            if let Some((fed, edges)) = s.replay_progress() {
+                crate::replay::progress(fed, edges);
+            }
+            // The assist claps scheduled and the mine sounds played.
+            let (claps, mines) = s.event_sounds();
+            extend(
+                &mut debug,
+                json!({
+                    "song_time": clock.heard_now(host_now),
+                    "combo": p.combo(),
+                    "max_combo": p.max_combo(),
+                    "taps": r.tally.taps,
+                    "held": r.tally.held,
+                    "let_go": r.tally.let_go,
+                    "stage_back": self.stage_drawn.0,
+                    "stage_mask": self.stage_drawn.1,
+                    "ticks_hit": r.tally.checkpoint_hit,
+                    "ticks_missed": r.tally.checkpoint_miss,
+                    "holds_ticked": p.ruleset().judge.hold.is_ticked(),
+                    "pressed": s.held(),
+                    // The quit button's place while it shows (CSS pixels:
+                    // x, y, radius), else null.
+                    "quitButton": crate::web::touch::quit_at(),
+                    "finished": p.finished(),
+                    "failed": p.failed(),
+                    // The lane covers now ("sudden+ 30%"; null when off).
+                    "cover": p.cover().label(),
+                    "claps": claps,
+                    "mine_sounds": mines,
+                    "announcer": announcer_debug(s.announcer_report()),
+                    "drift": clock.drift().unwrap_or(0.0),
+                    "output_latency": clock.output_latency(),
+                    "mean_delta": r.mean_delta,
+                    "stddev_delta": r.stddev_delta,
+                    "audio": s.audio_status(),
+                }),
             );
-            put("drawn", (d.drawn as f64).into());
-            put("width", d.size[0].into());
-            put("height", d.size[1].into());
-            set("generated", o.into());
+            // The best play's ghost: how far ahead of it (percentage
+            // points, or points).
+            if let Some(d) = s.ghost_delta() {
+                let (ddi_ui::state::history::GhostDelta::Percent(v)
+                | ddi_ui::state::history::GhostDelta::Points(v)) = d;
+                debug["ghost"] = json!(v);
+            }
         }
-        // The song's scripts: whether they run, why they stopped, the fuel
-        // of the last frame, the quads drawn (background, foreground).
-        let scripts = js_sys::Object::new();
-        for (k, v) in [
-            (
-                "running",
-                wasm_bindgen::JsValue::from(self.scripts.running()),
-            ),
-            (
-                "stopped",
-                self.scripts_stopped
-                    .as_ref()
-                    .map_or(wasm_bindgen::JsValue::NULL, |s| s.to_string().into()),
-            ),
-            ("fuel", (self.scripts.frame_fuel() as f64).into()),
-            ("back", (self.scripts_drawn.0 as u32).into()),
-            ("sounds", (self.sounds_played as u32).into()),
-            ("front", (self.scripts_drawn.1 as u32).into()),
-        ] {
-            let _ = js_sys::Reflect::set(&scripts, &k.into(), &v);
-        }
-        set("scripts", scripts.into());
-        let video = self.movies.debug();
-        let _ = js_sys::Reflect::set(&video, &"update_ms".into(), &self.video_ms_last.0.into());
-        let _ = js_sys::Reflect::set(
-            &video,
-            &"update_ms_max".into(),
-            &self.video_ms_last.1.into(),
-        );
-        let _ = js_sys::Reflect::set(&video, &"guard".into(), &self.guard.guard.state().into());
-        set("video", video.into());
-        set(
-            "noteskin",
-            match &self.noteskin {
-                Some(n) => {
-                    let o = js_sys::Object::new();
-                    let _ = js_sys::Reflect::set(&o, &"name".into(), &n.name.as_str().into());
-                    let notes: js_sys::Array = n
-                        .notes
-                        .iter()
-                        .map(|s| wasm_bindgen::JsValue::from_str(s))
-                        .collect();
-                    let _ = js_sys::Reflect::set(&o, &"notes".into(), &notes);
-                    let problems: js_sys::Array = n
-                        .problems()
-                        .iter()
-                        .map(|s| wasm_bindgen::JsValue::from_str(s))
-                        .collect();
-                    let _ = js_sys::Reflect::set(&o, &"problems".into(), &problems);
-                    let _ =
-                        js_sys::Reflect::set(&o, &"quads".into(), &(n.last_quads() as u32).into());
-                    // What its quads cost the last frame (`noteskin_cost`
-                    // measures the same on desktop).
-                    let stats = self.renderer.quad_stats();
-                    let gpu = js_sys::Object::new();
-                    for (key, value) in [
-                        ("instances", stats.quads),
-                        ("runs", stats.runs),
-                        ("stencil_clears", stats.stencil_clears),
-                        ("material_quads", stats.material_quads),
-                        ("pipelines_made", stats.pipelines_made),
-                    ] {
-                        let _ = js_sys::Reflect::set(&gpu, &key.into(), &value.into());
-                    }
-                    let _ = js_sys::Reflect::set(&o, &"gpu".into(), &gpu);
-                    // The parameters' values its Lua reads.
-                    let _ = js_sys::Reflect::set(
-                        &o,
-                        &"params".into(),
-                        &crate::web::json(&n.parameters()),
-                    );
-                    let (fuel, max_fuel) = n.lua_fuel();
-                    let lua = js_sys::Object::new();
-                    let _ = js_sys::Reflect::set(&lua, &"runs".into(), &n.runs_lua().into());
-                    let _ = js_sys::Reflect::set(&lua, &"fuel".into(), &(fuel as f64).into());
-                    let _ =
-                        js_sys::Reflect::set(&lua, &"max_fuel".into(), &(max_fuel as f64).into());
-                    let _ = js_sys::Reflect::set(
-                        &lua,
-                        &"stopped".into(),
-                        &n.lua_failure()
-                            .map_or(wasm_bindgen::JsValue::NULL, |f| f.into()),
-                    );
-                    let _ = js_sys::Reflect::set(&o, &"lua".into(), &lua);
-                    o.into()
-                }
-                None => wasm_bindgen::JsValue::NULL,
-            },
-        );
-        set("backend", self.backend_name().into());
-        set("srgb_view", self.gfx.view_format().is_srgb().into());
-        set("skins_encoded", self.renderer.skins_blend_encoded().into());
-        set("offscreen", self.renderer.offscreen().into());
-        set("fps", self.fps.fps.into());
-        // HUD runs shaped so far (a new string or size each).
-        set("text_shaped", (self.renderer.text_shaped() as f64).into());
-        // The song's opening still is loaded (what the start prompt shows
-        // is the page's, `prompt_backdrop`).
-        set(
-            "still",
-            self.background_ids
+        if let Some(g) = self.session.as_ref().and_then(|s| s.gamepads()) {
+            let pads: Vec<Value> = g
+                .pads()
                 .iter()
-                .any(|(w, _)| *w == BgImage::Still)
-                .into(),
-        );
+                .map(|p| {
+                    json!({
+                        "id": p.id,
+                        "standard": p.standard,
+                        "stamped_by_pad": p.stats.stamped_by_pad,
+                        "stamped_by_poll": p.stats.stamped_by_poll,
+                        "report_interval": p.stats.report_interval,
+                    })
+                })
+                .collect();
+            debug["pads"] = pads.into();
+            debug["pad_polls"] = json!(g.polls_per_second());
+            debug["pad_fast"] = json!(g.fast_running());
+        }
+        debug
+    }
+
+    /// The debug overlay's text.
+    fn debug_text(&self, host_now: HostTime) -> String {
         let mut text = format!(
             "{} · {:.0} fps · worst {:.1} ms · {}×{}",
             self.backend_name(),
@@ -1398,69 +1500,6 @@ impl GameLoop {
             let p = &s.player;
             let clock = p.clock();
             let r = p.results_brief();
-            set("song_time", clock.heard_now(host_now).into());
-            set("combo", (p.combo() as f64).into());
-            set("max_combo", (p.max_combo() as f64).into());
-            let taps = js_sys::Array::new();
-            for n in r.tally.taps {
-                taps.push(&(n as f64).into());
-            }
-            set("taps", taps.into());
-            set("held", (r.tally.held as f64).into());
-            set("let_go", (r.tally.let_go as f64).into());
-            set("stage_back", (self.stage_drawn.0 as f64).into());
-            set("stage_mask", (self.stage_drawn.1 as f64).into());
-            set("ticks_hit", (r.tally.checkpoint_hit as f64).into());
-            set("ticks_missed", (r.tally.checkpoint_miss as f64).into());
-            set("holds_ticked", p.ruleset().judge.hold.is_ticked().into());
-            let pressed = js_sys::Array::new();
-            for &h in s.held() {
-                pressed.push(&h.into());
-            }
-            set("pressed", pressed.into());
-            // The quit button's place while it shows (CSS pixels: x, y,
-            // radius), else null.
-            set(
-                "quitButton",
-                match crate::web::touch::quit_at() {
-                    Some(b) => {
-                        js_sys::Array::from_iter(b.iter().map(|&v| wasm_bindgen::JsValue::from(v)))
-                            .into()
-                    }
-                    None => wasm_bindgen::JsValue::NULL,
-                },
-            );
-            set("finished", p.finished().into());
-            set("failed", p.failed().into());
-            // The lane covers now ("sudden+ 30%"; null when off).
-            set(
-                "cover",
-                p.cover()
-                    .label()
-                    .map_or(wasm_bindgen::JsValue::NULL, |l| l.into()),
-            );
-            // The assist claps scheduled and the mine sounds played.
-            let (claps, mines) = s.event_sounds();
-            set("claps", f64::from(claps).into());
-            set("mine_sounds", f64::from(mines).into());
-            set("announcer", announcer_debug(s.announcer_report()).into());
-            // A replay's edges fed so far (`__DDI_DEBUG.replay`).
-            if let Some((fed, edges)) = s.replay_progress() {
-                crate::replay::progress(fed, edges);
-            }
-            // The best play's ghost: how far ahead of it (percentage
-            // points, or points).
-            if let Some(d) = s.ghost_delta() {
-                let v = match d {
-                    ddi_ui::state::history::GhostDelta::Percent(p)
-                    | ddi_ui::state::history::GhostDelta::Points(p) => p,
-                };
-                set("ghost", v.into());
-            }
-            set("drift", clock.drift().unwrap_or(0.0).into());
-            set("output_latency", clock.output_latency().into());
-            set("mean_delta", r.mean_delta.into());
-            set("stddev_delta", r.stddev_delta.into());
             let last = s
                 .last_delta
                 .map(|d| format!("{:+.1}", d * 1000.0))
@@ -1495,14 +1534,12 @@ impl GameLoop {
             ));
         }
         if let Some(s) = &self.session {
-            let status = s.audio_status();
-            set("audio", status.as_str().into());
             text.push('\n');
-            text.push_str(&status);
+            text.push_str(&s.audio_status());
         }
         if let Some(g) = self.session.as_ref().and_then(|s| s.gamepads()) {
-            let pads = js_sys::Array::new();
-            for p in g.pads() {
+            let pads = g.pads();
+            for p in &pads {
                 let total = p.stats.stamped_by_pad + p.stats.stamped_by_poll;
                 let report = p
                     .stats
@@ -1517,27 +1554,8 @@ impl GameLoop {
                     p.stats.stamped_by_pad,
                     total,
                 ));
-                let o = js_sys::Object::new();
-                let _ = js_sys::Reflect::set(&o, &"id".into(), &p.id.as_str().into());
-                let _ = js_sys::Reflect::set(&o, &"standard".into(), &p.standard.into());
-                let _ = js_sys::Reflect::set(
-                    &o,
-                    &"stamped_by_pad".into(),
-                    &(p.stats.stamped_by_pad as f64).into(),
-                );
-                let _ = js_sys::Reflect::set(
-                    &o,
-                    &"stamped_by_poll".into(),
-                    &(p.stats.stamped_by_poll as f64).into(),
-                );
-                let _ = js_sys::Reflect::set(
-                    &o,
-                    &"report_interval".into(),
-                    &p.stats.report_interval.unwrap_or(f64::NAN).into(),
-                );
-                pads.push(&o);
             }
-            if pads.length() > 0 {
+            if !pads.is_empty() {
                 text.push_str(&format!(
                     "\npad polling: {} /s ({})",
                     g.polls_per_second(),
@@ -1548,9 +1566,6 @@ impl GameLoop {
                     }
                 ));
             }
-            set("pads", pads.into());
-            set("pad_polls", (g.polls_per_second() as f64).into());
-            set("pad_fast", g.fast_running().into());
         }
         if let Some(d) = self.session.as_ref().and_then(|s| s.devices.as_ref()) {
             text.push_str(&format!(
@@ -1559,10 +1574,27 @@ impl GameLoop {
                 d.display.label()
             ));
         }
+        text
+    }
+
+    /// The overlay element's text, and `window.__DDI_DEBUG`.
+    fn publish_debug(&self, host_now: HostTime) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
         if let Some(el) = &self.debug_el {
-            el.set_text_content(Some(&text));
+            el.set_text_content(Some(&self.debug_text(host_now)));
         }
-        crate::web::screen::debug_into(&obj);
+        let debug = crate::web::json(&self.debug_json(host_now));
+        let obj: &js_sys::Object = debug.unchecked_ref();
+        let set = |k: &str, v: wasm_bindgen::JsValue| {
+            let _ = js_sys::Reflect::set(obj, &wasm_bindgen::JsValue::from_str(k), &v);
+        };
+        // The announcer studio's scene in play: its frame drawn.
+        if let Some(f) = &self.framed {
+            set("stage", f.debug());
+        }
+        crate::web::screen::debug_into(obj);
         // What the page's screens on the canvas (the prompt, the results)
         // added stays.
         if let Some(old) = js_sys::Reflect::get(&window, &"__DDI_DEBUG".into())
@@ -1587,13 +1619,14 @@ impl GameLoop {
         let _ = js_sys::Reflect::set(
             &window,
             &wasm_bindgen::JsValue::from_str("__DDI_DEBUG"),
-            &obj,
+            &debug,
         );
     }
 }
 
 impl Drop for GameLoop {
     fn drop(&mut self) {
+        self.end_perf();
         // A pending resize callback must not run into a dropped closure.
         if let Some((observer, _)) = &self._resize {
             observer.disconnect();
@@ -1610,65 +1643,34 @@ impl Drop for GameLoop {
 
 /// Gives the renderer `play`'s textures: the built-in art, and the decoded
 /// `images` (by texture index) copied to the GPU, a model's with mipmaps.
-/// Returns the images copied, to be closed when the play ends.
+/// The images are to be closed after the next submit.
 pub(crate) fn upload_noteskin(
     renderer: &mut Renderer,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     play: &mut ddi_render::noteskin::NoteskinPlay,
     images: &[Option<web_sys::ImageBitmap>],
-) -> Vec<web_sys::ImageBitmap> {
-    let mut uploaded = Vec::new();
-    let keys = play.texture_keys().to_vec();
-    for (i, key) in keys.iter().enumerate() {
-        let id = match (key, images.get(i).cloned().flatten()) {
-            (ddi_noteskin::build::TextureKey::BuiltIn(name), _) => {
-                renderer.add_builtin_art(device, queue, name)
-            }
-            (_, Some(image)) => {
-                let (w, h) = (image.width().max(1), image.height().max(1));
-                // A model's texture is mipmapped, as StepMania's are.
-                let mipmaps = play.texture_mipmaps(i);
-                let id = renderer.add_noteskin_image(device, queue, [w, h], mipmaps, |texture| {
-                    crate::web::gfx::copy_bitmap(queue, &image, texture, w, h);
-                });
-                uploaded.push(image);
-                id
-            }
-            (_, None) => continue,
-        };
-        play.set_texture(i, id);
-    }
-    uploaded
+) {
+    let images = images.iter().map(|i| i.as_ref().map(crate::stage::Image));
+    ddi_shell::stage::upload_noteskin(renderer, device, queue, play, images);
 }
 
 /// `__DDI_DEBUG.announcer`: the lines spoken (folders) and when (context
 /// seconds), how many its gate dropped, those due but not decoded yet,
 /// and those not in the pack (`docs/plans/announcers.md`).
-fn announcer_debug(a: &ddi_session::announcer::Report) -> js_sys::Object {
-    let o = js_sys::Object::new();
-    let list = |items: &mut dyn Iterator<Item = &str>| {
-        let out = js_sys::Array::new();
-        for i in items {
-            out.push(&i.into());
-        }
-        out
-    };
-    let at = js_sys::Array::new();
-    for (_, t) in &a.spoken {
-        at.push(&(*t).into());
+fn announcer_debug(a: &ddi_session::announcer::Report) -> Value {
+    json!({
+        "spoken": a.spoken.iter().map(|(f, _)| f).collect::<Vec<_>>(),
+        "at": a.spoken.iter().map(|(_, t)| t).collect::<Vec<_>>(),
+        "missing": a.missing,
+        "absent": a.absent,
+        "dropped": a.dropped,
+    })
+}
+
+/// Adds the members of `more` to the object `debug`.
+fn extend(debug: &mut Value, more: Value) {
+    if let (Value::Object(to), Value::Object(from)) = (debug, more) {
+        to.extend(from);
     }
-    for (k, v) in [
-        (
-            "spoken",
-            list(&mut a.spoken.iter().map(|(f, _)| f.as_str())),
-        ),
-        ("at", at),
-        ("missing", list(&mut a.missing.iter().map(String::as_str))),
-        ("absent", list(&mut a.absent.iter().map(String::as_str))),
-    ] {
-        let _ = js_sys::Reflect::set(&o, &k.into(), &v);
-    }
-    let _ = js_sys::Reflect::set(&o, &"dropped".into(), &f64::from(a.dropped).into());
-    o
 }

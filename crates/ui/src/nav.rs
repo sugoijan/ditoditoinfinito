@@ -174,6 +174,18 @@ pub struct Focusable {
     pub list: bool,
 }
 
+/// `names` in a column: Up and Down move along it, ending at its ends.
+pub fn vertical_chain<S: AsRef<str>>(names: &[S]) -> Vec<Focusable> {
+    let name = |i: usize| names[i].as_ref().to_string();
+    (0..names.len())
+        .map(|i| Focusable {
+            up: i.checked_sub(1).map(name),
+            down: (i + 1 < names.len()).then(|| name(i + 1)),
+            ..Focusable::new(name(i))
+        })
+        .collect()
+}
+
 impl Focusable {
     pub fn new(name: impl Into<String>) -> Focusable {
         Focusable {

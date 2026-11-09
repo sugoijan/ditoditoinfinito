@@ -110,8 +110,7 @@ pub fn quads<'a>(
             &mut drawn,
         );
         let out = if foreground { &mut front } else { &mut back };
-        let drawn = std::mem::take(&mut drawn);
-        push_all(drawn, clip, (ids, texts), srgb, out, targets, 0);
+        push_all(&mut drawn, clip, (ids, texts), srgb, out, targets, 0);
     }
     (back, front)
 }
@@ -119,7 +118,7 @@ pub fn quads<'a>(
 /// `drawn` as quads in `out` (cut to `clip`), and the render targets in
 /// it as theirs in `targets`.
 fn push_all(
-    drawn: Vec<Drawn>,
+    drawn: &mut Vec<Drawn>,
     clip: [f32; 4],
     (ids, texts): (Ids, &Texts),
     srgb: bool,
@@ -127,16 +126,16 @@ fn push_all(
     targets: &mut Vec<TargetQuads>,
     depth: u32,
 ) {
-    for d in drawn {
+    for d in drawn.drain(..) {
         match d {
             Drawn::Quad(q) => push(&q, clip, ids, srgb, out),
             Drawn::Text(t) => push_text(&t, texts, srgb, out),
-            Drawn::Target(t) if depth < 8 => {
+            Drawn::Target(mut t) if depth < 8 => {
                 let mut quads = Vec::new();
                 let [w, h] = t.size.map(|v| v as f32);
                 let clip = [0.0, 0.0, w, h];
                 push_all(
-                    t.drawn,
+                    &mut t.drawn,
                     clip,
                     (ids, texts),
                     srgb,
@@ -180,7 +179,7 @@ fn push(q: &ddi_actor::Quad, clip: [f32; 4], ids: Ids, srgb: bool, out: &mut Vec
         _ => false,
     };
     let shape = match shape {
-        Shape::Quad { transform, uv } => match cut(transform, uv, clip) {
+        Shape::Quad { transform, uv } => match textured::cut(transform, uv, clip) {
             Some(shape) => shape,
             None => return,
         },
@@ -216,37 +215,6 @@ fn push_text(t: &ddi_actor::TextDraw, texts: &Texts, srgb: bool, out: &mut Vec<T
         ..TexQuad::new(shape, [1.0; 4], texture)
     };
     textured::push_passes(base, t.diffuse, t.glow, srgb, out);
-}
-
-/// A quad (`transform` of the unit square, texture rectangle `uv`) cut to
-/// `clip` (`[left, top, right, bottom]`) when it is not turned; `None`
-/// when nothing of it is inside.
-fn cut(m: [f32; 6], uv: [f32; 4], clip: [f32; 4]) -> Option<Shape> {
-    let whole = Shape::Quad { transform: m, uv };
-    if m[1] != 0.0 || m[2] != 0.0 {
-        return Some(whole);
-    }
-    // One axis: centre `c`, signed size `s`, texture span `t0..t1`.
-    let axis = |c: f32, s: f32, t0: f32, t1: f32, lo: f32, hi: f32| {
-        let half = s.abs() / 2.0;
-        let (a, b) = ((c - half).max(lo), (c + half).min(hi));
-        if b <= a || half <= 0.0 {
-            return None;
-        }
-        // The texture at screen position p (a negative size mirrors).
-        let at = |p: f32| {
-            let f = (p - (c - half)) / (2.0 * half);
-            let f = if s < 0.0 { 1.0 - f } else { f };
-            t0 + (t1 - t0) * f
-        };
-        Some((a, b, at(a), at(b)))
-    };
-    let (x0, x1, u0, u1) = axis(m[4], m[0], uv[0], uv[2], clip[0], clip[2])?;
-    let (y0, y1, v0, v1) = axis(m[5], m[3], uv[1], uv[3], clip[1], clip[3])?;
-    Some(Shape::Quad {
-        transform: [x1 - x0, 0.0, 0.0, y1 - y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0],
-        uv: [u0, v0, u1, v1],
-    })
 }
 
 #[cfg(test)]

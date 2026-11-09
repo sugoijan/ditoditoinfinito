@@ -83,7 +83,7 @@ pub struct MaterialFrame<'a> {
 /// A checked material: the shader its pipelines are made from.
 #[derive(Clone, Debug)]
 pub struct Compiled {
-    pub(crate) source: String,
+    pub(crate) source: std::sync::Arc<str>,
     /// A hash of `source`, to find its pipelines by each frame.
     pub(crate) key: u64,
 }
@@ -335,7 +335,10 @@ pub fn compile(paint: &str) -> Result<Compiled, MaterialError> {
         source.hash(&mut h);
         h.finish()
     };
-    Ok(Compiled { source, key })
+    Ok(Compiled {
+        source: source.into(),
+        key,
+    })
 }
 
 #[cfg(test)]

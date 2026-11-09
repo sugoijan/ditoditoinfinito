@@ -85,6 +85,13 @@ impl RelPath {
         }
     }
 
+    /// The extension in lower case; `None` also when it is empty.
+    pub fn lower_extension(&self) -> Option<String> {
+        self.extension()
+            .filter(|e| !e.is_empty())
+            .map(str::to_ascii_lowercase)
+    }
+
     /// The last component without its extension.
     pub fn file_stem(&self) -> &str {
         let name = self.file_name();

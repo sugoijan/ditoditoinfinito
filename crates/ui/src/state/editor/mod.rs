@@ -30,8 +30,8 @@ pub use change::{ChartInfo, SongInfo};
 use change::{Change, chart_tags};
 use ddi_chart::formats::sm_write;
 use ddi_chart::{
-    BpmSegment, Chart, ComboSegment, Difficulty, DisplayBpm, FakeSegment, Label, Layout, Note,
-    NoteKind, ScrollSegment, Song, SourceFormat, SourceInfo, SpeedSegment, SpeedUnit, StopSegment,
+    BeatWalk, BpmSegment, Chart, ComboSegment, Difficulty, FakeSegment, Label, Layout, Note,
+    NoteKind, ScrollSegment, Song, SourceFormat, SpeedSegment, SpeedUnit, StopSegment,
     TICKS_PER_BEAT, Tick, TickCount, TimeSignature, TimingMap, WarpSegment,
 };
 use ddi_engine::transform::{Turn, lane_map};
@@ -284,6 +284,68 @@ struct Held {
     placed: Option<u64>,
 }
 
+/// A second and a displayed beat, as `ScrollState::y_displayed` reads
+/// them.
+pub type TimeAt = (f64, f64);
+
+/// Where a note is on the timing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NoteAt {
+    pub head: TimeAt,
+    /// A hold's or a roll's end's (the head's for the others).
+    pub tail: TimeAt,
+}
+
+/// What the field reads of the chart shown every frame, made again when
+/// the chart or its timing changes (the chart stays what is true:
+/// [`Editor::fix_chart`] makes this from it).
+#[derive(Clone, Debug, Default)]
+struct NoteIndex {
+    /// Per note of the chart, in its order.
+    at: Vec<NoteAt>,
+    /// The most ticks a note's head is before its end.
+    longest: i64,
+    /// [`Editor::end`].
+    end: Tick,
+}
+
+impl NoteIndex {
+    fn of(chart: &Chart, timing: &TimingMap) -> NoteIndex {
+        fn at(walk: &mut BeatWalk, tick: Tick) -> TimeAt {
+            let beat = tick.beat();
+            (walk.seconds(beat), walk.displayed(beat))
+        }
+        let mut walk = timing.walk();
+        let mut notes: Vec<NoteAt> = chart
+            .notes
+            .iter()
+            .map(|n| {
+                let head = at(&mut walk, n.tick);
+                NoteAt { head, tail: head }
+            })
+            .collect();
+        // The ends are not in their heads' order, so a walk of their own.
+        let mut ends: Vec<(Tick, usize)> = chart
+            .notes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| n.kind.hold_end().map(|end| (end, i)))
+            .collect();
+        ends.sort_unstable();
+        let mut walk = timing.walk();
+        for (end, i) in ends {
+            notes[i].tail = at(&mut walk, end);
+        }
+        let spans = chart.notes.iter().map(|n| (n.end_tick() - n.tick).0);
+        let end = chart.notes.iter().map(Note::end_tick).max();
+        NoteIndex {
+            at: notes,
+            longest: spans.max().unwrap_or(0).max(0),
+            end: end.unwrap_or(Tick::ZERO).max(Tick(MEASURE)),
+        }
+    }
+}
+
 /// A song being edited.
 #[derive(Clone, Debug)]
 pub struct Editor {
@@ -304,6 +366,8 @@ pub struct Editor {
     /// The chart's layout ([`Editor::layout`]), made again when an edit
     /// or another chart may change it.
     layout: Layout,
+    /// Made again with the layout.
+    index: NoteIndex,
     sounds: Sounds,
 }
 
@@ -330,6 +394,7 @@ impl Editor {
         }
         let chart = chart.min(song.charts.len() - 1);
         let layout = layout_of(&song, chart);
+        let index = NoteIndex::of(&song.charts[chart], song.charts[chart].timing(&song));
         Editor {
             song,
             chart,
@@ -344,6 +409,7 @@ impl Editor {
             saved,
             held: None,
             layout,
+            index,
             sounds: Sounds::default(),
         }
     }
@@ -353,32 +419,12 @@ impl Editor {
     pub fn new_song(music: Option<String>, title: &str) -> Editor {
         let song = Song {
             title: title.trim().to_string(),
-            subtitle: String::new(),
-            artist: String::new(),
-            title_translit: String::new(),
-            subtitle_translit: String::new(),
-            artist_translit: String::new(),
-            genre: String::new(),
-            credit: String::new(),
             music,
-            preview_start: 0.0,
             preview_length: 12.0,
-            banner: None,
-            background: None,
-            jacket: None,
-            cd_title: None,
             timing: TimingMap::constant(120.0, 0.0),
-            display_bpm: DisplayBpm::Actual,
-            charts: Vec::new(),
-            effects: Vec::new(),
-            keysounds: Vec::new(),
-            layouts: Vec::new(),
-            source: SourceInfo {
-                format: SourceFormat::Ssc {
-                    version: sm_write::SSC_VERSION,
-                },
-                unknown_tags: Vec::new(),
-            },
+            ..Song::empty(SourceFormat::Ssc {
+                version: sm_write::SSC_VERSION,
+            })
         };
         Editor::open(song, 0)
     }
@@ -505,8 +551,26 @@ impl Editor {
     /// The last tick anything is on: the last note's end, at least a
     /// measure.
     pub fn end(&self) -> Tick {
-        let notes = self.chart().notes.iter().map(Note::end_tick).max();
-        notes.unwrap_or(Tick::ZERO).max(Tick(MEASURE))
+        self.index.end
+    }
+
+    /// Note `i` of the chart shown, on the timing.
+    pub fn note_at_time(&self, i: usize) -> NoteAt {
+        self.index.at[i]
+    }
+
+    /// The notes of the chart shown whose span (head to end) meets the
+    /// ticks `first..=last`, with their places in the chart, in order.
+    pub fn notes_near(&self, first: i64, last: i64) -> impl Iterator<Item = (usize, &Note)> {
+        let notes = &self.chart().notes;
+        let earliest = first.saturating_sub(self.index.longest);
+        let from = notes.partition_point(|n| n.tick.0 < earliest);
+        let to = notes.partition_point(|n| n.tick.0 <= last);
+        notes[from..to.max(from)]
+            .iter()
+            .enumerate()
+            .map(move |(k, n)| (from + k, n))
+            .filter(move |(_, n)| n.end_tick().0 >= first)
     }
 
     /// Moves the cursor to `tick` (not before the start); `extend` keeps
@@ -585,7 +649,7 @@ impl Editor {
         if index < self.song.charts.len() {
             self.chart = index;
             self.held = None;
-            self.layout = layout_of(&self.song, index);
+            self.read_chart();
         }
     }
 
@@ -1031,10 +1095,16 @@ impl Editor {
     }
 
     /// After an edit, undone or redone: the chart shown still there,
-    /// and its layout as it is now.
+    /// and what is read from it as it is now.
     fn fix_chart(&mut self) {
         self.chart = self.chart.min(self.song.charts.len() - 1);
+        self.read_chart();
+    }
+
+    /// What is made from the chart shown: its layout, its notes' index.
+    fn read_chart(&mut self) {
         self.layout = layout_of(&self.song, self.chart);
+        self.index = NoteIndex::of(self.chart(), self.timing());
     }
 
     // ---------------------------------------------------------------------
@@ -1119,18 +1189,18 @@ fn retimed(notes: &[Note], before: &TimingMap, after: &TimingMap) -> Vec<Note> {
         })
         .collect();
     moved.sort_by_key(|n| (n.tick, n.lane));
-    let mut out: Vec<Note> = Vec::with_capacity(moved.len());
-    for n in moved {
-        let clear = out
-            .iter()
-            .rev()
-            .filter(|m| m.lane == n.lane)
-            .all(|m| m.end_tick() < n.tick);
+    // Each lane's last end so far: a note kept ends at or after its head,
+    // so what ended before it, ends before the next one too.
+    let mut ends = [None; 256];
+    moved.retain(|n| {
+        let lane_end: &mut Option<Tick> = &mut ends[usize::from(n.lane)];
+        let clear = lane_end.is_none_or(|end| end < n.tick);
         if clear {
-            out.push(n);
+            *lane_end = Some(n.end_tick());
         }
-    }
-    out
+        clear
+    });
+    moved
 }
 
 /// The segments of a map on `tick`, in [`SegmentKind::ALL`]'s order.

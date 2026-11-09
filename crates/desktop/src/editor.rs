@@ -33,16 +33,16 @@ use ddi_library::pack::ChartFormat;
 use ddi_library::path::RelPathBuf;
 use ddi_session::listen::{Cues, Listener};
 use ddi_ui::Cx;
-use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::{
-    EditorCall, EditorHost, EditorPlace, EditorScreen, RecordInput, SAVED,
+    EditorCall, EditorHost, EditorPlace, EditorScreen, RecordInput, save_failed, saved,
 };
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::SelectCall;
 use ddi_ui::state::editor::audio::{Analysis, Builder};
 use ddi_ui::state::editor::autosave::Autosave;
 use ddi_ui::state::editor::{Editor, export};
+use ddi_ui::state::settings::Settings;
 
 use crate::audio::{Audio, Sound};
 use crate::play::load::Loading;
@@ -241,7 +241,7 @@ impl Listen {
     }
 
     fn ask(&mut self, from: f64) {
-        let s = crate::store::settings_cached();
+        let s = Settings::cached();
         // The output's offset, as a play on it takes.
         let offset = s.audio_offset_for(self.audio.fingerprint().as_ref());
         if let Err(e) = self.listener.ask(&mut self.audio, from, s.volume, offset) {
@@ -259,10 +259,7 @@ impl EditorHost for Host {
         match call {
             EditorCall::Save { revision } => {
                 let message = match &self.target {
-                    None => Message::new(SAVED).with(
-                        "Error",
-                        Param::Str("this song cannot be saved in place".into()),
-                    ),
+                    None => save_failed("this song cannot be saved in place"),
                     Some(t) => {
                         let backup = t.overwrites && !self.backed_up.get();
                         match save(editor.song(), &t.file, backup) {
@@ -274,10 +271,9 @@ impl EditorHost for Host {
                                 self.songs
                                     .call(SelectCall::Reread(t.pack.clone()), None, cx);
                                 self.songs.refresh(cx);
-                                Message::new(SAVED)
-                                    .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64)))
+                                saved(revision)
                             }
-                            Err(e) => Message::new(SAVED).with("Error", Param::Str(e)),
+                            Err(e) => save_failed(e),
                         }
                     }
                 };
@@ -300,7 +296,7 @@ impl EditorHost for Host {
                     return;
                 };
                 if let Err(e) = std::fs::write(&path, text.as_bytes()) {
-                    cx.broadcast(Message::new(SAVED).with("Error", Param::Str(e.to_string())));
+                    cx.broadcast(save_failed(e.to_string()));
                 }
             }
             EditorCall::Playtest { from_cursor, auto } => {
@@ -311,7 +307,7 @@ impl EditorHost for Host {
                 *self.songs.play.borrow_mut() = Some(r);
             }
             EditorCall::Autosave => {
-                let a = editor.autosave(&self.id, crate::play::epoch_ms());
+                let a = editor.autosave(&self.id, crate::clock::epoch_ms());
                 if let (Some(path), Ok(json)) = (autosave_path(), serde_json::to_string(&a))
                     && let Err(e) = crate::paths::write_whole(&path, json.as_bytes())
                 {
@@ -357,7 +353,7 @@ impl EditorHost for Host {
 
     fn record_input(&self, layout: &ddi_chart::Layout) -> Option<RecordInput> {
         Some(ddi_session::listen::record_input(
-            &crate::store::settings_cached(),
+            &Settings::cached(),
             layout,
             &crate::input::connected_pads(),
         ))
@@ -382,11 +378,11 @@ impl EditorHost for Host {
 
     fn skin_field(&self) -> Option<SkinField> {
         Some(ddi_shell::editor_field::skin_field(
-            &crate::store::settings_cached(),
+            &Settings::cached(),
         ))
     }
 
-    fn show_field(&self, picture: Option<&FieldPicture>, editor: &Editor) {
+    fn show_field(&self, picture: Option<Rc<FieldPicture>>, editor: &Editor) {
         crate::editor_field::show(picture, editor);
     }
 }
@@ -422,7 +418,6 @@ pub fn open(
 ) -> EditorScreen {
     let target = target(id);
     let place = EditorPlace {
-        platform: ddi_ui::screens::data::Platform::Desktop,
         save: target.as_ref().map(|t| t.file.display().to_string()),
         // The file replaced (its question says the old one is kept beside
         // it as `<name>.old`).
@@ -430,9 +425,6 @@ pub fn open(
             .as_ref()
             .filter(|t| t.overwrites && fresh.is_none())
             .map(|t| t.file.display().to_string()),
-        export: true,
-        listen: true,
-        playtest: true,
         new_song: fresh.is_some(),
     };
     let host = Host {

@@ -331,10 +331,12 @@ impl Search {
         self.rows.get(self.row)?.first().map(|n| n.tick)
     }
     pub fn new(input: &Input, o: Options) -> Result<Self, String> {
-        Self::new_with_rolls(input, o, None, None)
+        Self::new_with_rolls(input, &input.notes, o, None, None)
     }
+    /// A search over `candidates`: `input`'s notes, or those left to plan.
     fn new_with_rolls(
         input: &Input,
+        candidates: &[InputNote],
         o: Options,
         seed: Option<&SearchSeed>,
         known: Option<f64>,
@@ -360,8 +362,7 @@ impl Search {
         }
         let first = o.first.unwrap_or(i64::MIN);
         let last = o.last.unwrap_or(i64::MAX);
-        let mut notes = input
-            .notes
+        let mut notes = candidates
             .iter()
             .copied()
             .filter(|n| {
@@ -394,7 +395,7 @@ impl Search {
         }
         if notes.is_empty() {
             if seed.is_some() {
-                return Ok(Self::with_rows(Vec::new(), 0., o));
+                return Ok(Self::with_rows(Vec::new(), 0., o, &input.layout));
             }
             return Err("No judgeable notes".into());
         }
@@ -445,8 +446,7 @@ impl Search {
             rows[0][0].time - o.lead
         };
         let mines = rows.iter().flatten().filter(|n| n.mine).copied().collect();
-        let mut search = Self::with_rows(rows, origin, o);
-        search.layout = input.layout.clone();
+        let mut search = Self::with_rows(rows, origin, o, &input.layout);
         if double_mat(&search.layout) {
             // Only the uncommitted opening rest follows the first received head.
             // Avoid making an immediate right-pad start cross the whole mat.
@@ -468,10 +468,10 @@ impl Search {
                         .find(|row| row.iter().any(|n| !n.mine))
                         .is_some_and(|row| {
                             row.iter().any(|n| {
-                                !n.mine && n.lane != 4 && (n.panel - 1) / 9 != (source - 1) / 9
+                                !n.mine && n.lane != 4 && pad_offset(n.panel) != pad_offset(source)
                             })
                         });
-                    let offset = 9 * ((source - 1) / 9);
+                    let offset = pad_offset(source);
                     if split {
                         [9, 16]
                     } else {
@@ -485,37 +485,22 @@ impl Search {
                         .is_some_and(|row| {
                             row.iter()
                                 .filter(|n| !n.mine)
-                                .any(|n| (panel(n) - 1) / 9 != (source - 1) / 9)
+                                .any(|n| pad_offset(panel(n)) != pad_offset(source))
                         });
                     if split {
                         [6, 13]
                     } else {
-                        let side =
-                            9 * ((source - 1) / 9) + if (source - 1) % 3 == 2 { 6 } else { 4 };
+                        let side = pad_offset(source) + if (source - 1) % 3 == 2 { 6 } else { 4 };
                         [side; 2]
                     }
                 } else {
-                    [5 + 9 * ((source - 1) / 9); 2]
+                    [pad_offset(source) + 5; 2]
                 };
                 search.initial = Initial {
                     left: rest[0],
                     right: rest[1],
                 };
                 search.states[0].panels = rest;
-            }
-        }
-        if search.layout == "danoni-9A" && o.restore_early_window > 0. {
-            let mut next = [f64::INFINITY; 18];
-            for i in (0..search.rows.len()).rev() {
-                search.future[i] = next;
-                for n in &search.rows[i] {
-                    if !n.mine && !n.roll_refresh {
-                        next[index(n.panel)] = n.time - origin;
-                        if n.lane == 4 {
-                            next[index(14)] = n.time - origin;
-                        }
-                    }
-                }
             }
         }
         search.skipped_roll_tail_refreshes = skipped_roll_tail_refreshes;
@@ -592,7 +577,7 @@ impl Search {
             0.
         }
     }
-    fn with_rows(rows: Vec<Vec<InputNote>>, origin: f64, o: Options) -> Self {
+    fn with_rows(rows: Vec<Vec<InputNote>>, origin: f64, o: Options, layout: &str) -> Self {
         let mut next = [f64::INFINITY; 18];
         let mut future = vec![next; rows.len()];
         if o.restore_early_window > 0. {
@@ -601,6 +586,10 @@ impl Search {
                 for n in &rows[i] {
                     if !n.mine && !n.roll_refresh {
                         next[index(panel(n))] = n.time - origin;
+                        // An Oni head reserves both of 9A's centers.
+                        if layout == "danoni-9A" && n.lane == 4 {
+                            next[index(14)] = n.time - origin;
+                        }
                     }
                 }
             }
@@ -609,7 +598,7 @@ impl Search {
             skipped_roll_tail_refreshes: 0,
             rows,
             mines: Vec::new(),
-            layout: default_layout(),
+            layout: layout.into(),
             origin,
             options: o,
             future,
@@ -635,20 +624,23 @@ impl Search {
         commit_time: f64,
         known: f64,
     ) -> Result<Self, String> {
-        let mut future = input.clone();
-        future
-            .notes
-            .retain(|n| seed.tick().is_none_or(|t| n.tick > t));
-        let first = future.notes.iter().find(|n| n.judgeable);
+        let after = |n: &&InputNote| seed.tick().is_none_or(|t| n.tick > t);
+        let first = input.notes.iter().filter(after).find(|n| n.judgeable);
         o.lead = first.map_or(0., |n| n.time);
         o.first = None;
         o.last = None;
         let mut s = if input.notes.iter().any(|n| n.roll && n.judgeable) {
-            Self::new_with_rolls(input, o, Some(seed), Some(known))?
+            Self::new_with_rolls(input, &input.notes, o, Some(seed), Some(known))?
         } else if first.is_some() {
-            Self::new(&future, o)?
+            let future = input
+                .notes
+                .iter()
+                .filter(after)
+                .copied()
+                .collect::<Vec<_>>();
+            Self::new_with_rolls(input, &future, o, None, None)?
         } else {
-            Self::with_rows(Vec::new(), 0., o)
+            Self::with_rows(Vec::new(), 0., o, &input.layout)
         };
         let mut opening_seed = seed.clone();
         let mut state = seed.state.clone();
@@ -685,7 +677,6 @@ impl Search {
                 .first()
                 .map_or(state.panels[1], |s| s.from),
         };
-        s.layout = input.layout.clone();
         s.unknown_head_window = input
             .rules
             .iter()
@@ -709,9 +700,7 @@ impl Search {
     // received head can reuse this landing and emits its usual one event.
     fn safe_return(&self, panel: u8, land: f64) -> bool {
         let next = self.rows.iter().skip(self.row + 1).flatten().find(|n| {
-            !n.mine
-                && !n.lift
-                && !n.roll_refresh
+            n.is_head()
                 && note_has_panel(&self.layout, n, panel)
                 && n.time - self.origin >= land - 1e-9
         });
@@ -745,9 +734,7 @@ impl Search {
                     return true;
                 }
                 self.rows.iter().skip(self.row).flatten().any(|n| {
-                    !n.mine
-                        && !n.lift
-                        && !n.roll_refresh
+                    n.is_head()
                         && note_has_panel(&self.layout, n, a.panel)
                         && n.time - self.origin == a.time
                 })
@@ -811,7 +798,7 @@ impl Search {
         Some(seed)
     }
     pub(crate) fn committed_plan(seed: &SearchSeed, known: f64) -> ContactPlan {
-        let mut s = Self::with_rows(Vec::new(), 0., Options::default());
+        let mut s = Self::with_rows(Vec::new(), 0., Options::default(), &seed.layout);
         s.initial = Initial {
             left: seed.state.tracks[0]
                 .values()
@@ -822,7 +809,6 @@ impl Search {
                 .first()
                 .map_or(seed.state.panels[1], |s| s.from),
         };
-        s.layout = seed.layout.clone();
         s.states = vec![seed.state.clone()];
         s.duration = Some(known);
         s.seed = Some(seed.clone());
@@ -1188,7 +1174,7 @@ impl Search {
                     .take(8)
                     .flatten()
                     .filter(|head| !head.mine && head.lane != 4 && head.time <= until)
-                    .filter(|head| (panel(head) - 1) / 9 != (target - 1) / 9)
+                    .filter(|head| pad_offset(panel(head)) != pad_offset(target))
                     .count() as f64
                     * if n.end.is_some() { 24. } else { 4. };
             }
@@ -1243,14 +1229,11 @@ impl Search {
                     self.lift_destination(old, old.panels[other], other)?
                 } else if double_pump(&self.layout) {
                     crate::lift_escape(&self.layout, target, other)
-                } else if let Some(stance) = crate::escape_stances(&self.layout).first() {
-                    if crate::wide_stances(&self.layout) {
-                        stance[other]
-                    } else if n.roll {
-                        if other == 0 { 4 } else { 6 }
-                    } else {
-                        target
-                    }
+                } else if let Some(stance) = crate::escape_stances(&self.layout)
+                    .first()
+                    .filter(|_| crate::wide_stances(&self.layout))
+                {
+                    stance[other]
                 } else if n.roll {
                     if other == 0 { 4 } else { 6 }
                 } else {
@@ -1265,7 +1248,7 @@ impl Search {
                             .iter()
                             .skip(self.row + 1)
                             .flatten()
-                            .filter(|head| !head.mine && !head.lift && !head.roll_refresh)
+                            .filter(|head| head.is_head())
                             .take_while(|head| head.time - self.origin < land + 0.060)
                             .flat_map(|head| crate::note_choices(&self.layout, *head))
                             .find_map(|head| {
@@ -1300,9 +1283,7 @@ impl Search {
                     && (n.roll
                         || (n.end.is_none()
                             && self.rows.iter().skip(self.row + 1).flatten().any(|head| {
-                                !head.mine
-                                    && !head.lift
-                                    && !head.roll_refresh
+                                head.is_head()
                                     && panel(head) == target
                                     && head.time - n.time < 0.215
                             })))
@@ -1689,14 +1670,19 @@ impl Search {
         let mut states = Vec::new();
         for s in self.candidates.drain(..) {
             let bits = |v: f64| if v == 0. { 0 } else { v.to_bits() };
-            let mut key = s.panels.map(u64::from).to_vec();
+            let mut key = Vec::with_capacity(32);
+            key.extend(s.panels.map(u64::from));
             key.extend(s.last.map(bits));
             key.extend(s.holds.map(bits));
             key.push(u64::from(s.hazard_recovery));
             // Exactly the reference's recent-flight boundary: older history
             // is shared for output, but does not distinguish equivalent states.
+            // Each track's flights go in latest first: the same equality.
             for d in 0..2 {
-                for swing in s.tracks[d].suffix(|s| s.land >= land - 0.45) {
+                for swing in s.tracks[d]
+                    .backwards()
+                    .take_while(|s| s.land >= land - 0.45)
+                {
                     key.extend([d as u64, bits(swing.release), bits(swing.land)]);
                 }
             }
@@ -1767,23 +1753,25 @@ impl Search {
             || self.seed.is_some()
             || o.hold_restore_window > 0.
             || o.hold_handoff_window > 0.;
+        let tracks = Tracks {
+            left: s.tracks[0].values(),
+            right: s.tracks[1].values(),
+        };
+        let roll_pulses = rolls::pulses(&holds, &tracks);
         let plan = ContactPlan {
             layout: self.layout.clone(),
             version: if double_mat(&self.layout) { 2 } else { 1 },
             mat: (double_mat(&self.layout)).then(|| layout_geometry(&self.layout).unwrap()),
             scope: if self.mines.is_empty() {"Automatic bounded-beam planning from imported chart taps/holds. No manual assignments, lift timestamps or accepted motion inputs."} else {"Automatic bounded-beam planning of taps/holds with explicit mine-clearance contacts."}.into(),
             initial: self.initial.clone(),
-            placement: Placement {
-                tile_pitch_mm: 24., panel_anchor_mm: 15.,
-                center_offset_mm: 9., other_offset_mm: 5.5,
-            },
-            tracks: Tracks { left: s.tracks[0].values(), right: s.tracks[1].values() },
+            placement: Placement::default(),
+            tracks,
             events,
             source_music_origin_seconds: self.origin,
             duration,
             holds,
             mines: self.mines.iter().map(|m|ddi_hand_pose::Mine{time:m.time-self.origin,panel:panel(m)}).collect(),
-            roll_pulses: rolls::pulses(&s.hold_events.values(), &[s.tracks[0].values(),s.tracks[1].values()]),
+            roll_pulses,
             aux_contacts: extras.then(|| s.aux.values()),
             hold_gaps: extras.then(|| s.gaps.values()),
             timing_adjustments: (self.seed.is_some() || o.adaptive_timing).then(|| s.timing.values()),
@@ -1827,15 +1815,15 @@ mod double_tests {
             roll: false,
             roll_refresh: false,
         };
-        let mut search = Search::with_rows(
+        let search = Search::with_rows(
             vec![vec![note]],
             0.,
             Options {
                 hold_handoff_window: 0.14,
                 ..Default::default()
             },
+            "dance-double",
         );
-        search.layout = "dance-double".into();
         let mut old = State::initial();
         old.panels = [17, 13];
         old.last = [2., 2.5];
@@ -1874,8 +1862,7 @@ mod pump_double_tests {
     #[test]
     fn pump_candidate_envelopes_cover_the_surveyed_pairs_and_bound_unscored_escapes() {
         for layout in ["pump-halfdouble", "pump-double"] {
-            let mut search = Search::with_rows(Vec::new(), 0., Options::default());
-            search.layout = layout.into();
+            let search = Search::with_rows(Vec::new(), 0., Options::default(), layout);
             let mat = ddi_dance_mat::MatLayout::from_id(layout).unwrap();
             assert_eq!(
                 crate::support_tiles(layout),
@@ -1992,7 +1979,7 @@ mod mine_return_tests {
     }
     #[test]
     fn fixed_return_needs_enough_received_context_before_it_is_committed() {
-        let mut search = Search::with_rows(Vec::new(), 0., Options::default());
+        let mut search = Search::with_rows(Vec::new(), 0., Options::default(), "dance-single");
         search.duration = Some(4.);
         search.commit_time = 3.5;
         let mut state = State::initial();
@@ -2035,6 +2022,7 @@ mod mine_return_tests {
             vec![vec![head(3.)], vec![head(3.9)], vec![head(4.)]],
             0.,
             Options::default(),
+            "dance-single",
         );
         assert!(search.safe_return(4, 3.9));
         assert!(!search.safe_return(4, 3.85));

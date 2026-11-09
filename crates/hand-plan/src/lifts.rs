@@ -6,7 +6,7 @@ use super::*;
 impl Search {
     pub(super) fn lift_destination(&self, s: &State, source: u8, foot: usize) -> Option<u8> {
         if self.layout == "danoni-9A" {
-            let offset = 9 * ((source - 1) / 9);
+            let offset = crate::pad_offset(source);
             let mut choices = [offset + 1, offset + 3, offset + 7, offset + 9];
             choices.sort_by(|a, b| {
                 self.distance(*a, source, foot)
@@ -24,7 +24,7 @@ impl Search {
         if !double_pump(&self.layout) {
             return Some(preferred);
         }
-        let offset = 9 * ((source - 1) / 9);
+        let offset = crate::pad_offset(source);
         let alternate = offset + if (preferred - 1) % 9 + 1 == 4 { 6 } else { 4 };
         [preferred, alternate].into_iter().find(|&p| {
             let mut stance = s.panels;
@@ -100,9 +100,7 @@ impl Search {
             .flatten()
             .find(|head| {
                 let gap = head.time - self.origin - time;
-                !head.mine
-                    && !head.lift
-                    && !head.roll_refresh
+                head.is_head()
                     && note_has_panel(&self.layout, head, target)
                     && gap >= ls.1
                     && gap <= 0.45
@@ -184,11 +182,7 @@ pub(crate) fn validate_auxiliary(
     p: &ContactPlan,
     a: &Auxiliary,
 ) -> Result<(), String> {
-    let tr = if a.foot == Foot::L {
-        &p.tracks.left
-    } else {
-        &p.tracks.right
-    };
+    let tr = p.tracks.of(a.foot);
     let matches = input.notes.iter().any(|n| {
         if !n.judgeable || !n.lift || n.tick != a.end_tick {
             return false;
@@ -204,7 +198,7 @@ pub(crate) fn validate_auxiliary(
                 ((if p.layout == "danoni-9A" {
                     crate::support_tiles(&p.layout).contains(&a.panel)
                 } else if double_pump(&p.layout) {
-                    let offset = 9 * ((panel(n) - 1) / 9);
+                    let offset = crate::pad_offset(panel(n));
                     [offset + 4, offset + 6].contains(&a.panel)
                 } else {
                     a.panel == crate::lift_escape(&p.layout, panel(n), a.foot.index())

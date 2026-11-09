@@ -11,9 +11,7 @@
 //! | 5    | 0, 1       | mines (not a full row)   |
 //! | 6    | 2          | tap                      |
 
-use ddi_chart::{
-    Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick, TimingMap,
-};
+use ddi_chart::{Chart, Difficulty, Note, NoteKind, Song, Tick, TimingMap};
 use ddi_engine::frame::SkinEventKind;
 use ddi_engine::player::{PlayOptions, Player, SHOCK_BLIND_SECONDS};
 use ddi_engine::rules::FullCombo;
@@ -33,46 +31,12 @@ fn song() -> Song {
     ];
     notes.extend((0..4).map(|lane| Note::new(t(2), lane, NoteKind::Mine)));
     notes.sort_by_key(|n| (n.tick, n.lane));
-    Song {
-        title: "Shocks".into(),
-        subtitle: String::new(),
-        artist: "test".into(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(60.0, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: "dance-single".into(),
-            difficulty: Difficulty::Challenge,
-            meter: 9,
-            name: "shocks".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    }
+    Song::generated(
+        "Shocks",
+        TimingMap::constant(60.0, 0.0),
+        Chart::plain("dance-single", Difficulty::Challenge, 9, notes),
+        "test",
+    )
 }
 
 /// The three taps on time.

@@ -29,6 +29,11 @@ pub trait Store {
     fn get(&self, area: Area, key: &str) -> Option<String>;
     fn set(&self, area: Area, key: &str, value: &str) -> Result<(), String>;
     fn remove(&self, area: Area, key: &str);
+    /// Waits for what was set to reach a store that writes behind, and
+    /// says how that went.
+    fn flush(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Values in memory, gone with the process.
@@ -99,6 +104,11 @@ pub fn set(area: Area, key: &str, value: &str) -> Result<(), String> {
 
 pub fn remove(area: Area, key: &str) {
     store().remove(area, key)
+}
+
+/// [`Store::flush`] of the installed store.
+pub fn flush() -> Result<(), String> {
+    store().flush()
 }
 
 /// The value under `key`, as JSON; `None` when absent or unreadable.

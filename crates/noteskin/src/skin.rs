@@ -282,6 +282,25 @@ fn normalize(path: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// Puts `skins` in the order a load searches them: the one `chosen`
+/// picks first, then, for a bundled one, only the bundled ones (no
+/// import, not an imported `default` or `common`, changes the default
+/// skin); a player's among the player's, then the bundled ones. `None`
+/// when none is chosen.
+pub fn load_order<S>(
+    skins: &mut Vec<S>,
+    chosen: impl FnMut(&S) -> bool,
+    bundled: impl Fn(&S) -> bool,
+) -> Option<()> {
+    let at = skins.iter().position(chosen)?;
+    let first = skins.remove(at);
+    if bundled(&first) {
+        skins.retain(&bundled);
+    }
+    skins.insert(0, first);
+    Some(())
+}
+
 /// A loaded skin: its folders in search order and its merged metrics.
 #[derive(Debug)]
 pub struct Skin<'a> {
@@ -440,6 +459,15 @@ impl<'a> Skin<'a> {
             Dir::Folder(i) => self.folders.get(i),
             Dir::BuiltIn(_) => None,
         }
+    }
+
+    /// Whether the skin is drawn through its Lua: skins with no Lua of
+    /// their own (nor their fallbacks) play natively, the same as
+    /// StepMania's stand-ins' Lua without its costs; a pump skin's
+    /// elements are pump/default's Lua's (the right side's taken from the
+    /// left's), which always runs.
+    pub fn runs_lua(&self) -> bool {
+        self.has_lua() || self.game == "pump"
     }
 
     /// Whether the skin or one it falls back on has Lua of its own
@@ -854,6 +882,25 @@ pub(crate) mod tests {
                 .map(|(p, t)| (p.to_string(), t.to_string()))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_load_searches_the_chosen_skin_first_and_a_bundled_ones_among_the_bundled() {
+        let skins = || vec![("mine", false), ("a", true), ("b", true), ("theirs", false)];
+        let bundled = |s: &(&str, bool)| s.1;
+        let mut order = skins();
+        assert_eq!(load_order(&mut order, |s| s.0 == "b", bundled), Some(()));
+        assert_eq!(order, [("b", true), ("a", true)]);
+        let mut order = skins();
+        assert_eq!(
+            load_order(&mut order, |s| s.0 == "theirs", bundled),
+            Some(())
+        );
+        assert_eq!(
+            order,
+            [("theirs", false), ("mine", false), ("a", true), ("b", true)]
+        );
+        assert_eq!(load_order(&mut skins(), |s| s.0 == "none", bundled), None);
     }
 
     #[test]

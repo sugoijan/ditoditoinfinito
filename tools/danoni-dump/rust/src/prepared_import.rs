@@ -513,7 +513,7 @@ pub fn validate(
                 .map_err(|e| invalid(e.to_string()))?,
         )
         .map_err(|e| invalid(e.to_string()))?;
-        let assets = pack::resolve_assets(&parsed, &candidate.dir, &paths);
+        let assets = pack::resolve_assets(&parsed, &candidate.dir, &pack::PathIndex::new(&paths));
         if assets.music.as_ref().map(|p| p.as_str()) != song["music"].as_str()
             || assets.banner.as_ref().map(|p| p.as_str()) != song["banner"].as_str()
             || assets.background.is_some()
@@ -536,7 +536,7 @@ pub fn validate(
             if !crate::model::Mode::is_playable_label(text(report, "mode")?)
                 || !seen_charts.insert(id.to_owned())
                 || chart.layout != format!("danoni-{}", text(report, "mode")?)
-                || parsed.layout_of(chart).is_none()
+                || !parsed.has_layout(chart)
             {
                 return Err(invalid("Unsupported or repeated chart selector/layout"));
             }

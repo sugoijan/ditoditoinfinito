@@ -12,6 +12,16 @@ pub fn point(m: &Mat4, p: [f32; 3]) -> [f32; 3] {
 pub fn vector(m: &Mat4, p: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|r| m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2])
 }
+pub fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a.into_iter().zip(b).map(|(a, b)| a * b).sum()
+}
+pub fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
 pub fn normalize(v: [f32; 3]) -> [f32; 3] {
     let l = v.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-20);
     v.map(|x| x / l)

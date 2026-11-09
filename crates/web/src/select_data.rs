@@ -20,25 +20,20 @@ use ddi_ui::state::place::MenuPlace;
 /// Layouts with charts in the library: the built-in ones in their order,
 /// then the ones songs define themselves, by name.
 pub(crate) fn library_styles(library: &Library) -> Vec<Layout> {
-    select_view::library_styles(
-        library
-            .bundled
-            .iter()
-            .chain(library.imported.iter().map(|s| &s.entry)),
-    )
+    select_view::library_styles(library.entries())
 }
 
 /// An imported song as the list shows it: stored files as `files:` keys,
 /// its background its opening movie's still first (`crate::stills`; a
 /// background left in a kept folder is not in the store). Bundled songs
 /// are [`Listed::bundled`].
-fn imported(s: &ImportedSong) -> Listed {
+fn imported(s: &ImportedSong) -> Listed<'_> {
     let entry = &s.entry;
     // A share's song (`crate::share`): its pictures by URL, not removable.
     if crate::share::is_shared_id(&entry.id) {
         let url = |p: &ddi_library::path::RelPathBuf| crate::share::file_url(&entry.id, p.as_str());
         return Listed {
-            entry: entry.clone(),
+            entry,
             pack: Some(s.pack.clone()),
             pack_banner: None,
             banner: entry.banner.as_ref().and_then(url),
@@ -49,7 +44,7 @@ fn imported(s: &ImportedSong) -> Listed {
         };
     }
     Listed {
-        entry: entry.clone(),
+        entry,
         pack: Some(s.pack.clone()),
         pack_banner: None,
         banner: entry
@@ -86,7 +81,7 @@ pub(crate) fn select_data(
     folders: &HashMap<String, JsValue>,
     place: &MenuPlace,
 ) -> SelectData {
-    let songs: Vec<Listed> = library
+    let songs: Vec<Listed<'_>> = library
         .bundled
         .iter()
         .map(Listed::bundled)
@@ -115,17 +110,17 @@ pub(crate) fn select_data(
 /// What song select says of the share it shows: its pack's name and
 /// the time it has left.
 pub(crate) fn shared_view(share: &crate::share::Share) -> SharedView {
-    SharedView {
-        pack: share.pack.clone(),
-        expires: share.expires_in(js_sys::Date::now() / 1000.0),
-    }
+    SharedView::new(
+        share.pack.clone(),
+        share.expires_at,
+        js_sys::Date::now() / 1000.0,
+    )
 }
 
 /// The import dialog's state now.
 pub(crate) fn import_view(settings: &Settings) -> ImportView {
     let (running, report, _) = crate::import::status();
     ImportView {
-        platform: ddi_ui::screens::data::Platform::Web,
         danoni_urls: false,
         danoni_cancel: false,
         danoni: Default::default(),

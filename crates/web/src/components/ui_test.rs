@@ -200,13 +200,12 @@ impl Component for UiTest {
 
 fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, scene: Rc<RefCell<Scene>>) {
     let raf2 = raf.clone();
-    let scene2 = scene.clone();
     let handle = request_animation_frame(move |time_ms| {
-        if scene2.borrow().closed {
+        if scene.borrow().closed {
             return;
         }
-        frame(&mut scene2.borrow_mut(), time_ms);
-        schedule(raf2, scene2);
+        frame(&mut scene.borrow_mut(), time_ms);
+        schedule(raf2, scene);
     });
     *raf.borrow_mut() = Some(handle);
 }

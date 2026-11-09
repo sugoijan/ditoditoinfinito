@@ -33,7 +33,7 @@
 
 use ddi_engine::MenuInput as HintAction;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
@@ -45,12 +45,11 @@ use ddi_library::announcer::{Comment, Line};
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
 use super::data::{
-    ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, closest, difficulty_name,
-    style_name,
+    ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, closest, style_name,
 };
 use super::{Backdrop, Env, FooterHint, extent, footer_hints, frame, ground, header, left, right};
 use crate::hit;
-use crate::look::{self, Spec, call, quad};
+use crate::look::{self, Spec, call, quad, quad_at};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
@@ -496,7 +495,7 @@ struct Wheel<'a> {
     items: &'a [Item],
     data: &'a SelectData,
     packs: &'a [(Option<String>, Vec<usize>)],
-    closed: &'a BTreeSet<usize>,
+    open_pack: Option<usize>,
     /// The songs a search matches (none: no search).
     matches: Option<&'a [bool]>,
     style: &'a str,
@@ -527,7 +526,7 @@ impl ListModel for Wheel<'_> {
         match self.items[i] {
             Item::Header(p) => {
                 let (name, songs) = &self.packs[p];
-                let open = self.matches.is_some() || !self.closed.contains(&p);
+                let open = self.matches.is_some() || self.open_pack == Some(p);
                 set_text(item, "Chevron", if open { "▾" } else { "▸" });
                 set_text(item, "Title", &pack_label(name.as_deref()));
                 let cover = self
@@ -589,11 +588,14 @@ impl ListModel for Wheel<'_> {
                         crate::widgets::play(c, if meter.is_some() { "Full" } else { "Empty" });
                     }
                 }
-                set_text(
-                    item,
-                    "NoCharts",
-                    &msg::row_no_charts(style_name(self.style, self.style_name)),
-                );
+                // Hidden when the song has charts in the style.
+                if charts.is_empty() {
+                    set_text(
+                        item,
+                        "NoCharts",
+                        &msg::row_no_charts(style_name(self.style, self.style_name)),
+                    );
+                }
                 // Edits (and named charts) beside the five meters.
                 let edits = charts
                     .iter()
@@ -641,7 +643,14 @@ pub struct SelectScreen {
     preferred: Difficulty,
     /// The ladder's chart picked for the song shown.
     pick: Option<usize>,
-    closed: BTreeSet<usize>,
+    /// The one pack open (a search shows every pack's matches); the
+    /// others are closed.
+    open_pack: Option<usize>,
+    /// Counts the changes of the packs' names and order, so that what
+    /// the shell was told of them is compared without building it.
+    packs_version: u64,
+    /// `open_pack` and `packs_version` as the shell was last told them.
+    told_packs: (Option<usize>, u64),
     /// Initial saved song waiting for the library scan.
     resume: Option<(String, Option<usize>)>,
     resume_pack: Option<String>,
@@ -674,10 +683,17 @@ pub struct SelectScreen {
     left_dirty: bool,
     /// The ladder's window as drawn: its first chart and how many.
     ladder: (usize, usize),
+    /// The width and height the ladder's rows were made at.
+    ladder_rows: Option<(f32, f32)>,
+    /// The tabs as made: each style's chart count and the one selected.
+    tabs_for: Option<(Vec<usize>, usize)>,
     /// What the wheel is filtered by.
     filtered: String,
     /// Something the debug view shows changed.
     publish_dirty: bool,
+    /// An input moved the list: which rows show, and where, is known at
+    /// the next frame.
+    rows_dirty: bool,
     typing: bool,
     /// What had the focus before the search field: given back when typing
     /// stops by Escape or elsewhere (Enter goes to the wheel).
@@ -713,9 +729,8 @@ pub struct SelectScreen {
     navigation: Navigation,
     wheel_motion: Option<Motion>,
     /// How open the wheel's room for the selected row is (closed while
-    /// it flicks), and whether the selected row was shrunk for it.
+    /// it flicks).
     open: f32,
-    shut: bool,
 }
 
 /// The wheel's model over a screen's fields, each borrowed on its own
@@ -727,7 +742,7 @@ macro_rules! wheel_model {
             &$s.items,
             &$s.data,
             &$s.packs,
-            &$s.closed,
+            $s.open_pack,
             $s.matches.as_deref(),
             $s.style,
             $s.layout.compact,
@@ -775,7 +790,9 @@ impl SelectScreen {
             style: 0,
             preferred,
             pick: None,
-            closed: BTreeSet::new(),
+            open_pack: None,
+            packs_version: 0,
+            told_packs: (None, 0),
             resume: None,
             resume_pack: None,
             matches: None,
@@ -793,8 +810,11 @@ impl SelectScreen {
             movie: None,
             left_dirty: true,
             ladder: (0, 0),
+            ladder_rows: None,
+            tabs_for: None,
             filtered: String::new(),
             publish_dirty: true,
+            rows_dirty: false,
             typing: false,
             search_from: None,
             dimmed: false,
@@ -818,7 +838,6 @@ impl SelectScreen {
             navigation: Navigation::default(),
             wheel_motion: None,
             open: 1.0,
-            shut: false,
         };
         let resume = data.resume.clone();
         let resume_pack = data.resume_pack.clone();
@@ -827,13 +846,9 @@ impl SelectScreen {
         let style = data.style.clone();
         let search = data.search.clone();
         s.set_data(data, true);
-        s.closed = s
-            .packs
-            .iter()
-            .enumerate()
-            .filter(|(_, (name, _))| closed.contains(name))
-            .map(|(i, _)| i)
-            .collect();
+        let closed: HashSet<&Option<String>> = closed.iter().collect();
+        let saved_open = s.packs.iter().position(|(name, _)| !closed.contains(name));
+        s.open_pack = saved_open;
         if let Some(i) = style.and_then(|id| s.data.styles.iter().position(|st| st.id == id)) {
             s.style = i;
         }
@@ -846,11 +861,10 @@ impl SelectScreen {
         // An explicit start opens its pack. A saved position respects collapsed packs.
         let start_id = start.or_else(|| resume.as_ref().map(|(id, _)| id.as_str()));
         let start_song = start_id.and_then(|id| s.data.songs.iter().position(|x| x.id == id));
-        let open = start_song
+        s.open_pack = start_song
             .filter(|_| start.is_some())
             .and_then(|i| s.packs.iter().position(|(_, v)| v.contains(&i)))
-            .or_else(|| (0..s.packs.len()).find(|p| !s.closed.contains(p)));
-        s.open_pack(open);
+            .or(saved_open);
         s.lay_out_items();
         s.reload();
         if start_song.is_none() && loading {
@@ -880,11 +894,6 @@ impl SelectScreen {
             s = s.with_chart(chart);
         }
         s
-    }
-
-    /// Expand at most one pack. Search displays matches independently.
-    fn open_pack(&mut self, open: Option<usize>) {
-        self.closed = (0..self.packs.len()).filter(|p| Some(*p) != open).collect();
     }
 
     /// What the shell does for song select: previews, the list's place,
@@ -1110,16 +1119,8 @@ impl SelectScreen {
         let was_at = self.list.selected();
         let style_id = self.style_id().to_string();
         let was_open = self
-            .packs
-            .iter()
-            .enumerate()
-            .find(|(p, _)| !self.closed.contains(p))
-            .map(|(p, (name, _))| (p, name.clone()));
-        let closed: Vec<Option<String>> = self
-            .closed
-            .iter()
-            .filter_map(|&p| self.packs.get(p).map(|(n, _)| n.clone()))
-            .collect();
+            .open_pack
+            .and_then(|p| Some((p, self.packs.get(p)?.0.clone())));
         // The packs in order of first song.
         let mut packs: Vec<(Option<String>, Vec<usize>)> = Vec::new();
         let mut pack_at: HashMap<Option<&str>, usize> = HashMap::new();
@@ -1151,36 +1152,41 @@ impl SelectScreen {
                 })
                 .collect();
         }
-        self.packs = packs;
+        if !self
+            .packs
+            .iter()
+            .map(|(n, _)| n)
+            .eq(packs.iter().map(|(n, _)| n))
+        {
+            self.packs_version += 1;
+        }
+        let old = std::mem::replace(&mut self.packs, packs);
         *self.suggester.borrow_mut() = None;
         self.data = Rc::new(data);
+        self.tabs_for = None;
         if first {
             return;
         }
-        self.closed = self
+        // By name: every pack but the open one is closed, a new one not.
+        // A saved place being restored has its own list.
+        let closed: HashSet<&Option<String>> = if restoring.is_some() || restoring_pack.is_some() {
+            restore_closed.iter().collect()
+        } else {
+            old.iter()
+                .enumerate()
+                .filter(|&(p, _)| Some(p) != self.open_pack)
+                .map(|(_, (n, _))| n)
+                .collect()
+        };
+        self.open_pack = self
             .packs
             .iter()
-            .enumerate()
-            .filter(|(_, (n, _))| closed.contains(n))
-            .map(|(i, _)| i)
-            .collect();
-        if restoring.is_some() || restoring_pack.is_some() {
-            self.closed = self
-                .packs
-                .iter()
-                .enumerate()
-                .filter(|(_, (name, _))| restore_closed.contains(name))
-                .map(|(p, _)| p)
-                .collect();
-        }
-        let open = (0..self.packs.len())
-            .find(|p| !self.closed.contains(p))
+            .position(|(n, _)| !closed.contains(n))
             .or_else(|| {
                 let (p, name) = was_open.as_ref()?;
                 (!self.packs.is_empty() && !self.packs.iter().any(|(n, _)| n == name))
                     .then(|| (*p).min(self.packs.len() - 1))
             });
-        self.open_pack(open);
         self.style = self
             .data
             .styles
@@ -1282,7 +1288,7 @@ impl SelectScreen {
                 self.items.push(Item::Header(p));
             }
             // While searching every pack shows its matches.
-            if flat || self.matches.is_some() || !self.closed.contains(&p) {
+            if flat || self.matches.is_some() || self.open_pack == Some(p) {
                 self.items.extend(shown.into_iter().map(Item::Song));
             }
         }
@@ -1368,8 +1374,12 @@ impl SelectScreen {
         if !l.compact {
             let [x, y, _, h] = l.wheel;
             let bar_x = screen[0] - 10.0 - 1.5;
-            let mut track = quad("Wheel.Track", [3.0, h - 24.0], env.color("Track"));
-            call(&mut track, "xy", &[bar_x, y + h / 2.0]);
+            let track = quad_at(
+                "Wheel.Track",
+                [3.0, h - 24.0],
+                env.color("Track"),
+                [bar_x, y + h / 2.0],
+            );
             let mut thumb = quad("Wheel.Thumb", [3.0, 40.0], env.color("Thumb"));
             call(&mut thumb, "xy", &[bar_x, y + 12.0]);
             let _ = x;
@@ -1451,10 +1461,7 @@ impl SelectScreen {
             // The pack's name between Back and the icons.
             let room = screen[0] - margin - 148.0 - 8.0 - (margin + 56.0);
             let mut title = env.text("PackTitle", "", 16.0, 700, "Text");
-            if let Kind::Text(t) = &mut title.kind {
-                t.max_width = room.max(40.0);
-                t.ellipsis = true;
-            }
+            look::ellipsized(&mut title, room.max(40.0));
             children.push(left(title, margin + 56.0, 28.0));
         } else {
             let name = if self.data.shared.is_some() {
@@ -1504,6 +1511,7 @@ impl SelectScreen {
             call(&mut root, "zoom", &[l.zoom]);
         }
         self.hints = None;
+        self.tabs_for = None;
         self.notices_dirty = true;
         // The same song and chart, drawn again.
         self.left_dirty = true;
@@ -1681,8 +1689,7 @@ impl SelectScreen {
             .collect()
     }
 
-    fn fill_tabs(&self, root: &mut Actor) {
-        let env = &self.env;
+    fn fill_tabs(&mut self, root: &mut Actor) {
         let counts = self.counts();
         if self.layout.compact {
             let lit = counts.iter().filter(|&&n| n > 0).count();
@@ -1699,6 +1706,12 @@ impl SelectScreen {
         let Some(tabs) = hit::find_mut(root, "Tabs") else {
             return;
         };
+        // The same tabs in the same states: nothing to make again.
+        if self.tabs_for.as_ref() == Some(&(counts.clone(), self.style)) {
+            return;
+        }
+        self.tabs_for = Some((counts.clone(), self.style));
+        let env = &self.env;
         let y = self.layout.tabs_y - self.layout.song[1] + 16.0;
         let names: Vec<UiText> = self
             .data
@@ -1796,6 +1809,8 @@ impl SelectScreen {
         };
         let (first, n, row) = self.ladder_window(len, pick);
         self.ladder = (first, n);
+        let size = (self.layout.song[2], row);
+        let same_size = self.ladder_rows.replace(size) == Some(size);
         let (charts, pick) = self.charts();
         let style_name = self.style_label();
         if self.layout.compact {
@@ -1820,17 +1835,13 @@ impl SelectScreen {
                 );
                 b.name = format!("Chart{k}");
                 set_text(&mut b, "Meter", &shown);
-                if by_name
-                    && let Some(m) = part(&mut b, "Meter")
-                    && let Kind::Text(t) = &mut m.kind
-                {
-                    t.max_width = cell - 8.0;
-                    t.ellipsis = true;
+                if by_name && let Some(m) = part(&mut b, "Meter") {
+                    look::ellipsized(m, cell - 8.0);
                 }
-                crate::widgets::play(&mut b, difficulty_name(c.difficulty));
+                crate::widgets::play(&mut b, c.difficulty.name());
                 crate::widgets::play(
                     &mut b,
-                    match (c.version, c.assisted) {
+                    match (c.version, c.assisted()) {
                         (None, _) => "Original",
                         (Some(_), true) => "Assisted",
                         (Some(_), false) => "Converted",
@@ -1880,7 +1891,7 @@ impl SelectScreen {
                     }
                     .into();
                     // Marked as the results mark its play.
-                    if c.assisted {
+                    if c.assisted() {
                         format!("{label} · {}", msg::assist_mark())
                     } else {
                         label
@@ -1894,16 +1905,26 @@ impl SelectScreen {
         let w = self.layout.song[2];
         let top = self.layout.ladder[0] - self.layout.song[1];
         let gap = env.metric("Select.Ladder.Gap", 5.0);
+        // Rows already made at this size are filled again: they carry
+        // every difficulty's and lamp's command.
+        let mut made = match hit::find_mut(root, "Ladder").map(|f| &mut f.kind) {
+            Some(Kind::Frame(rows)) if same_size => std::mem::take(rows),
+            _ => Vec::new(),
+        }
+        .into_iter()
+        .filter(|a| a.name.starts_with("Ladder.Row"));
         let mut children = Vec::new();
         for k in 0..n {
             let c = charts[first + k];
-            let mut r = env.component(
-                "ChartLadder.Row",
-                "List.Row",
-                &Spec::new([w, row], difficulty_name(c.difficulty)),
-                &format!("Ladder.Row{k}"),
-                [0.0, top + k as f32 * (row + gap)],
-            );
+            let mut r = made.next().unwrap_or_else(|| {
+                env.component(
+                    "ChartLadder.Row",
+                    "List.Row",
+                    &Spec::new([w, row], c.difficulty.name()),
+                    &format!("Ladder.Row{k}"),
+                    [0.0, top + k as f32 * (row + gap)],
+                )
+            });
             // The difficulty (never translated) or the chart's own name.
             set_text(&mut r, "Label", &data(&c.label().to_uppercase()));
             set_text(&mut r, "Title", &data(&c.label()));
@@ -1942,7 +1963,7 @@ impl SelectScreen {
                     crate::widgets::play(&mut r, "Lamp.None");
                 }
             }
-            crate::widgets::play(&mut r, difficulty_name(c.difficulty));
+            crate::widgets::play(&mut r, c.difficulty.name());
             crate::widgets::play(
                 &mut r,
                 if Some(first + k) == pick {
@@ -2000,9 +2021,16 @@ impl SelectScreen {
         if self.typing {
             return Hints::Typing;
         }
+        let style = self.style_id();
         match self.selected_item() {
             Some(Item::Header(_)) => Hints::Header,
-            Some(Item::Song(_)) if self.charts().0.is_empty() => Hints::Greyed,
+            Some(Item::Song(_))
+                if !self
+                    .song()
+                    .is_some_and(|s| s.charts.iter().any(|c| c.style == style)) =>
+            {
+                Hints::Greyed
+            }
             _ => Hints::Song,
         }
     }
@@ -2242,7 +2270,7 @@ impl SelectScreen {
                 esc.as_str()
             },
         ));
-        let (mut f, texts) = footer_hints(
+        let mut f = footer_hints(
             &self.env,
             self.layout.screen,
             &hints,
@@ -2260,7 +2288,6 @@ impl SelectScreen {
             f.play("On", &mut ddi_actor::Problems::default());
             c.push(f);
         }
-        self.env.state.borrow_mut().hints = texts;
     }
 
     /// A flick or a drag passes rows over the wheel's line while the
@@ -2269,7 +2296,7 @@ impl SelectScreen {
     /// the row's own growth, are there only while the selected row is on
     /// the line and the list moves slower than [`FLICK_ROWS`] a second;
     /// they close and open together, so a flick leaves no gap.
-    fn flick_room(&mut self, dt: f32, root: &mut Actor) {
+    fn flick_room(&mut self, dt: f32) {
         if self.layout.compact {
             return;
         }
@@ -2282,14 +2309,6 @@ impl SelectScreen {
             ((mid - line) / row).abs() < 0.5
         });
         let shut = fast || !on_line;
-        if shut != self.shut {
-            self.shut = shut;
-            if let Some(name) = self.list.selected().and_then(|i| self.list.item_actor(i))
-                && let Some(a) = hit::find_mut(root, &name)
-            {
-                crate::widgets::play(a, if shut { "Deselect" } else { "Select" });
-            }
-        }
         let target = if shut { 0.0 } else { 1.0 };
         let t = self.env.metric("Motion.Select", 0.12).max(0.01);
         self.open += (target - self.open) * (1.0 - (-dt / (t / 3.0)).exp());
@@ -2395,8 +2414,7 @@ impl SelectScreen {
     /// Opens the manage dialog on `m`.
     fn open_manage(&self, m: Manage, cx: &mut Cx) {
         cx.overlay(
-            ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy())
-                .on(self.import.borrow().platform),
+            ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy()),
             true,
         );
     }
@@ -2467,16 +2485,14 @@ impl SelectScreen {
             closed: self.place_closed().cloned().collect(),
         };
         self.told_place = Some(place.clone());
+        self.told_packs = (self.open_pack, self.packs_version);
         self.call(SelectCall::Place(place), cx);
     }
 
-    /// The list's place's open pack: the first one not closed, by its key.
+    /// The list's place's open pack, by its key.
     fn place_open(&self) -> Option<String> {
-        self.packs
-            .iter()
-            .enumerate()
-            .find(|(p, _)| !self.closed.contains(p))
-            .map(|(_, (name, _))| pack_key(name.as_deref()))
+        let (name, _) = self.packs.get(self.open_pack?)?;
+        Some(pack_key(name.as_deref()))
     }
 
     /// The list's place's song: the selected row's.
@@ -2489,20 +2505,21 @@ impl SelectScreen {
 
     /// The list's place's closed packs, by name.
     fn place_closed(&self) -> impl Iterator<Item = &Option<String>> {
-        self.closed
+        self.packs
             .iter()
-            .filter_map(|&p| self.packs.get(p).map(|(n, _)| n))
+            .enumerate()
+            .filter(|&(p, _)| Some(p) != self.open_pack)
+            .map(|(_, (n, _))| n)
     }
 
     /// Whether `told` is the list's place now (with `chart` picked),
     /// without building it.
     fn place_matches(&self, told: &SelectPlace, chart: Option<usize>) -> bool {
-        told.open == self.place_open()
+        self.told_packs == (self.open_pack, self.packs_version)
             && told.song.as_ref() == self.place_song()
             && told.chart == chart
             && told.style == self.style_id()
             && told.search == self.search.text
-            && told.closed.iter().eq(self.place_closed())
     }
 
     /// What the shell sent: new data, the import's progress, notices.
@@ -2617,19 +2634,18 @@ impl SelectScreen {
             400,
             if error { "Danger" } else { "Muted" },
         );
-        if let Kind::Text(tx) = &mut t.kind {
-            tx.max_width = room;
-            tx.ellipsis = true;
-        }
+        look::ellipsized(&mut t, room);
         children.push(left(t, x0, y));
         let mut x = x0 + look::mono_width(&text, 13.0).min(room) + 8.0;
         for (i, label) in links {
             let lw = look::mono_width(label, 13.0) + 16.0;
-            let mut a =
-                look::component_or(&*env.look, "Link", "Button", &Spec::new([lw, 24.0], label));
-            a.name = format!("Notice.Link{i}");
-            call(&mut a, "xy", &[x + lw / 2.0, y]);
-            children.push(a);
+            children.push(env.component(
+                "Link",
+                "Button",
+                &Spec::new([lw, 24.0], label),
+                &format!("Notice.Link{i}"),
+                [x + lw / 2.0, y],
+            ));
             x += lw + 8.0;
         }
         if let Some(f) = hit::find_mut(root, "Notices") {
@@ -2826,8 +2842,7 @@ impl SelectScreen {
     /// to the line from there.
     fn toggle_pack(&mut self, p: usize) {
         let shown = self.list.selected().and_then(|i| self.list.item_top(i));
-        let open = self.closed.contains(&p);
-        self.open_pack(open.then_some(p));
+        self.open_pack = (self.open_pack != Some(p)).then_some(p);
         self.lay_out_items();
         self.reload();
         let at = self.items.iter().position(|it| *it == Item::Header(p));
@@ -2838,10 +2853,13 @@ impl SelectScreen {
             self.list.select(at);
         }
         let name = pack_label(self.packs[p].0.as_deref());
-        let open = !self.closed.contains(&p);
         self.status(format!(
             "pack {name} {}",
-            if open { "opened" } else { "closed" }
+            if self.open_pack == Some(p) {
+                "opened"
+            } else {
+                "closed"
+            }
         ));
     }
 
@@ -2862,7 +2880,7 @@ impl SelectScreen {
                         self.status(format!(
                             "play {} {} {}",
                             song.title,
-                            difficulty_name(chart.difficulty),
+                            chart.difficulty.name(),
                             chart.meter
                         ));
                         let env = self.env.clone();
@@ -2911,7 +2929,7 @@ impl SelectScreen {
             && let Some(Item::Song(s)) = self.shown
             && let Some(p) = self.packs.iter().position(|(_, v)| v.contains(&s))
         {
-            self.open_pack(Some(p));
+            self.open_pack = Some(p);
         }
         self.lay_out_items();
         self.reload();
@@ -3025,19 +3043,13 @@ impl SelectScreen {
         st.autoplay = self.autoplay;
         st.reduced_motion = self.reduced;
         st.style = self.style_name().to_string();
-        st.preferred = difficulty_name(self.preferred).to_string();
+        st.preferred = self.preferred.name().to_string();
         let (charts, pick) = self.charts();
-        st.chart = pick.map(|p| {
-            format!(
-                "{} {}",
-                difficulty_name(charts[p].difficulty),
-                charts[p].meter
-            )
-        });
+        st.chart = pick.map(|p| format!("{} {}", charts[p].difficulty.name(), charts[p].meter));
         st.ladder = charts
             .iter()
             .map(|c| {
-                let chart = format!("{} {}", difficulty_name(c.difficulty), c.meter);
+                let chart = format!("{} {}", c.difficulty.name(), c.meter);
                 match c.version {
                     Some(version) => format!("{chart} ({})", version.key()),
                     None => chart,
@@ -3065,17 +3077,9 @@ impl SelectScreen {
         st.to_share = self.to_share.clone();
         st.items = self.items.len();
         st.closed = self
-            .closed
-            .iter()
-            .map(|&p| pack_label(self.packs[p].0.as_deref()).into())
+            .place_closed()
+            .map(|n| pack_label(n.as_deref()).into())
             .collect();
-        let style = self.style_id();
-        st.greyed_rows = self
-            .list
-            .shown()
-            .iter()
-            .filter(|&&i| matches!(self.items.get(i), Some(Item::Song(s)) if self.data.songs[*s].charts_in(style).is_empty()))
-            .count();
         st.search = self.search.text.clone();
         st.popup = self.search.popup_open();
         st.suggestions = self
@@ -3085,7 +3089,6 @@ impl SelectScreen {
             .map(|(t, _)| t.clone())
             .collect();
         st.backdrop = self.backdrop.source().map(str::to_string);
-        st.selected_row = self.list.selected().and_then(|i| self.list.item_actor(i));
         st.wheel = self.layout.wheel;
         st.best = pick
             .and_then(|p| charts.get(p))
@@ -3100,6 +3103,21 @@ impl SelectScreen {
                 )
             });
         st.notices = self.notices.iter().map(|n| n.text.clone()).collect();
+        drop(st);
+        self.publish_rows();
+    }
+
+    /// What the debug view says of the rows showing, each frame the list
+    /// moves.
+    fn publish_rows(&self) {
+        let mut st = self.env.state.borrow_mut();
+        let style = self.style_id();
+        let shown = self.list.shown();
+        st.greyed_rows = shown
+            .iter()
+            .filter(|&&i| matches!(self.items.get(i), Some(Item::Song(s)) if !self.data.songs[*s].charts.iter().any(|c| c.style == style)))
+            .count();
+        st.selected_row = self.list.selected().and_then(|i| self.list.item_actor(i));
     }
 }
 
@@ -3174,7 +3192,7 @@ fn wheel<'a>(
     items: &'a [Item],
     data: &'a SelectData,
     packs: &'a [(Option<String>, Vec<usize>)],
-    closed: &'a BTreeSet<usize>,
+    open_pack: Option<usize>,
     matches: Option<&'a [bool]>,
     style: usize,
     compact: bool,
@@ -3184,7 +3202,7 @@ fn wheel<'a>(
         items,
         data,
         packs,
-        closed,
+        open_pack,
         matches,
         style: st.map_or("", |s| s.id.as_str()),
         style_name: st.map_or("", |s| s.name.as_str()),
@@ -3412,7 +3430,6 @@ impl Screen for SelectScreen {
         if !cx.is_current_screen() {
             return;
         }
-        self.fill_footer(root, cx);
         self.live.tick(root, "Wordmark", &self.env, cx);
         self.volume.update(cx.time(), root, self.reduced);
         let events = self.navigation.advance(cx.time());
@@ -3425,7 +3442,6 @@ impl Screen for SelectScreen {
             self.gesture_note -= dt;
             if self.gesture_note <= 0.0 {
                 self.hints = None;
-                self.fill_footer(root, cx);
             }
         }
         if [vp.width, vp.height] != self.layout.vp
@@ -3436,7 +3452,7 @@ impl Screen for SelectScreen {
             self.reduced = self.env.reduced();
             self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
             let selected = self.list.selected();
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.build_tree(cx);
             self.reload();
             if let Some(s) = selected {
@@ -3450,10 +3466,9 @@ impl Screen for SelectScreen {
         if let Some(m) = &self.wheel_motion {
             self.list.visual_scroll(m.sample(cx.time()).0);
             self.open = 1.0;
-            self.shut = false;
             self.env.look.set_wheel_open("Wheel", 1.0);
         } else {
-            self.flick_room(dt, root);
+            self.flick_room(dt);
         }
         let event = {
             let look = self.env.look.clone();
@@ -3516,8 +3531,11 @@ impl Screen for SelectScreen {
                 self.volume.set_gain(gain, root);
             }
         }
-        if std::mem::take(&mut self.publish_dirty) || event.is_some() || self.list.animating() {
+        // Only the rows change while the list glides.
+        if std::mem::take(&mut self.publish_dirty) || event.is_some() {
             self.publish();
+        } else if std::mem::take(&mut self.rows_dirty) || self.list.animating() {
+            self.publish_rows();
         }
     }
 
@@ -3621,7 +3639,6 @@ impl Screen for SelectScreen {
             self.hints = None;
             self.fill_footer(root, cx);
             self.status("press Enter or tap to open".into());
-            self.publish_dirty = true;
             self.publish();
             return Handled::Yes;
         }
@@ -3642,7 +3659,6 @@ impl Screen for SelectScreen {
                 cx.focus("SearchIcon");
             }
             self.status("press / or tap the field to type".into());
-            self.publish_dirty = true;
             self.publish();
             return Handled::Yes;
         }
@@ -3651,7 +3667,7 @@ impl Screen for SelectScreen {
         // move acts on the song moved to.
         self.follow();
         self.sync_field(root);
-        self.publish_dirty = true;
+        self.rows_dirty = true;
         self.publish();
         // Tell the shell synchronously for changes committed by this input.
         self.tell(cx);
@@ -3684,9 +3700,9 @@ impl Screen for SelectScreen {
             self.take_feed(root, cx);
         }
         if m.name == NOTICE_LINK
-            && let Some(crate::message::Param::Int(i)) = m.get("Index")
+            && let Some(i) = m.int("Index")
         {
-            self.notice_link(*i as usize, cx);
+            self.notice_link(i as usize, cx);
         }
         if let Some(e) = self.search.message(m, root, cx) {
             self.field_event(e, root, cx);
@@ -3755,7 +3771,6 @@ impl SelectScreen {
             self.field_event(e, root, cx);
         }
         if h == Handled::Yes {
-            self.publish();
             return h;
         }
         match input {
@@ -3791,7 +3806,6 @@ impl SelectScreen {
             {
                 self.pick_chart(k, root, cx);
                 self.open_plays(cx);
-                self.publish();
                 return Handled::Yes;
             }
             // The chart's plays (P), its best's replay (V; W A S D move).
@@ -3805,7 +3819,6 @@ impl SelectScreen {
                 } else {
                     self.watch_best(cx);
                 }
-                self.publish();
                 return Handled::Yes;
             }
             // The chart editor (E).
@@ -3940,7 +3953,6 @@ impl SelectScreen {
                 self.start(root, cx);
             }
             if h == Handled::Yes {
-                self.publish();
                 return h;
             }
         }
@@ -4198,7 +4210,6 @@ impl SelectScreen {
         if name != "SearchIcon" {
             cx.focus("Wheel");
         }
-        self.publish();
         Handled::Yes
     }
 }

@@ -19,6 +19,50 @@ pub fn write_rgba(queue: &wgpu::Queue, texture: &wgpu::Texture, [w, h]: [u32; 2]
     );
 }
 
+/// A pipeline of triangles from the shader's `vs_main`, through
+/// `fragment` into one color target.
+pub(crate) struct QuadPipeline<'a> {
+    pub(crate) label: &'a str,
+    pub(crate) layout: &'a wgpu::PipelineLayout,
+    pub(crate) shader: &'a wgpu::ShaderModule,
+    pub(crate) fragment: &'a str,
+    pub(crate) buffers: &'a [Option<wgpu::VertexBufferLayout<'a>>],
+    pub(crate) format: wgpu::TextureFormat,
+    pub(crate) blend: Option<wgpu::BlendState>,
+    pub(crate) write_mask: wgpu::ColorWrites,
+    pub(crate) depth_stencil: Option<wgpu::DepthStencilState>,
+}
+
+impl QuadPipeline<'_> {
+    pub(crate) fn make(self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(self.label),
+            layout: Some(self.layout),
+            vertex: wgpu::VertexState {
+                module: self.shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: self.buffers,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: self.shader,
+                entry_point: Some(self.fragment),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: self.format,
+                    blend: self.blend,
+                    write_mask: self.write_mask,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: self.depth_stencil,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+}
+
 /// A pipeline drawing one triangle over the target, with no vertex
 /// buffers (the shader's `vs_main`), through `fragment` into `format`.
 pub(crate) fn fullscreen_pipeline(
@@ -30,30 +74,101 @@ pub(crate) fn fullscreen_pipeline(
     format: wgpu::TextureFormat,
     blend: Option<wgpu::BlendState>,
 ) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(label),
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module: shader,
-            entry_point: Some("vs_main"),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: shader,
-            entry_point: Some(fragment),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
+    QuadPipeline {
+        label,
+        layout,
+        shader,
+        fragment,
+        buffers: &[],
+        format,
+        blend,
+        write_mask: wgpu::ColorWrites::ALL,
         depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
+    }
+    .make(device)
+}
+
+/// A pass drawing to `target` (`load`ed, and stored), with `depth` (the
+/// stencil) if given.
+pub(crate) fn color_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    label: &str,
+    target: &wgpu::TextureView,
+    load: wgpu::LoadOp<wgpu::Color>,
+    depth: Option<wgpu::RenderPassDepthStencilAttachment<'_>>,
+) -> wgpu::RenderPass<'e> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: depth,
+        timestamp_writes: None,
+        occlusion_query_set: None,
         multiview_mask: None,
-        cache: None,
+    })
+}
+
+/// A uniform buffer at `binding`, seen by `visibility`, with a dynamic
+/// offset when `dynamic`.
+pub(crate) const fn uniform_entry(
+    binding: u32,
+    visibility: wgpu::ShaderStages,
+    dynamic: bool,
+) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: dynamic,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+/// A 2D texture at `binding`, for the fragment stage.
+pub(crate) const fn texture_entry(binding: u32, filterable: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+/// A sampler at `binding`, for the fragment stage.
+pub(crate) const fn sampler_entry(binding: u32, filtering: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(if filtering {
+            wgpu::SamplerBindingType::Filtering
+        } else {
+            wgpu::SamplerBindingType::NonFiltering
+        }),
+        count: None,
+    }
+}
+
+/// A sampler filtering linearly, clamped to the edges, without mipmaps.
+pub(crate) fn linear_sampler(device: &wgpu::Device, label: &str) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some(label),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
     })
 }
 
@@ -66,34 +181,37 @@ pub(crate) fn uniform_group(
     size: usize,
     visibility: wgpu::ShaderStages,
 ) -> (wgpu::Buffer, wgpu::BindGroupLayout, wgpu::BindGroup) {
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(&format!("{label}-bgl")),
+        entries: &[uniform_entry(0, visibility, false)],
+    });
+    let (buffer, group) = uniform_group_in(device, label, size, &layout);
+    (buffer, layout, group)
+}
+
+/// A uniform buffer of `size` bytes the queue writes (labeled `label`) and
+/// a group binding it at binding 0 of `layout` (labeled `<label>-bg`).
+pub(crate) fn uniform_group_in(
+    device: &wgpu::Device,
+    label: &str,
+    size: usize,
+    layout: &wgpu::BindGroupLayout,
+) -> (wgpu::Buffer, wgpu::BindGroup) {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: size as u64,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some(&format!("{label}-bgl")),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-    });
     let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(&format!("{label}-bg")),
-        layout: &layout,
+        layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
             resource: buffer.as_entire_binding(),
         }],
     });
-    (buffer, layout, group)
+    (buffer, group)
 }
 
 /// A layout of a filterable 2D texture at binding 0 and a filtering
@@ -101,23 +219,20 @@ pub(crate) fn uniform_group(
 pub(crate) fn texture_sampler_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some(label),
+        entries: &[texture_entry(0, true), sampler_entry(1, true)],
+    })
+}
+
+/// A layout of a uniform at binding 0, a filterable 2D texture at binding 1
+/// and a filtering sampler at binding 2, all for the fragment stage, as
+/// [`uniform_texture_group`] binds them.
+pub(crate) fn uniform_texture_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(label),
         entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
+            uniform_entry(0, wgpu::ShaderStages::FRAGMENT, false),
+            texture_entry(1, true),
+            sampler_entry(2, true),
         ],
     })
 }
@@ -202,6 +317,10 @@ pub(crate) fn uniform_texture_group(
         ],
     })
 }
+
+/// The format of pictures drawn for the 2D pass to show: encoded values,
+/// as its images.
+pub(crate) const PICTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// A picture drawn offscreen for the 2D pass to show (the field
 /// preview, the editor's field, a preview movie): its texture, made again

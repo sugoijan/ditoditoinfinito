@@ -4,11 +4,13 @@ use crate::replay::ReplayJob;
 use crate::search::SearchSeed;
 use crate::window_replay::{Checkpoint, WindowReplay};
 use crate::*;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     StrictContactPass,
     JudgeRecovered,
+    /// A report's status until a plan passes.
+    #[default]
     ContactFailure,
     Unsupported,
     ContactTimeout,
@@ -35,7 +37,7 @@ pub struct Attempt {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub judge: Option<ReplayReport>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct PlanningReport {
     pub status: Status,
     /// The last rejected search row, absent for timeouts and judge failures.
@@ -158,29 +160,7 @@ impl PlannerJob {
             work: Work::Begin,
             candidate: None,
             limit_seconds: 5.,
-            report: PlanningReport {
-                status: Status::ContactFailure,
-                failure_tick: None,
-                attempts: Vec::new(),
-                search_seconds: 0.,
-                checkpoints: 0,
-                reason: None,
-                strict_reason: None,
-                gate: None,
-                adaptive_gate: None,
-                allowance_seconds: None,
-                restore_window_seconds: None,
-                handoff_window_seconds: None,
-                adaptive_timing: None,
-                auxiliary_restores: None,
-                interior_gaps: None,
-                handoffs: None,
-                maximum_interior_gap_seconds: None,
-                maximum_handoff_gap_seconds: None,
-                timing_adjustments: None,
-                search: None,
-                judge: None,
-            },
+            report: PlanningReport::default(),
         }
     }
     pub(crate) fn rolling(input: Input, context: RollingContext) -> Self {
@@ -436,16 +416,7 @@ impl PlannerJob {
             Work::BeginReplay => {
                 match ReplayJob::new(&self.input, self.candidate.as_ref().unwrap()) {
                     Ok(r) => self.work = Work::Replay(Box::new(r)),
-                    Err(e) => {
-                        if self.tier == 0 {
-                            self.report.reason = Some(e);
-                            self.report.status = Status::ContactJudgeFailure;
-                            self.candidate = None;
-                        } else {
-                            self.report.attempts.last_mut().unwrap().reason = Some(e);
-                            self.next();
-                        }
-                    }
+                    Err(e) => self.judge_error(e),
                 }
             }
             Work::Replay(mut r) => {

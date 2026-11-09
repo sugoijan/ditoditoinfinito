@@ -124,6 +124,9 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.ddi-hand-plan]
 opt-level = 3
+# Skins the hand's mesh on the CPU every frame.
+[profile.release.package.ddi-character]
+opt-level = 3
 
 # Native release builds (`cargo run --profile desktop`): `release` is
 # tuned for the wasm bundle's size; the desktop wants speed, and

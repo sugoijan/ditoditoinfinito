@@ -41,9 +41,12 @@ fn is_blank(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\r' | '\n')
 }
 
-/// Trailing-trimmed copy of `s`, treating `\r`/`\n`/space/tab as blank.
-fn trim_edges(s: &str) -> &str {
-    s.trim_matches(is_blank)
+/// `s` without blanks at its edges, in place.
+fn trim_edges(mut s: String) -> String {
+    s.truncate(s.trim_end_matches(is_blank).len());
+    let start = s.len() - s.trim_start_matches(is_blank).len();
+    s.drain(..start);
+    s
 }
 
 /// Lex with unescaping (`MsdFile::ReadFile(path, true)`), as the `.sm` and
@@ -60,8 +63,12 @@ pub fn parse_msd_raw(text: &str) -> Vec<MsdTag> {
 
 fn lex(text: &str, unescape: bool) -> Vec<MsdTag> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let chars: Vec<char> = text.chars().collect();
-    let len = chars.len();
+    // Every delimiter is ASCII, so it is walked byte by byte and whole
+    // runs are copied; a byte of a longer character is never one of them.
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    // The character at `i`, which starts one, and how long it is.
+    let char_at = |i: usize| text[i..].chars().next().map(|c| (c, c.len_utf8()));
 
     let mut tags: Vec<MsdTag> = Vec::new();
     // Parameters of the value being read, including the name as element 0.
@@ -81,17 +88,18 @@ fn lex(text: &str, unescape: bool) -> Vec<MsdTag> {
 
     let mut i = 0;
     while i < len {
-        let c = chars[i];
+        let c = bytes[i];
 
         // Comments are stripped everywhere.
-        if c == '/' && i + 1 < len && chars[i + 1] == '/' {
-            while i < len && chars[i] != '\n' {
-                i += 1;
-            }
+        if c == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            i += bytes[i..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(len - i);
             continue;
         }
 
-        if reading && c == '#' {
+        if reading && c == b'#' {
             // Missing `;` tolerance: a `#` as the first non-blank character
             // of a line ends the open value.
             let buf = cur.as_deref().unwrap_or("");
@@ -101,17 +109,16 @@ fn lex(text: &str, unescape: bool) -> Vec<MsdTag> {
                 .take_while(|&ch| ch != '\r' && ch != '\n')
                 .all(|ch| ch == ' ' || ch == '\t');
             if !first_on_line {
-                cur.get_or_insert_with(String::new).push(c);
+                cur.get_or_insert_with(String::new).push('#');
                 i += 1;
                 continue;
             }
-            let p = cur.take().unwrap_or_default();
-            params.push(trim_edges(&p).to_string());
+            params.push(trim_edges(cur.take().unwrap_or_default()));
             finish_value(&mut params, &mut tags);
             reading = false;
         }
 
-        if !reading && c == '#' {
+        if !reading && c == b'#' {
             reading = true;
             params.clear();
             cur = Some(String::new());
@@ -122,45 +129,54 @@ fn lex(text: &str, unescape: bool) -> Vec<MsdTag> {
         if !reading {
             // Outside of a value an escape still consumes two characters
             // (only when unescaping, like StepMania).
-            i += if unescape && c == '\\' { 2 } else { 1 };
+            i += 1;
+            if unescape && c == b'\\' {
+                i += char_at(i).map_or(0, |(_, n)| n);
+            }
             continue;
         }
 
         match c {
-            ':' => {
-                let p = cur.take().unwrap_or_default();
-                params.push(trim_edges(&p).to_string());
+            b':' => {
+                params.push(trim_edges(cur.take().unwrap_or_default()));
                 cur = Some(String::new());
                 i += 1;
             }
-            ';' => {
+            b';' => {
                 if let Some(p) = cur.take() {
-                    params.push(trim_edges(&p).to_string());
+                    params.push(trim_edges(p));
                 }
                 finish_value(&mut params, &mut tags);
                 reading = false;
                 i += 1;
             }
-            '\\' => {
+            b'\\' => {
+                let buf = cur.get_or_insert_with(String::new);
                 if !unescape {
-                    cur.get_or_insert_with(String::new).push(c);
+                    buf.push('\\');
                 }
                 i += 1;
-                if i < len {
-                    cur.get_or_insert_with(String::new).push(chars[i]);
-                    i += 1;
+                if let Some((escaped, n)) = char_at(i) {
+                    buf.push(escaped);
+                    i += n;
                 }
             }
             _ => {
-                cur.get_or_insert_with(String::new).push(c);
-                i += 1;
+                // Up to whatever could end the plain text. `i` may be a
+                // single `/`, which is plain text here.
+                let end = bytes[i + 1..]
+                    .iter()
+                    .position(|b| matches!(b, b'/' | b'#' | b':' | b';' | b'\\'))
+                    .map_or(len, |n| i + 1 + n);
+                cur.get_or_insert_with(String::new).push_str(&text[i..end]);
+                i = end;
             }
         }
     }
 
     if reading {
         if let Some(p) = cur.take() {
-            params.push(trim_edges(&p).to_string());
+            params.push(trim_edges(p));
         }
         finish_value(&mut params, &mut tags);
     }

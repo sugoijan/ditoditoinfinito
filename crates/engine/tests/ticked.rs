@@ -16,10 +16,7 @@
 //! not judged on their own, so 6 rows are: 1.25, 1.5, 1.75 with one hold,
 //! 2.25, 2.75, 3.0 with two.
 
-use ddi_chart::{
-    Chart, ComboSegment, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo,
-    Tick, TimingMap,
-};
+use ddi_chart::{Chart, ComboSegment, Difficulty, Note, NoteKind, Song, Tick, TimingMap};
 use ddi_engine::InputEvent;
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::danoni::DanoniOptions;
@@ -36,46 +33,12 @@ fn song(layout: &str) -> Song {
         Note::new(t(2.5), 4, NoteKind::Tap),
         Note::new(t(4.0), 3, NoteKind::Tap),
     ];
-    Song {
-        title: "Ticks".into(),
-        subtitle: String::new(),
-        artist: "test".into(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(60.0, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: layout.into(),
-            difficulty: Difficulty::Hard,
-            meter: 5,
-            name: "ticks".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    }
+    Song::generated(
+        "Ticks",
+        TimingMap::constant(60.0, 0.0),
+        Chart::plain(layout, Difficulty::Hard, 5, notes),
+        "test",
+    )
 }
 
 /// Every note on time; holds pressed from their heads to past their tails.

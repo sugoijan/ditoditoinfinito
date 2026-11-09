@@ -22,7 +22,7 @@ use ddi_platform::video::{
     ExternalFrame, MovieTrack, VideoBackend, VideoDecoder, VideoError, VideoEvent, VideoFormat,
     VideoFrame,
 };
-use ddi_render::Renderer;
+use ddi_render::BackgroundPipeline;
 use ddi_session::movies::{AHEAD, MovieShell, MovieSlots};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -295,7 +295,7 @@ impl Decoders {
     ) -> Result<WorkerVideo, VideoError> {
         let worker = self.worker().map_err(VideoError::NotLoaded)?;
         match worker.status() {
-            ModuleStatus::Failed(e) => Err(e.clone()),
+            ModuleStatus::Failed(e) => Err(e),
             _ => Ok(worker.open(blob, name, format)),
         }
     }
@@ -537,7 +537,7 @@ impl MovieDeck {
         &mut self,
         layers: &[Vec<BgSegment>],
         t: f64,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -560,22 +560,22 @@ impl MovieDeck {
         }
         let due = self.slots.update(layers, t);
         for (name, width, height, external) in due.early {
-            self.texture(&name, width, height, external, renderer, device);
+            self.texture(&name, width, height, external, background, device);
         }
         for (name, frame) in due.show {
-            self.upload(&name, &frame, renderer, device, queue);
+            self.upload(&name, &frame, background, device, queue);
             crate::web::video::recycle(frame.planes);
         }
     }
 
     /// Opens, feeds and closes decoders for a song's scripts' movies drawn
     /// now (`clips`, each on its own clock) and puts the frames due on
-    /// `renderer` (the scripts' converter's): the movies shown, `(file,
+    /// `background` (the scripts' converter): the movies shown, `(file,
     /// its id there)`.
     pub(crate) fn update_clips(
         &mut self,
         clips: &[ddi_session::movies::Clip],
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Vec<(String, usize)> {
@@ -586,7 +586,7 @@ impl MovieDeck {
         let due = self.slots.update_clips(clips);
         let mut shown = Vec::new();
         for (name, frame) in due.show {
-            self.upload(&name, &frame, renderer, device, queue);
+            self.upload(&name, &frame, background, device, queue);
             crate::web::video::recycle(frame.planes);
             if let Some(id) = self.slots.texture(&name) {
                 shown.push((name, id));
@@ -603,7 +603,7 @@ impl MovieDeck {
         width: u32,
         height: u32,
         external: bool,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
     ) -> Option<usize> {
         let limit = device.limits().max_texture_dimension_2d;
@@ -628,15 +628,15 @@ impl MovieDeck {
                 .as_ref()
                 .is_some_and(|r| (r.2, r.3) == (width, height))
             {
-                let texture = renderer.create_background_texture(device, width, height);
-                let id = renderer.add_background(device, &texture);
+                let texture = background.create_texture(device, width, height);
+                let id = background.add_texture(device, &texture);
                 t.rgb = Some((texture, id, width, height));
             }
             t.rgb.as_ref().map(|r| r.1)
         } else {
             Some(
                 *t.yuv
-                    .get_or_insert_with(|| renderer.add_video(device, width, height)),
+                    .get_or_insert_with(|| background.add_video(device, width, height)),
             )
         }?;
         self.slots.set_texture(name, id);
@@ -647,12 +647,12 @@ impl MovieDeck {
         &mut self,
         name: &str,
         frame: &VideoFrame,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         if let Some(external) = &frame.external {
-            self.upload_direct(name, frame, external, renderer, device, queue);
+            self.upload_direct(name, frame, external, background, device, queue);
             return;
         }
         // A malformed frame never reaches a texture (it would show green:
@@ -661,11 +661,11 @@ impl MovieDeck {
             self.slots.fail(name, VideoError::BadFrame);
             return;
         }
-        let Some(id) = self.texture(name, frame.width, frame.height, false, renderer, device)
+        let Some(id) = self.texture(name, frame.width, frame.height, false, background, device)
         else {
             return;
         };
-        let written = renderer.set_video_frame(
+        let written = background.set_video_frame(
             device,
             queue,
             id,
@@ -689,7 +689,7 @@ impl MovieDeck {
         name: &str,
         frame: &VideoFrame,
         external: &ExternalFrame,
-        renderer: &mut Renderer,
+        background: &mut BackgroundPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -698,7 +698,7 @@ impl MovieDeck {
             return;
         };
         if self
-            .texture(name, frame.width, frame.height, true, renderer, device)
+            .texture(name, frame.width, frame.height, true, background, device)
             .is_none()
         {
             return;
@@ -714,7 +714,7 @@ impl MovieDeck {
         let scope =
             (self.checks < 4).then(|| device.push_error_scope(wgpu::ErrorFilter::Validation));
         crate::web::gfx::copy_bitmap(queue, direct.bitmap(), texture, frame.width, frame.height);
-        renderer.background_texture_changed();
+        background.texture_changed();
         if let Some(scope) = scope {
             self.checks += 1;
             let error = Rc::clone(&self.direct_error);
@@ -730,44 +730,33 @@ impl MovieDeck {
     }
 
     /// For `window.__DDI_DEBUG.video`.
-    pub(crate) fn debug(&self) -> js_sys::Object {
-        let obj = js_sys::Object::new();
-        let set = |k: &str, v: wasm_bindgen::JsValue| {
-            let _ = js_sys::Reflect::set(&obj, &k.into(), &v);
-        };
+    pub(crate) fn debug(&self) -> serde_json::Value {
         let s = self.stats();
-        set("decoded", (s.decoded as f64).into());
-        set("shown", (s.shown as f64).into());
-        set("dropped", (s.dropped as f64).into());
-        set("late", (s.late as f64).into());
-        set("seeks", (s.seeks as f64).into());
-        set("open", (self.opened().len() as f64).into());
-        set("paused", self.paused().into());
-        let playing = js_sys::Array::new();
-        let decoders = js_sys::Array::new();
-        let layers = js_sys::Array::new();
-        for open in self.opened() {
-            playing.push(&open.name.clone().into());
-            decoders.push(&open.decoder.kind().into());
-            layers.push(&(open.layer as f64 + 1.0).into());
-        }
-        set("playing", playing.into());
-        set("decoders", decoders.into());
-        // The background layer each plays on (1 or 2).
-        set("layers", layers.into());
-        set("browser_frames", webcodecs::mode_name().into());
-        let failed = js_sys::Array::new();
-        for (name, e) in self.failed() {
-            failed.push(&format!("{name}: {e}").into());
-        }
-        set("failed", failed.into());
         let status = match self.module_status() {
             None | Some(ModuleStatus::Idle) => "idle".to_string(),
             Some(ModuleStatus::Loading { loaded, total }) => format!("loading {loaded}/{total}"),
             Some(ModuleStatus::Ready { .. }) => "ready".to_string(),
             Some(ModuleStatus::Failed(e)) => format!("failed: {e}"),
         };
-        set("module", status.into());
-        obj
+        serde_json::json!({
+            "decoded": s.decoded,
+            "shown": s.shown,
+            "dropped": s.dropped,
+            "late": s.late,
+            "seeks": s.seeks,
+            "open": self.opened().len(),
+            "paused": self.paused(),
+            "playing": self.opened().iter().map(|o| &o.name).collect::<Vec<_>>(),
+            "decoders": self.opened().iter().map(|o| o.decoder.kind()).collect::<Vec<_>>(),
+            // The background layer each plays on (1 or 2).
+            "layers": self.opened().iter().map(|o| o.layer + 1).collect::<Vec<_>>(),
+            "browser_frames": webcodecs::mode_name(),
+            "failed": self
+                .failed()
+                .iter()
+                .map(|(name, e)| format!("{name}: {e}"))
+                .collect::<Vec<_>>(),
+            "module": status,
+        })
     }
 }

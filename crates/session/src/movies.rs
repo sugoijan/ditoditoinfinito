@@ -20,7 +20,8 @@ use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 
 pub mod preview;
 use ddi_platform::video::{
-    MovieStats, MovieTrack, StopReason, VideoDecoder, VideoError, VideoFrame, VideoTrouble,
+    GuardAction, MovieStats, MovieTrack, StopReason, VideoDecoder, VideoError, VideoFrame,
+    VideoTrouble,
 };
 use std::cell::Cell;
 
@@ -144,6 +145,9 @@ pub struct MovieSlots<S: MovieShell> {
     /// Movies that failed this play, for the results (`failed` is cleared
     /// when the song ends).
     trouble: Vec<(String, VideoError)>,
+    /// Nothing has run since [`MovieSlots::stop`]: stopping again does
+    /// nothing.
+    stopped: bool,
 }
 
 impl<S: MovieShell + Default> Default for MovieSlots<S> {
@@ -168,6 +172,7 @@ impl<S: MovieShell> MovieSlots<S> {
             off: None,
             paused: false,
             trouble: Vec::new(),
+            stopped: false,
         }
     }
 
@@ -269,6 +274,15 @@ impl<S: MovieShell> MovieSlots<S> {
         self.paused = false;
     }
 
+    /// Does what the automatic setting's rule says.
+    pub fn obey(&mut self, action: GuardAction) {
+        match action {
+            GuardAction::Pause => self.pause(),
+            GuardAction::Resume => self.resume(),
+            GuardAction::Off(reason) => self.turn_off(reason),
+        }
+    }
+
     /// Whether the song's opening movie (schedule segment 1) is expected to
     /// play this play: the opening still stands in for it until its first
     /// frame only then; off, failed or turned off, the song background
@@ -290,13 +304,20 @@ impl<S: MovieShell> MovieSlots<S> {
     /// Closes every decoder (the song ended). Textures and what was
     /// learned (each movie's end) stay for a retry, which shows no old
     /// frame and tries failed movies again; why the movies were turned
-    /// off stays for the results.
+    /// off stays for the results. Once stopped, stopping again does
+    /// nothing until a movie runs.
     pub fn stop(&mut self) {
+        if !self.stopped {
+            self.halt();
+        }
+    }
+
+    fn halt(&mut self) {
+        self.stopped = true;
         for open in std::mem::take(&mut self.open) {
             self.close(open);
         }
-        // Nothing shows afterwards: a change only when something did
-        // (desktop stops every frame once the song ended).
+        // Nothing shows afterwards: a change only when something did.
         if self.textures.iter().any(|t| t.fresh) {
             self.version += 1;
         }
@@ -313,7 +334,7 @@ impl<S: MovieShell> MovieSlots<S> {
     /// Stops for good (the session is over): the next play starts with the
     /// movies on.
     pub fn reset(&mut self) {
-        self.stop();
+        self.halt();
         self.off = None;
         self.trouble.clear();
     }
@@ -352,6 +373,7 @@ impl<S: MovieShell> MovieSlots<S> {
     /// background layers' schedules. The shell then makes the textures and
     /// shows the frames it returns.
     pub fn update(&mut self, layers: &[Vec<BgSegment>], t: f64) -> DueFrames {
+        self.stopped = false;
         let mut due = DueFrames::default();
         if self.idle(layers) {
             return due;
@@ -506,15 +528,7 @@ impl<S: MovieShell> MovieSlots<S> {
         for (name, e) in errors {
             self.fail(&name, e);
         }
-        let failed = std::mem::take(&mut self.failed);
-        let (keep, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.open)
-            .into_iter()
-            .partition(|o| !failed.iter().any(|(n, _)| *n == o.name));
-        self.failed = failed;
-        self.open = keep;
-        for open in gone {
-            self.close(open);
-        }
+        self.close_failed();
         due
     }
 
@@ -524,6 +538,7 @@ impl<S: MovieShell> MovieSlots<S> {
     /// clock put back (`position(0)`) seeks. The shell makes the textures
     /// and shows the frames it returns ([`DueFrames::show`]).
     pub fn update_clips(&mut self, clips: &[Clip]) -> DueFrames {
+        self.stopped = false;
         let mut due = DueFrames::default();
         if self.off.is_some() || self.paused {
             return due;
@@ -543,31 +558,7 @@ impl<S: MovieShell> MovieSlots<S> {
             {
                 continue;
             }
-            let mut decoder = match self.shell.open(&c.name) {
-                None => continue,
-                Some(Ok(decoder)) => decoder,
-                Some(Err(e)) => {
-                    self.fail(&c.name, e);
-                    continue;
-                }
-            };
-            let end = self
-                .ends
-                .iter()
-                .find(|(n, _)| *n == c.name)
-                .map(|(_, e)| *e);
-            let mut track = MovieTrack::new(c.looping, AHEAD, end);
-            track.start(&mut decoder, c.position);
-            self.open.push(OpenMovie {
-                layer: LAYERS,
-                segment: 0,
-                part: 0,
-                name: c.name.clone(),
-                decoder,
-                position: c.position,
-                track,
-                held: None,
-            });
+            self.open_track(c.name.clone(), c.looping, c.position, (LAYERS, 0, 0));
         }
         let mut errors = Vec::new();
         for open in &mut self.open {
@@ -602,16 +593,24 @@ impl<S: MovieShell> MovieSlots<S> {
         for (name, e) in errors {
             self.fail(&name, e);
         }
-        let failed = std::mem::take(&mut self.failed);
-        let (keep, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.open)
-            .into_iter()
-            .partition(|o| !failed.iter().any(|(n, _)| *n == o.name));
-        self.failed = failed;
-        self.open = keep;
-        for open in gone {
-            self.close(open);
-        }
+        self.close_failed();
         due
+    }
+
+    fn close_failed(&mut self) {
+        let mut i = 0;
+        while i < self.open.len() {
+            if self
+                .failed
+                .iter()
+                .any(|(name, _)| *name == self.open[i].name)
+            {
+                let open = self.open.remove(i);
+                self.close(open);
+            } else {
+                i += 1;
+            }
+        }
     }
 
     fn close(&mut self, open: OpenMovie<S::Decoder>) {
@@ -665,6 +664,24 @@ impl<S: MovieShell> MovieSlots<S> {
         if self.failed.iter().any(|(n, _)| *n == name) {
             return;
         }
+        let at = t.max(schedule[segment].seconds);
+        let looping = backgrounds::movie_loops_of(layers, layer, segment, part, at);
+        // From where the movie stands when the segment starts, or now when
+        // it already has.
+        let position = backgrounds::movie_position_of(layers, layer, segment, part, at);
+        self.open_track(name, looping, position, (layer, segment, part));
+    }
+
+    /// Opens a decoder on movie `name` and starts a track at `position`,
+    /// playing `(layer, segment, part)`; nothing when its file is not
+    /// there yet, or it cannot play (it then fails).
+    fn open_track(
+        &mut self,
+        name: String,
+        looping: bool,
+        position: f64,
+        (layer, segment, part): (usize, usize, usize),
+    ) {
         let mut decoder = match self.shell.open(&name) {
             None => return,
             Some(Ok(decoder)) => decoder,
@@ -674,12 +691,7 @@ impl<S: MovieShell> MovieSlots<S> {
             }
         };
         let end = self.ends.iter().find(|(n, _)| *n == name).map(|(_, e)| *e);
-        let at = t.max(schedule[segment].seconds);
-        let looping = backgrounds::movie_loops_of(layers, layer, segment, part, at);
         let mut track = MovieTrack::new(looping, AHEAD, end);
-        // From where the movie stands when the segment starts, or now when
-        // it already has.
-        let position = backgrounds::movie_position_of(layers, layer, segment, part, at);
         track.start(&mut decoder, position);
         self.open.push(OpenMovie {
             layer,

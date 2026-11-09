@@ -47,12 +47,11 @@ use std::rc::{Rc, Weak};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    Draft, HEAD, Sound, Write, readme_credits, readme_path, takes,
+    Adopted, Draft, HEAD, Sound, Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
-use ddi_library::announcer::{Bundled, Line, Spoken, find_announcers, tidy};
+use ddi_library::announcer::{Bundled, Line, Spoken, tidy};
 use ddi_platform::AudioBackend;
-use ddi_platform::storage::{self, Area};
 use ddi_session::announcer::scene::director::{
     self, Director, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
 };
@@ -61,25 +60,23 @@ use ddi_ui::event::{MenuEvent, UiEvent};
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::page::{PAGE_CHANGED, PAGE_TARGET, PageCall, PageFeed, PageScreen, PageShell};
-use ddi_ui::screens::studio::{self, Act, Example, View};
+use ddi_ui::screens::studio::{self, Act, Applied, Example, View};
 use ddi_ui::{Cx, MenuAction, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use gloo::timers::callback::Timeout;
 use js_sys::Reflect;
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{AudioBuffer, Blob, DragEvent, HtmlElement, HtmlInputElement};
+use web_sys::{AudioBuffer, Blob, DragEvent, HtmlInputElement};
 
-use crate::component::{Component, Context, NodeRef};
-use crate::components::ui_dev::{self, Host, Started};
+use crate::component::{Component, Context};
+use crate::components::ui_dev::{self, Host, UiPage};
 use crate::songs::ManifestEntry;
 use crate::web::audio::{AudioDecoder, WebAudio};
-use crate::web::files::{self, PickedFile};
+use crate::web::files::{self, PickedFile, carries_files};
 use crate::web::idb::{self, Db};
 
 const DRAFT_KEY: &str = "studio/draft.json";
-/// Where the example set chosen is remembered.
-const EXAMPLES_KEY: &str = "ddi.studio.examples";
 /// The rate takes are decoded, measured and written at.
 const RATE: f32 = 48_000.0;
 /// The draft is saved at most this often while takes are decoded,
@@ -129,10 +126,8 @@ impl Drop for Studio {
 }
 
 pub(crate) struct StudioPage {
-    root: NodeRef,
+    ui: UiPage,
     studio: Rc<Studio>,
-    started: Option<Started>,
-    failure: Option<String>,
 }
 
 /// What the page holds, shared by the shell's calls and its tasks.
@@ -183,9 +178,7 @@ struct Studio {
 
 impl Studio {
     fn new() -> Rc<Studio> {
-        let examples = storage::get(Area::Local, EXAMPLES_KEY)
-            .and_then(|k| Set::from_key(&k))
-            .unwrap_or_else(studio::first_set);
+        let examples = studio::remembered_set();
         let studio = Rc::new_cyclic(|me: &Weak<Studio>| Studio {
             draft: RefCell::new(Draft::default()),
             view: RefCell::new(View {
@@ -229,6 +222,7 @@ impl Studio {
             &self.draft.borrow(),
             &self.view.borrow(),
             &self.examples.borrow(),
+            ddi_ui::screens::data::Platform::Web,
         )
     }
 
@@ -518,36 +512,23 @@ impl Studio {
                 .iter()
                 .map(|(p, b)| (p.clone(), b.size() as u64))
                 .collect();
-            let found = find_announcers(&listed, "");
-            let readme = match found.announcers.as_slice() {
-                [_] => readme_path(files.iter().map(|(p, _)| p.as_str()))
-                    .and_then(|r| files.iter().find(|(p, _)| p == r).cloned()),
-                _ => None,
-            };
-            let credits = match &readme {
-                Some((_, blob)) => wasm_bindgen_futures::JsFuture::from(blob.text())
-                    .await
-                    .ok()
-                    .and_then(|t| t.as_string())
-                    .map(|t| readme_credits(&t)),
-                None => None,
-            };
-            {
-                let mut d = this.draft.borrow_mut();
-                if let [a] = found.announcers.as_slice()
-                    && d.name.trim().is_empty()
-                {
-                    d.name = a.name.clone();
-                }
-                let (by, license) = credits.unwrap_or_default();
-                if let Some(by) = by.filter(|_| d.author.trim().is_empty()) {
-                    d.author = by;
-                }
-                if let Some(l) = license.filter(|_| d.license.trim().is_empty()) {
-                    d.license = l;
-                }
+            let mut readme = None;
+            if let Some((name, path)) = made_before(&listed) {
+                let blob = path
+                    .as_ref()
+                    .and_then(|r| files.iter().find(|(p, _)| p == r));
+                let text = match blob {
+                    Some((_, blob)) => wasm_bindgen_futures::JsFuture::from(blob.text())
+                        .await
+                        .ok()
+                        .and_then(|t| t.as_string()),
+                    None => None,
+                };
+                readme = path;
+                this.draft
+                    .borrow_mut()
+                    .adopt(Adopted::new(name, text.as_deref()));
             }
-            let readme = readme.map(|(p, _)| p);
             let mut writes = Vec::new();
             let mut added = 0;
             let mut passed = 0;
@@ -898,25 +879,9 @@ impl Studio {
         let Some((name, blob)) = self.zip.borrow().clone() else {
             return;
         };
-        let Some(url) = files::object_url(&blob) else {
-            return;
-        };
-        let clicked = (|| {
-            let doc = web_sys::window()?.document()?;
-            let a: HtmlElement = doc.create_element("a").ok()?.dyn_into().ok()?;
-            a.set_attribute("href", &url).ok()?;
-            a.set_attribute("download", &name).ok()?;
-            doc.body()?.append_child(&a).ok()?;
-            a.click();
-            a.remove();
-            Some(())
-        })();
-        // The download has the blob by now; the URL goes a little later.
-        gloo::timers::callback::Timeout::new(60_000, move || files::revoke_object_url(&url))
-            .forget();
-        self.view.borrow_mut().status = match clicked {
-            Some(()) => ms::status_saved(&name, ddi_ui::screens::data::Platform::Web.l10n()),
-            None => ms::status_not_saved(),
+        self.view.borrow_mut().status = match files::save_blob(&blob, &name) {
+            Ok(()) => ms::status_saved(&name, ddi_ui::screens::data::Platform::Web.l10n()),
+            Err(_) => ms::status_not_saved(),
         }
         .into();
     }
@@ -933,20 +898,14 @@ impl Studio {
                     .iter()
                     .map(|(p, b)| (p.clone(), b.size() as u64))
                     .collect();
-                let a = find_announcers(&listed, "root")
-                    .announcers
-                    .into_iter()
-                    .next()
-                    .ok_or("it has no lines yet")?;
-                let kept = a.kept();
-                let prefix = format!("{}/", a.dir);
+                let plan = install_plan(&listed)?;
                 let sounds: Vec<(String, Blob)> = files
                     .into_iter()
-                    .map(|(p, b)| (p.strip_prefix(&prefix).unwrap_or(&p).to_string(), b))
+                    .map(|(p, b)| (plan.inside(&p).to_string(), b))
                     .collect();
-                let writes = crate::announcers::store(&kept, sounds)?;
+                let writes = crate::announcers::store(&plan.kept, sounds)?;
                 Db::open().await?.write(writes).await?;
-                Ok::<_, String>(kept.name)
+                Ok::<_, String>(plan.kept.name)
             }
             .await;
             this.view.borrow_mut().busy = false;
@@ -1051,11 +1010,7 @@ impl Studio {
             return;
         }
         self.stop();
-        let said = if studio::recorded(line, &self.draft.borrow()) {
-            Said::Draft
-        } else {
-            Said::Example(self.view.borrow().examples)
-        };
+        let said = Said::of(line, &self.draft.borrow(), self.view.borrow().examples);
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
@@ -1076,18 +1031,7 @@ impl Studio {
         let Some(pick) = in_play::pick(line) else {
             return;
         };
-        let chart = self
-            .songs
-            .borrow()
-            .iter()
-            .find(|e| e.id == pick.song)
-            .and_then(|e| {
-                e.charts
-                    .iter()
-                    .find(|c| c.layout == in_play::STYLE && c.difficulty == pick.difficulty.name())
-                    .map(|c| c.index)
-            });
-        let Some(chart) = chart else {
+        let Some(chart) = in_play::chart_index(&pick, &self.songs.borrow()) else {
             return self.status(ms::status_no_play());
         };
         // The play's sound, from this press (the play starts on it).
@@ -1138,19 +1082,10 @@ impl Studio {
                 words,
             });
             this.director.handed_over(n);
-            crate::router::Route::Play {
-                song: pick.song.into(),
-                chart,
-                force_gl: false,
-                auto: false,
-                auto_pad: false,
-                bias_ms: 0,
-                slow: false,
-                replay: None,
-                view_results: false,
-                edit: false,
+            crate::router::Route::Play(crate::router::PlayRoute {
                 scene: Some(line.folder()),
-            }
+                ..crate::router::PlayRoute::song(pick.song, chart)
+            })
             .navigate();
         });
     }
@@ -1197,51 +1132,31 @@ impl Studio {
         let pack = self
             .pack_of(set)
             .ok_or_else(|| format!("{} is not here", set.pack()))?;
-        let mut voice = Voice::default();
-        let mut lengths = HashMap::new();
-        let mut words = HashMap::new();
+        let plan = self.director.example_plan(&pack, set, lines);
         let mut decoder = None;
-        for &line in lines {
-            let Some((found, files)) = line.chain().into_iter().find_map(|l| {
-                let files = pack.kept.lines.get(&l.folder())?;
-                (!files.is_empty()).then(|| (l, files.clone()))
-            }) else {
-                continue;
-            };
-            if lengths.contains_key(&found) {
+        for p in &plan {
+            if self.example_sounds.borrow().contains_key(&p.key) {
                 continue;
             }
-            let turn = self.director.example_turn(set, found);
-            let path = files[turn % files.len()].to_string();
-            let key = format!("{}/{path}", pack.path);
-            let kept = self.example_sounds.borrow().get(&key).cloned();
-            let buffer = match kept {
-                Some(b) => b,
-                None => {
-                    let bytes = crate::announcers::bundled_sound(&pack, &path).await?;
-                    if decoder.is_none() {
-                        decoder = Some(
-                            AudioDecoder::offline(RATE)
-                                .ok_or("this browser cannot decode sounds here")?,
-                        );
-                    }
-                    let b = decoder
-                        .as_ref()
-                        .ok_or("no decoder")?
-                        .decode(&bytes, Default::default())
-                        .await?;
-                    self.example_sounds.borrow_mut().insert(key, b.clone());
-                    b
-                }
-            };
-            if let Some(w) = pack.said.get(&path) {
-                words.insert(found, w.clone());
+            let bytes = crate::announcers::bundled_sound(&pack, &p.path).await?;
+            if decoder.is_none() {
+                decoder = Some(
+                    AudioDecoder::offline(RATE).ok_or("this browser cannot decode sounds here")?,
+                );
             }
-            voice.expect([found]);
-            lengths.insert(found, buffer.duration());
-            voice.add(found, buffer);
+            let b = decoder
+                .as_ref()
+                .ok_or("no decoder")?
+                .decode(&bytes, Default::default())
+                .await?;
+            self.example_sounds.borrow_mut().insert(p.key.clone(), b);
         }
-        Ok((voice, lengths, words))
+        let sounds = self.example_sounds.borrow();
+        Ok(director::voiced_from(
+            plan,
+            |key| sounds.get(key).cloned(),
+            AudioBuffer::duration,
+        ))
     }
 
     /// Song select's scene: its voice got ready (made on song select's own
@@ -1279,14 +1194,10 @@ impl Studio {
     /// The results' scene: its voice got ready, then the director shows
     /// it (its line said on a sound made in this press).
     fn results_scene(self: &Rc<Self>, line: Line, said: Said) {
-        let recorded: std::collections::BTreeSet<Line> = self
-            .draft
-            .borrow()
-            .takes
-            .iter()
-            .filter_map(|t| t.line)
-            .collect();
-        let Some((n, scene)) = self.director.begin_results(line, said, &recorded) else {
+        let Some((n, scene)) = self
+            .director
+            .begin_results(line, said, &self.draft.borrow())
+        else {
             return;
         };
         let this = self.clone();
@@ -1344,7 +1255,29 @@ impl Studio {
             PageCall::Button(id) => id,
         };
         let act = studio::act(&id)?;
+        let applied = studio::apply(
+            act,
+            &mut self.draft.borrow_mut(),
+            &mut self.view.borrow_mut(),
+        );
+        if let Some(applied) = applied {
+            match applied {
+                Applied::Draft => {
+                    self.forget_export();
+                    self.save();
+                    self.publish();
+                }
+                Applied::Examples => {
+                    self.refresh_examples();
+                    self.publish();
+                }
+                Applied::View => {}
+            }
+            return Some(self.doc());
+        }
         match act {
+            // ([`studio::apply`]'s.)
+            Act::Tidy | Act::StepMania | Act::Examples | Act::Details => None,
             Act::Add(line) => {
                 self.pick_line.set(Some(line));
                 if let Some(i) = self.files_input.borrow().as_ref() {
@@ -1376,19 +1309,6 @@ impl Studio {
                 self.example(line, i);
                 None
             }
-            Act::Tidy => {
-                {
-                    let mut d = self.draft.borrow_mut();
-                    d.tidy = !d.tidy;
-                    for t in &mut d.takes {
-                        t.tidy = None;
-                    }
-                }
-                self.forget_export();
-                self.save();
-                self.publish();
-                Some(self.doc())
-            }
             Act::Move(id) => {
                 // Heard as its line is chosen.
                 if self.view.borrow().playing.as_deref() != Some(&format!("take:{id}")) {
@@ -1419,30 +1339,6 @@ impl Studio {
             Act::Remove(id) => {
                 self.remove(id);
                 self.publish();
-                Some(self.doc())
-            }
-            Act::Examples => {
-                let next = studio::next_set(self.view.borrow().examples);
-                self.view.borrow_mut().examples = next;
-                let _ = storage::set(Area::Local, EXAMPLES_KEY, next.key());
-                self.refresh_examples();
-                self.publish();
-                Some(self.doc())
-            }
-            Act::StepMania => {
-                {
-                    let mut d = self.draft.borrow_mut();
-                    d.stepmania = !d.stepmania;
-                }
-                self.forget_export();
-                self.save();
-                self.publish();
-                Some(self.doc())
-            }
-            Act::Details => {
-                let mut v = self.view.borrow_mut();
-                v.details = !v.details;
-                drop(v);
                 Some(self.doc())
             }
             Act::Export => {
@@ -1657,10 +1553,8 @@ impl Component for StudioPage {
 
     fn create(_ctx: &Context<Self>) -> Self {
         StudioPage {
-            root: NodeRef::default(),
+            ui: UiPage::default(),
             studio: Studio::new(),
-            started: None,
-            failure: None,
         }
     }
 
@@ -1673,38 +1567,24 @@ impl Component for StudioPage {
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             Msg::Failed(e) => {
-                self.failure = Some(e);
-                if let Some((host, _, pads)) = &self.started {
-                    ui_dev::stop_ui(host, pads.as_ref());
-                }
+                self.ui.fail(e);
                 true
             }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) {
-        if let Some(e) = &self.failure {
-            crate::component::no_gpu(ctx.root(), e);
-            return;
-        }
-        ctx.root().set_class_name("select-page");
-        self.root.set(ctx.root());
+        self.ui.view(ctx, "select-page");
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
         self.studio.stop();
-        if let Some((host, _, pads)) = &self.started {
-            ui_dev::stop_ui(host, pads.as_ref());
-        }
-        crate::web::forget_debug(&["ui", "studio"]);
+        self.ui.destroy(&["ui", "studio"]);
     }
 }
 
 impl StudioPage {
     fn start(&mut self, ctx: &Context<Self>) {
-        let Some(el) = self.root.cast::<HtmlElement>() else {
-            return;
-        };
         let studio = self.studio.clone();
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
@@ -1720,60 +1600,39 @@ impl StudioPage {
         ui.push(screen);
         let mut listeners = Vec::new();
         // The pickers: files (a zip too), and a folder.
-        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-            for folder in [false, true] {
-                let Some(input) = doc
-                    .create_element("input")
-                    .ok()
-                    .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
-                else {
-                    continue;
-                };
-                input.set_type("file");
-                input.set_multiple(true);
+        for folder in [false, true] {
+            let input = files::file_input(ctx.root(), (!folder).then_some(RECORDING_TYPES), true);
+            let _ = input.set_attribute("aria-hidden", "true");
+            let _ = input.set_attribute(
+                "data-ddi",
                 if folder {
-                    let _ = input.set_attribute("webkitdirectory", "");
+                    "studio-folder"
                 } else {
-                    let _ = input.set_attribute("accept", RECORDING_TYPES);
+                    "studio-files"
+                },
+            );
+            input.set_hidden(true);
+            let weak = Rc::downgrade(&studio);
+            let i = input.clone();
+            listeners.push(EventListener::new(&input, "change", move |_| {
+                let picked = files::from_input(&i);
+                i.set_value("");
+                if let Some(s) = weak.upgrade()
+                    && !picked.is_empty()
+                {
+                    let line = s.pick_line.take();
+                    s.add(picked, line);
                 }
-                let _ = input.set_attribute("tabindex", "-1");
-                let _ = input.set_attribute("aria-hidden", "true");
-                let _ = input.set_attribute(
-                    "data-ddi",
-                    if folder {
-                        "studio-folder"
-                    } else {
-                        "studio-files"
-                    },
-                );
-                input.set_hidden(true);
-                let _ = el.append_child(&input);
-                let weak = Rc::downgrade(&studio);
-                let i = input.clone();
-                listeners.push(EventListener::new(&input, "change", move |_| {
-                    let picked = files::from_input(&i);
-                    i.set_value("");
-                    if let Some(s) = weak.upgrade()
-                        && !picked.is_empty()
-                    {
-                        let line = s.pick_line.take();
-                        s.add(picked, line);
-                    }
-                }));
-                if folder {
-                    *studio.folder_input.borrow_mut() = Some(input);
-                } else {
-                    *studio.files_input.borrow_mut() = Some(input);
-                }
+            }));
+            if folder {
+                *studio.folder_input.borrow_mut() = Some(input);
+            } else {
+                *studio.files_input.borrow_mut() = Some(input);
             }
         }
         // Drops anywhere: on a line's zone they go on that line.
         if let Some(window) = web_sys::window() {
             let opts = EventListenerOptions::enable_prevent_default();
-            let carries_files = |e: &DragEvent| {
-                e.data_transfer()
-                    .is_some_and(|dt| dt.types().includes(&"Files".into(), 0))
-            };
             let weak = Rc::downgrade(&studio);
             listeners.push(EventListener::new_with_options(
                 &window,
@@ -1842,19 +1701,15 @@ impl StudioPage {
                 }
             })
         };
-        match ui_dev::start_ui(&el, ui, Some(theme), Some(extra)) {
-            Ok(mut started) => {
-                *studio.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-                let link = ctx.link().clone();
-                ui_dev::attach_gfx(started.0.clone(), move |e| {
-                    link.send_message(Msg::Failed(e))
-                });
-                started.1.extend(listeners);
-                self.started = Some(started);
-                let _ = crate::web::storage::request_persist();
-                wasm_bindgen_futures::spawn_local(async move { studio.load().await });
-            }
-            Err(e) => ctx.link().send_message(Msg::Failed(e)),
-        }
+        let Some(started) = self
+            .ui
+            .start(ctx, ui, Some(theme), Some(extra), Msg::Failed)
+        else {
+            return;
+        };
+        *studio.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+        started.1.extend(listeners);
+        let _ = crate::web::storage::request_persist();
+        wasm_bindgen_futures::spawn_local(async move { studio.load().await });
     }
 }

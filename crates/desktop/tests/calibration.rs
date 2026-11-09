@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ddi_desktop::audio::Audio;
 use ddi_desktop::play::{Ended, Feed, Play, Request, load};
 use ddi_platform::HostTime;
-use ddi_session::calibration::{CalMode, Outcome, report};
+use ddi_session::calibration::{CalMode, Outcome, meaningful};
 use ddi_ui::state::settings::Settings;
 
 /// Test `mode` played to its end on `settings`, the autoplayer `bias`
@@ -61,9 +61,7 @@ fn a_late_autoplayer_reads_late_in_every_test() {
             o.total() * 1000.0
         );
         assert!(!o.unreliable() && !o.out_of_range, "{mode:?}");
-        let r = report(&o, mode, 60.0);
-        assert!(r.meaningful, "{mode:?}: {r:?}");
-        assert!(r.headline.starts_with("+3"), "{mode:?}: {}", r.headline);
+        assert!(meaningful(&o), "{mode:?}: {o:?}");
     }
 }
 
@@ -95,9 +93,5 @@ fn saving_brings_the_offsets_to_the_truth() {
     );
     // Both right: the check reads nothing to change.
     let o = run(CalMode::Combined, &s, 0.0);
-    assert!(
-        !report(&o, CalMode::Combined, 60.0).meaningful,
-        "{:+.1} ms",
-        o.total() * 1000.0
-    );
+    assert!(!meaningful(&o), "{:+.1} ms", o.total() * 1000.0);
 }

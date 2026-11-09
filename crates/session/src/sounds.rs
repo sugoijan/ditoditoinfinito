@@ -19,7 +19,7 @@ pub const CLAP_LOOKAHEAD: f64 = 0.3;
 
 /// A clap scheduled this late (a long frame, a start part-way) is left
 /// out rather than heard off the beat.
-const CLAP_LATE: f64 = 0.01;
+pub(crate) const CLAP_LATE: f64 = 0.01;
 
 /// The clap's length, seconds.
 const CLAP_SECONDS: f32 = 0.12;
@@ -140,18 +140,12 @@ pub fn mine(rate: f32) -> Vec<f32> {
 
 /// The rows the assist clap sounds on: the song seconds of the rows with
 /// a tap or the head of a hold or roll judged on them
-/// (`IsThereATapOrHoldHeadAtRow` on a judgeable row), in order, once each.
-pub fn clap_rows(notes: &[JudgedNote]) -> Vec<f64> {
+/// (`IsThereATapOrHoldHeadAtRow` on a judgeable row), in order, once each,
+/// of `notes`' kinds, whether each is judgeable, and their seconds.
+pub fn clap_rows(notes: impl Iterator<Item = (NoteKind, bool, f64)>) -> Vec<f64> {
     let mut rows: Vec<f64> = notes
-        .iter()
-        .filter(|n| {
-            n.judgeable
-                && matches!(
-                    n.note.kind,
-                    NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-                )
-        })
-        .map(|n| n.seconds)
+        .filter(|&(kind, judgeable, _)| judgeable && kind.is_press_judged())
+        .map(|(_, _, seconds)| seconds)
         .collect();
     rows.sort_by(f64::total_cmp);
     rows.dedup();
@@ -191,7 +185,7 @@ impl<B> EventSounds<B> {
         };
         let clap = make(clap_on, clap);
         let rows = if clap.is_some() {
-            clap_rows(notes)
+            clap_rows(notes.iter().map(|n| (n.note.kind, n.judgeable, n.seconds)))
         } else {
             Vec::new()
         };

@@ -1,19 +1,12 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 //! Rest-surface material coordinates. Never modify vertices, weights or poses.
-use crate::{Character, SurfaceKind, math::normalize};
+use crate::{
+    Character, SurfaceKind,
+    math::{cross, dot, normalize},
+};
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|i| a[i] - b[i])
-}
-fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a.into_iter().zip(b).map(|(a, b)| a * b).sum()
-}
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 impl Character {
     /// Elliptical nail UV, dorsal eligibility, and radial cap coordinate. These

@@ -635,7 +635,7 @@ Done (2026-10-15):
   snapping, wheel and key glides, selection by keys and pads that the list
   follows, tap to select and again to activate, a draggable scrollbar, and
   a wheel style (the selected row on a fixed line).
-- **Controls** (`widgets/controls.rs`): button, toggle, StepMania-style
+- **Controls** (`widgets/controls.rs`): toggle, StepMania-style
   option row, slider. **Search field** (`widgets/field.rs`) with a
   suggestion popup that never shows while composing, fed by
   `ddi_library::suggest` (prefix, then word start, then anywhere; titles
@@ -1270,9 +1270,9 @@ Done, 6.3 options (2026-10-16):
   volume sample) and applies each change; `options_shell.rs` is the
   screen's shell for any platform, opening the dialogs and handing the
   rest to an `OptionsPlatform` (the sample, the export, removing songs
-  or a noteskin, going elsewhere); `options_dialogs.rs` has the
-  confirmation, the guided binding and taking one key. Desktop can use
-  them as they are (step 7).
+  or a noteskin, going elsewhere); `options_dialogs.rs` has the guided
+  binding and taking one key, `dialog.rs` the confirmation. Desktop can
+  use them as they are (step 7).
 - **Rows:** choices underlined, or stepped one at a time with ◀ ▶ where
   they do not fit the row (Ruleset, the gauge, the noteskin, the note
   colors); numbers stepped (speed by ×0.25, offsets by 1 ms, volume

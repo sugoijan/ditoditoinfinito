@@ -26,8 +26,6 @@ use web_sys::AudioBuffer;
 use crate::songs::{ManifestEntry, load_chart, load_preview_music};
 use crate::web::audio::WebAudio;
 
-/// Wait after a selection before its preview loads, ms.
-const SETTLE_MS: u32 = 300;
 /// The rate a preview decodes at before there is a context (the usual
 /// output's, and Opus's own): a context at another rate resamples it as
 /// it plays.
@@ -164,7 +162,7 @@ pub(crate) fn select(entry: Option<ManifestEntry>) {
     let Some(entry) = entry else {
         return;
     };
-    let timer = Timeout::new(SETTLE_MS, move || {
+    let timer = Timeout::new(ddi_session::preview::SETTLE_MS, move || {
         STATE.with(|s| s.borrow_mut().timer = None);
         wasm_bindgen_futures::spawn_local(fetch(entry, load));
     });
@@ -414,9 +412,7 @@ fn play(in_gesture: bool) {
             let length = ddi_session::preview::file_length(entry.preview_length);
             (0.0, length.min(buffer.duration()))
         } else {
-            let from = entry
-                .preview_start
-                .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
+            let from = ddi_session::preview::start(entry.preview_start, buffer.duration());
             (from, ddi_session::preview::length(entry.preview_length))
         };
         audio.play_preview(&buffer, from, length, volume).ok()?;
@@ -433,7 +429,8 @@ fn play(in_gesture: bool) {
         return;
     };
     // Again once it is over (a pause between, as cabinets do).
-    let timer = Timeout::new((length * 1000.0) as u32 + 600, move || {
+    let again = (length * 1000.0) as u32 + ddi_session::preview::AGAIN_MS;
+    let timer = Timeout::new(again, move || {
         let again = STATE.with(|s| {
             let mut s = s.borrow_mut();
             s.timer = None;

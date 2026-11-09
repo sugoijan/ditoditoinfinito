@@ -279,7 +279,7 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
         chart_notes.push(note);
     }
     chart_notes.sort_by_key(|n| (n.tick, n.lane));
-    let mut song = super::sm::empty_song(SourceFormat::Ffr);
+    let mut song = Song::empty(SourceFormat::Ffr);
     song.title = info.title.clone();
     song.artist = info.artist.clone();
     song.credit = info.credit.clone();

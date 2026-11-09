@@ -158,8 +158,8 @@ fn high_miss_rate(hits: u32, misses: u32) -> bool {
     misses * 4 > hits.max(1)
 }
 
-/// Enough evidence to stop the test as unreliable
-/// ([`Outcome::should_stop_early`], without working out the residuals).
+/// Enough evidence to stop the test as unreliable (from the counts alone,
+/// as a frame can afford).
 pub fn stop_early(hits: u32, misses: u32) -> bool {
     misses >= EARLY_STOP_MISSES && high_miss_rate(hits, misses)
 }
@@ -194,11 +194,6 @@ impl Outcome {
         high_miss_rate(self.hits, self.misses)
     }
 
-    /// Enough evidence to stop the test as unreliable.
-    pub fn should_stop_early(&self) -> bool {
-        stop_early(self.hits, self.misses)
-    }
-
     /// What saving should add to the setting: the applied correction plus the
     /// residual mean (within noise when converged).
     pub fn total(&self) -> f64 {
@@ -207,10 +202,6 @@ impl Outcome {
 
     pub fn residual_significant(&self) -> bool {
         significant(self.residual_mean, self.residual_sd, self.residual_n)
-    }
-
-    pub fn confidence(&self) -> f64 {
-        confidence(self.residual_sd, self.residual_n)
     }
 }
 
@@ -308,7 +299,7 @@ mod tests {
         }
         assert!(!cal.outcome(16, 2).unreliable());
         assert!(cal.outcome(16, 5).high_miss_rate());
-        assert!(cal.outcome(16, 6).should_stop_early());
+        assert!(stop_early(16, 6));
         let mut noisy = Calibrator::default();
         for i in 0..WARMUP + MIN_RESIDUAL {
             noisy.record(if i % 2 == 0 { 0.15 } else { -0.15 });

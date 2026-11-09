@@ -15,7 +15,7 @@ use crate::frame::{
 };
 use crate::history::{LoggedInput, PlayLog};
 use crate::input::InputEvent;
-use crate::judge::{Judge, JudgeEvent, JudgeEventKind, NoteState};
+use crate::judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 use crate::rules::ddr::{DdrClear, flare_points};
 use crate::rules::ffr::FfrResult;
 use crate::rules::{
@@ -26,6 +26,9 @@ use crate::transform::{self, TransformOptions};
 
 /// Default [`Frame::visible_range`], in arrow heights.
 pub const DEFAULT_VISIBLE_RANGE: f32 = 12.0;
+
+/// The most notes a frame reserves room for at once.
+const NOTES_RESERVED: usize = 256;
 
 /// Seconds a judgement or receptor flash is reported in frames.
 const FLASH_SECONDS: f32 = 1.0;
@@ -264,6 +267,9 @@ pub struct Player {
     /// Displayed beat of each judged note's head and tail (they never
     /// change, and computing them is linear in the scroll segments).
     displayed: Vec<(f64, f64)>,
+    /// Per note, where it and the notes before it reach ([`note_reach`]);
+    /// `None` on a chart whose frames walk every note.
+    reach: Option<Vec<Reach>>,
     /// The (lane, stable note index) pairs of each judged row.
     row_notes: Vec<Vec<(u8, usize)>>,
     /// Notes of each row judged so far, for explosions: in the dance game
@@ -279,6 +285,44 @@ pub struct Player {
     cover: LaneCover,
     cover_changed: Option<f64>,
     shown_cover: LaneCover,
+}
+
+/// One note's place for [`Player::frame`]'s walk.
+#[derive(Copy, Clone, Debug)]
+struct Reach {
+    /// The note's head: its displayed beat and its second.
+    head: (f64, f64),
+    /// The farthest of its head and tail and every earlier note's, each
+    /// on its own.
+    far: (f64, f64),
+}
+
+/// The notes' places when they are drawn in order, so that a frame need
+/// not walk them all: each no lower than the note before it while the
+/// scroll runs forward ([`ScrollState::runs_forward`]). `None` where a
+/// note can be drawn out of that order (a `#SCROLLS` running back, a
+/// note with a speed of its own).
+fn note_reach(notes: &[JudgedNote], displayed: &[(f64, f64)]) -> Option<Vec<Reach>> {
+    let in_order = notes.windows(2).zip(displayed.windows(2)).all(|(n, d)| {
+        n[0].note.tick <= n[1].note.tick && n[0].seconds <= n[1].seconds && d[0].0 <= d[1].0
+    }) && notes
+        .iter()
+        .zip(displayed)
+        .all(|(n, d)| n.note.speed_mul.is_none() && n.seconds <= n.end_seconds && d.0 <= d.1);
+    in_order.then(|| {
+        let mut far = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        notes
+            .iter()
+            .zip(displayed)
+            .map(|(n, d)| {
+                far = (far.0.max(d.1), far.1.max(n.end_seconds));
+                Reach {
+                    head: (d.0, n.seconds),
+                    far,
+                }
+            })
+            .collect()
+    })
 }
 
 impl Player {
@@ -329,7 +373,7 @@ impl Player {
         let holds_shown = !ruleset.judge.hold.is_ticked();
         let hold_place = if layout.id.starts_with("pump") {
             HoldPlace::None
-        } else if ruleset.id == "danoni" {
+        } else if ruleset.is_danoni() {
             HoldPlace::Centre
         } else {
             HoldPlace::Lanes
@@ -376,6 +420,7 @@ impl Player {
             frame_interval: 1.0 / 60.0,
             lane_map: transformed.take_from,
             displayed: Vec::new(),
+            reach: None,
             row_notes: Vec::new(),
             row_judged: Vec::new(),
             skin_events: VecDeque::new(),
@@ -402,6 +447,7 @@ impl Player {
                 (at(n.note.tick), at(n.note.end_tick()))
             })
             .collect();
+        player.reach = note_reach(player.judge.notes(), &player.displayed);
         player.reset_counts();
         player
     }
@@ -721,7 +767,7 @@ impl Player {
             kind,
             song_time,
             autoplay: self.autoplay,
-            danoni_judgments: self.ruleset.id == "danoni",
+            danoni_judgments: self.ruleset.is_danoni(),
             note: None,
         });
         self.next_seq += 1;
@@ -790,12 +836,10 @@ impl Player {
         let mut events = self.judge.update(to_microsecond(song_time));
         self.apply(&mut events);
         self.finished = true;
-        self.ruleset.score.finish();
     }
 
     fn finish(&mut self) {
         self.finished = true;
-        self.ruleset.score.finish();
         if let FailPolicy::EndOfSong { min_life } = self.ruleset.fail
             && match min_life {
                 Some(min) => self.ruleset.gauge.fails_at_end(min),
@@ -1016,10 +1060,10 @@ impl Player {
         // it counts as the segment's miss combo; dance points and the
         // holds', mines' and shocks' own outcomes are unchanged. A
         // StepMania rule, so not under Dancing☆Onigiri's or FFR's.
-        let (hit_times, miss_times) = if matches!(self.ruleset.id.as_str(), "danoni" | "ffr") {
-            (1, 1)
-        } else {
+        let (hit_times, miss_times) = if self.ruleset.takes_chart_combos() {
             self.timing.combo_at(ev.tick)
+        } else {
+            (1, 1)
         };
         let mut times = 1;
         // A hit inside the FA+ window: counted, and weighed apart by the
@@ -1117,12 +1161,32 @@ impl Player {
                 FailPolicy::Immediate => {
                     self.failed = true;
                     self.finished = true;
-                    self.ruleset.score.finish();
                 }
                 FailPolicy::ImmediateContinue => self.failed = true,
                 FailPolicy::EndOfSong { .. } | FailPolicy::Off => {}
             }
         }
+    }
+
+    /// The notes a frame has to look at, in chart order: every note whose
+    /// span can reach the field, every note not over yet (an active hold
+    /// rides the receptor, a held-back note may snap to it), and every
+    /// note a press may have struck already.
+    fn notes_to_walk(&self, scroll: &ScrollState, song_time: f64) -> std::ops::Range<usize> {
+        let whole = 0..self.judge.notes().len();
+        let Some(reach) = self.reach.as_deref().filter(|_| scroll.runs_forward()) else {
+            return whole;
+        };
+        let passed = reach.partition_point(|r| scroll.y_displayed(r.far.0, r.far.1) < -2.0);
+        let start = passed.min(self.judge.first_open());
+        // Past the top: the notes no press has reached and none is about
+        // to snap onto the receptor from up there.
+        let not_yet = (song_time + self.frame_interval / 2.0).max(self.judge.struck_until());
+        let end = reach.partition_point(|r| {
+            r.head.1 <= not_yet
+                || scroll.y_displayed(r.head.0, r.head.1) <= self.options.visible_range
+        });
+        start..end.max(start)
     }
 
     /// Render snapshot for a frame presented at `predicted_present`.
@@ -1133,7 +1197,8 @@ impl Player {
         let visible_range = self.options.visible_range;
         let age = |at: f64| (song_time - at).max(0.0) as f32;
 
-        let mut notes = Vec::new();
+        let walked = self.notes_to_walk(&scroll, song_time);
+        let mut notes = Vec::with_capacity(walked.len().min(NOTES_RESERVED));
         let mut holding = vec![None; usize::from(self.lanes)];
         // After an immediate fail nothing is judged any more, so draw nothing:
         // the field goes blank while the shell fades the music out.
@@ -1141,8 +1206,8 @@ impl Player {
         let blind = self
             .shock_blind
             .filter(|&(from, until)| song_time >= from && song_time < until);
-        for (note_index, (n, &(head_beat, tail_beat))) in
-            self.judge.notes().iter().zip(&self.displayed).enumerate()
+        for (note_index, n, &(head_beat, tail_beat)) in
+            walked.map(|i| (i, &self.judge.notes()[i], &self.displayed[i]))
         {
             if field_cleared {
                 break;
@@ -1471,3 +1536,6 @@ pub(crate) fn to_microsecond(seconds: f64) -> f64 {
         seconds
     }
 }
+
+#[cfg(test)]
+mod tests;

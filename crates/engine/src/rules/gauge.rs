@@ -357,27 +357,10 @@ impl GaugeRules for FixedPercent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ddi_chart::Tick;
-
-    fn tap(j: Judgement) -> JudgeEvent {
-        JudgeEvent {
-            note_index: None,
-            lane: 0,
-            tick: Tick::ZERO,
-            kind: JudgeEventKind::Tap(j, 0.0),
-            song_time: 0.0,
-        }
-    }
+    use crate::judge::test_events::{ev, tap};
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-6
-    }
-
-    fn kind_event(kind: JudgeEventKind) -> JudgeEvent {
-        JudgeEvent {
-            kind,
-            ..tap(Judgement::W1)
-        }
     }
 
     #[test]
@@ -411,15 +394,15 @@ mod tests {
         };
         let mut b = Battery::new(4, Judgement::W3, 1, 1);
         b.begin(&ticked);
-        b.on_event(&kind_event(miss), &ticked);
+        b.on_event(&ev(miss), &ticked);
         assert!(close(b.life(), 1.0));
-        b.on_event(&kind_event(JudgeEventKind::LetGo), &ticked);
+        b.on_event(&ev(JudgeEventKind::LetGo), &ticked);
         assert!(close(b.life(), 0.75));
         // DDR's fixed-percent bar: a checkpoint missed is a miss.
         let mut f = FixedPercent::ddr_a20();
         f.begin(&ticked);
         let before = f.life();
-        f.on_event(&kind_event(miss), &ticked);
+        f.on_event(&ev(miss), &ticked);
         assert!(f.life() < before);
     }
 

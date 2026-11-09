@@ -8,13 +8,14 @@
 //! - [`list`]: a virtual list (rows built only for what shows, reused),
 //!   with section headers, inertia, snapping, a scrollbar and a wheel
 //!   style.
-//! - [`controls`]: buttons, toggles, option rows, sliders.
+//! - [`controls`]: toggles, option rows, sliders.
 //! - [`field`]: a text field with an autocomplete popup.
 //! - [`volume`]: the quick volume control, its slider under its icon.
 
 pub mod controls;
 pub mod field;
 pub mod list;
+pub(crate) mod scrollbar;
 pub mod volume;
 
 use ddi_actor::{Actor, Kind};

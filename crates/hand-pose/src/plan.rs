@@ -1,6 +1,20 @@
-use crate::{Model, Parameters, Point};
-use serde::Deserialize;
-#[derive(Deserialize, Clone)]
+use crate::{Model, Parameters, Point, curve::smoother};
+use serde::{Deserialize, Serialize};
+/// A finger, as the plans name them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Foot {
+    L,
+    R,
+}
+impl Foot {
+    pub fn index(self) -> usize {
+        usize::from(self == Self::R)
+    }
+    pub fn at(d: usize) -> Self {
+        if d == 0 { Self::L } else { Self::R }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Swing {
     pub release: f64,
     pub land: f64,
@@ -8,35 +22,55 @@ pub struct Swing {
     pub to: u8,
     pub lift_m: f64,
 }
-#[derive(Deserialize, Clone)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tracks {
     #[serde(rename = "L")]
     pub left: Vec<Swing>,
     #[serde(rename = "R")]
     pub right: Vec<Swing>,
 }
-#[derive(Deserialize, Clone)]
+impl Tracks {
+    /// The swings of finger `foot`.
+    pub fn of(&self, foot: Foot) -> &[Swing] {
+        match foot {
+            Foot::L => &self.left,
+            Foot::R => &self.right,
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Initial {
     #[serde(rename = "L")]
     pub left: u8,
     #[serde(rename = "R")]
     pub right: u8,
 }
-#[derive(Deserialize, Clone)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Placement {
     pub tile_pitch_mm: f64,
     pub panel_anchor_mm: f64,
     pub center_offset_mm: f64,
     pub other_offset_mm: f64,
 }
-#[derive(Deserialize, Clone)]
+impl Default for Placement {
+    /// The placement every planned contact uses.
+    fn default() -> Self {
+        Self {
+            tile_pitch_mm: 24.,
+            panel_anchor_mm: 15.,
+            center_offset_mm: 9.,
+            other_offset_mm: 5.5,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub time: f64,
     pub music_time: f64,
     pub tick: i64,
     pub panel: u8,
-    pub foot: String,
-    #[serde(default)]
+    pub foot: Foot,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lift: bool,
 }
 /// A received arrow mine, in the Plan's local song seconds.
@@ -123,7 +157,7 @@ pub struct RollPulse {
     pub land: f64,
     pub from: u8,
     pub panel: u8,
-    pub foot: String,
+    pub foot: Foot,
 }
 #[derive(Clone)]
 struct CenterTargets {
@@ -132,6 +166,19 @@ struct CenterTargets {
 }
 fn legacy_version() -> u8 {
     1
+}
+/// What a [`Plan`] is made of, for [`Plan::new`].
+pub struct PlanParts {
+    pub version: u8,
+    pub mat: Option<ddi_dance_mat::Geometry>,
+    pub layout: String,
+    pub duration: f64,
+    pub initial: Initial,
+    pub tracks: Tracks,
+    pub placement: Placement,
+    pub events: Vec<Event>,
+    pub mines: Vec<Mine>,
+    pub roll_pulses: Vec<RollPulse>,
 }
 #[derive(Deserialize, Clone)]
 pub struct Plan {
@@ -163,6 +210,9 @@ pub struct Plan {
     centered: Option<CenterTargets>,
     #[serde(skip)]
     release_events: Vec<usize>,
+    /// Each of `release_events`' `lift_interval`, set with them.
+    #[serde(skip)]
+    release_intervals: Vec<Option<[f64; 2]>>,
     #[serde(skip)]
     mine_landings: Vec<MineLanding>,
     #[serde(skip)]
@@ -173,24 +223,24 @@ pub struct Targets {
     pub tips: [Point; 2],
     pub contact: [bool; 2],
 }
+/// Layouts using the full opposite-corner reach and flexible facing: every
+/// two-pad layout, and these single-pad ones.
+pub fn wide_stances(layout: &str) -> bool {
+    matches!(
+        layout,
+        "pump-single" | "danoni-7" | "techno-single8" | "danoni-9B"
+    ) || ddi_dance_mat::MatLayout::from_id(layout).is_some_and(|m| m.pads() == 2)
+}
 /// Physical keypad tile coordinates, before the hand's -16 mm root offset.
 /// Solo uses the upper corners; Pump single uses all four corners and center.
 pub fn panel_position(panel: u8, pitch: f64) -> Option<[f64; 2]> {
     ddi_dance_mat::cell_position(panel, pitch)
 }
-fn smoother(u: f64) -> f64 {
-    u * u * u * (10. + u * (-15. + 6. * u))
-}
 impl Plan {
     // Ease very wide corner bases toward centered balance, including their
     // lift/landing approaches. Other layouts retain their accepted guide.
     fn wide_balance(&self, tips: [Point; 2]) -> f64 {
-        if self.mat.is_none_or(|mat| mat.pads() == 1)
-            && !matches!(
-                self.layout.as_str(),
-                "pump-single" | "danoni-7" | "techno-single8" | "danoni-9B"
-            )
-        {
+        if !self.double_mat() && !wide_stances(&self.layout) {
             return 0.;
         }
         let span = (tips[1][0] - tips[0][0]).hypot(tips[1][1] - tips[0][1]);
@@ -214,12 +264,7 @@ impl Plan {
                 left: Vec::new(),
                 right: Vec::new(),
             },
-            placement: Placement {
-                tile_pitch_mm: 24.,
-                panel_anchor_mm: 15.,
-                center_offset_mm: 9.,
-                other_offset_mm: 5.5,
-            },
+            placement: Placement::default(),
             events: Vec::new(),
             mines: Vec::new(),
             roll_pulses: Vec::new(),
@@ -228,6 +273,7 @@ impl Plan {
             ordered: false,
             centered: None,
             release_events: Vec::new(),
+            release_intervals: Vec::new(),
             mine_landings: Vec::new(),
             mine_departures: Vec::new(),
         }
@@ -262,7 +308,41 @@ impl Plan {
         if bytes.len() > 4 * 1024 * 1024 {
             return Err("plan byte limit".into());
         }
-        let mut p: Self = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        serde_json::from_slice::<Self>(bytes)
+            .map_err(|e| e.to_string())?
+            .validated()
+    }
+    /// A plan from its parts, checked as [`Self::load`] checks one.
+    pub fn new(parts: PlanParts) -> Result<Self, String> {
+        let PlanParts {
+            version,
+            mat,
+            layout,
+            duration,
+            initial,
+            tracks,
+            placement,
+            events,
+            mines,
+            roll_pulses,
+        } = parts;
+        Self {
+            version,
+            mat,
+            layout,
+            initial,
+            tracks,
+            placement,
+            events,
+            mines,
+            roll_pulses,
+            ..Self::empty(duration)
+        }
+        .validated()
+    }
+    /// Check a plan read or made, and derive what it keeps beside its parts.
+    fn validated(mut self) -> Result<Self, String> {
+        let p = &mut self;
         match (p.version, p.mat) {
             (1, None)
                 if ddi_dance_mat::MatLayout::from_id(&p.layout)
@@ -281,9 +361,18 @@ impl Plan {
                 .is_some(),
             None => matches!(id, 1..=9),
         };
+        let placement = &p.placement;
         if !p.duration.is_finite()
             || p.duration <= 0.
             || p.duration > 3600.
+            || ![
+                placement.tile_pitch_mm,
+                placement.panel_anchor_mm,
+                placement.center_offset_mm,
+                placement.other_offset_mm,
+            ]
+            .iter()
+            .all(|v| v.is_finite())
             || p.events.len() > 10000
             || p.mines.len() > 10000
             || p.roll_pulses.len() > 10000
@@ -297,8 +386,8 @@ impl Plan {
             || !valid_panel(p.initial.right)
             || p.events.iter().any(|e| {
                 !valid_panel(e.panel)
-                    || !matches!(e.foot.as_str(), "L" | "R")
                     || !e.time.is_finite()
+                    || !e.music_time.is_finite()
                     || e.time < 0.
                     || e.time > p.duration
             })
@@ -326,21 +415,14 @@ impl Plan {
         p.edges.sort_by(f64::total_cmp);
         p.edges.dedup();
         if p.roll_pulses.iter().any(|r| {
-            !matches!(r.foot.as_str(), "L" | "R")
-                || !valid_panel(r.from)
+            !valid_panel(r.from)
                 || !valid_panel(r.panel)
                 || !r.release.is_finite()
                 || !r.land.is_finite()
                 || r.release < 0.
                 || r.release >= r.land
                 || r.land > p.duration
-                || !(if r.foot == "L" {
-                    &p.tracks.left
-                } else {
-                    &p.tracks.right
-                })
-                .iter()
-                .any(|s| {
+                || !p.track(r.foot.index()).0.iter().any(|s| {
                     s.release == r.release
                         && s.land == r.land
                         && s.from == r.from
@@ -357,17 +439,11 @@ impl Plan {
             return Err("invalid lift release".into());
         }
         p.ordered = true;
-        p.release_events = p
-            .events
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| e.lift)
-            .map(|(i, _)| i)
-            .collect();
+        p.index_releases();
         p.rebuild_mine_landings();
-        Ok(p)
+        Ok(self)
     }
-    pub fn rebuild_edges(&mut self) {
+    fn index_releases(&mut self) {
         self.release_events = self
             .events
             .iter()
@@ -375,6 +451,14 @@ impl Plan {
             .filter(|(_, e)| e.lift)
             .map(|(i, _)| i)
             .collect();
+        self.release_intervals = self
+            .release_events
+            .iter()
+            .map(|&i| self.lift_interval(&self.events[i]))
+            .collect();
+    }
+    pub fn rebuild_edges(&mut self) {
+        self.index_releases();
         self.edges = vec![0., self.duration];
         for tr in [&self.tracks.left, &self.tracks.right] {
             for s in tr {
@@ -399,7 +483,7 @@ impl Plan {
             .events
             .iter()
             .filter(|e| !e.lift)
-            .map(|e| (usize::from(e.foot == "R"), e.panel, e.time.to_bits()))
+            .map(|e| (e.foot.index(), e.panel, e.time.to_bits()))
             .collect::<std::collections::BTreeSet<_>>();
         let mut hazards: [Vec<Mine>; 18] = std::array::from_fn(|_| Vec::new());
         for m in &self.mines {
@@ -504,7 +588,7 @@ impl Plan {
             .events
             .iter()
             .filter(|e| !e.lift)
-            .map(|e| (usize::from(e.foot == "R"), e.panel, e.time.to_bits()))
+            .map(|e| (e.foot.index(), e.panel, e.time.to_bits()))
             .collect::<std::collections::BTreeSet<_>>();
         p.duration = end;
         p.events.retain(|e| e.time <= end);
@@ -524,12 +608,12 @@ impl Plan {
             p.release_events
                 .iter()
                 .map(|i| &p.events[*i])
-                .filter(|e| usize::from(e.foot == "R") == d)
+                .filter(|e| e.foot.index() == d)
                 .map(|e| e.time)
                 .collect()
         });
         for r in &p.roll_pulses {
-            releases[usize::from(r.foot == "R")].push(r.release);
+            releases[r.foot.index()].push(r.release);
         }
         // A known hazard declares a whole clearing flight, even if its return
         // crosses the input watermark. Likewise a received shared-tile head
@@ -543,7 +627,7 @@ impl Plan {
                         m.time <= end && m.panel == s.from && s.release < m.time && s.land > m.time
                     })
                     || p.events.iter().any(|e| {
-                        usize::from(e.foot == "R") != d
+                        e.foot.index() != d
                             && !e.lift
                             && e.panel == s.from
                             && ((s.land - e.time - 0.060).abs() < 1e-9
@@ -724,11 +808,7 @@ impl Plan {
     /// selection must inherit it before considering any newly received approach.
     fn frozen_contact(&self, previous: Option<(&Self, f64)>, d: usize, i: usize) -> Option<Point> {
         let (old, until) = previous?;
-        let track = if d == 0 {
-            &self.tracks.left
-        } else {
-            &self.tracks.right
-        };
+        let track = self.track(d).0;
         if i == 0 {
             let first = track.first().map_or(until, |s| s.release);
             let mut point = old.targets(first.min(until).max(0.)).tips[d];
@@ -739,11 +819,7 @@ impl Plan {
         if s.release > until || until.is_nan() {
             return None;
         }
-        let old_track = if d == 0 {
-            &old.tracks.left
-        } else {
-            &old.tracks.right
-        };
+        let old_track = old.track(d).0;
         let j = old_track.partition_point(|v| v.release < s.release);
         old_track
             .get(j)
@@ -979,14 +1055,7 @@ impl Plan {
     }
     fn landing_anchor(&self, d: usize, i: usize) -> Point {
         self.centered.as_ref().map_or_else(
-            || {
-                let track = if d == 0 {
-                    &self.tracks.left
-                } else {
-                    &self.tracks.right
-                };
-                self.anchor(track[i].to, d)
-            },
+            || self.anchor(self.track(d).0[i].to, d),
             |c| c.landings[d][i],
         )
     }
@@ -995,12 +1064,9 @@ impl Plan {
         if !e.lift {
             return None;
         }
-        let track = if e.foot == "L" {
-            &self.tracks.left
-        } else {
-            &self.tracks.right
-        };
-        let s = track
+        let s = self
+            .track(e.foot.index())
+            .0
             .iter()
             .find(|s| s.release == e.time && s.from == e.panel)?;
         Some([
@@ -1009,10 +1075,11 @@ impl Plan {
         ])
     }
     pub(crate) fn release_probes(&self, start: f64, end: f64) -> Vec<f64> {
-        self.release_events
+        self.release_intervals
             .iter()
-            .flat_map(|i| self.lift_interval(&self.events[*i]))
             .flatten()
+            .flatten()
+            .copied()
             .filter(|t| *t >= start && *t <= end)
             .collect()
     }
@@ -1025,7 +1092,7 @@ impl Plan {
     }
     pub(crate) fn roll_violation(&self, t: f64, tips: &[Point; 2]) -> bool {
         self.roll_pulses.iter().any(|r| {
-            let d = usize::from(r.foot == "R");
+            let d = r.foot.index();
             let p = tips[d];
             let anchor = if (t - (r.release - 0.005)).abs() < 1e-9 || (t - r.land).abs() < 1e-9 {
                 Some(self.targets(t).tips[d])
@@ -1037,16 +1104,17 @@ impl Plan {
         })
     }
     pub(crate) fn lift_violation(&self, t: f64, tips: &[Point; 2]) -> bool {
-        self.release_events.iter().any(|i| {
-            let e = &self.events[*i];
-            let Some([a, b]) = self.lift_interval(e) else {
+        (self.release_events.iter().zip(&self.release_intervals)).any(|(i, interval)| {
+            let Some([a, b]) = *interval else {
                 return true;
             };
-            let d = usize::from(e.foot == "R");
+            let d = self.events[*i].foot.index();
             let p = tips[d];
-            let anchor = self.targets(a).tips[d];
             ((t - a).abs() < 1e-9
-                && (p[2].abs() > 0.25 || (p[0] - anchor[0]).hypot(p[1] - anchor[1]) > 2.))
+                && (p[2].abs() > 0.25 || {
+                    let anchor = self.targets(a).tips[d];
+                    (p[0] - anchor[0]).hypot(p[1] - anchor[1]) > 2.
+                }))
                 || ((t - b).abs() < 1e-9 && p[2] <= 0.25)
         })
     }
@@ -1061,16 +1129,7 @@ impl Plan {
             contact: [true; 2],
         };
         for d in 0..2 {
-            let track = if d == 0 {
-                &self.tracks.left
-            } else {
-                &self.tracks.right
-            };
-            let initial = if d == 0 {
-                self.initial.left
-            } else {
-                self.initial.right
-            };
+            let (track, initial) = self.track(d);
             // Only the last assignment of the original scan survives, so only
             // that anchor is computed. The scan stops at the first swing not
             // landed by `t` (in flight, or not yet released); on an ordered
@@ -1508,7 +1567,7 @@ mod mine_landing_tests {
             music_time: 1.084,
             tick: 52,
             panel: 4,
-            foot: "L".into(),
+            foot: Foot::L,
             lift: false,
         });
         p.mines.push(Mine { time: 1., panel: 4 });
@@ -1545,7 +1604,7 @@ mod mine_landing_tests {
             match mutation {
                 0 => p.events.clear(),
                 1 => p.events[0].lift = true,
-                2 => p.events[0].foot = "R".into(),
+                2 => p.events[0].foot = Foot::R,
                 _ => p.tracks.left[0].release = 0.99,
             }
             p.rebuild_edges();
@@ -1599,7 +1658,7 @@ mod mine_landing_tests {
                 let mut bad = p.clone();
                 match mutation {
                     0 => bad.events.clear(),
-                    1 => bad.events[0].foot = "R".into(),
+                    1 => bad.events[0].foot = Foot::R,
                     2 => bad.tracks.left[0].from = 4,
                     3 => bad.tracks.left[0].release = 0.906,
                     4 => bad.events[0].lift = true,
@@ -1646,7 +1705,7 @@ mod mine_landing_tests {
                 music_time: 1.,
                 tick: 48,
                 panel: 8,
-                foot: "R".into(),
+                foot: Foot::R,
                 lift: false,
             },
             Event {
@@ -1654,7 +1713,7 @@ mod mine_landing_tests {
                 music_time: 1.03,
                 tick: 51,
                 panel: 5,
-                foot: "L".into(),
+                foot: Foot::L,
                 lift: false,
             },
         ];
@@ -1706,7 +1765,7 @@ mod mine_landing_tests {
             music_time: 1.,
             tick: 48,
             panel: 4,
-            foot: "L".into(),
+            foot: Foot::L,
             lift: false,
         });
         p.mines.push(Mine {
@@ -1731,7 +1790,7 @@ mod mine_landing_tests {
             let mut p = departure_study();
             match mutation {
                 0 => p.events.clear(),
-                1 => p.events[0].foot = "R".into(),
+                1 => p.events[0].foot = Foot::R,
                 2 => {
                     p.tracks.left.pop();
                 }

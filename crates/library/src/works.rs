@@ -193,7 +193,7 @@ pub fn plan<S: AsRef<str>>(
     // by id (`docs/plans/desktop.md`, 7.5b).
     let ident = match ws {
         WorkSource::Page(page) => inside_pack(page),
-        WorkSource::Dump(manifest) => inside_pack(parent(manifest)),
+        WorkSource::Dump(manifest) => inside_pack(pack::parent(manifest)),
     };
     let mut uncaptured: Vec<&str> = Vec::new();
     for (k, song) in import.songs.iter().enumerate() {
@@ -247,7 +247,7 @@ pub fn plan<S: AsRef<str>>(
                     out.warnings.push((
                         song_label.clone(),
                         Finding::LayerImagesMissing {
-                            names: missing.into_iter().map(|m| m.to_string()).collect(),
+                            names: missing,
                             more,
                         },
                     ));
@@ -342,7 +342,6 @@ pub fn entry(s: &WorkSong, chart: &str, music: &str) -> ManifestEntry {
         },
         song,
     );
-    fill_chart_keys(&mut entry, song);
     entry.preview_start = 0.0;
     entry.preview_length = 0.0;
     entry.layer_images = s
@@ -374,26 +373,12 @@ pub fn fill_chart_keys(entry: &mut ManifestEntry, song: &Song) {
 
 /// The song of music number `music_no` of work `w` (as a stored work's).
 pub fn song_of(w: &Work, music_no: usize) -> Result<Song, String> {
-    let import = danoni::import(&w.dos)?;
-    import
-        .music
-        .iter()
-        .position(|m| *m == music_no)
-        .map(|k| {
-            let mut song = import.songs[k].clone();
-            song.add_chart_versions();
-            song
-        })
-        .ok_or_else(|| format!("the work has no music number {music_no}"))
+    work::numbered_song(danoni::import(&w.dos)?, music_no)
 }
 
 /// A path without its first folder (the pack).
 fn inside_pack(path: &str) -> &str {
     path.split_once('/').map_or(path, |(_, rest)| rest)
-}
-
-fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(d, _)| d)
 }
 
 /// The pack of a work: the top folder of what was picked.

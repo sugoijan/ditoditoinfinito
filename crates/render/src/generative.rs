@@ -440,6 +440,20 @@ fn arc(from: [f64; 2], to: [f64; 2], r: f64, large: bool, sweep: bool, out: &mut
     }
 }
 
+/// A view of a 1×1 texture, bound while no picture is.
+fn blank_view(device: &wgpu::Device) -> wgpu::TextureView {
+    crate::gpu::texture_2d(
+        device,
+        "ddi-generative-blank",
+        [1, 1],
+        FORMAT,
+        1,
+        wgpu::TextureUsages::TEXTURE_BINDING,
+        &[],
+    )
+    .create_view(&Default::default())
+}
+
 /// The generated backgrounds' pipelines, and what they draw with.
 pub struct GenerativePipeline {
     look: wgpu::RenderPipeline,
@@ -469,37 +483,7 @@ impl GenerativePipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let look_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-generative-look-bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let look_layout = crate::gpu::uniform_texture_layout(device, "ddi-generative-look-bgl");
         let look_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ddi-generative-look-layout"),
             bind_group_layouts: &[Some(&look_layout)],
@@ -528,16 +512,11 @@ impl GenerativePipeline {
         );
         let strokes_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ddi-generative-strokes-bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 3,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+            entries: &[crate::gpu::uniform_entry(
+                3,
+                wgpu::ShaderStages::VERTEX,
+                false,
+            )],
         });
         let strokes_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ddi-generative-strokes-bg"),
@@ -596,23 +575,14 @@ impl GenerativePipeline {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("ddi-generative-sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        let blank = crate::gpu::texture_2d(
+        let sampler = crate::gpu::linear_sampler(device, "ddi-generative-sampler");
+        let group = Self::look_group(
             device,
-            "ddi-generative-blank",
-            [1, 1],
-            FORMAT,
-            1,
-            wgpu::TextureUsages::TEXTURE_BINDING,
-            &[],
-        )
-        .create_view(&Default::default());
-        let group = Self::look_group(device, &look_layout, &look_buffer, &blank, &sampler);
+            &look_layout,
+            &look_buffer,
+            &blank_view(device),
+            &sampler,
+        );
         GenerativePipeline {
             look,
             stroke,
@@ -665,21 +635,11 @@ impl GenerativePipeline {
                 self.picture = Some((size, linear));
             }
             None if self.picture.is_some() => {
-                let blank = crate::gpu::texture_2d(
-                    device,
-                    "ddi-generative-blank",
-                    [1, 1],
-                    FORMAT,
-                    1,
-                    wgpu::TextureUsages::TEXTURE_BINDING,
-                    &[],
-                )
-                .create_view(&Default::default());
                 self.group = Self::look_group(
                     device,
                     &self.look_layout,
                     &self.look_buffer,
-                    &blank,
+                    &blank_view(device),
                     &self.sampler,
                 );
                 self.picture = None;
@@ -731,22 +691,8 @@ impl GenerativePipeline {
             queue.write_buffer(&self.strokes_buffer, 0, bytemuck::bytes_of(&head));
             queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&self.strokes));
         }
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("ddi-generative-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        let black = wgpu::LoadOp::Clear(wgpu::Color::BLACK);
+        let mut pass = crate::gpu::color_pass(encoder, "ddi-generative-pass", target, black, None);
         pass.set_pipeline(&self.look);
         pass.set_bind_group(0, &self.group, &[]);
         pass.draw(0..3, 0..1);

@@ -22,7 +22,6 @@ use std::rc::{Rc, Weak};
 
 use ddi_platform::gamepad::{Control, PadSnapshot, PadStats, PadTracker};
 use ddi_platform::{HostTime, InputSource, RawInput};
-use gloo::render::{AnimationFrame, request_animation_frame};
 use js_sys::Float64Array;
 use wasm_bindgen::prelude::*;
 
@@ -197,6 +196,8 @@ type Listener = Box<dyn FnMut(PadNews<'_>)>;
 struct State {
     buf: Float64Array,
     scratch: Vec<f64>,
+    /// The view of `buf` a poll copies, as long as the poll before's.
+    view: Option<(u32, Float64Array)>,
     /// The pads the last poll read, by index.
     seen: Vec<u32>,
     generation: f64,
@@ -229,11 +230,18 @@ impl State {
         let n = read_pads(&self.buf) as usize;
         self.scratch.resize(n, 0.0);
         if n > 0 {
-            self.buf.subarray(0, n as u32).copy_to(&mut self.scratch);
+            if self.view.as_ref().is_none_or(|(len, _)| *len != n as u32) {
+                self.view = Some((n as u32, self.buf.subarray(0, n as u32)));
+            }
+            if let Some((_, view)) = &self.view {
+                view.copy_to(&mut self.scratch);
+            }
         }
         let generation = pad_generation();
         let ids_changed = generation != self.generation;
         self.generation = generation;
+        // Whether what `connected` lists can have changed.
+        let mut listed_changed = ids_changed;
 
         self.seen.clear();
         let mut o = 0;
@@ -281,14 +289,17 @@ impl State {
                         standard: snap.standard,
                     },
                 );
+                listed_changed = true;
             }
             if let Some(slot) = self.slots.get_mut(&index) {
+                listed_changed |= slot.standard != snap.standard;
                 slot.standard = snap.standard;
                 slot.tracker.update(snap, now, &mut self.queue);
             }
         }
         // The pads gone, released in index order.
         let (seen, queue) = (&self.seen, &mut self.queue);
+        let slots_before = self.slots.len();
         self.slots.retain(|k, slot| {
             let kept = seen.contains(k);
             if !kept {
@@ -296,11 +307,14 @@ impl State {
             }
             kept
         });
+        listed_changed |= self.slots.len() != slots_before;
 
-        let connected = connected(&self.slots);
-        if connected != self.connected {
-            self.connected = connected;
-            self.pads_news = true;
+        if listed_changed {
+            let connected = connected(&self.slots);
+            if connected != self.connected {
+                self.connected = connected;
+                self.pads_news = true;
+            }
         }
         if now_ms - self.window_start >= 1000.0 {
             self.polls_per_second = self.window_polls;
@@ -315,6 +329,16 @@ impl State {
 /// Polls `state` and hands the new edges to the listener, outside the
 /// borrow so the listener may call back into the hub.
 fn poll_and_notify(state: &Rc<RefCell<State>>, now_ms: f64) {
+    if crate::perf::recording() {
+        let began = PerformanceClock::now_ms();
+        notify_poll(state, now_ms);
+        crate::perf::pad_poll(PerformanceClock::now_ms() - began);
+    } else {
+        notify_poll(state, now_ms);
+    }
+}
+
+fn notify_poll(state: &Rc<RefCell<State>>, now_ms: f64) {
     let (pads, fresh, mut listener) = {
         let mut s = state.borrow_mut();
         let added = s.poll(now_ms);
@@ -346,7 +370,10 @@ struct Hub {
     state: Rc<RefCell<State>>,
     pump: DdiPadPump,
     _tick: Closure<dyn FnMut(f64)>,
-    raf: Rc<RefCell<Option<AnimationFrame>>>,
+    /// What each animation frame of the pad loop runs (one closure, so
+    /// the loop makes no garbage), and the frame asked for.
+    frame: std::cell::OnceCell<Closure<dyn FnMut(f64)>>,
+    frame_id: std::cell::Cell<Option<i32>>,
     /// The look for pads while none is connected, and what cuts it short.
     idle: RefCell<Option<gloo::timers::callback::Timeout>>,
     connected: RefCell<Option<gloo::events::EventListener>>,
@@ -355,7 +382,9 @@ struct Hub {
 impl Drop for Hub {
     fn drop(&mut self) {
         self.pump.close();
-        self.raf.borrow_mut().take();
+        if let (Some(window), Some(id)) = (web_sys::window(), self.frame_id.take()) {
+            let _ = window.cancel_animation_frame(id);
+        }
         self.idle.borrow_mut().take();
         self.connected.borrow_mut().take();
     }
@@ -408,6 +437,7 @@ impl Gamepads {
         let state = Rc::new(RefCell::new(State {
             buf: Float64Array::new_with_length(BUFFER_LEN),
             scratch: Vec::new(),
+            view: None,
             seen: Vec::new(),
             generation: -1.0,
             slots: BTreeMap::new(),
@@ -440,10 +470,15 @@ impl Gamepads {
             state,
             pump,
             _tick: tick,
-            raf: Rc::new(RefCell::new(None)),
+            frame: Default::default(),
+            frame_id: Default::default(),
             idle: RefCell::new(None),
             connected: RefCell::new(None),
         });
+        let weak = Rc::downgrade(&hub);
+        let _ = hub
+            .frame
+            .set(Closure::<dyn FnMut(f64)>::new(move |_| pad_frame(&weak)));
         if let Some(window) = web_sys::window() {
             let weak = Rc::downgrade(&hub);
             *hub.connected.borrow_mut() = Some(gloo::events::EventListener::new(
@@ -538,29 +573,33 @@ impl Hub {
 }
 
 fn schedule_frame(hub: Weak<Hub>) {
-    let Some(strong) = hub.upgrade() else {
+    let Some(hub) = hub.upgrade() else {
         return;
     };
-    let raf = strong.raf.clone();
-    drop(strong);
-    let handle = request_animation_frame(move |_| {
-        let Some(hub) = hub.upgrade() else {
-            return;
-        };
-        // Not the rAF timestamp: that is the frame's start, possibly
-        // milliseconds before this callback runs, and would stamp edges
-        // early.
-        poll_and_notify(&hub.state, PerformanceClock::now_ms());
-        hub.update_pump();
-        let weak = Rc::downgrade(&hub);
-        if hub.state.borrow().slots.is_empty() {
-            idle_poll(weak);
-            return;
-        }
-        drop(hub);
-        schedule_frame(weak);
-    });
-    *raf.borrow_mut() = Some(handle);
+    if let (Some(window), Some(frame)) = (web_sys::window(), hub.frame.get())
+        && let Ok(id) = window.request_animation_frame(frame.as_ref().unchecked_ref())
+    {
+        hub.frame_id.set(Some(id));
+    }
+}
+
+/// An animation frame of the pad loop.
+fn pad_frame(hub: &Weak<Hub>) {
+    let Some(hub) = hub.upgrade() else {
+        return;
+    };
+    // Not the rAF timestamp: that is the frame's start, possibly
+    // milliseconds before this callback runs, and would stamp edges
+    // early.
+    poll_and_notify(&hub.state, PerformanceClock::now_ms());
+    hub.update_pump();
+    let weak = Rc::downgrade(&hub);
+    if hub.state.borrow().slots.is_empty() {
+        idle_poll(weak);
+        return;
+    }
+    drop(hub);
+    schedule_frame(weak);
 }
 
 /// No pad: no frames for them (P13); a timer looks for one now and then
@@ -569,11 +608,10 @@ fn idle_poll(hub: Weak<Hub>) {
     let Some(strong) = hub.upgrade() else {
         return;
     };
-    let again = hub.clone();
     *strong.idle.borrow_mut() = Some(gloo::timers::callback::Timeout::new(
         IDLE_POLL_MS,
         move || {
-            let Some(hub) = again.upgrade() else {
+            let Some(hub) = hub.upgrade() else {
                 return;
             };
             hub.idle.borrow_mut().take();

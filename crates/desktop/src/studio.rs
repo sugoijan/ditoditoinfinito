@@ -30,17 +30,16 @@ use std::time::{Duration, Instant};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    Draft, Export, HEAD, Sound as Read, Take, Write, readme_credits, readme_path, takes,
+    Adopted, Draft, Export, HEAD, Sound as Read, Take, Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::tidy::{self, Measure};
-use ddi_library::announcer::{Bundled, Line, MAX_BYTES, Spoken, find_announcers};
+use ddi_library::announcer::{Bundled, Line, MAX_BYTES, Spoken};
 use ddi_library::path::RelPath;
 use ddi_library::scan::Reader;
 use ddi_platform::SoundId;
-use ddi_platform::storage::{self, Area};
 use ddi_session::announcer::scene::director::{
-    self, Director, Heard, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
+    self, Director, Heard, Planned, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
 };
 use ddi_session::announcer::scene::{ResultsScene, in_play};
 use ddi_session::announcer::{SharedVoice, Voice};
@@ -48,10 +47,9 @@ use ddi_session::preview::LEAD;
 use ddi_ui::event::{MenuEvent, UiEvent};
 use ddi_ui::message::Message;
 use ddi_ui::screens::Env;
-use ddi_ui::screens::data::Platform;
 use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
-use ddi_ui::screens::studio::{self, Act, Example, View};
+use ddi_ui::screens::studio::{self, Act, Applied, Example, View};
 use ddi_ui::state::settings::Settings;
 use ddi_ui::{Cx, MenuAction, Ui, UiRequest};
 
@@ -62,8 +60,6 @@ use crate::preview::SharedPlayer;
 
 /// The rate takes are decoded, measured and written at.
 const RATE: u32 = 48_000;
-/// Where the example set chosen is remembered.
-const EXAMPLES_KEY: &str = "ddi.studio.examples";
 /// The draft is saved at most this often while takes are decoded,
 /// milliseconds.
 const SAVE_EVERY_MS: f64 = 1000.0;
@@ -242,11 +238,7 @@ fn decoder() -> (Sender<DecodeJob>, Receiver<DecodeResult>) {
 /// What the files picked read as, on their thread.
 enum Arrived {
     /// A pack made before: its name and credits.
-    Pack {
-        name: Option<String>,
-        by: Option<String>,
-        license: Option<String>,
-    },
+    Pack(Adopted),
     File {
         path: String,
         size: u64,
@@ -329,23 +321,15 @@ fn read_picked(picked: Vec<PathBuf>, tx: Sender<Arrived>) {
     };
     // A pack made before: its name, and the credits its README gives.
     let names: Vec<(String, u64)> = listed.iter().map(|(p, s, _)| (p.clone(), *s)).collect();
-    let found = find_announcers(&names, "");
-    let readme = match found.announcers.as_slice() {
-        [_] => readme_path(names.iter().map(|(p, _)| p.as_str())).map(str::to_string),
-        _ => None,
-    };
-    if let [a] = found.announcers.as_slice() {
-        let (by, license) = readme
+    let mut readme = None;
+    if let Some((name, path)) = made_before(&names) {
+        let text = path
             .as_deref()
             .and_then(|r| listed.iter().find(|(p, ..)| p == r))
             .and_then(|(_, _, s)| read(s).ok())
-            .map(|b| readme_credits(&String::from_utf8_lossy(&b)))
-            .unwrap_or_default();
-        let _ = tx.send(Arrived::Pack {
-            name: Some(a.name.clone()),
-            by,
-            license,
-        });
+            .map(|b| String::from_utf8_lossy(&b).into_owned());
+        readme = path;
+        let _ = tx.send(Arrived::Pack(Adopted::new(name, text.as_deref())));
     }
     let mut passed = 0;
     for (path, size, source) in &listed {
@@ -435,21 +419,14 @@ fn into_game(shelf: &Path, files: Vec<(String, Vec<u8>)>, readme: &str) -> Resul
         .iter()
         .map(|(p, b)| (p.clone(), b.len() as u64))
         .collect();
-    let a = find_announcers(&listed, "root")
-        .announcers
-        .into_iter()
-        .next()
-        .ok_or("it has no lines yet")?;
-    let kept = a.kept();
-    let prefix = format!("{}/", a.dir);
-    let folder = a.dir.file_name().to_string();
-    let place = shelf.join(&folder);
+    let plan = install_plan(&listed)?;
+    let place = shelf.join(&plan.folder);
     // Whole or not at all: beside it, then in its place.
-    let partial = shelf.join(format!(".{folder}.{}.tmp", std::process::id()));
+    let partial = shelf.join(format!(".{}.{}.tmp", plan.folder, std::process::id()));
     let _ = std::fs::remove_dir_all(&partial);
     let written = (|| -> Result<(), String> {
         for (path, bytes) in &files {
-            let rest = path.strip_prefix(&prefix).unwrap_or(path);
+            let rest = plan.inside(path);
             let to = RelPath::new(rest)
                 .to_path(&partial)
                 .ok_or_else(|| format!("{rest}: not a file's path"))?;
@@ -465,7 +442,7 @@ fn into_game(shelf: &Path, files: Vec<(String, Vec<u8>)>, readme: &str) -> Resul
     if written.is_err() {
         let _ = std::fs::remove_dir_all(&partial);
     }
-    written.map(|()| kept.name)
+    written.map(|()| plan.kept.name)
 }
 
 /// A pack made on a thread.
@@ -524,8 +501,7 @@ enum WaitFor {
     /// Our pack's sounds, read and decoded on a thread.
     Example {
         rx: Receiver<ExampleSounds>,
-        /// Each line, its sound's key and its words.
-        plan: Vec<(Line, String, Option<String>)>,
+        plan: Vec<Planned>,
     },
 }
 
@@ -603,16 +579,13 @@ impl Studio {
     ) -> Rc<Studio> {
         let dir = folder().unwrap_or_else(|| std::env::temp_dir().join("ddi-studio"));
         let (draft, status) = open_draft(&dir);
-        let examples = storage::get(Area::Local, EXAMPLES_KEY)
-            .and_then(|k| Set::from_key(&k))
-            .unwrap_or_else(studio::first_set);
+        let examples = studio::remembered_set();
         let (decode, results) = decoder();
         let studio = Rc::new_cyclic(|me: &Weak<Studio>| Studio {
             draft: RefCell::new(draft),
             view: RefCell::new(View {
                 examples,
                 status,
-                platform: Platform::Desktop,
                 ..View::default()
             }),
             env: env.clone(),
@@ -636,7 +609,7 @@ impl Studio {
             heard: RefCell::default(),
             playing: Cell::default(),
             playing_end: RefCell::default(),
-            clock: RefCell::new(Box::new(crate::play::epoch_ms)),
+            clock: RefCell::new(Box::new(crate::clock::epoch_ms)),
             timers: RefCell::default(),
             todo: RefCell::default(),
             presses: RefCell::default(),
@@ -719,6 +692,7 @@ impl Studio {
             &self.draft.borrow(),
             &self.view.borrow(),
             &self.examples.borrow(),
+            self.env.platform,
         )
     }
 
@@ -873,12 +847,7 @@ impl Studio {
         let (Some(path), Some((_, a))) = (path, pack) else {
             return;
         };
-        let (tx, rx) = mpsc::channel();
-        let _ = std::thread::Builder::new()
-            .name("ddi-studio-example".into())
-            .spawn(move || {
-                let _ = tx.send(read_example(&a, &path));
-            });
+        let rx = crate::os::background("ddi-studio-example", None, move || read_example(&a, &path));
         *self.example.borrow_mut() = Some((rx, key));
     }
 
@@ -908,12 +877,9 @@ impl Studio {
         let export = self.draft.borrow().export();
         let entries = self.pack_entries(&export);
         let dir = self.store.dir.clone();
-        let (tx, rx) = mpsc::channel();
-        let _ = std::thread::Builder::new()
-            .name("ddi-studio-pack".into())
-            .spawn(move || {
-                let _ = tx.send(make_pack(dir, export, entries, to));
-            });
+        let rx = crate::os::background("ddi-studio-pack", None, move || {
+            make_pack(dir, export, entries, to)
+        });
         *self.packing.borrow_mut() = Some(rx);
         self.view.borrow_mut().busy = true;
     }
@@ -977,37 +943,17 @@ impl Studio {
         let (pack, a) = self
             .pack_of(set)
             .ok_or_else(|| format!("{} is not here", set.pack()))?;
-        let mut plan = Vec::new();
-        let mut seen = BTreeSet::new();
-        let mut need = Vec::new();
-        for &line in lines {
-            let Some((found, files)) = line.chain().into_iter().find_map(|l| {
-                let files = pack.kept.lines.get(&l.folder())?;
-                (!files.is_empty()).then(|| (l, files.clone()))
-            }) else {
-                continue;
-            };
-            if !seen.insert(found) {
-                continue;
-            }
-            let turn = self.director.example_turn(set, found);
-            let path = files[turn % files.len()].to_string();
-            let key = format!("{}/{path}", pack.path);
-            if !self.example_sounds.borrow().contains_key(&key) {
-                need.push((key.clone(), path.clone()));
-            }
-            plan.push((found, key, pack.said.get(&path).cloned()));
-        }
-        let (tx, rx) = mpsc::channel();
-        let _ = std::thread::Builder::new()
-            .name("ddi-studio-examples".into())
-            .spawn(move || {
-                let read: ExampleSounds = need
-                    .into_iter()
-                    .map(|(key, path)| Ok((key, read_example(&a, &path)?)))
-                    .collect();
-                let _ = tx.send(read);
-            });
+        let plan = self.director.example_plan(&pack, set, lines);
+        let need: Vec<(String, String)> = plan
+            .iter()
+            .filter(|p| !self.example_sounds.borrow().contains_key(&p.key))
+            .map(|p| (p.key.clone(), p.path.clone()))
+            .collect();
+        let rx = crate::os::background("ddi-studio-examples", None, move || -> ExampleSounds {
+            need.into_iter()
+                .map(|(key, path)| Ok((key, read_example(&a, &path)?)))
+                .collect()
+        });
         Ok(WaitFor::Example { rx, plan })
     }
 
@@ -1052,11 +998,7 @@ impl Studio {
             return;
         }
         self.stop();
-        let said = if studio::recorded(line, &self.draft.borrow()) {
-            Said::Draft
-        } else {
-            Said::Example(self.view.borrow().examples)
-        };
+        let said = Said::of(line, &self.draft.borrow(), self.view.borrow().examples);
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
@@ -1076,14 +1018,10 @@ impl Studio {
     }
 
     fn results_scene(self: &Rc<Self>, line: Line, said: Said) {
-        let recorded: BTreeSet<Line> = self
-            .draft
-            .borrow()
-            .takes
-            .iter()
-            .filter_map(|t| t.line)
-            .collect();
-        let Some((n, scene)) = self.director.begin_results(line, said, &recorded) else {
+        let Some((n, scene)) = self
+            .director
+            .begin_results(line, said, &self.draft.borrow())
+        else {
             return;
         };
         let lines = director::results_said_lines(&scene);
@@ -1099,16 +1037,7 @@ impl Studio {
         let Some(pick) = in_play::pick(line) else {
             return;
         };
-        let chart = crate::library::bundled()
-            .iter()
-            .find(|e| e.id == pick.song)
-            .and_then(|e| {
-                e.charts
-                    .iter()
-                    .find(|c| c.layout == in_play::STYLE && c.difficulty == pick.difficulty.name())
-                    .map(|c| c.index)
-            });
-        let Some(chart) = chart else {
+        let Some(chart) = in_play::chart_index(&pick, &crate::library::bundled()) else {
             return self.set_status(ms::status_no_play());
         };
         let n = self.director.begin_play(line, said);
@@ -1186,7 +1115,22 @@ impl Studio {
 
     /// What a press asks: the page again where it shows at once.
     pub fn act(self: &Rc<Self>, act: Act) -> Option<PageDoc> {
+        let applied = studio::apply(
+            act,
+            &mut self.draft.borrow_mut(),
+            &mut self.view.borrow_mut(),
+        );
+        if let Some(applied) = applied {
+            match applied {
+                Applied::Draft => self.save(),
+                Applied::Examples => self.refresh_examples(),
+                Applied::View => {}
+            }
+            return Some(self.doc());
+        }
         match act {
+            // ([`studio::apply`]'s.)
+            Act::Tidy | Act::StepMania | Act::Examples | Act::Details => None,
             Act::Add(line) => {
                 let picked = crate::os::pick_recordings();
                 if !picked.is_empty() {
@@ -1216,43 +1160,10 @@ impl Studio {
                 self.play_example(line, i);
                 Some(self.doc())
             }
-            Act::Tidy => {
-                {
-                    let mut d = self.draft.borrow_mut();
-                    d.tidy = !d.tidy;
-                    for t in &mut d.takes {
-                        t.tidy = None;
-                    }
-                }
-                self.save();
-                Some(self.doc())
-            }
             // (The dialog's: its caller's.)
             Act::Move(_) => None,
             Act::Remove(id) => {
                 self.remove(id);
-                Some(self.doc())
-            }
-            Act::Examples => {
-                let next = studio::next_set(self.view.borrow().examples);
-                self.view.borrow_mut().examples = next;
-                let _ = storage::set(Area::Local, EXAMPLES_KEY, next.key());
-                self.refresh_examples();
-                Some(self.doc())
-            }
-            Act::StepMania => {
-                {
-                    let mut d = self.draft.borrow_mut();
-                    d.stepmania = !d.stepmania;
-                }
-                self.save();
-                Some(self.doc())
-            }
-            Act::Details => {
-                {
-                    let mut v = self.view.borrow_mut();
-                    v.details = !v.details;
-                }
                 Some(self.doc())
             }
             Act::Export => {
@@ -1284,18 +1195,7 @@ impl Studio {
         adding.retain_mut(|a| {
             loop {
                 match a.rx.try_recv() {
-                    Ok(Arrived::Pack { name, by, license }) => {
-                        let mut d = self.draft.borrow_mut();
-                        if let Some(n) = name.filter(|_| d.name.trim().is_empty()) {
-                            d.name = n;
-                        }
-                        if let Some(b) = by.filter(|_| d.author.trim().is_empty()) {
-                            d.author = b;
-                        }
-                        if let Some(l) = license.filter(|_| d.license.trim().is_empty()) {
-                            d.license = l;
-                        }
-                    }
+                    Ok(Arrived::Pack(pack)) => self.draft.borrow_mut().adopt(pack),
                     Ok(Arrived::File { path, size, bytes }) => {
                         let id = {
                             let mut d = self.draft.borrow_mut();
@@ -1373,7 +1273,7 @@ impl Studio {
         self.view.borrow_mut().busy = false;
         match done {
             Ok(Packed::Zip(name)) => {
-                self.set_status(ms::status_saved(&name, Platform::Desktop.l10n()))
+                self.set_status(ms::status_saved(&name, self.env.platform.l10n()))
             }
             Ok(Packed::Game(name)) => {
                 self.set_status(ms::status_used(name));
@@ -1445,22 +1345,8 @@ impl Studio {
             match w.wait {
                 WaitFor::Draft(which) => self.staged_voice(which),
                 WaitFor::Example { plan, .. } => {
-                    let mut voice: Voice<Sound> = Voice::default();
-                    let mut lengths = HashMap::new();
-                    let mut words = HashMap::new();
                     let sounds = self.example_sounds.borrow();
-                    for (line, key, said) in plan {
-                        let Some(sound) = sounds.get(&key) else {
-                            continue;
-                        };
-                        voice.expect([line]);
-                        lengths.insert(line, sound.duration());
-                        voice.add(line, sound.clone());
-                        if let Some(said) = said {
-                            words.insert(line, said);
-                        }
-                    }
-                    (voice, lengths, words)
+                    director::voiced_from(plan, |key| sounds.get(key).cloned(), |s| s.duration())
                 }
             }
         });
@@ -1482,7 +1368,7 @@ impl Studio {
                 0,
                 0,
                 error_text(&e),
-                Platform::Desktop.l10n(),
+                self.env.platform.l10n(),
             ));
         }
         if let Some(h) = self.heard_in_play.borrow_mut().take() {

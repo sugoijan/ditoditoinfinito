@@ -127,10 +127,7 @@ fn inspect(
     // The denser double-mat audit found small peaks between ordinary probes.
     let mut failed = None;
     for d in (0..2).filter(|_| !relaxed) {
-        let error = (0..3)
-            .map(|i| (g.tips[d][i] - target.tips[d][i]).powi(2))
-            .sum::<f64>()
-            .sqrt();
+        let error = crate::solve::tip_error(&g.tips[d], &target.tips[d]);
         report.maximum_error_mm = report.maximum_error_mm.max(error);
         if !error.is_finite() || error > if p.double_mat() { 1.90 } else { 2. } {
             failed = Some("position");
@@ -263,8 +260,19 @@ impl ContactCurve {
     /// Numerical left/right endpoint agreement of the analytic quintics: pose,
     /// velocity and acceleration. This measures joins, not a speed limit.
     pub fn join_errors(&self) -> [f64; 3] {
+        self.join_errors_from(f64::NEG_INFINITY)
+    }
+
+    /// `join_errors` over the joins at or after `start`, for a publication
+    /// whose earlier knots were cloned from the curve published before it.
+    pub(crate) fn join_errors_from(&self, start: f64) -> [f64; 3] {
+        let first = self
+            .curve
+            .knots
+            .partition_point(|k| k.t < start)
+            .saturating_sub(1);
         let mut error = [0_f64; 3];
-        for w in self.curve.knots.windows(3) {
+        for w in self.curve.knots[first..].windows(3) {
             let a = crate::curve::quintic(&w[0], &w[1], w[1].t);
             let b = crate::curve::quintic(&w[1], &w[2], w[1].t);
             for (j, (a, b)) in [(a.p, b.p), (a.v, b.v), (a.a, b.a)].into_iter().enumerate() {
@@ -312,17 +320,27 @@ impl ContactCurve {
     /// model's ±180° coordinates; its derivatives follow continuous angular
     /// phase. The actual rotation remains C2 across that coordinate wrap.
     pub fn sample(&self, t: f64) -> ContactCurveSample {
-        let range = self.time_range();
-        let t = if t.is_finite() {
-            t.clamp(range[0], range[1])
-        } else {
-            range[0]
-        };
-        let k = self.curve.at(t);
+        let k = self.curve.at(self.clamped(t));
         ContactCurveSample {
             pose: self.curve.parameters(k.p).0,
             velocity: value(k.v).0,
             acceleration: value(k.a).0,
+        }
+    }
+
+    /// [`Self::sample`]'s pose alone, without its derivatives.
+    pub fn pose(&self, t: f64) -> Parameters {
+        self.curve
+            .parameters(self.curve.position(self.clamped(t)))
+            .0
+    }
+
+    fn clamped(&self, t: f64) -> f64 {
+        let range = self.time_range();
+        if t.is_finite() {
+            t.clamp(range[0], range[1])
+        } else {
+            range[0]
         }
     }
 }
@@ -513,7 +531,7 @@ impl ContactCurvePreparation {
                 .curve
                 .as_ref()
                 .unwrap()
-                .parameters(self.curve.as_ref().unwrap().at(t).p)
+                .parameters(self.curve.as_ref().unwrap().position(t))
                 .0;
             if let Some(reason) = inspect(
                 m,
@@ -862,7 +880,7 @@ impl ContactCurvePublication {
         }
         let t = self.queries[self.at];
         self.at += 1;
-        let q = self.curve.parameters(self.curve.at(t).p).0;
+        let q = self.curve.parameters(self.curve.position(t)).0;
         if let Some(reason) = inspect(
             m,
             p,

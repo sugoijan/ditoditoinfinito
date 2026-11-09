@@ -19,16 +19,17 @@ use ddi_actor::{Actor, Kind};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, pages as pm};
 
-use super::select_dialogs::wrap_lines;
+use super::dialog::wrap_lines;
 use super::{Env, footer, frame, ground, header, left};
 use crate::gesture::Gesture;
 use crate::hit;
-use crate::look::{self, Spec, call, quad};
-use crate::message::{Message, Param};
+use crate::look::{self, Spec, call, quad, quad_at};
+use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::UiRequest;
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
 use crate::widgets::field::{FieldEvent, SearchField};
+use crate::widgets::scrollbar::Scrollbar;
 
 /// Broadcast when the shell put a new page in the [`PageFeed`].
 pub const PAGE_CHANGED: &str = "Page.Changed";
@@ -282,7 +283,7 @@ pub struct PageScreen {
     scroll: f32,
     /// Dragging the scrollbar's thumb: where it was grabbed (from its
     /// top).
-    bar: Option<f32>,
+    bar: Option<f64>,
     /// The fields, by id: what is typed in them, kept across new docs.
     fields: std::collections::HashMap<String, SearchField>,
     /// The zone lit ([`PAGE_TARGET`]).
@@ -363,8 +364,7 @@ impl PageScreen {
         let mut items = Vec::new();
         let mut y = 0.0;
         let w = self.column[2];
-        let blocks = self.doc.blocks.clone();
-        self.lay_blocks(&blocks, 0.0, w, &mut y, &mut rows, &mut items);
+        self.lay_blocks(&self.doc.blocks, 0.0, w, &mut y, &mut rows, &mut items);
         self.item_zone = vec![None; items.len()];
         for (z, zone) in rows.iter().enumerate() {
             if !matches!(zone.kind, RowKind::Zone { .. }) {
@@ -657,7 +657,7 @@ impl PageScreen {
                 common::back(),
                 pm::activate(),
             );
-            let (f, texts) = footer(
+            let f = footer(
                 &env,
                 [w, h],
                 &[
@@ -674,7 +674,6 @@ impl PageScreen {
                 &[("Link.Back", &back)],
                 cx,
             );
-            env.state.borrow_mut().hints = texts;
             children.push(f);
         }
         let mut root = Actor::new(Kind::Frame(children));
@@ -754,8 +753,7 @@ impl PageScreen {
                         look::mono_width(label, size) + 40.0
                     }
                     .min(w - indent);
-                    let mut b = look::component_or(
-                        &*env.look,
+                    let mut b = env.component(
                         match (*off, *primary) {
                             (true, _) => "Button.Disabled",
                             (false, true) => "PlayButton",
@@ -763,9 +761,9 @@ impl PageScreen {
                         },
                         "Button",
                         &Spec::new([bw, r.h], label),
+                        &format!("Item{item}"),
+                        [indent + bw / 2.0, r.y + r.h / 2.0],
                     );
-                    b.name = format!("Item{item}");
-                    call(&mut b, "xy", &[indent + bw / 2.0, r.y + r.h / 2.0]);
                     crate::widgets::play(
                         &mut b,
                         if self.focus == Some(*item) {
@@ -814,12 +812,24 @@ impl PageScreen {
                     call(&mut plate, "xy", &[indent + zw / 2.0, r.y + r.h / 2.0]);
                     c.insert(0, plate);
                     if lit {
-                        let mut edge = quad("", [zw, 2.0], env.color("Accent"));
-                        call(&mut edge, "xy", &[indent + zw / 2.0, r.y + 1.0]);
-                        c.insert(1, edge);
-                        let mut low = quad("", [zw, 2.0], env.color("Accent"));
-                        call(&mut low, "xy", &[indent + zw / 2.0, r.y + r.h - 1.0]);
-                        c.insert(1, low);
+                        c.insert(
+                            1,
+                            quad_at(
+                                "",
+                                [zw, 2.0],
+                                env.color("Accent"),
+                                [indent + zw / 2.0, r.y + 1.0],
+                            ),
+                        );
+                        c.insert(
+                            1,
+                            quad_at(
+                                "",
+                                [zw, 2.0],
+                                env.color("Accent"),
+                                [indent + zw / 2.0, r.y + r.h - 1.0],
+                            ),
+                        );
                     }
                 }
             }
@@ -856,6 +866,12 @@ impl PageScreen {
     }
 
     fn rebuild_column(&mut self, root: &mut Actor) {
+        self.draw_column(root);
+        self.publish();
+    }
+
+    /// The column and its scrollbar as they are now.
+    fn draw_column(&mut self, root: &mut Actor) {
         let fresh = self.column_actor();
         if let Some(c) = hit::find_mut(root, "Column") {
             super::refill(c, fresh);
@@ -863,7 +879,6 @@ impl PageScreen {
         if let Some(bar) = hit::find_mut(root, "Column.Bar") {
             self.place_thumb(bar);
         }
-        self.publish();
     }
 
     /// The scrollbar beside the column (`Column.Bar`): a press on its
@@ -882,11 +897,12 @@ impl PageScreen {
         bar
     }
 
-    /// The thumb's length: the share shown, at least 24 (or the whole
-    /// bar when shorter).
-    fn thumb_size(&self) -> f32 {
-        let h = self.column[3];
-        (h * h / self.total().max(1.0)).clamp(24.0_f32.min(h), h)
+    fn scrollbar(&self, range: f32) -> Scrollbar {
+        Scrollbar::new(
+            f64::from(self.column[3]),
+            f64::from(self.total()),
+            f64::from(range),
+        )
     }
 
     /// The bar shows while there is more than fits, its thumb where the
@@ -894,17 +910,9 @@ impl PageScreen {
     fn place_thumb(&self, bar: &mut Actor) {
         let range = self.max_scroll();
         bar.visible = range > 0.0;
-        if !bar.visible {
-            return;
-        }
-        let h = self.column[3];
-        let thumb = self.thumb_size();
-        let y = (self.scroll / range * (h - thumb)).clamp(0.0, h - thumb);
-        if let Some(t) = hit::find_mut(bar, "Thumb") {
-            if let Kind::Sprite(s) = &mut t.kind {
-                s.size = [BAR, thumb];
-            }
-            call(t, "y", &[y]);
+        if bar.visible {
+            self.scrollbar(range)
+                .place_thumb(bar, BAR, f64::from(self.scroll));
         }
     }
 
@@ -914,27 +922,14 @@ impl PageScreen {
         if range <= 0.0 {
             return;
         }
-        let h = self.column[3];
-        let thumb = self.thumb_size();
-        let thumb_y = self.scroll / range * (h - thumb);
-        let to =
-            |grab: f32| (y - grab).clamp(0.0, (h - thumb).max(0.0)) / (h - thumb).max(1.0) * range;
-        match gesture {
-            Gesture::Press => {
-                let grab = if (thumb_y..thumb_y + thumb).contains(&y) {
-                    y - thumb_y
-                } else {
-                    thumb / 2.0
-                };
-                self.bar = Some(grab);
-                self.scroll_to(to(grab), root);
-            }
-            Gesture::Drag { .. } | Gesture::DragStart => {
-                if let Some(grab) = self.bar {
-                    self.scroll_to(to(grab), root);
-                }
-            }
-            _ => self.bar = None,
+        let to = self.scrollbar(range).gesture(
+            gesture,
+            f64::from(y),
+            f64::from(self.scroll),
+            &mut self.bar,
+        );
+        if let Some(to) = to {
+            self.scroll_to(to as f32, root);
         }
     }
 
@@ -942,7 +937,9 @@ impl PageScreen {
         let to = to.clamp(0.0, self.max_scroll());
         if to != self.scroll {
             self.scroll = to;
-            self.rebuild_column(root);
+            self.draw_column(root);
+            // The debug state's item names stay as they are: only this.
+            self.env.state.borrow_mut().scroll = self.scroll;
         }
     }
 
@@ -1288,7 +1285,7 @@ impl Screen for PageScreen {
         if self.place(cx.viewport().screen) {
             self.lay_out();
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.tree(cx);
             super::relaid(root, left, cx);
             self.publish();
@@ -1300,7 +1297,7 @@ impl Screen for PageScreen {
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == crate::controller_hints::CHANGED {
-            let left = super::time_left(root);
+            let left = root.tween_time_left();
             *root = self.tree(cx);
             super::relaid(root, left, cx);
             self.publish();
@@ -1311,10 +1308,7 @@ impl Screen for PageScreen {
             self.set_doc(doc, root, cx);
         }
         if m.name == PAGE_TARGET {
-            let zone = match m.get("Zone") {
-                Some(Param::Str(z)) if !z.is_empty() => Some(z.clone()),
-                _ => None,
-            };
+            let zone = m.str("Zone").filter(|z| !z.is_empty()).map(String::from);
             if zone != self.target {
                 self.target = zone;
                 self.rebuild_column(root);

@@ -21,7 +21,7 @@
 //! (`ddi_engine::clock::SongClock`) turns its time stamp into it as a
 //! play judges a press.
 
-use ddi_chart::{Layout, Note, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
+use ddi_chart::{Layout, Note, TICKS_PER_BEAT, Tick, TimingMap};
 use ddi_engine::ConnectedPad;
 use ddi_engine::clock::{ClockOptions, SongClock};
 use ddi_library::path::{RelPath, RelPathBuf};
@@ -31,11 +31,7 @@ use ddi_ui::state::editor::Editor;
 use ddi_ui::state::settings::Settings;
 
 use crate::calibration::{BEAT_CLICK, NOTE_CLICK, click};
-use crate::sounds::{CLAP_LOOKAHEAD, clap};
-
-/// A cue scheduled this late (a long frame) is left out rather than
-/// heard off the beat.
-const CUE_LATE: f64 = 0.01;
+use crate::sounds::{CLAP_LATE, CLAP_LOOKAHEAD, clap, clap_rows};
 
 /// The most beats one [`Listener::cue`] looks at (a long warp's beats
 /// all fall on one second).
@@ -68,22 +64,15 @@ impl Cues {
     /// the rows of `notes` when `clap`: those with a tap or a hold's or
     /// roll's head judged on them, as a play claps (`sounds::clap_rows`).
     pub fn new(timing: &TimingMap, notes: &[Note], metronome: bool, clap: bool) -> Cues {
-        let mut claps: Vec<f64> = if clap {
-            notes
-                .iter()
-                .filter(|n| {
-                    matches!(
-                        n.kind,
-                        NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-                    ) && timing.judgeable(n.tick)
-                })
-                .map(|n| timing.seconds_at(n.tick))
-                .collect()
+        let claps = if clap {
+            clap_rows(
+                notes
+                    .iter()
+                    .map(|n| (n.kind, timing.judgeable(n.tick), timing.seconds_at(n.tick))),
+            )
         } else {
             Vec::new()
         };
-        claps.sort_by(f64::total_cmp);
-        claps.dedup();
         Cues {
             beats: metronome.then(|| timing.clone()),
             claps,
@@ -385,7 +374,7 @@ impl<A: AudioBackend> Listener<A> {
             let Some(buffer) = sounds.of(cue) else {
                 continue;
             };
-            if at < now - CUE_LATE || audio.play(buffer, at, 0.0, p.volume).is_err() {
+            if at < now - CLAP_LATE || audio.play(buffer, at, 0.0, p.volume).is_err() {
                 continue;
             }
             let n = &mut self.scheduled;
@@ -529,6 +518,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
+    use ddi_chart::NoteKind;
     use ddi_platform::{ClockSample, DeviceFingerprint, HostTime, SoundId};
 
     use super::*;
@@ -749,7 +739,7 @@ mod tests {
             // its second is.
             for &(_, at) in &audio.cues[checked..] {
                 let now = clock.get();
-                assert!(at >= now - CUE_LATE && at <= now + CLAP_LOOKAHEAD + 1e-9);
+                assert!(at >= now - CLAP_LATE && at <= now + CLAP_LOOKAHEAD + 1e-9);
                 clock.set(at + 0.02 + 0.01);
                 let heard = l.time(&audio).unwrap();
                 assert!((heard - (from + at - start)).abs() < 1e-9);

@@ -143,7 +143,7 @@ always kept, which a replay no longer reads.
 
 ## Preview and play pass the same values
 
-`ddi_shell::play_skin` (a play's skin and its Lua's `Env`, both shells)
+`ddi_shell::play_skins` (a play's skin and its Lua's `Env`, both shells)
 and `ddi_shell::field_preview_skin` (Options' preview, `SkinWant::params`)
 take the values from `Settings::skin_params` for the same key, and
 `SkinWant` compares them, so changing a parameter readies the preview
@@ -222,7 +222,7 @@ colors fall back on; `builtin` stays a key the skin preview page
    `prelude.lua`), `Env::params`.
 2. Settings (`skin_params`, migration, Dito's three), Options' rows
    (`options_model.rs`), replays (`DrawSetup::skin_params`, the record),
-   `ddi_shell::play_skin` and the preview's `SkinWant::params`, both
+   `ddi_shell::play_skins` and the preview's `SkinWant::params`, both
    shells' loads and lists.
 3. Dito's declarations and `Explosions`; the Built-in choice retired.
 4. Tests: below.

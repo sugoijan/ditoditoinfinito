@@ -15,15 +15,18 @@ use ddi_l10n::msg::studio as m;
 use ddi_library::announcer::draft::{Draft, Note, Sound, Take};
 use ddi_library::announcer::examples::{self, Set};
 use ddi_library::announcer::{Bundled, Comment, Grade, Line, Spoken};
+use ddi_platform::storage::{self, Area};
 
 use super::Env;
 use super::data::Platform;
-use super::editor_dialogs::ActionsDialog;
+use super::dialog::{ActionsDialog, PickFn};
 use super::page::{Action, Block, PageDoc, PageTitle};
 use crate::screen::Cx;
 
 /// The page's name, for tests and the debug state.
 pub const NAME: &str = "announcer-studio";
+/// Where the example set chosen is remembered.
+const EXAMPLES_KEY: &str = "ddi.studio.examples";
 
 /// What the studio shows beside the draft.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -41,9 +44,6 @@ pub struct View {
     pub ready: Option<String>,
     /// An export or Use in the game under way.
     pub busy: bool,
-    /// Where the page shows (its words on dropping files, and on keeping
-    /// them).
-    pub platform: Platform,
 }
 
 /// An example of a line.
@@ -396,10 +396,16 @@ fn switch(id: &str, label: UiText, does: UiText) -> [Block; 2] {
     ]
 }
 
-/// The studio's page.
-pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) -> PageDoc {
+/// The studio's page, in `platform`'s words on dropping files and on
+/// keeping them.
+pub fn doc(
+    draft: &Draft,
+    view: &View,
+    examples: &BTreeMap<Line, Vec<Example>>,
+    platform: Platform,
+) -> PageDoc {
     let mut b = vec![
-        Block::Text(m::intro(view.platform.l10n()).into()),
+        Block::Text(m::intro(platform.l10n()).into()),
         Block::Field {
             id: "name".into(),
             label: m::name().into(),
@@ -471,7 +477,7 @@ pub fn doc(draft: &Draft, view: &View, examples: &BTreeMap<Line, Vec<Example>>) 
     if !unsorted.is_empty() {
         let mut body = vec![
             Block::Heading(m::unsorted(unsorted.len()).into()),
-            Block::Muted(m::unsorted_help(view.platform.l10n()).into()),
+            Block::Muted(m::unsorted_help(platform.l10n()).into()),
         ];
         for t in unsorted {
             take_blocks(draft, view, t, false, &mut body);
@@ -561,15 +567,61 @@ pub fn act(id: &str) -> Option<Act> {
 
 /// The examples the studio shows where none were chosen: the UI's
 /// language's (`docs/plans/localization.md`), else English.
-pub fn first_set() -> Set {
+fn first_set() -> Set {
     let tag = ddi_l10n::current().tag;
     Set::from_key(tag.split('-').next().unwrap_or(tag)).unwrap_or_default()
 }
 
+/// The example set remembered, or [`first_set`].
+pub fn remembered_set() -> Set {
+    storage::get(Area::Local, EXAMPLES_KEY)
+        .and_then(|k| Set::from_key(&k))
+        .unwrap_or_else(first_set)
+}
+
 /// The next example set after `set`.
-pub fn next_set(set: Set) -> Set {
+fn next_set(set: Set) -> Set {
     let i = Set::ALL.iter().position(|s| *s == set).unwrap_or(0);
     Set::ALL[(i + 1) % Set::ALL.len()]
+}
+
+/// What [`apply`] changed, which the shell follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Applied {
+    /// The draft: the shell keeps it.
+    Draft,
+    /// The example set, remembered here: the shell shows its examples.
+    Examples,
+    /// Only how the page shows.
+    View,
+}
+
+/// The presses every shell carries out alike, on the draft and the
+/// view; `None` for any other, the shell's to carry out.
+pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
+    Some(match act {
+        Act::Tidy => {
+            draft.tidy = !draft.tidy;
+            for t in &mut draft.takes {
+                t.tidy = None;
+            }
+            Applied::Draft
+        }
+        Act::StepMania => {
+            draft.stepmania = !draft.stepmania;
+            Applied::Draft
+        }
+        Act::Examples => {
+            view.examples = next_set(view.examples);
+            let _ = storage::set(Area::Local, EXAMPLES_KEY, view.examples.key());
+            Applied::Examples
+        }
+        Act::Details => {
+            view.details = !view.details;
+            Applied::View
+        }
+        _ => return None,
+    })
 }
 
 /// What a field's press says: the draft's field it is.
@@ -631,7 +683,7 @@ pub fn picker(draft: &Draft, take: u64) -> Option<Picker> {
 /// The dialog choosing take `take`'s line ([`picker`]).
 pub fn line_picker(env: Env, draft: &Draft, take: u64, on_pick: LineFn) -> Option<ActionsDialog> {
     let p = picker(draft, take)?;
-    let pick: super::editor_dialogs::PickFn = Rc::new(move |id: &str, cx: &mut Cx| {
+    let pick: PickFn = Rc::new(move |id: &str, cx: &mut Cx| {
         on_pick(take, Line::parse(id), cx);
     });
     Some(ActionsDialog::new(env, &p.title, p.items, pick).with_note(&p.note))
@@ -703,7 +755,7 @@ mod tests {
     fn use_and_export_are_grayed_out_with_nothing_to_give() {
         use crate::screens::page::{Action, Block};
         let actions = |d: &Draft, v: &View| -> Vec<Action> {
-            doc(d, v, &BTreeMap::new())
+            doc(d, v, &BTreeMap::new(), Default::default())
                 .blocks
                 .iter()
                 .find_map(|b| match b {
@@ -763,7 +815,10 @@ mod tests {
         assert!(!recorded(Line::Grade(Grade::F), &d));
         d.add("evaluation e.wav", 4, MP3);
         assert!(recorded(Line::Grade(Grade::F), &d));
-        let text = format!("{:?}", doc(&d, &View::default(), &BTreeMap::new()).blocks);
+        let text = format!(
+            "{:?}",
+            doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
+        );
         assert!(text.contains("\"hear:evaluation aaaa\", label: \"Hear it in the game\""));
         assert!(text.contains("\"hear:evaluation aaa\", label: \"Hear an example in the game\""));
         assert!(text.contains("\"hear:gameplay ready\", label: \"Hear it in the game\""));
@@ -790,13 +845,13 @@ mod tests {
     #[test]
     fn the_page_has_a_zone_for_every_line_and_the_unsorted() {
         let mut d = Draft::default();
-        let empty = doc(&d, &View::default(), &BTreeMap::new());
+        let empty = doc(&d, &View::default(), &BTreeMap::new(), Default::default());
         let z = zones(&empty);
         assert_eq!(z.len(), listed().len());
         assert_eq!(z[0], "select music intro");
         d.add("New Recording.m4a", 1, b"");
         d.add("gameplay 1100 combo.wav", 1, MP3);
-        let full = doc(&d, &View::default(), &BTreeMap::new());
+        let full = doc(&d, &View::default(), &BTreeMap::new(), Default::default());
         let z = zones(&full);
         assert_eq!(z[0], "unsorted");
         assert!(z.contains(&"gameplay 1100 combo".to_string()));
@@ -820,7 +875,7 @@ mod tests {
     #[test]
     fn credits_imports_and_switches_are_under_advanced() {
         let d = Draft::default();
-        let page = doc(&d, &View::default(), &BTreeMap::new());
+        let page = doc(&d, &View::default(), &BTreeMap::new(), Default::default());
         let top: Vec<String> = page
             .blocks
             .iter()
@@ -862,12 +917,18 @@ mod tests {
                 details,
                 ..View::default()
             };
-            flat(&doc(&d, &view, &BTreeMap::new()).blocks)
+            flat(&doc(&d, &view, &BTreeMap::new(), Default::default()).blocks)
                 .iter()
                 .any(|b| matches!(b, Block::Muted(s) if s.starts_with("Tid")))
         };
         assert!(!says(false) && says(true));
-        assert!(!format!("{:?}", doc(&d, &View::default(), &BTreeMap::new())).contains("tidy:"));
+        assert!(
+            !format!(
+                "{:?}",
+                doc(&d, &View::default(), &BTreeMap::new(), Default::default())
+            )
+            .contains("tidy:")
+        );
     }
 
     #[test]
@@ -883,7 +944,7 @@ mod tests {
     fn the_page_says_each_take_and_its_tidying() {
         ddi_l10n::set_language("en");
         let (d, view, ex) = crate::screens::sample::studio();
-        let text = format!("{:?}", doc(&d, &view, &ex).blocks);
+        let text = format!("{:?}", doc(&d, &view, &ex, Default::default()).blocks);
         for s in [
             "■ ready.mp3 · 2.5 s",
             "Tidied: 0.5 s of silence cut, louder by 6 dB",
@@ -943,6 +1004,39 @@ mod tests {
             "ゲーム内で「評価AA」、続いて「声援」を再生しました。"
         );
         ddi_l10n::set_language("en");
+    }
+
+    #[test]
+    fn the_shells_switches_change_the_draft_or_the_view() {
+        let mut draft = Draft::default();
+        let id = draft.add("a.wav", 1, &[]);
+        draft.take_mut(id).unwrap().tidy = Some(false);
+        let was = draft.tidy;
+        let mut view = View::default();
+        assert_eq!(
+            apply(Act::Tidy, &mut draft, &mut view),
+            Some(Applied::Draft)
+        );
+        assert_eq!(draft.tidy, !was);
+        assert_eq!(draft.take(id).unwrap().tidy, None);
+        assert_eq!(
+            apply(Act::Details, &mut draft, &mut view),
+            Some(Applied::View)
+        );
+        assert!(view.details);
+        assert_eq!(
+            apply(Act::StepMania, &mut draft, &mut view),
+            Some(Applied::Draft)
+        );
+        assert!(draft.stepmania);
+        let set = view.examples;
+        assert_eq!(
+            apply(Act::Examples, &mut draft, &mut view),
+            Some(Applied::Examples)
+        );
+        assert_eq!(view.examples, next_set(set));
+        assert_eq!(remembered_set(), view.examples);
+        assert_eq!(apply(Act::Export, &mut draft, &mut view), None);
     }
 
     #[test]

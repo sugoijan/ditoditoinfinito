@@ -96,7 +96,9 @@ impl PlayOverrides {
         let Some(o) = v.as_object_mut() else {
             return;
         };
-        let json = |x: &dyn erased::Ser| x.json();
+        fn json<T: serde::Serialize>(x: &T) -> serde_json::Value {
+            serde_json::to_value(x).unwrap_or_default()
+        }
         if let Some(x) = self.speed {
             o.insert("speed".into(), json(&x));
         }
@@ -128,18 +130,6 @@ impl PlayOverrides {
         }
         if let Some(x) = self.cover {
             within("lane_cover", "mode", json(&x));
-        }
-    }
-}
-
-/// Serialising values of different types through one closure.
-mod erased {
-    pub trait Ser {
-        fn json(&self) -> serde_json::Value;
-    }
-    impl<T: serde::Serialize> Ser for T {
-        fn json(&self) -> serde_json::Value {
-            serde_json::to_value(self).unwrap_or_default()
         }
     }
 }

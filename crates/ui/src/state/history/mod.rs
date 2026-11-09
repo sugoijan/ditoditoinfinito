@@ -665,6 +665,16 @@ impl History {
         }
     }
 
+    /// What was read from the store, added to what is here.
+    fn merge(&mut self, read: History) {
+        for (id, s) in read.plays {
+            self.add(id, s);
+        }
+        for id in read.unreadable {
+            self.mark_unreadable(id);
+        }
+    }
+
     /// A play worked out again.
     pub fn set_worked(&mut self, id: &str, worked: Worked) -> Option<&PlaySummary> {
         let s = self.plays.get_mut(id)?;

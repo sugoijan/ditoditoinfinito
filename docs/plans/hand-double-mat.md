@@ -118,7 +118,7 @@ No note times, accepted model assets, joint bounds or pose/contact tolerances ch
 ### Mapping, reach and bounded choices
 
 - Half-double's six lanes map to **5/9/3/10/16/14**; full double's ten lanes map
-  to **1/7/5/9/3/10/16/14/18/12** from `MatLayout::fixed_panels`. Both centers
+  to **1/7/5/9/3/10/16/14/18/12** from `MatLayout::panels`. Both centers
   are scored; neither is treated as a safe resting/escape tile.
 - These layouts share the frozen 18-tile shape/distance tables. Their static
   survey admitted all **36 / 68 ordered scored pairs** at 24 mm pitch. The
@@ -281,8 +281,9 @@ still rejected double geometry. Other double layouts continue to stay gated.
 
 ### Search and publication contract
 
-- `layout_panels` resolves the eight scored targets from `MatLayout::fixed_panels`:
-  4/2/8/6/13/11/17/15. Fixed mappings share one source; 9A deliberately returns no
+- `layout_panels` resolves the eight scored targets from `MatLayout::panels`:
+  4/2/8/6/13/11/17/15. Every layout's mapping shares that one table; for 9A it
+  gives Oni's left center, and `MatLayout::fixed_panels` deliberately returns no
   flat physical mapping because its Oni still requires center selection.
 - The existing rolling planner uses its three-second window, bounded 256-parent
   beam and cooperative single-threaded checkpoints. Incoming rows use the same

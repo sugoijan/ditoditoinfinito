@@ -3,13 +3,14 @@
 //! keys, the scrollbar, the wheel style), the controls, the search field
 //! with its popup, the panels.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Drawn, Kind, UNTEXTURED};
 use ddi_ui::dev_widgets::{FoldFn, LIBRARY_MESSAGE, LibrarySong, SharedWidgets, WidgetScreen};
 use ddi_ui::event::{PointerKind, PointerPhase, TextEvent, TextSync, WheelSource};
-use ddi_ui::look::Plain;
+use ddi_ui::hit::find_mut;
+use ddi_ui::look::{Plain, call};
 use ddi_ui::testing::Harness;
 use ddi_ui::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
 use ddi_ui::widgets::{set_image, set_text};
@@ -106,6 +107,57 @@ fn list(style: ListStyle) -> (Harness, Rc<RefCell<Seen>>) {
     h.push(ListScreen::new(style, seen.clone()));
     h.run(0.1);
     (h, seen)
+}
+
+/// A wheel list whose first row is moved behind its back when asked,
+/// the list told or not.
+struct Scribbled {
+    list: List,
+    model: Rows,
+    scribble: Rc<Cell<Option<bool>>>,
+    x: Rc<Cell<f32>>,
+}
+
+impl Screen for Scribbled {
+    fn build(&mut self, _cx: &mut Cx) -> Actor {
+        Actor::new(Kind::Frame(vec![self.list.build(&Plain)]))
+    }
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        if let Some(tell) = self.scribble.take() {
+            call(find_mut(root, "L#0").unwrap(), "x", &[999.0]);
+            if tell {
+                self.list.touch();
+            }
+        }
+        self.list.update(dt, root, &self.model, &Plain, cx);
+        self.x
+            .set(find_mut(root, "L#0").map_or(0.0, |a| a.current().pos[0]));
+    }
+}
+
+#[test]
+fn a_list_at_rest_leaves_its_rows_until_told() {
+    let scribble = Rc::new(Cell::new(None));
+    let x = Rc::new(Cell::new(0.0));
+    let model = Rows(100);
+    let mut config = ListConfig::new("L", [20.0, 20.0, 400.0, 480.0]);
+    config.style = ListStyle::Wheel { focus: 0.5 };
+    let mut h = Harness::new([960.0, 540.0], [960.0, 540.0], 1.0, TextMode::Mirror);
+    h.push(Scribbled {
+        list: List::new(config, &model),
+        model,
+        scribble: scribble.clone(),
+        x: x.clone(),
+    });
+    h.run(0.1);
+    let placed = x.get();
+    assert!(placed < 999.0, "{placed}");
+    scribble.set(Some(false));
+    h.frame(1.0 / 60.0);
+    assert_eq!(x.get(), 999.0);
+    scribble.set(Some(true));
+    h.frame(1.0 / 60.0);
+    assert_eq!(x.get(), placed);
 }
 
 fn texts(h: &Harness) -> usize {

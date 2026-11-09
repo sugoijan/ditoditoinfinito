@@ -2,6 +2,27 @@
 //! extra crate), files picked through rfd, text through arboard.
 
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
+
+/// `f` run on a thread of its own named `name`: what it gives comes
+/// through the receiver, after which `wake` tells the loop to look.
+pub fn background<T: Send + 'static>(
+    name: &str,
+    wake: Option<Arc<dyn Fn() + Send + Sync>>,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Receiver<T> {
+    let (tx, rx) = mpsc::channel();
+    let _ = std::thread::Builder::new()
+        .name(name.into())
+        .spawn(move || {
+            let _ = tx.send(f());
+            if let Some(w) = wake {
+                w();
+            }
+        });
+    rx
+}
 
 /// Opens `url` in the system's browser; a link relative to the site (the
 /// credits' `video/…` files, served next to the web app) as the file it

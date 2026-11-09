@@ -23,12 +23,12 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ddi_actor::{Actor, Kind, Rgba};
+use ddi_actor::{Actor, Rgba};
 use ddi_chart::{TICKS_PER_BEAT, Tick, TimingMap};
 
 use super::editor_field::Mapping;
-use super::{EditorScreen, quad, with_alpha};
-use crate::look::call;
+use super::{EditorScreen, quad, whole_pixels, with_alpha};
+use crate::look::{call, quad_at};
 use crate::screen::Cx;
 use crate::state::editor::audio::{Analysis, BANDS};
 use ddi_l10n::msg::editor as em;
@@ -309,14 +309,12 @@ impl EditorScreen {
     /// The view's place in physical pixels (whole ones), while shown.
     fn audio_pixels(&self) -> Option<[f32; 4]> {
         let g = &self.geo;
-        let [x, y, w, h] = g.audio;
+        let [_, _, w, h] = g.audio;
         if w <= 0.0 || h <= 0.0 || self.audio.analysis.is_none() {
             return None;
         }
-        let px = |v: f32, o: f32| (o + v * g.scale).round();
-        let (x0, y0) = (px(x, g.origin[0]), px(y, g.origin[1]));
-        let (x1, y1) = (px(x + w, g.origin[0]), px(y + h, g.origin[1]));
-        (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
+        let whole = whole_pixels(g.audio, g.origin, g.scale);
+        (whole[2] > 0.0 && whole[3] > 0.0).then_some(whole)
     }
 
     /// The shell told of a new picture (or of none).
@@ -539,9 +537,6 @@ impl EditorScreen {
         if self.audio_pixels().is_none() {
             return;
         }
-        let [px, py, pw, ph] = p.rect;
-        let (x, y) = ((px - g.origin[0]) / g.scale, (py - g.origin[1]) / g.scale);
-        let (w, h) = (pw / g.scale, ph / g.scale);
         if !g.audio_behind {
             let mut plate = quad(
                 "AudioColumn",
@@ -555,12 +550,7 @@ impl EditorScreen {
             );
             c.push(plate);
         }
-        let mut picture = Actor::new(Kind::Sprite(ddi_actor::Sprite::quad([w, h])));
-        picture.name = "AudioPicture".into();
-        if let Kind::Sprite(s) = &mut picture.kind {
-            s.texture = self.audio.texture;
-        }
-        call(&mut picture, "xy", &[x + w / 2.0, y + h / 2.0]);
+        let mut picture = g.picture("AudioPicture", p.rect, self.audio.texture);
         if g.audio_behind {
             call(&mut picture, "diffusealpha", &[BEHIND]);
         }
@@ -573,9 +563,12 @@ impl EditorScreen {
         if g.audio_behind || g.audio[2] <= 0.0 || self.audio.picture.is_none() {
             return;
         }
-        let mut line = quad("", [g.audio[2], h], color);
-        call(&mut line, "xy", &[g.audio[0] + g.audio[2] / 2.0, y]);
-        c.push(line);
+        c.push(quad_at(
+            "",
+            [g.audio[2], h],
+            color,
+            [g.audio[0] + g.audio[2] / 2.0, y],
+        ));
     }
 
     /// Across the column, where the music is folded or not shown: a
@@ -603,18 +596,24 @@ impl EditorScreen {
         {
             let y = y_of(tick);
             if seconds > 0.0 && !cmod && y >= fy - 2.0 && y <= fy + fh + 2.0 {
-                let mut mark = quad("AudioStop", [w, 3.0], with_alpha(danger, 0.85));
-                call(&mut mark, "xy", &[x + w / 2.0, y]);
-                c.push(mark);
+                c.push(quad_at(
+                    "AudioStop",
+                    [w, 3.0],
+                    with_alpha(danger, 0.85),
+                    [x + w / 2.0, y],
+                ));
             }
         }
         for warp in &timing.warps {
             let (a, b) = (y_of(warp.tick), y_of(warp.tick + warp.length));
             let (a, b) = (a.min(b).max(fy), a.max(b).min(fy + fh));
             if b > a {
-                let mut band = quad("", [w, b - a], with_alpha(danger, 0.14));
-                call(&mut band, "xy", &[x + w / 2.0, (a + b) / 2.0]);
-                c.push(band);
+                c.push(quad_at(
+                    "",
+                    [w, b - a],
+                    with_alpha(danger, 0.14),
+                    [x + w / 2.0, (a + b) / 2.0],
+                ));
             }
         }
     }
@@ -661,13 +660,7 @@ pub fn knots(timing: &TimingMap) -> Vec<f64> {
     let mut out = Vec::with_capacity(ticks.len() * 3);
     for t in ticks {
         let at = timing.seconds_at(t);
-        let stop: f64 = timing
-            .stops
-            .iter()
-            .filter(|s| s.tick == t)
-            .map(|s| s.seconds)
-            .sum();
-        out.extend([timing.seconds_before_delay(t), at, at + stop]);
+        out.extend([timing.seconds_before_delay(t), at, at + timing.stop_at(t)]);
     }
     out.retain(|s| s.is_finite());
     out.sort_by(f64::total_cmp);
@@ -752,13 +745,7 @@ pub fn row_spans(
     let s_lo = timing.seconds_before_delay(Tick(first - TICKS_PER_BEAT));
     let s_hi = {
         let t = Tick(last + TICKS_PER_BEAT);
-        let stop: f64 = timing
-            .stops
-            .iter()
-            .filter(|s| s.tick == t)
-            .map(|s| s.seconds)
-            .sum();
-        timing.seconds_at(t) + stop
+        timing.seconds_at(t) + timing.stop_at(t)
     };
     if s_hi <= s_lo {
         return;

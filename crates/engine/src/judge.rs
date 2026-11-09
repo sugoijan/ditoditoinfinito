@@ -10,6 +10,7 @@
 //! taken (not the closest one). When both a tap and a mine are candidates,
 //! the one closer in time wins, as SM's `GetClosestNote` would.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
 
 use ddi_chart::{Note, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
@@ -79,17 +80,11 @@ pub struct JudgedNote {
 
 impl JudgedNote {
     fn is_tap_like(&self) -> bool {
-        matches!(
-            self.note.kind,
-            NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } | NoteKind::Lift
-        )
+        self.note.kind.is_tap_like()
     }
 
     fn is_press_judged(&self) -> bool {
-        matches!(
-            self.note.kind,
-            NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-        )
+        self.note.kind.is_press_judged()
     }
 
     fn is_mine(&self) -> bool {
@@ -178,6 +173,31 @@ pub struct JudgeEvent {
     pub song_time: f64,
 }
 
+/// What the rules' unit tests feed their scores and gauges.
+#[cfg(test)]
+pub(crate) mod test_events {
+    use ddi_chart::Tick;
+
+    use super::{JudgeEvent, JudgeEventKind};
+    use crate::rules::Judgement;
+
+    /// An event of `kind`, of no note.
+    pub(crate) fn ev(kind: JudgeEventKind) -> JudgeEvent {
+        JudgeEvent {
+            note_index: None,
+            lane: 0,
+            tick: Tick::ZERO,
+            kind,
+            song_time: 0.0,
+        }
+    }
+
+    /// A tap judged `j`, on time.
+    pub(crate) fn tap(j: Judgement) -> JudgeEvent {
+        ev(JudgeEventKind::Tap(j, 0.0))
+    }
+}
+
 /// StepMania's `InitialHoldLife` for pump: a ticked hold or roll whose
 /// panel is up as its head passes starts with this much life.
 const INITIAL_HOLD_LIFE: f64 = 0.05;
@@ -221,6 +241,10 @@ pub struct Judge {
     /// The second of the chart's first judged press ([`EmptyPress::BooFromFirstNote`]):
     /// that of the chart as given, a play started part-way too.
     first_note: Option<f64>,
+    /// [`Judge::last_end_seconds`].
+    last_end: Option<f64>,
+    /// [`Judge::first_open`], as far as it has been asked.
+    first_open: Cell<usize>,
 }
 
 impl Judge {
@@ -304,8 +328,11 @@ impl Judge {
             .filter(|n| n.judgeable && n.is_press_judged())
             .map(|n| n.seconds)
             .reduce(f64::min);
+        let last_end = notes.iter().map(|n| n.end_seconds).reduce(f64::max);
         let mut judge = Judge {
             first_note,
+            last_end,
+            first_open: Cell::new(0),
             notes,
             rows: Vec::new(),
             cursor: vec![0; lane_count],
@@ -396,17 +423,13 @@ impl Judge {
         incoming: &[Note],
         timing: &TimingMap,
     ) -> Result<(), &'static str> {
-        if self.notes.iter().map(|n| &n.note).chain(incoming).any(|n| {
-            !matches!(
-                n.kind,
-                NoteKind::Tap
-                    | NoteKind::HoldHead { .. }
-                    | NoteKind::RollHead { .. }
-                    | NoteKind::Mine
-                    | NoteKind::Shock
-                    | NoteKind::Lift
-            )
-        }) {
+        if self
+            .notes
+            .iter()
+            .map(|n| &n.note)
+            .chain(incoming)
+            .any(|n| !n.kind.hand_supported())
+        {
             return Err(
                 "streaming judge supports taps, holds, rolls, mines, shocks and lifts only",
             );
@@ -580,19 +603,33 @@ impl Judge {
         self.checkpoints.iter().filter(|r| r.scored).count() as u32
     }
 
+    /// The latest second a note struck so far can be at: a press reaches
+    /// at most [`Judge::lookahead`] ahead of the time judged.
+    pub fn struck_until(&self) -> f64 {
+        self.last_time
+            .map_or(f64::NEG_INFINITY, |t| t + self.lookahead())
+    }
+
+    /// The first note still able to produce events, the number of notes
+    /// when none is. Only ever moves forward: a note never leaves a
+    /// terminal state.
+    pub fn first_open(&self) -> usize {
+        let mut i = self.first_open.get();
+        while self.notes.get(i).is_some_and(|n| n.state.is_terminal()) {
+            i += 1;
+        }
+        self.first_open.set(i);
+        i
+    }
+
     /// Whether every note has reached a terminal state.
     pub fn all_resolved(&self) -> bool {
-        self.notes.iter().all(|n| n.state.is_terminal())
+        self.first_open() == self.notes.len()
     }
 
     /// Song second at which the last note ends, `None` for an empty chart.
     pub fn last_end_seconds(&self) -> Option<f64> {
-        self.notes
-            .iter()
-            .map(|n| n.end_seconds)
-            .fold(None, |acc: Option<f64>, s| {
-                Some(acc.map_or(s, |a| a.max(s)))
-            })
+        self.last_end
     }
 
     fn event(&self, idx: usize, kind: JudgeEventKind, song_time: f64) -> JudgeEvent {

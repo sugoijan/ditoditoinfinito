@@ -4,10 +4,9 @@
 //!
 //! - the field's options for a play ([`render_options`]) and for Options'
 //!   field preview ([`field_preview_options`]), with the note colors as
-//!   the renderer has them ([`note_scheme`]); the skin a play readies
-//!   ([`play_skin`], and what it draws when that is not there,
-//!   [`play_skins`]) and the preview's ([`field_preview_skin`]), with the
-//!   same values of its parameters;
+//!   the renderer has them ([`note_scheme`]); the skins a play may
+//!   ready ([`play_skins`]) and the preview's ([`field_preview_skin`]),
+//!   with the same values of their parameters;
 //! - the ghost's lead as the HUD shows it ([`score_delta`]);
 //! - [`stage`]: a Dancing☆Onigiri work's layers' textures, over a content
 //!   each shell decodes its own way;
@@ -33,7 +32,8 @@ use ddi_chart::Layout;
 use ddi_noteskin::lua::Env;
 use ddi_noteskin::params::Values;
 use ddi_render::field_preview::{BPM, FieldPreviewOptions, SkinWant};
-use ddi_render::{ColorScheme, RenderOptions, ScoreDelta};
+use ddi_render::noteskin::NoteskinPlay;
+use ddi_render::{ColorScheme, DrawList, Painter, RenderOptions, ScoreDelta, TextureKey};
 use ddi_ui::state::history::GhostDelta;
 use ddi_ui::state::settings::{BackgroundFrame, INFINITO, NoteColors, Settings};
 
@@ -121,6 +121,64 @@ pub fn score_delta(delta: GhostDelta) -> ScoreDelta {
     }
 }
 
+/// What the session says of the notes and the cancel gesture, and the
+/// ghost's lead, as a frame of the play draws them.
+pub fn apply_view(
+    render: &mut RenderOptions,
+    view: ddi_session::play::SessionView,
+    ghost: Option<GhostDelta>,
+) {
+    render.hide_notes = view.hide_notes;
+    render.cancel_progress = view.cancel_progress;
+    render.cancel_hint = view.cancel_hint;
+    render.restarting = view.restarting;
+    render.ghost = ghost.map(score_delta);
+}
+
+/// The noteskin `play` for `frame`, with `player`'s events since its last.
+/// Why its Lua stopped, in the frame it did, and whether by a stall rather
+/// than the skin's fault ([`NoteskinPlay::take_lua_stop`]).
+pub fn update_noteskin<'a>(
+    play: &'a mut NoteskinPlay,
+    frame: &ddi_engine::frame::Frame,
+    player: &ddi_engine::player::Player,
+    reverse: bool,
+) -> Option<(&'a str, bool)> {
+    let from = play.next_seq();
+    play.update(frame, player.skin_events_since(from), reverse);
+    play.take_lua_stop()
+}
+
+/// Draws `ui` into `list`, shifted to its viewport and measured by
+/// `painter`, each drawn image asked of `painter` by its source and the
+/// size drawn (only what is drawn is asked for).
+pub fn ui_list(ui: &mut ddi_ui::Ui, painter: &mut Painter, list: &mut DrawList) {
+    let vp = *ui.viewport();
+    let scale = vp.scale;
+    let shift = [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        vp.offset[0] / scale,
+        vp.offset[1] / scale,
+    ];
+    let drawn = {
+        let mut measure = painter.measure(scale);
+        ui.draw_in(&mut measure, shift)
+    };
+    list.clear();
+    ddi_render::actors2d::append(&drawn, list, &mut |t| {
+        let image = ui.texture_source(t)?;
+        let key = if image.blurred {
+            TextureKey::blurred(image.source, image.side)
+        } else {
+            TextureKey::drawn(image.source, image.side * scale)
+        };
+        Some(painter.texture(key))
+    });
+}
+
 /// The background frames' shapes in the field preview, as a play fits a
 /// background; the automatic one fits the preview's plate, which is 16:9.
 fn preview_frame_aspect(frame: BackgroundFrame) -> Option<f32> {
@@ -136,7 +194,7 @@ fn preview_frame_aspect(frame: BackgroundFrame) -> Option<f32> {
 /// one for a layout that is not built in), under the rules its chart
 /// would be played with.
 pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
-    let layout = if Layout::builtin(&settings.style).is_some() {
+    let layout = if Layout::is_builtin(&settings.style) {
         settings.style.clone()
     } else {
         "dance-single".to_string()
@@ -160,7 +218,7 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
 
 /// The noteskin play would draw the preview's layout with under
 /// `settings`, and what it is readied for (its key, the layout, the
-/// direction, its parameters' values as [`play_skin`] passes them). The
+/// direction, its parameters' values as [`play_skins`] passes them). The
 /// demo has no colors of its own.
 pub fn field_preview_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
     let key = settings.play_skin(&options.layout);
@@ -168,25 +226,6 @@ pub fn field_preview_skin(settings: &Settings, options: &FieldPreviewOptions) ->
         params: settings.skin_params(&key),
         ..SkinWant::new(Some(key), options)
     }
-}
-
-/// The noteskin a play draws `song`'s chart `chart` (of layout `layout`)
-/// with under `settings`, and what its Lua is told: the play's timing
-/// shifted by `shift` (the song offset), its direction and the values of
-/// the skin's parameters.
-pub fn play_skin(
-    settings: &Settings,
-    song: &ddi_chart::Song,
-    chart: &ddi_chart::Chart,
-    layout: &Layout,
-    shift: f64,
-) -> (String, Env) {
-    let key = settings.play_skin(&layout.id);
-    let env = Env {
-        params: settings.skin_params(&key),
-        ..ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift)
-    };
-    (key, env)
 }
 
 /// The skins a play may draw with, best first ([`play_skins`]).
@@ -200,10 +239,12 @@ pub struct SkinWants {
     pub env: Env,
 }
 
-/// The skins a play may draw `song`'s chart `chart` with, best first
-/// ([`play_skin`]): the chosen one, then what is drawn when it is not
-/// there (gone, or chosen on another machine), the choice let go as
-/// Options lets it go ([`Settings::let_go_missing_skins`]);
+/// The skins a play may draw `song`'s chart `chart` (of layout `layout`)
+/// with under `settings`, best first, and what their Lua is told: the
+/// play's timing shifted by `shift` (the song offset), its direction and
+/// each skin's parameters' values. The chosen one, then what is drawn when
+/// it is not there (gone, or chosen on another machine), the choice let
+/// go as Options lets it go ([`Settings::let_go_missing_skins`]);
 /// [`first_there`] picks.
 pub fn play_skins(
     settings: &Settings,
@@ -272,7 +313,7 @@ pub struct ReceptorSkin {
         std::rc::Rc<ddi_ui::screens::prompt_controls::Controls>,
         FieldPreviewOptions,
         SkinWant,
-        Layout,
+        std::rc::Rc<Layout>,
     )>,
 }
 
@@ -281,8 +322,8 @@ impl ReceptorSkin {
         &mut self,
         p: &ddi_ui::screens::prompt_controls::Picture,
     ) -> (
-        FieldPreviewOptions,
-        SkinWant,
+        &FieldPreviewOptions,
+        &SkinWant,
         ddi_render::field_preview::ReceptorPreview,
     ) {
         let fresh = !self
@@ -291,7 +332,7 @@ impl ReceptorSkin {
             .is_some_and(|(c, ..)| std::rc::Rc::ptr_eq(c, &p.controls));
         if fresh {
             let (options, want, layout) = receptor_skin(&p.controls);
-            self.last = Some((p.controls.clone(), options, want, layout));
+            self.last = Some((p.controls.clone(), options, want, layout.into()));
         }
         let (_, options, want, layout) = self.last.as_ref().expect("set above");
         let pose = ddi_render::field_preview::ReceptorPreview {
@@ -299,7 +340,7 @@ impl ReceptorSkin {
             time: p.time,
             active: p.active,
         };
-        (options.clone(), want.clone(), pose)
+        (options, want, pose)
     }
 }
 
@@ -411,10 +452,12 @@ mod tests {
         settings.set_infinito_param("Onigiri", ParamValue::Bool(false));
         settings.set_infinito_param("Explosions", ParamValue::Bool(false));
         settings.set_skin_param("dance/mine", "Size", Some(ParamValue::Number(2.0)), None);
+        let there = [("dance/mine".to_string(), "mine".to_string())];
         for chosen in [None, Some("dance/mine")] {
             settings.noteskin = chosen.map(str::to_string);
             let preview = field_preview_skin(&settings, &field_preview_options(&settings));
-            let (key, env) = play_skin(&settings, &song, chart, &layout, 0.0);
+            let wants = play_skins(&settings, &song, chart, &layout, 0.0);
+            let (key, env) = first_there(wants, &there);
             assert_eq!(preview.key.as_deref(), Some(key.as_str()));
             assert_eq!(preview.env(&layout).params, env.params);
             assert_eq!(env.params, settings.skin_params(chosen.unwrap_or(INFINITO)));

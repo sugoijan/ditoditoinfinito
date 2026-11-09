@@ -58,11 +58,7 @@ fn setup(size: [f32; 2], design: [f32; 2]) -> Setup {
     let host = Rc::new(Host::default());
     let mut h = Harness::new(design, size, 1.0, TextMode::Own);
     h.ui.set_design(design);
-    let place = EditorPlace {
-        listen: true,
-        playtest: true,
-        ..EditorPlace::default()
-    };
+    let place = EditorPlace::default();
     let screen = EditorScreen::new(
         env.clone(),
         Editor::new_song(Some("song.ogg".into()), "Test"),
@@ -217,7 +213,7 @@ fn taps_while_listening_set_the_offset_too() {
     s.h.key("Home", "Home");
     s.h.run(0.3);
     s.h.ui
-        .broadcast(Message::new(ACTION).with("Id", Param::Str("tap-offset".into())));
+        .broadcast(Message::new(ACTION).with("Action", Param::Str("tap-offset".into())));
     s.h.run(0.1);
     let e = s.editor.borrow();
     assert_eq!(e.timing().bpms[0].bpm, 120.0);
@@ -252,6 +248,10 @@ fn the_overview_comes_from_the_shell_and_jumps_the_cursor() {
         s.host.coming.set(false);
         s.h.run_on_demand(0.5);
         assert_eq!(view(&s).overview, 3000);
+        assert!(
+            s.h.actor("Overview").children().len() > 16,
+            "{size:?}: its loudness is drawn as it arrives"
+        );
         assert_eq!(s.h.ui.wake_in(), None, "{size:?}");
         // The strip at the field's right, within the screen.
         let strip = s.h.ui.bounds("OverviewPlate").unwrap();

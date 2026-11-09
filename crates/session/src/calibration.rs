@@ -17,9 +17,7 @@
 //! that should read near zero after both; a significant remainder can be
 //! applied as a fine-tune to the audio offset.
 
-use ddi_chart::{
-    Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick, TimingMap,
-};
+use ddi_chart::{Chart, Difficulty, Note, NoteKind, Song, Tick, TimingMap};
 use ddi_platform::AudioBackend;
 use ddi_ui::state::settings::Settings;
 
@@ -105,14 +103,6 @@ impl CalMode {
         self == CalMode::Audio
     }
 
-    /// Which setting the correction is added to.
-    pub fn target(self) -> &'static str {
-        match self {
-            CalMode::Combined | CalMode::Audio => "audio offset",
-            CalMode::Visual => "visual offset",
-        }
-    }
-
     /// Adds `correction` to the offset in effect: the active device's
     /// profile when one is known, else the default for unknown devices.
     pub fn apply(
@@ -122,151 +112,42 @@ impl CalMode {
         correction: f64,
     ) {
         match self {
-            CalMode::Combined | CalMode::Audio => match devices {
-                Some(d) => {
-                    let current = settings
-                        .audio_profile(&d.audio.id)
-                        .map(|p| p.offset)
-                        .unwrap_or(settings.audio_offset);
-                    Settings::set_profile_offset(
+            CalMode::Combined | CalMode::Audio => {
+                let current = settings.audio_offset_for(devices.map(|d| &d.audio));
+                match devices {
+                    Some(d) => Settings::set_profile_offset(
                         &mut settings.audio_profiles,
                         &d.audio,
                         current + correction,
-                    );
+                    ),
+                    None => settings.audio_offset = (current + correction).clamp(-0.5, 0.5),
                 }
-                None => {
-                    settings.audio_offset = (settings.audio_offset + correction).clamp(-0.5, 0.5)
-                }
-            },
-            CalMode::Visual => match devices {
-                Some(d) => {
-                    let current = settings
-                        .display_profile(&d.display.id)
-                        .map(|p| p.offset)
-                        .unwrap_or(settings.visual_offset);
-                    Settings::set_profile_offset(
+            }
+            CalMode::Visual => {
+                let current = settings.visual_offset_for(devices.map(|d| &d.display));
+                match devices {
+                    Some(d) => Settings::set_profile_offset(
                         &mut settings.display_profiles,
                         &d.display,
                         current + correction,
-                    );
+                    ),
+                    None => settings.visual_offset = (current + correction).clamp(-0.5, 0.5),
                 }
-                None => {
-                    settings.visual_offset = (settings.visual_offset + correction).clamp(-0.5, 0.5)
-                }
-            },
+            }
         }
     }
 }
 
 pub use ddi_engine::calibration::{Calibrator, MAX_OFFSET, MIN_RESIDUAL, MIN_STEP, Outcome};
 
-/// What a test's result says (the web's result card and desktop's page
-/// say it the same way).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Report {
-    /// "+12.3 ms ≈ 0.74 frames at 60 Hz", or "unreliable".
-    pub headline: String,
-    /// The hits, those left out, the spread.
-    pub detail: String,
-    /// Why it stopped, how much to trust it.
-    pub status: String,
-    /// What saving does ("Nothing to change." when nothing would).
-    pub verdict: String,
-    /// Saving it would change something worth changing.
-    pub meaningful: bool,
-}
-
-/// The report of test `mode`'s outcome `o` (`refresh_hz`: the display's,
-/// for the arrows-only test's frames).
-pub fn report(o: &Outcome, mode: CalMode, refresh_hz: f64) -> Report {
-    let total_ms = o.total() * 1000.0;
-    let frames = if mode == CalMode::Visual {
-        format!(
-            " ≈ {:.2} frames at {refresh_hz:.0} Hz",
-            o.total() * refresh_hz
-        )
-    } else {
-        String::new()
-    };
-    let ci_ms = o.confidence() * 1000.0;
-    let enough = o.hits >= MIN_RESIDUAL as u32;
-    let unusable = o.out_of_range || o.unreliable();
-    let meaningful = enough
-        && !unusable
+/// Whether run `o`'s correction is worth saving: enough hits, none of it
+/// unreliable, more than noise.
+pub fn meaningful(o: &Outcome) -> bool {
+    o.hits >= MIN_RESIDUAL as u32
+        && !o.out_of_range
+        && !o.unreliable()
         && o.total().abs() >= MIN_STEP
-        && (o.rounds > 0 || o.residual_significant());
-    let status = if o.out_of_range {
-        format!(
-            "The measured offset is beyond ±{:.0} ms, which this test cannot tell apart from \
-             hitting the neighbouring note. If you really hear the clicks that late (some \
-             Bluetooth headphones do), set the audio offset by hand in the options and run the \
-             test again from there.",
-            MAX_OFFSET * 1000.0
-        )
-    } else if o.high_miss_rate() {
-        format!(
-            "{} of {} notes were missed, so the result is unreliable. Presses more than {:.0} ms \
-             off do not count, and a press stream one note late misses after every rest. If you \
-             hear the clicks later than that, set the offset by hand first; otherwise try again \
-             and hit every note.",
-            o.misses,
-            o.hits + o.misses,
-            MAX_OFFSET * 1000.0
-        )
-    } else if !enough {
-        "Too few hits to measure; try again and hit every note.".to_string()
-    } else if o.unreliable() {
-        format!(
-            "Spread is too high (σ {:.0} ms) to trust the mean. Try again, keeping a steady rhythm.",
-            o.residual_sd * 1000.0
-        )
-    } else if o.converged {
-        format!(
-            "Converged after {} adjustment{}: the remaining error ({:+.1} ms ± {:.1}) is within noise.",
-            o.rounds,
-            if o.rounds == 1 { "" } else { "s" },
-            o.residual_mean * 1000.0,
-            ci_ms
-        )
-    } else if o.residual_significant() {
-        format!(
-            "Ran out of notes before converging; the remaining error ({:+.1} ms ± {:.1}) is \
-             still significant. Try again, keeping a steady rhythm.",
-            o.residual_mean * 1000.0,
-            ci_ms
-        )
-    } else {
-        "Finished; the remaining error is within noise.".to_string()
-    };
-    let verdict = if meaningful {
-        format!(
-            "Saving adds {:+.1} ms to the {}, so these hits count as on time.",
-            total_ms,
-            mode.target()
-        )
-    } else {
-        "Nothing to change.".to_string()
-    };
-    Report {
-        headline: if unusable {
-            "unreliable".to_string()
-        } else {
-            format!("{total_ms:+.1} ms{frames}")
-        },
-        detail: format!(
-            "{} hits ({} warm-up/adaptation ignored, {} extremes trimmed) · {} missed · \
-             residual σ {:.1} ms · 95% CI ±{:.1} ms",
-            o.hits,
-            o.ignored,
-            o.trimmed,
-            o.misses,
-            o.residual_sd * 1000.0,
-            ci_ms
-        ),
-        status,
-        verdict,
-        meaningful,
-    }
+        && (o.rounds > 0 || o.residual_significant())
 }
 
 /// What a run came to, settled (`docs/plans/quiet-calibration.md`): a
@@ -291,7 +172,6 @@ pub fn settle(
     device_changed: bool,
 ) -> Settled {
     use ddi_ui::screens::calibration::{RunEnd, run_line};
-    let r = report(o, mode, 60.0);
     if device_changed {
         return Settled {
             applied: false,
@@ -310,22 +190,16 @@ pub fn settle(
             ),
         };
     }
-    if !r.meaningful {
+    if !meaningful(o) {
         return Settled {
             applied: false,
             line: run_line(mode.id(), RunEnd::Right),
         };
     }
     mode.apply(settings, devices, o.total());
-    let now = match (mode, devices) {
-        (CalMode::Visual, Some(d)) => settings
-            .display_profile(&d.display.id)
-            .map_or(settings.visual_offset, |p| p.offset),
-        (CalMode::Visual, None) => settings.visual_offset,
-        (_, Some(d)) => settings
-            .audio_profile(&d.audio.id)
-            .map_or(settings.audio_offset, |p| p.offset),
-        (_, None) => settings.audio_offset,
+    let now = match mode {
+        CalMode::Visual => settings.visual_offset_for(devices.map(|d| &d.display)),
+        _ => settings.audio_offset_for(devices.map(|d| &d.audio)),
     };
     Settled {
         applied: true,
@@ -349,46 +223,15 @@ pub fn song(mode: CalMode) -> Song {
         })
         .collect();
     let timing = TimingMap::constant(BPM, 0.0);
-    Song {
-        title: "Calibration".into(),
-        subtitle: String::new(),
-        artist: String::new(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
+    Song::generated(
+        "Calibration",
         timing,
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: "dance-single".into(),
-            difficulty: Difficulty::Beginner,
-            meter: 1,
+        Chart {
             name: "calibration".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("generated".into()),
-            unknown_tags: Vec::new(),
+            ..Chart::plain("dance-single", Difficulty::Beginner, 1, notes)
         },
-    }
+        "generated",
+    )
 }
 
 /// The click on a note: its loudness and pitch (the editor's metronome

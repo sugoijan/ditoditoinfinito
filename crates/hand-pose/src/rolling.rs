@@ -1,9 +1,12 @@
 //! Cooperative, single-threaded rolling preparation. Only changed future motion
 //! is rebuilt. Immutable committed motion is retained through a C2 splice.
-use crate::curve::{Curve, near_yaw, value, wrap_yaw};
+use crate::curve::{Curve, near_yaw, smoothed_pose, smoother, value, wrap_yaw};
+use crate::kinematics::Kin;
 use crate::motion::{polygon, project};
+use crate::solve::max_tip_error;
 use crate::stream::{Stream, StreamOptions};
 use crate::{Goal, Guide, Model, Parameters, Plan, PoseFit, SolveReport, solve};
+use std::rc::Rc;
 /// Preparation evaluation policy; both retain the original 60 Hz guide grid.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum PreparationMode {
@@ -141,8 +144,7 @@ impl Support {
                         } else {
                             // Compact C2 window, with no state that can remain stuck after
                             // the problematic passage has left the rolling horizon.
-                            let u = dt / 0.36;
-                            weight * (1. - u * u * u * (10. + u * (-15. + 6. * u)))
+                            weight * (1. - smoother(dt / 0.36))
                         }
                     })
                     .fold(0., f64::max)
@@ -256,7 +258,7 @@ enum Tick {
     Finished,
 }
 struct Job {
-    plan: Plan,
+    plan: Rc<Plan>,
     old: Curve,
     times: Vec<f64>,
     q: Vec<Parameters>,
@@ -276,10 +278,11 @@ struct Job {
     fit: Option<Box<PoseFit>>,
     fitting: Option<FitKind>,
     support_ticks: usize,
+    kin: Box<Kin>,
 }
 impl Job {
     fn with_options(
-        plan: Plan,
+        plan: Rc<Plan>,
         old: Curve,
         start: f64,
         end: f64,
@@ -335,6 +338,7 @@ impl Job {
             fit: None,
             fitting: None,
             support_ticks: 0,
+            kin: Box::default(),
         }
     }
     fn start_fit(&mut self, m: &Model, q: Parameters, goal: Goal, cap: usize) {
@@ -389,14 +393,14 @@ impl Job {
             }
         }
     }
-    fn seed_goal(&self, m: &Model) -> (Parameters, Goal) {
+    fn seed_goal(&mut self, m: &Model) -> (Parameters, Goal) {
         let i = self.index;
         let previous = i.checked_sub(1).map(|j| self.q[j]);
         let t = self.times[i];
         let target = self.plan.targets(t);
-        let (mut q, old_com) = self.old.parameters(self.old.at(t).p);
+        let (mut q, old_com) = self.old.parameters(self.old.position(t));
         let err = m
-            .geometry(&q)
+            .evaluate_into(&q, &mut self.kin)
             .tips
             .iter()
             .zip(target.tips)
@@ -468,38 +472,9 @@ impl Job {
                 return Tick::Pending;
             }
             1 => {
-                let t = self.times[i];
-                let mut sum = 0.;
-                let mut q = [0.; 14];
-                for j in 0..n {
-                    let dt = self.times[j] - t;
-                    if dt.abs() > 0.16 {
-                        continue;
-                    }
-                    let density = if j == 0 {
-                        self.times[1] - self.times[0]
-                    } else if j + 1 == n {
-                        self.times[n - 1] - self.times[n - 2]
-                    } else {
-                        (self.times[j + 1] - self.times[j - 1]) / 2.
-                    };
-                    let w = (-0.5 * (dt / 0.04).powi(2)).exp() * density;
-                    sum += w;
-                    for c in 0..14 {
-                        // A world turn through ±180° must not average through
-                        // zero, which would impose an unrelated body rotation.
-                        let v = if c == 13 && self.old.periodic_yaw {
-                            near_yaw(self.q[j][c], self.q[i][c])
-                        } else {
-                            self.q[j][c]
-                        };
-                        q[c] += w * v;
-                    }
-                }
-                self.filtered[i] = q.map(|v| v / sum);
-                if self.old.periodic_yaw {
-                    self.filtered[i][13] = wrap_yaw(self.filtered[i][13]);
-                }
+                let (times, q) = (&self.times, &self.q);
+                let smoothed = smoothed_pose(n, i, |j| times[j], |j| &q[j], self.old.periodic_yaw);
+                self.filtered[i] = smoothed;
                 self.index += 1;
                 if self.index == n {
                     self.q.copy_from_slice(&self.filtered);
@@ -607,8 +582,8 @@ pub struct WindowReport {
 }
 pub struct Rolling {
     curve: Curve,
-    published_plan: Plan,
-    pending: Option<(Plan, f64)>,
+    published_plan: Rc<Plan>,
+    pending: Option<(Rc<Plan>, f64)>,
     job: Option<Job>,
     pub report: WindowReport,
     pub horizon: f64,
@@ -652,7 +627,7 @@ impl Rolling {
         solve(m, &mut q, &prior, &goal, 32);
         Self {
             curve: Curve::constant(q, goal.com, empty.periodic_yaw(m)),
-            published_plan: empty,
+            published_plan: Rc::new(empty),
             pending: None,
             job: None,
             report: WindowReport::default(),
@@ -675,12 +650,24 @@ impl Rolling {
     /// Received contact context can end before the nominal lookahead. A growing
     /// window is not an end-of-chart signal to the stream motion fitter.
     pub fn request_known(&mut self, plan: Plan, now: f64, known_until: f64, finished: bool) {
-        // Keep a short settling tail, but never let its extra duration reveal notes.
         let visible_until = (now + self.horizon).min(known_until);
-        let tail_end = plan.duration.min(visible_until + 0.5);
-        let mut visible = plan.visible(visible_until.min(plan.duration));
-        visible.duration = tail_end;
+        let visible = plan.visible(visible_until.min(plan.duration));
+        self.request_visible(visible, plan.duration, now, visible_until, finished);
+    }
+    /// [`Self::request_known`] with the plan already cut at `visible_until`;
+    /// `duration` is the uncut plan's.
+    pub(crate) fn request_visible(
+        &mut self,
+        mut visible: Plan,
+        duration: f64,
+        now: f64,
+        visible_until: f64,
+        finished: bool,
+    ) {
+        // Keep a short settling tail, but never let its extra duration reveal notes.
+        visible.duration = duration.min(visible_until + 0.5);
         visible.rebuild_edges();
+        let visible = Rc::new(visible);
         if let Some(stream) = self.stream.as_mut() {
             stream.observe(&visible, visible_until, finished);
             self.report.stream_sections = stream.sections_started;
@@ -899,7 +886,7 @@ impl Rolling {
             (s, SolveReport::default())
         } else {
             let (e, report) = self.evaluate_exact(m, plan, t);
-            let exact_com = self.curve.parameters(self.curve.at(t).p).1;
+            let exact_com = self.curve.parameters(self.curve.position(t)).1;
             if self.curve.periodic_yaw {
                 s[13] = near_yaw(s[13], e[13]);
             }
@@ -933,7 +920,8 @@ impl Rolling {
         if self.curve.periodic_yaw {
             q[13] = wrap_yaw(q[13]);
         }
-        let mut g = m.geometry(&q);
+        let mut kin = Kin::default();
+        let mut g = m.evaluate_into(&q, &mut kin);
         // Stream knots touch the floor exactly; between them a planted
         // fingertip can dip below it. Lift the hand rigidly (the root's
         // height) by the depth instead of fitting again.
@@ -941,17 +929,9 @@ impl Rolling {
         if low < 0. {
             q[10] -= low;
             m.clamp(&mut q);
-            g = m.geometry(&q);
+            g = m.evaluate_into(&q, &mut kin);
         }
-        let target = plan.targets(t);
-        report.target_error_mm = (0..2)
-            .map(|d| {
-                (0..3)
-                    .map(|i| (g.tips[d][i] - target.tips[d][i]).powi(2))
-                    .sum::<f64>()
-                    .sqrt()
-            })
-            .fold(0., f64::max);
+        report.target_error_mm = max_tip_error(&g.tips, &plan.targets(t).tips);
         report.stream_weight = w;
         (q, report)
     }
@@ -961,7 +941,7 @@ impl Rolling {
         let mut key = [0; 39];
         let weight = self.stream.as_ref().map_or(0., |s| s.weight(t));
         if weight != 1. {
-            for (dst, v) in key[..16].iter_mut().zip(self.curve.at(t).p) {
+            for (dst, v) in key[..16].iter_mut().zip(self.curve.position(t)) {
                 *dst = v.to_bits();
             }
         }
@@ -990,7 +970,7 @@ impl Rolling {
         self.stream.as_ref().map_or(Vec::new(), |s| s.intervals())
     }
     fn evaluate_exact(&self, m: &Model, plan: &Plan, t: f64) -> (Parameters, SolveReport) {
-        let (mut q, com) = self.curve.parameters(self.curve.at(t).p);
+        let (mut q, com) = self.curve.parameters(self.curve.position(t));
         let prior = q;
         // The same strict fit as `solve`; perturbed columns reuse unchanged
         // geometry, which is bit-for-bit identical.
@@ -1008,9 +988,8 @@ impl Rolling {
             // Contact outranks the preferred balance point. Ease this preference
             // away when the local pose cannot satisfy both, rather than forcing
             // a joint/root excursion. The source contact times never change.
-            let u = ((report.target_error_mm - 0.02) / 0.18).clamp(0., 1.);
-            let weight = u * u * u * (10. + u * (-15. + 6. * u));
-            let actual = m.geometry(&q).com;
+            let weight = smoother(((report.target_error_mm - 0.02) / 0.18).clamp(0., 1.));
+            let actual = m.evaluate_into(&q, &mut Kin::default()).com;
             let goal = Goal {
                 tips: plan.targets(t).tips,
                 com: std::array::from_fn(|i| com[i] + weight * (actual[i] - com[i])),

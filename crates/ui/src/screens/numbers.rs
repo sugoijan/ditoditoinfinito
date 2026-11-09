@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use ddi_actor::Actor;
 
+use super::dialog::{button, fitted_dialog, shell};
 use super::editor_dialogs::{SubmitFn, ValueDialog};
-use super::select_dialogs::{button, fitted_dialog, shell, wrap};
 use super::{Env, left};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
@@ -206,7 +206,7 @@ impl Screen for NumberDialog {
             ));
         }
         let mut error = self.env.text("Error", &self.error, 12.0, 400, "Accent");
-        wrap(&mut error, w - 48.0);
+        crate::look::ellipsized(&mut error, w - 48.0);
         c.push(left(error, x + 24.0, y + h - 24.0));
         let mut root = fitted_dialog(c, screen, h, scale);
         super::restore_focus(&mut root, cx.focused());

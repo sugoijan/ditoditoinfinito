@@ -8,10 +8,11 @@
 //! row arrives, and a stream knot is fitted only once its targets and balance
 //! window can no longer change, so stream motion is the same for every request
 //! timing; the cost is a few fits per note, whatever the density.
-use crate::curve::{Curve, near_yaw, wrap_yaw};
+use crate::curve::{Curve, SMOOTH_REACH, smoothed_pose, smoother};
+use crate::kinematics::Kin;
 use crate::solve::{Stop, solve_with};
 use crate::{Goal, Guide, Model, Parameters, Plan, refine_contacts};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, rc::Rc};
 
 /// Seconds of rows, ending at a row, that its rate counts: the window is open
 /// at its start, so a steady rate counts as itself.
@@ -40,12 +41,8 @@ const ENTRY_MARGIN: f64 = 0.35;
 /// frames for about 565 units of 36 a frame, it was a frame late after long
 /// gaps; 1.5 s gives 39 frames for about 490.
 const EXIT_MARGIN: f64 = 1.5;
-/// First fits are smoothed like exact preparation's (a Gaussian of this
-/// sigma, density-weighted, truncated at `SMOOTH_REACH`) before the refit:
-/// with both fingers in the air, fingertip targets leave the root free, and
-/// independent fits wander.
-const SMOOTH_SIGMA: f64 = 0.04;
-const SMOOTH_REACH: f64 = 0.16;
+// First fits are smoothed like exact preparation's (`smoothed_pose`) before
+// the refit.
 /// Shortest full-stream time before an exit.
 const MIN_STREAM: f64 = 0.5;
 /// Stream knots kept past an exit, so a dense row arriving later can still
@@ -86,23 +83,13 @@ impl StreamOptions {
 // Contact accuracy alone cannot rank a fit whose knuckles violate the floor
 // clearance guard: lifting that whole pose would also lift its planted tip.
 // Feasible fits retain the original fingertip-error ordering.
-fn fit_score(m: &Model, q: &Parameters, error: f64) -> f64 {
-    let g = m.evaluate_into(q, &mut crate::kinematics::Kin::default());
+fn fit_score(m: &Model, q: &Parameters, error: f64, kin: &mut Kin) -> f64 {
+    let g = m.evaluate_into(q, kin);
     let deficit = 40. - g.knuckles[0].min(g.knuckles[1]);
     if deficit > 0. {
         error.max(2. + deficit)
     } else {
         error
-    }
-}
-
-fn smoother(u: f64) -> f64 {
-    if u <= 0. {
-        0.
-    } else if u >= 1. {
-        1.
-    } else {
-        u * u * u * (10. + u * (-15. + 6. * u))
     }
 }
 
@@ -134,39 +121,8 @@ impl Motion {
 
     /// The density-weighted Gaussian average of the raw poses around `f`.
     fn smoothed(&self, f: usize, periodic: bool) -> Parameters {
-        let n = self.raw.len();
-        let t = self.raw[f].0;
-        let (mut sum, mut weight) = ([0.; 14], 0.);
-        for j in 0..n {
-            let dt = self.raw[j].0 - t;
-            if dt.abs() > SMOOTH_REACH {
-                continue;
-            }
-            let density = if n == 1 {
-                1.
-            } else if j == 0 {
-                self.raw[1].0 - self.raw[0].0
-            } else if j + 1 == n {
-                self.raw[n - 1].0 - self.raw[n - 2].0
-            } else {
-                (self.raw[j + 1].0 - self.raw[j - 1].0) / 2.
-            };
-            let w = (-0.5 * (dt / SMOOTH_SIGMA).powi(2)).exp() * density;
-            weight += w;
-            for (c, (s, v)) in sum.iter_mut().zip(&self.raw[j].1).enumerate() {
-                let v = if c == 13 && periodic {
-                    near_yaw(*v, self.raw[f].1[13])
-                } else {
-                    *v
-                };
-                *s += w * v;
-            }
-        }
-        let mut out = sum.map(|v| v / weight);
-        if periodic {
-            out[13] = wrap_yaw(out[13]);
-        }
-        out
+        let raw = &self.raw;
+        smoothed_pose(raw.len(), f, |j| raw[j].0, |j| &raw[j].1, periodic)
     }
 
     /// Through this time, sampled motion can no longer change: a quintic
@@ -203,7 +159,9 @@ pub(crate) struct Stream {
     sections: Vec<Section>,
     /// Time ranges of sections no longer kept, for checks of published motion.
     past: Vec<[f64; 2]>,
-    plan: Option<Plan>,
+    plan: Option<Rc<Plan>>,
+    /// No knot could be fitted, which only a new `observe` can change.
+    idle: bool,
     /// Knots at or before this time are final.
     final_until: f64,
     complete: bool,
@@ -214,6 +172,7 @@ pub(crate) struct Stream {
     pub(crate) knots: usize,
     pub(crate) long_flights: usize,
     pub(crate) sections_started: usize,
+    kin: Box<Kin>,
 }
 
 impl Stream {
@@ -227,6 +186,7 @@ impl Stream {
             sections: Vec::new(),
             past: Vec::new(),
             plan: None,
+            idle: false,
             final_until: f64::NEG_INFINITY,
             complete: false,
             balance: (0, VecDeque::new()),
@@ -234,13 +194,14 @@ impl Stream {
             knots: 0,
             long_flights: 0,
             sections_started: 0,
+            kin: Box::default(),
         }
     }
 
     /// Take a request's visible plan: decide newly known rows and advance the
     /// finality bound. `complete` means the plan's duration is the chart's end
     /// and every note is visible.
-    pub(crate) fn observe(&mut self, visible: &Plan, visible_until: f64, complete: bool) {
+    pub(crate) fn observe(&mut self, visible: &Rc<Plan>, visible_until: f64, complete: bool) {
         let mut times: Vec<f64> = visible
             .events
             .iter()
@@ -272,7 +233,8 @@ impl Stream {
             visible_until - FLIGHT_BOUND - BALANCE_REACH
         }
         .max(self.final_until);
-        self.plan = Some(visible.clone());
+        self.plan = Some(Rc::clone(visible));
+        self.idle = false;
     }
 
     fn decide(&mut self, plan: &Plan, t: f64) {
@@ -341,10 +303,10 @@ impl Stream {
         let Some(s) = self.section(t) else {
             return 0.;
         };
-        let up = smoother((t - s.enter) / self.options.blend);
-        let down = s
-            .leave
-            .map_or(1., |x| 1. - smoother((t - x) / self.options.blend));
+        let up = smoother(((t - s.enter) / self.options.blend).clamp(0., 1.));
+        let down = s.leave.map_or(1., |x| {
+            1. - smoother(((t - x) / self.options.blend).clamp(0., 1.))
+        });
         up.min(down)
     }
 
@@ -392,7 +354,7 @@ impl Stream {
         if t < *m.times.first()? || t > m.final_through() {
             return None;
         }
-        Some(m.curve.as_ref()?.parameters(m.curve.as_ref()?.at(t).p))
+        Some(m.curve.as_ref()?.parameters(m.curve.as_ref()?.position(t)))
     }
 
     /// Whether a knot is ready to fit.
@@ -435,6 +397,9 @@ impl Stream {
     /// Fit up to `units` final knots, earliest section first; returns the
     /// number fitted. Motion before `now - 1.5` is dropped.
     pub(crate) fn advance(&mut self, m: &Model, now: f64, units: usize) -> usize {
+        if self.idle {
+            return 0;
+        }
         let Some(plan) = self.plan.take() else {
             return 0;
         };
@@ -461,8 +426,8 @@ impl Stream {
                             (q, error) = (refined, r.target_error_mm);
                         }
                     }
-                    let score = fit_score(m, &q, error);
-                    if score > 2. && fit_score(m, &raw, raw_error) < score {
+                    let score = fit_score(m, &q, error, &mut self.kin);
+                    if score > 2. && fit_score(m, &raw, raw_error, &mut self.kin) < score {
                         q = raw;
                     }
                     let complete = self.complete && t == plan.duration;
@@ -508,14 +473,14 @@ impl Stream {
                         (q, error) = (refined, r.target_error_mm);
                     }
                 }
-                let score = fit_score(m, &q, error);
+                let score = fit_score(m, &q, error, &mut self.kin);
                 if cap == 12 && score > 2. {
                     // A gross miss or unsafe knuckle clearance can need a new
                     // style seed. Quiet feasible fits keep their original pose.
                     let mut retry = plan.seed(m, t, Some(&q));
                     let prior = retry;
                     let r = solve_with(m, &mut retry, &prior, &goal, 24, true, &self.stop);
-                    if fit_score(m, &retry, r.target_error_mm) < score {
+                    if fit_score(m, &retry, r.target_error_mm, &mut self.kin) < score {
                         (q, error) = (retry, r.target_error_mm);
                     }
                 }
@@ -571,6 +536,7 @@ impl Stream {
         self.balance.1.drain(..drop);
         self.balance.0 += drop as i64;
         self.plan = Some(plan);
+        self.idle = used == 0 && units > 0;
         used
     }
 
@@ -737,7 +703,7 @@ mod tests {
             g.knuckles
         );
         let mut stream = Stream::new(StreamOptions::default(), 3., 30.);
-        stream.plan = Some(p);
+        stream.plan = Some(Rc::new(p));
         stream.final_until = 1.5;
         stream.complete = true;
         stream.sections.push(Section {

@@ -16,8 +16,7 @@ use std::sync::Arc;
 use ddi_library::manifest::ManifestEntry;
 use ddi_ui::message::Message;
 use ddi_ui::screens::Env;
-use ddi_ui::screens::data::SelectData;
-use ddi_ui::screens::data::{ShareState, ShareView, SharedView};
+use ddi_ui::screens::data::{Notice, SelectData, ShareState, ShareView, SharedView};
 use ddi_ui::screens::select::{
     FEED, OpenFn, PlayFn, SelectCall, SelectScreen, SharedFeed, ShellFn,
 };
@@ -55,7 +54,7 @@ pub struct Songs {
     /// Wakes the event loop (news from a thread).
     pub wake: RefCell<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Song select's notices (zips refused by the picker).
-    notices: RefCell<Vec<ddi_ui::screens::data::Notice>>,
+    notices: RefCell<Vec<Notice>>,
     pub bundled: Vec<ManifestEntry>,
     place: RefCell<MenuPlace>,
     /// The chart song select shows, for the shell to ready its prompt's
@@ -98,12 +97,28 @@ struct ShareHost {
     expires_at: Option<f64>,
     loading: bool,
     /// Why it could not be read.
-    notices: Vec<ddi_ui::screens::data::Notice>,
+    notices: Vec<Notice>,
     rx: Option<
         std::sync::mpsc::Receiver<
             Result<crate::share::LoadedShare, ddi_library::share::ShareError>,
         >,
     >,
+}
+
+impl LibSong {
+    /// As song select lists it.
+    fn listed(&self, removable: bool) -> Listed<'_> {
+        Listed {
+            entry: &self.entry,
+            pack: Some(self.pack.clone()),
+            pack_banner: self.pack_banner.as_deref().map(|p| self.root_source(p)),
+            banner: self.entry.banner.as_deref().map(|b| self.source(b)),
+            background: self.entry.background.as_deref().map(|b| self.source(b)),
+            jacket: self.entry.jacket.as_deref().map(|b| self.source(b)),
+            cd_title: self.entry.cd_title.as_deref().map(|b| self.source(b)),
+            removable,
+        }
+    }
 }
 
 impl Songs {
@@ -146,20 +161,17 @@ impl Songs {
     /// Song select on share `id`'s songs alone: read on a thread, listed
     /// once its songs' charts, music and pictures are in the cache.
     pub fn open_share(&self, id: String) {
-        let (tx, rx) = std::sync::mpsc::channel();
         let wake = self.wake.borrow().clone();
         let job = id.clone();
-        let _ = std::thread::Builder::new()
-            .name("ddi-share".into())
-            .spawn(move || {
-                let progress = || {
-                    if let Some(w) = &wake {
-                        w();
-                    }
-                };
-                let _ = tx.send(crate::share::load(&job, &progress));
-                progress();
-            });
+        let progress_wake = wake.clone();
+        let rx = crate::os::background("ddi-share", wake, move || {
+            let progress = || {
+                if let Some(w) = &progress_wake {
+                    w();
+                }
+            };
+            crate::share::load(&job, &progress)
+        });
         *self.share.borrow_mut() = Some(ShareHost {
             id,
             pack: String::new(),
@@ -234,36 +246,28 @@ impl Songs {
             }
             Err(e) => {
                 if let Some(s) = self.share.borrow_mut().as_mut() {
-                    s.notices.push(ddi_ui::screens::data::Notice {
-                        text: ddi_ui::screens::failures::share_load_text(&e).into(),
-                        link: None,
-                        error: true,
-                    });
+                    s.notices
+                        .push(Notice::error(ddi_ui::screens::failures::share_load_text(
+                            &e,
+                        )));
                 }
             }
         }
         true
     }
 
-    /// The share's screen's list: its songs alone, nothing to remove.
-    fn listed_share(&self) -> Vec<Listed> {
+    /// `f` of the share's screen's list: its songs alone, nothing to
+    /// remove.
+    fn listed_share<R>(&self, f: impl FnOnce(&[Listed<'_>]) -> R) -> R {
         let library = self.library.borrow();
-        library
+        let listed: Vec<Listed<'_>> = library
             .as_ref()
             .map(|l| l.shared_songs.iter())
             .into_iter()
             .flatten()
-            .map(|s| Listed {
-                entry: s.entry.clone(),
-                pack: Some(s.pack.clone()),
-                pack_banner: None,
-                banner: s.entry.banner.as_deref().map(|b| s.source(b)),
-                background: s.entry.background.as_deref().map(|b| s.source(b)),
-                jacket: s.entry.jacket.as_deref().map(|b| s.source(b)),
-                cd_title: s.entry.cd_title.as_deref().map(|b| s.source(b)),
-                removable: false,
-            })
-            .collect()
+            .map(|s| s.listed(false))
+            .collect();
+        f(&listed)
     }
 
     /// The share's screen's data now: its songs, the pack and the time
@@ -273,35 +277,27 @@ impl Songs {
         let settings = Settings::load();
         let empty = ddi_ui::state::history::History::default();
         let history = self.plays.as_ref().map(|p| p.history());
-        let mut data = select_view::select_data(
-            &self.listed_share(),
-            &|_| false,
-            &settings,
-            history.as_deref().unwrap_or(&empty),
-            &MenuPlace::default(),
-        );
+        let mut data = self.listed_share(|songs| {
+            select_view::select_data(
+                songs,
+                &|_| false,
+                &settings,
+                history.as_deref().unwrap_or(&empty),
+                &MenuPlace::default(),
+            )
+        });
         if let Some(s) = self.share.borrow().as_ref() {
-            data.shared = Some(SharedView {
-                pack: s.pack.clone(),
-                expires: s.expires_at.map(|at| {
-                    ddi_ui::screens::options_dialogs::expires_in(Some(at), now_secs()).into()
-                }),
-            });
+            data.shared = Some(SharedView::new(s.pack.clone(), s.expires_at, now_secs()));
             data.loading = s.loading;
             data.notices = s.notices.clone();
             // Where the share's download is, quietly.
             if s.loading
                 && let Some(line) = crate::share::download_line()
             {
-                data.notices.push(ddi_ui::screens::data::Notice {
-                    text: line,
-                    link: None,
-                    error: false,
-                });
+                data.notices.push(Notice::quiet(line));
             }
         }
         data.autoplay = self.autoplay.get();
-        data.import.platform = ddi_ui::screens::data::Platform::Desktop;
         data
     }
 
@@ -394,13 +390,13 @@ impl Songs {
         self.tell_options();
     }
 
-    /// `f` of the library's songs the list shows: by pack and title, what
-    /// the player removed left out, a share's songs too (their screen
-    /// lists them, [`Songs::share_data`]).
+    /// `f` of the library's songs the list shows, in the library's order
+    /// (by pack and title): what the player removed left out, a share's
+    /// songs too (their screen lists them, [`Songs::share_data`]).
     fn shown<R>(&self, f: impl FnOnce(&[&LibSong]) -> R) -> R {
         let hidden = self.hidden.borrow();
         let library = self.library.borrow();
-        let mut songs: Vec<&LibSong> = library
+        let songs: Vec<&LibSong> = library
             .as_ref()
             .map(|l| {
                 l.songs
@@ -409,27 +405,21 @@ impl Songs {
                     .collect()
             })
             .unwrap_or_default();
-        songs.sort_by_cached_key(|s| (s.pack.to_lowercase(), s.entry.title.to_lowercase()));
         f(&songs)
     }
 
-    /// The list now: the bundled songs, then the library's by pack and
-    /// title, what the player removed left out.
-    pub fn listed(&self) -> Vec<Listed> {
-        let mut out: Vec<Listed> = self.bundled.iter().map(Listed::bundled).collect();
+    /// `f` of the list now: the bundled songs, then the library's by
+    /// pack and title, what the player removed left out.
+    pub fn listed<R>(&self, f: impl FnOnce(&[Listed<'_>]) -> R) -> R {
         self.shown(|songs| {
-            out.extend(songs.iter().map(|s| Listed {
-                entry: s.entry.clone(),
-                pack: Some(s.pack.clone()),
-                pack_banner: s.pack_banner.as_deref().map(|p| s.root_source(p)),
-                banner: s.entry.banner.as_deref().map(|b| s.source(b)),
-                background: s.entry.background.as_deref().map(|b| s.source(b)),
-                jacket: s.entry.jacket.as_deref().map(|b| s.source(b)),
-                cd_title: s.entry.cd_title.as_deref().map(|b| s.source(b)),
-                removable: true,
-            }))
-        });
-        out
+            let listed: Vec<Listed<'_>> = self
+                .bundled
+                .iter()
+                .map(Listed::bundled)
+                .chain(songs.iter().map(|s| s.listed(true)))
+                .collect();
+            f(&listed)
+        })
     }
 
     /// The layouts with charts in the list ([`Songs::listed`]'s songs, in
@@ -451,19 +441,19 @@ impl Songs {
             .as_ref()
             .map(|l| l.rereadable_packs())
             .unwrap_or_default();
-        let mut data = select_view::select_data(
-            &self.listed(),
-            // Managed snapshots are published by imports; only folders re-read.
-            &|pack| rereadable.contains(&pack.to_lowercase()),
-            &settings,
-            history.as_deref().unwrap_or(&empty),
-            &self.place.borrow(),
-        );
+        let mut data = self.listed(|songs| {
+            select_view::select_data(
+                songs,
+                // Managed snapshots are published by imports; only folders re-read.
+                &|pack| rereadable.contains(&pack.to_lowercase()),
+                &settings,
+                history.as_deref().unwrap_or(&empty),
+                &self.place.borrow(),
+            )
+        });
         data.loading =
             self.library.borrow().as_ref().is_none_or(|l| l.scanning) || self.importing();
         data.autoplay = self.autoplay.get();
-        // The screens' wording: song folders read in place.
-        data.import.platform = ddi_ui::screens::data::Platform::Desktop;
         #[cfg(danoni_importer)]
         self.imports.borrow().view(&mut data.import);
         data
@@ -867,13 +857,9 @@ impl Songs {
                         .filter_map(|p| p.file_name())
                         .map(|n| n.to_string_lossy().into_owned())
                         .collect();
-                    self.notices
-                        .borrow_mut()
-                        .push(ddi_ui::screens::data::Notice {
-                            text: ddi_l10n::msg::notices::only_zips(names.join(", ")).into(),
-                            link: None,
-                            error: true,
-                        });
+                    self.notices.borrow_mut().push(Notice::error(
+                        ddi_l10n::msg::notices::only_zips(names.join(", ")),
+                    ));
                     self.send_notices(cx);
                 }
                 self.add_folders(zips);
@@ -912,7 +898,7 @@ impl Songs {
                         ddi_ui::screens::prompt_controls::Controls::for_chart(
                             e,
                             chart,
-                            &crate::store::settings_cached(),
+                            &Settings::cached(),
                         )
                     }) {
                         *self.warm.borrow_mut() = Some(Rc::new(c));
@@ -1043,17 +1029,11 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                         cx.push(screen);
                     }
                     Some(Err(e)) => {
-                        songs
-                            .notices
-                            .borrow_mut()
-                            .push(ddi_ui::screens::data::Notice {
-                                text: ddi_l10n::msg::notices::new_song_failed(
-                                    ddi_ui::screens::errors::error_text(&e),
-                                )
-                                .into(),
-                                link: None,
-                                error: true,
-                            });
+                        songs.notices.borrow_mut().push(Notice::error(
+                            ddi_l10n::msg::notices::new_song_failed(
+                                ddi_ui::screens::errors::error_text(&e),
+                            ),
+                        ));
                         songs.send_notices(cx);
                     }
                     None => {}
@@ -1070,24 +1050,29 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
             }
         })
     };
-    let mut screen = SelectScreen::new(env.clone(), songs.data(), None, play, open)
+    let screen = SelectScreen::new(env.clone(), songs.data(), None, play, open)
         .with_shell(calls, songs.feed.clone())
         .with_editing()
         // Share… while the hidden switch is on (`crate::share`).
         .with_sharing_if(Settings::load().sharing);
-    // A chart's kept plays (`docs/plans/play-history.md`, Replays).
-    if let Some(plays) = &songs.plays {
-        screen = screen.with_plays(ddi_ui::state::history::plays_list(
+    with_plays(screen, songs)
+}
+
+/// `screen` with a chart's kept plays (`docs/plans/play-history.md`,
+/// Replays), where the history is there.
+fn with_plays(screen: SelectScreen, songs: &Songs) -> SelectScreen {
+    match &songs.plays {
+        Some(plays) => screen.with_plays(ddi_ui::state::history::plays_list(
             plays.clone(),
             Rc::new(crate::play::replays::tz_minutes),
-        ));
+        )),
+        None => screen,
     }
-    screen
 }
 
 /// Unix seconds now.
 fn now_secs() -> f64 {
-    crate::play::epoch_ms() / 1000.0
+    crate::clock::epoch_ms() / 1000.0
 }
 
 /// Song select on the share open (`Songs::open_share`): its songs alone,
@@ -1123,13 +1108,7 @@ pub fn shared_screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) 
         .data
         .take()
         .unwrap_or_else(|| songs.share_data());
-    let mut screen = SelectScreen::new(env.clone(), data, None, play, open)
+    let screen = SelectScreen::new(env.clone(), data, None, play, open)
         .with_shell(calls, songs.share_feed.clone());
-    if let Some(plays) = &songs.plays {
-        screen = screen.with_plays(ddi_ui::state::history::plays_list(
-            plays.clone(),
-            Rc::new(crate::play::replays::tz_minutes),
-        ));
-    }
-    screen
+    with_plays(screen, songs)
 }

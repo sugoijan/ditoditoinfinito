@@ -11,11 +11,11 @@ use ddi_actor::text::{RunMetrics, TextMeasure, TextStyle};
 
 use ddi_library::backgrounds::{BgSegment, LAYERS};
 use ddi_noteskin::build::TextureKey;
-use ddi_render::Renderer;
 use ddi_render::textured::TexQuad;
+use ddi_render::{BackgroundPipeline, Renderer};
 use ddi_session::scripted::Scripts;
 
-use crate::stage::StageContent;
+use crate::stage::{StageContent, StageView};
 
 /// The scripts of a play: what they load, their textures, their stop.
 pub struct ScriptView<C> {
@@ -93,10 +93,23 @@ impl<C: StageContent> ScriptView<C> {
         }
     }
 
+    /// Makes the movies' converter now where the scripts have movies
+    /// (behind the start prompt), so a first movie does not stall a frame.
+    pub fn warm_movies(&mut self, device: &wgpu::Device) {
+        if self.movies.is_none()
+            && self
+                .scripts
+                .as_ref()
+                .is_some_and(|s| !s.movies().is_empty())
+        {
+            self.movies = Some(ddi_render::script_movies::ScriptMovies::new(device));
+        }
+    }
+
     /// Their movies for a frame: those the last frame's quads drew, each
     /// by its file (relative to the song's folder) at its clock, handed
     /// to the shell's movie deck (`deck`: it opens, feeds and closes
-    /// their decoders and puts the frames due on the renderer it is
+    /// their decoders and puts the frames due on the pipeline it is
     /// given, the movies' converter, made at the first call), which says
     /// the movies it showed, `(file, its id there)`; each is then drawn
     /// into the movie's texture in `renderer` (the play's), made at the
@@ -106,10 +119,14 @@ impl<C: StageContent> ScriptView<C> {
         renderer: &mut Renderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        deck: impl FnOnce(&[ddi_session::movies::Clip], &mut Renderer) -> Vec<(String, usize)>,
+        deck: impl FnOnce(&[ddi_session::movies::Clip], &mut BackgroundPipeline) -> Vec<(String, usize)>,
     ) {
-        let list = self.scripts.as_ref().map_or(Vec::new(), Scripts::movies);
         let drawn = self.movies_drawn.get();
+        // No movie drawn yet: nothing to decode, and no decoder open.
+        if drawn == 0 && self.movies.is_none() {
+            return;
+        }
+        let list = self.scripts.as_ref().map_or(Vec::new(), Scripts::movies);
         let clips: Vec<_> = list
             .iter()
             .enumerate()
@@ -122,7 +139,7 @@ impl<C: StageContent> ScriptView<C> {
             .collect();
         let movies = self
             .movies
-            .get_or_insert_with(|| ddi_render::script_movies::ScriptMovies::new(device, queue));
+            .get_or_insert_with(|| ddi_render::script_movies::ScriptMovies::new(device));
         let shown = deck(&clips, movies.renderer_mut());
         for (name, video) in shown {
             let Some(index) = list.iter().position(|m| m.path == name) else {
@@ -230,13 +247,7 @@ impl<C: StageContent> ScriptView<C> {
         for &[w, h] in targets.iter().skip(self.targets.len()) {
             self.targets.push(renderer.add_render_target(device, w, h));
         }
-        let mut register = |content: &C| {
-            let [w, h] = content.size();
-            let pixels = [w.max(1), h.max(1)];
-            renderer.add_noteskin_image(device, queue, pixels, false, |texture| {
-                content.write(queue, texture, pixels);
-            })
-        };
+        let mut register = |content: &C| content.upload(renderer, device, queue, false);
         for (content, _, id) in self.texts.values_mut().filter(|t| t.2.is_none()) {
             *id = Some(register(content));
         }
@@ -344,6 +355,69 @@ impl<C: StageContent> ScriptView<C> {
         };
         ddi_render::scripted::quads(draws, frame, self.screen, ids, &texts, srgb, targets)
     }
+}
+
+/// What a work's layers and a song's scripts drew in a frame
+/// ([`draw_layers`]).
+#[derive(Debug)]
+pub struct LayersFrame {
+    /// The layers' own back and mask quads, while they are shown.
+    pub stage: Option<(usize, usize)>,
+    /// What the scripts did, while they run.
+    pub scripts: Option<ScriptFrame>,
+    /// Every back and mask quad given to the renderer.
+    pub quads: (usize, usize),
+}
+
+/// A work's back and mask layers and a song's scripts at song second `t`
+/// (beat `beat`), their quads given to the renderer: the layers placed on
+/// a target of `size` with the field centered at `center_x`, the scripts
+/// in its background frame (`aspect`, as [`ScriptView::draw`]), told the
+/// play's `danger`; `skins`: a noteskin draws too. `None` with neither.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_layers<C: StageContent>(
+    stage: &mut StageView<C>,
+    scripts: &mut ScriptView<C>,
+    (renderer, device, queue): (&mut Renderer, &wgpu::Device, &wgpu::Queue),
+    (t, beat): (f64, f64),
+    layers: &[Vec<BgSegment>; LAYERS],
+    (size, aspect): ([f32; 2], Option<f32>),
+    center_x: f32,
+    (danger, skins): (bool, bool),
+    texts: impl FnOnce(&mut ScriptView<C>),
+) -> Option<LayersFrame> {
+    let running = scripts.running();
+    if !stage.shown() && !running {
+        return None;
+    }
+    let srgb = renderer.skin_colors_linear();
+    let (mut back, mut mask) = (Vec::new(), Vec::new());
+    let mut drawn_stage = None;
+    if stage.shown() {
+        // Images decoded late go up as they come.
+        stage.upload(renderer, device, queue);
+        (back, mask) = stage.quads(t, center_x, size[1], srgb);
+        drawn_stage = Some((back.len(), mask.len()));
+    }
+    let script_frame = running.then(|| {
+        scripts.set_danger(danger);
+        scripts.draw(
+            (renderer, device, queue),
+            (t, beat),
+            layers,
+            (size, aspect),
+            skins || stage.shown(),
+            texts,
+            (&mut back, &mut mask),
+        )
+    });
+    let quads = (back.len(), mask.len());
+    renderer.set_stage_quads(back, mask);
+    Some(LayersFrame {
+        stage: drawn_stage,
+        scripts: script_frame,
+        quads,
+    })
 }
 
 /// What the scripts did in a frame ([`ScriptView::draw`]).

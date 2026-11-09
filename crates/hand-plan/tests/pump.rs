@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
 use ddi_chart::{Note, NoteKind, Tick};
-use ddi_hand_plan::{Input, Options, PlannerJob, RollingPlanner, layout_panels};
+use ddi_hand_plan::{Input, Options, RollingPlanner, layout_panels};
+mod common;
+use common::plan;
 
 fn input(mirror: bool) -> Input {
     let mut song = ddi_chart::formats::sm::parse_sm(
@@ -39,18 +41,6 @@ fn input(mirror: bool) -> Input {
     notes.extend((0..5).map(|l| Note::new(Tick(1248), lane(l), NoteKind::Mine)));
     song.charts[0].notes = notes;
     Input::from_song(&song, 0).unwrap()
-}
-fn plan(input: &Input) -> ddi_hand_plan::ContactPlan {
-    let mut job = PlannerJob::new(input.clone(), Options::default());
-    for _ in 0..100_000 {
-        if job.step() {
-            break;
-        }
-    }
-    let (plan, report) = job.finish().expect("planner completed");
-    let plan = plan.unwrap_or_else(|| panic!("{report:?}"));
-    assert!(ddi_hand_plan::replay(input, &plan).unwrap().passed);
-    plan
 }
 #[test]
 fn pump_maps_all_five_lanes_with_exact_hits_and_hazard_clearance() {

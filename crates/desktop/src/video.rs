@@ -218,11 +218,11 @@ fn helper_near(exe: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Hands a frame to the renderer's movie `id` (from
-/// `Renderer::add_video`): the planes as they are, the matrix and range
+/// Hands a frame to the background pipeline's movie `id` (from
+/// `BackgroundPipeline::add_video`): the planes as they are, the matrix and range
 /// the module reported. Whether it was written.
 pub fn show(
-    renderer: &mut ddi_render::Renderer,
+    background: &mut ddi_render::BackgroundPipeline,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     id: usize,
@@ -230,9 +230,9 @@ pub fn show(
 ) -> bool {
     #[cfg(all(target_os = "macos", feature = "video-metal"))]
     if frame.external.is_some() {
-        return metal::show(renderer, device, queue, id, frame);
+        return metal::show(background, device, queue, id, frame);
     }
-    renderer.set_video_frame(
+    background.set_video_frame(
         device,
         queue,
         id,

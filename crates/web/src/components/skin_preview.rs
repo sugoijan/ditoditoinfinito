@@ -101,7 +101,7 @@ impl PreviewOptions {
         PreviewOptions {
             skin: get("skin").unwrap_or(&d.skin).to_string(),
             layout: get("layout")
-                .filter(|id| Layout::builtin(id).is_some())
+                .filter(|id| Layout::is_builtin(id))
                 .unwrap_or(&d.layout)
                 .to_string(),
             size: get("size")
@@ -468,7 +468,7 @@ async fn take_device(
         &gfx.queue,
         gfx.view_format(),
         gfx.skin_blending(),
-        &[crate::game_loop::FONT],
+        &[ddi_render::HUD_FONT],
     );
     // A device made again comes with a new canvas, in the old one's place.
     if let Some(canvas) = crate::web::screen::canvas() {
@@ -551,13 +551,14 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
         Some(p) => {
             let mut play = p.play;
             play.set_srgb(renderer.skin_colors_linear());
-            images.extend(crate::game_loop::upload_noteskin(
+            crate::game_loop::upload_noteskin(
                 renderer,
                 &gfx.device,
                 &gfx.queue,
                 &mut play,
                 &p.images,
-            ));
+            );
+            images.extend(p.images.into_iter().flatten());
             Some(play)
         }
         None => None,

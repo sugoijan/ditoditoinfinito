@@ -119,7 +119,165 @@ enum EventKind {
     Warp = 5,
 }
 
+/// Where a walk through a map's events has got to:
+/// [`TimingMap::seconds_at_beat`] and [`TimingMap::position_at`] walk the
+/// same events, in the same order.
+struct EventWalk<'a> {
+    map: &'a TimingMap,
+    bps: f64,
+    warping: bool,
+    warp_dest: f64,
+    next_bpm: usize,
+    next_delay: usize,
+    next_stop: usize,
+    next_warp: usize,
+}
+
+impl<'a> EventWalk<'a> {
+    fn new(map: &'a TimingMap) -> EventWalk<'a> {
+        EventWalk {
+            map,
+            bps: map.bpms[0].bpm / 60.0,
+            warping: false,
+            warp_dest: f64::NEG_INFINITY,
+            next_bpm: 1,
+            next_delay: 0,
+            next_stop: 0,
+            next_warp: 0,
+        }
+    }
+
+    /// The next event's beat and kind, `(limit, Marker)` when none comes
+    /// before beat `limit`. Events on one beat come in [`EventKind`]'s
+    /// order, which ranks the marker.
+    fn next(&self, limit: f64) -> (f64, EventKind) {
+        let mut ev_beat = limit;
+        let mut kind = EventKind::Marker;
+        let mut consider = |b: f64, k: EventKind| {
+            if b < ev_beat || (b == ev_beat && (k as u8) < (kind as u8)) {
+                ev_beat = b;
+                kind = k;
+            }
+        };
+        if self.warping {
+            consider(self.warp_dest, EventKind::WarpDest);
+        }
+        if let Some(s) = self.map.bpms.get(self.next_bpm) {
+            consider(s.tick.beat(), EventKind::Bpm);
+        }
+        if let Some(s) = self.map.delays.get(self.next_delay) {
+            consider(s.tick.beat(), EventKind::Delay);
+        }
+        if let Some(s) = self.map.stops.get(self.next_stop) {
+            consider(s.tick.beat(), EventKind::Stop);
+        }
+        if let Some(s) = self.map.warps.get(self.next_warp) {
+            consider(s.tick.beat(), EventKind::Warp);
+        }
+        (ev_beat, kind)
+    }
+
+    /// Passes the event [`EventWalk::next`] gave: a delay's or a stop's
+    /// seconds, for the caller to count.
+    fn advance(&mut self, kind: EventKind) -> Option<f64> {
+        match kind {
+            EventKind::WarpDest => self.warping = false,
+            EventKind::Bpm => {
+                self.bps = self.map.bpms[self.next_bpm].bpm / 60.0;
+                self.next_bpm += 1;
+            }
+            EventKind::Delay => {
+                self.next_delay += 1;
+                return Some(self.map.delays[self.next_delay - 1].seconds);
+            }
+            EventKind::Marker => {}
+            EventKind::Stop => {
+                self.next_stop += 1;
+                return Some(self.map.stops[self.next_stop - 1].seconds);
+            }
+            EventKind::Warp => {
+                let w = self.map.warps[self.next_warp];
+                self.warping = true;
+                self.warp_dest = self.warp_dest.max((w.tick + w.length).beat());
+                self.next_warp += 1;
+            }
+        }
+        None
+    }
+}
+
+/// A walk up a map's beats, beats given in ascending order: each answer
+/// is exactly what [`TimingMap::seconds_at_beat`] or
+/// [`TimingMap::displayed_beat`] says alone, without starting over from
+/// the map's first event.
+pub struct BeatWalk<'a> {
+    map: &'a TimingMap,
+    events: EventWalk<'a>,
+    /// The seconds and the beat of the last event passed.
+    time: f64,
+    beat: f64,
+    next_scroll: usize,
+    /// The displayed beat of the last scroll passed, its beat, its ratio.
+    displayed: f64,
+    scrolled_at: f64,
+    ratio: f64,
+}
+
+impl BeatWalk<'_> {
+    /// [`TimingMap::seconds_at_beat`] of `target`.
+    pub fn seconds(&mut self, target: f64) -> f64 {
+        loop {
+            let (ev_beat, kind) = self.events.next(target);
+            let time = if self.events.warping {
+                self.time
+            } else {
+                self.time + (ev_beat - self.beat) / self.events.bps
+            };
+            if kind == EventKind::Marker {
+                return time;
+            }
+            self.time = time;
+            self.beat = ev_beat;
+            if let Some(seconds) = self.events.advance(kind) {
+                self.time += seconds;
+            }
+        }
+    }
+
+    /// [`TimingMap::displayed_beat`] of `beat`.
+    pub fn displayed(&mut self, beat: f64) -> f64 {
+        if self.map.scrolls.is_empty() {
+            return beat;
+        }
+        while let Some(s) = self.map.scrolls.get(self.next_scroll) {
+            let b = s.tick.beat();
+            if b >= beat {
+                break;
+            }
+            self.displayed += (b - self.scrolled_at) * self.ratio;
+            self.scrolled_at = b;
+            self.ratio = s.ratio;
+            self.next_scroll += 1;
+        }
+        self.displayed + (beat - self.scrolled_at) * self.ratio
+    }
+}
+
 impl TimingMap {
+    /// A walk up this map's beats from the start ([`BeatWalk`]).
+    pub fn walk(&self) -> BeatWalk<'_> {
+        BeatWalk {
+            map: self,
+            events: EventWalk::new(self),
+            time: -self.offset_seconds,
+            beat: 0.0,
+            next_scroll: 0,
+            displayed: 0.0,
+            scrolled_at: 0.0,
+            ratio: 1.0,
+        }
+    }
+
     /// Constant-tempo map.
     pub fn constant(bpm: f64, offset_seconds: f64) -> TimingMap {
         TimingMap {
@@ -206,122 +364,41 @@ impl TimingMap {
 
     /// Seconds (song time) for a fractional beat.
     pub fn seconds_at_beat(&self, target: f64) -> f64 {
-        let mut time = -self.offset_seconds;
-        let mut beat = 0.0;
-        let mut bps = self.bpms[0].bpm / 60.0;
-        let (mut ib, mut id, mut is, mut iw) = (1usize, 0usize, 0usize, 0usize);
-        let mut warping = false;
-        let mut warp_dest = f64::NEG_INFINITY;
-        loop {
-            let mut ev_beat = target;
-            let mut kind = EventKind::Marker;
-            let mut consider = |b: f64, k: EventKind| {
-                if b < ev_beat || (b == ev_beat && (k as u8) < (kind as u8)) {
-                    ev_beat = b;
-                    kind = k;
-                }
-            };
-            if warping {
-                consider(warp_dest, EventKind::WarpDest);
-            }
-            if let Some(s) = self.bpms.get(ib) {
-                consider(s.tick.beat(), EventKind::Bpm);
-            }
-            if let Some(s) = self.delays.get(id) {
-                consider(s.tick.beat(), EventKind::Delay);
-            }
-            if let Some(s) = self.stops.get(is) {
-                consider(s.tick.beat(), EventKind::Stop);
-            }
-            if let Some(s) = self.warps.get(iw) {
-                consider(s.tick.beat(), EventKind::Warp);
-            }
-            if !warping {
-                time += (ev_beat - beat) / bps;
-            }
-            beat = ev_beat;
-            match kind {
-                EventKind::WarpDest => warping = false,
-                EventKind::Bpm => {
-                    bps = self.bpms[ib].bpm / 60.0;
-                    ib += 1;
-                }
-                EventKind::Delay => {
-                    time += self.delays[id].seconds;
-                    id += 1;
-                }
-                EventKind::Marker => return time,
-                EventKind::Stop => {
-                    time += self.stops[is].seconds;
-                    is += 1;
-                }
-                EventKind::Warp => {
-                    let w = self.warps[iw];
-                    warping = true;
-                    warp_dest = warp_dest.max((w.tick + w.length).beat());
-                    iw += 1;
-                }
-            }
-        }
+        self.walk().seconds(target)
     }
 
     /// Beat position for a song time, with freeze flags.
     pub fn position_at(&self, target: f64) -> TimePosition {
         let mut time = -self.offset_seconds;
         let mut beat = 0.0;
-        let mut bps = self.bpms[0].bpm / 60.0;
-        let (mut ib, mut id, mut is, mut iw) = (1usize, 0usize, 0usize, 0usize);
-        let mut warping = false;
-        let mut warp_dest = f64::NEG_INFINITY;
+        let mut walk = EventWalk::new(self);
         loop {
-            let mut ev_beat = f64::INFINITY;
-            let mut kind = EventKind::Marker;
-            let mut consider = |b: f64, k: EventKind| {
-                if b < ev_beat || (b == ev_beat && (k as u8) < (kind as u8)) {
-                    ev_beat = b;
-                    kind = k;
-                }
-            };
-            if warping {
-                consider(warp_dest, EventKind::WarpDest);
-            }
-            if let Some(s) = self.bpms.get(ib) {
-                consider(s.tick.beat(), EventKind::Bpm);
-            }
-            if let Some(s) = self.delays.get(id) {
-                consider(s.tick.beat(), EventKind::Delay);
-            }
-            if let Some(s) = self.stops.get(is) {
-                consider(s.tick.beat(), EventKind::Stop);
-            }
-            if let Some(s) = self.warps.get(iw) {
-                consider(s.tick.beat(), EventKind::Warp);
-            }
+            let (ev_beat, kind) = walk.next(f64::INFINITY);
             if kind == EventKind::Marker {
                 // No more events.
                 return TimePosition {
-                    beat: beat + (target - time) * bps,
+                    beat: beat + (target - time) * walk.bps,
                     in_stop: false,
                     in_delay: false,
                     in_warp: false,
                 };
             }
-            let ev_time = if warping {
+            let ev_time = if walk.warping {
                 time
             } else {
-                time + (ev_beat - beat) / bps
+                time + (ev_beat - beat) / walk.bps
             };
             if ev_time > target {
-                if warping {
+                if walk.warping {
                     return TimePosition {
-                        beat: warp_dest,
+                        beat: walk.warp_dest,
                         in_stop: false,
                         in_delay: false,
                         in_warp: true,
                     };
                 }
                 return TimePosition {
-                    beat: beat + (target - time) * bps,
+                    beat: beat + (target - time) * walk.bps,
                     in_stop: false,
                     in_delay: false,
                     in_warp: false,
@@ -329,37 +406,16 @@ impl TimingMap {
             }
             time = ev_time;
             beat = ev_beat;
-            match kind {
-                EventKind::WarpDest => warping = false,
-                EventKind::Bpm => {
-                    bps = self.bpms[ib].bpm / 60.0;
-                    ib += 1;
-                }
-                EventKind::Delay | EventKind::Stop => {
-                    let (secs, is_delay) = if kind == EventKind::Delay {
-                        id += 1;
-                        (self.delays[id - 1].seconds, true)
-                    } else {
-                        is += 1;
-                        (self.stops[is - 1].seconds, false)
+            if let Some(seconds) = walk.advance(kind) {
+                if time + seconds > target {
+                    return TimePosition {
+                        beat,
+                        in_stop: kind == EventKind::Stop,
+                        in_delay: kind == EventKind::Delay,
+                        in_warp: false,
                     };
-                    if time + secs > target {
-                        return TimePosition {
-                            beat,
-                            in_stop: !is_delay,
-                            in_delay: is_delay,
-                            in_warp: false,
-                        };
-                    }
-                    time += secs;
                 }
-                EventKind::Marker => unreachable!(),
-                EventKind::Warp => {
-                    let w = self.warps[iw];
-                    warping = true;
-                    warp_dest = warp_dest.max((w.tick + w.length).beat());
-                    iw += 1;
-                }
+                time += seconds;
             }
         }
     }
@@ -370,22 +426,7 @@ impl TimingMap {
 
     /// Displayed beat after applying scroll segments (`#SCROLLS`).
     pub fn displayed_beat(&self, beat: f64) -> f64 {
-        if self.scrolls.is_empty() {
-            return beat;
-        }
-        let mut out = 0.0;
-        let mut prev_beat = 0.0;
-        let mut ratio = 1.0;
-        for s in &self.scrolls {
-            let b = s.tick.beat();
-            if b >= beat {
-                break;
-            }
-            out += (b - prev_beat) * ratio;
-            prev_beat = b;
-            ratio = s.ratio;
-        }
-        out + (beat - prev_beat) * ratio
+        self.walk().displayed(beat)
     }
 
     /// Seconds of `#DELAYS` sitting exactly on `tick` (0 when none).
@@ -394,6 +435,15 @@ impl TimingMap {
             .iter()
             .filter(|d| d.tick == tick)
             .map(|d| d.seconds)
+            .sum()
+    }
+
+    /// Seconds of `#STOPS` sitting exactly on `tick` (0 when none).
+    pub fn stop_at(&self, tick: Tick) -> f64 {
+        self.stops
+            .iter()
+            .filter(|s| s.tick == tick)
+            .map(|s| s.seconds)
             .sum()
     }
 
@@ -567,6 +617,88 @@ mod tests {
         }
         t.tidy();
         t
+    }
+
+    /// [`TimingMap::seconds_at_beat`] from the first event, whatever was
+    /// asked before.
+    fn seconds_alone(map: &TimingMap, target: f64) -> f64 {
+        let mut time = -map.offset_seconds;
+        let mut beat = 0.0;
+        let mut walk = EventWalk::new(map);
+        loop {
+            let (ev_beat, kind) = walk.next(target);
+            if !walk.warping {
+                time += (ev_beat - beat) / walk.bps;
+            }
+            beat = ev_beat;
+            if kind == EventKind::Marker {
+                return time;
+            }
+            if let Some(seconds) = walk.advance(kind) {
+                time += seconds;
+            }
+        }
+    }
+
+    /// [`TimingMap::displayed_beat`] from the first scroll.
+    fn displayed_alone(map: &TimingMap, beat: f64) -> f64 {
+        if map.scrolls.is_empty() {
+            return beat;
+        }
+        let (mut out, mut prev_beat, mut ratio) = (0.0, 0.0, 1.0);
+        for s in &map.scrolls {
+            let b = s.tick.beat();
+            if b >= beat {
+                break;
+            }
+            out += (b - prev_beat) * ratio;
+            prev_beat = b;
+            ratio = s.ratio;
+        }
+        out + (beat - prev_beat) * ratio
+    }
+
+    #[test]
+    fn a_walk_up_the_beats_says_what_each_beat_says_alone() {
+        let mut rng = Lcg(0x5EED);
+        for round in 0..400 {
+            let mut t = random_map(&mut rng);
+            if round % 2 == 0 {
+                for _ in 0..rng.below(6) {
+                    t.scrolls.push(ScrollSegment {
+                        tick: Tick(rng.below(64 * 48) as i64),
+                        ratio: rng.unit() * 4.0 - 2.0,
+                    });
+                }
+                t.tidy();
+            }
+            // Every event's row, some twice, among beats anywhere.
+            let mut beats: Vec<f64> = (0..200).map(|_| rng.unit() * 70.0).collect();
+            beats.extend(t.bpms.iter().map(|s| s.tick.beat()));
+            beats.extend(t.stops.iter().map(|s| s.tick.beat()));
+            beats.extend(t.delays.iter().map(|s| s.tick.beat()));
+            beats.extend(
+                t.warps
+                    .iter()
+                    .flat_map(|w| [w.tick.beat(), (w.tick + w.length).beat()]),
+            );
+            beats.extend(t.scrolls.iter().map(|s| s.tick.beat()));
+            beats.extend(beats.clone().iter().take(40));
+            beats.sort_by(f64::total_cmp);
+            let mut walk = t.walk();
+            for b in beats {
+                assert_eq!(
+                    walk.seconds(b).to_bits(),
+                    seconds_alone(&t, b).to_bits(),
+                    "seconds at {b}"
+                );
+                assert_eq!(
+                    walk.displayed(b).to_bits(),
+                    displayed_alone(&t, b).to_bits(),
+                    "displayed at {b}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -7,17 +7,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ddi_actor::{Actor, Kind};
+use ddi_actor::Actor;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::common;
 use ddi_l10n::msg::select as msg;
 
 use super::data::{ImportView, Notice, PackEntry, Platform, PlayRow, ShareState, ShareView};
+use super::dialog::{button, button_rows, dialog_body, dialog_root, shell, wrap_lines};
 use super::select::NOTICE_LINK;
 use super::select::{IMPORT_CHANGED, SHARE_CHANGED, SelectCall, ShellFn};
 use super::{Env, left};
 use crate::hit;
-use crate::look::{self, Spec, call, quad};
+use crate::look::{self, Spec, call, quad_at};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::UiRequest;
@@ -27,134 +28,6 @@ use crate::state::select_view::pack_label;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListModel, ListStyle};
 use crate::widgets::{part, set_text};
-
-/// The dimmed screen around a dialog, its panel and its title.
-pub(crate) fn shell(
-    env: &Env,
-    screen: [f32; 2],
-    size: [f32; 2],
-    title: &str,
-) -> (Vec<Actor>, [f32; 2]) {
-    let [w, h] = size;
-    let x = (screen[0] - w) / 2.0;
-    let y = (screen[1] - h) / 2.0;
-    let mut dim = quad(
-        "Dim",
-        [screen[0] * 4.0, screen[1] * 4.0],
-        [0.0, 0.0, 0.0, 0.6],
-    );
-    call(&mut dim, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
-    let panel = env.component("Dialog", "Panel", &Spec::new(size, ""), "Panel", [x, y]);
-    let mut t = env.text("Title", title, 18.0, 700, "Text");
-    t = left(t, x + 24.0, y + 30.0);
-    (vec![dim, panel, t], [x, y])
-}
-
-/// A dialog's `buttons` (name, label, component) at its bottom right in
-/// rows of `per_row`, inside the dialog at `[x, y, w, h]`: as wide as a
-/// row has room for, 200 at most while they fit in one.
-fn button_rows(
-    env: &Env,
-    buttons: &[(&'static str, String, &'static str)],
-    per_row: usize,
-    [x, y, w, h]: [f32; 4],
-) -> Vec<Actor> {
-    let room = w - 48.0;
-    let rows = buttons.len().div_ceil(per_row);
-    let mut out = Vec::new();
-    for (r, chunk) in buttons.chunks(per_row).enumerate() {
-        let k = chunk.len() as f32;
-        let bw = ((room - (k - 1.0) * 10.0) / k).min(if rows > 1 { room } else { 200.0 });
-        let mut bx = x + w - 24.0 - k * bw - (k - 1.0) * 10.0;
-        let by = y + h - 44.0 - (rows - 1 - r) as f32 * 50.0;
-        for (name, label, kind) in chunk {
-            out.push(button(env, name, label, [bx + bw / 2.0, by], bw, kind));
-            bx += bw + 10.0;
-        }
-    }
-    out
-}
-
-pub(crate) fn button(
-    env: &Env,
-    name: &str,
-    label: &str,
-    centre: [f32; 2],
-    w: f32,
-    kind: &str,
-) -> Actor {
-    let mut b = look::component_or(&*env.look, kind, "Button", &Spec::new([w, 40.0], label));
-    b.name = name.into();
-    call(&mut b, "xy", &centre);
-    b
-}
-
-/// `text` in lines no wider than `width` at `size` (monospace widths),
-/// broken where Unicode allows (`ddi_actor::text::wrap`: between words,
-/// between Japanese characters but never before 。、」 and their kind);
-/// a piece too long for a line (a link, a hash) is cut. In a
-/// pseudo-language a message («…») or data (‹…›) keeps its marks on each
-/// of its lines, so that a line from its middle still reads as passed
-/// through a message (`l10n_tests.rs`).
-pub fn wrap_lines(text: &str, width: f32, size: f32) -> Vec<String> {
-    let wrap = |text: &str, width: f32| {
-        ddi_actor::text::wrap(text, width, true, &mut |s| look::mono_width(s, size))
-    };
-    if ddi_l10n::current().status == ddi_l10n::Status::Pseudo {
-        for (open, close) in [('«', '»'), ('‹', '›')] {
-            let Some(inner) = text.strip_prefix(open).and_then(|t| t.strip_suffix(close)) else {
-                continue;
-            };
-            let marks = look::mono_width(&format!("{open}{close}"), size);
-            let lines = wrap(inner, width - marks);
-            if lines.len() > 1 {
-                return lines
-                    .into_iter()
-                    .map(|l| format!("{open}{l}{close}"))
-                    .collect();
-            }
-        }
-    }
-    wrap(text, width)
-}
-
-/// Text no wider than `w`: cut with "…".
-pub(crate) fn wrap(a: &mut Actor, w: f32) {
-    if let Kind::Text(t) = &mut a.kind {
-        t.max_width = w;
-        t.ellipsis = true;
-    }
-}
-
-pub(crate) fn dialog_root(children: Vec<Actor>) -> Actor {
-    let mut root = Actor::new(Kind::Frame(children));
-    look::command_of(&mut root, "On", "diffusealpha,0;linear,0.12;diffusealpha,1");
-    look::command_of(&mut root, "Off", "linear,0.1;diffusealpha,0");
-    look::command_of(&mut root, "Cancel", "linear,0.1;diffusealpha,0");
-    root
-}
-
-/// Keep a form's actions on screen when chrome or a short window leaves less
-/// room than its natural height. Positions remain in the form's own space.
-pub(crate) fn fitted_dialog(
-    children: Vec<Actor>,
-    screen: [f32; 2],
-    height: f32,
-    scale: f32,
-) -> Actor {
-    let mut root = dialog_root(children);
-    let zoom = ((screen[1] - 16.0).max(1.0) / height).min(1.0);
-    call(&mut root, "zoom", &[zoom * scale]);
-    call(
-        &mut root,
-        "xy",
-        &[
-            screen[0] * (1.0 - zoom) * scale / 2.0,
-            screen[1] * (1.0 - zoom) * scale / 2.0,
-        ],
-    );
-    root
-}
 
 /// What can be managed: the selected pack, or the selected song (and its
 /// pack).
@@ -196,7 +69,6 @@ pub struct ManageDialog {
     /// An import runs: nothing is removed or read again until it ends
     /// (removing clears up shared files the import may be writing).
     busy: bool,
-    platform: Platform,
 }
 
 impl ManageDialog {
@@ -212,14 +84,7 @@ impl ManageDialog {
             shell,
             screen: super::DESIGN,
             busy,
-            platform: Platform::Web,
         }
-    }
-
-    /// Worded for `platform` (desktop hides songs, never deletes).
-    pub fn on(mut self, platform: Platform) -> ManageDialog {
-        self.platform = platform;
-        self
     }
 
     fn pack(&self) -> &PackEntry {
@@ -244,7 +109,7 @@ impl ManageDialog {
         }
         // Desktop hides songs (their folders are only read); the web
         // removes them from its storage.
-        let platform = self.platform.l10n();
+        let platform = self.env.platform.l10n();
         match self.step {
             Step::Choose => {
                 let mut v = Vec::new();
@@ -283,7 +148,7 @@ impl ManageDialog {
     /// their folders: hiding takes them off the list, reading the folder
     /// again brings them back.
     fn texts(&self) -> (String, String) {
-        let platform = self.platform.l10n();
+        let platform = self.env.platform.l10n();
         if self.busy {
             let title = match &self.what {
                 Manage::Pack { pack, .. } => pack_label(pack.name.as_deref()),
@@ -368,12 +233,8 @@ impl Screen for ManageDialog {
         let rows = n.div_ceil(per_row);
         let h = 110.0 + body.len() as f32 * 18.0 + rows as f32 * 50.0;
         let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &title);
-        for (i, line) in body.iter().enumerate() {
-            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, "Muted");
-            wrap(&mut b, w - 48.0);
-            children.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
-        }
-        children.extend(button_rows(&env, &buttons, per_row, [x, y, w, h]));
+        dialog_body(&env, &mut children, &body, [x, y], w, |_| "Muted");
+        children.extend(button_rows(&env, &buttons, per_row, [x, y, w, h], 200.0));
         dialog_root(children)
     }
 
@@ -446,10 +307,6 @@ impl Screen for ManageDialog {
     }
 }
 
-/// The expiries Share… offers, by the Worker's word (the buttons are
-/// `Expiry.<word>`, their labels [`expiry_label`]).
-pub const EXPIRIES: [&str; 5] = ["1h", "1d", "1w", "1m", "never"];
-
 /// A button's name for an expiry's word.
 fn expiry_button(word: &str) -> &'static str {
     match word {
@@ -520,7 +377,8 @@ impl ShareDialog {
     fn buttons(&self) -> Vec<(&'static str, String, &'static str)> {
         match self.state() {
             ShareState::Idle => {
-                let mut v: Vec<_> = EXPIRIES
+                // By the server's word (the buttons are `Expiry.<word>`).
+                let mut v: Vec<_> = ddi_library::share::EXPIRIES
                     .iter()
                     .map(|w| (expiry_button(w), expiry_label(w).into(), "Button"))
                     .collect();
@@ -626,13 +484,10 @@ impl Screen for ShareDialog {
         let rows = n.div_ceil(per_row);
         let h = 110.0 + body.len() as f32 * 18.0 + rows as f32 * 50.0;
         let (mut children, [x, y]) = shell(&env, screen, [w, h], &title);
-        for (i, line) in body.iter().enumerate() {
-            let color = if link && i == 1 { "Text" } else { "Muted" };
-            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, color);
-            wrap(&mut b, w - 48.0);
-            children.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
-        }
-        children.extend(button_rows(&env, &buttons, per_row, [x, y, w, h]));
+        dialog_body(&env, &mut children, &body, [x, y], w, |i| {
+            if link && i == 1 { "Text" } else { "Muted" }
+        });
+        children.extend(button_rows(&env, &buttons, per_row, [x, y, w, h], 200.0));
         // The buttons by name, for the debug state's rects.
         env.state.borrow_mut().page_items = buttons.iter().map(|(n, _, _)| n.to_string()).collect();
         dialog_root(children)
@@ -660,7 +515,7 @@ impl Screen for ShareDialog {
                     "Open" => cx.request(UiRequest::OpenUrl(self.view.borrow().link.clone())),
                     name if name.starts_with("Expiry.") && !self.started => {
                         let word = name.trim_start_matches("Expiry.");
-                        if !EXPIRIES.contains(&word) {
+                        if !ddi_library::share::EXPIRIES.contains(&word) {
                             return Handled::No;
                         }
                         // The dialog shows the upload from its start.
@@ -769,7 +624,7 @@ impl ImportDialog {
         };
         let v = view.borrow();
         url.text = v.danoni.url.clone();
-        let tab = if v.platform == Platform::Desktop
+        let tab = if env.platform == Platform::Desktop
             && v.danoni_urls
             && (v.danoni_cancel || !v.danoni.url.is_empty() || v.danoni.origin.is_some())
         {
@@ -804,7 +659,7 @@ impl ImportDialog {
 
     fn urls(&self) -> bool {
         let v = self.view.borrow();
-        v.platform == Platform::Desktop && v.danoni_urls
+        self.env.platform == Platform::Desktop && v.danoni_urls
     }
 
     fn busy_animation(&self) -> bool {
@@ -878,7 +733,7 @@ impl ImportDialog {
     /// The options shown: name, label, on.
     fn options(&self) -> Vec<(&'static str, UiText, bool)> {
         let v = self.view.borrow();
-        if v.platform == Platform::Desktop || self.tab != ImportTab::Files {
+        if self.env.platform == Platform::Desktop || self.tab != ImportTab::Files {
             return Vec::new();
         }
         OPTIONS
@@ -1005,8 +860,8 @@ impl ImportDialog {
         let v = self.view.borrow();
         // A browser keeping a chosen folder reads its music and
         // backgrounds from there (the web's alone).
-        let linked = v.platform == Platform::Web && v.folders && !v.copy;
-        let platform = v.platform.l10n();
+        let linked = self.env.platform == Platform::Web && v.folders && !v.copy;
+        let platform = self.env.platform.l10n();
         let compact = self.screen[1] < 480.0;
         let intro = match (compact, linked) {
             (true, true) => msg::import_intro_compact_linked(),
@@ -1221,7 +1076,7 @@ impl Screen for ImportDialog {
             600,
             if error { "Danger" } else { "Text" },
         );
-        wrap(&mut st, w - 48.0);
+        look::ellipsized(&mut st, w - 48.0);
         children.push(left(st, x + 24.0, top + 10.0));
         top += if self.screen[1] < 480.0 && self.tab == ImportTab::Files {
             22.0
@@ -1231,8 +1086,12 @@ impl Screen for ImportDialog {
         if self.tab == ImportTab::Danoni && busy && !self.origin_pending() {
             let width = w - 48.0;
             self.progress_rect = [x + 24.0, top, width];
-            let mut track = quad("DanoniProgress", [width, 6.0], self.env.color("Muted"));
-            call(&mut track, "xy", &[x + w / 2.0, top]);
+            let mut track = quad_at(
+                "DanoniProgress",
+                [width, 6.0],
+                self.env.color("Muted"),
+                [x + w / 2.0, top],
+            );
             call(&mut track, "diffusealpha", &[0.2]);
             children.push(track);
             if let Some((done, total)) = self
@@ -1243,22 +1102,21 @@ impl Screen for ImportDialog {
                 .filter(|(_, total)| *total > 0)
             {
                 let amount = width * (done as f64 / total as f64).clamp(0.0, 1.0) as f32;
-                let mut fill = quad(
+                let mut fill = quad_at(
                     "DanoniProgress.Fill",
                     [amount, 6.0],
                     self.env.color("Accent"),
+                    [x + 24.0 + amount / 2.0, top],
                 );
-                call(&mut fill, "xy", &[x + 24.0 + amount / 2.0, top]);
                 call(&mut fill, "diffusealpha", &[0.5]);
                 children.push(fill);
             }
-            let mut activity = quad(
+            children.push(quad_at(
                 "DanoniProgress.Activity",
                 [width * 0.18, 6.0],
                 self.env.color("Accent"),
-            );
-            call(&mut activity, "xy", &[self.activity_x(), top]);
-            children.push(activity);
+                [self.activity_x(), top],
+            ));
             top += 14.0;
         }
         if self.origin_pending() {
@@ -1363,7 +1221,7 @@ impl Screen for ImportDialog {
             if self.new_song {
                 v.push(Focusable {
                     up: Some("PickFolder".into()),
-                    down: Some(next.clone()),
+                    down: Some(next),
                     ..Focusable::new("NewSong")
                 });
             }
@@ -1497,7 +1355,7 @@ impl Screen for ImportDialog {
             }
             Input::Activate { name } => {
                 if matches!(name.as_str(), "PickFolder" | "PickFiles" | "NewSong")
-                    && self.view.borrow().platform != Platform::Desktop
+                    && self.env.platform != Platform::Desktop
                     && (!cx.in_gesture() || cx.menu_from_pad())
                 {
                     self.url_error = Some(msg::import_needs_gesture().into());
@@ -1682,7 +1540,7 @@ impl Screen for NoticesDialog {
                 400,
                 if *error { "Danger" } else { "Text" },
             );
-            wrap(&mut t, w - 48.0);
+            look::ellipsized(&mut t, w - 48.0);
             children.push(left(t, x + 24.0, y + 64.0 + i as f32 * 18.0));
         }
         let mut by = y + 64.0 + lines.len() as f32 * 18.0 + 10.0;
@@ -1874,14 +1732,13 @@ impl PagedRows {
     /// Row `i`'s plate at `[x, y, w]` (its top left), ringed in the accent
     /// when it is the chosen one.
     pub fn plate(&self, env: &Env, i: usize, [x, y, w]: [f32; 3]) -> Vec<Actor> {
-        let mut plate = look::component_or(
-            &*env.look,
+        let plate = env.component(
             "Button",
             "Button",
             &Spec::new([w, PAGED_ROW], ""),
+            &format!("Row{i}"),
+            [x + w / 2.0, y + PAGED_ROW / 2.0],
         );
-        plate.name = format!("Row{i}");
-        call(&mut plate, "xy", &[x + w / 2.0, y + PAGED_ROW / 2.0]);
         let mut out = vec![plate];
         if i == self.chosen {
             let c = env.color("Accent");
@@ -1891,9 +1748,7 @@ impl PagedRows {
                 ([2.0, PAGED_ROW + 6.0], [x - 2.0, y + PAGED_ROW / 2.0]),
                 ([2.0, PAGED_ROW + 6.0], [x + w + 2.0, y + PAGED_ROW / 2.0]),
             ] {
-                let mut q = quad("", size, c);
-                call(&mut q, "xy", &at);
-                out.push(q);
+                out.push(quad_at("", size, c, at));
             }
         }
         out
@@ -2084,7 +1939,7 @@ impl PlaysDialog {
         }
         let text = if chosen { "Text" } else { "Secondary" };
         let mut a = env.text("", &first.join(" · "), 13.0, 600, text);
-        wrap(&mut a, w - 190.0);
+        look::ellipsized(&mut a, w - 190.0);
         // The options as played, as the history kept them.
         let mods: String = if r.mods.is_empty() {
             "—".into()
@@ -2092,7 +1947,7 @@ impl PlaysDialog {
             UiText::data(&r.mods).into()
         };
         let mut b = env.text("", &mods, 12.0, 400, "Muted");
-        wrap(&mut b, w - 190.0);
+        look::ellipsized(&mut b, w - 190.0);
         // The ruleset's readouts.
         let score = if r.pending {
             format!("{} {} …", r.grade, r.score)

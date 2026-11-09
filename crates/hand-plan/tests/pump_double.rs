@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 すごいジャン <me@sugoijan.dev>
 // SPDX-License-Identifier: MIT
+use common::double_plan as plan;
 use ddi_chart::{Note, NoteKind, Tick};
-use ddi_hand_plan::{Input, Options, PlannerJob};
+use ddi_hand_plan::Input;
 mod common;
 fn input(layout: &str, kind: &str, mirror: bool) -> Input {
     let mut song = ddi_chart::formats::sm::parse_sm(
@@ -85,24 +86,6 @@ fn input(layout: &str, kind: &str, mirror: bool) -> Input {
     notes.sort_by_key(|n| (n.tick, n.lane));
     song.charts[0].notes = notes;
     Input::from_song(&song, 0).unwrap()
-}
-fn plan(input: &Input) -> ddi_hand_plan::ContactPlan {
-    let mut job = PlannerJob::new(input.clone(), Options::default());
-    for _ in 0..1_000_000 {
-        if job.step() {
-            break;
-        }
-    }
-    let (p, report) = job.finish().unwrap();
-    let p = p.unwrap_or_else(|| panic!("{report:?}"));
-    assert!(ddi_hand_plan::replay(input, &p).unwrap().passed);
-    assert_eq!(p.version, 2);
-    assert_eq!(p.mat.unwrap().pads(), 2);
-    p.pose_plan().unwrap();
-    for e in &p.events {
-        assert_eq!(e.music_time, input.timing.seconds_at(Tick(e.tick)));
-    }
-    p
 }
 #[test]
 fn pump_double_layouts_preserve_all_contacts_including_centers_and_hazards() {

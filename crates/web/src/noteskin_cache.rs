@@ -172,7 +172,6 @@ pub(crate) async fn hold(key: &str) -> Holding {
                     waiting.push(resolve.clone());
                 }
             });
-            let resolve = resolve.clone();
             Timeout::new(left.ceil() as u32, move || {
                 let _ = resolve.call0(&JsValue::NULL);
             })

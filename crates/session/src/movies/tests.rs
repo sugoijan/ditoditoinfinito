@@ -287,10 +287,11 @@ fn every_close_learns_the_end() {
     assert_eq!(slots.ends, vec![("a".to_string(), 0.5)]);
     assert_eq!(slots.shell().log.borrow().stopped, 1);
     assert_eq!(slots.shown_ids().count(), 0, "a retry shows no old frame");
-    // Stopped again (desktop, every frame after the song): nothing changes.
+    // Stopped again (every frame after the song): nothing changes.
     let v = slots.version();
     slots.stop();
     assert_eq!(slots.version(), v);
+    assert_eq!(slots.shell().log.borrow().stopped, 1);
     // The retry's track knows it: past the end it wraps at once (the
     // seek lands within the movie, not at 2.5).
     run(&mut slots, &layers, 3.5);
@@ -503,4 +504,26 @@ fn script_clips_play_on_their_clocks() {
     slots.update_clips(&[clip("m", 0.3)]);
     assert_eq!(slots.opened().len(), 1);
     assert_eq!(slots.shell().log.borrow().opened, ["m", "m"]);
+}
+
+#[test]
+fn failed_script_clips_close_together_and_leave_other_decoders_open() {
+    let mut slots = MovieSlots::new(FakeShell::default());
+    let clips: Vec<_> = ["a", "b", "c"]
+        .into_iter()
+        .map(|name| Clip {
+            name: name.into(),
+            position: 0.0,
+            looping: true,
+        })
+        .collect();
+    slots.update_clips(&clips);
+    slots.fail("a", "first failure".into());
+    slots.fail("b", "second failure".into());
+    for _ in 0..2 {
+        slots.update_clips(&clips);
+        assert_eq!(slots.opened().len(), 1);
+        assert_eq!(slots.opened()[0].name, "c");
+    }
+    assert_eq!(slots.shell().log.borrow().opened, ["a", "b", "c"]);
 }

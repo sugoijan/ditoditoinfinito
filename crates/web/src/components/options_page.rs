@@ -26,7 +26,6 @@ use std::rc::{Rc, Weak};
 
 use crate::component::{Component, Context, NodeRef};
 use ddi_chart::Layout;
-use ddi_engine::ConnectedPad;
 use ddi_l10n::msg::options as m;
 use ddi_ui::screens::Env as ThemeEnv;
 use ddi_ui::screens::errors::error_text;
@@ -40,12 +39,13 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use web_sys::{AudioBuffer, HtmlElement, HtmlInputElement};
 
-use crate::components::ui_dev::{self, Host, Started};
+use crate::components::ui_dev::{self, Host, UiPage};
 use crate::import;
 use crate::preview::Preview;
-use crate::router::Route;
+use crate::router::{PlayRoute, Route};
 use crate::settings::Settings;
 use crate::songs::{Library, ManifestEntry, clear_imported};
+use crate::web::files::{self, carries_files};
 
 /// How often the controllers connected are compared with those shown.
 const PAD_REFRESH_MS: u32 = 300;
@@ -97,10 +97,8 @@ struct Shared {
 }
 
 pub(crate) struct OptionsPage {
-    root: NodeRef,
+    ui: UiPage,
     shared: Rc<Shared>,
-    started: Option<Started>,
-    failure: Option<String>,
     history_seen: u64,
     _pad_refresh: Option<Interval>,
     /// The import's input's and the page's drop listeners.
@@ -143,7 +141,6 @@ impl Component for OptionsPage {
         }
         let settings = Settings::load();
         let world = World {
-            platform: ddi_ui::screens::data::Platform::Web,
             plays: crate::history::plays().history().len(),
             importing: import::status().0.is_some(),
             sharing: settings.sharing,
@@ -165,10 +162,8 @@ impl Component for OptionsPage {
         });
         let link = ctx.link().clone();
         OptionsPage {
-            root: NodeRef::default(),
+            ui: UiPage::default(),
             shared,
-            started: None,
-            failure: None,
             history_seen: crate::history::plays().generation(),
             _pad_refresh: Some(Interval::new(PAD_REFRESH_MS, move || {
                 link.send_message(Msg::PadsTick)
@@ -237,16 +232,7 @@ impl Component for OptionsPage {
                 let Some(g) = s.pads.borrow().clone() else {
                     return false;
                 };
-                let pads: Vec<ConnectedPad> = g
-                    .pads()
-                    .into_iter()
-                    .map(|p| ConnectedPad {
-                        vendor_product: None,
-                        id: p.id,
-                        index: p.index,
-                        standard: p.standard,
-                    })
-                    .collect();
+                let pads = g.connected();
                 if pads != s.model.borrow().world.connected {
                     s.model.borrow_mut().world.connected = pads;
                     send(s);
@@ -388,10 +374,7 @@ impl Component for OptionsPage {
                 send(s);
             }
             Msg::Failed(e) => {
-                self.failure = Some(e);
-                if let Some((host, _, pads)) = &self.started {
-                    ui_dev::stop_ui(host, pads.as_ref());
-                }
+                self.ui.fail(e);
                 return true;
             }
         }
@@ -399,12 +382,7 @@ impl Component for OptionsPage {
     }
 
     fn view(&self, ctx: &Context<Self>) {
-        if let Some(e) = &self.failure {
-            crate::component::no_gpu(ctx.root(), e);
-            return;
-        }
-        ctx.root().set_class_name("select-page options-page");
-        self.root.set(ctx.root());
+        self.ui.view(ctx, "select-page options-page");
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
@@ -412,19 +390,13 @@ impl Component for OptionsPage {
         crate::history::watch(None);
         stop_sample(&self.shared);
         self.shared.voice.borrow_mut().take();
-        if let Some((host, _, pads)) = &self.started {
-            ui_dev::stop_ui(host, pads.as_ref());
-        }
-        crate::web::forget_debug(&["options", "ui"]);
+        self.ui.destroy(&["options", "ui"]);
     }
 }
 
 impl OptionsPage {
     fn start(&mut self, ctx: &Context<Self>) {
-        let Some(el) = self.root.cast::<HtmlElement>() else {
-            return;
-        };
-        self._listeners = import_listeners(&el, &self.shared, ctx);
+        self._listeners = import_listeners(ctx.root(), &self.shared, ctx);
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
         *self.shared.env.borrow_mut() = Some(env.clone());
@@ -444,24 +416,20 @@ impl OptionsPage {
             let shared = self.shared.clone();
             Box::new(move |obj: &js_sys::Object| debug_into(&shared, obj))
         };
-        match ui_dev::start_ui(&el, ui, Some(theme), Some(extra)) {
-            Ok(started) => {
-                *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-                *self.shared.pads.borrow_mut() = started.2.clone();
-                let field = ui_dev::field_settings(&started.0);
-                *field.borrow_mut() = Some(self.shared.model.borrow().preview_settings());
-                *self.shared.field.borrow_mut() = Some(field);
-                self.shared.model.borrow_mut().world.pads_supported = started.2.is_some();
-                send(&self.shared);
-                let link = ctx.link().clone();
-                ui_dev::attach_gfx(started.0.clone(), move |e| {
-                    link.send_message(Msg::Failed(e))
-                });
-                self.started = Some(started);
-                ctx.link().send_message(Msg::PadsTick);
-            }
-            Err(e) => ctx.link().send_message(Msg::Failed(e)),
-        }
+        let Some(started) = self
+            .ui
+            .start(ctx, ui, Some(theme), Some(extra), Msg::Failed)
+        else {
+            return;
+        };
+        *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+        *self.shared.pads.borrow_mut() = started.2.clone();
+        let field = ui_dev::field_settings(&started.0);
+        *field.borrow_mut() = Some(self.shared.model.borrow().preview_settings());
+        *self.shared.field.borrow_mut() = Some(field);
+        self.shared.model.borrow_mut().world.pads_supported = started.2.is_some();
+        send(&self.shared);
+        ctx.link().send_message(Msg::PadsTick);
     }
 }
 
@@ -477,10 +445,7 @@ fn import_listeners(
     ctx: &Context<OptionsPage>,
 ) -> Vec<EventListener> {
     let mut out = Vec::new();
-    let input = crate::component::element(root, "input", "");
-    let _ = input.set_attribute("type", "file");
-    let _ = input.set_attribute("accept", PLAYS_ACCEPT);
-    let _ = input.set_attribute("tabindex", "-1");
+    let input = files::file_input(root, Some(PLAYS_ACCEPT), false);
     let _ = input.set_attribute("aria-hidden", "true");
     let _ = input.set_attribute("data-ddi", "import-plays");
     input.set_hidden(true);
@@ -504,10 +469,6 @@ fn import_listeners(
         return out;
     };
     let opts = EventListenerOptions::enable_prevent_default();
-    let carries_files = |e: &web_sys::DragEvent| {
-        e.data_transfer()
-            .is_some_and(|dt| dt.types().includes(&"Files".into(), 0))
-    };
     out.push(EventListener::new_with_options(
         &window,
         "dragover",
@@ -639,11 +600,7 @@ impl OptionsPlatform for Web {
             let token = Settings::load().share_token;
             let view = match crate::share::list(&token).await {
                 Ok(v) => v,
-                Err(e) => ddi_ui::screens::data::SharesView {
-                    state: ddi_ui::screens::data::SharesState::Failed,
-                    error: Some(e),
-                    ..Default::default()
-                },
+                Err(e) => ddi_ui::screens::data::SharesView::failed(e),
             };
             *into.borrow_mut() = view;
             if let Some(h) = host {
@@ -671,11 +628,7 @@ impl OptionsPlatform for Web {
             };
             *into.borrow_mut() = match view {
                 Ok(v) => v,
-                Err(e) => ddi_ui::screens::data::SharesView {
-                    state: ddi_ui::screens::data::SharesState::Failed,
-                    error: Some(e),
-                    ..Default::default()
-                },
+                Err(e) => ddi_ui::screens::data::SharesView::failed(e),
             };
             if let Some(h) = host {
                 ui_dev::broadcast_soon(h, SHARES_CHANGED);
@@ -757,19 +710,11 @@ impl OptionsPlatform for Web {
             }
             Leave::Calibrate => Route::Calibrate,
             Leave::Studio => Route::Studio,
-            Leave::Demo { gl } => Route::Play {
-                song: "some-things-must".into(),
-                chart: 2,
+            Leave::Demo { gl } => Route::Play(PlayRoute {
                 force_gl: gl,
                 auto: true,
-                auto_pad: false,
-                bias_ms: 0,
-                slow: false,
-                replay: None,
-                view_results: false,
-                edit: false,
-                scene: None,
-            },
+                ..PlayRoute::song("some-things-must", 2)
+            }),
         };
         cx.request(UiRequest::Navigate(route.to_hash()));
     }

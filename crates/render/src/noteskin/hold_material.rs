@@ -257,7 +257,7 @@ impl NoteskinPlay {
         let screen0 = (0.0 - head) / (k * dir);
         let screen1 = (geo.height - head) / (k * dir);
         let screen = (screen0.min(screen1) - margin, screen0.max(screen1) + margin);
-        let spans: Vec<(f32, f32)> = frame
+        let visible = frame
             .appearance
             .visible_spans(
                 note.y,
@@ -288,9 +288,13 @@ impl NoteskinPlay {
                     .min(screen.1),
                 )
             })
-            .filter(|(a, b)| b > a)
-            .collect();
-        if spans.is_empty() {
+            .filter(|(a, b)| b > a);
+        // `visible_spans` yields two at most.
+        let mut spans = [None; 2];
+        for (span, s) in spans.iter_mut().zip(visible) {
+            *span = Some(s);
+        }
+        if spans[0].is_none() {
             return;
         }
         let first = out.len();
@@ -302,16 +306,11 @@ impl NoteskinPlay {
                     wrap: bool,
                     mask: Mask,
                     out: &mut Vec<TexQuad>| {
-            let Some(texture) = self
-                .texture_ids
-                .get(layer.texture as usize)
-                .copied()
-                .flatten()
-            else {
+            let Some(texture) = self.texture_id(layer.texture) else {
                 return;
             };
             let r = layer.rect;
-            for &(lo, hi) in &spans {
+            for &(lo, hi) in spans.iter().flatten() {
                 let a = y0.max(lo);
                 let b = y1.min(hi);
                 if b <= a {
@@ -428,7 +427,7 @@ impl NoteskinPlay {
                 };
                 // A hold let go greys: its fill tinted so.
                 let tint = to_target([color_scale, color_scale, color_scale, 1.0], self.srgb);
-                for &span in &spans {
+                for &span in spans.iter().flatten() {
                     out.push(fill_quad(
                         quad,
                         place,

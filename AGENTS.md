@@ -249,7 +249,9 @@ Rust and the browser are implementation details, not advertised features.
   with the study's approved values (`generative.rs`: `stands_in`, never
   for a Dancing☆Onigiri work; `Series`, every smoothing, peak and clock
   made over the analysis, so a frame is a function of the song second;
-  `docs/plans/phase-8-gaps.md`, step 5). Pure, natively tested.
+  `docs/plans/phase-8-gaps.md`, step 5), and the schema of
+  `credits/credits.json` that `xtask gen-credits` writes and the Credits
+  screen reads (`credits.rs`). Pure, natively tested.
 - `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -526,7 +528,7 @@ Rust and the browser are implementation details, not advertised features.
   `render` (`ddi-shell`), so neither keeps a copy: a play's
   `RenderOptions` and Options' field preview's options and skin from the
   settings, the skin a play readies with its parameters' values (the
-  preview's the same, `play_skin`), the note colors as the renderer has them, the ghost's lead as
+  preview's the same, `play_skins`), the note colors as the renderer has them, the ghost's lead as
   the HUD shows it, and a work's layers' textures
   (`crates/shell/src/stage.rs`, generic over each shell's decoded content:
   the web's `ImageBitmap`, desktop's RGBA rows) and a song's scripts'

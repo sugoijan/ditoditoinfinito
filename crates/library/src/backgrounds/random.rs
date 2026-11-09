@@ -144,7 +144,7 @@ pub fn random_pool<S: AsRef<str>>(
         if found.is_empty() {
             continue;
         }
-        found.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+        found.sort_by_cached_key(|p| (p.to_lowercase(), *p));
         found.dedup();
         shuffle(&mut found, fnv1a64(id.as_bytes()));
         found.truncate(NUM_BACKGROUNDS);

@@ -511,6 +511,26 @@ pub fn is_pump_skin(key: &str) -> bool {
         .is_some_and(|g| g.eq_ignore_ascii_case("pump"))
 }
 
+/// `$v` within `$lo..=$hi`, or `$default` when it is not a number.
+macro_rules! finite_in {
+    ($v:expr, $lo:expr, $hi:expr, $default:expr) => {{
+        let v = $v;
+        if v.is_finite() {
+            v.clamp($lo, $hi)
+        } else {
+            $default
+        }
+    }};
+}
+
+/// The one of `choices` nearest `v`.
+fn nearest<const N: usize>(v: f32, choices: [f32; N]) -> f32 {
+    choices
+        .into_iter()
+        .min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs()))
+        .unwrap_or(v)
+}
+
 impl Settings {
     /// The noteskin key chosen for layout `layout` (an id): the pump skin
     /// on a pump layout when one is chosen (and draws them), else
@@ -680,6 +700,29 @@ impl Settings {
         s
     }
 
+    /// [`Settings::load`], read again only when the stored text changed
+    /// (for callers on every selection step or turn of the event loop).
+    pub fn cached() -> Settings {
+        thread_local! {
+            /// The settings last loaded and the stored text they came from.
+            static CACHED: std::cell::RefCell<Option<(Option<String>, Settings)>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        let raw = storage::get(Area::Local, KEY);
+        let hit = CACHED.with_borrow(|c| match c {
+            Some((text, s)) if *text == raw => Some(s.clone()),
+            _ => None,
+        });
+        if let Some(s) = hit {
+            return s;
+        }
+        let s = Settings::load();
+        // Loading may have stored a sanitized copy.
+        let raw = storage::get(Area::Local, KEY);
+        CACHED.set(Some((raw, s.clone())));
+        s
+    }
+
     /// Clamps stored values to the ranges the options screen allows and
     /// normalises the key table (one row per lane, a key on one lane only),
     /// so a hand-edited or stale `localStorage` entry cannot misbehave.
@@ -703,56 +746,23 @@ impl Settings {
         {
             self.pump_noteskin = None;
         }
-        if !self.speed.is_finite() {
-            self.speed = defaults.speed;
-        }
+        self.speed = finite_in!(self.speed, 0.25, 10.0, defaults.speed);
         // One of the choices Options offers (a hand edit: the nearest).
-        self.cursor_size = if self.cursor_size.is_finite() {
-            self.cursor_size.clamp(16.0, 64.0).round()
-        } else {
-            defaults.cursor_size
-        };
+        self.cursor_size = finite_in!(self.cursor_size, 16.0, 64.0, defaults.cursor_size).round();
         if !self.start_countdown.is_finite() {
             self.start_countdown = defaults.start_countdown;
         }
-        self.start_countdown = START_COUNTDOWNS
-            .into_iter()
-            .min_by(|a, b| {
-                (a - self.start_countdown)
-                    .abs()
-                    .total_cmp(&(b - self.start_countdown).abs())
-            })
-            .unwrap_or(0.0);
-        self.speed = self.speed.clamp(0.25, 10.0);
+        self.start_countdown = nearest(self.start_countdown, START_COUNTDOWNS);
         for v in [&mut self.audio_offset, &mut self.visual_offset] {
-            *v = if v.is_finite() {
-                v.clamp(-0.5, 0.5)
-            } else {
-                0.0
-            };
+            *v = finite_in!(*v, -0.5, 0.5, 0.0);
         }
-        self.volume = if self.volume.is_finite() {
-            self.volume.clamp(0.0, 1.0)
-        } else {
-            defaults.volume
-        };
-        self.announcer_volume = if self.announcer_volume.is_finite() {
-            self.announcer_volume.clamp(0.0, 1.0)
-        } else {
-            defaults.announcer_volume
-        };
-        self.bg_brightness = if self.bg_brightness.is_finite() {
-            self.bg_brightness.clamp(0.0, 1.0)
-        } else {
-            defaults.bg_brightness
-        };
+        self.volume = finite_in!(self.volume, 0.0, 1.0, defaults.volume);
+        self.announcer_volume =
+            finite_in!(self.announcer_volume, 0.0, 1.0, defaults.announcer_volume);
+        self.bg_brightness = finite_in!(self.bg_brightness, 0.0, 1.0, defaults.bg_brightness);
+        // Snap to the nearest offered strength so the select shows it.
         self.field_filter = if self.field_filter.is_finite() {
-            // Snap to the nearest offered strength so the select shows it.
-            let f = self.field_filter;
-            FIELD_FILTERS
-                .into_iter()
-                .min_by(|a, b| (a - f).abs().total_cmp(&(b - f).abs()))
-                .unwrap_or(defaults.field_filter)
+            nearest(self.field_filter, FIELD_FILTERS)
         } else {
             defaults.field_filter
         };
@@ -785,11 +795,7 @@ impl Settings {
             .iter_mut()
             .chain(self.display_profiles.iter_mut())
         {
-            p.offset = if p.offset.is_finite() {
-                p.offset.clamp(-0.5, 0.5)
-            } else {
-                0.0
-            };
+            p.offset = finite_in!(p.offset, -0.5, 0.5, 0.0);
         }
         self.song_offsets
             .retain(|_, v| v.is_finite() && v.abs() >= SONG_OFFSET_EPSILON);
@@ -822,15 +828,8 @@ impl Settings {
     /// else the defaults. The shuffle seed is left at 0 for the play session
     /// to pick.
     pub fn play_options(&self, devices: Option<&ddi_platform::DeviceProfile>) -> PlayOptions {
-        let (audio_offset, visual_offset) = match devices {
-            Some(d) => (
-                self.audio_offset_for(Some(&d.audio)),
-                self.display_profile(&d.display.id)
-                    .map(|p| p.offset)
-                    .unwrap_or(self.visual_offset),
-            ),
-            None => (self.audio_offset, self.visual_offset),
-        };
+        let audio_offset = self.audio_offset_for(devices.map(|d| &d.audio));
+        let visual_offset = self.visual_offset_for(devices.map(|d| &d.display));
         PlayOptions {
             scroll: ScrollOptions {
                 speed: SpeedMod::XMod(self.speed),
@@ -873,6 +872,14 @@ impl Settings {
         audio
             .and_then(|a| self.audio_profile(&a.id))
             .map_or(self.audio_offset, |p| p.offset)
+    }
+
+    /// The visual offset a play on display `display` takes: its profile's
+    /// when known, else the default.
+    pub fn visual_offset_for(&self, display: Option<&ddi_platform::DeviceFingerprint>) -> f64 {
+        display
+            .and_then(|d| self.display_profile(&d.id))
+            .map_or(self.visual_offset, |p| p.offset)
     }
 
     pub fn audio_profile(&self, id: &str) -> Option<&OffsetProfile> {
@@ -1543,5 +1550,17 @@ mod dancing_hand_tests {
         assert!(s.dancing_hand_for("danoni-9A"));
         assert!(s.dancing_hand_for("pump-double"));
         assert_eq!(s.transform, original);
+    }
+
+    /// Kept until what is stored changes, and changing with it.
+    #[test]
+    fn cached_settings_follow_what_is_stored() {
+        storage::install(std::rc::Rc::new(storage::MemoryStore::default()));
+        assert_eq!(Settings::cached(), Settings::load());
+        let mut s = Settings::load();
+        s.speed = 3.0;
+        s.save();
+        assert_eq!(Settings::cached().speed, 3.0);
+        assert_eq!(Settings::cached().speed, 3.0);
     }
 }

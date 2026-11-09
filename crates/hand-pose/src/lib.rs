@@ -19,14 +19,15 @@ pub use contact_curve::{
     ContactCurveReport, ContactCurveSample,
 };
 pub use correction::{ContactCorrection, correct_contact_pose};
+pub use curve::smoother;
 pub use fit::PoseFit;
 pub use motion::{Guide, Preparation};
 pub use rolling::{PreparationMode, Rolling, RollingOptions, WindowReport};
 pub use stream::StreamOptions;
 mod solve;
 pub use plan::{
-    Mine, Plan, RollPulse, Targets, mine_head_clearance_end, mine_head_clearance_start,
-    panel_position,
+    Event, Foot, Initial, Mine, Placement, Plan, PlanParts, RollPulse, Swing, Targets, Tracks,
+    mine_head_clearance_end, mine_head_clearance_start, panel_position, wide_stances,
 };
 use serde::Deserialize;
 pub use solve::{Goal, SolveReport, refine_contacts, solve};
@@ -166,68 +167,21 @@ impl Model {
         }
     }
     pub fn transforms(&self, q: &Parameters) -> ([Matrix; 19], [Matrix; 16]) {
-        let [ax, ay, az] = [
-            -1.40 + q[11].to_radians(),
-            -0.32 + q[12].to_radians(),
-            q[13].to_radians(),
-        ];
-        let (sx, cx) = ax.sin_cos();
-        let (sy, cy) = ay.sin_cos();
-        let (sz, cz) = az.sin_cos();
-        let root = [
-            [
-                cz * cy,
-                cz * sy * sx - sz * cx,
-                cz * sy * cx + sz * sx,
-                q[8],
-            ],
-            [
-                sz * cy,
-                sz * sy * sx + cz * cx,
-                sz * sy * cx - cz * sx,
-                q[9],
-            ],
-            [-sy, cy * sx, cy * cx, q[10]],
-            [0., 0., 0., 1.],
-        ];
+        let root = self.root(q);
         let mut b = std::array::from_fn(|i| mul(&root, &self.fixed[i]));
         for d in 0..2 {
             let mut p = IDENTITY;
             for j in 0..3 {
-                let i = d * 3 + j;
-                let bend = q[d * 4 + j];
-                let (sa, ca) = bend.to_radians().sin_cos();
-                let (ss, cs) = if j == 0 {
-                    q[d * 4 + 3].to_radians().sin_cos()
-                } else {
-                    (0., 1.)
-                };
-                let u = (bend * 4.).clamp(0., 440.);
-                let k = (u.floor() as usize).min(439);
-                let shift = self.shifts[i][k]
-                    + (u - k as f64) * (self.shifts[i][k + 1] - self.shifts[i][k]);
-                let dr = self.directions[i].map(|v| v * shift);
-                let delta = [
-                    [cs, -ss, 0., dr[0]],
-                    [ca * ss, ca * cs, sa, dr[1]],
-                    [-sa * ss, -sa * cs, ca, dr[2]],
-                    [0., 0., 0., 1.],
-                ];
-                p = mul(&mul(&p, &self.locals[i]), &delta);
-                b[i + 1] = mul(&root, &p);
+                p = self.joint(q, &p, d, j);
+                b[d * 3 + j + 1] = mul(&root, &p);
             }
         }
         let mut g = [IDENTITY; 19];
         for i in 0..16 {
-            g[i + 3] = mul(&mul(&self.a, &b[i]), &self.bind[i]);
+            g[i + 3] = self.bone(i + 3, &b[i]);
         }
-        let palm = self.helper_origins[3];
-        let moved = point(&g[3], palm);
-        for i in 1..3 {
-            for k in 0..3 {
-                g[i][k][3] = moved[k] - palm[k];
-            }
-        }
+        g[1] = self.palm_follower(&g[3]);
+        g[2] = g[1];
         (g, b)
     }
     pub fn geometry(&self, q: &Parameters) -> Geometry {

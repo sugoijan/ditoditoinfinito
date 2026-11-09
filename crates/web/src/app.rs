@@ -19,7 +19,7 @@ use crate::components::studio_page::StudioPage;
 use crate::components::ui_dev::{self, UiDev};
 use crate::components::ui_test::{self, UiTest};
 use crate::components::video_check::{self, VideoCheck};
-use crate::router::Route;
+use crate::router::{PlayRoute, Route};
 use crate::web::gfx::BackendPreference;
 
 pub(crate) struct App {
@@ -137,7 +137,7 @@ impl App {
         self.route = Route::current();
         let losses = crate::web::screen::losses();
         let key = match &self.route {
-            Route::Play { .. } | Route::CalibrateRun { .. } => {
+            Route::Play(_) | Route::CalibrateRun { .. } => {
                 format!("{}#{}", self.route.to_hash(), self.play_mounts)
             }
             Route::Home | Route::Songs | Route::UiTest { .. } | Route::UiDev { .. } => {
@@ -198,13 +198,13 @@ impl App {
                 crate::components::shared_page::Props { id: id.clone() },
             )),
             // A kept play watched again (or its results): read first.
-            Route::Play {
+            Route::Play(PlayRoute {
                 replay: Some(id),
                 view_results,
                 force_gl,
                 slow,
                 ..
-            } => Box::new(mount::<crate::replay::ReplayLoader>(
+            }) => Box::new(mount::<crate::replay::ReplayLoader>(
                 root,
                 "div",
                 crate::replay::Props {
@@ -219,7 +219,7 @@ impl App {
                     restart,
                 },
             )),
-            Route::Play {
+            Route::Play(PlayRoute {
                 song,
                 chart,
                 force_gl,
@@ -230,7 +230,7 @@ impl App {
                 edit,
                 scene,
                 ..
-            } => Box::new(mount::<GameCanvas>(
+            }) => Box::new(mount::<GameCanvas>(
                 root,
                 "div",
                 game_canvas::Props {

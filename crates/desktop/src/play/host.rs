@@ -426,7 +426,7 @@ fn first_info(request: &Request) -> PromptInfo {
         });
     PromptInfo {
         title: entry.as_ref().map_or(String::new(), |e| e.title.clone()),
-        artist: entry.map_or(String::new(), |e| e.artist.clone()),
+        artist: entry.map_or(String::new(), |e| e.artist),
         badge,
         ..PromptInfo::default()
     }
@@ -703,7 +703,6 @@ impl Host {
                     }
                     None => PromptStep::Ready,
                 },
-                platform: ddi_ui::screens::data::Platform::Desktop,
                 ..PromptState::default()
             }));
             let mut readied = Readied {
@@ -759,11 +758,7 @@ impl Host {
                 && readied.request.replay.is_none()
                 && readied.request.refused.is_none()
             {
-                let mut o = PlayOptions::new(
-                    readied.request.settings(),
-                    "",
-                    ddi_ui::screens::data::Platform::Desktop,
-                );
+                let mut o = PlayOptions::new(readied.request.settings(), "", env.platform);
                 let bundled = crate::library::noteskins::bundled();
                 o.set_noteskins(crate::library::noteskins::choices(&bundled), false);
                 o.show(&mut readied.prompt.borrow_mut());
@@ -1500,7 +1495,7 @@ impl Host {
             v.poll();
         }
         let ended = play.tick(now, self.plays.as_ref());
-        render.ghost = play.session.ghost_delta().map(ddi_shell::score_delta);
+        ddi_shell::apply_view(render, play.session.view, play.session.ghost_delta());
         // A scene's play goes into its picture; the words of what it says
         // into the frame as each line starts.
         let (view, plain) = if let Some(run) = r.scene.as_mut() {
@@ -1747,11 +1742,8 @@ impl Host {
         let e = &loaded.entry;
         let id = play.request.song.clone();
         let song = SongEntry {
-            id: id.clone(),
             title: e.title.clone(),
             artist: e.artist.clone(),
-            bpm: e.bpm.parse().unwrap_or(0.0),
-            bpm_text: e.bpm.clone(),
             length: session.length as f32,
             banner: e.banner.as_deref().map(|b| loaded.files.source(b)),
             background: e.background.as_deref().map(|b| loaded.files.source(b)),
@@ -1816,7 +1808,6 @@ impl Host {
             device_changed,
             video_notes: notes,
             offset: Some((play.played_offset, settings.song_offset(&id))),
-            panels: settings.results_panels.clone(),
             autoplay: match &replay {
                 Some(rp) => rp.record.autoplay.is_some(),
                 None => play.request.auto,
@@ -1909,7 +1900,6 @@ impl Host {
             return Stage::Idle;
         };
         let rules = rp.record.ruleset.build(c);
-        let settings = Settings::load();
         let entry = crate::library::song(&r.request.song)
             .map(|s| s.entry)
             .or_else(|| {
@@ -1919,14 +1909,8 @@ impl Host {
             });
         let files = super::load::Files::of(&r.request.song).map(|(f, _)| f);
         let song_entry = SongEntry {
-            id: r.request.song.clone(),
             title: entry.as_ref().map_or(String::new(), |e| e.title.clone()),
             artist: entry.as_ref().map_or(String::new(), |e| e.artist.clone()),
-            bpm: entry
-                .as_ref()
-                .and_then(|e| e.bpm.parse().ok())
-                .unwrap_or(0.0),
-            bpm_text: entry.as_ref().map_or(String::new(), |e| e.bpm.clone()),
             length: entry.as_ref().map_or(0.0, |e| e.length as f32),
             banner: entry
                 .as_ref()
@@ -1954,7 +1938,6 @@ impl Host {
             device_changed: false,
             video_notes: rp.older_judge_note().into_iter().collect(),
             offset: None,
-            panels: settings.results_panels.clone(),
             autoplay: rp.record.autoplay.is_some(),
         });
         ddi_ui::screens::play::mark_replay(

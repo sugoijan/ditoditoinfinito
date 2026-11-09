@@ -35,12 +35,7 @@ impl Mipmaps {
             shader,
             layout,
             pipeline_layout,
-            sampler: device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("ddi-mipmaps-sampler"),
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            }),
+            sampler: crate::gpu::linear_sampler(device, "ddi-mipmaps-sampler"),
             pipelines: HashMap::new(),
         }
     }
@@ -107,22 +102,8 @@ impl Mipmaps {
                 &source,
                 &self.sampler,
             );
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ddi-mipmaps"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            let clear = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
+            let mut pass = crate::gpu::color_pass(encoder, "ddi-mipmaps", &target, clear, None);
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);

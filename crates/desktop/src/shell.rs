@@ -21,7 +21,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use ddi_platform::storage::{self, Area};
 use std::rc::Rc;
 
 use ddi_ui::dev::{self, DevScreen, Shared};
@@ -562,7 +561,7 @@ impl Shell {
             config,
             gpu: Gpu::new(device, queue, format),
             formats: crate::play::view::Formats::of(format, srgb_view),
-            modes: caps.present_modes.clone(),
+            modes: caps.present_modes,
         }));
         self.resized();
         Ok(())
@@ -710,6 +709,7 @@ impl Shell {
         match self.on_exit.take() {
             Some(last) => {
                 last(self);
+                let _ = ddi_platform::storage::flush();
                 std::process::exit(0);
             }
             None => event_loop.exit(),
@@ -755,8 +755,6 @@ impl Shell {
                     self.sound.borrow_mut().beep();
                     self.dev.borrow_mut().status = "beep".into();
                 }
-                UiRequest::PlayPreview { song } => self.sound.borrow_mut().select(Some(&song)),
-                UiRequest::StopPreview => self.sound.borrow_mut().pause(),
                 UiRequest::Announce(line) => {
                     // The studio's voice tells its scene, past the borrow.
                     let staged = self.sound.borrow_mut().announce_menu(line);
@@ -775,10 +773,7 @@ impl Shell {
                     }
                 }
                 UiRequest::SetCursor(c) => self.set_native_cursor(c),
-                UiRequest::Persist { key, value } => {
-                    let _ = storage::set(Area::Local, &key, &value);
-                }
-                UiRequest::SetText { .. } | UiRequest::Navigate(_) | UiRequest::Redraw => {}
+                UiRequest::SetText { .. } | UiRequest::Navigate(_) => {}
                 // Options' field preview: drawn where the screen says,
                 // with the settings as they are now.
                 UiRequest::ReceptorPreview(picture) => {
@@ -1144,12 +1139,6 @@ impl Shell {
             let mut feed = self.play.feed.borrow_mut();
             use ddi_platform::InputSource;
             self.input.keyboard.poll(&mut feed.edges);
-            feed.pads = self
-                .input
-                .pads
-                .as_ref()
-                .map(crate::pads::Pads::connected)
-                .unwrap_or_default();
         }
     }
 
@@ -1812,7 +1801,7 @@ pub fn theme_ui_with(
         Some(sound) => sample_select(&env, sound.clone()),
         None => sample::select_screen(&env, Some(changed.clone())),
     };
-    if let Some(sound) = sound.clone() {
+    if let Some(sound) = sound {
         ui.push(title_screen(&env, sound, None, quit));
     } else {
         ui.push(sample::start_screen(&env, quit));
@@ -1878,7 +1867,8 @@ fn library_ui_with(
 /// say) and a UI for its screens.
 fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let look = Rc::new(ddi_theme::Infinito::new());
-    let env = ThemeEnv::new(look.clone(), fold);
+    let mut env = ThemeEnv::new(look.clone(), fold);
+    env.platform = theme_screens::data::Platform::Desktop;
     let settings = ddi_ui::state::settings::Settings::load();
     // The UI's language: the settings' choice, else the system's.
     ddi_l10n::set_system_languages(sys_locale::get_locales());
@@ -1954,13 +1944,7 @@ pub(crate) fn credits_screen(env: &ThemeEnv) -> theme_screens::page::PageScreen 
     .find_map(|p| std::fs::read_to_string(p).ok())
     .and_then(|t| theme_screens::credits::parse(&t).ok())
     .unwrap_or_else(theme_screens::credits::sample);
-    sample::credits_screen(
-        env,
-        &theme_screens::credits::Credits {
-            platform: theme_screens::data::Platform::Desktop,
-            ..credits
-        },
-    )
+    sample::credits_screen(env, &credits)
 }
 
 /// Sample screens still obey the real preview's ownership rules.

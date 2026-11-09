@@ -566,7 +566,6 @@ fn generated_versions_are_marked_where_they_are_picked() {
         for c in &mut song.charts {
             if c.difficulty == Difficulty::Hard {
                 c.version = Some(ddi_chart::simplify::Kind::WithoutCenter);
-                c.assisted = true;
             }
         }
     }
@@ -619,7 +618,6 @@ fn generated_versions_are_marked_where_they_are_picked() {
         for c in &mut song.charts {
             if c.difficulty == Difficulty::Hard {
                 c.version = Some(ddi_chart::simplify::Kind::FromPumpSingle);
-                c.assisted = false;
             }
         }
     }
@@ -847,7 +845,6 @@ fn song(id: &str, charts: Vec<ChartEntry>) -> SongEntry {
         title: id.into(),
         artist: "x".into(),
         pack: Some("P".into()),
-        bpm: 120.0,
         bpm_text: "120".into(),
         length: 100.0,
         charts,
@@ -1239,7 +1236,6 @@ fn library() -> Data {
             title: id.into(),
             artist: "a".into(),
             pack: Some("My Pack".into()),
-            bpm: 150.0,
             bpm_text: "150".into(),
             length: 90.0,
             charts,
@@ -1925,7 +1921,6 @@ fn transliterations_and_credits_are_searched() {
         artist_translit: "Mokusei".into(),
         credit: "Ponpokolin Steps".into(),
         pack: Some("My Pack".into()),
-        bpm: 150.0,
         bpm_text: "150".into(),
         length: 90.0,
         charts: vec![ChartEntry {

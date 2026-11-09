@@ -30,8 +30,7 @@
 //! 3 holds/rolls, 2 mines.
 
 use ddi_chart::{
-    BpmSegment, Chart, Difficulty, DisplayBpm, Layout, Note, NoteKind, Song, SourceFormat,
-    SourceInfo, StopSegment, Tick, TimingMap,
+    BpmSegment, Chart, Difficulty, Layout, Note, NoteKind, Song, StopSegment, Tick, TimingMap,
 };
 use ddi_engine::frame::SpriteKind;
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
@@ -42,46 +41,12 @@ use ddi_engine::{ClockOptions, InputEvent};
 use ddi_platform::{ClockSample, HostTime};
 
 fn song(timing: TimingMap, notes: Vec<Note>) -> Song {
-    Song {
-        title: "Replay".into(),
-        subtitle: String::new(),
-        artist: "test".into(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
+    Song::generated(
+        "Replay",
         timing,
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: "dance-single".into(),
-            difficulty: Difficulty::Hard,
-            meter: 5,
-            name: "replay".into(),
-            description: String::new(),
-            credit: String::new(),
-            notes,
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    }
+        Chart::plain("dance-single", Difficulty::Hard, 5, notes),
+        "test",
+    )
 }
 
 fn b(beat: i64) -> Tick {
@@ -710,63 +675,31 @@ fn note_y_is_zero_at_judged_time_with_bpm_change_and_stop() {
 /// must still be drawn (it used to pop in only once it fit entirely).
 #[test]
 fn long_hold_is_drawn_while_its_tail_is_off_screen() {
-    use ddi_chart::{
-        Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick,
-        TimingMap,
-    };
+    use ddi_chart::{Chart, Difficulty, Note, NoteKind, Song, Tick, TimingMap};
     use ddi_engine::frame::SpriteKind;
     use ddi_engine::player::{PlayOptions, Player};
     use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod};
     use ddi_platform::{ClockSample, HostTime};
 
     let timing = TimingMap::constant(60.0, 0.0); // 1 beat per second
-    let song = Song {
-        title: String::new(),
-        subtitle: String::new(),
-        artist: String::new(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
+    let song = Song::generated(
+        "",
         timing,
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: "dance-single".into(),
-            difficulty: Difficulty::Beginner,
-            meter: 1,
-            name: String::new(),
-            description: String::new(),
-            credit: String::new(),
+        Chart::plain(
+            "dance-single",
+            Difficulty::Beginner,
+            1,
             // Head at beat 8, tail at beat 30: 22 beats long.
-            notes: vec![Note::new(
+            vec![Note::new(
                 Tick::from_beats(8),
                 0,
                 NoteKind::HoldHead {
                     end: Tick::from_beats(30),
                 },
             )],
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    };
+        ),
+        "test",
+    );
     let options = PlayOptions {
         scroll: ScrollOptions {
             speed: SpeedMod::XMod(1.0),
@@ -804,54 +737,23 @@ fn long_hold_is_drawn_while_its_tail_is_off_screen() {
 /// exactly on the receptor; outside that it is where the scroll puts it.
 #[test]
 fn receptor_snap_lands_the_note_in_its_closest_frame() {
-    use ddi_chart::{
-        Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick,
-        TimingMap,
-    };
+    use ddi_chart::{Chart, Difficulty, Note, NoteKind, Song, Tick, TimingMap};
     use ddi_engine::player::{PlayOptions, Player};
     use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod};
     use ddi_platform::{ClockSample, HostTime};
 
-    let song = Song {
-        title: String::new(),
-        subtitle: String::new(),
-        artist: String::new(),
-        title_translit: String::new(),
-        subtitle_translit: String::new(),
-        artist_translit: String::new(),
-        genre: String::new(),
-        credit: String::new(),
-        music: None,
-        preview_start: 0.0,
-        preview_length: 0.0,
-        banner: None,
-        background: None,
-        jacket: None,
-        cd_title: None,
-        timing: TimingMap::constant(60.0, 0.0),
-        display_bpm: DisplayBpm::Actual,
-        charts: vec![Chart {
-            derivation: None,
-            layout: "dance-single".into(),
-            difficulty: Difficulty::Beginner,
-            meter: 1,
-            name: String::new(),
-            description: String::new(),
-            credit: String::new(),
-            notes: vec![Note::new(Tick::from_beats(4), 0, NoteKind::Tap)], // at 4.0 s
-            timing: None,
-            display_bpm: None,
-            danoni: None,
-            ffr: false,
-        }],
-        effects: Vec::new(),
-        keysounds: Vec::new(),
-        layouts: Vec::new(),
-        source: SourceInfo {
-            format: SourceFormat::Other("test".into()),
-            unknown_tags: Vec::new(),
-        },
-    };
+    let song = Song::generated(
+        "",
+        TimingMap::constant(60.0, 0.0),
+        Chart::plain(
+            "dance-single",
+            Difficulty::Beginner,
+            1,
+            // At 4.0 s.
+            vec![Note::new(Tick::from_beats(4), 0, NoteKind::Tap)],
+        ),
+        "test",
+    );
     let make = |snap: bool| {
         let options = PlayOptions {
             scroll: ScrollOptions {

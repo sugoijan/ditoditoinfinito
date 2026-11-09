@@ -38,7 +38,7 @@ pub const SOURCE: &str = "editor-field";
 
 /// The format of the texture drawn into: encoded values, as the 2D
 /// pass's images.
-pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub const FORMAT: wgpu::TextureFormat = crate::gpu::PICTURE_FORMAT;
 
 /// The skin's clock at rest: seconds after its start, long enough for
 /// its first commands (a receptor's entrance) to end.
@@ -86,10 +86,7 @@ impl EditorField {
         float: Option<wgpu::TextureFormat>,
         fonts: &[&'static [u8]],
     ) -> EditorField {
-        let blending = match float {
-            Some(f) => SkinBlending::Encoded(f),
-            None => SkinBlending::Scene,
-        };
+        let blending = SkinBlending::for_picture(float);
         EditorField {
             renderer: Renderer::new(device, queue, FORMAT, blending, fonts),
             names: presets::itg().names,
@@ -145,21 +142,6 @@ impl EditorField {
         self.target.is_some()
     }
 
-    /// The skin from its start, its clock stepped to [`REST`] with no
-    /// notes and no events.
-    fn settle(play: &mut NoteskinPlay, frame: &Frame, reverse: bool) {
-        play.restart();
-        let mut f = Frame {
-            notes: Vec::new(),
-            ..rest(frame)
-        };
-        let steps = (REST / SETTLE_STEP).round() as u32;
-        for i in 0..=steps {
-            f.song_time = f64::from(i) * SETTLE_STEP;
-            play.update(&f, std::iter::empty(), reverse);
-        }
-    }
-
     /// Records `d`'s frame into `encoder`, `size` pixels, into the
     /// field's texture (made again for a new size).
     pub fn draw(
@@ -184,7 +166,7 @@ impl EditorField {
             still = rest(d.frame);
             if let Some(p) = &mut self.noteskin {
                 if !self.settled {
-                    Self::settle(p, d.frame, reverse);
+                    settle(p, d.frame, reverse);
                 }
                 p.update(&still, std::iter::empty(), reverse);
             }
@@ -229,6 +211,21 @@ impl EditorField {
             self.noteskin.as_mut().map(|p| p as &mut dyn NoteLayer),
         );
         self.frames += 1;
+    }
+}
+
+/// The skin from its start, its clock stepped to [`REST`] with no notes
+/// and no events (Options' receptor diagram's too).
+pub(crate) fn settle(play: &mut NoteskinPlay, frame: &Frame, reverse: bool) {
+    play.restart();
+    let mut f = Frame {
+        notes: Vec::new(),
+        ..rest(frame)
+    };
+    let steps = (REST / SETTLE_STEP).round() as u32;
+    for i in 0..=steps {
+        f.song_time = f64::from(i) * SETTLE_STEP;
+        play.update(&f, std::iter::empty(), reverse);
     }
 }
 

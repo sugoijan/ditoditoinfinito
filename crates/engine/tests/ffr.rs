@@ -5,18 +5,18 @@
 
 mod common;
 
+use common::{autoplayed, run};
+
 use ddi_chart::formats::ffr::{LevelInfo, parse_beatbox_text, song_from_beatbox};
 use ddi_chart::{Note, NoteKind, Song, Tick, TimingMap};
-use ddi_engine::autoplay;
-use ddi_engine::history::replay;
-use ddi_engine::player::{PlayOptions, Player, Results};
+use ddi_engine::JudgeEventKind;
+use ddi_engine::player::{PlayOptions, Player};
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::ffr::{FfrLife, Flag};
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{
-    FailPolicy, FailType, FullCombo, Judgement, LifeType, Ruleset, RulesetKey, StepManiaOptions,
+    FailPolicy, FailType, FullCombo, Judgement, LifeType, RulesetKey, StepManiaOptions,
 };
-use ddi_engine::{JudgeEvent, JudgeEventKind};
 
 /// R^3's frame.
 const FRAME: f64 = 1.0 / 30.0;
@@ -30,38 +30,9 @@ fn taps(at: &[(f64, u8)]) -> Song {
     common::song("dance-single", TimingMap::constant(120.0, 0.0), notes)
 }
 
-/// Plays `song` under `rules` with `edges` (`(song seconds, lane,
-/// pressed)`) to the end; its events in order, and its key and log
-/// judged again to the same results.
-fn run(song: &Song, rules: Ruleset, mut edges: Vec<(f64, u8, bool)>) -> (Results, Vec<JudgeEvent>) {
-    edges.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
-    let mut p = Player::new(song, 0, rules, PlayOptions::default());
-    p.start(0.0, 0.0);
-    let mut events = Vec::new();
-    for (t, lane, pressed) in edges {
-        events.extend(p.update_at(t));
-        events.extend(p.input_at(lane, pressed, t));
-    }
-    events.extend(p.update_at(1e6));
-    let r = p.results();
-    let key = p.ruleset().key();
-    assert_eq!(
-        replay(song, 0, &key, &PlayOptions::default(), p.log()),
-        r,
-        "{key:?}"
-    );
-    (r, events)
-}
-
 /// A press and its release 30 ms later.
 fn tap(t: f64, lane: u8) -> [(f64, u8, bool); 2] {
     [(t, lane, true), (t + 0.03, lane, false)]
-}
-
-fn autoplayed(song: &Song, rules: Ruleset) -> Results {
-    let probe = Player::new(song, 0, rules.fresh(), PlayOptions::default());
-    let edges = autoplay::edges(autoplay::script(probe.judge().notes(), 0.0));
-    run(song, rules, edges).0
 }
 
 #[test]

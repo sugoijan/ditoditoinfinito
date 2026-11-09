@@ -176,32 +176,42 @@ impl Geometry {
 pub struct MatLayout {
     index: usize,
 }
-const IDS: [&str; 11] = [
-    "dance-single",
-    "dance-solo",
-    "danoni-5",
-    "danoni-7",
-    "danoni-9B",
-    "pump-single",
-    "techno-single8",
-    "dance-double",
-    "pump-halfdouble",
-    "pump-double",
-    "danoni-9A",
+type Entry = (&'static str, u8, &'static [u8], Option<&'static [u16]>);
+/// Each layout: its id, its pads, each lane's tile in chart order (9A's Oni
+/// at its left center; [`MatLayout::targets`] has both) and its logical No
+/// Stretch lane-bit masks, unchanged from the accepted policy. Source:
+/// StepMania NoteDataUtil::g_ValidRows at 825467b (dance/Pump); half-double
+/// is its middle-six region; 9A adds Oni to each region.
+const LAYOUTS: [Entry; 11] = [
+    ("dance-single", 1, &[4, 2, 8, 6], None),
+    ("dance-solo", 1, &[4, 7, 2, 8, 9, 6], None),
+    ("danoni-5", 1, &[4, 2, 8, 6, 5], None),
+    ("danoni-7", 1, &[4, 1, 2, 5, 8, 9, 6], None),
+    ("danoni-9B", 1, &[7, 4, 1, 2, 5, 8, 9, 6, 3], None),
+    ("pump-single", 1, &[1, 7, 5, 9, 3], None),
+    ("techno-single8", 1, &[1, 4, 7, 2, 8, 9, 6, 3], None),
+    (
+        "dance-double",
+        2,
+        &[4, 2, 8, 6, 13, 11, 17, 15],
+        Some(&[0x00f, 0x01e, 0x078, 0x0f0]),
+    ),
+    ("pump-halfdouble", 2, &[5, 9, 3, 10, 16, 14], Some(&[0x03f])),
+    (
+        "pump-double",
+        2,
+        &[1, 7, 5, 9, 3, 10, 16, 14, 18, 12],
+        Some(&[0x01f, 0x0fc, 0x3e0]),
+    ),
+    (
+        "danoni-9A",
+        2,
+        &[4, 2, 8, 6, 5, 13, 11, 17, 15],
+        Some(&[0x01f, 0x03e, 0x0f8, 0x1f0]),
+    ),
 ];
-const LANES: [&[u8]; 11] = [
-    &[4, 2, 8, 6],
-    &[4, 7, 2, 8, 9, 6],
-    &[4, 2, 8, 6, 5],
-    &[4, 1, 2, 5, 8, 9, 6],
-    &[7, 4, 1, 2, 5, 8, 9, 6, 3],
-    &[1, 7, 5, 9, 3],
-    &[1, 4, 7, 2, 8, 9, 6, 3],
-    &[4, 2, 8, 6, 13, 11, 17, 15],
-    &[5, 9, 3, 10, 16, 14],
-    &[1, 7, 5, 9, 3, 10, 16, 14, 18, 12],
-    &[4, 2, 8, 6, 5, 13, 11, 17, 15],
-];
+/// The layout whose Oni (lane 4) has a center on each pad.
+const NINE_A: usize = 10;
 const TARGETS: [[Tile; 1]; 18] = {
     let mut a = [[Tile(1)]; 18];
     let mut i = 0;
@@ -213,32 +223,38 @@ const TARGETS: [[Tile; 1]; 18] = {
 };
 impl MatLayout {
     pub fn from_id(id: &str) -> Option<Self> {
-        IDS.iter()
-            .position(|s| *s == id)
+        LAYOUTS
+            .iter()
+            .position(|l| l.0 == id)
             .map(|index| Self { index })
     }
     pub fn id(self) -> &'static str {
-        IDS[self.index]
+        LAYOUTS[self.index].0
     }
     pub fn pads(self) -> u8 {
-        if self.index < 7 { 1 } else { 2 }
+        LAYOUTS[self.index].1
     }
     pub fn lane_count(self) -> usize {
-        LANES[self.index].len()
+        self.panels().len()
+    }
+    /// Each lane's canonical tile in chart order. 9A's Oni is its left
+    /// center here; [`Self::targets`] gives both.
+    pub fn panels(self) -> &'static [u8] {
+        LAYOUTS[self.index].2
     }
     /// Lane IDs when every lane has exactly one physical target. 9A's Oni
     /// deliberately has no such flat mapping; callers must select its center.
     pub fn fixed_panels(self) -> Option<&'static [u8]> {
-        (self.index != 10).then_some(LANES[self.index])
+        (self.index != NINE_A).then_some(self.panels())
     }
     pub fn single_panels(self) -> Option<&'static [u8]> {
-        (self.pads() == 1).then_some(LANES[self.index])
+        (self.pads() == 1).then_some(self.panels())
     }
     pub fn targets(self, lane: usize) -> &'static [Tile] {
-        if self.index == 10 && lane == 4 {
+        if self.index == NINE_A && lane == 4 {
             return &[Tile(5), Tile(14)];
         }
-        LANES[self.index]
+        self.panels()
             .get(lane)
             .map_or(&[], |id| &TARGETS[*id as usize - 1])
     }
@@ -251,16 +267,8 @@ impl MatLayout {
             .filter(move |t| self.lane_for_tile(*t).is_none())
     }
     /// Logical lane-bit masks, unchanged from the accepted No Stretch policy.
-    /// Source: StepMania NoteDataUtil::g_ValidRows at 825467b (dance/Pump);
-    /// half-double is its middle-six region; 9A adds Oni to each region.
     pub fn no_stretch_regions(self) -> Option<&'static [u16]> {
-        match self.index {
-            7 => Some(&[0x00f, 0x01e, 0x078, 0x0f0]),
-            8 => Some(&[0x03f]),
-            9 => Some(&[0x01f, 0x0fc, 0x3e0]),
-            10 => Some(&[0x01f, 0x03e, 0x0f8, 0x1f0]),
-            _ => None,
-        }
+        LAYOUTS[self.index].3
     }
     /// Physical refinement of the logical masks. In 9A the left two regions
     /// use L5 and the right two use R5. Never approve an arbitrary center
@@ -277,7 +285,7 @@ impl MatLayout {
         };
         regions.iter().enumerate().any(|(i, mask)| {
             let fits = (1u16 << la | 1u16 << lb) & !mask == 0;
-            fits && (self.index != 10
+            fits && (self.index != NINE_A
                 || [a, b]
                     .into_iter()
                     .all(|t| t.cell() != 5 || t.pad() == u8::from(i >= 2)))

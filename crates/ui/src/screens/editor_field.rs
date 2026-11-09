@@ -11,7 +11,7 @@
 //! ([`ScrollState`]: the player's speed, BPM changes, stops, scrolls and
 //! speed segments, reverse), so what is seen is what is played.
 
-use ddi_chart::{Chart, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
+use ddi_chart::{NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
 use ddi_engine::appearance::Appearance;
 use ddi_engine::frame::{
     Frame, HoldKind, NoteMotion, NoteSprite, ReceptorState, SkinEvent, SkinEventKind, SkinNote,
@@ -19,6 +19,8 @@ use ddi_engine::frame::{
 };
 use ddi_engine::rules::Judgement;
 use ddi_engine::scroll::{ScrollOptions, ScrollState};
+
+use crate::state::editor::{Editor, TimeAt};
 
 /// The texture source the shell draws the field into.
 pub const SOURCE: &str = "editor-field";
@@ -180,11 +182,21 @@ impl Mapping {
     pub fn arrows(&self, timing: &TimingMap, tick: Tick) -> f32 {
         match &self.play {
             Some((s, _)) => s.y(timing, tick, timing.seconds_at(tick)),
-            None => {
-                ((tick.0 as f64 - self.shown) / TICKS_PER_BEAT as f64) as f32 * self.beat_h
-                    / self.lane_w
-            }
+            None => self.edit_arrows(tick),
         }
+    }
+
+    /// [`Mapping::arrows`] of a tick its second and displayed beat are
+    /// already known for.
+    fn arrows_at(&self, tick: Tick, (seconds, displayed): TimeAt) -> f32 {
+        match &self.play {
+            Some((s, _)) => s.y_displayed(displayed, seconds),
+            None => self.edit_arrows(tick),
+        }
+    }
+
+    fn edit_arrows(&self, tick: Tick) -> f32 {
+        ((tick.0 as f64 - self.shown) / TICKS_PER_BEAT as f64) as f32 * self.beat_h / self.lane_w
     }
 
     /// The screen's y of `tick` (fractional in the edit view).
@@ -210,6 +222,25 @@ impl Mapping {
         (first..=mid + reach).step_by(step as usize)
     }
 
+    /// The rows of the play view looked at, and each one's y: as
+    /// [`Mapping::y`] has it, in one walk of the timing.
+    fn play_rows_y<'a>(
+        &'a self,
+        timing: &'a TimingMap,
+        step: i64,
+    ) -> impl Iterator<Item = (i64, f32)> + 'a {
+        let mut walk = timing.walk();
+        self.play_rows(step).map(move |t| {
+            let tick = Tick(t);
+            let beat = tick.beat();
+            let at = (walk.seconds(beat), walk.displayed(beat));
+            (
+                t,
+                self.line_y + self.arrows_at(tick, at) * self.lane_w * self.dir(),
+            )
+        })
+    }
+
     /// The rows `step` apart (from 0) whose y is in `[top, bottom]`.
     pub fn rows(&self, timing: &TimingMap, top: f32, bottom: f32, step: i64) -> Vec<i64> {
         let step = step.max(1);
@@ -226,11 +257,9 @@ impl Mapping {
                     .collect()
             }
             Some(_) => self
-                .play_rows(step)
-                .filter(|&t| {
-                    let y = self.y(timing, t as f64);
-                    y >= top && y <= bottom
-                })
+                .play_rows_y(timing, step)
+                .filter(|&(_, y)| y >= top && y <= bottom)
+                .map(|(t, _)| t)
                 .collect(),
         }
     }
@@ -274,16 +303,17 @@ impl Mapping {
             }
             Some(_) => {
                 let shown = self.shown;
-                let best = self.play_rows(step).min_by(|&a, &b| {
-                    let da = (self.y(timing, a as f64) - y).abs();
-                    let db = (self.y(timing, b as f64) - y).abs();
-                    da.total_cmp(&db).then_with(|| {
-                        (a as f64 - shown)
-                            .abs()
-                            .total_cmp(&(b as f64 - shown).abs())
-                    })
-                });
-                Tick(best.unwrap_or(0))
+                let best = self
+                    .play_rows_y(timing, step)
+                    .map(|(t, row_y)| (t, (row_y - y).abs()))
+                    .min_by(|&(a, da), &(b, db)| {
+                        da.total_cmp(&db).then_with(|| {
+                            (a as f64 - shown)
+                                .abs()
+                                .total_cmp(&(b as f64 - shown).abs())
+                        })
+                    });
+                Tick(best.map_or(0, |(t, _)| t))
             }
         }
     }
@@ -300,30 +330,32 @@ impl Mapping {
     }
 }
 
-/// A play's frame of `chart`'s notes whose span shows between `top` and
-/// `bottom` (a lane's width beyond either), at song second `seconds` and
-/// beat `beat`; `holding`, the lanes with a hold under the line while
-/// the music plays.
+/// A play's frame of the chart's notes whose span shows between `top`
+/// and `bottom` (a lane's width beyond either), at song second `seconds`
+/// and beat `beat`; `holding`, the lanes with a hold under the line
+/// while the music plays.
 pub fn frame(
-    chart: &Chart,
-    timing: &TimingMap,
+    editor: &Editor,
     m: &Mapping,
     top: f32,
     bottom: f32,
     seconds: f64,
     holding: &[Option<HoldKind>],
 ) -> Frame {
+    let timing = editor.timing();
     let lanes = holding.len();
     let px = m.lane_w * m.dir();
     let (lo, hi) = (top - m.lane_w, bottom + m.lane_w);
-    let (first, last) = m.span(timing, lo, hi);
+    // The edit view's rows in order: what is not near is not drawn. In
+    // the play view a note may be anywhere.
+    let (first, last) = match m.play {
+        None => m.edit_span(lo, hi),
+        Some(_) => (i64::MIN, i64::MAX),
+    };
     let mut notes = Vec::new();
-    for (index, n) in chart.notes.iter().enumerate() {
-        // The edit view's rows in order: what is not near is not drawn.
-        if m.play.is_none() && (n.end_tick().0 < first || n.tick.0 > last) {
-            continue;
-        }
-        let y = m.arrows(timing, n.tick);
+    for (index, n) in editor.notes_near(first, last) {
+        let at = editor.note_at_time(index);
+        let y = m.arrows_at(n.tick, at.head);
         let kind = match n.kind {
             NoteKind::Tap => SpriteKind::Tap,
             NoteKind::Lift => SpriteKind::Lift,
@@ -333,12 +365,12 @@ pub fn frame(
             NoteKind::Dummy => SpriteKind::Dummy,
             NoteKind::AutoKeysound => continue,
             NoteKind::HoldHead { end } => SpriteKind::HoldHead {
-                tail_y: m.arrows(timing, end),
+                tail_y: m.arrows_at(end, at.tail),
                 active: false,
                 dropped: false,
             },
             NoteKind::RollHead { end } => SpriteKind::RollHead {
-                tail_y: m.arrows(timing, end),
+                tail_y: m.arrows_at(end, at.tail),
                 active: false,
                 dropped: false,
             },
@@ -406,9 +438,9 @@ pub fn frame(
 
 /// While the music plays: the lanes with a hold or a roll under the
 /// line at `tick`.
-pub fn holding(chart: &Chart, lanes: usize, tick: f64) -> Vec<Option<HoldKind>> {
+pub fn holding(editor: &Editor, lanes: usize, tick: f64) -> Vec<Option<HoldKind>> {
     let mut out = vec![None; lanes];
-    for n in &chart.notes {
+    for (_, n) in editor.notes_near(tick.floor() as i64, tick.ceil() as i64) {
         if let Some(end) = n.kind.hold_end()
             && (n.tick.0 as f64) <= tick
             && tick < end.0 as f64
@@ -427,7 +459,7 @@ pub fn holding(chart: &Chart, lanes: usize, tick: f64) -> Vec<Option<HoldKind>> 
 /// (not included) to `to`, as an autoplay hits them: a press and a
 /// perfect step and tap for each tap, lift and hold's head, a held for
 /// each hold's tail. Numbered on from `seq`.
-pub fn passed(chart: &Chart, from: f64, to: f64, seconds: f64, seq: &mut u64) -> Vec<SkinEvent> {
+pub fn passed(editor: &Editor, from: f64, to: f64, seconds: f64, seq: &mut u64) -> Vec<SkinEvent> {
     let mut out = Vec::new();
     if to <= from {
         return out;
@@ -445,7 +477,7 @@ pub fn passed(chart: &Chart, from: f64, to: f64, seconds: f64, seq: &mut u64) ->
         });
         *seq += 1;
     };
-    for (i, n) in chart.notes.iter().enumerate() {
+    for (i, n) in editor.notes_near(from.floor() as i64, to.ceil() as i64) {
         let hit = matches!(
             n.kind,
             NoteKind::Tap | NoteKind::Lift | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
@@ -490,12 +522,11 @@ mod tests {
     use ddi_chart::{BpmSegment, Note, StopSegment};
     use ddi_engine::scroll::SpeedMod;
 
-    fn chart(notes: Vec<Note>) -> Chart {
-        let mut c = crate::state::editor::Editor::new_song(None, "T")
-            .chart()
-            .clone();
-        c.notes = notes;
-        c
+    /// An editor at 120 BPM from 0 s with `notes` in its chart.
+    fn editor(notes: Vec<Note>) -> Editor {
+        let mut song = Editor::new_song(None, "T").song().clone();
+        song.charts[0].notes = notes;
+        Editor::open(song, 0)
     }
 
     #[test]
@@ -574,14 +605,13 @@ mod tests {
 
     #[test]
     fn frames_hold_what_shows() {
-        let c = chart(vec![
+        let e = editor(vec![
             Note::new(Tick(0), 0, NoteKind::Tap),
             Note::new(Tick(48), 1, NoteKind::HoldHead { end: Tick(96) }),
             Note::new(Tick(4800), 2, NoteKind::Tap),
         ]);
-        let t = TimingMap::constant(120.0, 0.0);
         let m = Mapping::edit(100.0, 0.0, 80.0, 40.0);
-        let f = frame(&c, &t, &m, 0.0, 600.0, 0.0, &[None; 4]);
+        let f = frame(&e, &m, 0.0, 600.0, 0.0, &[None; 4]);
         assert_eq!(f.notes.len(), 2);
         assert_eq!(f.notes[0].y, 0.0);
         assert_eq!(f.notes[1].y, 2.0);
@@ -594,9 +624,146 @@ mod tests {
         assert_eq!(f.receptors.len(), 4);
     }
 
+    /// A timing that bends everywhere, and a chart across it: long holds
+    /// and rolls over later notes in other lanes.
+    fn bent() -> Editor {
+        let mut song = Editor::new_song(None, "T").song().clone();
+        let t = &mut song.timing;
+        t.bpms.push(BpmSegment {
+            tick: Tick::from_beats(4),
+            bpm: 240.0,
+        });
+        t.stops.push(StopSegment {
+            tick: Tick::from_beats(6),
+            seconds: 0.5,
+        });
+        t.delays.push(StopSegment {
+            tick: Tick::from_beats(9),
+            seconds: 0.25,
+        });
+        t.warps.push(ddi_chart::WarpSegment {
+            tick: Tick::from_beats(12),
+            length: Tick::from_beats(2),
+        });
+        t.scrolls.push(ddi_chart::ScrollSegment {
+            tick: Tick::from_beats(3),
+            ratio: 0.5,
+        });
+        t.scrolls.push(ddi_chart::ScrollSegment {
+            tick: Tick::from_beats(8),
+            ratio: -1.0,
+        });
+        let mut notes = vec![
+            Note::new(Tick(0), 0, NoteKind::HoldHead { end: Tick(960) }),
+            Note::new(Tick(24), 1, NoteKind::RollHead { end: Tick(300) }),
+        ];
+        notes.extend((1..40).map(|b| {
+            Note::new(
+                Tick(b * 24),
+                2 + (b % 2) as u8,
+                if b % 5 == 0 {
+                    NoteKind::Mine
+                } else {
+                    NoteKind::Tap
+                },
+            )
+        }));
+        song.charts[0].notes = notes;
+        Editor::open(song, 0)
+    }
+
+    fn bent_play(e: &Editor, reverse: bool, shown: f64) -> Mapping {
+        let scroll = ScrollOptions {
+            speed: SpeedMod::XMod(1.5),
+            reverse,
+            ..Default::default()
+        };
+        let t = e.timing();
+        let at = shown_seconds(t, shown);
+        Mapping::play(scroll, t, at, [0.0, 600.0], 100.0, shown, 80.0, 40.0)
+    }
+
+    #[test]
+    fn the_play_view_finds_rows_where_each_one_is_drawn() {
+        let e = bent();
+        let t = e.timing();
+        for (shown, reverse) in [(0.0, false), (150.5, false), (288.0, true), (700.0, false)] {
+            let m = bent_play(&e, reverse, shown);
+            for step in [1, 12, 48] {
+                let every: Vec<i64> = m.play_rows(step).collect();
+                let drawn: Vec<i64> = every
+                    .iter()
+                    .copied()
+                    .filter(|&r| (-50.0..=650.0).contains(&m.y(t, r as f64)))
+                    .collect();
+                assert_eq!(m.rows(t, -50.0, 650.0, step), drawn, "{shown} {step}");
+                for y in [-40.0, 3.5, 100.0, 333.25, 640.0] {
+                    let nearest = every.iter().copied().min_by(|&a, &b| {
+                        let da = (m.y(t, a as f64) - y).abs();
+                        let db = (m.y(t, b as f64) - y).abs();
+                        da.total_cmp(&db).then_with(|| {
+                            (a as f64 - shown)
+                                .abs()
+                                .total_cmp(&(b as f64 - shown).abs())
+                        })
+                    });
+                    assert_eq!(m.row_at(t, y, step), Tick(nearest.unwrap()), "{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn frames_of_the_play_view_read_the_editors_table_as_play_would() {
+        let e = bent();
+        let t = e.timing();
+        for (shown, reverse) in [(0.0, false), (150.5, false), (288.0, true)] {
+            let m = bent_play(&e, reverse, shown);
+            let f = frame(&e, &m, 0.0, 600.0, 0.0, &[None; 4]);
+            assert!(!f.notes.is_empty());
+            for s in &f.notes {
+                let n = &e.chart().notes[s.note_index];
+                assert_eq!(s.y, m.arrows(t, n.tick), "{n:?}");
+                if let SpriteKind::HoldHead { tail_y, .. } | SpriteKind::RollHead { tail_y, .. } =
+                    s.kind
+                {
+                    assert_eq!(tail_y, m.arrows(t, n.end_tick()), "{n:?}");
+                }
+            }
+            // What shows is what a full walk of the notes shows.
+            let shows = |i: usize| {
+                let n = &e.chart().notes[i];
+                let (a, b) = (m.y(t, n.tick.0 as f64), m.y(t, n.end_tick().0 as f64));
+                a.max(b) >= -40.0 && a.min(b) <= 640.0
+            };
+            let kept: Vec<usize> = f.notes.iter().map(|s| s.note_index).collect();
+            let every: Vec<usize> = (0..e.note_count()).filter(|&i| shows(i)).collect();
+            assert_eq!(kept, every, "{shown}");
+        }
+    }
+
+    #[test]
+    fn holds_begun_long_ago_still_show_and_pass() {
+        let e = bent();
+        // The edit view, the field far into the first hold.
+        let m = Mapping::edit(100.0, 900.0, 80.0, 40.0);
+        let f = frame(&e, &m, 0.0, 200.0, 0.0, &[None; 4]);
+        assert_eq!(f.notes.first().map(|s| s.note_index), Some(0));
+        assert_eq!(holding(&e, 4, 900.5)[0], Some(HoldKind::Hold));
+        assert_eq!(holding(&e, 4, 960.0)[0], None);
+        let mut seq = 0;
+        let ended = passed(&e, 950.0, 970.0, 1.0, &mut seq);
+        assert!(
+            ended
+                .iter()
+                .any(|e| e.lane == 0 && matches!(e.kind, SkinEventKind::Held { .. }))
+        );
+        assert_eq!(ended[0].note.map(|n| n.index), Some(0));
+    }
+
     #[test]
     fn notes_passed_explode() {
-        let c = chart(vec![
+        let c = editor(vec![
             Note::new(Tick(48), 0, NoteKind::Tap),
             Note::new(Tick(48), 1, NoteKind::HoldHead { end: Tick(96) }),
             Note::new(Tick(60), 2, NoteKind::Mine),

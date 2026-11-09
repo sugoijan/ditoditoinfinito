@@ -24,15 +24,16 @@ use std::time::{Duration, Instant};
 use ddi_library::announcer::Line;
 use ddi_session::announcer::MenuVoice;
 use ddi_session::announcer::scene::director::{StagedVoice, Told};
-use ddi_session::preview::{FADE, LEAD};
+use ddi_session::preview::{AGAIN_MS, FADE, LEAD, SETTLE_MS};
+use ddi_ui::state::settings::Settings;
 
 use crate::audio::decoder::Decoder;
 use crate::audio::{Audio, Sound};
 
 /// Wait after a selection before its preview loads.
-const SETTLE: Duration = Duration::from_millis(300);
-/// The pause between loops.
-const AGAIN: f64 = 0.6;
+const SETTLE: Duration = Duration::from_millis(SETTLE_MS as u64);
+/// The pause between loops, seconds.
+const AGAIN: f64 = AGAIN_MS as f64 / 1000.0;
 
 /// A song's preview, from its simfile.
 #[derive(Clone, Debug)]
@@ -204,7 +205,7 @@ impl Player {
             });
             return Some((told, line, spoke));
         }
-        let settings = crate::store::settings_cached();
+        let settings = Settings::cached();
         let key = settings.announcer.clone()?;
         if self.menu.as_ref().is_none_or(|(m, _)| m.key() != key) {
             let load = crate::play::voice::VoiceLoad::start(
@@ -244,22 +245,16 @@ impl Player {
         sound: &ddi_library::path::RelPath,
         share: f32,
     ) {
-        let (tx, rx) = std::sync::mpsc::channel();
         let (a, sound) = (a.clone(), sound.to_rel_path_buf());
         let rate = self.audio.sample_rate();
         let label = sound.to_string();
-        let spawned = std::thread::Builder::new()
-            .name("ddi-announcer".into())
-            .spawn(move || {
-                let decoded = a.reader().and_then(|r| {
-                    let bytes = r.read(&a.name_in_reader(&sound))?;
-                    crate::audio::decoder::sound(bytes, sound.extension(), Default::default(), rate)
-                });
-                let _ = tx.send(decoded);
-            });
-        if spawned.is_ok() {
-            self.voice = Some((rx, label, share));
-        }
+        let rx = crate::os::background("ddi-announcer", None, move || {
+            a.reader().and_then(|r| {
+                let bytes = r.read(&a.name_in_reader(&sound))?;
+                crate::audio::decoder::sound(bytes, sound.extension(), Default::default(), rate)
+            })
+        });
+        self.voice = Some((rx, label, share));
     }
 
     /// The song shown changed (`None`: none): what plays changes after
@@ -386,7 +381,7 @@ impl Player {
         if let Some((m, load)) = self.menu.as_mut().filter(|(m, _)| m.waiting()) {
             load.poll();
             let found = m.poll(now.duration_since(self.epoch).as_secs_f64());
-            self.speak_menu(found, crate::store::settings_cached().announcer_volume);
+            self.speak_menu(found, Settings::cached().announcer_volume);
         }
         // While a line decodes, soon again.
         let waiting = self.voice.is_some() || self.menu.as_ref().is_some_and(|(m, _)| m.waiting());

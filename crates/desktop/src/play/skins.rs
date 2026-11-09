@@ -447,15 +447,7 @@ fn read_inner(
 ) -> Option<Read> {
     let _holding = hold(key);
     let mut stored: Vec<DiskSkin> = skins.to_vec();
-    // The chosen skin first; a bundled one's fallbacks only among the
-    // bundled ones, a player's among the player's, then the bundled
-    // ones (the web's rule).
-    let chosen = stored.iter().position(|s| s.key() == key)?;
-    let first = stored.remove(chosen);
-    if first.bundled {
-        stored.retain(|s| s.bundled);
-    }
-    stored.insert(0, first);
+    ddi_noteskin::skin::load_order(&mut stored, |s| s.key() == key, |s| s.bundled)?;
     let folders = folders(&stored);
     let chosen = &stored[0];
     // The skin its parameters pick (a color scheme's), loaded in its place
@@ -476,10 +468,8 @@ fn read_inner(
     if let Some(why) = &lua_off {
         eprintln!("noteskin {}: its Lua is off ({why})", chosen.name);
     }
-    let with_lua = lua_off.is_none() && (skin.has_lua() || chosen.game == "pump");
-    let mut env = env;
-    env.game = chosen.game.clone();
-    env.style = ddi_noteskin::lua::style_for(&chosen.game, layout).into();
+    let with_lua = lua_off.is_none() && skin.runs_lua();
+    let env = env.for_skin(&chosen.game, layout);
     let seed = hash_seed();
     let mut lua_error = None;
     let sizes = ProbeSizes::probe();
@@ -499,7 +489,7 @@ fn read_inner(
             Err(e) => lua_error = Some(e),
         }
     }
-    if !with_lua || lua_error.is_some() {
+    if NoteskinPlay::native_fallback(with_lua, lua_error.as_deref()) {
         NoteskinPlay::new(&skin, layout, &sizes, true)?;
     }
     drop(skin);
@@ -734,7 +724,7 @@ pub fn build(mut r: Read, layout: &Layout) -> Option<Prepared> {
             &format!("its Lua stopped while loading ({e}); drawn without it"),
         );
     }
-    if play.is_none() && (!r.with_lua || r.lua_error.is_some()) {
+    if play.is_none() && NoteskinPlay::native_fallback(r.with_lua, r.lua_error.as_deref()) {
         let skin = Skin::load(&r.folders, &r.game, &r.name).ok()?;
         play = NoteskinPlay::new(&skin, layout, &r.sizes, true);
     }

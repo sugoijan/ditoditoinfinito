@@ -354,25 +354,6 @@ const HOLD_SCORES: [(&str, Option<&str>); 3] = [("None", None), ("NG", None), ("
 /// [`HOLD_SCORES`].
 const EXPLOSION_EVENTS: [&str; 8] = ["W1", "W2", "W3", "W4", "W5", "Miss", "HitMine", "Held"];
 
-/// The part whose metrics a note element of the engine's takes
-/// (`NoteDisplay::Load`: rolls take the holds').
-fn note_part(element: &str) -> Option<Part> {
-    let mut words = element.split(' ');
-    match (words.next()?, words.next()?) {
-        ("Tap", "Note") => Some(Part::TapNote),
-        ("Tap", "Mine") => Some(Part::TapMine),
-        ("Hold" | "Roll", part) => match part.to_ascii_lowercase().as_str() {
-            "head" => Some(Part::HoldHead),
-            "topcap" => Some(Part::HoldTopCap),
-            "body" => Some(Part::HoldBody),
-            "bottomcap" => Some(Part::HoldBottomCap),
-            "tail" => Some(Part::HoldTail),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
 /// `@NOTESKIN:GetPath('<button>','<element>')`, the only Lua the format's
 /// skins use in a `File` (`docs/research/noteskins.md` section 11): its
 /// button and element.
@@ -425,7 +406,7 @@ impl Builder<'_, '_> {
         } else {
             element
         };
-        let colored = note_part(element).is_some_and(|part| {
+        let colored = Part::of_element(element).is_some_and(|part| {
             crate::metrics::NoteDisplay::read(self.skin, button.name())
                 .part(part)
                 .note_color

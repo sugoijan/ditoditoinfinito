@@ -1,52 +1,53 @@
 //! A movie drawn alone into a texture the 2D pass shows as an image: song
 //! select's preview movie (`#PREVIEWVID`, `docs/plans/lane-covers.md`,
 //! "Preview video"). The shells' movie decks put its frames on
-//! [`MoviePicture::renderer_mut`] as they put a play's on its renderer
-//! (YUV planes, NV12 planes, the browser's own frames), and
+//! [`MoviePicture::renderer_mut`] as they put a play's on its background
+//! pipeline (YUV planes, NV12 planes, the browser's own frames), and
 //! [`MoviePicture::draw`] records the frame into a texture of the movie's
 //! shape, in encoded values (as Options' field preview's,
 //! [`crate::field_preview`]), which the painter shows under [`SOURCE`]
 //! ([`crate::Painter::set_external_image`]), cover-fitted into the
 //! banner's place.
 
-use crate::background::Backdrop;
-use crate::renderer::{Renderer, SkinBlending};
+use crate::background::{Backdrop, BackgroundPipeline};
 
 /// The texture source the 2D pass draws the movie under
 /// (`ddi_ui::screens::select::PREVIEW_MOVIE`).
 pub const SOURCE: &str = "preview-movie";
 
 /// The picture's format: encoded values, as the 2D pass's images.
-pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub const FORMAT: wgpu::TextureFormat = crate::gpu::PICTURE_FORMAT;
 
 /// The picture's longer side at most, pixels: the banner's place is
 /// smaller than this on any screen.
 pub const MAX_SIDE: u32 = 1280;
 
-/// A renderer for one movie at a time and the texture it is drawn into.
+/// A background pipeline for one movie at a time and the texture it is
+/// drawn into.
 pub struct MoviePicture {
-    renderer: Renderer,
+    background: BackgroundPipeline,
     target: crate::gpu::PictureTarget,
 }
 
 impl MoviePicture {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> MoviePicture {
+    pub fn new(device: &wgpu::Device) -> MoviePicture {
         MoviePicture {
-            renderer: Renderer::new(device, queue, FORMAT, SkinBlending::Scene, &[]),
+            background: BackgroundPipeline::new(device, FORMAT, FORMAT.is_srgb()),
             target: crate::gpu::PictureTarget::default(),
         }
     }
 
-    /// The renderer the movie's frames go on (`Renderer::add_video`,
-    /// `Renderer::set_video_frame`, a browser frame's texture).
-    pub fn renderer_mut(&mut self) -> &mut Renderer {
-        &mut self.renderer
+    /// The pipeline the movie's frames go on
+    /// ([`BackgroundPipeline::add_video`],
+    /// [`BackgroundPipeline::set_video_frame`], a browser frame's texture).
+    pub fn renderer_mut(&mut self) -> &mut BackgroundPipeline {
+        &mut self.background
     }
 
     /// Another movie comes: the last one's textures go (the picture keeps
     /// what it shows until it is drawn again).
     pub fn clear(&mut self) {
-        self.renderer.clear_backgrounds();
+        self.background.clear_images();
     }
 
     /// The texture drawn into, once a frame was.
@@ -63,7 +64,7 @@ impl MoviePicture {
         self.target.release();
     }
 
-    /// Records movie `id` (from the renderer) as its latest frame shows it
+    /// Records movie `id` (from the pipeline) as its latest frame shows it
     /// into the picture, at its shape ([`MAX_SIDE`] at most).
     pub fn draw(
         &mut self,
@@ -72,7 +73,7 @@ impl MoviePicture {
         encoder: &mut wgpu::CommandEncoder,
         id: usize,
     ) {
-        let Some([width, height]) = self.renderer.background_size(id) else {
+        let Some([width, height]) = self.background.image_size(id) else {
             return;
         };
         let size = picture_size(width, height);
@@ -81,7 +82,7 @@ impl MoviePicture {
         let Some(view) = self.target.view() else {
             return;
         };
-        self.renderer.render_backdrop(
+        self.background.render_backdrop(
             device,
             queue,
             encoder,

@@ -55,7 +55,7 @@ pub fn quads(
         // one (`spinZ`) is drawn whole.
         let shape = if d.rotate.rem_euclid(360.0) == 0.0 {
             let clip = [left, 0.0, left + stage.0 * s, stage.1 * s];
-            match crop(cx, cy, sx, sy, clip) {
+            match crate::textured::cut([sx, 0.0, 0.0, sy, cx, cy], [0.0, 0.0, 1.0, 1.0], clip) {
                 Some(shape) => shape,
                 None => continue,
             }
@@ -74,34 +74,6 @@ pub fn quads(
         }
     }
     (back, mask)
-}
-
-/// A quad `|sx| × |sy|` px centred at `(cx, cy)`, mirrored where a side is
-/// negative, cropped to `clip` (`[left, top, right, bottom]`) with its
-/// texture coordinates; `None` when nothing of it is inside.
-fn crop(cx: f32, cy: f32, sx: f32, sy: f32, clip: [f32; 4]) -> Option<Shape> {
-    // One axis: the visible span and the texture's span over it.
-    let axis = |c: f32, size: f32, lo: f32, hi: f32| -> Option<(f32, f32, f32, f32)> {
-        let half = size.abs() / 2.0;
-        let (a, b) = ((c - half).max(lo), (c + half).min(hi));
-        if b <= a || half <= 0.0 {
-            return None;
-        }
-        // Texture fraction at screen position p, mirrored when negative.
-        let t = |p: f32| {
-            let f = (p - (c - half)) / (2.0 * half);
-            if size < 0.0 { 1.0 - f } else { f }
-        };
-        Some((a, b, t(a), t(b)))
-    };
-    let (x0, x1, u0, u1) = axis(cx, sx, clip[0], clip[2])?;
-    let (y0, y1, v0, v1) = axis(cy, sy, clip[1], clip[3])?;
-    // The quad runs left to right on screen; a mirror swaps the
-    // texture's span instead.
-    Some(Shape::Quad {
-        transform: [x1 - x0, 0.0, 0.0, y1 - y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0],
-        uv: [u0, v0, u1, v1],
-    })
 }
 
 /// An `<img>`'s size: as given, the other side keeping the image's shape

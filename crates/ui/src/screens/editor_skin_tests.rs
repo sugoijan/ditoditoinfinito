@@ -45,8 +45,8 @@ impl EditorHost for Host {
         })
     }
 
-    fn show_field(&self, picture: Option<&FieldPicture>, _editor: &Editor) {
-        self.pictures.borrow_mut().push(picture.cloned());
+    fn show_field(&self, picture: Option<Rc<FieldPicture>>, _editor: &Editor) {
+        self.pictures.borrow_mut().push(picture.as_deref().cloned());
     }
 }
 
@@ -88,15 +88,8 @@ fn setup(scroll: ScrollOptions) -> Setup {
         crate::state::editor::Segment::Stop(0.5),
         crate::state::editor::Retime::KeepBeats,
     );
-    let screen = EditorScreen::new(
-        env.clone(),
-        editor,
-        EditorPlace {
-            listen: true,
-            ..EditorPlace::default()
-        },
-    )
-    .with_host(host.clone());
+    let screen =
+        EditorScreen::new(env.clone(), editor, EditorPlace::default()).with_host(host.clone());
     let editor = screen.editor();
     editor.borrow_mut().mark_saved();
     h.push(screen);

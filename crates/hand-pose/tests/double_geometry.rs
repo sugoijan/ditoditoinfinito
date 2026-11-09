@@ -274,7 +274,7 @@ fn crossing_wide_jump_and_held_support_keep_contacts_and_publications() {
                     }
                 }
                 for event in plan.events.iter().filter(|e| (e.time - t).abs() < 1e-9) {
-                    let d = usize::from(event.foot == "R");
+                    let d = event.foot.index();
                     assert!(!plan.targets(event.time - 1e-6).contact[d]);
                     assert!(plan.targets(event.time).contact[d]);
                     assert_eq!(plan.panel_at(d, event.time), event.panel);

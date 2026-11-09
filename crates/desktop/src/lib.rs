@@ -363,6 +363,8 @@ pub fn run() {
         if settings.sharing != on {
             settings.sharing = on;
             settings.save();
+            // The commands below end the process without the shell.
+            let _ = ddi_platform::storage::flush();
         }
     }
     // `--share ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never]`: the
@@ -592,6 +594,7 @@ pub fn run() {
     if let Err(e) = event_loop.run_app(&mut shell) {
         eprintln!("event loop: {e}");
     }
+    let _ = ddi_platform::storage::flush();
     if let Some(e) = &shell.error {
         eprintln!("{e}");
         std::process::exit(1);
@@ -747,9 +750,7 @@ fn shares_from_command_line(delete: Option<&str>) -> i32 {
     }
     match share::list(&token) {
         Ok(view) => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0.0, |d| d.as_secs_f64());
+            let now = clock::epoch_ms() / 1000.0;
             println!(
                 "shares ({}): {}",
                 if view.admin { "every one" } else { "yours" },
@@ -791,10 +792,7 @@ fn share_from_command_line(args: &[String], ids: &str) -> i32 {
         .position(|a| a == "--expires")
         .and_then(|i| args.get(i + 1))
         .map_or("1w", String::as_str);
-    if !ddi_library::share::EXPIRIES
-        .iter()
-        .any(|(w, _)| *w == expires)
-    {
+    if !ddi_library::share::EXPIRIES.contains(&expires) {
         eprintln!("--expires takes 1h, 1d, 1w, 1m or never");
         return 2;
     }
@@ -824,7 +822,7 @@ fn share_from_command_line(args: &[String], ids: &str) -> i32 {
                 .map(|l| {
                     l.songs
                         .iter()
-                        .filter(|s| library::same_pack(&s.pack, name))
+                        .filter(|s| ddi_ui::state::place::same_pack(&s.pack, name))
                         .cloned()
                         .collect()
                 })

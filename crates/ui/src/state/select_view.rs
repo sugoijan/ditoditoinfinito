@@ -32,8 +32,8 @@ pub fn pack_label(name: Option<&str>) -> ddi_l10n::UiText {
 
 /// A song of the library as the list shows it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Listed {
-    pub entry: ManifestEntry,
+pub struct Listed<'a> {
+    pub entry: &'a ManifestEntry,
     /// Its pack; `None` for a bundled song, and on the entries a play's
     /// prompt and results are given, which show no pack.
     pub pack: Option<String>,
@@ -48,15 +48,15 @@ pub struct Listed {
     pub removable: bool,
 }
 
-impl Listed {
+impl<'a> Listed<'a> {
     /// A bundled song as the list shows it: its banner and background
     /// under `songs/<id>/`.
-    pub fn bundled(e: &ManifestEntry) -> Listed {
+    pub fn bundled(e: &'a ManifestEntry) -> Listed<'a> {
         let at = |file: &Option<ddi_library::path::RelPathBuf>| {
             file.as_ref().map(|b| format!("songs/{}/{b}", e.id))
         };
         Listed {
-            entry: e.clone(),
+            entry: e,
             pack: None,
             pack_banner: None,
             banner: at(&e.banner),
@@ -195,26 +195,19 @@ fn best_of<'a>(
 }
 
 fn song_entry<'a>(
-    s: &'a Listed,
+    s: &Listed<'a>,
     pack: Option<&str>,
     settings: &Settings,
     bests: &HashMap<BestKey, HistoryBest>,
     keys: &mut BestKeys<'a>,
 ) -> SongEntry {
-    let entry = &s.entry;
-    let bpm = entry
-        .bpm
-        .split(['-', '–'])
-        .next()
-        .and_then(|b| b.trim().parse::<f32>().ok())
-        .unwrap_or(0.0);
+    let entry = s.entry;
     SongEntry {
         id: entry.id.clone(),
         title: entry.title.clone(),
         subtitle: String::new(),
         artist: entry.artist.clone(),
         pack: pack.map(str::to_string),
-        bpm,
         bpm_text: entry.bpm.replace('-', "–"),
         length: entry.length as f32,
         banner: s.banner.clone(),
@@ -236,7 +229,6 @@ fn song_entry<'a>(
                 best: best_of(entry, c, settings, bests, keys),
                 digest: c.digest,
                 version: c.derivation.as_ref().map(Derivation::kind),
-                assisted: c.derivation.as_ref().is_some_and(Derivation::assisted),
             })
             .collect(),
         removable: s.removable,
@@ -259,14 +251,14 @@ fn chart_name<'a>(entry: &'a ManifestEntry, c: &'a ChartInfo) -> &'a str {
 /// Song select's data now: `songs` in list order (the bundled ones
 /// first), `rereadable` saying which packs can be read again.
 pub fn select_data(
-    songs: &[Listed],
+    songs: &[Listed<'_>],
     rereadable: &dyn Fn(&str) -> bool,
     settings: &Settings,
     history: &History,
     place: &MenuPlace,
 ) -> SelectData {
     let styles: Vec<StyleDef> =
-        library_styles_where(songs.iter().map(|s| &s.entry), |e, c| shows(e, c, settings))
+        library_styles_where(songs.iter().map(|s| s.entry), |e, c| shows(e, c, settings))
             .into_iter()
             .map(|l| StyleDef {
                 id: l.id,
@@ -388,7 +380,7 @@ mod tests {
         );
         ddi_library::works::fill_chart_keys(&mut entry, &song);
         let songs = [Listed {
-            entry,
+            entry: &entry,
             pack: Some("Test".into()),
             pack_banner: None,
             banner: None,
@@ -472,7 +464,7 @@ mod tests {
         );
         entry.length = 90.0;
         let songs = [Listed {
-            entry,
+            entry: &entry,
             pack: Some("Test".into()),
             pack_banner: None,
             banner: None,
@@ -553,10 +545,9 @@ mod tests {
             data.songs[0]
                 .charts_in("dance-single")
                 .iter()
-                .map(|c| (difficulty_name(c.difficulty), c.meter, c.version))
+                .map(|c| (c.difficulty.name(), c.meter, c.version))
                 .collect::<Vec<_>>()
         };
-        use crate::screens::data::difficulty_name;
         let center = Some(Kind::WithoutCenter);
         // The original Medium stands for its difficulty; the Hard and the
         // Edit are new.
@@ -610,7 +601,7 @@ mod tests {
             data.songs[0]
                 .charts_in("danoni-5")
                 .iter()
-                .map(|c| (c.index, c.version, c.assisted))
+                .map(|c| (c.index, c.version, c.assisted()))
                 .collect::<Vec<_>>()
         };
         let mut settings = Settings::default();
@@ -655,21 +646,24 @@ mod tests {
 
     #[test]
     fn bundled_songs_come_first_and_packs_ignore_case() {
-        let listed = |id: &str, pack: Option<&str>| Listed {
-            entry: entry(id, "dance-single"),
-            pack: pack.map(str::to_string),
-            banner: None,
-            pack_banner: None,
-            background: None,
-            jacket: None,
-            cd_title: None,
-            removable: pack.is_some(),
-        };
+        fn listed<'a>(entry: &'a ManifestEntry, pack: Option<&str>) -> Listed<'a> {
+            Listed {
+                entry,
+                pack: pack.map(str::to_string),
+                banner: None,
+                pack_banner: None,
+                background: None,
+                jacket: None,
+                cd_title: None,
+                removable: pack.is_some(),
+            }
+        }
+        let [a, b, c, d] = ["u-1", "bundled", "u-2", "u-3"].map(|id| entry(id, "dance-single"));
         let mut songs = vec![
-            listed("u-1", Some("Pack")),
-            listed("bundled", None),
-            listed("u-2", Some("PACK")),
-            listed("u-3", Some("Other")),
+            listed(&a, Some("Pack")),
+            listed(&b, None),
+            listed(&c, Some("PACK")),
+            listed(&d, Some("Other")),
         ];
         songs[0].pack_banner = Some("pack-cover.png".into());
         let d = select_data(
@@ -693,7 +687,6 @@ mod tests {
         assert_eq!(d.songs[2].pack.as_deref(), Some("Pack"));
         assert_eq!(d.songs[0].pack, None);
         assert_eq!(d.packs[1].banner.as_deref(), Some("pack-cover.png"));
-        assert_eq!(d.songs[1].bpm, 120.0);
         assert_eq!(d.songs[1].bpm_text, "120–150");
         // The first visit opens the bundled songs.
         assert_eq!(

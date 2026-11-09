@@ -162,8 +162,6 @@ impl ScoreRules for DancePoints {
         }
     }
 
-    fn finish(&mut self) {}
-
     fn fresh(&self) -> Box<dyn ScoreRules> {
         Box::new(DancePoints {
             ex_w0: self.ex_w0,
@@ -271,8 +269,6 @@ impl ScoreRules for DdrMoney {
             ex_percent: None,
         }
     }
-
-    fn finish(&mut self) {}
 
     fn fresh(&self) -> Box<dyn ScoreRules> {
         Box::new(DdrMoney::new(self.variant))
@@ -382,8 +378,6 @@ impl ScoreRules for Max2 {
         }
     }
 
-    fn finish(&mut self) {}
-
     fn fresh(&self) -> Box<dyn ScoreRules> {
         Box::new(Max2::new())
     }
@@ -391,22 +385,8 @@ impl ScoreRules for Max2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::judge::test_events::{ev, tap};
     use crate::rules::Judgement;
-    use ddi_chart::Tick;
-
-    fn ev(kind: JudgeEventKind) -> JudgeEvent {
-        JudgeEvent {
-            note_index: None,
-            lane: 0,
-            tick: Tick::ZERO,
-            kind,
-            song_time: 0.0,
-        }
-    }
-
-    fn tap(j: Judgement) -> JudgeEvent {
-        ev(JudgeEventKind::Tap(j, 0.0))
-    }
 
     #[test]
     fn ddr_a_matches_remywiki_formula() {
