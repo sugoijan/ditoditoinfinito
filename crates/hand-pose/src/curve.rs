@@ -13,6 +13,7 @@ pub(crate) struct Knot {
 #[derive(Clone)]
 pub(crate) struct Curve {
     pub(crate) knots: Vec<Knot>,
+    pub(crate) periodic_yaw: bool,
 }
 pub(crate) fn mix(q: Parameters, c: [f64; 2]) -> V {
     let mut p = [0.; 16];
@@ -59,9 +60,23 @@ pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
     }
     out
 }
+/// Equivalent world-yaw phase nearest a reference. This never changes a
+/// finger joint or widens a model bound; only internal curve phase is unwrapped.
+pub(crate) fn near_yaw(yaw: f64, reference: f64) -> f64 {
+    let turns = ((reference - yaw) / 360.).round();
+    if turns == 0. { yaw } else { yaw + turns * 360. }
+}
+pub(crate) fn wrap_yaw(yaw: f64) -> f64 {
+    if (-180. ..=180.).contains(&yaw) {
+        yaw
+    } else {
+        (yaw + 180.).rem_euclid(360.) - 180.
+    }
+}
 impl Curve {
-    pub(crate) fn constant(q: Parameters, c: [f64; 2]) -> Self {
+    pub(crate) fn constant(q: Parameters, c: [f64; 2], periodic_yaw: bool) -> Self {
         Self {
+            periodic_yaw,
             knots: vec![
                 Knot {
                     t: 0.,
@@ -86,7 +101,16 @@ impl Curve {
             .min(self.knots.len() - 2);
         quintic(&self.knots[k], &self.knots[k + 1], t)
     }
-    pub(crate) fn from_guide(g: &Guide) -> Self {
+    /// Normalize only world-yaw position at the model boundary. Velocity and
+    /// acceleration remain derivatives of the continuous internal phase.
+    pub(crate) fn parameters(&self, p: V) -> (Parameters, [f64; 2]) {
+        let (mut q, center) = value(p);
+        if self.periodic_yaw {
+            q[13] = wrap_yaw(q[13]);
+        }
+        (q, center)
+    }
+    pub(crate) fn from_guide(g: &Guide, periodic_yaw: bool) -> Self {
         let n = g.times.len();
         let mut k: Vec<_> = (0..n)
             .map(|i| Knot {
@@ -96,6 +120,11 @@ impl Curve {
                 a: [0.; 16],
             })
             .collect();
+        if periodic_yaw {
+            for i in 1..n {
+                k[i].p[13] = near_yaw(k[i].p[13], k[i - 1].p[13]);
+            }
+        }
         for i in 1..n - 1 {
             let l = k[i].t - k[i - 1].t;
             let r = k[i + 1].t - k[i].t;
@@ -131,7 +160,10 @@ impl Curve {
                 k[i].a[j] = k[i].a[j].clamp(lo.min(hi), hi);
             }
         }
-        Self { knots: k }
+        Self {
+            knots: k,
+            periodic_yaw,
+        }
     }
     pub(crate) fn splice(&self, new: &Curve, start: f64, end: f64, now: f64) -> Self {
         self.splice_grid(new, start, end, now, true)
@@ -166,6 +198,23 @@ impl Curve {
         times.extend([start, end]);
         times.sort_by(f64::total_cmp);
         times.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        debug_assert_eq!(self.periodic_yaw, new.periodic_yaw);
+        // Equivalent phases must share one winding before blending. Position,
+        // velocity and acceleration at the committed boundary stay untouched.
+        let phase_shift = if self.periodic_yaw {
+            let middle = (start + end) * 0.5;
+            let a = self.at(middle).p[13];
+            let b = new.at(middle).p[13];
+            near_yaw(b, a) - b
+        } else {
+            0.
+        };
+        let align = |mut k: Knot| {
+            if phase_shift != 0. {
+                k.p[13] += phase_shift;
+            }
+            k
+        };
         let knots = times
             .into_iter()
             .map(|t| {
@@ -179,12 +228,12 @@ impl Curve {
                 if t >= end {
                     if !extra_grid && let Ok(i) = new.knots.binary_search_by(|k| k.t.total_cmp(&t))
                     {
-                        return new.knots[i].clone();
+                        return align(new.knots[i].clone());
                     }
-                    return new.at(t);
+                    return align(new.at(t));
                 }
                 let a = self.at(t);
-                let b = new.at(t);
+                let b = align(new.at(t));
                 let d = end - start;
                 let u = (t - start) / d;
                 let w = u.powi(3) * (10. - 15. * u + 6. * u * u);
@@ -205,6 +254,100 @@ impl Curve {
                 }
             })
             .collect();
-        Self { knots }
+        Self {
+            knots,
+            periodic_yaw: self.periodic_yaw,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn guide(times: &[f64], yaws: &[f64]) -> Guide {
+        Guide {
+            times: times.to_vec(),
+            poses: yaws
+                .iter()
+                .map(|yaw| {
+                    let mut q = [0.; 14];
+                    q[13] = *yaw;
+                    q
+                })
+                .collect(),
+            centers: vec![[0.; 2]; times.len()],
+        }
+    }
+    #[test]
+    fn periodic_yaw_keeps_short_arcs_bounded_poses_and_physical_derivatives() {
+        let g = guide(&[0., 1., 2., 3.], &[170., 179., -179., -170.]);
+        let curve = Curve::from_guide(&g, true);
+        let legacy = Curve::from_guide(&g, false);
+        assert_eq!(
+            curve.knots.iter().map(|k| k.p[13]).collect::<Vec<_>>(),
+            [170., 179., 181., 190.]
+        );
+        assert_eq!(legacy.knots[2].p[13], -179.);
+        for i in 0..=3000 {
+            let t = i as f64 / 1000.;
+            let k = curve.at(t);
+            let q = curve.parameters(k.p).0;
+            assert!((-180. ..=180.).contains(&q[13]));
+            assert!((q[13].to_radians().cos() - k.p[13].to_radians().cos()).abs() < 1e-12);
+        }
+        // Numerical derivatives of the actual rotation agree with the analytic
+        // unwrapped angular derivatives even across the public ±180° boundary.
+        for t in [1.49, 1.5, 1.51] {
+            let h = 1e-4;
+            let k = curve.at(t);
+            let q = curve.parameters(k.p).0;
+            let angle = q[13].to_radians();
+            let velocity = k.v[13].to_radians();
+            let acceleration = k.a[13].to_radians();
+            let f = |u: f64| curve.parameters(curve.at(u).p).0[13].to_radians().sin();
+            assert!(((f(t + h) - f(t - h)) / (2. * h) - angle.cos() * velocity).abs() < 1e-7);
+            assert!(
+                ((f(t + h) - 2. * f(t) + f(t - h)) / (h * h)
+                    - (angle.cos() * acceleration - angle.sin() * velocity * velocity))
+                    .abs()
+                    < 1e-6
+            );
+        }
+    }
+    #[test]
+    fn periodic_publication_aligns_equivalent_turns_and_keeps_the_prefix() {
+        let old = Curve::from_guide(
+            &guide(&[0., 1., 2., 3., 4.], &[175., 179., -179., -175., -170.]),
+            true,
+        );
+        let new = Curve::from_guide(
+            &guide(
+                &[1.5, 2., 2.5, 3., 4.],
+                &[-180., -179., -177., -175., -170.],
+            ),
+            true,
+        );
+        let c = old.splice_grid(&new, 2., 2.5, 1.5, false);
+        for i in 1000..=2000 {
+            let t = i as f64 / 1000.;
+            let a = old.at(t);
+            let b = c.at(t);
+            assert_eq!(a.p.map(f64::to_bits), b.p.map(f64::to_bits));
+            assert_eq!(a.v.map(f64::to_bits), b.v.map(f64::to_bits));
+            assert_eq!(a.a.map(f64::to_bits), b.a.map(f64::to_bits));
+        }
+        for i in 2000..=3000 {
+            let k = c.at(i as f64 / 1000.);
+            assert!((180. ..=186.).contains(&k.p[13]));
+        }
+        for w in c.knots.windows(3) {
+            let a = quintic(&w[0], &w[1], w[1].t);
+            let b = quintic(&w[1], &w[2], w[1].t);
+            for (a, b, bound) in [(a.p, b.p, 1e-8), (a.v, b.v, 1e-6), (a.a, b.a, 1e-3)] {
+                for (a, b) in a.into_iter().zip(b) {
+                    assert!((a - b).abs() < bound);
+                }
+            }
+        }
     }
 }

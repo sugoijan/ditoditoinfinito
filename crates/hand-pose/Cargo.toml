@@ -12,5 +12,6 @@ description = "Single-threaded platform-free hand contact pose solver"
 profiling = []
 
 [dependencies]
+ddi-dance-mat.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }

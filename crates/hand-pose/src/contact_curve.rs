@@ -5,6 +5,10 @@ use crate::{Goal, Guide, Model, Parameters, Plan, refine_contacts};
 
 const MAX_KNOTS: usize = 32768;
 const MAX_PASSES: usize = 6;
+// Difficult double-mat fits may need a second, bounded pass over the curve
+// after the anchor branch is repaired. Each fit still yields after eight
+// iterations; no solve occurs at presentation time.
+const DOUBLE_MAX_PASSES: usize = 12;
 const MIN_INTERVAL: f64 = 0.001;
 // Preparation leaves 50 micrometers inside the published 0.25 mm floor limit.
 // Its finite probes must not use the entire allowance before interpolation is
@@ -119,6 +123,8 @@ fn inspect(
         return Some("lift_release");
     }
     let target = p.targets(t);
+    // Reserve inside the unchanged output limits for arbitrary subframe times.
+    // The denser double-mat audit found small peaks between ordinary probes.
     let mut failed = None;
     for d in (0..2).filter(|_| !relaxed) {
         let error = (0..3)
@@ -126,20 +132,22 @@ fn inspect(
             .sum::<f64>()
             .sqrt();
         report.maximum_error_mm = report.maximum_error_mm.max(error);
-        if !error.is_finite() || error > 2. {
+        if !error.is_finite() || error > if p.double_mat() { 1.90 } else { 2. } {
             failed = Some("position");
         }
         if target.contact[d] {
             let height = g.tips[d][2].abs();
             report.maximum_planted_height_mm = report.maximum_planted_height_mm.max(height);
-            if height > 0.25 {
+            if height > if p.double_mat() { 0.225 } else { 0.25 } {
                 failed = Some("planted_height");
             } else if height > 0.02 && failed.is_none() {
                 failed = Some("contact_goal");
             }
-            let [x, y] = crate::panel_position(p.panel_at(d, t), p.placement.tile_pitch_mm)
+            let [x, y] = p
+                .physical_position(p.panel_at(d, t))
                 .expect("validated panel");
-            let margin = 11.5 - (g.tips[d][0] + 16. - x).abs().max((g.tips[d][1] - y).abs());
+            let margin =
+                p.tile_half_mm() - (g.tips[d][0] + 16. - x).abs().max((g.tips[d][1] - y).abs());
             report.minimum_tile_margin_mm = report.minimum_tile_margin_mm.min(margin);
             if margin < 1. {
                 failed = Some("tile_margin");
@@ -151,7 +159,10 @@ fn inspect(
     if g.tips.iter().any(|v| v[2] < PREPARED_FLOOR) {
         failed = Some("floor_penetration");
     }
-    if g.knuckles.iter().any(|v| *v < 40.) {
+    if g.knuckles
+        .iter()
+        .any(|v| *v < if p.double_mat() { 40.01 } else { 40. })
+    {
         failed = Some("knuckle_height");
     }
     failed
@@ -297,6 +308,9 @@ impl ContactCurve {
     }
 
     /// Allocation-free C2 quintic evaluation with analytic time derivatives.
+    /// Explicit full-turn geometry normalizes the world-yaw position to the
+    /// model's ±180° coordinates; its derivatives follow continuous angular
+    /// phase. The actual rotation remains C2 across that coordinate wrap.
     pub fn sample(&self, t: f64) -> ContactCurveSample {
         let range = self.time_range();
         let t = if t.is_finite() {
@@ -306,7 +320,7 @@ impl ContactCurve {
         };
         let k = self.curve.at(t);
         ContactCurveSample {
-            pose: value(k.p).0,
+            pose: self.curve.parameters(k.p).0,
             velocity: value(k.v).0,
             acceleration: value(k.a).0,
         }
@@ -443,11 +457,14 @@ impl ContactCurvePreparation {
             return true;
         }
         if self.curve.is_none() {
-            self.curve = Some(Curve::from_guide(&Guide {
-                times: self.times.clone(),
-                poses: self.poses.clone(),
-                centers: vec![[0.; 2]; self.times.len()],
-            }));
+            self.curve = Some(Curve::from_guide(
+                &Guide {
+                    times: self.times.clone(),
+                    poses: self.poses.clone(),
+                    centers: vec![[0.; 2]; self.times.len()],
+                },
+                p.periodic_yaw(m),
+            ));
             // Near a phase edge there is no room for another knot. Prevent
             // a fast lift's tangents from leaking into planted time. Adjacent
             // quintics share these derivatives, preserving C2 continuity.
@@ -492,7 +509,12 @@ impl ContactCurvePreparation {
         if !self.refining && self.at < self.queries.len() {
             let t = self.queries[self.at];
             self.at += 1;
-            let q = value(self.curve.as_ref().unwrap().at(t).p).0;
+            let q = self
+                .curve
+                .as_ref()
+                .unwrap()
+                .parameters(self.curve.as_ref().unwrap().at(t).p)
+                .0;
             if let Some(reason) = inspect(
                 m,
                 p,
@@ -540,7 +562,12 @@ impl ContactCurvePreparation {
                 return true;
             }
             if (self.pass >= 1 && self.hard.is_none())
-                || self.pass == MAX_PASSES
+                || self.pass
+                    == if p.double_mat() {
+                        DOUBLE_MAX_PASSES
+                    } else {
+                        MAX_PASSES
+                    }
                 || self.times.len() + self.failures.len() > MAX_KNOTS
             {
                 if let Some((time, reason)) = self.hard {
@@ -568,16 +595,23 @@ impl ContactCurvePreparation {
             };
             self.at += 1;
             let at = self.times.partition_point(|v| *v < t);
+            let min_interval = if p.double_mat() && self.pass >= MAX_PASSES {
+                MIN_INTERVAL * 0.25
+            } else {
+                MIN_INTERVAL
+            };
             let nearby = [at.checked_sub(1), (at < self.times.len()).then_some(at)]
                 .into_iter()
                 .flatten()
-                .filter(|i| (self.times[*i] - t).abs() < MIN_INTERVAL)
+                .filter(|i| (self.times[*i] - t).abs() < min_interval)
                 .min_by(|a, b| {
                     (self.times[*a] - t)
                         .abs()
                         .total_cmp(&(self.times[*b] - t).abs())
                 });
-            if nearby.is_some() && reason == "planted_height" {
+            if nearby.is_some()
+                && (reason == "planted_height" || (p.double_mat() && reason != "contact_goal"))
+            {
                 let interval = self
                     .times
                     .partition_point(|v| *v <= t)
@@ -587,14 +621,39 @@ impl ContactCurvePreparation {
                 self.flat.insert(self.times[interval + 1].to_bits());
             }
             if let Some(i) = nearby {
-                t = self.times[i];
-                // Keep the authored anchor pose; the failed sample's
-                // clearance is retained separately for vertical correction.
-                q = self.poses[i];
+                let protected = i == 0
+                    || i + 1 == self.times.len()
+                    || p.edges
+                        .iter()
+                        .chain(p.events.iter().map(|e| &e.time))
+                        .any(|v| (*v - self.times[i]).abs() < 1e-8);
+                if p.double_mat()
+                    && reason != "contact_goal"
+                    && !protected
+                    && t - self.times[i - 1] >= min_interval
+                    && self.times[i + 1] - t >= min_interval
+                {
+                    if self.flat.remove(&self.times[i].to_bits()) {
+                        self.flat.insert(t.to_bits());
+                    }
+                    // Relocate only a numerical knot. Keep endpoints, every
+                    // scored/phase timestamp, spacing and the knot cap intact.
+                    self.times[i] = t;
+                } else {
+                    t = self.times[i];
+                    // A failing double-mat interpolant is a better warm start than
+                    // an unchanged, already-fitted anchor. Retarget it at the
+                    // protected timestamp rather than moving a contact edge.
+                    if !p.double_mat() || reason == "contact_goal" {
+                        q = self.poses[i];
+                    }
+                }
             }
             let g = m.evaluate_into(&q, &mut self.kin);
             let prior = q;
-            let height = if reason == "floor_penetration"
+            let height = if (reason == "floor_penetration"
+                || (p.double_mat() && matches!(reason, "planted_height" | "knuckle_height")))
+                && (!p.double_mat() || self.pass == 0)
                 && !relaxed_at(&self.relaxed, failed.0)
                 && !relaxed_at(&self.relaxed, t)
             {
@@ -615,13 +674,26 @@ impl ContactCurvePreparation {
                     .max(0.);
                 m.clamp(&mut q);
             } else {
+                let target = p.targets(t);
+                let mut center = [g.com[0], g.com[1]];
+                if p.double_mat() && reason != "contact_goal" && self.pass > 0 {
+                    // Balance is a preference, not a contact constraint. Nudge
+                    // stalled fits toward support; low knuckles can use more.
+                    let low_knuckle = (41. - g.knuckles[0].min(g.knuckles[1])).clamp(0., 1.);
+                    let weight =
+                        0.025 + ((self.pass as f64 * 0.025).min(0.1) - 0.025) * low_knuckle;
+                    for j in 0..2 {
+                        center[j] +=
+                            weight * ((target.tips[0][j] + target.tips[1][j]) * 0.5 - g.com[j]);
+                    }
+                }
                 refine_contacts(
                     m,
                     &mut q,
                     &prior,
                     &Goal {
-                        tips: p.targets(t).tips,
-                        com: [g.com[0], g.com[1]],
+                        tips: target.tips,
+                        com: center,
                     },
                     8,
                 );
@@ -702,6 +774,12 @@ impl ContactCurvePublication {
         relaxed: &[[f64; 2]],
         extra_grid: bool,
     ) -> Result<Self, ContactCurveError> {
+        if old.curve.periodic_yaw != new.curve.periodic_yaw {
+            return Err(ContactCurveError {
+                reason: "geometry_changed",
+                time: now,
+            });
+        }
         if ![start, end, now].iter().all(|t| t.is_finite())
             || start < now + 0.25
             || end <= start
@@ -723,11 +801,14 @@ impl ContactCurvePublication {
                 time: start,
             });
         }
-        if curve
-            .knots
-            .windows(2)
-            .any(|w| w[1].t - w[0].t < MIN_INTERVAL - 1e-9)
-        {
+        if curve.knots.windows(2).any(|w| {
+            w[1].t - w[0].t
+                < if p.double_mat() {
+                    MIN_INTERVAL * 0.25 - 1e-9
+                } else {
+                    MIN_INTERVAL - 1e-9
+                }
+        }) {
             return Err(ContactCurveError {
                 reason: "splice_spacing",
                 time: start,
@@ -781,7 +862,7 @@ impl ContactCurvePublication {
         }
         let t = self.queries[self.at];
         self.at += 1;
-        let q = value(self.curve.at(t).p).0;
+        let q = self.curve.parameters(self.curve.at(t).p).0;
         if let Some(reason) = inspect(
             m,
             p,
@@ -812,5 +893,34 @@ impl ContactCurvePublication {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod periodic_tests {
+    use super::*;
+    #[test]
+    fn samples_wrap_positions_but_keep_the_true_angular_derivatives() {
+        let mut a = [0.; 14];
+        a[13] = 170.;
+        let mut b = a;
+        b[13] = -170.;
+        let curve = ContactCurve {
+            curve: Curve::from_guide(
+                &Guide {
+                    times: vec![0., 0.02],
+                    poses: vec![a, b],
+                    centers: vec![[0.; 2]; 2],
+                },
+                true,
+            ),
+            report: fresh_report(2, 0, 0),
+        };
+        let s = curve.sample(0.01);
+        assert!((-180. ..=180.).contains(&s.pose[13]));
+        assert!(s.pose[13].abs() > 179.);
+        assert!(s.velocity[13] > 180.);
+        assert!((s.velocity[13] - 1875.).abs() < 1e-6);
+        assert!(s.acceleration[13].abs() < 1e-6);
     }
 }

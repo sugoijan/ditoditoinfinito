@@ -15,6 +15,7 @@ repository = "https://github.com/sugoijan/ditoditoinfinito"
 
 [workspace.dependencies]
 # local crates
+ddi-dance-mat = { path = "crates/dance-mat" }
 ddi-character = { path = "crates/character" }
 ddi-hand-pose = { path = "crates/hand-pose" }
 ddi-hand-plan = { path = "crates/hand-plan" }

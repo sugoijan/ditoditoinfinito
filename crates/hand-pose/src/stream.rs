@@ -8,7 +8,7 @@
 //! row arrives, and a stream knot is fitted only once its targets and balance
 //! window can no longer change, so stream motion is the same for every request
 //! timing; the cost is a few fits per note, whatever the density.
-use crate::curve::{Curve, value};
+use crate::curve::{Curve, near_yaw, wrap_yaw};
 use crate::solve::{Stop, solve_with};
 use crate::{Goal, Guide, Model, Parameters, Plan, refine_contacts};
 use std::collections::VecDeque;
@@ -133,7 +133,7 @@ impl Motion {
     }
 
     /// The density-weighted Gaussian average of the raw poses around `f`.
-    fn smoothed(&self, f: usize) -> Parameters {
+    fn smoothed(&self, f: usize, periodic: bool) -> Parameters {
         let n = self.raw.len();
         let t = self.raw[f].0;
         let (mut sum, mut weight) = ([0.; 14], 0.);
@@ -153,11 +153,20 @@ impl Motion {
             };
             let w = (-0.5 * (dt / SMOOTH_SIGMA).powi(2)).exp() * density;
             weight += w;
-            for (s, v) in sum.iter_mut().zip(&self.raw[j].1) {
+            for (c, (s, v)) in sum.iter_mut().zip(&self.raw[j].1).enumerate() {
+                let v = if c == 13 && periodic {
+                    near_yaw(*v, self.raw[f].1[13])
+                } else {
+                    *v
+                };
                 *s += w * v;
             }
         }
-        sum.map(|v| v / weight)
+        let mut out = sum.map(|v| v / weight);
+        if periodic {
+            out[13] = wrap_yaw(out[13]);
+        }
+        out
     }
 
     /// Through this time, sampled motion can no longer change: a quintic
@@ -383,7 +392,7 @@ impl Stream {
         if t < *m.times.first()? || t > m.final_through() {
             return None;
         }
-        Some(value(m.curve.as_ref()?.at(t).p))
+        Some(m.curve.as_ref()?.parameters(m.curve.as_ref()?.at(t).p))
     }
 
     /// Whether a knot is ready to fit.
@@ -437,7 +446,7 @@ impl Stream {
                 if let Some(f) = self.sections[i].motion.smoothable() {
                     let motion = &self.sections[i].motion;
                     let (t, raw, com, raw_error) = motion.raw[f];
-                    let smoothed = motion.smoothed(f);
+                    let smoothed = motion.smoothed(f, plan.periodic_yaw(m));
                     let goal = Goal {
                         tips: plan.targets(t).tips,
                         com,
@@ -537,11 +546,14 @@ impl Stream {
                 motion.poses.drain(..keep);
                 motion.centers.drain(..keep);
                 if motion.times.len() >= 2 {
-                    motion.curve = Some(Curve::from_guide(&Guide {
-                        times: motion.times.clone(),
-                        poses: motion.poses.clone(),
-                        centers: motion.centers.clone(),
-                    }));
+                    motion.curve = Some(Curve::from_guide(
+                        &Guide {
+                            times: motion.times.clone(),
+                            poses: motion.poses.clone(),
+                            centers: motion.centers.clone(),
+                        },
+                        plan.periodic_yaw(m),
+                    ));
                 }
             }
         }
@@ -648,6 +660,34 @@ fn next_knot(plan: &Plan, after: f64) -> f64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn periodic_stream_smoothing_averages_near_the_angle_boundary() {
+        let raw = [179., -179., -177.]
+            .into_iter()
+            .enumerate()
+            .map(|(i, yaw)| {
+                let mut q = [0.; 14];
+                q[13] = yaw;
+                q[0] = i as f64;
+                (i as f64 / 100., q, [0.; 2], 0.)
+            })
+            .collect();
+        let motion = Motion {
+            raw,
+            ..Default::default()
+        };
+        let periodic = motion.smoothed(1, true);
+        let legacy = motion.smoothed(1, false);
+        assert!(periodic[13].abs() > 175.);
+        assert!(legacy[13].abs() < 100.);
+        assert_eq!(
+            periodic[..13]
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>(),
+            legacy[..13].iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
+    }
     #[test]
     fn accurate_tips_do_not_keep_an_unsafe_stream_seed() {
         let m = Model::load(include_bytes!("../../../assets/hand/model.json")).unwrap();

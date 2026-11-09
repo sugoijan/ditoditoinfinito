@@ -145,8 +145,49 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## Presentation and video
 
-- [Dancing hand in gameplay](dancing-hand.md): production extraction with three-second single-threaded planning for four-panel, Solo six-panel, DanOni five-key, seven-key and 9B, Pump single and Techno single8 charts (9B uses all nine tiles and air-time hazard clearance; the pre-rebase 2026-11-06 audit records 7,776 passes, 21 contact failures, three pose failures and 78 pose CPU timeouts; targeted Pump pose repairs clear those three original errors, with RUDE! still blocked by a later baseline contact rejection), accepted rendering, startup readiness, layout options and basic tests. Research/audit/developer tools remain on the hand branch.
-- [Double mat for the remaining hand layouts](hand-double-mat.md) (2026-11-07): No stretch preparation and the general Options toggle are implemented for dance-double, Pump half-double/double and DanOni 9A (either center can stand for Oni). Physical geometry, reach/scale study, rolling contact planning and rendering remain planned; no new hand layout is enabled.
+- [Dancing hand in gameplay](dancing-hand.md): production extraction with three-second single-threaded planning for four-panel, dance-double eight-panel, Solo six-panel, DanOni five-key, seven-key, 9A and 9B, Pump single/half-double/double and Techno single8 charts (9B uses all nine tiles and air-time hazard clearance; the pre-rebase 2026-11-06 audit records 7,776 passes, 21 contact failures, three pose failures and 78 pose CPU timeouts; targeted Pump pose repairs clear those three original errors, with RUDE! still blocked by a later baseline contact rejection), accepted rendering, startup readiness, layout options and basic tests. Research/audit/developer tools remain on the hand branch.
+- [Double mat for the remaining hand layouts](hand-double-mat.md) (2026-11-07): No stretch preparation and the general Options toggle are implemented for dance-double, Pump half-double/double and DanOni 9A (either center can stand for Oni). Shared physical geometry and versioned offline pose plans are implemented. The bounded reach survey fits every No Stretch pair at 24 mm, with checked slow crossing, held and wide-jump studies. Explicit-geometry startup fixes the original floor failure without changing single-mat motion; periodic world-yaw smoothing/interpolation now clears all 12 variants natively and in headless Chrome/WASM. Approach-aware shared spots now smooth the rapid entry while preserving published contacts (61.35° → 2.21° peak shared-entry step at 120 Hz); broader choreography still needs review. Dance-double now has automatic three-second rolling contact planning and actual-judge replay; 12 automatic/mirrored studies pass native and headless WASM pose checks, with existing-layout plans/publications bit-identical. The 18-tile renderer and dance-double gameplay are implemented (2026-11-08), including preload/restart, Options preview, contact lights/presses/spill and geometry-aware framing; native off-screen GPU and headless WebGPU/WebGL2 checks pass. Pump half-double and double now also use this gameplay path (2026-11-08), with scored centers, bounded side escapes, reachable lift returns and 32 native/WASM motion cases. Eight prior layouts' plans and 584 rolling publications remain bit-identical. DanOni 9A now has per-contact Oni center selection, logical contact aggregation,
+  both-center hazards and unscored-corner escapes with unchanged timing/model
+  bounds. The 2026-11-08 full audit is complete: 11,675 passes / 66 contact
+  failures / 70 Double pose failures / 55 pose CPU timeouts / 234 unsupported
+  unplayable layouts; zero contact/wall timeouts, fatal deadlines or settling
+  warnings. All 7,776 former passes remain passes. Five passing records have
+  nonfatal guide warnings; see the gameplay plan for source coverage and evidence.
+  The initial targeted Double pose-repair rerun had 67 full passes and three
+  later baseline contact rejections. Mine-to-head/staggered-clearance follow-up
+  now passes all 70 records with no failures, timeouts or settling warnings;
+  126 native tests, the 79-category gate and ten headless WASM motion cases pass.
+  The original 66-contact rerun had 43 passes and 23 rejections. Lift/support
+  repairs then passed the four RUDE! versions and Silent Hill; rerunning the 18
+  unresolved records now gives six more passes and 12 contact rejections, with
+  zero pose failures, timeouts or warnings. Timed mine arrival/departure repair
+  then passes five affected records (1116, 人マニア and 混乱少女 Single/Double),
+  preserving 14 control contact plans; 132 native tests and all 79 category
+  expectations pass. The subsequent full rerun (2026-11-09) gives **11,791
+  passes / 9 contact rejections / 0 pose failures / 66 pose CPU timeouts / 234
+  unsupported records / 0 settling warnings**, with two nonfatal guide warnings.
+  All 70 former pose failures and 61 former contacts pass. A subsequent generic
+  guarded-departure validation fix clears the four new G-SYMPHONiCORE Single
+  regressions: 35/35 targeted charts, 133 native tests and all 79 category
+  expectations pass; 31 control contact plans and the affected checked prefixes
+  remain identical. The full audit was not rerun; its twelve new CPU timeouts
+  remain follow-ups. Published model/contact limits are unchanged. The gameplay
+  plan records coverage, independent review and the four-row RUDE! inspector
+  lift-count metadata erratum; private inputs and tools remain uncommitted.
+  Staggered-landing follow-up then clears KEEP ON MOVIN' Double, Megalovania
+  Single (SM/SSC) and converted UNIQUE (SM/SSC): **41/41 targeted charts**, 136
+  native tests and all 79 category expectations pass. A final gated recovery tier
+  reserves scored companion landings; a narrow, source-proven post-mine approach
+  handles near-coincident timing. All 36 control contact plans and five affected
+  checked prefixes remain identical. Contact/model bounds and the 450 ms outward
+  limit are unchanged; no full audit was rerun. The synthetic empty-tail
+  deadline was traced to the harness using note completion as motion completion;
+  gameplay already handles that correctly. Corrected full-tail tests cover both
+  mirrors at 4/60 Hz, with 137 native tests passing and no production changes.
+  Prepared as one unsigned gameplay update atop local `main` `9b67a48d`, keeping
+  its refactored APIs and shared supported-layout list. Consolidation passes
+  1,208 native tests (two existing ignored), strict clippy, full-app WASM check
+  and the off-screen consecutive-play desktop lifecycle test. No new full audit.
 
 
 - [Video backgrounds](video-backgrounds.md) (2026-10-09): done on the web,

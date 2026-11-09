@@ -19,6 +19,7 @@ pub(crate) fn bundled_model() -> Rc<Model> {
 
 pub struct RuntimePreview {
     model: Rc<Model>,
+    mat: ddi_character::appearance::Geometry,
     /// The last sample shown, for the debug state ([`Self::sample_debug`]).
     shown: Option<(f64, ddi_hand_pose::Parameters)>,
     origin: f64,
@@ -121,6 +122,7 @@ impl RuntimePreview {
         layout: &str,
         rules: Vec<(String, ddi_engine::rules::JudgeTable)>,
     ) -> Result<Self, String> {
+        let mat = ddi_hand_plan::layout_geometry(layout)?;
         let first_contact = source.first().map(|n| timing.seconds_at(n.tick));
         let planner = RollingPlanner::configured(window, timing.clone(), layout, rules)?;
         let model = bundled_model();
@@ -131,6 +133,7 @@ impl RuntimePreview {
         }));
         Ok(Self {
             model,
+            mat,
             shown: None,
             origin,
             duration,
@@ -156,6 +159,9 @@ impl RuntimePreview {
             starved_frames: 0,
             resets: 0,
         })
+    }
+    pub fn mat(&self) -> ddi_character::appearance::Geometry {
+        self.mat
     }
     pub fn start_preloaded(&mut self) {
         self.last_time = None;
@@ -424,9 +430,20 @@ mod tests {
     #[test]
     fn ordinary_charts_keep_judged_times_and_contacts_with_turns_offsets_and_immediate_notes() {
         for (layout, offset, turn) in [
+            ("dance-double", 0., ddi_engine::Turn::Off),
+            ("dance-double", 0.3, ddi_engine::Turn::Mirror),
+            ("dance-double", -3.1, ddi_engine::Turn::Off),
+            ("dance-double", -3.1, ddi_engine::Turn::Mirror),
+            ("dance-double", -0.5, ddi_engine::Turn::Shuffle),
             ("dance-single", 0., ddi_engine::Turn::Off),
             ("dance-single", -1.5, ddi_engine::Turn::Mirror),
             ("dance-single", 0.3, ddi_engine::Turn::Shuffle),
+            ("pump-halfdouble", 0., ddi_engine::Turn::Off),
+            ("pump-halfdouble", 0.3, ddi_engine::Turn::Mirror),
+            ("pump-halfdouble", -3.1, ddi_engine::Turn::Mirror),
+            ("pump-double", 0., ddi_engine::Turn::Off),
+            ("pump-double", 0.3, ddi_engine::Turn::Mirror),
+            ("pump-double", -0.5, ddi_engine::Turn::Shuffle),
             ("pump-single", 0., ddi_engine::Turn::Off),
             ("pump-single", 0.3, ddi_engine::Turn::Mirror),
             ("danoni-7", 0., ddi_engine::Turn::Off),
@@ -434,10 +451,56 @@ mod tests {
             ("techno-single8", 0., ddi_engine::Turn::Off),
             ("techno-single8", 0.3, ddi_engine::Turn::Mirror),
             ("techno-single8", -0.5, ddi_engine::Turn::Left),
+            ("danoni-9A", 0., ddi_engine::Turn::Off),
+            ("danoni-9A", 0.3, ddi_engine::Turn::Mirror),
+            ("danoni-9A", -3.1, ddi_engine::Turn::Off),
             ("danoni-9B", 0., ddi_engine::Turn::Off),
             ("danoni-9B", 0.3, ddi_engine::Turn::Mirror),
         ] {
-            let song = if layout == "pump-single" {
+            let song = if matches!(layout, "pump-halfdouble" | "pump-double") {
+                let mut song = ddi_chart::formats::sm::parse_sm(
+                    "#BPMS:0=120;#NOTES:pump-double::Medium:5:0,0,0,0,0:1000000000;",
+                )
+                .unwrap();
+                song.timing.offset_seconds = offset;
+                song.charts[0].layout = layout.into();
+                let panels = ddi_hand_plan::layout_panels(layout).unwrap();
+                let mut notes = Vec::new();
+                let mut add = |tick, p, kind| {
+                    notes.push(ddi_chart::Note::new(
+                        ddi_chart::Tick(tick),
+                        panels.iter().position(|v| *v == p).unwrap() as u8,
+                        kind,
+                    ))
+                };
+                for (i, p) in [5, 9, 10, 14, 16, 3].into_iter().enumerate() {
+                    add(i as i64 * 72, p, ddi_chart::NoteKind::Tap);
+                }
+                add(432, 5, ddi_chart::NoteKind::Tap);
+                add(432, 14, ddi_chart::NoteKind::Tap);
+                add(
+                    528,
+                    14,
+                    ddi_chart::NoteKind::HoldHead {
+                        end: ddi_chart::Tick(816),
+                    },
+                );
+                add(624, 5, ddi_chart::NoteKind::Tap);
+                add(720, 9, ddi_chart::NoteKind::Tap);
+                add(912, 5, ddi_chart::NoteKind::Tap);
+                if layout == "pump-double" {
+                    for (i, p) in [1, 7, 18, 12].into_iter().enumerate() {
+                        add(1008 + i as i64 * 72, p, ddi_chart::NoteKind::Tap);
+                    }
+                }
+                notes.sort_by_key(|n| (n.tick, n.lane));
+                song.charts[0].notes = notes;
+                song
+            } else if layout == "danoni-9A" {
+                ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary 9A;#OFFSET:{offset};#BPMS:0=120;#NOTES:danoni-9A::Medium:5:0,0,0,0,0:\n100010000\n010000000\n001000000\n000100000,\n000010001\n000001000\n000000100\n000000010,\n000020000\n000001000\n000000100\n000000001,\n000030000\n000010000\n0000M0000\n000010000;")).unwrap()
+            } else if layout == "dance-double" {
+                ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary double;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:dance-double::Medium:5:0,0,0,0,0:\n10000000\n00010000\n00001000\n00000001,\n00000010\n00000100\n00010000\n10000000,\n00020000\n00001000\n00000010\n00000100,\n00030000\n00000001\n00010000\n10000000;")).unwrap()
+            } else if layout == "pump-single" {
                 ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary Pump;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:pump-single::Medium:5:0,0,0,0,0:\n10000\n01000\n00100\n00010,\n00001\n10010\n01001\n00100,\n10010\n01001\n00100\n00001,\n10000\n01000\n00010\n00001;")).unwrap()
             } else if layout == "danoni-7" {
                 ddi_chart::formats::sm::parse_sm(&format!("#TITLE:Ordinary seven-key;#OFFSET:{offset};#BPMS:0=120,12=150;#STOPS:8=0.25;#NOTES:danoni-7::Medium:5:0,0,0,0,0:\n1000000\n0100000\n0010000\n0001000,\n0000100\n0000010\n0000001\n0001000,\n0100010\n1000001\n0002000\n0000000,\n0000000\n0010000\n0003000\n1000100;")).unwrap()
@@ -450,6 +513,13 @@ mod tests {
             };
             let player = ordinary_player(&song, turn);
             let mut r = RuntimePreview::for_player(&player, layout).unwrap();
+            let rendered =
+                (ddi_hand_plan::layout_geometry(layout).unwrap().pads() == 2).then(|| {
+                    let a = ddi_character::Character::load(ddi_character::HAND_MODEL).unwrap();
+                    let pose = a.new_pose();
+                    (a, pose)
+                });
+            let mut rendered = rendered;
             // The hand caps its own copy; gameplay keeps every judged note.
             let judged = player.judge().notes();
             assert_eq!(judged.len(), song.charts[0].notes.len());
@@ -462,6 +532,15 @@ mod tests {
                 r.source,
                 expected.iter().map(|n| n.note.clone()).collect::<Vec<_>>()
             );
+            let expected = expected
+                .into_iter()
+                .filter(|n| {
+                    !matches!(
+                        n.note.kind,
+                        ddi_chart::NoteKind::Mine | ddi_chart::NoteKind::Shock
+                    )
+                })
+                .collect::<Vec<_>>();
             assert_eq!(r.window, 3.);
             if layout == "dance-single" {
                 assert!(r.source.len() < song.charts[0].notes.len());
@@ -499,9 +578,11 @@ mod tests {
                         .iter()
                         .find(|e| {
                             e.tick == n.note.tick.0
-                                && e.panel
-                                    == ddi_hand_plan::layout_panels(layout).unwrap()
-                                        [usize::from(n.note.lane)]
+                                && ddi_dance_mat::MatLayout::from_id(layout)
+                                    .unwrap()
+                                    .targets(usize::from(n.note.lane))
+                                    .iter()
+                                    .any(|tile| tile.id() == e.panel)
                         })
                         .expect("same played event");
                     assert!((e.time + r.origin - n.seconds).abs() < 1e-9);
@@ -522,6 +603,31 @@ mod tests {
                             .sqrt()
                             <= 2.
                     );
+                    if let Some((asset, pose)) = &mut rendered {
+                        asset
+                            .pose_from_joints(
+                                &r.model.joint_worlds(&sample.pose),
+                                &r.model.morph_weights(&sample.pose),
+                                pose,
+                            )
+                            .unwrap();
+                        let contacts = asset.contacts(pose);
+                        let mut lights = ddi_character::appearance::ContactLights::default();
+                        lights.update_on(r.mat(), time as f32, &contacts);
+                        let slot = (0..18)
+                            .find(|&i| {
+                                ddi_character::appearance::physical_tile(r.mat(), i)
+                                    .unwrap()
+                                    .id()
+                                    == e.panel
+                            })
+                            .unwrap();
+                        assert!(
+                            lights.values[slot] > 0.,
+                            "{layout} {turn:?} at {time} panel {}: {contacts:?}",
+                            e.panel
+                        );
+                    }
                     checked += 1;
                 }
             }
@@ -595,7 +701,7 @@ mod tests {
     fn ordinary_adapter_checks_rolls_layout_and_judges_and_caps_its_own_copy() {
         let mut song = ordinary_song(0.);
         let p = ordinary_player(&song, ddi_engine::Turn::Off);
-        assert!(RuntimePreview::for_player(&p, "pump-double").is_err());
+        assert!(RuntimePreview::for_player(&p, "dance-couple").is_err());
         song.charts[0].notes[0].kind = ddi_chart::NoteKind::RollHead {
             end: ddi_chart::Tick(384),
         };

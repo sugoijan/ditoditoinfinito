@@ -51,6 +51,7 @@ pub struct Boundary {
 #[derive(Clone, Debug, Serialize)]
 pub struct SearchReport {
     pub skipped_roll_tail_refreshes: usize,
+    pub staggered_flights: usize,
     pub beam: usize,
     pub cost: f64,
     pub boundaries: Vec<Boundary>,
@@ -71,6 +72,10 @@ struct State {
     heading: f64,
     rank: usize,
     row_feet: [Foot; 2],
+    // Only hazard-recovery histories may consume an intermediate tap
+    // before their later reserved escape. Legacy histories retain their choices.
+    hazard_recovery: bool,
+    staggered_flights: usize,
     tick: Option<i64>,
     processed: f64,
     boundary: Option<Rc<State>>,
@@ -91,6 +96,8 @@ impl State {
             heading: 0.,
             rank: 0,
             row_feet: [Foot::L; 2],
+            hazard_recovery: false,
+            staggered_flights: 0,
             tick: None,
             processed: f64::NEG_INFINITY,
             boundary: None,
@@ -135,6 +142,16 @@ impl SearchSeed {
             layout: default_layout(),
         }
     }
+    pub fn configured(layout: &str) -> Self {
+        let mut seed = Self::initial();
+        if layout == "danoni-9A" {
+            seed.state.panels = [9, 16];
+        } else if double_pump(layout) {
+            seed.state.panels = [6, 13];
+        }
+        seed.layout = layout.into();
+        seed
+    }
     pub fn tick(&self) -> Option<i64> {
         self.state.tick
     }
@@ -172,6 +189,9 @@ impl SearchSeed {
         self.state.rank = 0;
         self.state.cost = 0.;
     }
+    pub(crate) fn staggered_flights(&self) -> usize {
+        self.state.staggered_flights
+    }
     pub fn retained(&self) -> usize {
         self.state
             .tracks
@@ -198,17 +218,12 @@ fn index(p: u8) -> usize {
         9 => 6,
         1 => 7,
         3 => 8,
+        10..=18 => 9 + index(p - 9),
         _ => unreachable!("validated panel"),
     }
 }
 fn panel(n: &InputNote) -> u8 {
     n.panel
-}
-fn shape(p: [u8; 2]) -> (f64, f64) {
-    SHAPES[index(p[0])][index(p[1])]
-}
-fn distance(p: u8, old: u8, d: usize) -> f64 {
-    DISTANCE[d][index(p)][index(old)]
 }
 fn square(v: f64) -> f64 {
     v * v
@@ -285,19 +300,22 @@ fn cmp_floats(a: &[f64], b: &[f64]) -> std::cmp::Ordering {
         .unwrap_or(std::cmp::Ordering::Equal)
 }
 
-/// One checkpoint expands one beam parent (at most four candidates) or sorts
-/// one bounded row. No partial plan escapes; yielding preserves candidate order.
+/// One checkpoint expands one beam parent with bounded assignments, support
+/// destinations and hazard alternatives, or sorts one bounded row. No partial
+/// plan escapes; yielding preserves candidate order.
 pub struct Search {
     skipped_roll_tail_refreshes: usize,
     rows: Vec<Vec<InputNote>>,
     mines: Vec<InputNote>,
     origin: f64,
     options: Options,
-    future: Vec<[f64; 9]>,
+    future: Vec<[f64; 18]>,
     states: Vec<State>,
     candidates: Vec<State>,
     row: usize,
     parent: usize,
+    hazard_retry: bool,
+    pub(super) staggered_recovery: bool,
     counts: Vec<Boundary>,
     result: Option<Result<(ContactPlan, SearchReport), String>>,
     layout: String,
@@ -305,6 +323,7 @@ pub struct Search {
     seed: Option<SearchSeed>,
     commit_time: f64,
     duration: Option<f64>,
+    unknown_head_window: f64,
 }
 impl Search {
     pub(crate) fn failure_tick(&self) -> Option<i64> {
@@ -402,7 +421,10 @@ impl Search {
             return Err("Passage starts inside a hold".into());
         }
         let mut rows: Vec<Vec<InputNote>> = Vec::new();
-        for n in notes {
+        for n in notes
+            .into_iter()
+            .flat_map(|n| crate::note_choices(&input.layout, n).take(if n.mine { 2 } else { 1 }))
+        {
             if rows.last().is_none_or(|r| {
                 if rolling {
                     r[0].time != n.time
@@ -425,11 +447,133 @@ impl Search {
         let mines = rows.iter().flatten().filter(|n| n.mine).copied().collect();
         let mut search = Self::with_rows(rows, origin, o);
         search.layout = input.layout.clone();
+        if double_mat(&search.layout) {
+            // Only the uncommitted opening rest follows the first received head.
+            // Avoid making an immediate right-pad start cross the whole mat.
+            if let Some(n) = search.rows.iter().flatten().find(|n| !n.mine) {
+                let source = panel(n);
+                let rest = if search.layout == "danoni-9A" {
+                    // Canonical Oni=5 must not force an immediate right-bank
+                    // opening to start on the left. Use only received arrows.
+                    let source = search
+                        .rows
+                        .iter()
+                        .take(8)
+                        .flatten()
+                        .find(|head| !head.mine && head.lane != 4)
+                        .map_or(source, panel);
+                    let split = search
+                        .rows
+                        .iter()
+                        .find(|row| row.iter().any(|n| !n.mine))
+                        .is_some_and(|row| {
+                            row.iter().any(|n| {
+                                !n.mine && n.lane != 4 && (n.panel - 1) / 9 != (source - 1) / 9
+                            })
+                        });
+                    let offset = 9 * ((source - 1) / 9);
+                    if split {
+                        [9, 16]
+                    } else {
+                        [offset + 7, offset + 9]
+                    }
+                } else if double_pump(&search.layout) {
+                    let split = search
+                        .rows
+                        .iter()
+                        .find(|row| row.iter().any(|n| !n.mine))
+                        .is_some_and(|row| {
+                            row.iter()
+                                .filter(|n| !n.mine)
+                                .any(|n| (panel(n) - 1) / 9 != (source - 1) / 9)
+                        });
+                    if split {
+                        [6, 13]
+                    } else {
+                        let side =
+                            9 * ((source - 1) / 9) + if (source - 1) % 3 == 2 { 6 } else { 4 };
+                        [side; 2]
+                    }
+                } else {
+                    [5 + 9 * ((source - 1) / 9); 2]
+                };
+                search.initial = Initial {
+                    left: rest[0],
+                    right: rest[1],
+                };
+                search.states[0].panels = rest;
+            }
+        }
+        if search.layout == "danoni-9A" && o.restore_early_window > 0. {
+            let mut next = [f64::INFINITY; 18];
+            for i in (0..search.rows.len()).rev() {
+                search.future[i] = next;
+                for n in &search.rows[i] {
+                    if !n.mine && !n.roll_refresh {
+                        next[index(n.panel)] = n.time - origin;
+                        if n.lane == 4 {
+                            next[index(14)] = n.time - origin;
+                        }
+                    }
+                }
+            }
+        }
         search.skipped_roll_tail_refreshes = skipped_roll_tail_refreshes;
+        search.unknown_head_window = input
+            .rules
+            .iter()
+            .map(|(_, r)| r.max_early())
+            .fold(0., f64::max);
         search.mines = mines;
         Ok(search)
     }
-    fn legal(&self, heading: f64, span: f64) -> bool {
+    fn shape(&self, p: [u8; 2]) -> (f64, f64) {
+        if double_mat(&self.layout) {
+            crate::double_geometry::SHAPES[p[0] as usize - 1][p[1] as usize - 1]
+        } else {
+            SHAPES[index(p[0])][index(p[1])]
+        }
+    }
+    fn distance(&self, p: u8, old: u8, d: usize) -> f64 {
+        if double_mat(&self.layout) {
+            crate::double_geometry::DISTANCE[d][p as usize - 1][old as usize - 1]
+        } else {
+            DISTANCE[d][index(p)][index(old)]
+        }
+    }
+    fn position(&self, panel: u8) -> [f64; 2] {
+        if double_mat(&self.layout) {
+            layout_geometry(&self.layout)
+                .expect("validated layout")
+                .position(ddi_dance_mat::Tile::try_from(panel).expect("validated tile"))
+                .expect("validated pad")
+        } else {
+            ddi_hand_pose::panel_position(panel, 24.).expect("validated panel")
+        }
+    }
+    fn legal(&self, panels: [u8; 2], heading: f64, span: f64) -> bool {
+        if double_mat(&self.layout) {
+            // The static survey fitted every policy-admitted ordered pair at
+            // 24 mm. Pump's center pair needs 90 mm nominal anchor separation
+            // (72 mm between tile centers), versus dance's 65.521 mm maximum.
+            // 9A's 64 scored pairs span 4.72–67.28 mm, including narrow
+            // crossed assignments. These are candidate envelopes, not
+            // anatomical reach certificates.
+            // Scored pairs must also pass the unchanged No Stretch regions.
+            let layout = ddi_dance_mat::MatLayout::from_id(&self.layout).unwrap();
+            let [a, b] = panels.map(|p| ddi_dance_mat::Tile::try_from(p).unwrap());
+            let (minimum, maximum) = if self.layout == "danoni-9A" {
+                (4.7, 68.)
+            } else if double_pump(&self.layout) {
+                (6., 90.)
+            } else {
+                (6., 66.)
+            };
+            return (minimum..=maximum).contains(&span)
+                && (layout.lane_for_tile(a).is_none()
+                    || layout.lane_for_tile(b).is_none()
+                    || layout.pair_allowed(a, b));
+        }
         // These layouts include the 50.8 mm opposite-corner stance and
         // reversed escape stances. Actual reach and rotation remain
         // subject to the unchanged bounded pose solver and contact checks.
@@ -449,7 +593,7 @@ impl Search {
         }
     }
     fn with_rows(rows: Vec<Vec<InputNote>>, origin: f64, o: Options) -> Self {
-        let mut next = [f64::INFINITY; 9];
+        let mut next = [f64::INFINITY; 18];
         let mut future = vec![next; rows.len()];
         if o.restore_early_window > 0. {
             for i in (0..rows.len()).rev() {
@@ -473,12 +617,15 @@ impl Search {
             candidates: Vec::new(),
             row: 0,
             parent: 0,
+            hazard_retry: false,
+            staggered_recovery: false,
             counts: Vec::new(),
             result: None,
             initial: Initial { left: 5, right: 5 },
             seed: None,
             commit_time: f64::NEG_INFINITY,
             duration: None,
+            unknown_head_window: 0.180,
         }
     }
     pub(crate) fn seeded(
@@ -503,16 +650,31 @@ impl Search {
         } else {
             Self::with_rows(Vec::new(), 0., o)
         };
+        let mut opening_seed = seed.clone();
         let mut state = seed.state.clone();
+        if double_mat(&input.layout)
+            && seed.release_floor == 0.
+            && state.tick.is_none()
+            && s.rows.iter().flatten().any(|n| !n.mine)
+            && state.tracks.iter().all(|t| t.backwards().next().is_none())
+        {
+            state.panels = [s.initial.left, s.initial.right];
+            // The opening rest is already physical output, even before a
+            // scored row is committed. Carry it through the empty boundary
+            // instead of reverting to the layout's default support next time.
+            opening_seed.state.panels = state.panels;
+        }
         state.cost = 0.;
         state.rank = 0;
         state.boundary = None;
-        s.mines = input
-            .notes
-            .iter()
-            .filter(|n| n.judgeable && n.mine)
-            .copied()
-            .collect();
+        s.mines = physical_hazards(
+            &input.layout,
+            input
+                .notes
+                .iter()
+                .filter(|n| n.judgeable && n.mine)
+                .copied(),
+        );
         s.initial = Initial {
             left: state.tracks[0]
                 .values()
@@ -524,8 +686,13 @@ impl Search {
                 .map_or(state.panels[1], |s| s.from),
         };
         s.layout = input.layout.clone();
+        s.unknown_head_window = input
+            .rules
+            .iter()
+            .map(|(_, r)| r.max_early())
+            .fold(0., f64::max);
         s.states = vec![state];
-        s.seed = Some(seed.clone());
+        s.seed = Some(opening_seed);
         s.commit_time = commit_time;
         s.duration = Some(known);
         if s.rows.is_empty() {
@@ -538,10 +705,58 @@ impl Search {
             .as_ref()
             .map_or(f64::NEG_INFINITY, |s| s.release_floor.next_up())
     }
+    // Unscored returns must not press an upcoming head early. An exact
+    // received head can reuse this landing and emits its usual one event.
+    fn safe_return(&self, panel: u8, land: f64) -> bool {
+        let next = self.rows.iter().skip(self.row + 1).flatten().find(|n| {
+            !n.mine
+                && !n.lift
+                && !n.roll_refresh
+                && note_has_panel(&self.layout, n, panel)
+                && n.time - self.origin >= land - 1e-9
+        });
+        next.is_none_or(|n| {
+            let gap = n.time - self.origin - land;
+            gap.abs() <= 1e-9 || gap > self.unknown_head_window + 1e-9
+        })
+    }
+    // Do not freeze a scored-tile return whose complete early-hit neighborhood
+    // has not arrived. Keep the candidate tentative; boundary() already holds
+    // the certified prefix before all uncommitted outgoing flights.
+    fn return_context_known(&self, s: &State) -> bool {
+        let Some(known) = self.duration else {
+            return true;
+        };
+        if self.commit_time >= known {
+            return true;
+        } // EOF
+        s.aux
+            .backwards()
+            .filter(|a| a.kind == RestoreKind::MineAvoid)
+            .all(|a| {
+                if a.time + self.unknown_head_window <= known {
+                    return true;
+                }
+                let layout = ddi_dance_mat::MatLayout::from_id(&self.layout).unwrap();
+                if layout
+                    .lane_for_tile(ddi_dance_mat::Tile::try_from(a.panel).unwrap())
+                    .is_none()
+                {
+                    return true;
+                }
+                self.rows.iter().skip(self.row).flatten().any(|n| {
+                    !n.mine
+                        && !n.lift
+                        && !n.roll_refresh
+                        && note_has_panel(&self.layout, n, a.panel)
+                        && n.time - self.origin == a.time
+                })
+            })
+    }
     fn capture(&self, mut s: State, tick: Option<i64>, land: f64) -> State {
         s.tick = tick.or(s.tick);
         s.processed = land + self.origin;
-        if land <= self.commit_time {
+        if land <= self.commit_time && self.return_context_known(&s) {
             let mut boundary = s.clone();
             boundary.boundary = None;
             s.boundary = Some(Rc::new(boundary));
@@ -722,14 +937,14 @@ impl Search {
             let mut panels = old.panels;
             panels[d] = panel(n);
             panels[other] = h.panel;
-            let (heading, span) = shape(panels);
-            if !self.legal(heading, span) {
+            let (heading, span) = self.shape(panels);
+            if !self.legal(panels, heading, span) {
                 continue;
             }
             let mut s = old.clone();
             let mut travel = 0.;
             for (side, &p) in panels.iter().enumerate() {
-                let dist = distance(p, old.panels[side], side);
+                let dist = self.distance(p, old.panels[side], side);
                 travel += square(dist / 18.) * 0.65;
                 s.tracks[side].push(Swing {
                     release,
@@ -783,10 +998,53 @@ impl Search {
         }
         out
     }
-    fn wide(panels: [u8; 2]) -> bool {
-        let [a, b] =
-            panels.map(|p| ddi_hand_pose::panel_position(p, 24.).expect("validated panel"));
+    fn wide(&self, panels: [u8; 2]) -> bool {
+        let [a, b] = panels.map(|p| self.position(p));
         (a[0] - b[0]).hypot(a[1] - b[1]) > 60.
+    }
+    fn escape_options(&self, old: &State) -> std::borrow::Cow<'static, [[u8; 2]]> {
+        let stances = crate::escape_stances(&self.layout);
+        if !double_pump(&self.layout) && self.layout != "danoni-9A" {
+            return std::borrow::Cow::Borrowed(stances);
+        }
+        let mut choices = stances.to_vec();
+        choices.retain(|&p| {
+            let (h, span) = self.shape(p);
+            self.legal(p, h, span)
+        });
+        choices.sort_by(|a, b| {
+            let cost = |p: &[u8; 2]| {
+                self.distance(p[0], old.panels[0], 0) + self.distance(p[1], old.panels[1], 1)
+            };
+            cost(a).total_cmp(&cost(b)).then(a.cmp(b))
+        });
+        choices.truncate(2);
+        std::borrow::Cow::Owned(choices)
+    }
+    fn support_targets(
+        &self,
+        old: &State,
+        landing: [u8; 2],
+        moving: usize,
+    ) -> std::borrow::Cow<'static, [u8]> {
+        if !double_mat(&self.layout) {
+            return std::borrow::Cow::Borrowed(crate::support_tiles(&self.layout));
+        }
+        let other = 1 - moving;
+        let mut targets = crate::support_tiles(&self.layout).to_vec();
+        targets.retain(|&p| {
+            let mut stance = landing;
+            stance[other] = p;
+            let (heading, span) = self.shape(stance);
+            self.legal(stance, heading, span)
+        });
+        targets.sort_by(|&a, &b| {
+            self.distance(a, old.panels[other], other)
+                .total_cmp(&self.distance(b, old.panels[other], other))
+                .then(a.cmp(&b))
+        });
+        targets.truncate(2);
+        std::borrow::Cow::Owned(targets)
     }
     fn support_step(
         &self,
@@ -801,7 +1059,7 @@ impl Search {
             return None;
         }
         let ls = self.departure_limits(old, other, land);
-        let dist = distance(target, old.panels[other], other);
+        let dist = self.distance(target, old.panels[other], other);
         let duration = 0.45;
         let release = (land - duration)
             .max(old.last[other] + ls.0)
@@ -848,7 +1106,7 @@ impl Search {
         head: f64,
     ) -> Option<(u8, f64, f64)> {
         let mut candidates = Vec::new();
-        for panel in 1..=9 {
+        for panel in 1..=if double_mat(&self.layout) { 18 } else { 9 } {
             if panel == source {
                 continue;
             }
@@ -871,14 +1129,14 @@ impl Search {
             }
             let mut panels = old.panels;
             panels[d] = panel;
-            let (heading, span) = shape(panels);
-            if !self.legal(heading, span) {
+            let (heading, span) = self.shape(panels);
+            if !self.legal(panels, heading, span) {
                 continue;
             }
             let height = self.clearance_lift(source, panel, release, land, 0.035);
             if let Some(height) = height {
-                let cost =
-                    square(distance(panel, source, d) / 18.) * 0.65 + self.facing_cost(heading);
+                let cost = square(self.distance(panel, source, d) / 18.) * 0.65
+                    + self.facing_cost(heading);
                 candidates.push((cost, panel, land, height));
             }
         }
@@ -903,7 +1161,7 @@ impl Search {
         let lift_jump = crate::wide_stances(&self.layout)
             && group.len() == 2
             && group.iter().all(|n| n.lift)
-            && Self::wide([panel(&group[0]), panel(&group[1])])
+            && self.wide([panel(&group[0]), panel(&group[1])])
             && group
                 .iter()
                 .enumerate()
@@ -918,6 +1176,22 @@ impl Search {
             let d = assignment[i];
             let other = 1 - d;
             let target = panel(n);
+            if self.layout == "danoni-9A" && n.lane == 4 && !n.roll_refresh {
+                // Prefer the bank of the received following arrows, especially
+                // while freezing a long Oni hold. Never inspect unknown notes
+                // or change a center after its physical prefix is published.
+                let until = n.end.map_or(n.time + 0.75, |(_, end)| end);
+                cost += self
+                    .rows
+                    .iter()
+                    .skip(self.row)
+                    .take(8)
+                    .flatten()
+                    .filter(|head| !head.mine && head.lane != 4 && head.time <= until)
+                    .filter(|head| (panel(head) - 1) / 9 != (target - 1) / 9)
+                    .count() as f64
+                    * if n.end.is_some() { 24. } else { 4. };
+            }
             if n.roll_refresh {
                 let prior = s.cost;
                 self.roll_contact(&mut s, n, d, land)?;
@@ -942,7 +1216,7 @@ impl Search {
             if held_at_hit && o.hold_restore_window == 0. {
                 return None;
             }
-            if old.panels[other] == target
+            if same_button(&self.layout, old.panels[other], target)
                 && !assignment[..group.len()].contains(&other)
                 && !(self.layout == "danoni-9B"
                     && old.tracks[other]
@@ -965,6 +1239,10 @@ impl Search {
                     // Keep an already-shared freeze supported by either finger,
                     // as on five keys. A roll still needs aggregate releases.
                     target
+                } else if self.layout == "danoni-9A" {
+                    self.lift_destination(old, old.panels[other], other)?
+                } else if double_pump(&self.layout) {
+                    crate::lift_escape(&self.layout, target, other)
                 } else if let Some(stance) = crate::escape_stances(&self.layout).first() {
                     if crate::wide_stances(&self.layout) {
                         stance[other]
@@ -978,7 +1256,47 @@ impl Search {
                 } else {
                     target
                 };
-                let (clear, rejoin, height) = if self.layout == "danoni-9B"
+                // In rapid recovery, free the shared button now and reserve
+                // the companion's exact next head instead of returning at 60 ms.
+                let staggered = self
+                    .staggered_recovery
+                    .then(|| {
+                        self.rows
+                            .iter()
+                            .skip(self.row + 1)
+                            .flatten()
+                            .filter(|head| !head.mine && !head.lift && !head.roll_refresh)
+                            .take_while(|head| head.time - self.origin < land + 0.060)
+                            .flat_map(|head| crate::note_choices(&self.layout, *head))
+                            .find_map(|head| {
+                                let p = panel(&head);
+                                let t = head.time - self.origin;
+                                if same_button(&self.layout, p, target) || t <= land {
+                                    return None;
+                                }
+                                let mut stance = landing;
+                                stance[d] = target;
+                                stance[other] = p;
+                                let (h, span) = self.shape(stance);
+                                if !self.legal(stance, h, span) {
+                                    return None;
+                                }
+                                let height = self.clearance_lift_from_head(
+                                    old,
+                                    other,
+                                    p,
+                                    [release, t],
+                                    0.035,
+                                    true,
+                                )?;
+                                Some((p, t, height))
+                            })
+                    })
+                    .flatten();
+                s.staggered_flights += usize::from(staggered.is_some());
+                let (clear, rejoin, height) = if let Some(staggered) = staggered {
+                    staggered
+                } else if self.layout == "danoni-9B"
                     && (n.roll
                         || (n.end.is_none()
                             && self.rows.iter().skip(self.row + 1).flatten().any(|head| {
@@ -987,7 +1305,8 @@ impl Search {
                                     && !head.roll_refresh
                                     && panel(head) == target
                                     && head.time - n.time < 0.215
-                            }))) {
+                            })))
+                {
                     self.companion_rest(old, other, target, release, land)?
                 } else {
                     (clear, land + 0.060, 0.035)
@@ -995,7 +1314,7 @@ impl Search {
                 s.tracks[other].push(Swing {
                     release,
                     land: rejoin,
-                    from: target,
+                    from: old.panels[other],
                     to: clear,
                     lift_m: height,
                 });
@@ -1011,15 +1330,31 @@ impl Search {
                 s.last[other] = rejoin;
                 cost += 0.5;
             }
-            if old.last[d] == land
-                && old.panels[d] == target
+            if ((old.last[d] == land && old.panels[d] == target)
+                || (old.hazard_recovery
+                    && n.end.is_none()
+                    && old.tracks[d]
+                        .backwards()
+                        .any(|s| s.land == land && s.to == target)))
                 && old.aux.backwards().any(|a| {
                     a.foot.index() == d
                         && a.time == land
-                        && matches!(a.kind, RestoreKind::MineAvoid | RestoreKind::LiftClear)
+                        && (matches!(a.kind, RestoreKind::MineAvoid | RestoreKind::LiftClear)
+                            || (a.kind == RestoreKind::CompanionHop
+                                && old.events.backwards().any(|e| {
+                                    e.tick == a.end_tick
+                                        && e.foot != a.foot
+                                        && !e.lift
+                                        && e.time < land
+                                        && land < e.time + 0.060
+                                })))
                 })
             {
                 // A hazard or scored-lift flight can already end on this head.
+                // A later hazard escape may also be reserved on this finger:
+                // consume the intermediate tap without rewinding that future.
+                // Long-note heads still require the final pending landing, so
+                // this cannot introduce an untracked hold-release interval.
                 s.events.push(Event {
                     lift: false,
                     time: land,
@@ -1035,7 +1370,7 @@ impl Search {
                 }
                 continue;
             }
-            let dist = distance(target, old.panels[d], d);
+            let dist = self.distance(target, old.panels[d], d);
             let repeat = old.panels[d] == target;
             let ls = self.departure_limits(old, d, land);
             let earliest = (old.last[d] + ls.0).max(if roll_repeat {
@@ -1081,23 +1416,25 @@ impl Search {
                 if repeat && duration < 0.14 {
                     penalty += square((0.14 - duration) / 0.04) * 2.;
                 }
-                if let Some(height) = self.clearance_lift(
-                    old.panels[d],
+                if let Some(height) = self.clearance_lift_from_head(
+                    old,
+                    d,
                     target,
-                    release,
-                    land,
+                    [release, land],
                     lift(dist, repeat, duration, o.adaptive_timing),
+                    true,
                 ) {
                     options.push([penalty, release, duration, height]);
                 }
             }
             let [penalty, release, _duration, height] = if let Some(r) = restore {
-                let height = self.clearance_lift(
-                    old.panels[d],
+                let height = self.clearance_lift_from_head(
+                    old,
+                    d,
                     target,
-                    r.release,
-                    land,
+                    [r.release, land],
                     lift(dist, repeat, r.outward, o.adaptive_timing),
+                    true,
                 )?;
                 [r.penalty, r.release, r.outward, height]
             } else {
@@ -1171,12 +1508,12 @@ impl Search {
             && group.len() == 1
             && !group[0].lift
             && !group[0].roll_refresh
-            && (Self::wide(old.panels) || Self::wide(landing))
+            && (self.wide(old.panels) || self.wide(landing))
         {
             cost += 20.;
         }
-        let (mut heading, span) = shape(landing);
-        if !self.legal(heading, span) {
+        let (mut heading, span) = self.shape(landing);
+        if !self.legal(landing, heading, span) {
             return None;
         }
         cost += square((span - 32.).max(0.)) * 0.006
@@ -1190,8 +1527,8 @@ impl Search {
                 landing[returns[i].1] = returns[i].2;
                 i += 1;
             }
-            let (h, span) = shape(landing);
-            if !self.legal(h, span) {
+            let (h, span) = self.shape(landing);
+            if !self.legal(landing, h, span) {
                 return None;
             }
             cost += square((h - heading) / 45.) * 0.25 + self.facing_cost(h);
@@ -1225,73 +1562,117 @@ impl Search {
             };
             let hazards = &group[..];
             let old = &self.states[self.parent];
-            if self.options.hold_handoff_window > 0.
-                && heads.len() == 1
-                && !heads[0].lift
-                && !heads[0].roll_refresh
-            {
-                let extra = self.handoff(old, &heads[0], land);
-                let extra = extra
+            // Only Oni has two targets. Choice is part of each beam state and
+            // becomes immutable with the published physical contact prefix.
+            let variants = if self.layout == "danoni-9A" && heads.iter().any(|n| n.lane == 4) {
+                [5, 14]
                     .into_iter()
-                    .flat_map(|s| self.hazard_candidates(s, hazards, land))
-                    .filter(|s| self.mine_safe(s, land))
-                    .map(|s| self.capture(s, source_tick, land))
-                    .collect::<Vec<_>>();
-                self.candidates.extend(extra);
-            }
-            for assignment in [[0, 1], [1, 0]] {
-                for direct_lifts in [false, true] {
-                    if direct_lifts && !heads.iter().any(|n| n.lift) {
-                        break;
-                    }
-                    if crate::wide_stances(&self.layout)
-                        && heads.len() == 1
-                        && !heads[0].lift
-                        && !heads[0].roll_refresh
-                    {
-                        let mut landing = old.panels;
-                        landing[assignment[0]] = panel(&heads[0]);
-                        if Self::wide(old.panels) || Self::wide(landing) {
-                            for &target in crate::support_tiles(&self.layout) {
-                                if let Some(s) = self
-                                    .support_step(old, &heads[0], assignment[0], target, land)
-                                    .and_then(|s| {
-                                        self.ordinary(
-                                            &s,
-                                            &heads,
-                                            assignment,
-                                            land,
-                                            next,
-                                            direct_lifts,
-                                        )
-                                    })
+                    .map(|target| {
+                        heads
+                            .iter()
+                            .map(|n| {
+                                if n.lane == 4 {
+                                    InputNote {
+                                        panel: target,
+                                        ..*n
+                                    }
+                                } else {
+                                    *n
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let choices = std::iter::once(heads.as_ref())
+                .take(usize::from(variants.is_empty()))
+                .chain(variants.iter().map(Vec::as_slice));
+            for heads in choices {
+                if self.options.hold_handoff_window > 0.
+                    && heads.len() == 1
+                    && !heads[0].lift
+                    && !heads[0].roll_refresh
+                {
+                    let extra = self.handoff(old, &heads[0], land);
+                    let extra = extra
+                        .into_iter()
+                        .flat_map(|s| self.hazard_candidates(s, hazards, land))
+                        .filter(|s| self.mine_safe(s, land))
+                        .map(|s| self.capture(s, source_tick, land))
+                        .collect::<Vec<_>>();
+                    self.candidates.extend(extra);
+                }
+                for assignment in [[0, 1], [1, 0]] {
+                    for direct_lifts in [false, true] {
+                        if direct_lifts && !heads.iter().any(|n| n.lift) {
+                            break;
+                        }
+                        if crate::wide_stances(&self.layout)
+                            && heads.len() == 1
+                            && !heads[0].lift
+                            && !heads[0].roll_refresh
+                        {
+                            let mut landing = old.panels;
+                            landing[assignment[0]] = panel(&heads[0]);
+                            if self.wide(old.panels) || self.wide(landing) {
+                                for &target in
+                                    self.support_targets(old, landing, assignment[0]).iter()
                                 {
-                                    for s in self.hazard_candidates(s, hazards, land) {
-                                        if self.mine_safe(&s, land) {
-                                            let s = self.capture(s, source_tick, land);
-                                            self.candidates.push(s);
+                                    if let Some(s) = self
+                                        .support_step(old, &heads[0], assignment[0], target, land)
+                                        .and_then(|s| {
+                                            self.ordinary(
+                                                &s,
+                                                heads,
+                                                assignment,
+                                                land,
+                                                next,
+                                                direct_lifts,
+                                            )
+                                        })
+                                    {
+                                        for s in self.hazard_candidates(s, hazards, land) {
+                                            if self.mine_safe(&s, land) {
+                                                let s = self.capture(s, source_tick, land);
+                                                self.candidates.push(s);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    if let Some(s) =
-                        self.ordinary(old, &heads, assignment, land, next, direct_lifts)
-                    {
-                        for s in self.hazard_candidates(s, hazards, land) {
-                            if self.mine_safe(&s, land) {
-                                let s = self.capture(s, source_tick, land);
-                                self.candidates.push(s);
+                        if let Some(s) =
+                            self.ordinary(old, heads, assignment, land, next, direct_lifts)
+                        {
+                            for s in self.hazard_candidates(s, hazards, land) {
+                                if self.mine_safe(&s, land) {
+                                    let s = self.capture(s, source_tick, land);
+                                    self.candidates.push(s);
+                                }
                             }
                         }
                     }
-                }
-                if heads.is_empty() {
-                    break;
+                    if heads.is_empty() {
+                        break;
+                    }
                 }
             }
             self.parent += 1;
+            return false;
+        }
+        // Preserve successful legacy rows exactly. Only retry a fully rejected
+        // nearby-hazard row with timed clearance enabled, once per row.
+        if self.candidates.is_empty()
+            && !self.hazard_retry
+            && self.mines.iter().any(|m| {
+                let time = m.time - self.origin;
+                time >= land - 0.6 && time <= land + 0.45 + mines::WINDOW
+            })
+        {
+            self.hazard_retry = true;
+            self.parent = 0;
             return false;
         }
         // rank is the lexical order of the entire prior foot sequence. Append
@@ -1311,6 +1692,7 @@ impl Search {
             let mut key = s.panels.map(u64::from).to_vec();
             key.extend(s.last.map(bits));
             key.extend(s.holds.map(bits));
+            key.push(u64::from(s.hazard_recovery));
             // Exactly the reference's recent-flight boundary: older history
             // is shared for output, but does not distinguish equivalent states.
             for d in 0..2 {
@@ -1347,6 +1729,7 @@ impl Search {
             kept: states.len(),
         });
         self.states = states;
+        self.hazard_retry = false;
         self.row += 1;
         self.parent = 0;
         if self.row == self.rows.len() {
@@ -1386,7 +1769,8 @@ impl Search {
             || o.hold_handoff_window > 0.;
         let plan = ContactPlan {
             layout: self.layout.clone(),
-            version: 1,
+            version: if double_mat(&self.layout) { 2 } else { 1 },
+            mat: (double_mat(&self.layout)).then(|| layout_geometry(&self.layout).unwrap()),
             scope: if self.mines.is_empty() {"Automatic bounded-beam planning from imported chart taps/holds. No manual assignments, lift timestamps or accepted motion inputs."} else {"Automatic bounded-beam planning of taps/holds with explicit mine-clearance contacts."}.into(),
             initial: self.initial.clone(),
             placement: Placement {
@@ -1406,6 +1790,7 @@ impl Search {
             restore_early_window_seconds: (o.restore_early_window > 0.).then_some(o.restore_early_window),
         };
         let report = SearchReport {
+            staggered_flights: s.staggered_flights,
             skipped_roll_tail_refreshes: self.skipped_roll_tail_refreshes,
             beam: o.beam,
             cost: s.cost,
@@ -1420,5 +1805,239 @@ impl Search {
     }
     pub fn row(&self) -> usize {
         self.row
+    }
+}
+
+#[cfg(test)]
+mod double_tests {
+    use super::*;
+    #[test]
+    fn a_cross_pad_hold_handoff_remains_an_available_recovery() {
+        let note = InputNote {
+            tick: 252,
+            time: 2.625,
+            lane: 3,
+            panel: 6,
+            judgeable: true,
+            end: Some((288, 3.)),
+            supported: true,
+            mine: false,
+            shock: false,
+            lift: false,
+            roll: false,
+            roll_refresh: false,
+        };
+        let mut search = Search::with_rows(
+            vec![vec![note]],
+            0.,
+            Options {
+                hold_handoff_window: 0.14,
+                ..Default::default()
+            },
+        );
+        search.layout = "dance-double".into();
+        let mut old = State::initial();
+        old.panels = [17, 13];
+        old.last = [2., 2.5];
+        old.holds = [6., 0.];
+        old.hold_events.push(Hold {
+            panel: 17,
+            start: 2.,
+            end: 6.,
+            end_time: 6.,
+            end_tick: 576,
+            foot: Foot::L,
+            roll: false,
+        });
+        let candidates = search.handoff(&old, &note, 2.625);
+        let candidate = candidates
+            .iter()
+            .find(|s| s.panels == [6, 17])
+            .expect("bounded handoff candidate");
+        let gap = candidate.gaps.backwards().next().unwrap();
+        assert_eq!(gap.panel, 17);
+        assert_eq!(gap.foot, Foot::L);
+        assert_eq!(gap.restore_foot, Some(Foot::R));
+        assert_eq!(gap.restore, 2.625);
+        assert!(gap.restore - gap.release <= 0.14);
+        assert_eq!(
+            candidate.events.backwards().next().unwrap().music_time,
+            2.625
+        );
+        assert_eq!(candidate.holds, [3., 6.]);
+    }
+}
+
+#[cfg(test)]
+mod pump_double_tests {
+    use super::*;
+    #[test]
+    fn pump_candidate_envelopes_cover_the_surveyed_pairs_and_bound_unscored_escapes() {
+        for layout in ["pump-halfdouble", "pump-double"] {
+            let mut search = Search::with_rows(Vec::new(), 0., Options::default());
+            search.layout = layout.into();
+            let mat = ddi_dance_mat::MatLayout::from_id(layout).unwrap();
+            assert_eq!(
+                crate::support_tiles(layout),
+                mat.unscored_tiles().map(|t| t.id()).collect::<Vec<_>>()
+            );
+            let mut admitted = 0;
+            for &a in layout_panels(layout).unwrap() {
+                for &b in layout_panels(layout).unwrap() {
+                    let pair = [a, b];
+                    let (h, span) = search.shape(pair);
+                    let expected = mat.pair_allowed(
+                        ddi_dance_mat::Tile::try_from(a).unwrap(),
+                        ddi_dance_mat::Tile::try_from(b).unwrap(),
+                    );
+                    assert_eq!(search.legal(pair, h, span), expected, "{layout} {pair:?}");
+                    admitted += usize::from(expected);
+                }
+            }
+            assert_eq!(admitted, if layout == "pump-double" { 68 } else { 36 });
+            let mut state = State::initial();
+            state.panels = [14, 14];
+            let escapes = search.escape_options(&state);
+            assert_eq!(escapes.len(), 2);
+            assert!(escapes.iter().flatten().all(|p| matches!(p, 13 | 15)));
+            for &stance in crate::escape_stances(layout) {
+                assert!(
+                    stance
+                        .iter()
+                        .all(|p| crate::support_tiles(layout).contains(p))
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod nine_a_tests {
+    use super::*;
+    #[test]
+    fn nine_a_targets_escapes_and_future_reservations_are_physical() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:danoni-9A::Hard:1:0,0,0,0,0:100000000,000010000,0000M0000;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let search = Search::new(
+            &input,
+            Options {
+                restore_early_window: 0.1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mat = ddi_dance_mat::MatLayout::from_id("danoni-9A").unwrap();
+        let scored = mat
+            .targets(0)
+            .iter()
+            .chain((1..9).flat_map(|lane| mat.targets(lane)))
+            .copied()
+            .collect::<Vec<_>>();
+        let mut count = 0;
+        for &a in &scored {
+            for &b in &scored {
+                if mat.pair_allowed(a, b) {
+                    let p = [a.id(), b.id()];
+                    let (h, span) = search.shape(p);
+                    assert!(search.legal(p, h, span), "{p:?} {span}");
+                    count += 1;
+                }
+            }
+        }
+        assert_eq!(count, 64);
+        for &tile in crate::support_tiles("danoni-9A") {
+            assert!(
+                mat.lane_for_tile(ddi_dance_mat::Tile::try_from(tile).unwrap())
+                    .is_none()
+            );
+        }
+        for &stance in crate::escape_stances("danoni-9A") {
+            assert!(
+                stance
+                    .into_iter()
+                    .all(|p| crate::support_tiles("danoni-9A").contains(&p))
+            );
+        }
+        assert!(search.escape_options(&search.states[0]).len() <= 2);
+        assert_eq!(search.future[0][index(5)], search.future[0][index(14)]);
+        assert!(search.future[0][index(14)].is_finite());
+        assert_eq!(
+            search.mines.iter().map(|n| n.panel).collect::<Vec<_>>(),
+            [5, 14]
+        );
+    }
+}
+
+#[cfg(test)]
+mod mine_return_tests {
+    use super::*;
+    fn head(time: f64) -> InputNote {
+        InputNote {
+            tick: 192,
+            time,
+            lane: 0,
+            panel: 4,
+            judgeable: true,
+            end: None,
+            supported: true,
+            mine: false,
+            shock: false,
+            lift: false,
+            roll: false,
+            roll_refresh: false,
+        }
+    }
+    #[test]
+    fn fixed_return_needs_enough_received_context_before_it_is_committed() {
+        let mut search = Search::with_rows(Vec::new(), 0., Options::default());
+        search.duration = Some(4.);
+        search.commit_time = 3.5;
+        let mut state = State::initial();
+        state.aux.push(Auxiliary {
+            time: 3.9,
+            foot: Foot::L,
+            panel: 4,
+            kind: RestoreKind::MineAvoid,
+            end_tick: 192,
+        });
+        assert!(!search.return_context_known(&state));
+        search.rows = vec![vec![head(3.9)]];
+        assert!(
+            search.return_context_known(&state),
+            "an exact known head reserves this press"
+        );
+        search.rows.clear();
+        search.commit_time = 4.;
+        assert!(
+            search.return_context_known(&state),
+            "EOF proves there are no future heads"
+        );
+        search.commit_time = 3.5;
+        state.aux = Default::default();
+        state.aux.push(Auxiliary {
+            time: 3.9,
+            foot: Foot::L,
+            panel: 5,
+            kind: RestoreKind::MineAvoid,
+            end_tick: 192,
+        });
+        assert!(
+            search.return_context_known(&state),
+            "an unscored center cannot steal a head"
+        );
+    }
+    #[test]
+    fn exact_return_head_is_kept_but_an_early_unscored_press_is_rejected() {
+        let search = Search::with_rows(
+            vec![vec![head(3.)], vec![head(3.9)], vec![head(4.)]],
+            0.,
+            Options::default(),
+        );
+        assert!(search.safe_return(4, 3.9));
+        assert!(!search.safe_return(4, 3.85));
+        assert!(search.safe_return(4, 3.6));
     }
 }

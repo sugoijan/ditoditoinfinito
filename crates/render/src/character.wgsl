@@ -1,8 +1,8 @@
 struct Camera {
  vp: mat4x4<f32>, light: vec4<f32>, tips: array<vec4<f32>,2>,
  eye: vec4<f32>, tint: vec4<f32>, lighting: vec4<f32>, surface: vec4<f32>,
- mat_color: vec4<f32>, accent: vec4<f32>, tiles: array<vec4<f32>,3>, tile_heights: array<vec4<f32>,3>,
- tile_colors: array<vec4<f32>,9>, effects: vec4<f32>,
+ mat_color: vec4<f32>, accent: vec4<f32>, tiles: array<vec4<f32>,5>, tile_heights: array<vec4<f32>,5>,
+ tile_colors: array<vec4<f32>,18>, tile_centers: array<vec4<f32>,18>, mat: vec4<f32>, effects: vec4<f32>,
  capsules_a: array<vec4<f32>,6>, capsules_b: array<vec4<f32>,6>,
 }
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -58,10 +58,10 @@ fn surface_light(n:vec3<f32>,v:vec3<f32>,l:vec3<f32>,base:vec3<f32>,surface:vec2
 }
 fn mat_light(p:vec3<f32>,n:vec3<f32>,v:vec3<f32>,base:vec3<f32>,surface:vec2<f32>)->vec3<f32> {
  var result=vec3(0.);
- for(var i=0u;i<9u;i++) {
+ for(var i=0u;i<u32(camera.mat.w);i++) {
   let hit=tile_hit(i);
   if hit>0.001 {
-   let center=vec2(f32(i%3u)-1.,f32(i/3u)-1.)*0.024;
+   let center=camera.tile_centers[i].xy;
    // Four samples over the luminous area avoid a point-light hotspot.
    for(var j=0u;j<4u;j++) {
     let offset=vec2(f32(j%2u)*2.-1.,f32(j/2u)*2.-1.)*0.006;
@@ -110,12 +110,14 @@ fn mat_light(p:vec3<f32>,n:vec3<f32>,v:vec3<f32>,base:vec3<f32>,surface:vec2<f32
   for(var i=0;i<2;i++){let d=o.world.xz-camera.tips[i].xy;shade+=0.15*exp(-dot(d,d)/0.00012)*exp(-max(camera.tips[i].z,0.)/0.012);}
   return vec4(vec3(0.89-grid*0.12-shade),1.);
  }
- let uv=o.world.xz/0.024;let cell=floor(uv+0.5);let local=abs(uv-cell);
+ let index=u32(o.detail.x+0.5);
+ if index>=u32(camera.mat.w) {discard;}
+ let uv=(o.world.xz-camera.tile_centers[index].xy)/camera.mat.x;let local=abs(uv);
  let aa=max(max(fwidth(uv.x),fwidth(uv.y)),0.001);
  let corner=length(max(local-vec2(0.3625),vec2(0.)))+min(max(local.x-0.3625,local.y-0.3625),0.)-0.1166667;
  let coverage=select(1.,1.-smoothstep(-aa*0.75,0.,corner),o.normal.y>0.5);
- if max(abs(uv.x),abs(uv.y))>=1.5||coverage<=0.001 {discard;}
- let index=u32((cell.y+1.)*3.+cell.x+1.);let hit=tile_hit(index);
+ if max(abs(uv.x),abs(uv.y))>=0.5||coverage<=0.001 {discard;}
+ let hit=tile_hit(index);
  // Flat satin tiles: no decorative bevel or corner glints. Smooth coverage
  // keeps rounded boundaries from leaving isolated hard pixels.
  var shadow=0.;

@@ -80,7 +80,7 @@ impl RollingPlanner {
             requested_finished: false,
             received: false,
             finished: false,
-            seed: SearchSeed::initial(),
+            seed: SearchSeed::configured(layout),
             checkpoint,
             job: None,
             publication: None,

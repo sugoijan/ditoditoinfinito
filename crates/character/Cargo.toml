@@ -9,5 +9,6 @@ repository.workspace = true
 description = "Bounded glTF character loading and deterministic clip deformation"
 
 [dependencies]
+ddi-dance-mat.workspace = true
 serde.workspace = true
 serde_json.workspace = true

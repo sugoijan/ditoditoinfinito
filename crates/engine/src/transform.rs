@@ -51,8 +51,8 @@ pub enum TimingCut {
 pub enum AtOnce {
     #[default]
     Any,
-    /// Jumps but no hands: a chart written for a keyboard, or for a hand
-    /// beside both feet, played on a pad (StepMania "NoHands").
+    /// Jumps but no hands, including excess simultaneous lifts. Extends
+    /// StepMania "NoHands", which protects lifts from removal.
     Two,
     /// No jumps either (StepMania "NoJumps").
     One,
@@ -298,8 +298,9 @@ fn remove_holds(notes: &mut [Note]) {
 /// StepMania `RemoveSimultaneousNotes(max)`: on each row, count the taps,
 /// lifts and hold heads (`GetNumTracksWithTapOrHoldHead`) plus the lanes
 /// still held by an earlier hold (one ending on this row included), and
-/// remove taps and heads, never lifts, from the leftmost lane until at most
-/// `max` remain. Mines and fakes are left alone. Rows are processed in
+/// remove taps and heads from the leftmost lane. For Up to two, remove
+/// excess lifts only if taps and heads were insufficient; One retains the
+/// legacy lift protection. Mines and fakes are left alone. Rows are processed in
 /// order, so a removed hold no longer holds later rows.
 fn remove_simultaneous(notes: &mut Vec<Note>, max: usize) {
     notes.sort_by_key(|n| (n.tick, n.lane));
@@ -332,6 +333,20 @@ fn remove_simultaneous(notes: &mut Vec<Note>, max: usize) {
             if pressable(&notes[k]) {
                 removed[k] = true;
                 excess -= 1;
+            }
+        }
+        // Up to two is a physical contact cap, including simultaneous releases.
+        // Prefer the legacy tap/head removals above, then trim leftmost lifts.
+        // Keep One's recorded-play behavior unchanged.
+        if max == 2 && excess > 0 {
+            for k in i..end {
+                if excess == 0 {
+                    break;
+                }
+                if notes[k].kind == NoteKind::Lift {
+                    removed[k] = true;
+                    excess -= 1;
+                }
             }
         }
         for k in i..end {

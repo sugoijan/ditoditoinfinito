@@ -4,6 +4,36 @@
 use super::*;
 
 impl Search {
+    pub(super) fn lift_destination(&self, s: &State, source: u8, foot: usize) -> Option<u8> {
+        if self.layout == "danoni-9A" {
+            let offset = 9 * ((source - 1) / 9);
+            let mut choices = [offset + 1, offset + 3, offset + 7, offset + 9];
+            choices.sort_by(|a, b| {
+                self.distance(*a, source, foot)
+                    .total_cmp(&self.distance(*b, source, foot))
+                    .then(a.cmp(b))
+            });
+            return choices.into_iter().find(|&p| {
+                let mut stance = s.panels;
+                stance[foot] = p;
+                let (h, span) = self.shape(stance);
+                self.legal(stance, h, span)
+            });
+        }
+        let preferred = crate::lift_escape(&self.layout, source, foot);
+        if !double_pump(&self.layout) {
+            return Some(preferred);
+        }
+        let offset = 9 * ((source - 1) / 9);
+        let alternate = offset + if (preferred - 1) % 9 + 1 == 4 { 6 } else { 4 };
+        [preferred, alternate].into_iter().find(|&p| {
+            let mut stance = s.panels;
+            stance[foot] = p;
+            let (h, span) = self.shape(stance);
+            self.legal(stance, h, span)
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn lift_contact(
         &self,
@@ -32,7 +62,7 @@ impl Search {
             if plant - release < ls.1 - 1e-9 || !self.allowed(target, plant) {
                 return None;
             }
-            let dist = distance(target, s.panels[d], d);
+            let dist = self.distance(target, s.panels[d], d);
             s.tracks[d].push(Swing {
                 release,
                 land: plant,
@@ -54,8 +84,8 @@ impl Search {
         if time - s.last[d] < ls.0 - 1e-9 {
             return None;
         }
-        let (heading, span) = shape(s.panels);
-        if !self.legal(heading, span) {
+        let (heading, span) = self.shape(s.panels);
+        if !self.legal(s.panels, heading, span) {
             return None;
         }
         let duration = 0.140_f64.min((next - time - ls.0).max(ls.1));
@@ -73,13 +103,13 @@ impl Search {
                 !head.mine
                     && !head.lift
                     && !head.roll_refresh
-                    && panel(head) == target
+                    && note_has_panel(&self.layout, head, target)
                     && gap >= ls.1
                     && gap <= 0.45
                     && gap - duration < ls.0 + ls.1
                     && self.allowed(target, head.time - self.origin)
             });
-        if s.panels[1 - d] == target {
+        if same_button(&self.layout, s.panels[1 - d], target) {
             let other = 1 - d;
             if !crate::scored_center(&self.layout)
                 || s.holds[other] > time
@@ -88,9 +118,7 @@ impl Search {
                 return None;
             }
             // A shared tile releases only when both contacts leave together.
-            let clear = crate::escape_stances(&self.layout)
-                .first()
-                .map_or(target, |p| p[other]);
+            let clear = self.lift_destination(s, s.panels[other], other)?;
             let companion_land = if self.layout == "danoni-9B" {
                 direct.map_or(time + duration, |head| head.time - self.origin + 0.060)
             } else {
@@ -99,7 +127,7 @@ impl Search {
             s.tracks[other].push(Swing {
                 release: time,
                 land: companion_land,
-                from: target,
+                from: s.panels[other],
                 to: clear,
                 lift_m: 0.035,
             });
@@ -115,18 +143,12 @@ impl Search {
             s.holds[other] = 0.;
             s.cost += 0.5;
         }
-        let (clear, duration) = direct.map_or_else(
-            || {
-                (
-                    crate::escape_stances(&self.layout)
-                        .first()
-                        .map_or(target, |p| p[d]),
-                    duration,
-                )
-            },
-            |head| (target, head.time - self.origin - time),
-        );
-        let dist = distance(clear, target, d);
+        let (clear, duration) = if let Some(head) = direct {
+            (target, head.time - self.origin - time)
+        } else {
+            (self.lift_destination(s, target, d)?, duration)
+        };
+        let dist = self.distance(clear, target, d);
         s.tracks[d].push(Swing {
             release: time,
             land: time + duration,
@@ -174,23 +196,29 @@ pub(crate) fn validate_auxiliary(
         let t = n.time - p.source_music_origin_seconds;
         match a.kind {
             RestoreKind::LiftPlant => {
-                a.panel == panel(n)
+                note_has_panel(&p.layout, n, a.panel)
                     && a.time <= t - 0.020
                     && tr.iter().any(|s| s.land == a.time && s.to == a.panel)
             }
             RestoreKind::LiftClear => {
-                (a.panel
-                    == crate::escape_stances(&p.layout)
-                        .first()
-                        .map_or(panel(n), |p| p[a.foot.index()])
-                    || (a.panel == panel(n)
-                        && a.time - t >= 0.025
-                        && a.time - t <= 0.45
-                        && p.events.iter().any(|e| {
-                            !e.lift && e.foot == a.foot && e.panel == a.panel && e.time == a.time
-                        })))
+                ((if p.layout == "danoni-9A" {
+                    crate::support_tiles(&p.layout).contains(&a.panel)
+                } else if double_pump(&p.layout) {
+                    let offset = 9 * ((panel(n) - 1) / 9);
+                    [offset + 4, offset + 6].contains(&a.panel)
+                } else {
+                    a.panel == crate::lift_escape(&p.layout, panel(n), a.foot.index())
+                }) || (note_has_panel(&p.layout, n, a.panel)
+                    && a.time - t >= 0.025
+                    && a.time - t <= 0.45
+                    && p.events.iter().any(|e| {
+                        !e.lift && e.foot == a.foot && e.panel == a.panel && e.time == a.time
+                    })))
                     && tr.iter().any(|s| {
-                        s.release == t && s.from == panel(n) && s.land == a.time && s.to == a.panel
+                        s.release == t
+                            && note_has_panel(&p.layout, n, s.from)
+                            && s.land == a.time
+                            && s.to == a.panel
                     })
             }
             _ => false,

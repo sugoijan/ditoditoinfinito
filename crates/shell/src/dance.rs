@@ -149,6 +149,8 @@ impl Preview {
         let key = serde_json::to_vec(&(
             chart,
             &c.layout,
+            ddi_hand_plan::layout_geometry(&c.layout).ok(),
+            &c.notes,
             c.timing(&song),
             &rules.id,
             &rules.judge,
@@ -383,6 +385,10 @@ impl Preview {
         self.rect = rect;
         let camera = self.look.map_or([-25., 14., 0.52], |l| l.camera);
         self.host.set(Some(Picture {
+            mat: self
+                .runtime
+                .as_ref()
+                .map_or_else(ddi_character::appearance::Geometry::single, |r| r.mat()),
             ground_y: self.look.map(|_| 0.98),
             appearance: self.look.map(|l| l.appearance),
             procedural: self.runtime.as_ref().map(|r| r.payload.clone()),
@@ -542,6 +548,12 @@ mod preload_tests {
         p.set_look(Some(look));
         p.preload(&song, 0., 0, &settings, &config);
         assert!(Rc::ptr_eq(&payload, &p.runtime.as_ref().unwrap().payload));
+        let mut edited = song.clone();
+        edited.charts[0].notes[0].lane = 1;
+        p.preload(&edited, 0., 0, &settings, &config);
+        assert!(!Rc::ptr_eq(&payload, &p.runtime.as_ref().unwrap().payload));
+        p.preload(&song, 0., 0, &settings, &config);
+        let payload = p.runtime.as_ref().unwrap().payload.clone();
         config.options.transform.turn = ddi_engine::Turn::Mirror;
         p.preload(&song, 0., 0, &settings, &config);
         assert!(!Rc::ptr_eq(&payload, &p.runtime.as_ref().unwrap().payload));
@@ -569,11 +581,11 @@ mod preload_tests {
         assert!(p.runtime_error.is_none());
         // Nothing prepared in calibration, nor for a layout the hand
         // does not play.
-        let double = ddi_chart::formats::sm::parse_sm(
-            "#BPMS:0=120;#NOTES:dance-double::Easy:2:0,0,0,0,0:\n10000000\n00000001;",
+        let unsupported = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:dance-couple::Easy:2:0,0,0,0,0:\n10000000\n00000001;",
         )
         .unwrap();
-        p.preload(&double, 0., 0, &settings, &config);
+        p.preload(&unsupported, 0., 0, &settings, &config);
         assert!(!p.preload_pending() && p.runtime_error.is_none());
         config.calibrate(ddi_session::calibration::CalMode::Visual);
         p.preload(&song, 0., 0, &settings, &config);

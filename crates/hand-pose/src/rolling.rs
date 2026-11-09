@@ -1,6 +1,6 @@
 //! Cooperative, single-threaded rolling preparation. Only changed future motion
 //! is rebuilt. Immutable committed motion is retained through a C2 splice.
-use crate::curve::{Curve, value};
+use crate::curve::{Curve, near_yaw, value, wrap_yaw};
 use crate::motion::{polygon, project};
 use crate::stream::{Stream, StreamOptions};
 use crate::{Goal, Guide, Model, Parameters, Plan, PoseFit, SolveReport, solve};
@@ -394,7 +394,7 @@ impl Job {
         let previous = i.checked_sub(1).map(|j| self.q[j]);
         let t = self.times[i];
         let target = self.plan.targets(t);
-        let (mut q, old_com) = value(self.old.at(t).p);
+        let (mut q, old_com) = self.old.parameters(self.old.at(t).p);
         let err = m
             .geometry(&q)
             .tips
@@ -486,10 +486,20 @@ impl Job {
                     let w = (-0.5 * (dt / 0.04).powi(2)).exp() * density;
                     sum += w;
                     for c in 0..14 {
-                        q[c] += w * self.q[j][c];
+                        // A world turn through ±180° must not average through
+                        // zero, which would impose an unrelated body rotation.
+                        let v = if c == 13 && self.old.periodic_yaw {
+                            near_yaw(self.q[j][c], self.q[i][c])
+                        } else {
+                            self.q[j][c]
+                        };
+                        q[c] += w * v;
                     }
                 }
                 self.filtered[i] = q.map(|v| v / sum);
+                if self.old.periodic_yaw {
+                    self.filtered[i][13] = wrap_yaw(self.filtered[i][13]);
+                }
                 self.index += 1;
                 if self.index == n {
                     self.q.copy_from_slice(&self.filtered);
@@ -559,11 +569,14 @@ impl Job {
         Tick::Unit
     }
     fn finish(self) -> Curve {
-        Curve::from_guide(&Guide {
-            times: self.times,
-            poses: self.q,
-            centers: self.centers,
-        })
+        Curve::from_guide(
+            &Guide {
+                times: self.times,
+                poses: self.q,
+                centers: self.centers,
+            },
+            self.old.periodic_yaw,
+        )
     }
 }
 #[derive(Clone, Debug, Default)]
@@ -638,7 +651,7 @@ impl Rolling {
         let prior = q;
         solve(m, &mut q, &prior, &goal, 32);
         Self {
-            curve: Curve::constant(q, goal.com),
+            curve: Curve::constant(q, goal.com, empty.periodic_yaw(m)),
             published_plan: empty,
             pending: None,
             job: None,
@@ -875,7 +888,7 @@ impl Rolling {
         if w == 0. {
             return self.evaluate_exact(m, plan, t);
         }
-        let Some((s, stream_com)) = stream.sample(t) else {
+        let Some((mut s, stream_com)) = stream.sample(t) else {
             // Stream knots should always lead playback by about two seconds;
             // the caller reports a starved sample as a failure.
             let (q, mut report) = self.evaluate_exact(m, plan, t);
@@ -886,8 +899,14 @@ impl Rolling {
             (s, SolveReport::default())
         } else {
             let (e, report) = self.evaluate_exact(m, plan, t);
-            let exact_com = value(self.curve.at(t).p).1;
-            let blend: Parameters = std::array::from_fn(|i| e[i] + w * (s[i] - e[i]));
+            let exact_com = self.curve.parameters(self.curve.at(t).p).1;
+            if self.curve.periodic_yaw {
+                s[13] = near_yaw(s[13], e[13]);
+            }
+            let mut blend: Parameters = std::array::from_fn(|i| e[i] + w * (s[i] - e[i]));
+            if self.curve.periodic_yaw {
+                blend[13] = wrap_yaw(blend[13]);
+            }
             // Blended controls of two different poses can move a planted
             // fingertip: fit the blend back to the targets, fading the fit out
             // towards stream motion alone so the output stays continuous.
@@ -902,12 +921,18 @@ impl Rolling {
                 },
                 8,
             );
+            if self.curve.periodic_yaw {
+                fitted[13] = near_yaw(fitted[13], blend[13]);
+            }
             let keep = 1. - w.powi(4);
             (
                 std::array::from_fn(|i| blend[i] + keep * (fitted[i] - blend[i])),
                 report,
             )
         };
+        if self.curve.periodic_yaw {
+            q[13] = wrap_yaw(q[13]);
+        }
         let mut g = m.geometry(&q);
         // Stream knots touch the floor exactly; between them a planted
         // fingertip can dip below it. Lift the hand rigidly (the root's
@@ -965,7 +990,7 @@ impl Rolling {
         self.stream.as_ref().map_or(Vec::new(), |s| s.intervals())
     }
     fn evaluate_exact(&self, m: &Model, plan: &Plan, t: f64) -> (Parameters, SolveReport) {
-        let (mut q, com) = value(self.curve.at(t).p);
+        let (mut q, com) = self.curve.parameters(self.curve.at(t).p);
         let prior = q;
         // The same strict fit as `solve`; perturbed columns reuse unchanged
         // geometry, which is bit-for-bit identical.
@@ -1008,7 +1033,12 @@ impl Rolling {
     pub fn guide(&self) -> Guide {
         Guide {
             times: self.curve.knots.iter().map(|k| k.t).collect(),
-            poses: self.curve.knots.iter().map(|k| value(k.p).0).collect(),
+            poses: self
+                .curve
+                .knots
+                .iter()
+                .map(|k| self.curve.parameters(k.p).0)
+                .collect(),
             centers: self.curve.knots.iter().map(|k| value(k.p).1).collect(),
         }
     }

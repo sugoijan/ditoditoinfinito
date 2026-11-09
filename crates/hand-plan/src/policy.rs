@@ -25,6 +25,8 @@ pub struct Attempt {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_timing: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub staggered_landings: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum_swing_seconds: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restore_early_window_seconds: Option<f64>,
@@ -130,7 +132,7 @@ impl PlannerJob {
             .any(|w| w[1] - w[0] > 0. && w[1] - w[0] < 0.115)
             || input.notes.iter().any(|n| n.judgeable && n.roll);
         if !rapid {
-            let mut last = [f64::NEG_INFINITY; 9];
+            let mut last = [f64::NEG_INFINITY; 18];
             for n in input.notes.iter().filter(|n| n.judgeable) {
                 if n.mine {
                     if let Some(previous) = last.get(n.lane as usize) {
@@ -253,14 +255,14 @@ impl PlannerJob {
         if self.tier == 6 {
             self.report.gate = Some("failed_same_finger_tiers_with_holds".into());
         }
-        if self.tier == 7 {
+        if matches!(self.tier, 7 | 8) {
             if !self.rapid {
                 self.report.adaptive_gate = Some("no_rapid_rows".into());
                 return None;
             }
             self.report.adaptive_gate = Some("prior_failure_with_rapid_rows".into());
         }
-        if self.tier > 7 {
+        if self.tier > 8 {
             return None;
         }
         let mut o = self.base;
@@ -289,13 +291,14 @@ impl PlannerJob {
                 o.hold_handoff_window = 0.22;
                 attempt.handoff_window_seconds = Some(0.22);
             }
-            7 => {
+            7 | 8 => {
                 o.hold_tail_grace = 0.22;
                 o.hold_restore_window = 0.22;
                 o.hold_handoff_window = 0.22;
                 o.adaptive_timing = true;
                 o.restore_early_window = 0.182;
                 attempt.adaptive_timing = Some(true);
+                attempt.staggered_landings = (self.tier == 8).then_some(true);
                 attempt.minimum_swing_seconds = Some(0.025);
                 attempt.restore_early_window_seconds = Some(0.182);
             }
@@ -326,7 +329,10 @@ impl PlannerJob {
                         None => Search::new(&self.input, o),
                     };
                     match search {
-                        Ok(s) => self.work = Work::Search(Box::new(s)),
+                        Ok(mut s) => {
+                            s.staggered_recovery = self.tier == 8;
+                            self.work = Work::Search(Box::new(s));
+                        }
                         Err(e) => self.reject(e, None),
                     }
                 }
@@ -353,6 +359,13 @@ impl PlannerJob {
                                     .flatten()
                                     .skip(self.context.as_ref().map_or(0, |c| c.seed.gaps()))
                                     .any(|g| g.restore_foot.is_some()),
+                                8 => {
+                                    report.staggered_flights
+                                        > self
+                                            .context
+                                            .as_ref()
+                                            .map_or(0, |c| c.seed.staggered_flights())
+                                }
                                 7 => {
                                     report.skipped_roll_tail_refreshes > 0
                                         || p.timing_adjustments.as_ref().is_some_and(|g| {
@@ -372,6 +385,7 @@ impl PlannerJob {
                                             "No actual interior release; not credited to this tier"
                                         }
                                         6 => "No actual handoff; not credited to this tier",
+                                        8 => "No new staggered flight; not credited to this tier",
                                         _ => "No timing compression or omitted roll-tail refresh; not credited",
                                     }
                                     .into(),
@@ -542,7 +556,7 @@ impl PlannerJob {
                         .count(),
                 );
             }
-            7 => {
+            7 | 8 => {
                 self.report.adaptive_timing = Some(true);
                 self.report.timing_adjustments = Some(p.timing_adjustments.as_ref().unwrap().len());
             }

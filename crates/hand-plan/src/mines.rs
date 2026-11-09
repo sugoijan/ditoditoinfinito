@@ -30,16 +30,83 @@ impl Search {
         to: u8,
         release: f64,
         land: f64,
-        mut height: f64,
+        height: f64,
     ) -> Option<f64> {
-        let xy = |panel| ddi_hand_pose::panel_position(panel, 24.).expect("validated panel");
+        self.clearance_lift_for([from, to], [release, land], height, false, None)
+    }
+    fn scored_landing(&self, s: &State, d: usize, target: u8, time: f64) -> bool {
+        s.events
+            .backwards()
+            .any(|e| e.foot.index() == d && !e.lift && e.panel == target && e.time == time)
+            || s.aux.backwards().any(|a| {
+                a.kind == RestoreKind::MineAvoid
+                    && a.foot.index() == d
+                    && a.panel == target
+                    && a.time == time
+                    && self.rows.iter().skip(self.row).flatten().any(|n| {
+                        !n.mine
+                            && !n.lift
+                            && !n.roll_refresh
+                            && note_has_panel(&self.layout, n, target)
+                            && n.time - self.origin == time
+                    })
+            })
+    }
+    fn departure_deadline(&self, s: &State, d: usize, mine: f64) -> f64 {
+        if self.hazard_retry && self.scored_landing(s, d, s.panels[d], s.last[d]) {
+            ddi_hand_pose::mine_head_clearance_start(mine, s.last[d], s.last[d].next_up())
+                .unwrap_or(mine - WINDOW)
+        } else {
+            mine - WINDOW
+        }
+    }
+    pub(super) fn clearance_lift_from_head(
+        &self,
+        s: &State,
+        d: usize,
+        to: u8,
+        times: [f64; 2],
+        height: f64,
+        scored: bool,
+    ) -> Option<f64> {
+        let head = (self.hazard_retry && self.scored_landing(s, d, s.panels[d], s.last[d]))
+            .then_some(s.last[d]);
+        self.clearance_lift_for([s.panels[d], to], times, height, scored, head)
+    }
+    fn clearance_lift_for(
+        &self,
+        [from, to]: [u8; 2],
+        [release, land]: [f64; 2],
+        mut height: f64,
+        scored: bool,
+        head: Option<f64>,
+    ) -> Option<f64> {
+        let xy = |panel| self.position(panel);
         let a = xy(from);
         let b = xy(to);
         for mine in &self.mines {
             let time = mine.time - self.origin;
             let center = xy(super::panel(mine));
-            for boundary in [time - 0.09, time, time + 0.09] {
-                if boundary <= release || boundary >= land {
+            let departure = head
+                .filter(|_| super::panel(mine) == from)
+                .and_then(|h| ddi_hand_pose::mine_head_clearance_start(time, h, release));
+            // The received destination may precede this mine. Its actual
+            // outgoing flight is still required by mine_safe before acceptance.
+            let arrival = (self.hazard_retry && scored && super::panel(mine) == to)
+                .then(|| ddi_hand_pose::mine_head_clearance_start(time, land, land.next_up()))
+                .flatten();
+            let start = arrival.or(departure).unwrap_or(time - 0.09);
+            let end = if scored
+                && super::panel(mine) == to
+                && (self.hazard_retry || self.staggered_recovery || land <= time + 0.095)
+            {
+                ddi_hand_pose::mine_head_clearance_end(time, release, land, from == to)
+                    .unwrap_or(time + 0.09)
+            } else {
+                time + 0.09
+            };
+            for boundary in [start, time, end] {
+                if boundary < start || boundary > end || boundary <= release || boundary >= land {
                     continue;
                 }
                 let u = (boundary - release) / (land - release);
@@ -55,7 +122,7 @@ impl Search {
         }
         (height <= 0.075).then_some(height)
     }
-    /// At most four hazard alternatives per parent, within the existing beam.
+    /// At most five hazard alternatives per parent, within the existing beam.
     /// Prefer an unscored escape when available: returning to a hazardous
     /// arrow after a fixed hop needlessly traps the next repeated mine window.
     /// DanOni five-key charts use air time without assuming a safe tile.
@@ -75,16 +142,31 @@ impl Search {
         let pending = &self.mines[start..];
         let clear = |mut state: State, mode: u8, escape: [u8; 2]| {
             let mut horizon = until;
-            for mine in pending {
+            let mut i = 0;
+            while i < pending.len() {
+                let mine = &pending[i];
                 if mine.time - self.origin - WINDOW > horizon {
                     break;
                 }
                 let time = mine.time - self.origin;
-                state = match mode {
-                    0 => self.escape_mines(state, std::slice::from_ref(mine), time, escape)?,
-                    1 => self.avoid_mines(state, std::slice::from_ref(mine), time)?,
-                    _ => self.head_clearance(state, std::slice::from_ref(mine), time)?,
+                // The new direct-flight alternative treats a simultaneous row
+                // as one maneuver. Its intermediate one-foot stance need not
+                // be a legal final two-foot stance.
+                let end = if mode >= 3 {
+                    i + pending[i..].partition_point(|m| m.time == mine.time)
+                } else {
+                    i + 1
                 };
+                let group = &pending[i..end];
+                state = match mode {
+                    0 => self.escape_mines(state, group, time, escape)?,
+                    1 => self.avoid_mines(state, group, time)?,
+                    2 => self.head_clearance(state, group, time, false, false)?,
+                    3 => self.head_clearance(state, group, time, true, false)?,
+                    5 => self.head_clearance(state, group, time, true, true)?,
+                    _ => self.escape_mines(state, group, time, escape)?,
+                };
+                i = end;
                 // A clearance landing can expose the companion to another
                 // known mine before that landing. Plan through the enlarged
                 // horizon too: mine_safe validates this same whole interval.
@@ -97,22 +179,27 @@ impl Search {
             || pending
                 .first()
                 .is_some_and(|m| m.time - self.origin - WINDOW <= until);
-        let mut choices: [Option<State>; 4] = std::array::from_fn(|_| None);
+        let mut choices: [Option<State>; 5] = std::array::from_fn(|_| None);
+        // Keep mine-free rows allocation-free, with no extra history clone.
+        if !has_hazard {
+            choices[0] = Some(s);
+            return choices.into_iter().flatten();
+        }
         let mut count = 0;
-        if has_hazard {
-            for &escape in crate::escape_stances(&self.layout) {
-                if let Some(state) = clear(s.clone(), 0, escape) {
-                    choices[count] = Some(state);
-                    count += 1;
-                }
+        for &escape in self.escape_options(&s).iter() {
+            if let Some(state) = clear(s.clone(), 0, escape) {
+                choices[count] = Some(state);
+                count += 1;
             }
         }
-        let head = has_hazard.then(|| clear(s.clone(), 2, [5, 5])).flatten();
-        let mut flight = if has_hazard {
-            clear(s, 1, [5, 5])
-        } else {
-            Some(s)
-        };
+        if count == 0 {
+            for (i, &escape) in self.escape_options(&s).iter().enumerate() {
+                choices[3 + i] = clear(s.clone(), 4, escape);
+            }
+        }
+        let head = clear(s.clone(), 2, [5, 5]);
+        let direct = clear(s.clone(), 3, [5, 5]);
+        let mut flight = clear(s.clone(), 1, [5, 5]);
         if count != 0
             && let Some(flight) = &mut flight
         {
@@ -120,12 +207,34 @@ impl Search {
         }
         choices[count] = flight;
         choices[count + 1] = head;
+        choices[count + 2] = direct;
+        // Only when legacy alternatives fail: reserve alternating scored
+        // flights, allowing a local unscored support at the received horizon.
+        // Reuse an empty slot; the per-parent candidate bound stays five.
+        if self.hazard_retry && choices.iter().all(Option::is_none) {
+            choices[0] = clear(s, 5, [5, 5]);
+        }
+        if self.hazard_retry {
+            for state in choices.iter_mut().flatten() {
+                state.hazard_recovery = true;
+            }
+        }
         choices.into_iter().flatten()
     }
-    fn head_clearance(&self, mut s: State, hazards: &[InputNote], time: f64) -> Option<State> {
+    fn head_clearance(
+        &self,
+        mut s: State,
+        hazards: &[InputNote],
+        time: f64,
+        direct: bool,
+        local_support: bool,
+    ) -> Option<State> {
         for d in 0..2 {
             let source = s.panels[d];
-            let Some(mine) = hazards.iter().find(|n| n.mine && panel(n) == source) else {
+            let Some(mine) = hazards
+                .iter()
+                .find(|n| n.mine && note_has_panel(&self.layout, n, source))
+            else {
                 continue;
             };
             if s.last[d] > time || held(&s, d, time).is_some() {
@@ -137,41 +246,53 @@ impl Search {
                 .skip(self.row + 1)
                 .flatten()
                 .filter(|n| !n.mine && !n.lift && !n.roll_refresh)
-                .take_while(|n| n.time - self.origin <= time + 0.170)
+                .take_while(|n| n.time - self.origin <= time + if direct { 0.45 } else { 0.170 })
+                .flat_map(|n| crate::note_choices(&self.layout, *n))
                 .find_map(|n| {
                     let land = n.time - self.origin;
-                    let target = panel(n);
+                    let target = panel(&n);
+                    // This is the received head itself, not an unscored restore
+                    // that could steal a nearby press. Its landing is reused.
                     if land < time
-                        || target == source
+                        || (!direct && target == source)
                         || target == s.panels[1 - d]
-                        || !self.allowed(target, land)
+                        || (!self.staggered_recovery && !self.allowed(target, land))
                     {
                         return None;
                     }
                     let mut panels = s.panels;
                     panels[d] = target;
-                    let (heading, span) = shape(panels);
-                    if !self.legal(heading, span) {
+                    let (heading, span) = self.shape(panels);
+                    if !self.legal(panels, heading, span) {
                         return None;
                     }
                     let ls = self.departure_limits(&s, d, land);
-                    let dist = distance(target, source, d);
+                    let dist = self.distance(target, source, d);
                     let release = (land - 0.45_f64.min(0.20 + dist / 140.))
+                        .min(if direct { time - 0.170 } else { f64::INFINITY })
                         .max(s.last[d] + ls.0)
                         .max(
                             s.holds[d] + if s.holds[d] > 0. { 0.01 } else { 0. }
                                 - self.options.hold_tail_grace,
                         )
-                        .max(self.release_floor());
-                    if release > time - WINDOW || land - release < ls.1 - 1e-9 {
+                        .max(self.release_floor())
+                        .max(if direct {
+                            land - 0.45
+                        } else {
+                            f64::NEG_INFINITY
+                        });
+                    if release > self.departure_deadline(&s, d, time)
+                        || land - release < ls.1 - 1e-9
+                    {
                         return None;
                     }
-                    let height = self.clearance_lift(
-                        source,
+                    let height = self.clearance_lift_from_head(
+                        &s,
+                        d,
                         target,
-                        release,
-                        land,
+                        [release, land],
                         lift(dist, false, land - release, self.options.adaptive_timing),
+                        true,
                     )?;
                     Some((target, land, release, height, ls, dist))
                 });
@@ -192,6 +313,7 @@ impl Search {
                     kind: RestoreKind::MineAvoid,
                     end_tick: mine.tick,
                 });
+                s.staggered_flights += usize::from(self.staggered_recovery);
                 s.record(d, s.last[d], release, land, ls, self.options);
                 s.last[d] = land;
                 s.panels[d] = target;
@@ -202,10 +324,44 @@ impl Search {
         if crate::escape_stances(&self.layout).is_empty() {
             self.avoid_mines(s, hazards, time)
         } else {
-            crate::escape_stances(&self.layout)
+            self.escape_options(&s)
                 .iter()
                 .find_map(|&escape| self.escape_mines(s.clone(), hazards, time, escape))
+                .or_else(|| {
+                    local_support
+                        .then(|| self.local_escape(s, hazards, time))
+                        .flatten()
+                })
         }
+    }
+    /// A single threatened finger may park on a nearby unscored tile while
+    /// its companion supports the hand. Do not force both onto one center.
+    /// Two threatened fingers retain the established grouped/air-time paths.
+    fn local_escape(&self, s: State, hazards: &[InputNote], time: f64) -> Option<State> {
+        if !double_mat(&self.layout) {
+            return None;
+        }
+        let affected = |d: usize| {
+            s.last[d] <= time && hazards.iter().any(|n| n.mine && panel(n) == s.panels[d])
+        };
+        let d = match [affected(0), affected(1)] {
+            [true, false] => 0,
+            [false, true] => 1,
+            _ => return None,
+        };
+        // This shared helper keeps only legal unscored stances, ordered by
+        // travel distance, and returns at most two targets.
+        self.support_targets(&s, s.panels, 1 - d)
+            .iter()
+            .find_map(|&target| {
+                let mut escape = s.panels;
+                escape[d] = target;
+                self.escape_mines(s.clone(), hazards, time, escape)
+                    .map(|mut next| {
+                        next.hazard_recovery = true;
+                        next
+                    })
+            })
     }
     fn escape_mines(
         &self,
@@ -246,21 +402,22 @@ impl Search {
                         - self.options.hold_tail_grace
                 });
             let release = (land - ideal).max(earliest);
-            if release > land - WINDOW || land - release < ls.1 - 1e-9 {
+            if release > self.departure_deadline(&s, d, land) || land - release < ls.1 - 1e-9 {
                 return None;
             }
-            let dist = distance(target, source, d);
+            let dist = self.distance(target, source, d);
             s.tracks[d].push(Swing {
                 release,
                 land,
                 from: source,
                 to: target,
-                lift_m: self.clearance_lift(
-                    source,
+                lift_m: self.clearance_lift_from_head(
+                    &s,
+                    d,
                     target,
-                    release,
-                    land,
+                    [release, land],
                     lift(dist, false, land - release, self.options.adaptive_timing),
+                    false,
                 )?,
             });
             s.record(d, s.last[d], release, land, ls, self.options);
@@ -316,8 +473,8 @@ impl Search {
                 s.cost += 2.;
             }
         }
-        let (heading, span) = shape(s.panels);
-        if !self.legal(heading, span) {
+        let (heading, span) = self.shape(s.panels);
+        if !self.legal(s.panels, heading, span) {
             return None;
         }
         s.cost += square((heading - s.heading) / 45.) * 0.25 + self.facing_cost(heading);
@@ -366,17 +523,17 @@ impl Search {
             // Avoid an unscored return stealing a nearby same-panel head.
             // Reuse its exact touchdown instead, if the flight remains local.
             if active.is_none()
-                && let Some(n) = self
-                    .rows
-                    .iter()
-                    .skip(self.row + 1)
-                    .flatten()
-                    .find(|n| !n.mine && !n.lift && !n.roll_refresh && panel(n) == source)
+                && let Some(n) = self.rows.iter().skip(self.row + 1).flatten().find(|n| {
+                    !n.mine && !n.lift && !n.roll_refresh && note_has_panel(&self.layout, n, source)
+                })
             {
                 let t = n.time - self.origin;
                 if t >= last_hazard + 0.1099 && t - last_hazard <= 0.170 {
                     restored = t;
                 }
+            }
+            if !self.safe_return(source, restored) {
+                return None;
             }
             if release < self.release_floor()
                 || release < s.last[d] + ls.0 - 1e-9
@@ -425,8 +582,8 @@ impl Search {
             s.last[d] = restored;
             s.cost += 0.6;
         }
-        let (heading, span) = shape(s.panels);
-        if !self.legal(heading, span) {
+        let (heading, span) = self.shape(s.panels);
+        if !self.legal(s.panels, heading, span) {
             return None;
         }
         s.cost += square((heading - s.heading) / 45.) * 0.25 + self.facing_cost(heading);
@@ -456,15 +613,38 @@ impl Search {
             for d in 0..2 {
                 let mut end = until;
                 let mut initial = s.panels[d];
+                let mut outgoing: Option<&Swing> = None;
                 for swing in s.tracks[d].backwards() {
                     initial = swing.from;
                     if swing.release > until {
                         continue;
                     }
                     if swing.to == panel(m) && swing.land <= hi && end >= lo {
-                        return false;
+                        let scored = self.scored_landing(s, d, swing.to, swing.land);
+                        let approach = ddi_hand_pose::mine_head_clearance_end(
+                            m.time - self.origin,
+                            swing.release,
+                            swing.land,
+                            swing.from == panel(m),
+                        )
+                        .is_some();
+                        let departure = (self.hazard_retry || s.hazard_recovery)
+                            && outgoing.is_some_and(|out| {
+                                out.from == panel(m)
+                                    && out.release == end
+                                    && ddi_hand_pose::mine_head_clearance_start(
+                                        m.time - self.origin,
+                                        swing.land,
+                                        out.release,
+                                    )
+                                    .is_some()
+                            });
+                        if !scored || !(approach || departure) {
+                            return false;
+                        }
                     }
                     end = end.min(swing.release);
+                    outgoing = Some(swing);
                     if end < lo {
                         break;
                     }
@@ -477,6 +657,41 @@ impl Search {
         true
     }
 }
+/// A scored source hit may postpone takeoff within the existing mine guard.
+/// Require its connected incoming flight and received head on this same finger;
+/// a nearby note, unscored landing or another finger cannot authorize the exit.
+fn guarded_departure(
+    input: &Input,
+    p: &ContactPlan,
+    foot: Foot,
+    track: &[Swing],
+    index: usize,
+    mine: f64,
+) -> bool {
+    let Some(incoming) = index.checked_sub(1).and_then(|i| track.get(i)) else {
+        return false;
+    };
+    let outgoing = &track[index];
+    incoming.release < incoming.land
+        && incoming.to == outgoing.from
+        && incoming.land < outgoing.release
+        && ddi_hand_pose::mine_head_clearance_start(mine, incoming.land, outgoing.release).is_some()
+        && p.events.iter().any(|e| {
+            e.foot == foot
+                && !e.lift
+                && e.panel == outgoing.from
+                && e.time == incoming.land
+                && input.notes.iter().any(|n| {
+                    n.judgeable
+                        && !n.mine
+                        && !n.lift
+                        && !n.roll_refresh
+                        && n.tick == e.tick
+                        && note_has_panel(&p.layout, n, e.panel)
+                        && (n.time - p.source_music_origin_seconds - e.time).abs() < 1e-9
+                })
+        })
+}
 pub(crate) fn validate_auxiliary(
     input: &Input,
     p: &ContactPlan,
@@ -487,30 +702,34 @@ pub(crate) fn validate_auxiliary(
     } else {
         &p.tracks.right
     };
-    let swing = track
+    let index = track
         .iter()
-        .find(|s| s.land == a.time && s.to == a.panel)
+        .position(|s| s.land == a.time && s.to == a.panel)
         .ok_or("mine clearance has no physical landing")?;
+    let swing = &track[index];
     if !input.notes.iter().any(|n| {
         let t = n.time - p.source_music_origin_seconds;
         n.judgeable
             && n.mine
             && n.tick == a.end_tick
-            && panel(n) == swing.from
+            && note_has_panel(&p.layout, n, swing.from)
             && ((swing.to == swing.from && swing.release <= t - WINDOW && swing.land >= t + WINDOW)
-                || (crate::escape_stances(&input.layout)
+                || ((crate::escape_stances(&input.layout)
                     .iter()
                     .any(|p| p[a.foot.index()] == a.panel)
+                    || (double_mat(&input.layout)
+                        && crate::support_tiles(&input.layout).contains(&a.panel)))
                     && (a.time - t).abs() < 1e-9)
-                || (swing.release <= t - WINDOW
+                || ((swing.release <= t - WINDOW
+                    || guarded_departure(input, p, a.foot, track, index, t))
                     && a.time >= t
-                    && a.time <= t + 0.170
+                    && a.time <= t + 0.450
                     && input.notes.iter().any(|head| {
                         head.judgeable
                             && !head.mine
                             && !head.lift
                             && !head.roll_refresh
-                            && panel(head) == a.panel
+                            && note_has_panel(&p.layout, head, a.panel)
                             && (head.time - p.source_music_origin_seconds - a.time).abs() < 1e-9
                     })))
     }) {
@@ -522,6 +741,198 @@ pub(crate) fn validate_auxiliary(
 #[cfg(test)]
 mod escape_tests {
     use super::*;
+    #[test]
+    fn an_early_head_needs_a_real_departure_not_a_window_end() {
+        let mut song = ddi_chart::formats::sm::parse_sm(
+            "#OFFSET:-4;#BPMS:0=120;#NOTES:dance-single::Easy:1:0,0,0,0,0:1000;",
+        )
+        .unwrap();
+        song.charts[0].notes = vec![
+            Note::new(ddi_chart::Tick(192), 0, NoteKind::Tap),
+            Note::new(ddi_chart::Tick(200), 0, NoteKind::Mine),
+        ];
+        let input = Input::from_song(&song, 0).unwrap();
+        let mut search = Search::new(&input, Options::default()).unwrap();
+        search.hazard_retry = true;
+        let head = input.notes[0].time - search.origin;
+        let mine = search.mines[0].time - search.origin;
+        let mut state = State::initial();
+        state.panels = [4, 6];
+        state.last = [head, head + 0.02];
+        state.events.push(Event {
+            time: head,
+            music_time: input.notes[0].time,
+            tick: 192,
+            panel: 4,
+            foot: Foot::L,
+            lift: false,
+        });
+        state.tracks[0].push(Swing {
+            release: head - 0.2,
+            land: head,
+            from: 5,
+            to: 4,
+            lift_m: 0.035,
+        });
+        assert!(
+            !search.mine_safe(&state, head),
+            "the other finger's future time is not a release"
+        );
+        state.tracks[0].push(Swing {
+            release: head + 0.02,
+            land: mine,
+            from: 4,
+            to: 5,
+            lift_m: 0.035,
+        });
+        state.panels[0] = 5;
+        state.last[0] = mine;
+        assert!(search.mine_safe(&state, head));
+        state.events = Default::default();
+        assert!(
+            !search.mine_safe(&state, head),
+            "unscored contact is not authorized"
+        );
+    }
+    #[test]
+    fn guarded_departure_to_a_scored_head_requires_its_source_hit_and_flight() {
+        for mirror in [false, true] {
+            let mut song = ddi_chart::formats::sm::parse_sm(
+                "#OFFSET:-4;#BPMS:0=220;#NOTES:dance-single::Easy:1:0,0,0,0,0:1000;",
+            )
+            .unwrap();
+            let target_lane = if mirror { 0 } else { 3 };
+            song.charts[0].notes = vec![
+                Note::new(ddi_chart::Tick(192), 2, NoteKind::Tap),
+                Note::new(ddi_chart::Tick(216), 2, NoteKind::Mine),
+                Note::new(ddi_chart::Tick(216), target_lane, NoteKind::Tap),
+            ];
+            song.charts[0].notes.sort_by_key(|n| (n.tick, n.lane));
+            let input = Input::from_song(&song, 0).unwrap();
+            let mut search = Search::new(&input, Options::default()).unwrap();
+            let head = input.notes[0].time - search.origin;
+            let mine = search.mines[0].time - search.origin;
+            let d = usize::from(!mirror);
+            let target = if mirror { 4 } else { 6 };
+            let mut state = State::initial();
+            state.panels[d] = target;
+            state.last[d] = mine;
+            state.tracks[d].push(Swing {
+                release: head - 0.2,
+                land: head,
+                from: 5,
+                to: 8,
+                lift_m: 0.04,
+            });
+            state.tracks[d].push(Swing {
+                release: head + 0.055,
+                land: mine,
+                from: 8,
+                to: target,
+                lift_m: 0.04,
+            });
+            for (time, tick, panel) in [(head, 192, 8), (mine, 216, target)] {
+                state.events.push(Event {
+                    time,
+                    music_time: time + search.origin,
+                    tick,
+                    panel,
+                    foot: Foot::at(d),
+                    lift: false,
+                });
+            }
+            let auxiliary = Auxiliary {
+                time: mine,
+                foot: Foot::at(d),
+                panel: target,
+                kind: RestoreKind::MineAvoid,
+                end_tick: 216,
+            };
+            state.aux.push(auxiliary);
+            search.states = vec![state];
+            let plan = search.build().0;
+            fn track(p: &mut ContactPlan, mirror: bool) -> &mut Vec<Swing> {
+                if mirror {
+                    &mut p.tracks.left
+                } else {
+                    &mut p.tracks.right
+                }
+            }
+            assert!(head + 0.055 > mine - WINDOW);
+            assert!(validate_auxiliary(&input, &plan, &auxiliary).is_ok());
+            assert!(crate::replay(&input, &plan).unwrap().passed);
+            for forgery in 0..7 {
+                let mut bad = plan.clone();
+                let mut source = input.clone();
+                match forgery {
+                    0 => {
+                        bad.events.remove(0);
+                    }
+                    1 => {
+                        bad.events[0].foot = Foot::at(1 - d);
+                    }
+                    2 => {
+                        source.notes[0].time += 0.001;
+                    }
+                    3 => {
+                        track(&mut bad, mirror).remove(0);
+                    }
+                    4 => {
+                        track(&mut bad, mirror)[0].to = target;
+                    }
+                    5 => {
+                        track(&mut bad, mirror)[1].release = (head + mine) * 0.5 - 0.005;
+                    }
+                    _ => {
+                        bad.events[0].lift = true;
+                    }
+                }
+                assert!(
+                    validate_auxiliary(&source, &bad, &auxiliary).is_err(),
+                    "mirror={mirror}, forgery={forgery}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn local_support_keeps_the_companion_and_requires_one_releasable_finger() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#OFFSET:-4;#BPMS:0=128;#NOTES:dance-double::Easy:1:0,0,0,0,0:0000MMMM;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let mut search = Search::new(&input, Options::default()).unwrap();
+        let time = search.mines[0].time - search.origin;
+        let mut state = State::initial();
+        state.panels = [6, 13];
+        state.last = [time - 0.24; 2];
+        let next = search
+            .local_escape(state.clone(), &search.mines, time)
+            .unwrap();
+        assert_eq!(next.panels[0], state.panels[0]);
+        assert_eq!(next.last[0], state.last[0]);
+        assert!(next.tracks[0].backwards().next().is_none());
+        assert!([1, 3, 7, 9, 10, 12, 16, 18].contains(&next.panels[1]));
+        assert!(search.mine_safe(&next, time));
+        let mut two = search.mines.clone();
+        two.push(InputNote {
+            panel: 6,
+            lane: 3,
+            ..two[0]
+        });
+        assert!(search.local_escape(state.clone(), &two, time).is_none());
+        search.states = vec![next];
+        let plan = search.build().0;
+        let auxiliary = plan.aux_contacts.as_ref().unwrap()[0];
+        assert!(validate_auxiliary(&input, &plan, &auxiliary).is_ok());
+        let forged = Auxiliary {
+            end_tick: -1,
+            ..auxiliary
+        };
+        assert!(validate_auxiliary(&input, &plan, &forged).is_err());
+        state.holds[1] = time + 0.5;
+        assert!(search.local_escape(state, &search.mines, time).is_none());
+    }
     #[test]
     fn pump_offers_both_side_escape_orientations_and_air_time() {
         let song = ddi_chart::formats::sm::parse_sm(

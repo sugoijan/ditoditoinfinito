@@ -9,6 +9,7 @@ repository.workspace = true
 description = "DitoDitoInfinito: deterministic gameplay core"
 
 [dependencies]
+ddi-dance-mat.workspace = true
 ddi-chart.workspace = true
 ddi-platform.workspace = true
 serde.workspace = true

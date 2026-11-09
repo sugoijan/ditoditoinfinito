@@ -271,9 +271,14 @@ jumps with three values:
 The rule is StepMania's (`docs/research/rules-ddr-itg-dwi.md` §4): on
 each row, its taps, lifts and hold heads and the lanes an earlier hold
 still holds (one ending on that row included) count; taps and heads go
-from the leftmost lane until the limit is met. Lifts count but stay,
-mines and fakes are left alone, and a removed hold no longer holds the
-rows after it.
+from the leftmost lane until the limit is met. Since 2026-11-08, **Up to two**
+also removes excess lifts, leftmost first, if removing taps and heads is
+insufficient. This is an explicit extension of StepMania's lift protection:
+three simultaneous releases require three contacts too. **One** retains its
+legacy lift protection. Mines and fakes are left alone, and a removed hold
+no longer holds the rows after it. Retained notes keep their exact timing
+and attributes. Gameplay and the hand copy use the same shared transform;
+reapplying it to the already simplified gameplay chart is idempotent.
 
 Unlike the versions above, it is a play option, as the other cuts are
 (the maintainer's choice): it applies to whatever chart is played, a
@@ -317,8 +322,9 @@ their lanes through the tail row inclusive. Existing holds are preserved; new
 leftmost contacts are removed until the required set fits a region and the chosen
 At once limit. Removed hold heads cannot constrain later rows. Mines, shocks,
 fakes, dummy notes and autokeysounds are neither counted nor removed by No stretch;
-they cannot erase an earlier hold's occupancy. Lifts count; At once retains its
-existing lift protection, while No stretch may remove an incompatible new lift.
+they cannot erase an earlier hold's occupancy. Lifts count; Up to two removes
+excess lifts only after new taps/heads, while No stretch may also remove an
+incompatible new lift. One retains its legacy count-only lift protection.
 
 Unlike the source's row-only removal, this also covers a tap beside an ongoing
 hold and overlapping holds. It retains a permitted subset instead of necessarily

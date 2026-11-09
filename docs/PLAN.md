@@ -337,8 +337,8 @@ Its focused rerun recovers 80 of 82 former-pass regressions; remaining contact
 rejections and CPU caps are recorded in the plan.
 
 The [dancing hand gameplay integration](plans/dancing-hand.md) adds a default-on,
-configurable character on supported four-panel, Solo six-panel, DanOni five-key,
-seven-key and 9B, Pump single and Techno single8 plays. 9B uses all nine mat
+configurable character on supported four-panel, dance-double eight-panel, Solo six-panel, DanOni five-key,
+seven-key, 9A and 9B, Pump single/half-double/double and Techno single8 plays. 9B uses all nine mat
 tiles, with air-time hazard clearance and no designated safe escape tile. The hand
 simplifies its own copy to at most two contacts; gameplay notes, options and scoring
 remain independent. Contact and pose preparation runs single-threaded in a three-second rolling window; startup
@@ -352,20 +352,73 @@ these separately from new-layout failures and six nonfatal guide warnings. A foc
 pose repair clears the three original numerical failures: It's Me and Mmchk
 complete; RUDE! reaches a later contact rejection also reproduced by the baseline
 planner. Contact timing/assignments and numerical guards remain unchanged; the
-full audit has not been rerun after this repair or after rebasing onto main's
-independent hand-copy integration. Those audit counts describe the pre-rebase host.
+full audit had not been rerun at that checkpoint. Those counts describe the
+pre-rebase host; the independent-hand-copy 2026-11-08 rerun is recorded below.
 
 Options → Notes now includes [No stretch](plans/chart-simplification.md#no-stretch-2026-11-07)
 (2026-11-07), a saved assisted-play transform for dance-double, Pump half-double/
 double and DanOni 9A. It checks ongoing holds and final turned lanes against
 layout regions; 9A's Oni may use either center. The hand-copy preparation API
-applies it automatically alongside At once Two. Double-mat animation remains gated.
+applies it automatically alongside At once Two. Dance-double and Pump
+half-double/double and DanOni 9A animation are now enabled. 9A chooses a physical
+Oni center within the received window, freezes it with the published contact,
+and aggregates both centers into one logical button. Oni hazards constrain both
+centers; unscored corners and air time provide clearance.
 
 Next, the [double-mat plan](plans/hand-double-mat.md) proposes one hand on two
 side-by-side 3x3 mats for the remaining playable built-ins: dance-double, Pump
-half-double/double and DanOni 9A. Shared physical geometry and a static/dynamic
-reach study come first; the current 24 mm tile pitch cannot be assumed feasible
-for cross-pad simultaneous contacts. No double layout is enabled by this plan.
+half-double/double and DanOni 9A. Shared physical geometry now lives in
+`ddi-dance-mat`; versioned offline pose plans and a bounded reach survey fit every
+No Stretch pair at the current 24 mm pitch. Two slow seam/held studies pass the
+rolling pose runtime. Its explicit-geometry startup now uses the assigned opening
+contacts, fixing the original wide jump while preserving single-mat output bit
+for bit. Periodic world-yaw smoothing/interpolation clears the three remaining
+mirrored/held numerical failures: all 12 variants pass natively and in headless
+Chrome/WASM. Approach-aware shared spots now remove the rapid entry turn,
+preserving frozen contacts and reducing its peak 120 Hz step from 61.35° to 2.21°.
+Dance-double now has automatic three-second rolling contacts and actual-judge
+replay on the 18-tile mat. It retains No Stretch, At once Two and the existing
+single-threaded solver/contact bounds; 12 automatic/mirrored studies pass native
+and headless WASM pose checks. Existing-layout whole plans and 499 rolling
+publications match the previous implementation bit for bit. The 18-tile renderer and dance-double gameplay integration are now implemented
+(2026-11-08), including Options preview, contact-reactive buttons/spill, framing,
+preload and restart. Native off-screen GPU and headless WebGPU/WebGL2 checks
+cover both pads and mirrored motion. Immediate right-pad starts choose their
+unpublished rest near the first received head, preserving immutable prefixes and
+all note times. Source notes/geometry are included in preload identity; geometry
+and procedural-source changes invalidate paused render caches. Pump half-double
+and double now use the same renderer and rolling runtime, scoring both centers
+and choosing reachable unscored side escapes/lift returns. Their surveyed 36/68
+ordered No Stretch pairs fit the unchanged model; 32 automatic/mirrored motion
+studies pass native/WASM checks. Eight prior layouts' whole plans and 584 rolling
+publications remain bit-identical at the Pump checkpoint. DanOni 9A now also
+supports either Oni center with aggregated logical edges, both-center hazards
+and unscored-corner escapes. Its 32 native/WASM motion cases pass; all ten prior
+layouts' plans and 754 rolling publications remain bit-identical to `1f809923`.
+The full 2026-11-08 native gameplay audit now covers 12,100 source/generated
+records: 11,675 passes, 66 contact failures, 70 pose failures (all Dance Double),
+55 pose CPU timeouts and 234 unsupported unplayable layouts. Contact/wall
+timeouts, fatal deadlines and settling warnings are zero; five passing records
+have nonfatal guide warnings. All 7,776 former passes remain passes; 3,874 newly
+eligible records pass and 23 former timeouts recover. No tolerance/runtime change
+accompanies this run. See the [audit and comparison](plans/dancing-hand.md#all-playable-hand-layouts-full-library-audit-2026-11-08).
+The targeted Dance Double pose and mine-to-head follow-ups now pass all 70
+formerly pose-failing records, including the three later contact rejections.
+Opening support retention, bounded curve refinement, grouped mine clearance and
+exact scored-flight landings preserve model, contact timing and immutable
+prefixes. Known scored approaches have a guarded per-foot mine exception;
+unknown-note early-hit neighborhoods gate fixed return commitment. Actual judge
+windows and output tolerances are unchanged. Native/category regressions,
+reference parity and headless WASM checks pass; the full audit was not rerun.
+The original 66-contact targeted rerun had 43 passes and 23 rejections. After
+lift/support repairs passed the four RUDE! versions and Silent Hill, rerunning
+the 18 unresolved records gives six further passes and 12 contact rejections,
+with no pose failures, timeouts or warnings. Timed arrival/departure guards now
+also pass five affected records (1116 and Single/Double 人マニア/混乱少女), with
+14 accepted control contact plans unchanged. The seven other prior contact
+records, 55 historical pose CPU timeouts and broader choreography review remain
+follow-up work; they were not rerun with this last repair. These targeted results
+do not constitute a new full audit.
 
 ### 3.5 `platform` traits and the web shell
 

@@ -63,9 +63,36 @@ Rust and the browser are implementation details, not advertised features.
   materials (`crates/render/src/material.rs`: a WGSL `paint` checked for
   WebGL2 with naga, drawn by the textured pipeline,
   `docs/plans/noteskin-scene.md`). No platform code.
+- `crates/dance-mat/` owns physical tile identities (single/left 1–9, right
+  10–18), versioned millimeter geometry, built-in lane target sets and the
+  accepted No Stretch regions. DanOni 9A's Oni has two alternative centers;
+  callers must choose a physical tile before publishing a contact. Mapping is
+  not a hand-support or reach certificate. Double geometry is available to
+  version-2 pose plans and dance-double gameplay; the runtime's startup seed uses the assigned
+  opening contacts without copying future tracks. Legacy single-mat startup is
+  preserved. Explicit-geometry curves treat full-turn world yaw as periodic:
+  internal phase stays continuous, model poses normalize to ±180°, and angular
+  derivatives remain unwrapped. Finger joints and narrower root ranges keep
+  their bounds. Explicit shared-tile spots follow the incoming finger order;
+  overlapping contact chains and published endpoints keep their separation axis
+  fixed through re-hits/pruning. Legacy slot placement stays unchanged. The live
+  planner and gameplay support dance-double, Pump half-double, Pump double and
+  DanOni 9A on the explicit 18-tile mat.
+  Character presentation uses the same geometry for mesh centers, camera bounds,
+  contact lights, presses and spill; render X reflects solver X. Visual slots
+  retain the original row-major ordering inside each pad and map explicitly back
+  to physical IDs. DanOni 9A's canonical `layout_panels` entry for Oni is 5;
+  use `MatLayout::targets` for its physical 5/14 choice and `lane_for_tile` to
+  aggregate both into lane 4. Choose within the received window and freeze with
+  the physical prefix; holds/rolls retain that center. Oni hazards cover both
+  centers, and a re-hit/lift needs an actual aggregate press/release. All eight
+  unscored corners are supports; neither center is a safe escape. The 9A-only
+  nominal candidate span is 4.7–68 mm; actual pose/contact bounds are unchanged.
 - `crates/character/`, `crates/hand-plan/` and `crates/hand-pose/` supply the
   dancing hand (`docs/plans/dancing-hand.md`). Both default builds include it;
-  settings retain saved Off choices. The hand is an autoplay beside the play: it
+  settings retain saved Off choices. Shared At once Two trims excess simultaneous
+  lifts after taps/new hold heads, preserving retained timing and metadata;
+  One retains its legacy lift protection. The hand is an autoplay beside the play: it
   plays its own copy of the judged notes, at most two at once (`At once: up to
   two`, ongoing holds included), while the play judges every note with the
   player's options, never an assist because of the hand (`RuntimePreview::
@@ -73,15 +100,30 @@ Rust and the browser are implementation details, not advertised features.
   to that copy. General No stretch is a separate saved Options → Notes cut in
   `TransformOptions`, assisted when selected, checking final turned lanes and
   ongoing holds for dance-double, Pump half-double/double and DanOni 9A. Oni may
-  use either center in the logical span policy; double contact/pose/rendering
-  remains gated by `layout_panels`. Supported hand layouts are dance-single, dance-solo, danoni-5,
-  danoni-7, danoni-9B, pump-single and techno-single8
-  (`ddi_character::HAND_LAYOUTS`, which `Settings::dancing_hand_for`
-  reads and a test holds `layout_panels` to). Resolve lanes through
-  `ddi_hand_plan::layout_panels`;
+  use either center in the logical span policy. Dance-double maps
+  L/D/U/R on the left and right pads to 4/2/8/6/13/11/17/15, using version-2
+  contact plans with explicit geometry (24 mm pitch, zero seam gap). Its bounded
+  search uses separate frozen geometry tables, checked No Stretch scored pairs
+  and at most two nearby unscored support candidates; neither finger owns a pad.
+  The three-second rolling planner preserves certified contacts, hold recovery
+  and exact head/lift times. Only an unpublished double opening rest may choose
+  the first received head's pad; a certified prefix is never reseated. Production
+  hand layouts are dance-single, dance-double, dance-solo, danoni-5,
+  danoni-7, danoni-9A, danoni-9B, pump-single, pump-halfdouble, pump-double and techno-single8.
+  The shared `ddi_character::HAND_LAYOUTS` list controls saved settings and is
+  checked against the planner. Resolve canonical lanes through
+  `ddi_hand_plan::layout_panels` and physical alternatives through `ddi_dance_mat::MatLayout::targets`;
   Solo L/UL/D/U/UR/R map to mat 4/7/2/8/9/6, with center unscored;
   Pump DL/UL/C/UR/DR map to 1/7/5/9/3. Pump may use unscored side stances
-  (4,6)/(6,4) and air time for clearance. Seven-key L/DL/D/Oni/U/UR/R maps to
+  (4,6)/(6,4) and air time for clearance. Pump half-double maps its middle six
+  lanes to 5/9/3/10/16/14; Pump double maps to 1/7/5/9/3/10/16/14/18/12.
+  Both centers are scored. Their empty opening rest is unscored 6/13; only an
+  unpublished opening may choose local unscored sides from received heads.
+  Six side-escape recipes are ranked to at most two per parent, and lift returns
+  choose a reachable local side while preserving the held finger. Pump's 90 mm
+  nominal candidate envelope covers the surveyed 36/68 allowed ordered pairs;
+  scored pairs still obey No Stretch and all actual pose/contact bounds remain
+  unchanged. Legacy layouts retain their own envelopes and decisions. Seven-key L/DL/D/Oni/U/UR/R maps to
   4/1/2/5/8/9/6 from the displayed glyphs, leaving 7/3 as escape corners.
   Techno DL/L/UL/D/U/UR/R/DR maps to 1/4/7/2/8/9/6/3; center is unscored
   and can be used for escapes alongside air time. DanOni 9B maps displayed
@@ -97,14 +139,45 @@ Rust and the browser are implementation details, not advertised features.
   exact contact times, published prefixes and current contact/model bounds.
   Stream fallback ranks knuckle clearance alongside fingertip accuracy. Small
   floor corrections and near-edge tangent repairs run during checked curve
-  preparation; keep sampling solve-free and retain the same numerical guards.
+  preparation; keep sampling solve-free and retain the same published guards.
+  Double-mat empty boundaries retain their chosen opening support. Difficult
+  double-mat curves may use six additional refinement passes (12 total), with
+  numerical knots down to 0.25 ms only in that second stage. Keep endpoints and
+  all contact/phase timestamps fixed, the 32,768-knot cap, and at most eight fit
+  iterations per checkpoint. Double preparation reserves 1.90 mm target error,
+  0.225 mm planted height and 40.01 mm knuckle clearance inside the unchanged
+  published 2 mm / 0.25 mm / 1 mm tile-margin / 40 mm limits. Single-mat curve refinement
+  retains its existing policy.
+  Mine clearing can reserve exact received tap/hold landings, with independent
+  finger landing times. Grouped simultaneous hazard alternatives keep the beam
+  bounded (at most five candidates per parent checkpoint). Guarded scored
+  arrivals/departures replace only their own mine-window segment: midpoint
+  +5 ms for an arrival, midpoint -5 ms for a departure. The 170 ms source-gap
+  bound is where these guards meet the unchanged ±90 ms physical window.
+  Require the exact received head, matching incoming swing and real outgoing
+  flight for a departure; the current window end is never a release proof.
+  The derived, non-serialized cache is capped at 32,768 combined entries and
+  must retain only witnessed flights across visibility pruning.
+  A fully rejected nearby-hazard row may retry once with timed clearance.
+  Double-mat recovery may additionally try local unscored support for a single
+  threatened finger (at most two targets; companion fixed). Retain geometry,
+  contact and hold guards. Only recovery histories may consume a reserved
+  intermediate tap before a later escape; do not rewind the pending track or
+  extend this to long heads.
+  Never exempt unrelated feet, unknown heads or unscored re-presses. Preserve
+  declared-flight proofs across visible pruning without revealing future events.
+  Fixed scored-tile hazard returns must not steal a head early; defer their
+  commitment until the effective judges' early-hit neighborhood is received or
+  EOF is known. Keep hold-release budgets distinct and prefixes immutable.
   Optional tight-burst reductions remain opt-in preparation proposals for
   uncommitted hand input; never change the play's judged chart or rewrite the
   hand's already-published contacts.
   Display-time revisions may only resample retained prepared output; never rewind
   the contact/planning cursor or change note times to follow a display prediction.
   The prompt gates audio on opening CPU/GPU readiness; quick restart warms a fresh
-  buffer. Unsupported/failed hand preparation must never block ordinary play.
+  buffer. Preload keys include source notes, geometry and effective play options;
+  paused draws also invalidate when geometry or procedural source changes.
+  Unsupported/failed hand preparation must never block ordinary play.
   Only `assets/hand/` runtime data/notices are included; development archives,
   external modeling tools, full audits and developer overlays stay on the hand
   research branch. `assets/hand/NOTICE.txt` records what the hand is made from

@@ -1,7 +1,7 @@
 //! Options' standing reference, rendered below the same note band as gameplay.
 //! The reference is fitted once; no chart planning or per-frame solving.
 use super::hand::{Picture, ProceduralPose, Report};
-use ddi_character::appearance::HandFrame;
+use ddi_character::appearance::{Geometry, HandFrame};
 use ddi_ui::state::settings::Settings;
 use std::{cell::RefCell, rc::Rc};
 #[derive(Default)]
@@ -10,6 +10,7 @@ pub struct HandPreview {
     report: Rc<RefCell<Report>>,
     enabled: bool,
     frame: HandFrame,
+    mat: Option<Geometry>,
     reference: Option<Rc<RefCell<ProceduralPose>>>,
 }
 impl HandPreview {
@@ -17,6 +18,7 @@ impl HandPreview {
         Self {
             enabled: self.enabled,
             frame: self.frame,
+            mat: self.mat,
             ..Self::default()
         }
     }
@@ -27,6 +29,11 @@ impl HandPreview {
     pub fn set_settings(&mut self, settings: &Settings) {
         self.enabled = settings.dancing_hand_for(&settings.style);
         self.frame = settings.hand_frame();
+        let mat = ddi_hand_plan::layout_geometry(&settings.style).ok();
+        if self.mat != mat {
+            self.mat = mat;
+            self.reference = None;
+        }
     }
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
@@ -42,9 +49,11 @@ impl HandPreview {
             renderer.set_field_underlay(device, encoder, None);
             return;
         }
+        let mat = self.mat.unwrap_or_else(Geometry::single);
         let look = super::dance::gameplay_look();
         let rect = self.frame.rect(size);
         self.host.set(Some(Picture {
+            mat,
             rect,
             playing: false,
             seconds: 0.,
@@ -57,7 +66,16 @@ impl HandPreview {
                 self.reference
                     .get_or_insert_with(|| {
                         let model = super::dance_runtime::bundled_model();
-                        let plan = ddi_hand_pose::Plan::empty(3.);
+                        let mut plan = if mat.pads()==1 {
+                            ddi_hand_pose::Plan::empty(3.)
+                        } else {
+                            ddi_hand_pose::Plan::load(&serde_json::to_vec(&serde_json::json!({
+                                "version":2,"layout":"dance-double","mat":mat,"duration":3.,
+                                "initial":{"L":6,"R":13},"tracks":{"L":[],"R":[]},"events":[],
+                                "placement":{"tile_pitch_mm":24.,"panel_anchor_mm":15.,"center_offset_mm":9.,"other_offset_mm":5.5}
+                            })).unwrap()).expect("double standing reference")
+                        };
+                        if mat.pads()==2 {plan.center_contacts(None);}
                         let q = plan.seed(&model, 0., None);
                         Rc::new(RefCell::new(ProceduralPose {
                             worlds: model.joint_worlds(&q),

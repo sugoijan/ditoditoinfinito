@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! Deterministic single-threaded whole-chart contacts. No I/O, clocks or workers.
 mod burst;
+mod double_geometry;
 mod geometry;
 mod history;
 mod policy;
@@ -44,21 +45,35 @@ pub struct InputNote {
     pub roll: bool,
     pub roll_refresh: bool,
 }
-/// Scored mat tiles in chart-lane order. Pump single and DanOni modes score the center.
+/// Canonical scored tiles in chart-lane order. DanOni 9A Oni defaults to 5;
+/// use `MatLayout::targets` for its two physical choices, never two chart notes.
 pub fn layout_panels(layout: &str) -> Result<&'static [u8], String> {
-    match layout {
-        "dance-single" => Ok(&[4, 2, 8, 6]),
-        "danoni-5" => Ok(&[4, 2, 8, 6, 5]),
-        "danoni-7" => Ok(&[4, 1, 2, 5, 8, 9, 6]),
-        "danoni-9B" => Ok(&[7, 4, 1, 2, 5, 8, 9, 6, 3]),
-        "dance-solo" => Ok(&[4, 7, 2, 8, 9, 6]),
-        "pump-single" => Ok(&[1, 7, 5, 9, 3]),
-        "techno-single8" => Ok(&[1, 4, 7, 2, 8, 9, 6, 3]),
-        _ => Err(
-            "Dancing hand supports dance-single, dance-solo, pump-single, techno-single8, danoni-5, danoni-7 and danoni-9B charts"
-                .into(),
-        ),
+    if layout == "danoni-9A" {
+        return Ok(&[4, 2, 8, 6, 5, 13, 11, 17, 15]);
     }
+    ddi_dance_mat::MatLayout::from_id(layout)
+        .filter(|mat| mat.pads() == 1 || double_mat(mat.id()))
+        .and_then(ddi_dance_mat::MatLayout::fixed_panels)
+        .ok_or_else(|| "Dancing hand supports dance-single, dance-solo, pump-single, techno-single8, danoni-5, danoni-7, danoni-9B, dance-double, pump-halfdouble, pump-double and danoni-9A charts".into())
+}
+/// Explicit two-pad layouts currently supported by contact planning/gameplay.
+pub(crate) fn double_mat(layout: &str) -> bool {
+    matches!(
+        layout,
+        "dance-double" | "pump-halfdouble" | "pump-double" | "danoni-9A"
+    )
+}
+pub(crate) fn double_pump(layout: &str) -> bool {
+    matches!(layout, "pump-halfdouble" | "pump-double")
+}
+/// Physical geometry shared by planner, poses and gameplay rendering.
+pub fn layout_geometry(layout: &str) -> Result<ddi_dance_mat::Geometry, String> {
+    layout_panels(layout)?;
+    Ok(if double_mat(layout) {
+        ddi_dance_mat::Geometry::new(2, 24., 0.).expect("fixed double geometry")
+    } else {
+        ddi_dance_mat::Geometry::single()
+    })
 }
 /// Whether the center is a scored lane, so it cannot be a safe escape tile.
 pub(crate) fn scored_center(layout: &str) -> bool {
@@ -67,21 +82,64 @@ pub(crate) fn scored_center(layout: &str) -> bool {
 /// Unscored support stances. An empty list requires air-time avoidance.
 pub(crate) fn escape_stances(layout: &str) -> &'static [[u8; 2]] {
     match layout {
+        "danoni-9A" => &[
+            [7, 9],
+            [9, 7],
+            [9, 16],
+            [16, 9],
+            [16, 18],
+            [18, 16],
+            [1, 3],
+            [3, 1],
+            [3, 10],
+            [10, 3],
+            [10, 12],
+            [12, 10],
+        ],
+        "dance-double" => &[[5, 5], [14, 14]],
+        "pump-halfdouble" | "pump-double" => {
+            &[[4, 6], [6, 4], [6, 13], [13, 6], [13, 15], [15, 13]]
+        }
         "pump-single" => &[[4, 6], [6, 4]],
         "danoni-7" => &[[7, 3], [3, 7]],
         "dance-single" | "dance-solo" | "techno-single8" => &[[5, 5]],
         _ => &[],
     }
 }
+pub(crate) fn lift_escape(layout: &str, source: u8, foot: usize) -> u8 {
+    if layout == "danoni-9A" {
+        9 * ((source - 1) / 9) + if foot == 0 { 7 } else { 3 }
+    } else if double_pump(layout) {
+        9 * ((source - 1) / 9) + if foot == 0 { 4 } else { 6 }
+    } else if layout == "dance-double" {
+        5 + 9 * ((source - 1) / 9)
+    } else {
+        escape_stances(layout).first().map_or(source, |p| p[foot])
+    }
+}
 /// Layouts using the full opposite-corner reach and flexible facing.
 pub(crate) fn wide_stances(layout: &str) -> bool {
     matches!(
         layout,
-        "pump-single" | "danoni-7" | "techno-single8" | "danoni-9B"
+        "pump-single"
+            | "danoni-7"
+            | "techno-single8"
+            | "danoni-9B"
+            | "dance-double"
+            | "pump-halfdouble"
+            | "pump-double"
+            | "danoni-9A"
     )
 }
 /// Unique unscored support destinations in stable order.
 pub(crate) fn support_tiles(layout: &str) -> &'static [u8] {
+    match layout {
+        "danoni-9A" => return &[1, 3, 7, 9, 10, 12, 16, 18],
+        "dance-double" => return &[1, 3, 5, 7, 9, 10, 12, 14, 16, 18],
+        "pump-halfdouble" => return &[1, 2, 4, 6, 7, 8, 11, 12, 13, 15, 17, 18],
+        "pump-double" => return &[2, 4, 6, 8, 11, 13, 15, 17],
+        _ => {}
+    }
     match escape_stances(layout).first() {
         Some(stance) if stance[0] == stance[1] => &stance[..1],
         Some(stance) => stance,
@@ -276,6 +334,8 @@ pub struct ContactPlan {
     #[serde(default = "default_layout", skip_serializing_if = "four")]
     pub layout: String,
     pub version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mat: Option<ddi_dance_mat::Geometry>,
     pub scope: String,
     pub initial: Initial,
     pub placement: Placement,
@@ -302,4 +362,23 @@ impl ContactPlan {
         crate::search::rolls::validate_pulses(self)?;
         ddi_hand_pose::Plan::load(&serde_json::to_vec(self).map_err(|e| e.to_string())?)
     }
+}
+
+/// Resolve a physical contact back to its one logical chart button.
+pub(crate) fn note_has_panel(layout: &str, n: &InputNote, panel: u8) -> bool {
+    replay::lane(layout, panel) == Some(n.lane)
+}
+pub(crate) fn same_button(layout: &str, a: u8, b: u8) -> bool {
+    a == b || (layout == "danoni-9A" && [5, 14].contains(&a) && [5, 14].contains(&b))
+}
+/// Hazards constrain both physical centers without duplicating the judged note.
+pub(crate) fn physical_hazards(
+    layout: &str,
+    notes: impl Iterator<Item = InputNote>,
+) -> Vec<InputNote> {
+    notes.flat_map(|n| note_choices(layout, n)).collect()
+}
+fn note_choices(layout: &str, n: InputNote) -> impl Iterator<Item = InputNote> {
+    let alias = (layout == "danoni-9A" && n.lane == 4).then_some(InputNote { panel: 14, ..n });
+    std::iter::once(n).chain(alias)
 }

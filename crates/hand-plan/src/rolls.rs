@@ -136,7 +136,7 @@ impl Search {
         let h = held(s, d, land).filter(|h| {
             h.roll && h.panel == panel(n) && n.end.is_some_and(|(tick, _)| tick == h.end_tick)
         })?;
-        if s.panels[d] != panel(n) || s.panels[1 - d] == panel(n) {
+        if s.panels[d] != panel(n) || same_button(&self.layout, s.panels[1 - d], panel(n)) {
             return None;
         }
         if (s.last[d] - land).abs() < 1e-9
@@ -268,7 +268,7 @@ pub(crate) fn validate_auxiliary(
                     && n.time < a.time + p.source_music_origin_seconds
                     && a.time + p.source_music_origin_seconds < time
             })
-            && panel(n) == a.panel
+            && note_has_panel(&p.layout, n, a.panel)
     }) || !tr.iter().any(|s| s.land == a.time && s.to == a.panel)
     {
         return Err("roll refresh has no original active roll and landing".into());

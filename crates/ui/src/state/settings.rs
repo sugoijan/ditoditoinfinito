@@ -1526,18 +1526,22 @@ mod dancing_hand_tests {
         let off: Settings = serde_json::from_str(r#"{"dancing_hand":false}"#).unwrap();
         for layout in [
             "dance-single",
+            "dance-double",
             "dance-solo",
             "danoni-5",
             "pump-single",
+            "pump-halfdouble",
+            "pump-double",
             "danoni-7",
             "techno-single8",
             "danoni-9B",
+            "danoni-9A",
         ] {
             assert!(s.dancing_hand_for(layout), "{layout}");
             assert!(!off.dancing_hand_for(layout), "{layout}");
         }
-        assert!(!s.dancing_hand_for("danoni-9A"));
-        assert!(!s.dancing_hand_for("pump-double"));
+        assert!(s.dancing_hand_for("danoni-9A"));
+        assert!(s.dancing_hand_for("pump-double"));
         assert_eq!(s.transform, original);
     }
 }

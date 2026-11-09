@@ -35,11 +35,9 @@ fn zero(n: &usize) -> bool {
     *n == 0
 }
 pub(crate) fn lane(layout: &str, panel: u8) -> Option<u8> {
-    layout_panels(layout)
-        .ok()?
-        .iter()
-        .position(|p| *p == panel)
-        .map(|i| i as u8)
+    let mat = ddi_dance_mat::MatLayout::from_id(layout)?;
+    mat.lane_for_tile(ddi_dance_mat::Tile::try_from(panel).ok()?)
+        .map(|l| l as u8)
 }
 
 fn same(a: f64, b: f64) -> bool {
@@ -55,6 +53,40 @@ fn landing(p: &ContactPlan, foot: Foot, panel: u8, time: f64) -> bool {
     tr.get(i)
         .is_some_and(|s| s.to == panel && same(s.land, time))
 }
+/// An early companion landing must join two received scored heads on opposite
+/// fingers, rather than inventing an unscored touchdown in the tight interval.
+fn scored_companion_landing(
+    input: &Input,
+    p: &ContactPlan,
+    a: &Auxiliary,
+    source: &InputNote,
+) -> bool {
+    let time = a.time + p.source_music_origin_seconds;
+    time > source.time
+        && time < source.time + 0.060
+        && p.events.iter().any(|e| {
+            e.tick == source.tick
+                && e.foot != a.foot
+                && !e.lift
+                && note_has_panel(&p.layout, source, e.panel)
+                && same(e.time + p.source_music_origin_seconds, source.time)
+        })
+        && input.notes.iter().any(|head| {
+            head.judgeable
+                && !head.mine
+                && !head.lift
+                && !head.roll_refresh
+                && same(head.time, time)
+                && note_has_panel(&p.layout, head, a.panel)
+                && p.events.iter().any(|e| {
+                    e.tick == head.tick
+                        && e.foot == a.foot
+                        && !e.lift
+                        && e.panel == a.panel
+                        && same(e.time, a.time)
+                })
+        })
+}
 pub(crate) fn validate_events(
     input: &Input,
     p: &ContactPlan,
@@ -63,6 +95,11 @@ pub(crate) fn validate_events(
 ) -> Result<(), String> {
     if p.layout != input.layout {
         return Err("contact plan layout differs from source".into());
+    }
+    if double_mat(&p.layout)
+        && (p.version != 2 || p.mat != Some(crate::layout_geometry(&p.layout)?))
+    {
+        return Err("double contact plan requires the configured explicit mat".into());
     }
     crate::search::rolls::validate_pulses(p)?;
     for n in input
@@ -169,7 +206,8 @@ pub(crate) fn validate_events(
                             && s.to == a.panel
                             && lane(&p.layout, s.from) == Some(n.lane)
                     })
-                    && (same(n.time + 0.060, a.time + p.source_music_origin_seconds)
+                    && (scored_companion_landing(input, p, a, n)
+                        || same(n.time + 0.060, a.time + p.source_music_origin_seconds)
                         || (p.layout == "danoni-9B"
                             && a.time + p.source_music_origin_seconds >= n.time + 0.060
                             && a.time + p.source_music_origin_seconds <= n.time + 0.4
@@ -490,6 +528,159 @@ pub fn replay(input: &Input, p: &ContactPlan) -> Result<ReplayReport, String> {
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+    fn two_center_plan() -> ContactPlan {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:danoni-9A::Hard:1:0,0,0,0,0:000010000;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        let mut job = crate::PlannerJob::new(input, crate::Options::default());
+        while !job.step() {}
+        let mut p = job.finish().unwrap().0.unwrap();
+        p.initial = crate::Initial { left: 5, right: 14 };
+        p.source_music_origin_seconds = 0.;
+        p.duration = 5.;
+        p.events.clear();
+        p.aux_contacts = None;
+        p.tracks = crate::Tracks {
+            left: Vec::new(),
+            right: Vec::new(),
+        };
+        p
+    }
+    #[test]
+    fn early_companion_needs_exact_received_heads_on_opposite_fingers() {
+        let mut song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=130;#NOTES:danoni-5::Easy:1:0,0,0,0,0:10000;",
+        )
+        .unwrap();
+        song.charts[0].notes = vec![
+            Note::new(ddi_chart::Tick(192), 2, NoteKind::Tap),
+            Note::new(ddi_chart::Tick(195), 4, NoteKind::Tap),
+        ];
+        let input = Input::from_song(&song, 0).unwrap();
+        for origin in [0., -2.] {
+            let mut p = two_center_plan();
+            p.layout = "danoni-5".into();
+            p.source_music_origin_seconds = origin;
+            p.events = vec![
+                Event {
+                    time: input.notes[0].time - origin,
+                    music_time: input.notes[0].time,
+                    tick: 192,
+                    panel: 8,
+                    foot: Foot::R,
+                    lift: false,
+                },
+                Event {
+                    time: input.notes[1].time - origin,
+                    music_time: input.notes[1].time,
+                    tick: 195,
+                    panel: 5,
+                    foot: Foot::L,
+                    lift: false,
+                },
+            ];
+            let a = Auxiliary {
+                time: input.notes[1].time - origin,
+                foot: Foot::L,
+                panel: 5,
+                kind: RestoreKind::CompanionHop,
+                end_tick: 192,
+            };
+            assert!(scored_companion_landing(&input, &p, &a, &input.notes[0]));
+            for mutation in 0..7 {
+                let mut bad = p.clone();
+                let mut received = input.clone();
+                let mut aux = a;
+                match mutation {
+                    0 => bad.events[0].foot = Foot::L,
+                    1 => bad.events[1].foot = Foot::R,
+                    2 => {
+                        received.notes.pop();
+                    }
+                    3 => bad.events[1].tick += 1,
+                    4 => bad.events[0].panel = 6,
+                    5 => bad.events[0].lift = true,
+                    _ => aux.time += 0.001,
+                }
+                assert!(
+                    !scored_companion_landing(&received, &bad, &aux, &received.notes[0]),
+                    "mutation {mutation}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn nine_a_contacts_are_a_union_not_two_independent_buttons() {
+        assert_eq!(lane("danoni-9A", 5), Some(4));
+        assert_eq!(lane("danoni-9A", 14), Some(4));
+        let mut p = two_center_plan();
+        for (foot, from, to, release, land) in [(Foot::L, 5, 7, 1., 2.), (Foot::R, 14, 16, 3., 4.)]
+        {
+            let track = if foot == Foot::L {
+                &mut p.tracks.left
+            } else {
+                &mut p.tracks.right
+            };
+            track.push(crate::Swing {
+                from,
+                to,
+                release,
+                land,
+                lift_m: 0.035,
+            });
+            p.events.push(crate::Event {
+                time: land,
+                music_time: land,
+                tick: 0,
+                panel: to,
+                foot,
+                lift: false,
+            });
+        }
+        let oni = edges_since(&p, f64::NEG_INFINITY)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.1 == 4)
+            .collect::<Vec<_>>();
+        assert_eq!(oni, vec![(0., 4, true), (3., 4, false)]);
+        assert!(buttons_at(&p, 1.5)[4]);
+        assert!(!buttons_at(&p, 3.5)[4]);
+    }
+    #[test]
+    fn nine_a_other_center_rehit_requires_a_logical_release() {
+        let mut p = two_center_plan();
+        p.tracks.left.push(crate::Swing {
+            from: 5,
+            to: 14,
+            release: 1.,
+            land: 2.,
+            lift_m: 0.035,
+        });
+        p.events.push(crate::Event {
+            time: 2.,
+            music_time: 2.,
+            tick: 192,
+            panel: 14,
+            foot: Foot::L,
+            lift: false,
+        });
+        // R14 remains down throughout: L5 -> R5 creates neither a release
+        // nor a new press, even though there is a physical landing at 2 s.
+        let oni = edges_since(&p, f64::NEG_INFINITY)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.1 == 4)
+            .collect::<Vec<_>>();
+        assert_eq!(oni, vec![(0., 4, true)]);
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:danoni-9A::Hard:1:0,0,0,0,0:000000000,000010000;",
+        )
+        .unwrap();
+        let input = Input::from_song(&song, 0).unwrap();
+        assert!(!replay(&input, &p).unwrap().passed);
+    }
     #[test]
     fn unscored_center_never_becomes_a_solo_button() {
         assert_eq!(lane("dance-solo", 5), None);

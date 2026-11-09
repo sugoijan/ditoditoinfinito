@@ -24,7 +24,10 @@ pub use motion::{Guide, Preparation};
 pub use rolling::{PreparationMode, Rolling, RollingOptions, WindowReport};
 pub use stream::StreamOptions;
 mod solve;
-pub use plan::{Mine, Plan, RollPulse, Targets, panel_position};
+pub use plan::{
+    Mine, Plan, RollPulse, Targets, mine_head_clearance_end, mine_head_clearance_start,
+    panel_position,
+};
 use serde::Deserialize;
 pub use solve::{Goal, SolveReport, refine_contacts, solve};
 pub type Parameters = [f64; 14];

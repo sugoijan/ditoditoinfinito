@@ -1054,6 +1054,7 @@ dependencies = [
 name = "ddi-character"
 version = "0.1.0"
 dependencies = [
+ "ddi-dance-mat",
  "serde",
  "serde_json",
 ]
@@ -1067,6 +1068,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ddi-dance-mat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1198,6 +1207,7 @@ name = "ddi-engine"
 version = "0.1.0"
 dependencies = [
  "ddi-chart",
+ "ddi-dance-mat",
  "ddi-library",
  "ddi-platform",
  "serde",
@@ -1209,6 +1219,7 @@ name = "ddi-hand-plan"
 version = "0.1.0"
 dependencies = [
  "ddi-chart",
+ "ddi-dance-mat",
  "ddi-engine",
  "ddi-hand-pose",
  "serde",
@@ -1219,6 +1230,7 @@ dependencies = [
 name = "ddi-hand-pose"
 version = "0.1.0"
 dependencies = [
+ "ddi-dance-mat",
  "serde",
  "serde_json",
 ]
@@ -1360,6 +1372,7 @@ dependencies = [
  "ddi-actor",
  "ddi-character",
  "ddi-chart",
+ "ddi-dance-mat",
  "ddi-engine",
  "ddi-hand-plan",
  "ddi-hand-pose",

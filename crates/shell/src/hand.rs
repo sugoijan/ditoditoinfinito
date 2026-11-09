@@ -1,5 +1,7 @@
 //! The gameplay hand picture, shared by desktop and browser.
-use ddi_character::appearance::{Appearance, ContactLights, UP_TILE_CENTER};
+use ddi_character::appearance::{
+    Appearance, ContactLights, Geometry, physical_tile, tile_center, tile_heights_on,
+};
 use ddi_character::{Character, Pose};
 use ddi_render::character::{Camera, CharacterScene, Presentation, animated_camera, project};
 use std::{cell::RefCell, rc::Rc};
@@ -16,6 +18,7 @@ pub struct Report {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Picture {
+    pub mat: Geometry,
     pub ground_y: Option<f32>,
     pub appearance: Option<ddi_character::appearance::Appearance>,
     pub procedural: Option<Rc<RefCell<ProceduralPose>>>,
@@ -33,7 +36,13 @@ pub struct ProceduralPose {
     pub weights: [f32; 76],
 }
 
-type DrawKey = ([u32; 2], [f32; 4], Option<f32>, Option<Appearance>);
+type DrawKey = (
+    Geometry,
+    [u32; 2],
+    [f32; 4],
+    Option<f32>,
+    Option<Appearance>,
+);
 #[derive(Default)]
 pub struct Host {
     picture: Option<Picture>,
@@ -47,6 +56,18 @@ pub struct Host {
 }
 impl Host {
     pub fn set(&mut self, picture: Option<Picture>) {
+        let same_source = match (self.picture.as_ref(), picture.as_ref()) {
+            (Some(a), Some(b)) if a.mat == b.mat => match (&a.procedural, &b.procedural) {
+                (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            },
+            _ => false,
+        };
+        if !same_source {
+            self.last = None;
+            self.lights = ContactLights::default();
+        }
         self.picture = picture;
     }
     /// Draws the picture into [`Host::texture`]; whether it drew (a
@@ -94,6 +115,7 @@ impl Host {
         let scale = (limit / requested[0].max(requested[1])).min(1.);
         let size = requested.map(|v| (v * scale).round().max(1.) as u32);
         let key = (
+            p.mat,
             size,
             [p.seconds, p.yaw, p.pitch, p.distance],
             p.ground_y,
@@ -115,7 +137,7 @@ impl Host {
         let scene = self.scene.as_mut().unwrap();
         let contacts = asset.contacts(pose);
         if p.appearance.is_some() {
-            self.lights.update(p.seconds, &contacts);
+            self.lights.update_on(p.mat, p.seconds, &contacts);
         }
         scene.draw_styled(
             device,
@@ -125,6 +147,7 @@ impl Host {
             pose,
             Presentation {
                 camera: Camera {
+                    mat: p.mat,
                     yaw: p.yaw,
                     pitch: p.pitch,
                     distance: p.distance,
@@ -154,6 +177,7 @@ impl Host {
                 project(
                     animated_camera(
                         Camera {
+                            mat: p.mat,
                             ground_y: p.ground_y,
                             yaw: p.yaw,
                             pitch: p.pitch,
@@ -164,7 +188,10 @@ impl Host {
                         p.seconds,
                     ),
                     size[0] as f32 / size[1] as f32,
-                    UP_TILE_CENTER,
+                    {
+                        let [x, z] = tile_center(p.mat, 7).expect("UP on first pad");
+                        [x, 0., z]
+                    },
                 )
             }),
         };
@@ -186,6 +213,6 @@ impl Host {
             return serde_json::Value::Null;
         };
         let anchors = a.contact_centers(pose);
-        serde_json::json!({"appearance":p.appearance,"tiles":self.lights.values,"tile_heights_m":ddi_character::appearance::tile_heights(&a.contacts(pose)),"strikes":self.lights.strikes,"up":p.report.borrow().up,"rect":p.rect,"time":p.seconds,"playing":p.playing,"yaw":p.yaw,"pitch":p.pitch,"distance":p.distance,"vertices":a.vertices.len(),"triangles":a.indices.len()/3,"jointCount":a.joint_names.len(),"morphCount":a.morph_count(),"drawn":self.drawn,"contacts":a.contacts(pose),"anchors":anchors,"positions":if p.playing{None}else{Some(&pose.positions)},"error":self.error})
+        serde_json::json!({"mat":p.mat,"tile_ids":(0..usize::from(p.mat.pads())*9).map(|i|physical_tile(p.mat,i).unwrap().id()).collect::<Vec<_>>(),"appearance":p.appearance,"tiles":self.lights.values,"tile_heights_m":tile_heights_on(p.mat,&a.contacts(pose)),"strikes":self.lights.strikes,"up":p.report.borrow().up,"rect":p.rect,"time":p.seconds,"playing":p.playing,"yaw":p.yaw,"pitch":p.pitch,"distance":p.distance,"vertices":a.vertices.len(),"triangles":a.indices.len()/3,"jointCount":a.joint_names.len(),"morphCount":a.morph_count(),"drawn":self.drawn,"contacts":a.contacts(pose),"anchors":anchors,"positions":if p.playing{None}else{Some(&pose.positions)},"error":self.error})
     }
 }

@@ -9,18 +9,10 @@ use super::{AtOnce, Layout, Note, NoteKind};
 use ddi_chart::Tick;
 
 pub(super) fn regions(layout: &Layout) -> Option<&'static [u16]> {
-    match (layout.id.as_str(), layout.lane_count()) {
-        // L/D/U/R of pad 0, then pad 1. Masks are in lane-bit order.
-        ("dance-double", 8) => Some(&[0x00f, 0x01e, 0x078, 0x0f0]),
-        // DL/UL/C/UR/DR of pad 0, then pad 1.
-        ("pump-double", 10) => Some(&[0x01f, 0x0fc, 0x3e0]),
-        ("pump-halfdouble", 6) => Some(&[0x03f]),
-        // L/D/U/R, Oni, L/D/U/R. Oni belongs to the left two or right
-        // two regions via L5 or R5 respectively. No physical center is
-        // chosen here: a contact planner must freeze it before publication.
-        ("danoni-9A", 9) => Some(&[0x01f, 0x03e, 0x0f8, 0x1f0]),
-        _ => None,
-    }
+    let mat = ddi_dance_mat::MatLayout::from_id(&layout.id)?;
+    (mat.lane_count() == layout.lane_count())
+        .then(|| mat.no_stretch_regions())
+        .flatten()
 }
 fn contact(n: &Note) -> bool {
     matches!(n.kind, NoteKind::Tap | NoteKind::Lift) || n.kind.is_long()
@@ -69,11 +61,23 @@ pub(super) fn remove(notes: &mut Vec<Note>, regions: &[u16], at_once: AtOnce) {
                 break;
             }
             // Existing holds are immutable. Remove leftmost new contacts;
-            // At once alone protects lifts, but No Stretch can remove an
-            // unreachable lift as well. Hazards and visuals always survive.
-            let Some(k) = (start..end).find(|&k| {
-                !removed[k] && contact(&notes[k]) && (stretched || notes[k].kind != NoteKind::Lift)
-            }) else {
+            // Prefer taps/heads for count reductions, then excess lifts for
+            // Up to two. No Stretch can also remove an unreachable lift.
+            // One retains legacy lift protection. Hazards/visuals survive.
+            let Some(k) = (start..end)
+                .find(|&k| {
+                    !removed[k]
+                        && contact(&notes[k])
+                        && (stretched || notes[k].kind != NoteKind::Lift)
+                })
+                .or_else(|| {
+                    if at_once == AtOnce::Two {
+                        (start..end).find(|&k| !removed[k] && notes[k].kind == NoteKind::Lift)
+                    } else {
+                        None
+                    }
+                })
+            else {
                 break;
             };
             removed[k] = true;

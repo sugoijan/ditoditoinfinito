@@ -29,17 +29,78 @@ fn check_clearance(input: &Input, plan: &ContactPlan) {
         let time = mine.time - plan.source_music_origin_seconds;
         let (x, y) =
             [(-40., 0.), (-16., -24.), (-16., 24.), (8., 0.), (-16., 0.)][mine.lane as usize];
-        for t in (-43..=43)
+        let mut probes = (-43..=43)
             .map(|k| time + f64::from(k) / 480.)
             .chain([time - 0.09, time + 0.09])
+            .collect::<Vec<_>>();
+        // Independently probe the note/mine precedence boundaries too; do not
+        // use the production clearance helper to decide expected protection.
+        for e in plan
+            .events
+            .iter()
+            .filter(|e| !e.lift && e.panel == mine.panel)
         {
-            assert!(
-                pose.targets(t)
-                    .tips
-                    .iter()
-                    .all(|p| p[2] > 0.25 || (p[0] - x).abs() > 11.5 || (p[1] - y).abs() > 11.5),
-                "low airborne target at {t}"
-            );
+            let dt = e.time - time;
+            if dt.abs() > 0.010 && dt.abs() <= 0.170 {
+                let b = (e.time + time) * 0.5 + if dt > 0. { 0.005 } else { -0.005 };
+                probes.extend([b - 1e-6, b, b + 1e-6]);
+            }
+        }
+        for t in probes {
+            for (d, p) in pose.targets(t).tips.iter().enumerate() {
+                let track = if d == 0 {
+                    &plan.tracks.left
+                } else {
+                    &plan.tracks.right
+                };
+                let protected = track.iter().enumerate().any(|(i, s)| {
+                    if s.to != mine.panel
+                        || !plan.events.iter().any(|e| {
+                            !e.lift
+                                && usize::from(e.foot == ddi_hand_plan::Foot::R) == d
+                                && e.time == s.land
+                                && e.panel == mine.panel
+                                && input.notes.iter().any(|n| {
+                                    n.judgeable
+                                        && !n.mine
+                                        && !n.lift
+                                        && n.tick == e.tick
+                                        && n.time == e.music_time
+                                })
+                        })
+                    {
+                        return false;
+                    }
+                    let approach = s.land > time + 0.010
+                        && s.land <= time + 0.170
+                        && (s.from != mine.panel || s.release <= time - 0.095)
+                        && t >= (time + s.land) * 0.5 + 0.005
+                        && t >= s.release
+                        && t < track.get(i + 1).map_or(f64::INFINITY, |s| s.land);
+                    let departure = track.get(i + 1).is_some_and(|next| {
+                        next.from == mine.panel
+                            && s.land < time - 0.010
+                            && s.land >= time - 0.170
+                            && next.release > s.land
+                            && next.release < (time + s.land) * 0.5 - 0.005
+                            && t >= s.release
+                            && t < (time + s.land) * 0.5 - 0.005
+                            && t < next.land
+                    });
+                    let coincident = s.land > time
+                        && s.land <= time + 0.010
+                        && s.from != mine.panel
+                        && s.release <= time - 0.095
+                        && t >= time - 0.09
+                        && t >= s.release
+                        && t < track.get(i + 1).map_or(f64::INFINITY, |s| s.land);
+                    approach || departure || coincident
+                });
+                assert!(
+                    protected || p[2] > 0.25 || (p[0] - x).abs() > 11.5 || (p[1] - y).abs() > 11.5,
+                    "unguarded low airborne target at {t}"
+                );
+            }
         }
     }
 }

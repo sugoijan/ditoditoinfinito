@@ -5,13 +5,14 @@ mod backing;
 #[path = "character_tiles.rs"]
 mod tiles;
 use bytemuck::{Pod, Zeroable};
-use ddi_character::appearance::{Appearance, tile_color};
+use ddi_character::appearance::{Appearance, Geometry, MAX_TILES, tile_center, tile_color};
 use ddi_character::math::{Mat4, mul, normalize};
 use ddi_character::{Character, Pose, SurfaceKind};
 use wgpu::util::DeviceExt;
 pub const SOURCE: &str = "dancing-hand-preview";
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
+    pub mat: Geometry,
     pub yaw: f32,
     pub pitch: f32,
     pub distance: f32,
@@ -24,6 +25,7 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self {
+            mat: Geometry::single(),
             yaw: 0.,
             pitch: 5.,
             distance: 0.52,
@@ -38,8 +40,8 @@ pub struct Presentation {
     pub camera: Camera,
     pub size: [u32; 2],
     pub appearance: Option<Appearance>,
-    pub tiles: [f32; 9],
-    pub strikes: [u32; 9],
+    pub tiles: [f32; MAX_TILES],
+    pub strikes: [u32; MAX_TILES],
     pub seconds: f32,
 }
 #[repr(C)]
@@ -61,9 +63,11 @@ struct Uniform {
     surface: [f32; 4],
     mat_color: [f32; 4],
     accent: [f32; 4],
-    tiles: [[f32; 4]; 3],
-    tile_heights: [[f32; 4]; 3],
-    tile_colors: [[f32; 4]; 9],
+    tiles: [[f32; 4]; 5],
+    tile_heights: [[f32; 4]; 5],
+    tile_colors: [[f32; 4]; MAX_TILES],
+    tile_centers: [[f32; 4]; MAX_TILES],
+    mat: [f32; 4],
     effects: [f32; 4],
     capsules_a: [[f32; 4]; 6],
     capsules_b: [[f32; 4]; 6],
@@ -83,6 +87,7 @@ pub struct CharacterScene {
     floor: wgpu::Buffer,
     tiles: wgpu::Buffer,
     tile_vertices: u32,
+    mat: Geometry,
     materials: Vec<wgpu::BindGroup>,
     hand: wgpu::RenderPipeline,
     cull: wgpu::RenderPipeline,
@@ -183,8 +188,9 @@ pub fn view_projection(camera: Camera, aspect: f32) -> Mat4 {
     let mut vp = mul(&projection, &view);
     if let Some(y) = camera.ground_y.filter(|y| y.is_finite()) {
         let mut bottom = f32::NEG_INFINITY;
-        for x in [-0.036, 0.036] {
-            for z in [-0.036, 0.036] {
+        let bounds = camera.mat.bounds_mm();
+        for x in [bounds[0][0], bounds[1][0]].map(|v| (v * 0.001) as f32) {
+            for z in [bounds[0][1], bounds[1][1]].map(|v| (v * 0.001) as f32) {
                 let point = [x * camera.scale, 0., z * camera.scale, 1.];
                 let clip_y = (0..4).map(|i| vp[i * 4 + 1] * point[i]).sum::<f32>();
                 let w = (0..4).map(|i| vp[i * 4 + 3] * point[i]).sum::<f32>();
@@ -350,7 +356,7 @@ impl CharacterScene {
             contents: bytemuck::cast_slice(&floor),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        let tile_data = tiles::vertices();
+        let tile_data = tiles::vertices(Geometry::single());
         let tile_vertices = tile_data.len() as u32;
         let tiles = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("character-buttons"),
@@ -366,6 +372,7 @@ impl CharacterScene {
             floor,
             tiles,
             tile_vertices,
+            mat: Geometry::single(),
             materials,
             hand,
             cull,
@@ -424,6 +431,16 @@ impl CharacterScene {
             seconds,
         } = presentation;
         camera = animated_camera(camera, appearance, seconds);
+        if self.mat != camera.mat {
+            let data = tiles::vertices(camera.mat);
+            self.tile_vertices = data.len() as u32;
+            self.tiles = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("character-buttons"),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            self.mat = camera.mat;
+        }
         let limit = device.limits().max_texture_dimension_2d.min(2048) as f32;
         let scale = (limit / size[0].max(size[1]).max(1) as f32).min(1.);
         let size = size.map(|n| (n as f32 * scale).round().max(1.) as u32);
@@ -493,7 +510,7 @@ impl CharacterScene {
             }
         }
 
-        let heights = ddi_character::appearance::tile_heights(&contacts);
+        let heights = ddi_character::appearance::tile_heights_on(camera.mat, &contacts);
         let u = Uniform {
             vp: view_projection(camera, size[0] as f32 / size[1] as f32),
             light: if appearance.is_some() {
@@ -512,6 +529,16 @@ impl CharacterScene {
             surface: [a.roughness, a.specular, a.response, f32::from(a.test_tile)],
             mat_color: [a.mat_color[0], a.mat_color[1], a.mat_color[2], 1.],
             accent: [a.accent[0], a.accent[1], a.accent[2], 1.],
+            mat: [
+                (camera.mat.pitch_mm() * 0.001) as f32,
+                (camera.mat.tile_half_mm() * 0.001) as f32,
+                0.,
+                f32::from(camera.mat.pads()) * 9.,
+            ],
+            tile_centers: std::array::from_fn(|i| {
+                let [x, z] = tile_center(camera.mat, i).unwrap_or([0.; 2]);
+                [x, z, 0., 0.]
+            }),
             tile_colors: std::array::from_fn(|i| {
                 let c = if a.random_colors {
                     tile_color(a.palette_seed, i, strikes[i])
@@ -702,6 +729,35 @@ mod ground_framing_tests {
                         "{aspect}/{yaw}/{distance}: {bottom}"
                     );
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod double_framing_tests {
+    use super::*;
+    #[test]
+    fn both_pad_bottoms_stay_inside_the_ground_frame_when_orbiting() {
+        for aspect in [0.45, 0.9, 1.6] {
+            for yaw in [-180., -90., 29., 90., 180.] {
+                let camera = Camera {
+                    mat: Geometry::new(2, 24., 0.).unwrap(),
+                    yaw,
+                    pitch: 21.,
+                    ground_y: Some(0.98),
+                    ..Default::default()
+                };
+                let bottom = [
+                    [-0.072, 0., -0.036],
+                    [-0.072, 0., 0.036],
+                    [0.072, 0., -0.036],
+                    [0.072, 0., 0.036],
+                ]
+                .map(|p| project(camera, aspect, p).unwrap()[1])
+                .into_iter()
+                .fold(f32::NEG_INFINITY, f32::max);
+                assert!((bottom - 0.98).abs() < 1e-5, "{aspect} {yaw}: {bottom}");
             }
         }
     }

@@ -24,4 +24,5 @@ ddi-ui.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
+ddi-dance-mat.workspace = true
 ddi-platform.workspace = true

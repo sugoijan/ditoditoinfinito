@@ -1,5 +1,38 @@
 //! Presentation overrides only: never enter kinematics or contact planning.
+pub use ddi_dance_mat::Geometry;
 use serde::Serialize;
+/// Render slots retain the original row-major visual ordering within each pad.
+pub const MAX_TILES: usize = 18;
+/// Physical identity for a visual slot. Exported X is reflected from solver X.
+pub fn physical_tile(mat: Geometry, slot: usize) -> Option<ddi_dance_mat::Tile> {
+    if slot >= usize::from(mat.pads()) * 9 {
+        return None;
+    }
+    let cell = (slot % 9) as u8 + 1;
+    ddi_dance_mat::Tile::new((slot / 9) as u8, cell + 2 - 2 * ((cell - 1) % 3))
+}
+/// Tile center in exported right-handed Y-up metres (X/Z floor coordinates).
+pub fn tile_center(mat: Geometry, slot: usize) -> Option<[f32; 2]> {
+    let tile = physical_tile(mat, slot)?;
+    if mat == Geometry::single() {
+        return Some([
+            (slot % 3) as f32 * 0.024 - 0.024,
+            (slot / 3) as f32 * 0.024 - 0.024,
+        ]);
+    }
+    let p = mat.position(tile)?;
+    Some([(-p[0] * 0.001) as f32, (p[1] * 0.001) as f32])
+}
+fn contact_tile(mat: Geometry, p: [f32; 3]) -> Option<usize> {
+    if p.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let half = (mat.tile_half_mm() * 0.001) as f32;
+    (0..usize::from(mat.pads()) * 9).find(|&i| {
+        let [x, z] = tile_center(mat, i).expect("active tile");
+        (p[0] - x).abs() <= half && (p[2] - z).abs() <= half
+    })
+}
 /// UP panel centre in exported right-handed Y-up metres.
 pub const UP_TILE_CENTER: [f32; 3] = [0., 0., 0.024];
 /// Accepted playground framing, adopted from the maintainer’s copy on 2026-11-05.
@@ -32,7 +65,7 @@ pub struct Appearance {
     pub mat_color: [f32; 3],
     pub accent: [f32; 3],
     pub response: f32,
-    /// Diagnostic tile, 0 = actual contacts, 1..=9 = explicit preview.
+    /// Diagnostic tile, 0 = actual contacts, 1..=18 = explicit render-slot preview.
     pub test_tile: u8,
 }
 impl Appearance {
@@ -99,55 +132,47 @@ const RELEASE_DECAY: f32 = 0.030;
 /// Resting tile height in metres. Activation stays at the original zero plane.
 pub const TILE_TRAVEL: f32 = 0.001;
 pub fn tile_heights(contacts: &[[f32; 3]]) -> [f32; 9] {
-    let mut heights = [TILE_TRAVEL; 9];
-    for p in contacts {
-        if p.iter().any(|v| !v.is_finite()) {
-            continue;
+    tile_heights_on(Geometry::single(), contacts)[..9]
+        .try_into()
+        .unwrap()
+}
+pub fn tile_heights_on(mat: Geometry, contacts: &[[f32; 3]]) -> [f32; MAX_TILES] {
+    let mut heights = [0.; MAX_TILES];
+    heights[..usize::from(mat.pads()) * 9].fill(TILE_TRAVEL);
+    for &p in contacts {
+        if let Some(i) = contact_tile(mat, p) {
+            heights[i] = heights[i].min(p[1].clamp(0., TILE_TRAVEL));
         }
-        let x = (p[0] / 0.024).round();
-        let z = (p[2] / 0.024).round();
-        if x.abs() > 1.
-            || z.abs() > 1.
-            || (p[0] - x * 0.024).abs() > 0.0115
-            || (p[2] - z * 0.024).abs() > 0.0115
-        {
-            continue;
-        }
-        let i = ((z as i32 + 1) * 3 + x as i32 + 1) as usize;
-        heights[i] = heights[i].min(p[1].clamp(0., TILE_TRAVEL));
     }
     heights
 }
 #[derive(Default)]
 pub struct ContactLights {
-    pub values: [f32; 9],
-    pub strikes: [u32; 9],
-    previous: [bool; 9],
+    pub values: [f32; MAX_TILES],
+    pub strikes: [u32; MAX_TILES],
+    previous: [bool; MAX_TILES],
     time: Option<f32>,
+    mat: Option<Geometry>,
 }
 impl ContactLights {
     pub fn update(&mut self, seconds: f32, contacts: &[[f32; 3]]) {
+        self.update_on(Geometry::single(), seconds, contacts);
+    }
+    pub fn update_on(&mut self, mat: Geometry, seconds: f32, contacts: &[[f32; 3]]) {
         let dt = self.time.map_or(0., |t| seconds - t);
-        if self.time.is_none() || !(0. ..=0.2).contains(&dt) {
-            self.values = [0.; 9];
-            self.strikes = [0; 9];
-            self.previous = [false; 9];
+        if self.mat != Some(mat) || self.time.is_none() || !(0. ..=0.2).contains(&dt) {
+            self.values = [0.; MAX_TILES];
+            self.strikes = [0; MAX_TILES];
+            self.previous = [false; MAX_TILES];
         }
-        let mut planted = [false; 9];
-        for p in contacts {
-            if p.iter().any(|v| !v.is_finite()) || p[1].abs() > 0.00025 {
-                continue;
-            }
-            let x = (p[0] / 0.024).round();
-            let z = (p[2] / 0.024).round();
-            if x.abs() > 1.
-                || z.abs() > 1.
-                || (p[0] - x * 0.024).abs() > 0.0115
-                || (p[2] - z * 0.024).abs() > 0.0115
+        self.mat = Some(mat);
+        let mut planted = [false; MAX_TILES];
+        for &p in contacts {
+            if p[1].abs() <= 0.00025
+                && let Some(i) = contact_tile(mat, p)
             {
-                continue;
+                planted[i] = true;
             }
-            planted[((z as i32 + 1) * 3 + x as i32 + 1) as usize] = true;
         }
         for (i, on) in planted.into_iter().enumerate() {
             if on {
@@ -201,11 +226,11 @@ mod tests {
             lights.update(1.1, &[]);
             assert_eq!(paused, lights.values);
             lights.update(0., &[]);
-            assert_eq!(lights.values, [0.; 9]);
+            assert_eq!(lights.values, [0.; MAX_TILES]);
         }
         let mut l = ContactLights::default();
         l.update(0., &[[0.012, 0., 0.], [0., 0.001, 0.], [f32::NAN, 0., 0.]]);
-        assert_eq!(l.values, [0.; 9]);
+        assert_eq!(l.values, [0.; MAX_TILES]);
     }
 }
 
@@ -329,6 +354,61 @@ mod polish_tests {
         assert_eq!(
             tile_heights(&[[f32::NAN, 0., 0.], [0.012, 0., 0.]]),
             [0.001; 9]
+        );
+    }
+}
+
+#[cfg(test)]
+mod double_mat_tests {
+    use super::*;
+    #[test]
+    fn both_pads_use_physical_tiles_with_reflected_x_and_no_seam_contact() {
+        for mat in [
+            Geometry::single(),
+            Geometry::new(2, 24., 0.).unwrap(),
+            Geometry::new(2, 24., 6.).unwrap(),
+        ] {
+            for i in 0..usize::from(mat.pads()) * 9 {
+                let tile = physical_tile(mat, i).unwrap();
+                let physical = mat.position(tile).unwrap();
+                let [x, z] = tile_center(mat, i).unwrap();
+                assert!((x as f64 + physical[0] * 0.001).abs() < 1e-8);
+                assert!((z as f64 - physical[1] * 0.001).abs() < 1e-8);
+                let mut lights = ContactLights::default();
+                lights.update_on(mat, 0., &[[x, 0., z]]);
+                assert_eq!(lights.strikes[i], 1);
+                assert_eq!(lights.values.iter().filter(|v| **v > 0.).count(), 1);
+                assert_eq!(tile_heights_on(mat, &[[x, 0., z]])[i], 0.);
+                assert_eq!(tile_heights_on(mat, &[[x, 0.0005, z]])[i], 0.0005);
+                lights.update_on(mat, 0.05, &[[x, 0.004, z]]);
+                assert!(lights.values[i] < 0.3);
+            }
+        }
+        let mat = Geometry::new(2, 24., 0.).unwrap();
+        let mut lights = ContactLights::default();
+        lights.update_on(
+            mat,
+            0.,
+            &[[0., 0., 0.], [0.072, 0., 0.], [f32::NAN, 0., 0.]],
+        );
+        assert_eq!(lights.values, [0.; MAX_TILES]);
+        assert_eq!(physical_tile(mat, 7).unwrap().id(), 8);
+        assert_eq!(physical_tile(mat, 16).unwrap().id(), 17);
+    }
+    #[test]
+    fn paused_geometry_switch_resets_lights_and_inactive_slots() {
+        let double = Geometry::new(2, 24., 0.).unwrap();
+        let [x, z] = tile_center(double, 16).unwrap();
+        let mut lights = ContactLights::default();
+        lights.update_on(double, 1., &[[x, 0., z]]);
+        assert_eq!(lights.values[16], 1.);
+        lights.update_on(Geometry::single(), 1., &[[0.; 3]]);
+        assert_eq!(lights.values[16], 0.);
+        assert_eq!(lights.values[4], 1.);
+        assert!(
+            tile_heights_on(Geometry::single(), &[])[9..]
+                .iter()
+                .all(|v| *v == 0.)
         );
     }
 }

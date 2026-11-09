@@ -67,6 +67,26 @@ fn consecutive_completed_and_quit_plays_keep_the_hand_available() {
 
     let dir = std::env::temp_dir().join(format!("ddi-hand-lifecycle-{}", std::process::id()));
     for (name, layout, rows) in [
+        (
+            "Double",
+            "dance-double",
+            "10000000\n00010000\n00001000\n00000001,\n00000010\n00000100\n00010000\n10000000",
+        ),
+        (
+            "Half",
+            "pump-halfdouble",
+            "100000\n010000\n000100\n000001,\n000010\n001000\n100001\n100000",
+        ),
+        (
+            "PumpDouble",
+            "pump-double",
+            "0010000000\n0001000000\n0000010000\n0000000100,\n0000001000\n0000100000\n0010000100\n0010000000",
+        ),
+        (
+            "NineA",
+            "danoni-9A",
+            "100010000\n010000000\n000010001\n000001000,\n000020000\n000000100\n000000001\n000000010,\n000030000\n000010000\n0000M0000\n000010000",
+        ),
         ("First", "dance-single", "1000\n0100\n0010\n0001"),
         ("Second", "dance-solo", "010010\n100001\n001000\n000100"),
         ("Third", "pump-single", "10000\n01000\n00100\n00010\n00001"),
@@ -93,10 +113,21 @@ fn consecutive_completed_and_quit_plays_keep_the_hand_available() {
     }
     let (songs, report) = ddi_desktop::library::scan_folders(std::slice::from_ref(&dir));
     assert!(report.failed.is_empty(), "{:?}", report.failed);
-    assert_eq!(songs.len(), 6);
+    assert_eq!(songs.len(), 10);
     ddi_desktop::library::register_for_tests(&songs);
-    for round in 0..12 {
-        let name = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"][round % 6];
+    for round in 0..20 {
+        let name = [
+            "First",
+            "Double",
+            "Half",
+            "PumpDouble",
+            "Second",
+            "Third",
+            "Fourth",
+            "Fifth",
+            "Sixth",
+            "NineA",
+        ][round % 10];
         let song = songs.iter().find(|s| s.entry.title == name).unwrap();
         let request = Request::song(&song.entry.id, 0, true);
         *host.requested.borrow_mut() = Some(request);
@@ -126,8 +157,24 @@ fn consecutive_completed_and_quit_plays_keep_the_hand_available() {
         assert!(h["character"]["drawn"].as_u64().unwrap() > 0, "{h}");
         assert_eq!(
             h["runtime"]["source_notes"],
-            [4, 6, 5, 7, 8, 9][round % 6],
+            [4, 8, 9, 9, 6, 5, 7, 8, 9, 13][round % 10],
             "{h}"
+        );
+        assert_eq!(
+            h["character"]["mat"]["pads"],
+            if matches!(name, "Double" | "Half" | "PumpDouble" | "NineA") {
+                2
+            } else {
+                1
+            }
+        );
+        assert_eq!(
+            h["character"]["tile_ids"].as_array().unwrap().len(),
+            if matches!(name, "Double" | "Half" | "PumpDouble" | "NineA") {
+                18
+            } else {
+                9
+            }
         );
         let log_start = host.log.len();
         let mut frames = 0;

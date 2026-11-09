@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Single-threaded chart-to-contact choreography planning"
 
 [dependencies]
+ddi-dance-mat.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
 ddi-hand-pose.workspace = true

@@ -14,11 +14,15 @@ pub const HAND_MODEL: &[u8] = include_bytes!("../../../assets/hand/hand.glb");
 /// places each on the mat.
 pub const HAND_LAYOUTS: &[&str] = &[
     "dance-single",
+    "dance-double",
     "dance-solo",
     "danoni-5",
     "danoni-7",
+    "danoni-9A",
     "danoni-9B",
     "pump-single",
+    "pump-halfdouble",
+    "pump-double",
     "techno-single8",
 ];
 

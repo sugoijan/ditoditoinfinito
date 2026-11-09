@@ -131,7 +131,7 @@ impl DanceRuntime {
         if !lookahead.is_finite() || !(2. ..=3.).contains(&lookahead) {
             return Err("lookahead must be 2–3 seconds");
         }
-        let mut rolling = Rolling::new(m, Plan::empty(lookahead + 0.5), lookahead);
+        let mut rolling = Rolling::new(m, plan.opening_seed_plan(lookahead + 0.5), lookahead);
         // A fit begun exactly at now + 250 ms is late as soon as it yields
         // into another frame. Match the corrected publication's 150 ms work
         // reserve without shortening the immutable quarter-second prefix.
@@ -192,6 +192,13 @@ impl DanceRuntime {
         finished: bool,
     ) {
         if !now.is_finite() || self.report.failure.is_some() || !matches!(self.work, Work::Idle) {
+            return;
+        }
+        if !p.same_geometry(&self.snapshot) {
+            self.report.failure = Some(ContactCurveError {
+                reason: "geometry_changed",
+                time: now,
+            });
             return;
         }
         if !known_until.is_finite()
@@ -433,9 +440,13 @@ impl DanceRuntime {
                 let tip = m
                     .geometry(&curve.sample(e.time + probe as f64 / 480.).pose)
                     .tips[usize::from(e.foot == "R")];
-                let [x, y] = crate::panel_position(e.panel, self.snapshot.placement.tile_pitch_mm)
+                let [x, y] = self
+                    .snapshot
+                    .physical_position(e.panel)
                     .expect("validated panel");
-                let touches = 11.5 - (tip[0] + 16. - x).abs().max((tip[1] - y).abs()) >= 0.
+                let touches = self.snapshot.tile_half_mm()
+                    - (tip[0] + 16. - x).abs().max((tip[1] - y).abs())
+                    >= 0.
                     && tip[2].abs() <= 1.;
                 if touches {
                     self.report.arrow_checks += 1;

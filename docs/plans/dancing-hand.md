@@ -2,9 +2,9 @@
 
 The default native and web builds include the dancing hand. Display options
 control its visibility, coordinated field/hand layout and frame size. New settings
-start with the hand enabled; saved Off choices remain Off. Four-panel, Solo
-six-panel, DanOni five-key, seven-key and 9B, Pump single and Techno single8 charts
-are supported. Solo diagonals use the upper mat corners; Oni uses the center;
+start with the hand enabled; saved Off choices remain Off. Four-panel, dance-double eight-panel, Solo
+six-panel, DanOni five-key, seven-key, 9A and 9B, Pump single/half-double/double and Techno single8 charts
+are supported. Solo diagonals use the upper mat corners; Oni uses the center (either pad center in 9A);
 Pump uses the four corners and center. The hand is an autoplay beside the play:
 it plays its own copy of the notes the play judges, at most two at once
 (`At once: up to two`, ongoing holds included), while the play judges every note
@@ -33,8 +33,9 @@ blocking ordinary play. Mid-chart starts/custom timing tables outside the suppor
 budgets are not arbitrary-chart guarantees.
 
 The character renderer retains the accepted camera, lighting, glossy nail regions,
-dark wrist cap, silhouette backing and nine rounded contact-reactive buttons.
-Settings' preview shows a standing pose from the same model. Appearance does not
+dark wrist cap, silhouette backing and rounded contact-reactive buttons: nine
+on single mats, eighteen on dance-double and Pump half-double/double mats.
+Settings' preview shows a standing pose and the active mat geometry from the same model. Appearance does not
 alter contact timing or the physical mat plane.
 
 Desktop display predictions can move backwards slightly when pacing estimates
@@ -46,11 +47,17 @@ report counts `presentation_revisions`; this does not relax contact tolerances o
 recover arbitrary buffer underruns.
 
 
-The next proposed extension is the [double-mat study](hand-double-mat.md),
-covering the four remaining playable built-in layouts. It starts with shared
-geometry and a reach study, retaining this model and the existing gameplay
-boundary. No stretch preparation and its separate general Options toggle are
-implemented; double contact/pose/rendering support is not yet enabled.
+The [double-mat integration](hand-double-mat.md#dance-double-gameplay-2026-11-08)
+now enables dance-double, Pump half-double/double and DanOni 9A using shared physical
+geometry, the current hand model, No Stretch and At once Two on the hand's copy.
+9A Oni remains one judged button: a contact chooses physical center 5 or 14,
+held/rolling contacts keep their chosen center, and replay unions both centers
+before emitting press/release edges. Oni hazards constrain both centers. The
+planner uses unscored corners and air time for escapes, preserving native
+DanOni release budgets. No Stretch's separate general Options toggle is unchanged.
+The 18-tile renderer, CPU contact indicators, light spill, camera framing and
+Options preview use the same geometry. Pre-start readies its opening CPU/GPU
+buffer; restart/layout changes rebuild or invalidate the relevant cached output.
 
 ## Rebased gameplay integration (2026-11-06)
 
@@ -897,3 +904,740 @@ Private source/binary pins, contact traces, comparison schedules and evidence:
 `/private/tmp/ddi-pump-pose-repair-20261106`. Small ignored aggregates and report:
 `target/scratch/hand-pump-pose-repair-20261106/`. Private inputs, development
 harnesses and experimental snapshots remain outside Git.
+
+
+## All playable hand layouts: full library audit (2026-11-08)
+
+This run pins production **`94876b81`**, after double-mat and DanOni 9A support.
+It freshly imports all **1,749 unchanged private simfiles**: **11,898 original
+records + 202 generated versions = 12,100**. Of these, **11,866 records / 11,450
+distinct inputs** are eligible. The hand plays its own **No Stretch + At once
+Two** copy; the Player and normal gameplay retain their judged chart. This is
+the post-rebase independent-hand-copy pipeline, unlike the historical shared-
+chart audit above. No runtime, model, motion policy or tolerance is changed for
+the audit.
+
+Four independent chart processes each run the single-threaded f64 solver with
+the existing three-second rolling window. Native preparation is driven at 60 Hz
+with its real work budgets; numerical/contact checks run at 480 Hz and exact
+obligation times, preserving the accepted stream-arrow policy. CPU caps remain
+5 s contact / 10 s pose+validation, with a separate 90 s wall watchdog. There is
+no media rendering. Hardware is an M1 Max (8 performance / 2 efficiency cores),
+with four OS-managed workers and no affinity pinning.
+
+**Elapsed: 10,511.87 s (2 h 55 min 12 s).**
+
+| Outcome | Original | Generated | Total |
+|---|---:|---:|---:|
+| Full pass | 11,481 | 194 | **11,675** |
+| Contact failure | 62 | 4 | **66** |
+| Pose failure | 66 | 4 | **70** |
+| Pose CPU timeout | 55 | 0 | **55** |
+| Unsupported layout | 234 | 0 | **234** |
+
+Contact CPU timeouts, wall/infrastructure timeouts, fatal playback deadlines,
+import/infrastructure failures and settling warnings are **zero**. Five passing
+records have five nonfatal guide-lateness events, recorded separately. Full
+passes represent 11,262 distinct inputs; 98.4% of eligible records pass.
+
+### Coverage and failures
+
+| Layout present | Pass | Contact failure | Pose failure | Pose CPU timeout |
+|---|---:|---:|---:|---:|
+| Dance Single | 7,236 | 16 | 0 | 55 |
+| Dance Double | 3,860 | 44 | 70 | 0 |
+| Dance Solo | 378 | 0 | 0 | 0 |
+| DanOni 5 | 90 | 4 | 0 | 0 |
+| Pump Single | 92 | 2 | 0 | 0 |
+| Pump Double | 14 | 0 | 0 | 0 |
+| Techno single8 | 5 | 0 | 0 | 0 |
+
+Unsupported records are **207 Dance Couple + 27 Dance Three-panel**, neither
+currently playable. There are no unsupported judged note kinds. No Pump half-
+double or DanOni 7/9A/9B records occur in this library; their authored regressions
+remain separate coverage. Twenty-one auditor/parity tests pass, and separate
+all-eleven-layout selfchecks give twenty passes plus one intentional native
+hold/hazard rejection.
+
+All **70 pose failures are Dance Double**: 20 knuckle height, 11 position,
+17 floor penetration, three planted height, 18 tile margin and one subframe
+planted-vertical check. Sixty-eight are runtime rejections; two are independent
+480 Hz subframe findings (0.255590 mm height versus 0.25 mm, and 2.008824 mm
+airborne targeting error versus 2 mm). Both remain failures. Contact failures
+comprise 45 no-supported-plan, 17 boundary-continuation and four more-than-two-
+contact rejections. The private reports retain exact rejected ticks and both
+playback-disable and future prepared-failure times. No tolerance is widened.
+
+A separate authored delayed-opening Pump half-double reproducer also fails the
+uninstrumented production adapter with `tile_margin`. It is preserved privately
+as follow-up evidence, not added to the library denominator or fixed during this
+run. Remaining double-layout preparation/continuation failures are the next
+correctness work; CPU optimization remains separate.
+
+### Comparison and verification
+
+Against `bc1895cf`, all source IDs and 1,749 file hashes match:
+
+- **All 7,776 former passes still pass.** No previous pass fails or times out.
+- **3,988 formerly unsupported records become eligible:** 3,874 pass, 44 fail
+  contacts and 70 fail poses.
+- **23 of 78 previous pose timeouts now pass; 55 remain**, all Dance Single.
+- Two of the three previous Pump numerical failures now pass; the other reaches
+  its later contact rejection. All 21 existing contact failures remain contacts.
+
+This comparison spans hand-copy policy/identity and physical auditor changes,
+not an isolated performance or motion change. Caps and worker count are retained;
+no relaxed-cap or serial rerun replaces the canonical results.
+
+Independent verification checks fresh binary/catalog/frozen-source hashes,
+complete IDs, equal alias outcomes, all four shards, disjoint result partitions,
+all passing judge/contact/numerical checks and original inputs unchanged. Input
+identity includes **both original gameplay and effective hand notes**, keeping
+raw gameplay tally differences out of shared motion-result aliases. The auditor
+uses explicit physical mat centers and both Oni hazard targets. Retained opening
+support spots are checked against the requested target's tile; exact scored
+landings are independently checked against their declared physical tile.
+
+Passes cover **4,328,104 exact heads, 223,741 hold tails, 45,670 avoided mines and
+eight lifts**. No shock-bearing chart occurs here; authored shock checks remain
+separate. Review checks 34,425 source-record judge reports and 33,186 distinct-
+input replays, plus independent original-game COMBOS/autoplay weighting for all
+300 passing custom-table records. Accepted maximum exact error is 1.986351 mm,
+maximum planted height 0.248653 mm and minimum tile margin 1.046918 mm, within
+the unchanged 2 / 0.25 / 1 mm limits. No passing trace misses a head, drops a hold,
+starves or has a fatal deadline/settling warning.
+
+Canonical private inputs, frozen code, binaries and traces:
+`/private/tmp/ddi-library-all-layouts-20261108-v1`. Native adapter/parity evidence:
+`/private/tmp/ddi-all-layout-library-adapter-20261108`; authored studies:
+`/private/tmp/ddi-all-layout-audit-selfchecks-20261108`. Small ignored aggregates:
+`target/scratch/library-dance-audit-all-layouts-20261108/`, including `REPORT.md`,
+separate contact/pose/timeout/unsupported/settling/guide CSVs, `pose-details.csv`,
+comparison and independent verification JSON. Private inputs, plans, development
+harnesses and captures remain outside Git. This is native gameplay-math coverage,
+not desktop/browser rendering or realtime frame-time certification.
+
+
+## Dance Double pose repairs: targeted checks (2026-11-08)
+
+The 70 Dance Double pose-failure records from the full audit above now yield
+**67 full passes and three later contact rejections**, with **zero pose failures,
+contact/pose/wall timeouts, fatal deadlines or settling warnings**. This is a
+targeted rerun, not a new full-library result. Four independent chart workers
+retain the original 5/10 s CPU caps and 90 s wall watchdog; each chart still runs
+single-threaded with the three-second window and f64 math.
+
+The fixes address two distinct faults. Before its first scored row was
+committed, an empty rolling boundary could forget the chosen double-mat opening
+support and revert to the default tile IDs. The boundary now retains that rest.
+A first-party regression covers Dance Double, Pump half-double/double and
+DanOni 9A, including publications before the first scored note.
+
+Some correction fits also stalled near joint bounds, while others repeatedly
+refitted an already-valid anchor instead of the failing interpolated pose.
+Double-mat correction now uses the failed interpolant as a warm start, can move
+an unprotected numerical knot, and retains every contact/phase timestamp. A
+bounded balance-guide nudge toward the fingertip midpoint escapes stalled fits;
+low-knuckle cases can use more of it. Checked C2 tangent repairs reduce local
+overshoot. Ordinary preparation still uses six passes; difficult double-mat
+curves can use six further passes with numerical knots down to 0.25 ms. The knot
+cap remains 32,768 and every fitting checkpoint remains capped at eight
+iterations. Presentation sampling remains solve-free and published prefixes
+remain immutable. Single-mat preparation retains its previous behavior.
+
+Double-mat preparation keeps reserve inside the unchanged published limits:
+1.90 mm targeting, 0.225 mm planted height and 40.01 mm knuckle clearance during
+checks, with the existing −0.20 mm floor reserve. Output still allows 2 mm total
+error, 0.25 mm planted height, 1 mm tile clearance and a 40 mm knuckle minimum;
+no model, timing or contact tolerance was relaxed. The independent 480 Hz and
+exact-event checks measure maxima of **1.914968 mm** target error and
+**0.221871 mm** planted height, with **2.368132 mm** minimum tile clearance.
+Completed charts use at most 0.151 s contact CPU and 6.352 s pose/validation CPU.
+All 6,933 already-played scored heads retain their exact baseline times/tiles.
+
+The three later contact rejections are **south Challenge (tick 7152)**,
+**Couleur=Blanche Medium (4728)** and **チルノのパーフェクトさんすう学園 Hard
+(6372)**. Each also rejects with the unchanged pinned baseline planner in
+contacts-only execution. They remain separate failures, not whole-chart passes;
+this work does not change their contact policy.
+
+Validation includes 119 native hand tests and authored stalled-fit/floor
+regressions; the 79-case category gate (73 passes and six expected contact
+rejections, no mismatches/timeouts/poses); clippy on the hand crates and shell;
+and 12 automatic/mirrored Dance Double cases in native and headless Chrome/WASM,
+with identical whole contact plans, dense edge checks and immutable C2 prefixes.
+Seven accepted single-mat reference dances, including both Beatucada charts,
+retain bit-identical contacts, poses, velocities and accelerations against the
+pinned full-audit baseline with replayed work schedules.
+
+**The full library audit was not rerun.** Its counts above remain historical.
+Private raw evidence: `/private/tmp/ddi-double-pose-repair-20261108`, with the
+production rerun in `final/`. Small ignored summaries and source hashes:
+`target/scratch/hand-double-pose-repair-20261108/REPORT.md`. Private charts,
+plans, probes and development binaries remain outside the repository.
+
+
+## Mine-to-head and staggered clearance (2026-11-08)
+
+The three contact rejections exposed by the Double pose repairs now pass:
+**south Challenge**, **Couleur=Blanche Medium** and
+**チルノのパーフェクトさんすう学園 Hard**. Manual contact studies first passed the
+actual SM5, DDR-A and ITG judges with exact note times. The implementation then
+passes all three complete charts through the native gameplay/pose pipeline.
+
+- **Reserve the scored landing.** A bounded additional hazard candidate can
+  continue a clearing flight directly to a received tap or hold, including a
+  repeat on the same tile. It can take off earlier instead of extending a fixed
+  short hop until its early-boundary height becomes impossible. Directed flights
+  remain at most 450 ms and retain current planted/swing floors and lift limits.
+  South now keeps the left finger on L6 while the right taps R4 at 63.429 s,
+  lifts at 63.484 s and lands into its hold at 63.857 s.
+- **Plan simultaneous clearance together.** The additional candidate groups
+  hazards at the same timestamp, checking the completed stance rather than
+  rejecting an intermediate one-foot destination. When the legacy escape
+  variants fail, two bounded grouped escape alternatives are available. The
+  total stays at most five candidates per parent within the existing beam.
+  Couleur can put both fingers safely on an unscored center during its full
+  mine row, then land UP at exactly 32.108 s. Cirno uses independent finger
+  departures/landings and safe-center support between its tight scored presses.
+- **Known scored approaches after a mine.** Cirno's taps about 84 ms after a
+  mine pass all actual judges but conflict with the old unconditional 95 ms
+  clearance rule. A scoped per-foot proof requires the exact received scored
+  event and matching incoming swing. Clearance remains required through the
+  mine and until 5 ms after the midpoint where the scored head becomes closer
+  than the old mine. A finger coming from that same tile must have departed
+  before its early window. The exception expires at the next landing; it does
+  not authorize an unscored repress, an unrelated finger, or mine-time contact.
+  The pose plan derives and bounds this cache from validated events/tracks;
+  no serialized permission or new source-note timing is introduced. A pruned
+  view retains only proofs for declared surviving flights, keeping future
+  scored events hidden. Probe times include the permission boundary.
+- **Do not steal the next note.** Fixed unscored hazard returns are rejected
+  when they would press a received upcoming head early. An exact known head
+  can still reuse its landing. For incoming charts, a scored-tile return is not
+  committed until its whole early-hit neighborhood is received, or EOF proves
+  there is no future head. The neighborhood comes from the effective judge
+  tables, separately from hold-release budgets. Existing boundary logic keeps
+  the candidate tentative and the published prefix before its mutable flights.
+  This fixes a later Couleur section without rewinding or changing note times.
+
+| Full chart | Exact heads | Max target error | Max planted height | Pose/validation CPU |
+|---|---:|---:|---:|---:|
+| south Challenge | 267/267 | 0.866 mm | 0.071 mm | 4.881 s |
+| Couleur=Blanche Medium | 440/440 | 1.105 mm | 0.164 mm | 5.068 s |
+| チルノのパーフェクトさんすう学園 Hard | 391/391 | 1.710 mm | 0.184 mm | 7.462 s |
+
+The final targeted cohort includes the 67 recently passing Double controls:
+**70/70 pass**, with zero contact/pose failures, CPU/wall timeouts, fatal
+deadlines, guide warnings, starvation or settling warnings. Four independent
+chart workers retain the original 5/10 s CPU caps and 90 s wall limit; each
+chart still uses one thread, f64 and the three-second window. The maximum
+pose/validation CPU is 7.669 s. Independent 480 Hz and exact-event checks retain
+2 mm total targeting, 0.25 mm planted height, 1 mm tile clearance, 40 mm knuckles
+and all authored model bounds. The model/assets, No Stretch/At once Two policy
+and actual judge windows are unchanged. All 67 controls retain identical scored
+events (including finger assignments) and holds; 63 also retain identical swing
+tracks, while four have changed clearance/takeoff tracks.
+
+Validation includes 126 native hand tests, five authored mirrored scenario
+families (same-tile hold, jump, alternating hits, mine clusters and incoming-note
+uncertainty), negative proof/visibility tests, the 79-category gate (73 passes
+and six expected contact rejections, no mismatches/poses/timeouts), and clippy
+with warnings denied. The ten new motion cases pass in headless Chrome/WASM
+with whole plans identical to native, dense edge checks and frozen C2 prefixes.
+Seven accepted reference dances retain bit-identical contacts, poses, velocities
+and accelerations against `cbcee284` with replayed work schedules.
+
+**The full library audit was not rerun.** Earlier aggregate audit counts remain
+historical; this follow-up only certifies its three repaired records and 67
+controls. Private raw evidence/probes are under
+`/private/tmp/ddi-mine-to-head-repair-20261108`; small ignored summaries are in
+`target/scratch/hand-mine-to-head-repair-20261108/REPORT.md`. Private charts,
+plans and development tools remain outside Git.
+
+
+## Original contact-failure cohort: targeted rerun (2026-11-08)
+
+Rerunning the **66 original contact-failure records** against `259654b1` now gives
+**43 full passes and 23 remaining contact failures**. There are **zero pose
+failures, contact/pose CPU timeouts, wall/infrastructure timeouts or failures,
+unsupported-layout/note-kind results, settling warnings, guide warnings or starved
+frames** in this cohort. All 66 distinct effective input identities and all 49
+source-file hashes match the baseline; this includes 62 original and four
+generated chart records. The three separately repaired south/Couleur/Cirno
+records were not part of these original 66.
+
+| Layout | Full pass | Contact failure |
+|---|---:|---:|
+| Dance Double | 33 | 11 |
+| Dance Single | 10 | 6 |
+| DanOni 5 | 0 | 4 |
+| Pump Single | 0 | 2 |
+| **Total** | **43** | **23** |
+
+The remaining failures comprise **19 no-supported-plan rejections** and **four
+reported more-than-two-simultaneous-contact rejections** (RUDE! Pump and converted
+DanOni, SM/SSC). The latter are contact-stage capacity rejections on supported
+layouts, not newly unsupported layouts or note kinds; their cause remains to be
+investigated. No judge-boundary continuation rejection remains: 14 of the former
+17 continuation records pass fully, while three advance to later planning
+rejections. Of 45 former no-supported-plan records, 29 pass and 16 still reject.
+
+Four independent off-screen chart workers keep the single-threaded Rust gameplay
+pipeline, f64, three-second window, 5/10 s contact/pose CPU caps and 90 s wall
+watchdog. Checks retain 60 Hz preparation, 480 Hz plus exact obligations and all
+current model/contact limits. No media was rendered or recorded. The run took
+53.29 s; passing charts use at most 8.325 s pose/validation CPU. Their maximum
+target error is 1.573714 mm, maximum planted height 0.190899 mm and minimum tile
+clearance 1.812192 mm.
+
+**This was not a full audit. The separate 55 prior pose CPU timeouts were not
+rerun.** No runtime, policy, model or tolerance changed in this task. Remaining
+records and rejected ticks/music times are in separate ignored CSVs under
+`target/scratch/hand-contact66-rerun-20261108/`, alongside `REPORT.md`, summary and
+run configuration. Playback-disable time is listed separately from the rejected
+row's music time, since lookahead can report a future failure before playback
+reaches it. Raw private results, inspections, plans, pinned executable and adapter
+source are in `/private/tmp/ddi-contact66-rerun-20261108`; private chart data and
+developer tools remain outside Git.
+
+
+## Shared At once Two lift cap (2026-11-08)
+
+The four remaining RUDE! Pump/converted-DanOni capacity rejections came from
+three simultaneous lifts. The shared simplifier counted lifts but protected
+all of them from removal, following the original StepMania policy. **Up to two**
+now trims leftmost excess lifts after its existing tap/new-head removals, in
+both the ordinary count pass and the combined No Stretch/count pass. Existing
+holds/rolls count through their tail; kept notes retain exact ticks, timestamps
+and attributes. Any and One keep their previous behavior, including One's
+legacy lift protection. This is a shared engine policy, not an animation-only
+skip or a relaxation of contact/model tolerances.
+
+All four affected full charts now pass: RUDE! Edit as Pump Single and converted
+DanOni 5, each from SM and SSC. Testing each with the default hand copy and with
+At once Two selected for gameplay gives **8/8 passes**, with no contact/pose
+failures, CPU/wall timeouts, settling/guide warnings or starvation. Each version
+removes exactly one lift at tick 10608; no other effective note changes from the
+previous inspection. With gameplay's option enabled, its judgeable notes and
+the hand notes match exactly, including attributes and song times. The default
+and selected-option runs also produce identical effective hand notes.
+
+Across these eight runs, maximum target error is **1.663403 mm**, maximum planted
+height **0.166938 mm** and minimum tile-edge clearance **2.484880 mm**, within the
+unchanged 2 mm / 0.25 mm / 1 mm limits. All scored contacts and hold tails pass
+the actual judge and exact-event checks. The three-second rolling window,
+single-threaded f64 solver and 5/10 s contact/pose CPU caps remain unchanged.
+
+Verification: **382 native engine/hand tests pass**. Authored regressions cover
+three lifts, mixed tap/hold/roll heads, active holds through the tail, hazards,
+retained metadata, idempotence and gameplay/hand agreement across single and
+double layouts.
+The off-screen gameplay driver also preserves all **79 category expectations**
+(73 passes, six expected contact rejections; zero mismatches, pose failures or
+timeouts). Warnings-denied engine/hand-plan all-target clippy, hand-plan wasm32
+compilation and formatting pass. No full library audit or media capture was run.
+Private inputs, inspections, traces and reports remain under
+`/private/tmp/ddi-lifts-repair-20261108`; only authored tests and documentation
+are committed.
+
+
+## Silent Hill: alternating support and flight (2026-11-08)
+
+Silent Hill's Dance Double Challenge contact rejection at tick 8352 is repaired.
+A private controlled sequence first passed SM5, DDR-A and ITG with five exact
+taps and all 16 mines avoided. The finger on pad 2 lifts while the other hits
+pad 1, then they exchange support. Brief overlapping airborne phases are allowed
+by the existing flight model; an escape landing between every hit is unnecessary.
+
+Two planner restrictions blocked it:
+
+- At the received horizon, both fixed center escapes failed the existing
+  nominal stance limits beside the seam-facing supporting finger: 4.72 mm and
+  67.28 mm lie outside Dance Double's unchanged 6–66 mm envelope. A bounded
+  recovery can now park the single threatened finger on a nearby **unscored**
+  tile, keeping its companion's track fixed. It reuses the existing legal-stance
+  support helper, at most two targets, normal lift/hold checks, mine clearance
+  and actual judge validation. Its auxiliary landing must still match an
+  original hazard; a forged witness is rejected.
+- Reserving a tap and a later escape for the same finger made the earlier tap
+  disappear from the old last-landing check. Local-support recovery histories
+  now consume that exact matching tap/swing/auxiliary reservation without
+  rewinding their later pending track. Long-note heads keep the old final-landing
+  requirement, so this adds no untracked hold-release allowance.
+
+The recovery is attempted **only after every legacy candidate for a row fails**,
+once per nearby-hazard row on a double mat, within the existing CPU cap. It
+retains the five-alternative per-parent checkpoint bound, single-threaded cooperative
+checkpoints, received-note visibility and frozen prefixes. Successful legacy
+histories never opt into the intermediate-tap rule. Seven full-chart controls
+(the four RUDE! SM/SSC Pump/DanOni versions, south, Couleur=Blanche and Cirno)
+retain identical scored events, finger assignments, holds and swing tracks.
+
+The full Silent Hill chart now passes: **282/282 exact events, 33 holds and all
+416 mines avoided**, with actual SM5, DDR-A and ITG judge replays. Maximum target
+error is **0.899732 mm**, maximum planted height **0.079054 mm**, and minimum tile
+clearance **2.471524 mm**. Contact CPU is 0.0734 s and pose/validation CPU 4.1912 s,
+within the unchanged 5/10 s caps. All eight affected/control charts pass with no
+contact/pose failures, CPU/wall timeouts, settling/guide warnings or starvation.
+Model/assets, source note times, No Stretch, At once Two, f64, the three-second
+window and contact/pose tolerances are unchanged.
+
+Authored tests cover alternating support/flight in both mirror orientations,
+exact event times, judge replay, one-finger-only clearance, retained holds,
+hazard-witness rejection, C2 published prefixes and dense skin/floor/contact
+checks. The off-screen category gate retains all **79 expectations** (73 passes,
+six expected contact rejections, no mismatches/pose failures/timeouts).
+All **128 native hand tests** pass, including both mirrored motion studies and
+the local-support/witness guards. Warnings-denied hand-plan/hand-pose all-target
+clippy, hand-plan wasm32 compilation and formatting pass.
+
+**No full audit or original-66 rerun was performed.** Earlier aggregate counts
+remain historical. Private controlled plans, chart inputs, traces, comparisons
+and run reports are under `/private/tmp/ddi-silent-support-20261108`; they are not
+repository fixtures or runtime assets.
+
+
+## Remaining contact-failure records after lift/support fixes (2026-11-08)
+
+A targeted rerun of the **18 unresolved records** against `e7e9e8de` gives
+**six full passes and 12 contact-planning rejections**. The four RUDE! versions
+and Silent Hill were already verified passing and excluded. There are **zero
+pose failures, contact/pose CPU timeouts, wall timeouts, infrastructure failures,
+unsupported charts, settling/guide warnings or starved frames** in this rerun.
+
+New passes are **Axion Double Challenge (SM/SSC)** and **G-SYMPHONiCORE Double
+Hard and Challenge (SM/SSC)**. The remaining 12 no-supported-plan records are:
+
+- Dance Single: KEEP ON MOVIN’ Challenge, Another Phase Challenge, 人マニア Hard,
+  混乱少女♥そふらんちゃん!! Challenge, Megalovania Challenge (SM/SSC): six records.
+- Dance Double: KEEP ON MOVIN’ Challenge, 1116 Challenge, 人マニア Hard and
+  混乱少女♥そふらんちゃん!! Challenge: four records.
+- Converted DanOni 5: UNIQUE Edit (SM/SSC): two records.
+
+All failures remain at their previous rejected ticks. All 18 distinct effective
+input identities and 13 source hashes match the preceding run. Four independent
+workers keep each chart single-threaded, f64, the three-second window, the
+5/10 s contact/pose CPU caps and 90 s wall watchdog. Native preparation is 60 Hz;
+independent validation is 480 Hz plus exact obligations. The run took **8.98 s**.
+No runtime, motion policy, model or tolerance changed in this audit task.
+
+Passing charts have at most 0.449435 mm target error and 0.075447 mm planted
+height, with at least 2.433671 mm tile clearance. Maximum completed-chart
+pose/validation CPU is 3.223 s. Reports and separate failure/timeout CSVs are in
+`target/scratch/hand-contact18-rerun-20261108/REPORT.md`; private evidence and the
+pinned driver are under `/private/tmp/ddi-contact18-rerun-20261108`.
+**This was not a full audit. The earlier 55 pose CPU timeouts were not rerun.**
+
+
+## Timed mine departures and arrivals (2026-11-08)
+
+Tracing 1116, 人マニア and 混乱少女♥そふらんちゃん!! shows two related restrictions:
+1116's between-mine tap and the fast stream's final tap needed a scored departure
+inside the old conservative early window, while 人マニア's next tap was 100 ms
+after a mine, outside the old 95 ms guarded-approach source-gap threshold. The
+fast stream's adaptive attempt got beyond its first reported rejection to the
+last pre-mine tap; a later 115.8 ms head-to-mine interval needed the same rule.
+A controlled 1116 passage first passes all six exact hits and avoids 16 mines
+under SM5, DDR-A and ITG without changing the judge or chart timing.
+
+The planner can now reserve guarded departures and arrivals during the existing
+failed-row retry, on single and double layouts. All existing candidates must
+fail before the retry runs. It keeps the beam/checkpoint bounds, min planted and
+swing times, lift cap, hold budgets and actual-judge replay. Successful legacy
+histories keep their decisions. A candidate arrival before a mine is provisional:
+acceptance still needs a matching received scored head and real outgoing swing;
+another finger's future time or the current window end cannot act as a release.
+
+Physical checking derives the corresponding per-foot intervals from exact
+heads and their incoming/outgoing tracks. Arrival clearance ends at the midpoint
+plus 5 ms; departure clearance starts at the midpoint minus 5 ms. The **170 ms**
+source-gap bound is where those guards meet the **unchanged ±90 ms physical
+window**. It does not change judge windows or output tolerances. Unknown or
+wrong-foot heads, lifts/unscored contacts and late/missing departures do not
+qualify. A proof expires at the next landing. The non-serialized derived cache
+has a shared 32,768-entry cap; visibility retains the declared departure but
+not future scored events, and drops proofs without their actual tracks.
+
+All **five affected full charts pass** through the off-screen gameplay/pose
+pipeline: 1116 Double Challenge, and Single/Double charts of 人マニア Hard and
+混乱少女♥そふらんちゃん!! Challenge. Exact hit counts are respectively
+739, 425/423 and 804/757, with all holds and mines satisfied. Maximum exact
+target error is 1.267169 mm, planted height at most 0.078598 mm, and minimum tile
+clearance 2.137036 mm. Pose/validation CPU is at most 5.883 s within the unchanged
+10 s cap (contact cap 5 s). The f64, single-threaded three-second runtime,
+model/assets, No Stretch, At once Two and accepted dense-stream policy remain
+unchanged. There are no contact/pose failures, timeouts, settling/guide warnings
+or starvation in the five affected and 14 control runs. All 19 accepted inputs
+are unchanged; all **14 controls retain identical scored events, assignments,
+holds and swing tracks** compared with their accepted versions.
+
+Verification: **132 native hand tests pass**, with authored mirrored arrivals,
+departures and brackets, C2 prefix checks, strict exact-mode contact checks and
+negative proof/visibility tests. The two isolated brackets retain 83 ms gaps
+with a quiet interval so that precision study stays in exact mode; the full
+charts exercise normal stream behavior. Older blanket-window assertions now
+independently check the proven scored-contact intervals and remain strict
+outside them. The independent gameplay audit also probes both sides of each
+guard boundary while keeping every existing geometric limit. All **79 category
+expectations** hold (73 passes, six expected contact rejections; no mismatches,
+pose failures or timeouts). All-target clippy with warnings denied, hand-plan
+wasm32 compilation and formatting pass. Private raw evidence, traces, controlled
+plans, independent checker and `REPORT.md` remain under
+`/private/tmp/ddi-timed-air-20261108`; no private charts or development tools
+are committed.
+
+**No full library audit was run.** The seven other records from the previous
+12-contact cohort and the 55 historical pose CPU timeouts were not rerun here.
+
+
+## Full library rerun after timed-hazard repairs (2026-11-09)
+
+Pinned runtime **`cff1cefc`**, fresh inventory of the same **1,749 private files**:
+**11,898 originals + 202 generated = 12,100 records**, with 11,866 eligible
+records / 11,450 distinct eligible inputs. Four independent chart workers each
+keep the single-threaded f64 solver, three-second window, No Stretch + At once
+Two hand copy and existing contact/model limits. Preparation runs at 60 Hz;
+independent checks run at 480 Hz, exact obligations and both sides of mine guard
+boundaries. Caps remain 5 s contact / 10 s pose+validation CPU and 90 s wall.
+Everything runs off-screen; there are no videos or runtime/model changes.
+
+**Elapsed: 11,113.28 s (3 h 5 min 13 s), excluding inventory and review.**
+
+| Outcome | Original | Generated | Total |
+|---|---:|---:|---:|
+| Full pass | 11,591 | 200 | **11,791** |
+| Contact rejection | 7 | 2 | **9** |
+| Pose failure | 0 | 0 | **0** |
+| Pose CPU timeout | 66 | 0 | **66** |
+| Unsupported layout | 234 | 0 | **234** |
+| Settling warning | 0 | 0 | **0** |
+
+Contact CPU/wall timeouts, fatal deadlines, infrastructure/import failures and
+incomplete cases are zero. Two passing records have two nonfatal guide-lateness
+events, kept separate from settling warnings. **99.37% of eligible records pass.**
+Unsupported records remain 207 Dance Couple and 27 Dance Three-panel charts;
+there are no unsupported judged note kinds. This corpus still lacks Pump
+half-double and DanOni 7/9A/9B examples; all 21 serial auditor self-check
+expectations pass across the eleven supported layouts.
+
+Against the previous full run (`94876b81`), **all 70 former pose failures and
+61 of 66 former contact failures pass**. Five contact rejections remain: KEEP
+ON MOVIN' Double Challenge, Megalovania Single Challenge (SM/SSC) and converted
+UNIQUE DanOni 5 Edit (SM/SSC). KEEP ON MOVIN' Single and Another Phase Single now
+pass. There are also **four new contact regressions**: G-SYMPHONiCORE Single
+Challenge/Edit (SM/SSC), rejecting at playback 33.25 s because air-time clearance
+does not span an original hazard. The accepted Double controls are distinct.
+
+Of the 55 former pose timeouts, 54 remain and one passes; **twelve former passes
+now time out**, yielding 66 CPU timeouts (65 Single, one Double). These are not
+geometric rejections. The new records are DYNAMITE RAVE(Long ver.) Single/Double
+Hard; The Words I Never Said Easy; Chemicals Challenge/Hard/Medium; Big Sky
+Beginner (SSC); Drone Strike Medium (SM/SSC); Luminescence Challenge; and Summertime
+(2013 mix) Easy (SM/SSC). Runtime repairs and stricter guard probes are included;
+this audit does not isolate extra CPU cost, and caps do not normalize asymmetric
+cores. No relaxed-cap outcome replaces a canonical result. Net full passes rise
+by 116, while 16 former passes do not pass (four contacts, twelve CPU timeouts).
+
+Independent review verifies exact source/catalog IDs, all four shards, frozen
+sources/pins, unchanged inputs, alias consistency, disjoint categories, actual
+judge replays, weighted original-chart autoplay, contact bounds and complete
+prefixes. Passing records cover 4,373,636 exact heads, 229,032 hold tails, 61,406
+avoided mines and 24 exact lifts. All source hashes match; effective identities
+match for 12,096 records, with only the four accepted RUDE! lift simplifications
+differing. Review caught an inherited inspector count error for those four:
+original gameplay has five lifts, the effective hand source has four. Fresh
+pinned-binary identity checks and archived lift ticks/times prove four; only
+review metadata is corrected, leaving frozen catalogs, runtime outputs, original
+gameplay autoplay, limits and outcomes untouched. Future inspectors must count
+hand obligations from the hand source. The erratum has its own verification JSON.
+
+Reviewed reports and separate existing/new contact/timeout CSVs are under
+`target/scratch/library-dance-audit-timed-air-20261108/REPORT.md`. Raw catalogs,
+frozen sources, pins, plans and review logs stay private at
+`/private/tmp/ddi-library-timed-air-20261108`; no private inputs or developer tools
+are committed. The next correctness focus is the four G-SYMPHONiCORE Single
+regressions, before performance work on the timeout cohort.
+
+
+## G-SYMPHONiCORE guarded-departure validation (2026-11-09)
+
+The four Single Challenge/Edit regressions (SM/SSC) came from a mismatch between
+search/physical guards and auxiliary-contact validation. Preparing ahead at
+playback 33.25 s rejected a future flight: the finger hits UP at 35.992 s,
+releases at 36.047 s and lands on RIGHT with the UP mine at 36.133176 s. The
+existing scored-head guard requires clearance from 36.057588 s, but auxiliary
+validation still demanded takeoff before the full conservative 95 ms window.
+
+Auxiliary validation now recognizes that existing guarded source departure for
+an exact received destination head. It requires the connected incoming flight,
+a matching same-finger/panel non-lift source event, its received head's tick and
+exact time, and the existing midpoint-minus-5ms departure guard. Mine identity,
+known destination head, bounded flight, actual judge replay and physical checks
+remain mandatory. Ordinary hops/unscored escapes keep their prior validation.
+Search choices, model/skin, timing, three-second single-threaded f64 execution,
+recovery budgets and 2 mm / 0.25 mm / 1 mm contact limits are unchanged.
+
+All **four affected full charts pass** with exact zero-delta hits: Challenge has
+1,090 hits, 29 holds and 59 avoided mines per format; Edit has 1,306 hits, 21 holds
+and 49 avoided mines. Maximum affected target error is 0.212441 mm, planted
+height 0.018526 mm and minimum tile margin 2.495298 mm. Pose/validation CPU stays
+below 3.611 s against the unchanged 10 s cap (contacts: 5 s).
+
+Verification is off-screen and targeted: **35/35 charts pass**, covering all 20
+G-SYMPHONiCORE records and the previous repair's affected/control charts. Four
+independent workers keep each chart single-threaded; native preparation is
+60 Hz and independent validation 480 Hz plus exact guard boundaries. All **31
+unaffected controls retain identical complete contact plans**; the four repaired
+charts preserve their previously checked events/holds and flights through
+33.233333 s. Source identities, model and pose sources are unchanged. There are
+no contact/pose failures, timeouts, settling/guide warnings or starved frames.
+
+A new authored mirrored unit case fails before the fix and passes after it,
+rejecting seven forged proofs per mirror. Mirrored rapid-repeat departures also
+join whole-plan and rolling skin/prefix checks. All **133 native hand tests** and
+**79 category expectations** pass (73 passes, six expected contact rejections),
+along with all-target warnings-denied clippy, WASM32 compilation and formatting.
+Raw evidence, pinned driver, source/model hashes, full plans and comparisons stay
+private under `/private/tmp/ddi-gsym-contact-20261109/REPORT.md`.
+
+**No full library audit was rerun.** The preceding full audit remains a historical
+snapshot, including its timeout cohort; the targeted four passes do not revise
+the global counts. Private inputs/tools remain uncommitted.
+
+
+## Staggered landings and post-mine presses (2026-11-09)
+
+All five remaining contact records in the requested cohort now pass complete
+off-screen gameplay/pose checks: KEEP ON MOVIN' Double Challenge, Megalovania
+Single Challenge (SM/SSC), and converted UNIQUE DanOni 5 Edit (SM/SSC).
+The fixes are shared planning/validation rules, with no chart-name exceptions,
+new note reductions, retiming, model/skin changes or relaxed contact tolerances.
+
+- **KEEP ON MOVIN':** reserve the received scored landing rather than a short
+  unscored return that strands the finger before the next mine row. A scored
+  reservation is not an unscored restore stealing a future note. The other
+  finger can land independently. The successful solution stays within the
+  original 450 ms outward-flight bound and existing hazard scan; a larger
+  exploratory allowance was unnecessary and removed.
+- **UNIQUE:** adaptive timing passes the first two bursts but cannot swap roles
+  for UP/ONI/RIGHT with a fixed 60 ms companion return. The free companion may
+  instead land on its exact received next head inside that interval. Both source
+  and destination head identities and opposite-finger ownership are validated;
+  the reservation is consumed once. Planted/swing floors remain at least
+  20/25 ms and holds/lifts/rolls retain their original rules.
+- **Megalovania:** LEFT mine to LEFT tap is 0.750 ms; UP mine to that tap is
+  0.125 ms. The actual judge accepts a precise press after the mine passed.
+  The old approach helper excluded all heads within 10 ms and demanded excessive
+  lift near touchdown. The narrow post-mine case now requires an incoming finger
+  from another tile released before the full 95 ms conservative window, with an
+  exact received non-lift head. It does not protect a stationary/same-tile finger,
+  late release, wrong finger or unknown head. Other-finger hazards and later
+  landings remain checked. This is a proven note/mine-priority interval, not a
+  change to judge windows, contact times or geometric limits.
+
+New staggered choices form a **last recovery tier**, gated behind failure of all
+existing tiers and known rapid notes. It must add an actual reserved flight
+beyond the frozen seed, within the same shared CPU budget and bounded beam.
+Successful older tiers keep their decisions. Visibility keeps declared flights
+backed by received heads while hiding future scored events; approach-proof
+capacity and expiry remain bounded. Independent clearance checks cover the new
+precedence case without calling the production rule helper.
+
+**41/41 targeted charts pass**, with four independent workers, each single-
+threaded/f64 and the existing three-second window. Preparation is 60 Hz;
+independent checks are 480 Hz plus exact events and mine-boundary probes.
+The 5/10 s contact/pose CPU caps and 90 s wall watchdog remain unchanged. All
+**36 controls retain identical complete contact plans** (including all previously
+accepted G-SYMPHONiCORE records and KEEP ON MOVIN' Single), and the five repaired
+records retain their previously checked contact/flight prefixes. All input
+identities and source hashes match. No targeted failures, timeouts, settling/
+guide warnings or starvation occur. Across all 41, maximum exact error is
+1.803627 mm, planted height 0.183544 mm and minimum tile margin 2.137036 mm,
+within unchanged 2 mm / 0.25 mm / 1 mm bounds. Model, fitting and kinematic
+sources remain unchanged; floor, skin, joint and 40 mm knuckle guards stay active.
+
+All **136 native hand tests**, **79 category expectations** (73 passes, six expected
+contact rejections), warnings-denied all-target clippy, WASM32 compilation and
+formatting pass. Authored mirrored cases exercise all three patterns; negative
+and visibility tests check both head receipts, source clearance, finger ownership,
+expiry and frozen prefixes. Dense tests use the accepted stream policy between
+notes with strict exact-head checks. The burst skin fixture includes its normal
+hold/quiet continuation; a separate forced-empty-tail experiment hit a runtime
+publication deadline. The following investigation resolves that test-harness
+issue without changing production motion.
+
+Raw evidence, source/model hashes, pinned final driver, full results and exact
+comparisons stay private at `/private/tmp/ddi-staggered-landings-20261109/REPORT.md`.
+**No full library audit was rerun** and historical global counts are not rewritten.
+Private charts, plans and development tools remain uncommitted.
+
+
+## Empty-tail harness investigation (2026-11-09)
+
+The burst-only study's `runtime_publication_deadline` is reproducible at 7 s,
+but is a test-caller contract error, not a solver CPU timeout or a gameplay
+failure. The helper extends the pose plan to 14 s yet passes the contact
+publication's `finished` flag directly to motion preparation. That flag means
+all note rows were received; `DanceRuntime::request_bounded` instead requires
+the final motion horizon. Stream fitting therefore closes at the current
+window's temporary endpoint (7.25 s), and cannot extend its prepared output
+through the empty tail. At 7 s the remaining overlap is too short for its
+existing smooth publication splice.
+
+Gameplay already uses the correct signal: `RuntimePreview::request_motion`
+passes `known >= duration`, and `prepare_inner` requests the retained plan every
+frame, including after the last contact publication. Matching that signal alone
+clears the original experiment. The shared test helper now also matches the
+per-frame request cadence, caps received time at the motion endpoint, and checks
+all 14 s instead of stopping its physical probes at 11 s.
+
+A permanent burst-only regression covers both true left/right mirrors at 4 Hz
+and 60 Hz update cadences. It verifies exact scored heads, frozen pose/velocity/
+acceleration prefixes, current stream policy, floor/knuckle/joint bounds and
+prepared coverage/sampleability through the exact 14 s endpoint. All four
+variants pass without deadline failures or late-guide jobs. All existing shared
+helper studies also exercise their full quiet tail.
+
+All 137 native hand tests and all-target warnings-denied clippy pass off-screen.
+Production solver, gameplay, timing, contact tolerances and model are unchanged;
+no library audit was run. Reproduction traces and check logs are private at
+`/private/tmp/ddi-empty-tail-20261109/`. The earlier synthetic-tail caveat is
+resolved; historical full-audit counts and timeout cohorts are not revised.
+
+
+## Single-commit gameplay handoff (2026-11-09)
+
+Consolidate the 20 hand commits after the already-integrated No Stretch change
+onto local `main` at `9b67a48d`. The full accepted history remains on
+`codex/hand-audit-recovery` at `f6fb247f`; the cherry-pick branch is
+`codex/hand-gameplay-update`. No fetch, pull, push, merge or history rewrite is
+needed to prepare this commit.
+
+The payload includes shared mat geometry, 18-tile rendering and gameplay for
+Dance Double, Pump half-double/double and DanOni 9A; the shared excess-lift cut;
+wide-motion, timed-hazard, staggered-landing and post-mine fixes; and authored
+regressions and their documentation. No Stretch is already on `main`, and its
+shared region lookup is now supplied by the same mat geometry. Research tools,
+private inputs, audit plans/outputs and modeling archives remain outside Git.
+
+Retain `main`'s newer preload API, shared model cache, on-demand debug sampling,
+renderer texture interface and centralized `ddi_character::HAND_LAYOUTS`.
+Extend that list by the four supported double layouts. Store validated mat
+geometry on the runtime, rather than restoring its removed layout-string or
+developer window controls. Options' preview uses its current style's geometry.
+Core planner/pose source files carried by this patch remain byte-identical to
+the accepted hand branch; assets, exact timing, three-second single-threaded
+f64 preparation and existing contact bounds are unchanged.
+
+Consolidation checks are off-screen: **1,208 native tests pass**, with two existing
+ignored tests; all-target warnings-denied clippy passes for the nine affected
+runtime packages; the full app checks for `wasm32-unknown-unknown`; and the
+desktop hand lifecycle test passes through 20 consecutive completed/quit plays
+across ten layouts/samples on one host. Native desktop checks omit the unrelated
+video/importer helpers. Formatting for the affected runtime packages and diff
+checks pass. No full library audit is rerun; prior audit results remain historical.
+
+The unsigned cherry-pick commit has local `main` as its sole parent. Neither
+`main` nor the source branch is advanced. Private consolidation logs and source
+parity checks remain at `/private/tmp/ddi-hand-consolidation-20261109/`.
