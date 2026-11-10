@@ -680,15 +680,15 @@ impl PageScreen {
         // The header's row from above, the footer from below, the column
         // and its bar from the right.
         {
-            use super::Edge::{Bottom, Right, Top};
+            use super::Edge::{FooterBar, HeaderBar, Right};
             super::transitions(
                 &mut root,
                 &env,
                 &[
-                    ("Header", Top),
-                    ("Back", Top),
-                    ("Title", Top),
-                    ("Footer", Bottom),
+                    ("Header", HeaderBar),
+                    ("Back", HeaderBar),
+                    ("Title", HeaderBar),
+                    ("Footer", FooterBar),
                     ("Column", Right),
                     ("Column.Bar", Right),
                 ],
@@ -1208,6 +1208,10 @@ fn set_value(blocks: &mut [Block], id: &str, text: &str) {
 }
 
 impl Screen for PageScreen {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
     fn active_element(&self, focused: Option<&str>) -> Option<String> {
         if focused == Some("Column") {
             // An item in a zone lights the zone's card.

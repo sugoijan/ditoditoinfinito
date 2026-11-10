@@ -524,7 +524,24 @@ pub(crate) fn theme_ui() -> Ui {
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
     ui.hold_entrances(crate::boot::shown());
     ui.set_focus_ring(false);
+    // The shared header and footer stay put from page to page where both
+    // have them: a page leaving for one keeps its bars, and the next
+    // page's show at once.
+    ui.set_bars_route(Rc::new(|request| match request {
+        UiRequest::Navigate(route) => crate::router::has_bars(&crate::router::Route::parse(route)),
+        UiRequest::Back => {
+            crate::router::has_bars(&crate::router::Route::parse(&crate::router::back_target()))
+        }
+        _ => false,
+    }));
+    ui.carry_bars(BARS_CARRIED.with(|c| c.replace(false)));
     ui
+}
+
+thread_local! {
+    /// The last page left with its bars shown, for the next page's UI
+    /// ([`theme_ui`]).
+    static BARS_CARRIED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Gives the host the app's device once it is there; `failed` hears why it
@@ -1879,9 +1896,11 @@ impl Host {
                     if matches!(crate::router::Route::current(), crate::router::Route::Songs) {
                         crate::select_preview::close();
                     }
+                    BARS_CARRIED.with(|c| c.set(self.ui.bars_kept()));
                     self.navigate_after_pops = Some(route);
                 }
                 UiRequest::Back => {
+                    BARS_CARRIED.with(|c| c.set(self.ui.bars_kept()));
                     if matches!(crate::router::Route::current(), crate::router::Route::Songs) {
                         crate::select_preview::close();
                     }

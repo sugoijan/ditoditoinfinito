@@ -749,6 +749,15 @@ Spectators see Winner finishing song, not Next stage starting. Personal chart
 statistics may continue, while competitive placement and points stay frozen.
 An apparent sole survivor awaiting outstanding attacks gets no premature win UI.
 
+Decided (maintainer, 2026-11-11): the power bar goes directly above the
+life bar, on the local field and on every opponent miniature. The
+prototype's miniatures (`docs/plans/multiplayer-prototype-progress.md`,
+M6b) place their life gauge on their field exactly as the play's HUD
+places the local one (scaled to their lanes), leaving the same room above
+it for the power bar. During a stage the dancing hand goes behind the
+field and never claims a side of the screen: the miniatures use both
+sides.
+
 ### Concrete play HUD study
 
 Follow-up, 2026-11-09. The play/watch study contains Automatic attack, Incoming

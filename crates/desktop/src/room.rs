@@ -37,6 +37,10 @@ use crate::preview::SharedPlayer;
 use crate::songs::Songs;
 
 thread_local! {
+    /// DEVELOPMENT ONLY: the CPUs of the next practice room beyond the cap
+    /// (0: an ordinary one), desktop's `--mp-dev-cpus N`
+    /// (`docs/plans/multiplayer-prototype-progress.md`, M6b).
+    static DEVELOPMENT_CPUS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     static ROOM: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// The room of the stage handed to the play host last.
     static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
@@ -205,10 +209,23 @@ pub fn current() -> SharedRoom {
         r.borrow_mut()
             .get_or_insert_with(|| {
                 let now = crate::clock::epoch_ms().max(0.0) as u64;
-                RoomClient::shared(now, now)
+                match DEVELOPMENT_CPUS.get() {
+                    0 => RoomClient::shared(now, now),
+                    cpus => std::rc::Rc::new(std::cell::RefCell::new(RoomClient::development(
+                        now, now, cpus,
+                    ))),
+                }
             })
             .clone()
     })
+}
+
+/// DEVELOPMENT ONLY: practice against `cpus` CPUs, beyond the cap, from
+/// the next practice room on (the one there is left): for trying the
+/// miniature fields with far more opponents. Never from a menu.
+pub fn develop(cpus: u16) {
+    DEVELOPMENT_CPUS.set(cpus);
+    discard();
 }
 
 /// Leave room: forgotten; the next visit makes a new one.

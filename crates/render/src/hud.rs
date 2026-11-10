@@ -244,6 +244,27 @@ pub(crate) struct Hud {
     linear: bool,
     motion: Option<Motion>,
     visible: bool,
+    minis: Minis,
+}
+
+/// The least a miniature's combo is scaled (the play's is 1 at a 72 px
+/// lane): smaller, its digits stop reading, so a small miniature's combo
+/// is larger than its lanes would make it.
+pub const MINI_COMBO_MIN_SCALE: f32 = 0.3;
+
+/// The miniatures' HUDs (`crate::scene::Miniature`): each one's life gauge
+/// and combo drawn by the play's own shader, with its own motion (damage
+/// and recovery trails, the pulse), each from its own place in one
+/// uniform buffer.
+struct Minis {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::PipelineLayout,
+    bgl: wgpu::BindGroupLayout,
+    /// The buffer, its group and how many it holds.
+    buffer: Option<(wgpu::Buffer, wgpu::BindGroup, usize)>,
+    stride: u64,
+    motions: Vec<Motion>,
+    count: usize,
 }
 
 impl Hud {
@@ -297,6 +318,30 @@ impl Hud {
             immediate_size: 0,
         });
         let pipeline = Self::pipeline(device, &shader, &layout, format);
+        let mini_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ddi-play-hud-minis-bgl"),
+            entries: &[crate::gpu::uniform_entry(
+                0,
+                wgpu::ShaderStages::VERTEX_FRAGMENT,
+                true,
+            )],
+        });
+        let mini_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ddi-play-hud-minis"),
+            bind_group_layouts: &[Some(&mini_bgl), Some(&texture_layout)],
+            immediate_size: 0,
+        });
+        let align = u64::from(device.limits().min_uniform_buffer_offset_alignment).max(1);
+        let size = std::mem::size_of::<Globals>() as u64;
+        let minis = Minis {
+            pipeline: Self::pipeline(device, &shader, &mini_layout, format),
+            layout: mini_layout,
+            bgl: mini_bgl,
+            buffer: None,
+            stride: size.div_ceil(align) * align,
+            motions: Vec::new(),
+            count: 0,
+        };
         Self {
             pipeline,
             shader,
@@ -307,6 +352,7 @@ impl Hud {
             linear,
             motion: None,
             visible: false,
+            minis,
         }
     }
 
@@ -329,10 +375,134 @@ impl Hud {
 
     pub fn retarget(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
         self.pipeline = Self::pipeline(device, &self.shader, &self.layout, format);
+        self.minis.pipeline = Self::pipeline(device, &self.shader, &self.minis.layout, format);
     }
 
     pub fn reset(&mut self) {
         self.motion = None;
+        self.minis.motions.clear();
+    }
+
+    /// The miniatures' life gauges and combos for this frame, on a
+    /// `screen` (`[width, height]`) target, their fields `span` lanes wide:
+    /// each placed on its field as [`life_rect`] and the play's combo are
+    /// on the play's field (the gauge from its field's top, its lanes'
+    /// width; the combo in its middle), scaled by its lane, the combo no
+    /// smaller than [`MINI_COMBO_MIN_SCALE`].
+    pub fn prepare_minis(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        minis: &[crate::scene::Miniature],
+        screen: [f32; 2],
+        span: f32,
+        opts: &RenderOptions,
+    ) {
+        let n = minis.len();
+        self.minis.count = if self.visible { n } else { 0 };
+        if self.minis.count == 0 {
+            return;
+        }
+        let stride = self.minis.stride;
+        if self.minis.buffer.as_ref().is_none_or(|(_, _, c)| *c < n) {
+            let capacity = n.next_power_of_two().max(8);
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ddi-play-hud-minis"),
+                size: stride * capacity as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ddi-play-hud-minis-bg"),
+                layout: &self.minis.bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new(std::mem::size_of::<Globals>() as u64),
+                    }),
+                }],
+            });
+            self.minis.buffer = Some((buffer, group, capacity));
+        }
+        let mut bytes = vec![0u8; stride as usize * n];
+        for (i, m) in minis.iter().enumerate() {
+            let (geo, frame) = (&m.geometry, &m.frame);
+            let now = opts.hud_time.unwrap_or(frame.song_time);
+            let life = frame.life.clamp(0.0, 1.0);
+            let combo = if m.out { 0 } else { frame.combo };
+            if self.minis.motions.len() <= i {
+                self.minis
+                    .motions
+                    .push(Motion::new(now, frame.song_time, life, combo));
+            }
+            let motion = &mut self.minis.motions[i];
+            motion.update(now, frame.song_time, life, combo, opts.reduced_motion);
+            let s = scale(geo);
+            let [top, bottom] = [m.panel[1], m.panel[3]];
+            let center = geo.center_x(span);
+            let w = geo.arrow * LIFE_LANES;
+            let tier = (combo / 100).min(10);
+            let pulse =
+                1.0 + 0.07 * (1.0 - ((now - motion.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
+            let count = combo.checked_ilog10().unwrap_or(0) + 1;
+            let mut digits = [[0.0; 4]; 3];
+            let mut value = combo;
+            for d in (0..count as usize).rev() {
+                digits[d / 4][d % 4] = (value % 10) as f32;
+                value /= 10;
+            }
+            let count = count as f32;
+            let cs = s.max(MINI_COMBO_MIN_SCALE) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
+            let width = (count * 32.0 + 32.0) * cs;
+            let globals = Globals {
+                screen: [screen[0], screen[1], f32::from(self.linear), 1.0],
+                bar: [center - w / 2.0, top + 22.0 * s, w, 8.0 * s],
+                combo_rect: [
+                    center - width / 2.0,
+                    (top + bottom) / 2.0 - 16.0 * cs,
+                    width,
+                    96.0 * cs,
+                ],
+                mark: [0.0; 4],
+                life: [
+                    shown(motion.fill),
+                    shown(life),
+                    shown(motion.trail),
+                    motion.trail_alpha,
+                ],
+                motion: [
+                    if opts.reduced_motion {
+                        4.0
+                    } else {
+                        motion.evolution as f32
+                    },
+                    if opts.reduced_motion {
+                        0.626
+                    } else {
+                        motion.phase as f32
+                    },
+                    motion.full,
+                    f32::from(frame.danger || life <= 0.25),
+                ],
+                combo: [
+                    if combo >= 4 { count } else { 0.0 },
+                    tier as f32,
+                    cs,
+                    (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
+                        * if tier == 10 { 1.2 } else { 1.0 },
+                ],
+                digits,
+            };
+            let at = i * stride as usize;
+            let g = bytemuck::bytes_of(&globals);
+            bytes[at..at + g.len()].copy_from_slice(g);
+        }
+        self.minis.motions.truncate(n);
+        if let Some((buffer, _, _)) = &self.minis.buffer {
+            queue.write_buffer(buffer, 0, &bytes);
+        }
     }
 
     pub fn prepare(
@@ -424,6 +594,16 @@ impl Hud {
         pass.set_bind_group(0, &self.group, &[]);
         pass.set_bind_group(1, &self.atlas, &[]);
         pass.draw(0..6, 0..3);
+        if let (n @ 1.., Some((_, group, _))) = (self.minis.count, &self.minis.buffer) {
+            pass.set_pipeline(&self.minis.pipeline);
+            pass.set_bind_group(1, &self.atlas, &[]);
+            for i in 0..n {
+                let offset = (i as u64 * self.minis.stride) as u32;
+                pass.set_bind_group(0, group, &[offset]);
+                // The gauge and the combo; no watermark.
+                pass.draw(0..6, 0..2);
+            }
+        }
     }
 }
 

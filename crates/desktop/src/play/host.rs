@@ -516,6 +516,15 @@ impl Host {
         }
     }
 
+    /// Where the play's last frame drew a stage's opponents' miniature
+    /// fields, if it did (tests).
+    pub fn opponent_fields(&self) -> Option<ddi_shell::opponents::Fields> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref()?.opponent_fields().cloned()
+    }
+
     /// Bounded hand/runtime diagnostics for off-screen checks and the host.
     pub fn hand_debug(&self) -> Option<serde_json::Value> {
         let Stage::Playing(r, ..) = &self.stage else {

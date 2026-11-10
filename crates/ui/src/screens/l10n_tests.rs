@@ -1022,6 +1022,27 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     shown(&mut h, found);
     r.online.borrow_mut().private_room();
     shown(&mut h, found);
+    // Join by link, its field and its refusal; the home's sign-in dialog
+    // asked for from the footer, signed out.
+    let r = rig(Platform::Web, Box::new(|_| err(401, "signed_out")));
+    let mut h = harness();
+    h.push(OnlineScreen::new(
+        env.clone(),
+        r.online.clone(),
+        OnlinePage::JoinLink,
+        quiet(),
+    ));
+    shown(&mut h, found);
+    let mut h = harness();
+    h.push(OnlineScreen::new(
+        env.clone(),
+        r.online.clone(),
+        OnlinePage::Home,
+        quiet(),
+    ));
+    h.run(0.5);
+    h.tap(crate::PointerKind::Mouse, super::online_home::ACCOUNT);
+    shown(&mut h, found);
     // An invite's page: reading, each admission, each refusal.
     let previews = [
         None,

@@ -322,6 +322,10 @@ pub struct PlayView<H: PlayHost> {
     /// worded, and where the last frame put it.
     column_words: Option<[String; 3]>,
     column_drawn: Option<crate::opponents::Placed>,
+    /// Where the last frame put the opponents' miniatures, if it did,
+    /// and whether a battle's moment was shown above them.
+    fields_drawn: Option<crate::opponents::Fields>,
+    fields_cue: bool,
     /// The song's generated background (`docs/plans/phase-8-gaps.md`,
     /// step 5).
     generated: Option<Generated>,
@@ -365,6 +369,8 @@ impl<H: PlayHost> PlayView<H> {
             overlay: None,
             column_words: None,
             column_drawn: None,
+            fields_drawn: None,
+            fields_cue: false,
             generated: None,
             entrance: None,
             playing_at: None,
@@ -534,6 +540,7 @@ impl<H: PlayHost> PlayView<H> {
     pub fn start(&mut self) {
         self.playing_at = None;
         self.renderer.reset_hud();
+        self.renderer.set_miniatures(Vec::new());
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
         }
@@ -703,6 +710,18 @@ impl<H: PlayHost> PlayView<H> {
     /// Where the last frame drew a stage's opponents' column, if it did.
     pub fn opponents_drawn(&self) -> Option<crate::opponents::Placed> {
         self.column_drawn
+    }
+
+    /// Where the last frame drew a stage's opponents' miniature fields,
+    /// if it did.
+    pub fn opponent_fields(&self) -> Option<&crate::opponents::Fields> {
+        self.fields_drawn.as_ref()
+    }
+
+    /// The last frame showed a battle's moment beside the field (in the
+    /// column's heading or above the miniatures).
+    pub fn battle_cue_drawn(&self) -> bool {
+        self.column_drawn.is_some_and(|p| p.cue) || (self.fields_drawn.is_some() && self.fields_cue)
     }
 
     /// What the last frame drew behind the field.
@@ -967,6 +986,63 @@ impl<H: PlayHost> PlayView<H> {
                     });
             }
         }
+        // A stage's opponents' miniature fields in the side space, clear
+        // of the HUD and of the quit button's place (shown or not: the
+        // slots never move), drawn by the play's skin after its field
+        // (`crate::opponents`); else their column, after.
+        let mut keep_out = ddi_render::scene::hud_areas(&geo, span);
+        let quit_place = quit.unwrap_or_else(|| {
+            ddi_render::scene::quit_button(&geo, &session.layout, screen.ratio, [0.0; 4])
+        });
+        keep_out.push({
+            let [x, y, r] = quit_place;
+            [x - r, y - r, x + r, y + r]
+        });
+        let battle = session
+            .battle()
+            .filter(|_| crate::opponents::miniatures() && lyrics.is_none());
+        // In a stage the dancing hand goes behind the field, out of the
+        // miniatures' way (the play study's "Hand behind field"); its
+        // Off still turns it off. Elsewhere where the settings put it.
+        self.dance.set_behind_field(session.battle().map(|_| {
+            let [mid, band] = ddi_render::scene::filter_band(&geo, span);
+            let margin = 12.0 * screen.ratio;
+            [mid - band / 2.0, margin, band, geo.height - 2.0 * margin]
+        }));
+        let fields = battle.and_then(|b| {
+            crate::opponents::arrange(
+                b.feeds().count(),
+                &geo,
+                span,
+                render.reverse,
+                screen.ratio,
+                &keep_out,
+            )
+        });
+        let mut minis = self.renderer.take_miniatures();
+        minis.clear();
+        let mut flashes = crate::opponents::Flashes::new();
+        if let (Some(b), Some(f)) = (battle, &fields) {
+            let scroll = session.player.options().scroll;
+            let hits = layer.as_ref().is_some_and(|l| l.miniature_hits()) || layer.is_none();
+            let feeds: Vec<_> = b.feeds().collect();
+            for slot in &f.slots {
+                let Some(feed) = feeds.get(slot.seat) else {
+                    continue;
+                };
+                let frame = feed.frame(b.track(), scroll, frame.song_time, f.range);
+                if !hits {
+                    flashes.push(frame.receptors.iter().map(|r| r.flash).collect());
+                }
+                minis.push(ddi_render::scene::Miniature {
+                    out: frame.failed,
+                    frame,
+                    geometry: slot.field,
+                    panel: slot.panel,
+                });
+            }
+        }
+        self.renderer.set_miniatures(minis);
         host.lap(Lap::Scene);
         host.before_render(device, encoder);
         self.dance.before_field(
@@ -1016,7 +1092,7 @@ impl<H: PlayHost> PlayView<H> {
             ))
         });
         // A stage's opponents beside the field, clear of the HUD and the
-        // quit button.
+        // quit button: around their miniatures, else as the column.
         let column = session.battle().map(|b| {
             let words = self.column_words.get_or_insert_with(|| {
                 use ddi_l10n::msg::room as m;
@@ -1028,13 +1104,23 @@ impl<H: PlayHost> PlayView<H> {
             });
             let mut keep_out = ddi_render::scene::hud_areas(&geo, span);
             keep_out.extend(quit.map(|[x, y, r]| [x - r, y - r, x + r, y + r]));
+            let mut opponents = b.views();
+            // In miniature, life and out as their streams show them.
+            if fields.is_some() {
+                for (o, feed) in opponents.iter_mut().zip(b.feeds()) {
+                    let shown = feed.shown(frame.song_time);
+                    o.life = shown.life;
+                    o.out = shown.out;
+                }
+            }
             (
                 crate::opponents::Column {
-                    opponents: b.views(),
+                    opponents,
                     heading: words[0].clone(),
                     out: words[1].clone(),
                     won: b.won().then(|| words[2].clone()),
                     cue,
+                    more: Some(|n| ddi_l10n::msg::room::play_more(n).into()),
                 },
                 (geo, span, screen.ratio, keep_out),
             )
@@ -1042,10 +1128,12 @@ impl<H: PlayHost> PlayView<H> {
         if lyrics.is_none() {
             self.lyrics_shown.clear();
         }
+        let column = column.map(|(c, place)| (c, place, fields, flashes));
         if lyrics.is_some() || column.is_some() {
             self.draw_overlay((device, queue, encoder), target, lyrics, column);
         } else {
             self.column_drawn = None;
+            self.fields_drawn = None;
         }
         Drawn {
             song_time: frame.song_time,
@@ -1069,6 +1157,8 @@ impl<H: PlayHost> PlayView<H> {
         column: Option<(
             crate::opponents::Column,
             (ddi_render::FieldGeometry, f32, f32, Vec<[f32; 4]>),
+            Option<crate::opponents::Fields>,
+            crate::opponents::Flashes,
         )>,
     ) {
         if !self.ensure_overlay(device, queue, target.format) {
@@ -1085,9 +1175,26 @@ impl<H: PlayHost> PlayView<H> {
             if let Some((lines, place)) = &lyrics {
                 ddi_render::lyrics::draw(list, lines, place, &mut measure);
             }
-            self.column_drawn = column.as_ref().and_then(|(c, (geo, span, ratio, keep))| {
-                crate::opponents::draw(list, c, geo, *span, *ratio, keep, &mut measure)
-            });
+            self.column_drawn = None;
+            self.fields_drawn = None;
+            match &column {
+                Some((c, (_, _, ratio, _), Some(fields), flashes)) => {
+                    self.fields_cue = crate::opponents::draw_fields(
+                        list,
+                        c,
+                        fields,
+                        flashes,
+                        *ratio,
+                        &mut measure,
+                    );
+                    self.fields_drawn = Some(fields.clone());
+                }
+                Some((c, (geo, span, ratio, keep), None, _)) => {
+                    self.column_drawn =
+                        crate::opponents::draw(list, c, geo, *span, *ratio, keep, &mut measure);
+                }
+                None => {}
+            }
         }
         painter.draw(
             device,

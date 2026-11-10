@@ -36,6 +36,8 @@ pub struct Preview {
     report: Rc<RefCell<Report>>,
     song_time: f64,
     visible: bool,
+    /// A stage's place behind the field ([`Preview::set_behind_field`]).
+    behind: Option<[f32; 4]>,
 }
 
 impl Preview {
@@ -50,6 +52,31 @@ impl Preview {
             self.look = Some(gameplay_look());
         }
     }
+    /// Where the hand's picture goes on a target of `size`, `[x, y,
+    /// width, height]`: behind the field where a stage put it
+    /// ([`Preview::set_behind_field`]), else where the settings put it.
+    fn frame_rect(&self, size: [u32; 2]) -> [f32; 4] {
+        if let Some(rect) = self.behind {
+            return rect;
+        }
+        let (w, h) = (size[0] as f32, size[1] as f32);
+        let pw = (w * 0.34).clamp(150., 480.).min(w - 16.);
+        let ph = (h * 0.65).min(pw * 1.3);
+        if self.look.is_some() {
+            self.frame.rect(size)
+        } else {
+            [w - pw - 12., h - ph - 60., pw, ph]
+        }
+    }
+
+    /// A multiplayer stage's place for the hand (`[x, y, width, height]`,
+    /// the target's pixels: behind the field, as the play study's "Hand
+    /// behind field", out of the opponents' miniatures' way); `None`, the
+    /// settings' frame. Presentation only.
+    pub fn set_behind_field(&mut self, rect: Option<[f32; 4]>) {
+        self.behind = rect;
+    }
+
     pub fn behind_field(&self) -> bool {
         self.look.is_some()
     }
@@ -378,14 +405,7 @@ impl Preview {
         if !self.visible {
             return None;
         }
-        let (w, h) = (size[0] as f32, size[1] as f32);
-        let pw = (w * 0.34).clamp(150., 480.).min(w - 16.);
-        let ph = (h * 0.65).min(pw * 1.3);
-        let rect = if self.look.is_some() {
-            self.frame.rect(size)
-        } else {
-            [w - pw - 12., h - ph - 60., pw, ph]
-        };
+        let rect = self.frame_rect(size);
         self.rect = rect;
         let camera = self.look.map_or([-25., 14., 0.52], |l| l.camera);
         self.host.set(Some(Picture {
@@ -529,6 +549,20 @@ pub fn gameplay_look() -> PlayLook {
 #[cfg(test)]
 mod preload_tests {
     use super::*;
+
+    #[test]
+    fn a_stage_puts_the_hand_behind_the_field_and_only_a_stage() {
+        let mut p = Preview::default();
+        p.configure(&ddi_ui::state::settings::Settings::default());
+        let size = [1280, 720];
+        let own = p.frame_rect(size);
+        let band = [496.0, 12.0, 288.0, 696.0];
+        p.set_behind_field(Some(band));
+        assert_eq!(p.frame_rect(size), band);
+        // Back to the settings' frame, as before.
+        p.set_behind_field(None);
+        assert_eq!(p.frame_rect(size), own);
+    }
     #[test]
     fn effective_input_changes_invalidate_preparation_but_appearance_does_not() {
         let song = ddi_chart::formats::sm::parse_sm(

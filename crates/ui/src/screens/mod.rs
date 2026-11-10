@@ -71,6 +71,7 @@ pub mod import_report;
 mod l10n_tests;
 pub mod numbers;
 pub mod online;
+pub mod online_home;
 pub mod options;
 pub mod options_dialogs;
 pub mod options_model;
@@ -872,6 +873,12 @@ pub enum Edge {
     Right,
     /// Fades where it is.
     None,
+    /// The shared bars (`header`, `footer` and what sits in them): from
+    /// the top, or from the bottom, as `Top` and `Bottom`, but only where
+    /// the bars come or go; from a screen with bars to another they stay
+    /// put ([`crate::ui::BARS_ON`]).
+    HeaderBar,
+    FooterBar,
 }
 
 /// The screen's transitions, part by part (`docs/plans/theme.md`,
@@ -882,7 +889,11 @@ pub enum Edge {
 /// `Motion.Slide.Y` virtual pixels; the parts at the top and bottom edges
 /// come first, the rest `Motion.Stagger` later. Reduced motion keeps the
 /// fades alone. The root itself gets no command: what is not listed
-/// (the ground) stays as it is.
+/// (the ground) stays as it is. The bars' parts ([`Edge::HeaderBar`],
+/// [`Edge::FooterBar`]) get theirs as [`crate::ui::BARS_ON`],
+/// [`crate::ui::BARS_OFF`] and [`crate::ui::BARS_CANCEL`], played by the
+/// UI where the bars come or go, and [`crate::ui::BARS_STAY`] (shown at
+/// once) where they stay.
 pub fn transitions(root: &mut Actor, env: &Env, parts: &[(&str, Edge)]) {
     let t_in = env.metric("Motion.Screen", 0.2);
     let t_out = env.metric("Motion.Screen.Out", 0.15);
@@ -902,14 +913,14 @@ pub fn transitions(root: &mut Actor, env: &Env, parts: &[(&str, Edge)]) {
             continue;
         };
         let (axis, d) = match edge {
-            Edge::Top => ("addy", -dy),
-            Edge::Bottom => ("addy", dy),
+            Edge::Top | Edge::HeaderBar => ("addy", -dy),
+            Edge::Bottom | Edge::FooterBar => ("addy", dy),
             Edge::Left => ("addx", -dx),
             Edge::Right => ("addx", dx),
             Edge::None => ("addx", 0.0),
         };
         let delay = match edge {
-            Edge::Top | Edge::Bottom => 0.0,
+            Edge::Top | Edge::Bottom | Edge::HeaderBar | Edge::FooterBar => 0.0,
             _ => stagger,
         };
         let wait = if delay > 0.0 {
@@ -936,9 +947,20 @@ pub fn transitions(root: &mut Actor, env: &Env, parts: &[(&str, Edge)]) {
                 ),
             )
         };
-        look::command_of(part, "On", &on);
-        look::command_of(part, "Off", &off);
-        look::command_of(part, "Cancel", &off);
+        if matches!(edge, Edge::HeaderBar | Edge::FooterBar) {
+            use crate::ui::{BARS_CANCEL, BARS_OFF, BARS_ON, BARS_STAY};
+            look::command_of(part, BARS_ON, &on);
+            look::command_of(part, BARS_OFF, &off);
+            look::command_of(part, BARS_CANCEL, &off);
+            look::command_of(part, BARS_STAY, "finishtweening;diffusealpha,1");
+            for name in ["On", "Off", "Cancel"] {
+                part.remove_command(name);
+            }
+        } else {
+            look::command_of(part, "On", &on);
+            look::command_of(part, "Off", &off);
+            look::command_of(part, "Cancel", &off);
+        }
     }
 }
 
@@ -979,6 +1001,9 @@ pub(crate) fn relaid(fresh: &mut Actor, left: f32, cx: &crate::Cx) {
     let mut problems = ddi_actor::Problems::default();
     if cx.holding() {
         hold_entrances(fresh);
+        // The bars' held entrance keeps them unseen until the reveal
+        // (otherwise they stand as they are, as the bars do).
+        fresh.play(crate::ui::BARS_ON, &mut problems);
     }
     fresh.play("On", &mut problems);
     let total = fresh.tween_time_left();
@@ -1001,11 +1026,18 @@ pub(crate) fn hold_entrances(a: &mut Actor) {
     if a.has_command(&reveal) {
         return;
     }
-    let part = a.has_command("Off") && a.command("On").is_some_and(|c| !c.is_empty());
+    // A bar's entrance is its `BarsOn` (`transitions`).
+    let on_name = if a.has_command(crate::ui::BARS_OFF) {
+        crate::ui::BARS_ON
+    } else {
+        "On"
+    };
+    let part = (a.has_command("Off") || a.has_command(crate::ui::BARS_OFF))
+        && a.command(on_name).is_some_and(|c| !c.is_empty());
     if part {
-        let on = a.command("On").map(<[Call]>::to_vec).unwrap_or_default();
+        let on = a.command(on_name).map(<[Call]>::to_vec).unwrap_or_default();
         a.set_command(&reveal, on);
-        a.set_command("On", parse("diffusealpha,0").unwrap_or_default());
+        a.set_command(on_name, parse("diffusealpha,0").unwrap_or_default());
         return;
     }
     for child in a.children_mut() {
@@ -1017,7 +1049,12 @@ pub(crate) fn hold_entrances(a: &mut Actor) {
 /// (`reveal`: the reveal's command).
 pub(crate) fn unhold_entrances(a: &mut Actor, reveal: &str) {
     if let Some(on) = a.command(reveal).map(<[Call]>::to_vec) {
-        a.set_command("On", on);
+        let on_name = if a.has_command(crate::ui::BARS_OFF) {
+            crate::ui::BARS_ON
+        } else {
+            "On"
+        };
+        a.set_command(on_name, on);
         a.remove_command(reveal);
         return;
     }

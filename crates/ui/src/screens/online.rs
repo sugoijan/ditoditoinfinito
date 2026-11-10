@@ -1,12 +1,12 @@
-//! The multiplayer home and an invite's page with online rooms
-//! (`docs/plans/multiplayer-prototype-progress.md`, M5c): pages
-//! ([`PageScreen`]) made from the [`Online`] state and made again as it
-//! changes. The home has CPU practice (no account), Private room (signing
-//! in with Twitch first when signed out), the account line with Sign in or
-//! Sign out and, on desktop, a field for an invite link; an invite's page
-//! shows the room it is for before signing in (its name, host, whether a
-//! newcomer can join now) and joins it. Signing in on desktop waits on
-//! the page while the system browser signs in.
+//! The multiplayer home, the join-by-link page and an invite's page with
+//! online rooms (`docs/plans/multiplayer-prototype-progress.md`, M5c,
+//! M7a). The home is a column of choices in the start menu's style
+//! ([`super::online_home`]); the others are pages ([`PageScreen`]) made
+//! from the [`Online`] state and made again as it changes. Join by link
+//! has a field for an invite link; an invite's page shows the room it is
+//! for before signing in (its name, host, whether a newcomer can join
+//! now) and joins it. Signing in on desktop waits on the page while the
+//! system browser signs in.
 //!
 //! The shell carries the rest ([`OnlineCall`]): practice, a room made or
 //! joined, the server's sign-in page on the web or the system browser on
@@ -24,13 +24,15 @@ use super::page::{
 };
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::online::api::{self, Admission, Problem};
-use crate::state::online::{Account, Dest, Online, Platform, Redirect, SharedOnline, SignIn};
+use crate::state::online::{Account, Dest, Online, Redirect, SharedOnline, SignIn};
 
 /// Which page.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OnlinePage {
     /// The multiplayer home.
     Home,
+    /// A field to paste an invite link into (pushed over the home).
+    JoinLink,
     /// An invite's page.
     Invite(String),
 }
@@ -53,8 +55,7 @@ pub enum OnlineCall {
 
 pub type OnlineShell = Rc<dyn Fn(OnlineCall, &mut Cx)>;
 
-/// The home's CPU practice button's id.
-pub const PRACTICE: &str = "practice";
+pub use super::online_home::PRACTICE;
 
 /// What the page keeps beside the online state: the invite field's text
 /// and whether what was opened from it was no invite.
@@ -67,7 +68,7 @@ struct Draft {
 /// The page for `which` as `online` stands.
 fn doc(which: &OnlinePage, online: &Online, draft: &Draft) -> PageDoc {
     match which {
-        OnlinePage::Home => home_doc(online, draft),
+        OnlinePage::Home | OnlinePage::JoinLink => join_doc(draft),
         OnlinePage::Invite(_) => invite_doc(online),
     }
 }
@@ -120,50 +121,23 @@ fn sign_in_blocks(online: &Online, blocks: &mut Vec<Block>, retry: bool) {
     }
 }
 
-/// The multiplayer home.
-fn home_doc(online: &Online, draft: &Draft) -> PageDoc {
+/// Join by link: the field, Open invite, and what was pasted when it was
+/// no invite.
+fn join_doc(draft: &Draft) -> PageDoc {
     let mut blocks = vec![
-        Block::Text(m::home_about().into()),
-        Block::Gap,
-        account_block(online),
-    ];
-    sign_in_blocks(online, &mut blocks, true);
-    if online.creating() {
-        blocks.push(Block::Note(m::creating().into()));
-    } else if let Some(p) = online.create_problem() {
-        blocks.push(Block::Note(m::create_failed(UiText::data(&p.code)).into()));
-    }
-    let signed_in = online.me().is_some();
-    let busy = online.sign_in_state().busy() || online.creating();
-    let mut actions = vec![
-        Action::new(PRACTICE, m::home_practice()).primary(),
-        Action::new("private", m::home_private()).off(busy),
-    ];
-    if signed_in {
-        actions.push(Action::new("signout", m::sign_out()));
-    } else if !online.sign_in_state().busy() {
-        actions.push(Action::new("signin", m::sign_in()));
-    }
-    blocks.push(Block::Actions(actions));
-    blocks.push(Block::Muted(m::home_private_note().into()));
-    if online.config.platform == Platform::Desktop {
-        blocks.push(Block::Gap);
-        blocks.push(Block::Field {
+        Block::Field {
             id: "invite".into(),
             label: m::invite_field().into(),
             value: draft.invite.clone(),
             hint: m::invite_field_hint().into(),
-        });
-        blocks.push(Block::Actions(vec![Action::new(
-            "invite-open",
-            m::invite_go(),
-        )]));
-        if draft.not_one {
-            blocks.push(Block::Note(m::invite_not_one().into()));
-        }
+        },
+        Block::Actions(vec![Action::new("invite-open", m::invite_go()).primary()]),
+    ];
+    if draft.not_one {
+        blocks.push(Block::Note(m::invite_not_one().into()));
     }
     PageDoc {
-        title: PageTitle::new(m::home_title(), m::home_heading()),
+        title: PageTitle::new(m::join_title(), m::join_heading()),
         blocks,
     }
 }
@@ -234,8 +208,8 @@ fn invite_doc(online: &Online) -> PageDoc {
     }
 }
 
-/// The multiplayer home or an invite's page, over the online state.
-pub struct OnlineScreen {
+/// Join by link or an invite's page, over the online state.
+struct OnlinePageScreen {
     page: PageScreen,
     online: SharedOnline,
     which: OnlinePage,
@@ -246,12 +220,12 @@ pub struct OnlineScreen {
     time: f64,
 }
 
-impl OnlineScreen {
-    pub fn new(env: Env, online: SharedOnline, which: OnlinePage, shell: OnlineShell) -> Self {
+impl OnlinePageScreen {
+    fn new(env: Env, online: SharedOnline, which: OnlinePage, shell: OnlineShell) -> Self {
         {
             let mut o = online.borrow_mut();
             match &which {
-                OnlinePage::Home => o.check(),
+                OnlinePage::Home | OnlinePage::JoinLink => {}
                 OnlinePage::Invite(invite) => {
                     if o.invite().is_none_or(|v| &v.invite != invite) {
                         o.open_invite(invite);
@@ -263,7 +237,7 @@ impl OnlineScreen {
         let feed: PageFeed = Rc::new(RefCell::new(None));
         let first = doc(&which, &online.borrow(), &draft.borrow());
         let name = match which {
-            OnlinePage::Home => "multiplayer",
+            OnlinePage::Home | OnlinePage::JoinLink => "join-link",
             OnlinePage::Invite(_) => "invite",
         };
         let page_shell: super::page::PageShell = {
@@ -274,6 +248,11 @@ impl OnlineScreen {
             Rc::new(move |call, cx| {
                 let mut o = online.borrow_mut();
                 match call {
+                    // Join by link is over the home: back to it.
+                    PageCall::Leave if !matches!(which, OnlinePage::Invite(_)) => {
+                        cx.close(true);
+                        return None;
+                    }
                     PageCall::Leave => {
                         drop(o);
                         shell(OnlineCall::Leave, cx);
@@ -294,7 +273,7 @@ impl OnlineScreen {
                         }
                         "private" => o.private_room(),
                         "signin" => o.sign_in(match &which {
-                            OnlinePage::Home => Dest::Home,
+                            OnlinePage::Home | OnlinePage::JoinLink => Dest::Home,
                             OnlinePage::Invite(i) => Dest::Join(i.clone()),
                         }),
                         "signout" => o.sign_out(),
@@ -336,7 +315,7 @@ impl OnlineScreen {
         };
         let page = PageScreen::new(env, name, first).with_shell(page_shell, feed.clone());
         let seen = online.borrow().version();
-        OnlineScreen {
+        OnlinePageScreen {
             page,
             online,
             which,
@@ -349,7 +328,11 @@ impl OnlineScreen {
     }
 }
 
-impl Screen for OnlineScreen {
+impl Screen for OnlinePageScreen {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &str {
         self.page.name()
     }
@@ -414,5 +397,75 @@ impl Screen for OnlineScreen {
             self.page
                 .message(&crate::Message::new(PAGE_CHANGED), root, cx);
         }
+    }
+}
+
+/// The multiplayer home ([`super::online_home::Home`]), Join by link or an
+/// invite's page, over the online state.
+pub struct OnlineScreen {
+    inner: Box<dyn Screen>,
+}
+
+impl OnlineScreen {
+    pub fn new(env: Env, online: SharedOnline, which: OnlinePage, shell: OnlineShell) -> Self {
+        let inner: Box<dyn Screen> = match which {
+            OnlinePage::Home => Box::new(super::online_home::Home::new(env, online, shell)),
+            which => Box::new(OnlinePageScreen::new(env, online, which, shell)),
+        };
+        OnlineScreen { inner }
+    }
+}
+
+impl Screen for OnlineScreen {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> ddi_actor::Actor {
+        self.inner.build(cx)
+    }
+
+    fn input(&mut self, input: &Input, root: &mut ddi_actor::Actor, cx: &mut Cx) -> Handled {
+        self.inner.input(input, root, cx)
+    }
+
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        self.inner.presentation()
+    }
+
+    fn active_element(&self, focused: Option<&str>) -> Option<String> {
+        self.inner.active_element(focused)
+    }
+
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.inner.cursor(target)
+    }
+
+    fn animating(&self) -> bool {
+        self.inner.animating()
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        self.inner.wake_at()
+    }
+
+    fn defer_initial_focus(&self) -> bool {
+        self.inner.defer_initial_focus()
+    }
+
+    fn shared_bars(&self) -> bool {
+        self.inner.shared_bars()
+    }
+
+    fn focusables(&self) -> Vec<crate::nav::Focusable> {
+        self.inner.focusables()
+    }
+
+    fn message(&mut self, msg: &crate::Message, root: &mut ddi_actor::Actor, cx: &mut Cx) {
+        self.inner.message(msg, root, cx);
+    }
+
+    fn update(&mut self, dt: f32, root: &mut ddi_actor::Actor, cx: &mut Cx) {
+        self.inner.update(dt, root, cx);
     }
 }

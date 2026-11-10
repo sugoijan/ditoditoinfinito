@@ -64,21 +64,22 @@ use crate::widgets::{part, set_image, set_text};
 use super::data::PackEntry;
 
 /// The parts that move as the screen comes and goes ([`super::transitions`]),
-/// both layouts' (a part the layout lacks is skipped).
+/// both layouts' (a part the layout lacks is skipped): what sits in the
+/// header's row is the header's (the bars stay put from screen to screen).
 const SELECT_PARTS: [(&str, super::Edge); 17] = {
-    use super::Edge::{Bottom, Left, None, Right, Top};
+    use super::Edge::{FooterBar, HeaderBar, Left, None, Right};
     [
-        ("Header", Top),
-        ("Mods", Top),
-        ("Search", Top),
-        ("ClearSearch", Top),
-        ("Volume", Top),
-        ("Back", Top),
-        ("AddIcon", Top),
-        ("SearchIcon", Top),
-        ("OptionsIcon", Top),
-        ("PackTitle", Top),
-        ("Footer", Bottom),
+        ("Header", HeaderBar),
+        ("Mods", HeaderBar),
+        ("Search", HeaderBar),
+        ("ClearSearch", HeaderBar),
+        ("Volume", HeaderBar),
+        ("Back", HeaderBar),
+        ("AddIcon", HeaderBar),
+        ("SearchIcon", HeaderBar),
+        ("OptionsIcon", HeaderBar),
+        ("PackTitle", HeaderBar),
+        ("Footer", FooterBar),
         ("Wheel", Right),
         ("Wheel.Track", Right),
         ("Wheel.Thumb", Right),
@@ -2292,9 +2293,22 @@ impl SelectScreen {
             super::refill(old, f);
         } else if let Kind::Frame(c) = &mut root.kind {
             // Its first hints come after the screen's `On`: it comes in
-            // on its own, a frame later.
-            super::transitions(&mut f, &self.env, &[("Footer", super::Edge::Bottom)]);
-            f.play("On", &mut ddi_actor::Problems::default());
+            // on its own, a frame later, as the header does (sliding in
+            // with it, or shown at once where the bars stayed put).
+            super::transitions(&mut f, &self.env, &[("Footer", super::Edge::FooterBar)]);
+            let entering = c
+                .iter()
+                .find(|a| a.name == "Header")
+                .is_some_and(|h| h.tween_time_left() > 0.0);
+            if cx.holding() {
+                super::hold_entrances(&mut f);
+            }
+            let bars = if cx.holding() || entering {
+                crate::ui::BARS_ON
+            } else {
+                crate::ui::BARS_STAY
+            };
+            f.play(bars, &mut ddi_actor::Problems::default());
             c.push(f);
         }
     }
@@ -3269,6 +3283,10 @@ impl ListModel for EmptyModel {
 }
 
 impl Screen for SelectScreen {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
     fn active_element(&self, _focused: Option<&str>) -> Option<String> {
         self.list.selected().and_then(|i| self.list.item_actor(i))
     }

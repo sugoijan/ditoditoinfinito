@@ -538,7 +538,9 @@ fn share_switch(hash: &str) {
 /// The multiplayer prototype's hidden switch
 /// (`docs/plans/multiplayer-prototype-progress.md`): `#/?mp=1` on the start
 /// route (or on an invite's link, `#/mp/join/<invite>?mp=1`) sets
-/// `Settings::multiplayer`, `mp=0` clears it; never a row of Options. Off,
+/// `Settings::multiplayer`, `mp=0` clears it; never a row of Options
+/// (DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1`, practice against N CPUs
+/// beyond the cap, `crate::room::develop`). Off,
 /// the start menu's Multiplayer says "Coming soon" and the prototype's
 /// routes lead to the start menu.
 fn multiplayer_switch(hash: &str) {
@@ -558,6 +560,16 @@ fn multiplayer_switch(hash: &str) {
     }) else {
         return;
     };
+    // DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1` makes the next practice
+    // room one against N CPUs, beyond the cap (M6b's miniature fields).
+    if on
+        && let Some(n) = query.split('&').find_map(|kv| match kv.split_once('=') {
+            Some(("mpcpus", n)) => n.parse::<u16>().ok(),
+            _ => None,
+        })
+    {
+        crate::room::develop(n);
+    }
     let mut settings = crate::settings::Settings::load();
     if settings.multiplayer != on {
         settings.multiplayer = on;
@@ -754,8 +766,29 @@ pub(crate) fn back() {
         let _ = history.back();
         return;
     }
+    let parent = fallback_parent(Route::current());
+    let state = js_sys::Object::new();
+    put_trail(&state, &ddi_ui::navigation::RouteTrail::at(parent.clone()));
+    if history
+        .replace_state_with_url(&state, "", Some(&parent))
+        .is_ok()
+    {
+        changed();
+    }
+}
+
+/// Where [`back`] goes from here: the trail's last route before this one,
+/// else the route's own parent.
+pub(crate) fn back_target() -> String {
+    match trail().parent() {
+        Some(parent) => parent.to_string(),
+        None => fallback_parent(Route::current()),
+    }
+}
+
+/// The parent of a route opened directly (no trail of ours before it).
+fn fallback_parent(current: Route) -> String {
     use ddi_ui::navigation::Destination;
-    let current = Route::current();
     // The multiplayer prototype's routes opened directly: each its parent.
     let multiplayer = match &current {
         Route::RoomPick { .. } => Some(Route::Room),
@@ -781,21 +814,35 @@ pub(crate) fn back() {
         Route::Credits => Destination::Credits,
         _ => Destination::Calibration,
     };
-    let parent = match (multiplayer, destination.fallback(), shared) {
+    match (multiplayer, destination.fallback(), shared) {
         (Some(parent), _, _) => parent,
         (None, Destination::Songs, Some(share)) => share,
         (None, Destination::Songs, None) => Route::Songs,
         _ => Route::Home,
     }
-    .to_hash();
-    let state = js_sys::Object::new();
-    put_trail(&state, &ddi_ui::navigation::RouteTrail::at(parent.clone()));
-    if history
-        .replace_state_with_url(&state, "", Some(&parent))
-        .is_ok()
-    {
-        changed();
-    }
+    .to_hash()
+}
+
+/// Whether the route's screen shows the shared header and footer, the
+/// bars (`ddi_ui::Screen::shared_bars`): from one such route to another
+/// they stay put (`ddi_ui::Ui::set_bars_route`). The play route's
+/// screens do not (its results do, but come in from the play); the
+/// editor fades as a whole.
+pub(crate) fn has_bars(route: &Route) -> bool {
+    matches!(
+        route,
+        Route::Songs
+            | Route::Shared { .. }
+            | Route::Options
+            | Route::Calibrate
+            | Route::Credits
+            | Route::Studio
+            | Route::Multiplayer
+            | Route::Room
+            | Route::RoomPick { .. }
+            | Route::MpJoin { .. }
+            | Route::MpRoom { .. }
+    )
 }
 
 /// A fresh launch or reload starts the title menu without focus. History

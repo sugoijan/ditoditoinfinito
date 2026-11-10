@@ -195,16 +195,16 @@ impl ResultsScreen {
         // buttons from below, the score from the left, the panels from
         // the right, the backdrop fading.
         {
-            use super::Edge::{Bottom, Left, None, Right, Top};
+            use super::Edge::{Bottom, FooterBar, HeaderBar, Left, None, Right};
             super::transitions(
                 &mut root,
                 &env,
                 &[
-                    ("Header", Top),
-                    ("Back", Top),
-                    ("Title", Top),
-                    ("WatchReplay", Top),
-                    ("Footer", Bottom),
+                    ("Header", HeaderBar),
+                    ("Back", HeaderBar),
+                    ("Title", HeaderBar),
+                    ("WatchReplay", HeaderBar),
+                    ("Footer", FooterBar),
                     ("Bottom", Bottom),
                     ("ScoreColumn", Left),
                     ("Panels", Right),
@@ -1403,6 +1403,10 @@ pub fn signed(v: impl Into<f64>, decimals: usize) -> String {
 }
 
 impl Screen for ResultsScreen {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
     fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
         Some(self.env.presentation())
     }

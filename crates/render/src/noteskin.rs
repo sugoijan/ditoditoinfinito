@@ -102,6 +102,27 @@ pub trait NoteLayer {
     fn atlas_textures(&self) -> &[u32] {
         &[]
     }
+
+    /// Draws an opponent's miniature field after the play's own, in this
+    /// frame's clocks ([`crate::scene::Miniature`]): its receptors, its
+    /// notes, and the hit effects of its judgments
+    /// ([`ddi_engine::frame::ReceptorState::flash`]) where the layer
+    /// draws them without running anything ([`NoteLayer::miniature_hits`]);
+    /// nothing of the play's own field changes.
+    fn miniature(
+        &mut self,
+        _frame: &Frame,
+        _layout: &Layout,
+        _geo: &FieldGeometry,
+        _out: &mut Vec<TexQuad>,
+    ) {
+    }
+
+    /// Whether [`NoteLayer::miniature`] draws its judgments' hit effects
+    /// (else whoever draws the miniature shows them).
+    fn miniature_hits(&self) -> bool {
+        false
+    }
 }
 
 /// One element of a lane.
@@ -327,6 +348,14 @@ pub struct NoteskinPlay {
     /// ([`NoteskinPlay::update`]), for components' clocks.
     frame_time: (f64, f64, f64),
     timer: f32,
+    /// Each lane's receptor as it rests between the play's presses, kept
+    /// once a second into the play with nothing pressed for half a
+    /// second: what miniatures draw of a receptor an actor draws (its
+    /// state is what the play's own presses' commands made it).
+    rest_receptors: Option<Vec<Element>>,
+    /// How opaque explosion components' instances are drawn: 1 on the
+    /// play's field, [`MINIATURE_HIT_ALPHA`] on a miniature's.
+    explosion_alpha: f32,
     /// Built-in substitutions and command errors, for the import report
     /// and the console.
     pub notes: Vec<String>,
@@ -367,6 +396,11 @@ struct Hit {
     name: &'static str,
     bright: bool,
 }
+
+/// How opaque a miniature's explosion components are drawn
+/// ([`NoteLayer::miniature`]): the play's own effects scaled down to a
+/// small field cover its receptor whole at full strength.
+pub const MINIATURE_HIT_ALPHA: f32 = 0.4;
 
 /// The judgments a lane keeps for its explosion's instances.
 const MAX_HITS: usize = 8;
@@ -1053,6 +1087,8 @@ impl NoteskinPlay {
             started: false,
             last_song_time: None,
             timer: 0.0,
+            rest_receptors: None,
+            explosion_alpha: 1.0,
             notes,
             problems: Problems::default(),
             srgb,
@@ -1466,6 +1502,7 @@ impl NoteskinPlay {
         self.last_song_time = None;
         self.last_note_positions.clear();
         self.timer = 0.0;
+        self.rest_receptors = None;
     }
 
     /// Actor commands that went wrong while playing (capped).
@@ -1553,6 +1590,16 @@ impl NoteskinPlay {
         if let Some(f) = failed {
             self.stop_lua(&f);
         }
+        let now = frame.song_time;
+        if self.rest_receptors.is_none()
+            && now >= 1.0
+            && self
+                .presses
+                .iter()
+                .all(|p| !p.down && p.released.is_none_or(|r| now - r > 0.5))
+        {
+            self.rest_receptors = Some(self.lanes.iter().map(|l| l.receptor.clone()).collect());
+        }
     }
 
     /// The skin's Lua stopped: it is dropped, and every element is the
@@ -1567,6 +1614,7 @@ impl NoteskinPlay {
                 *e = Element::BuiltIn;
             }
         }
+        self.rest_receptors = None;
     }
 
     /// [`NoteskinPlay::update`]'s commands and updates, the trees lent to
@@ -2212,6 +2260,90 @@ fn sprite_frame(element: &Element) -> Option<(u32, [f32; 4], [f32; 2])> {
 impl NoteLayer for NoteskinPlay {
     fn materials(&self) -> &[crate::material::MaterialParams] {
         &self.materials
+    }
+
+    /// The skin's own receptors and taps, at rest but for the
+    /// miniature's judgments: its receptor components' `hit` clocks and
+    /// its explosion components' instances follow them, each lane's last
+    /// judgment. StepMania's commands the play's events run are not
+    /// played: an actor's receptor is drawn as it rested in the play's
+    /// field (`rest_receptors`; as the play's own until
+    /// then), and actors' explosions are not drawn here. The Lua is not
+    /// run. The play's field's presses, judgments,
+    /// held notes, drawn positions and camera are put back after.
+    fn miniature(
+        &mut self,
+        frame: &Frame,
+        layout: &Layout,
+        geo: &FieldGeometry,
+        out: &mut Vec<TexQuad>,
+    ) {
+        let now = self.frame_time.0;
+        let camera = self.camera;
+        let positions = self.last_note_positions.len();
+        let presses = std::mem::take(&mut self.presses);
+        let kept: Vec<_> = self
+            .lanes
+            .iter_mut()
+            .enumerate()
+            .map(|(i, lane)| {
+                let hit = frame
+                    .receptors
+                    .get(i)
+                    .and_then(|r| r.flash)
+                    .filter(|(j, _)| !j.is_miss())
+                    .map(|(j, age)| Hit {
+                        at: now - f64::from(age),
+                        name: score_name(j),
+                        bright: false,
+                    });
+                (
+                    std::mem::replace(&mut lane.step, hit),
+                    std::mem::replace(&mut lane.hits, hit.into_iter().collect()),
+                    lane.holding.take(),
+                    lane.holding_since.take(),
+                    lane.ended.take(),
+                )
+            })
+            .collect();
+        // Receptors at rest, not as the play's presses left them.
+        let mut rest = self.rest_receptors.take();
+        let swap = |lanes: &mut [Lane], rest: &mut Option<Vec<Element>>| {
+            for (l, r) in lanes.iter_mut().zip(rest.iter_mut().flatten()) {
+                std::mem::swap(&mut l.receptor, r);
+            }
+        };
+        swap(&mut self.lanes, &mut rest);
+        self.camera = Camera::of(geo);
+        self.column_actors(layout, geo, out, |l| &mut l.receptor);
+        swap(&mut self.lanes, &mut rest);
+        self.rest_receptors = rest;
+        self.notes(frame, layout, geo, out);
+        if self.miniature_hits() {
+            // A small field's hit effect at full strength reads as a blot
+            // over its receptor (Infinito's white W1 burst): fainter.
+            self.explosion_alpha = MINIATURE_HIT_ALPHA;
+            self.explosion_instances(layout, geo, out);
+            self.explosion_alpha = 1.0;
+        }
+        for (lane, (step, hits, holding, since, ended)) in self.lanes.iter_mut().zip(kept) {
+            lane.step = step;
+            lane.hits = hits;
+            lane.holding = holding;
+            lane.holding_since = since;
+            lane.ended = ended;
+        }
+        self.presses = presses;
+        self.last_note_positions.truncate(positions);
+        self.camera = camera;
+    }
+
+    fn miniature_hits(&self) -> bool {
+        !self.lanes.is_empty()
+            && self
+                .lanes
+                .iter()
+                .all(|l| matches!(l.explosion, Element::Component(_)))
     }
 
     fn skin_materials(&self) -> &[crate::material::Compiled] {
@@ -2909,7 +3041,7 @@ impl NoteskinPlay {
                     c,
                     at,
                     k,
-                    (1.0, 1.0),
+                    (self.explosion_alpha, 1.0),
                     hit_seed(i, at_time),
                     &clocks,
                     &|p| {
@@ -3574,6 +3706,72 @@ mod tests {
                 "{transform:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_miniature_shows_its_own_judgments_and_leaves_the_play_s_field_as_it_was() {
+        use ddi_noteskin::component::{Component, Part as ComponentPart};
+        let mut play = lua_play("return Def.Sprite {Texture='x.png'}");
+        let mut part = ComponentPart::new(None, None, vec![0]);
+        part.when = vec!["W1".into(), "W2".into()];
+        let component = Component {
+            file: "test.svg".into(),
+            id: "burst".into(),
+            view_box: [-32.0, -32.0, 64.0, 64.0],
+            rotation: 0.0,
+            zoom: 1.0,
+            parts: vec![part],
+            duration: 0.5,
+            bindings: Vec::new(),
+            pivot: [0.0; 2],
+        };
+        assert!(!play.miniature_hits(), "actors' explosions: not drawn");
+        for lane in &mut play.lanes {
+            lane.explosion = Element::Component(Box::new(component.clone()));
+        }
+        assert!(play.miniature_hits());
+        play.texture_ids = vec![Some(70)];
+        play.frame_time = (0.2, 0.4, 0.35);
+        // The play's own field: a hit on lane 0, a press, a note drawn.
+        play.lanes[0].hits.push_back(Hit {
+            at: 0.1,
+            name: "W1",
+            bright: false,
+        });
+        play.presses = vec![LanePresses::default(); 4];
+        play.presses[0].pressed = Some(0.1);
+        play.last_note_positions.push((7, 1.5));
+        let layout = Layout::dance_single();
+        // The miniature: far off to the right, its lane 2 hit (W2), its
+        // lane 3 missed (no effect).
+        let geo = FieldGeometry {
+            arrow: 32.0,
+            left: 1000.0,
+            receptor_y: 100.0,
+            direction: 1.0,
+            width: 2128.0,
+            height: 400.0,
+        };
+        let mut mini = frame(0.2, None);
+        mini.receptors[2].flash = Some((Judgement::W2, 0.05));
+        mini.receptors[3].flash = Some((Judgement::Miss, 0.05));
+        let mut out = Vec::new();
+        play.miniature(&mini, &layout, &geo, &mut out);
+        let bursts: Vec<_> = out
+            .iter()
+            .filter(|q| q.texture == 70)
+            .filter_map(|q| match q.shape {
+                Shape::Quad { transform, .. } => Some(transform[4]),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bursts.len(), 1, "{bursts:?}");
+        assert!((bursts[0] - geo.lane_x(2.0)).abs() < 1.0, "{bursts:?}");
+        // The play's field as it was.
+        assert_eq!(play.lanes[0].hits.len(), 1);
+        assert!(play.lanes[2].hits.is_empty() && play.lanes[2].step.is_none());
+        assert_eq!(play.presses[0].pressed, Some(0.1));
+        assert_eq!(play.last_note_positions, vec![(7, 1.5)]);
     }
 
     #[test]

@@ -24,8 +24,14 @@
 //! winner's finished song ([`Battle::take_events`]), which the
 //! announcer's battle lines speak or the play shows
 //! (`crate::announcer::battle`).
+//!
+//! Each CPU's judged moments feed its miniature field ([`feed`], M6): the
+//! tap-only copy they play, shown on this play's song clock.
+
+pub mod feed;
 
 use ddi_chart::Song;
+use ddi_engine::JudgeEventKind;
 use ddi_engine::cpu::Opponent;
 use ddi_engine::player::Player;
 use ddi_engine::rules::{Ruleset, ScoreView};
@@ -116,12 +122,16 @@ struct Seat {
     opponent: Opponent,
     name: String,
     level: String,
+    /// Its moments as its miniature field is fed them.
+    feed: feed::FieldFeed,
 }
 
 /// The opponents of a stage being played.
 pub struct Battle {
     setup: StageSetup,
     seats: Vec<Seat>,
+    /// The chart's tap-only copy the CPUs play, as their fields draw it.
+    track: feed::TapTrack,
     /// The ranking, once decided before the song's end.
     decided: Option<Vec<Vec<Finisher>>>,
     /// The battle's events since they were last taken, and what tells
@@ -161,6 +171,7 @@ impl Battle {
         song_offset: f64,
     ) -> Result<Battle, String> {
         let levels = ddi_engine::cpu::STRENGTHS.len();
+        let track = feed::TapTrack::new(song, chart)?;
         let seats = setup
             .cpus
             .iter()
@@ -170,11 +181,13 @@ impl Battle {
                 let level = usize::from(seat.level).min(levels - 1);
                 let mut opponent = Opponent::new(song, chart, rules, level, seat.seed)?;
                 opponent.start(song_offset);
+                let feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
                 Ok(Seat {
                     seat: seat.clone(),
                     opponent,
                     name: m::cpu_name(seat.ordinal).into(),
                     level: m::play_level(level + 1).into(),
+                    feed,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -182,6 +195,7 @@ impl Battle {
         Ok(Battle {
             setup,
             seats,
+            track,
             decided: None,
             events: Vec::new(),
             live,
@@ -203,6 +217,24 @@ impl Battle {
     pub fn advance(&mut self, t: f64, human: &Player) -> Option<bool> {
         for s in &mut self.seats {
             s.opponent.advance(t);
+            // Its judgments as moments of its stream: what its field shows.
+            let (life, combo, out_at) =
+                (s.opponent.life(), s.opponent.combo(), s.opponent.out_at());
+            for e in s.opponent.take_judged() {
+                let JudgeEventKind::Tap(judgment, _) = e.kind else {
+                    continue;
+                };
+                let moment = feed::Moment {
+                    at: e.song_time,
+                    tick: e.tick,
+                    lane: e.lane,
+                    judgment,
+                    life,
+                    combo,
+                    out: out_at.is_some_and(|o| o <= e.song_time),
+                };
+                s.feed.push(&self.track, moment);
+            }
         }
         if self.decided.is_some() {
             return None;
@@ -292,6 +324,16 @@ impl Battle {
             r.first()
                 .is_some_and(|g| g.len() == 1 && g[0].participant == self.setup.me)
         })
+    }
+
+    /// The chart's tap-only copy the CPUs play, as their fields draw it.
+    pub fn track(&self) -> &feed::TapTrack {
+        &self.track
+    }
+
+    /// Each opponent's field's stream, in their stable slots' order.
+    pub fn feeds(&self) -> impl Iterator<Item = &feed::FieldFeed> {
+        self.seats.iter().map(|s| &s.feed)
     }
 
     /// The opponents in their stable slots (the order the room seated

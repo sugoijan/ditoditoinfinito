@@ -1224,6 +1224,109 @@ pub fn build_into(
     };
 }
 
+/// An opponent's field in miniature (`ddi_shell::opponents`,
+/// `docs/plans/multiplayer-prototype-progress.md`, M6): its frame (built
+/// from its stream of judged moments, `ddi_session::battle::feed`: its
+/// notes, its receptors' judgments, its life and combo) drawn in the side
+/// space at its own geometry, after the play's field, on a band as the
+/// play's field's (its filter's darkness, where the play's is drawn), by
+/// the play's noteskin ([`NoteLayer::miniature`]: its receptors and
+/// notes, and its hit effects where its components draw them) or the
+/// built-in arrows where the skin has no part; its life gauge and combo
+/// by the play's HUD, placed on it as the play's are on the play's field
+/// (`crate::hud`).
+#[derive(Clone, Debug)]
+pub struct Miniature {
+    pub frame: Frame,
+    /// In the target's pixels; its field's top is its band's.
+    pub geometry: FieldGeometry,
+    /// Its band, `[left, top, right, bottom]` in the target's pixels.
+    pub panel: [f32; 4],
+    /// Out of the stage: no combo.
+    pub out: bool,
+}
+
+/// Adds `minis` to a scene already built: their bands (at `band`'s
+/// darkness, the play's field filter's as drawn; none where the play's
+/// field has none) and their built-in parts in one run of sprites, then
+/// the layer's parts in one run of quads (`opts` the play's: its note
+/// colors), after the field's.
+/// Two runs whatever their number (each run another pass where skins
+/// blend in passes of their own): the miniatures never overlap, so the
+/// order between them does not matter.
+pub(crate) fn add_miniatures(
+    out: &mut SceneOutput,
+    minis: &[Miniature],
+    layout: &Layout,
+    opts: &RenderOptions,
+    band: Option<f32>,
+    mut layer: Option<&mut (dyn NoteLayer + '_)>,
+) {
+    if minis.is_empty() {
+        return;
+    }
+    let mut order = Order {
+        segments: std::mem::take(&mut out.order),
+        sprites: out.instances.len() as u32,
+        quads: out.quads.len() as u32,
+    };
+    let drawn = |layer: &Option<&mut (dyn NoteLayer + '_)>, lane: usize, part: LayerPart| {
+        layer.as_ref().is_some_and(|l| l.draws(lane, part))
+    };
+    for m in minis.iter().filter(|_| band.is_some_and(|a| a > 0.0)) {
+        let [x0, y0, x1, y1] = m.panel;
+        out.instances.push(
+            Instance::new(
+                [(x0 + x1) / 2.0, (y0 + y1) / 2.0],
+                [x1 - x0, y1 - y0],
+                Shape::Rect,
+                [0.0, 0.0, 0.0, band.unwrap_or(0.0)],
+            )
+            .params([0.0; 4]),
+        );
+    }
+    // The built-in receptors and arrows where the skin has none.
+    for m in minis {
+        let (geo, frame) = (&m.geometry, &m.frame);
+        for (i, lane) in layout.lanes.iter().enumerate() {
+            if drawn(&layer, i, LayerPart::Receptor) {
+                continue;
+            }
+            let (color, flash) = match frame.receptors.get(i).and_then(|s| s.flash) {
+                Some((j, age)) => (judgement_color(j), (1.0 - age / 0.25).clamp(0.0, 1.0)),
+                None => ([1.0; 4], 0.0),
+            };
+            out.instances.push(
+                glyph_instance(
+                    [
+                        geo.lane_x(lane.column),
+                        geo.lane_receptor_y(lane.scroll_sign),
+                    ],
+                    geo.arrow * ARROW_WIDTH,
+                    &lane.glyph,
+                    Paint::Receptor,
+                    None,
+                    [color[0], color[1], color[2], RECEPTOR_ALPHA],
+                )
+                .params([0.0, flash, 0.0, 0.0]),
+            );
+        }
+        for note in &frame.notes {
+            if !drawn(&layer, usize::from(note.lane), head_part(&note.kind)) {
+                push_note(&mut out.instances, note, layout, geo, opts, frame.beat);
+            }
+        }
+    }
+    order.sprites(out.instances.len());
+    if let Some(l) = layer.as_mut() {
+        for m in minis {
+            l.miniature(&m.frame, layout, &m.geometry, &mut out.quads);
+        }
+    }
+    order.quads(out.quads.len());
+    out.order = order.segments;
+}
+
 fn push_note(
     out: &mut Vec<Instance>,
     note: &NoteSprite,
@@ -1388,6 +1491,68 @@ mod tests {
             appearance,
             cover: Default::default(),
         }
+    }
+
+    #[test]
+    fn miniatures_draw_after_the_field_on_their_panels() {
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let main = frame(
+            vec![note(2.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let mut out = build(
+            &main,
+            &layout,
+            &presets::itg().names,
+            &geo,
+            RenderOptions::default(),
+            false,
+            None,
+            (&[], &[]),
+        );
+        let before = out.instances.len();
+        let mini_geo = FieldGeometry {
+            arrow: 20.0,
+            left: 850.0,
+            receptor_y: 214.0,
+            direction: 1.0,
+            width: 1820.0,
+            height: 600.0,
+        };
+        let mut mini = frame(
+            vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        mini.receptors[1].flash = Some((Judgement::W1, 0.0));
+        let minis = [Miniature {
+            frame: mini,
+            geometry: mini_geo,
+            panel: [850.0, 200.0, 930.0, 320.0],
+            out: false,
+        }];
+        add_miniatures(
+            &mut out,
+            &minis,
+            &layout,
+            &RenderOptions::default(),
+            Some(0.4),
+            None,
+        );
+        // Its band, four built-in receptors and its tap, after the field's.
+        let added = &out.instances[before..];
+        assert_eq!(added.len(), 1 + 4 + 1);
+        assert_eq!(added[0].shape & 0xff, Shape::Rect as u32);
+        assert!(
+            added[1..]
+                .iter()
+                .all(|i| i.center[0] > 850.0 && i.center[0] < 930.0)
+        );
+        // The flashed receptor's flash.
+        assert!(added[1..5].iter().any(|i| i.params[1] > 0.9));
+        assert!(
+            matches!(out.order.last(), Some(Segment::Sprites(r)) if r.end as usize == out.instances.len())
+        );
     }
 
     fn shapes(f: &Frame, opts: RenderOptions) -> Vec<Instance> {

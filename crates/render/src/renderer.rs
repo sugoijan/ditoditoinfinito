@@ -49,6 +49,8 @@ pub struct Renderer {
     /// The touch screens' quit button, drawn over a play
     /// ([`Renderer::set_quit_button`]).
     quit_button: Option<[f32; 3]>,
+    /// Opponents' fields drawn after the play's ([`scene::Miniature`]).
+    miniatures: Vec<scene::Miniature>,
     background: BackgroundPipeline,
     sprites: SpritePipeline,
     textured: TexturedPipeline,
@@ -115,6 +117,7 @@ impl Renderer {
         };
         Renderer {
             quit_button: None,
+            miniatures: Vec::new(),
             background: BackgroundPipeline::new(device, scene_format, srgb),
             sprites: SpritePipeline::new(device, scene_format, srgb),
             textured,
@@ -580,6 +583,18 @@ impl Renderer {
         self.quit_button = button;
     }
 
+    /// The opponents' fields the play's frames draw beside its own, from
+    /// the next frame (none: the play's alone).
+    pub fn set_miniatures(&mut self, miniatures: Vec<scene::Miniature>) {
+        self.miniatures = miniatures;
+    }
+
+    /// The opponents' fields set to draw, given back to be set again
+    /// with their room reused.
+    pub fn take_miniatures(&mut self) -> Vec<scene::Miniature> {
+        std::mem::take(&mut self.miniatures)
+    }
+
     /// Start a new play without life trails or a combo pulse from its predecessor.
     pub fn hud_spots(&self) -> crate::hud::HudSpots {
         self.hud_spots
@@ -659,6 +674,20 @@ impl Renderer {
             layer.as_deref_mut(),
             (back, &self.stage_mask),
         );
+        if opts.preview.is_none() {
+            // Their bands as the play's field's: its filter's darkness,
+            // where the play's is drawn.
+            let band = (path != FilterPath::None)
+                .then(|| scene::filter_alpha(opts.field_filter, self.srgb));
+            scene::add_miniatures(
+                &mut scene,
+                &self.miniatures,
+                layout,
+                &opts,
+                band,
+                layer.as_deref_mut(),
+            );
+        }
         if opts.preview.is_none()
             && let Some(b) = self.quit_button
         {
@@ -713,6 +742,14 @@ impl Renderer {
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
         self.hud
             .prepare(queue, frame, layout, &geo, opts, self.quit_button);
+        self.hud.prepare_minis(
+            device,
+            queue,
+            &self.miniatures,
+            [width as f32, height as f32],
+            scene::field_span(layout),
+            &opts,
+        );
         self.hud_spots = crate::hud::spots(frame.combo, layout, &geo);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
         // Skins' quads go to the plain view, in passes of their own between

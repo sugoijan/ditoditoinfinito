@@ -255,6 +255,14 @@ impl GameLoop {
     pub(crate) fn set_session(&mut self, session: PlaySession) {
         self.end_perf();
         perf::begin_play();
+        // A development switch: `localStorage` `ddi.dev.miniatures` `0`
+        // shows a stage's opponents as the column, for comparing costs.
+        ddi_shell::opponents::set_miniatures(
+            web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .and_then(|s| s.get_item("ddi.dev.miniatures").ok().flatten())
+                .is_none_or(|v| v != "0"),
+        );
         let (device, queue) = (&self.gfx.device, &self.gfx.queue);
         if let Some(skin) = self.next_noteskin.take() {
             self.view.set_noteskin(device, queue, Some(skin));
@@ -921,6 +929,17 @@ impl GameLoop {
                         "names": p.names,
                         "cue": p.cue,
                     })),
+                    // Their miniature fields, where drawn instead: each
+                    // slot (target pixels: x, y, w, h), its side, the
+                    // miniatures' lane (CSS pixels), how many have none.
+                    "opponent_fields": self.view.opponent_fields().map(|f| json!({
+                        "lane": f.lane,
+                        "more": f.more,
+                        "slots": f.slots.iter().map(|s| json!({
+                            "rect": s.rect,
+                            "left": s.left,
+                        })).collect::<Vec<_>>(),
+                    })),
                     "stage_won": s.battle().is_some_and(|b| b.won()),
                     // A stage's battle moments as told (said by a line, or
                     // shown beside the field), and the one showing now.
@@ -934,7 +953,7 @@ impl GameLoop {
                         "cue": s.battle_cue(host_now.0).map(|(e, _)| {
                             ddi_library::announcer::Line::Battle(e).folder()
                         }),
-                        "cue_drawn": self.view.opponents_drawn().is_some_and(|p| p.cue),
+                        "cue_drawn": self.view.battle_cue_drawn(),
                     })),
                     "announcer": announcer_debug(s.announcer_report()),
                     "drift": clock.drift().unwrap_or(0.0),

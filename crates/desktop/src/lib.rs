@@ -407,6 +407,15 @@ pub fn run() {
             settings.save();
         }
     }
+    // DEVELOPMENT ONLY: `--mp-dev-cpus N`, practice against N CPUs beyond
+    // the cap (`room::develop`; M6b's miniature fields).
+    if let Some(i) = args.iter().position(|a| a == "--mp-dev-cpus") {
+        let Some(n) = args.get(i + 1).and_then(|n| n.parse::<u16>().ok()) else {
+            eprintln!("--mp-dev-cpus takes a number");
+            std::process::exit(2);
+        };
+        room::develop(n);
+    }
     // `--join LINK|INVITE`: an online room's invite page over the
     // multiplayer home (`crate::online`).
     if let Some(i) = args.iter().position(|a| a == "--join") {

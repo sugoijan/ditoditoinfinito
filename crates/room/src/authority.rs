@@ -93,11 +93,23 @@ impl<C: Clock> LocalAuthority<C> {
     /// A practice room owned by the local player, bound to the practice
     /// client.
     pub fn practice(player_name: String, rules: MatchRules, clock: C) -> (Self, ClientId) {
+        Self::practice_under(player_name, rules, clock, RoomPolicy::default())
+    }
+
+    /// [`LocalAuthority::practice`] under `policy` (DEVELOPMENT ONLY where
+    /// it is [`RoomPolicy::development`]: far more CPUs than a match
+    /// allows).
+    pub fn practice_under(
+        player_name: String,
+        rules: MatchRules,
+        clock: C,
+        policy: RoomPolicy,
+    ) -> (Self, ClientId) {
         let state = RoomState::new(
             RoomId::new("practice"),
             Identity::new(Self::PRACTICE_CLIENT),
             player_name,
-            RoomPolicy::default(),
+            policy,
             rules,
             ContentSource::LocalLibrary,
         );

@@ -1184,17 +1184,17 @@ impl Room {
 #[test]
 fn the_competitor_cap_is_enforced() {
     let mut r = Room::hosted(1);
-    for i in 0..7 {
+    for i in 0..8 {
         r.join(&format!("p{i}"), Intent::Play);
     }
     assert_eq!(
-        r.join_as("ninth", Intent::Play, false),
+        r.join_as("tenth", Intent::Play, false),
         Err(Rejection::Cap(CapExceeded {
-            requested: 9,
-            cap: 8
+            requested: 10,
+            cap: 9
         }))
     );
-    let watcher = r.join("ninth", Intent::Watch);
+    let watcher = r.join("tenth", Intent::Watch);
     assert_eq!(
         r.by(
             watcher,
@@ -1203,18 +1203,18 @@ fn the_competitor_cap_is_enforced() {
             }
         ),
         Err(Rejection::Cap(CapExceeded {
-            requested: 9,
-            cap: 8
+            requested: 10,
+            cap: 9
         }))
     );
     let mut rules = MatchRules::hosted();
-    rules.seats = 9;
+    rules.seats = 10;
     assert_eq!(
         r.by(r.host, Command::SaveNextRules { rules }),
         Err(Rejection::InvalidRules(RulesProblem::OverCap(
             CapExceeded {
-                requested: 9,
-                cap: 8
+                requested: 10,
+                cap: 9
             }
         )))
     );
@@ -1223,9 +1223,9 @@ fn the_competitor_cap_is_enforced() {
     assert_eq!(
         r.by(r.host, Command::SaveNextRules { rules }),
         Err(Rejection::InvalidRules(RulesProblem::CpusExceedSeats {
-            humans: 8,
+            humans: 9,
             cpus: 1,
-            seats: 8
+            seats: 9
         }))
     );
 }

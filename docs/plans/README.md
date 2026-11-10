@@ -35,7 +35,15 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   contract the server shares), each member loading it from the share by
   its digest, Start as one command, each stage played on every member's
   device and ranked by the room from the players' own (self-reported)
-  runs, to the match's results. Provisional choices and open questions
+  runs, to the match's results. M6 (first look): the CPUs' miniature
+  fields in practice, drawn by the player's own skin from each CPU's
+  stream of judged moments, with measured costs; M6b: their combo and
+  life gauge as the play's HUD's, the field band's look, the hand behind
+  the field, nine players, and a development-only practice far beyond the
+  cap. M7a: the multiplayer home as the start menu's column with every
+  planned entry (the unbuilt ones grayed), sign-in at the footer's right
+  and asked for where needed, and the header and footer staying put from
+  screen to screen everywhere. Provisional choices and open questions
   listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

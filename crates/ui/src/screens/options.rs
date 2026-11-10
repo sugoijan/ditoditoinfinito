@@ -401,16 +401,17 @@ impl OptionsScreen {
         // from below, the sections from the left (the compact layout's
         // strip from above), the rows and the preview from the right.
         {
-            use super::Edge::{Bottom, Left, Right, Top};
+            use super::Edge::{Bottom, FooterBar, HeaderBar, Left, Right, Top};
             super::transitions(
                 &mut root,
                 &env,
                 &[
-                    ("Header", Top),
-                    ("Back", Top),
-                    ("Title", Top),
-                    ("Saved", Top),
-                    ("Footer", Bottom),
+                    ("Header", HeaderBar),
+                    ("Back", HeaderBar),
+                    ("Title", HeaderBar),
+                    ("Saved", HeaderBar),
+                    ("More", HeaderBar),
+                    ("Footer", FooterBar),
                     ("Description", Bottom),
                     ("Sections", if p.compact { Top } else { Left }),
                     ("RowsClip", Right),
@@ -1230,6 +1231,10 @@ impl OptionsScreen {
 }
 
 impl Screen for OptionsScreen {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
     fn active_element(&self, focused: Option<&str>) -> Option<String> {
         if focused.is_some_and(|f| f == "RowsClip" || f.starts_with("Option")) {
             Some(format!("Option{}", self.focus))

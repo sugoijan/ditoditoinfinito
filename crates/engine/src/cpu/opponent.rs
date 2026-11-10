@@ -22,6 +22,8 @@ pub struct Opponent {
     next: usize,
     pending: Vec<(f64, u8)>,
     judge_offset: f64,
+    /// What it was judged since [`Opponent::take_judged`] last took it.
+    judged: Vec<crate::judge::JudgeEvent>,
 }
 
 impl Opponent {
@@ -54,6 +56,7 @@ impl Opponent {
             next: 0,
             pending: Vec::new(),
             judge_offset,
+            judged: Vec::new(),
         })
     }
 
@@ -89,9 +92,17 @@ impl Opponent {
         });
         due.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (at, lane, pressed) in due {
-            self.player.input_at(lane, pressed, at - self.judge_offset);
+            let events = self.player.input_at(lane, pressed, at - self.judge_offset);
+            self.judged.extend(events);
         }
-        self.player.update_at(t);
+        let events = self.player.update_at(t);
+        self.judged.extend(events);
+    }
+
+    /// Its judgments since the last call, in the order they were made:
+    /// what a view of its play is fed (`ddi_session::battle::feed`).
+    pub fn take_judged(&mut self) -> Vec<crate::judge::JudgeEvent> {
+        std::mem::take(&mut self.judged)
     }
 
     /// Played to its end at once (nothing it does depends on anyone
@@ -110,6 +121,8 @@ impl Opponent {
             t += 1.0;
             self.player.update_at(t);
         }
+        // Played out at once: nothing to show of it.
+        self.judged.clear();
     }
 
     /// Its player (read only).

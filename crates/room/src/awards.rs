@@ -2,11 +2,13 @@
 //! from confirmed outcomes only; the rule that awarded it is kept with it,
 //! so a later rule never rewrites an earlier stage.
 //!
-//! Two named rules exist. `EightPlayerV1` is the working eight-player table
-//! (12, 9, 7, 5, 4, 3, 2, 1; `docs/plans/multiplayer.md`, "Stage resets and
-//! match results"). Fields under eight have no decided rule: the table is
-//! never silently truncated or rescaled for them. `ExperimentalLinearV0`
-//! stands in, clearly provisional, until the design decides.
+//! Named rules: `EightPlayerV1` is the working eight-player table (12, 9,
+//! 7, 5, 4, 3, 2, 1; `docs/plans/multiplayer.md`, "Stage resets and match
+//! results"). Other fields have no decided rule: the table is never
+//! silently truncated or rescaled for them. `ExperimentalLinearV0` stands
+//! in under eight and `ExperimentalNineV0` for nine (the cap since M6b),
+//! clearly provisional, until the design decides; `DevelopmentLinearV0`
+//! awards any field of a development-only practice room.
 
 use crate::ids::ParticipantId;
 use crate::points::Points;
@@ -18,8 +20,12 @@ use serde::{Deserialize, Serialize};
 pub enum AwardScheme {
     /// Placement points summed over stages, equal stage weights. Eight
     /// starters use `EightPlayerV1`; fewer use the EXPERIMENTAL
-    /// `ExperimentalLinearV0`; more have no rule yet.
+    /// `ExperimentalLinearV0`, nine the EXPERIMENTAL `ExperimentalNineV0`;
+    /// more have no rule yet.
     PlacementPointsV1,
+    /// DEVELOPMENT ONLY: `DevelopmentLinearV0` for any field, for a practice
+    /// room with far more CPUs than the cap (`RoomPolicy::development`).
+    DevelopmentV0,
 }
 
 impl AwardScheme {
@@ -29,6 +35,8 @@ impl AwardScheme {
         match (self, field) {
             (Self::PlacementPointsV1, 8) => Ok(AwardRule::EightPlayerV1),
             (Self::PlacementPointsV1, 1..=7) => Ok(AwardRule::ExperimentalLinearV0),
+            (Self::PlacementPointsV1, 9) => Ok(AwardRule::ExperimentalNineV0),
+            (Self::DevelopmentV0, 1..) => Ok(AwardRule::DevelopmentLinearV0),
             _ => Err(NoAwardRule {
                 field: field.try_into().unwrap_or(u16::MAX),
             }),
@@ -54,6 +62,14 @@ pub enum AwardRule {
     /// last earns 1 and first earns `n`. Chosen for simplicity; it is not a
     /// truncation of the eight-player table and not a decided design.
     ExperimentalLinearV0,
+    /// EXPERIMENTAL, provisional: for exactly nine starters, the eight-player
+    /// table for the first eight places and nothing for ninth (as a forfeit
+    /// earns), so that the top eight earn what an eight-player field would.
+    /// Not a decided design.
+    ExperimentalNineV0,
+    /// DEVELOPMENT ONLY: `ExperimentalLinearV0`'s `n + 1 - p` for any field,
+    /// for practice with far more CPUs than the cap.
+    DevelopmentLinearV0,
 }
 
 impl AwardRule {
@@ -63,12 +79,14 @@ impl AwardRule {
         match self {
             Self::EightPlayerV1 => "eight-player-v1",
             Self::ExperimentalLinearV0 => "experimental-linear-v0",
+            Self::ExperimentalNineV0 => "experimental-nine-v0",
+            Self::DevelopmentLinearV0 => "development-linear-v0",
         }
     }
 
     /// Not a decided design: results under it say so.
     pub fn experimental(self) -> bool {
-        matches!(self, Self::ExperimentalLinearV0)
+        !matches!(self, Self::EightPlayerV1)
     }
 
     /// The award for each occupied position of a `field`-starter stage, best
@@ -79,6 +97,12 @@ impl AwardRule {
             Self::ExperimentalLinearV0 => (1..8)
                 .contains(&field)
                 .then(|| (1..=field as u64).rev().collect()),
+            Self::ExperimentalNineV0 => (field == 9).then(|| {
+                let mut table = Self::EIGHT_PLAYER_TABLE.to_vec();
+                table.push(0);
+                table
+            }),
+            Self::DevelopmentLinearV0 => (field > 0).then(|| (1..=field as u64).rev().collect()),
         }
     }
 }
@@ -233,9 +257,40 @@ mod tests {
     #[test]
     fn fields_beyond_the_rules_have_no_award() {
         assert_eq!(
-            AwardScheme::PlacementPointsV1.rule_for(9),
-            Err(NoAwardRule { field: 9 })
+            AwardScheme::PlacementPointsV1.rule_for(10),
+            Err(NoAwardRule { field: 10 })
         );
         assert!(AwardScheme::PlacementPointsV1.rule_for(0).is_err());
+        // Development practice awards any field, linearly.
+        let dev = AwardScheme::DevelopmentV0.rule_for(65).unwrap();
+        assert_eq!(dev, AwardRule::DevelopmentLinearV0);
+        assert!(dev.experimental());
+        assert_eq!(dev.awards(65).unwrap()[..2], [65, 64]);
+    }
+
+    #[test]
+    fn nine_take_the_eight_player_table_and_nothing_for_ninth() {
+        let rule = AwardScheme::PlacementPointsV1.rule_for(9).unwrap();
+        assert_eq!(rule, AwardRule::ExperimentalNineV0);
+        assert!(rule.experimental());
+        assert_eq!(rule.awards(9).unwrap(), vec![12, 9, 7, 5, 4, 3, 2, 1, 0]);
+        assert_eq!(rule.awards(8), None);
+        let ranking: Vec<Vec<Finisher>> = (1..=9)
+            .map(|i| {
+                vec![Finisher {
+                    participant: ParticipantId(i),
+                    finish: Finish::Survived,
+                }]
+            })
+            .collect();
+        let result = StageResult::award(rule, &ranking).unwrap();
+        assert_eq!(
+            result.placement(ParticipantId(1)).unwrap().points,
+            Points::whole(12)
+        );
+        assert_eq!(
+            result.placement(ParticipantId(9)).unwrap().points,
+            Points::ZERO
+        );
     }
 }

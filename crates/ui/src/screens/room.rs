@@ -823,12 +823,12 @@ impl RoomScreen {
             &mut root,
             &env,
             &[
-                ("Top", super::Edge::Top),
+                ("Top", super::Edge::HeaderBar),
                 ("Players", super::Edge::Left),
                 ("Song", super::Edge::Left),
                 ("Stages", super::Edge::Right),
                 ("Actions", super::Edge::Bottom),
-                ("Footer", super::Edge::Bottom),
+                ("Footer", super::Edge::FooterBar),
                 ("Backdrop", super::Edge::None),
             ],
         );
@@ -1553,6 +1553,10 @@ pub fn rules_problem(p: &RulesProblem) -> UiText {
 }
 
 impl Screen for RoomScreen {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
     fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
         Some(self.env.presentation())
     }

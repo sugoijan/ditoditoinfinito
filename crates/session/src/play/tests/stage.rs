@@ -668,3 +668,35 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     assert_eq!(battle.end_event(&outcome, false), None);
     drop(s);
 }
+
+/// Each CPU's field is fed its own judged moments as the stage plays
+/// (`crate::battle::feed`): every tap of the copy it played, in time
+/// order, with no delay, and its life as shown is its gauge's.
+#[test]
+fn each_cpu_s_miniature_is_fed_its_judged_moments() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let mut room = room(&song, 1, 3, 2);
+    let mut now = 0;
+    let order = begin(&mut room, &mut now);
+    let (s, _, _) = play(&song, &settings, &order, true, &[]);
+    let battle = s.battle().expect("a stage's battle");
+    let track = battle.track();
+    assert!(!track.is_empty());
+    let views = battle.views();
+    for (feed, view) in battle.feeds().zip(&views) {
+        assert_eq!(feed.delay(), crate::battle::feed::LOCAL_DELAY);
+        let moments = feed.moments();
+        // Every note of the copy judged once, a miss or a hit.
+        assert_eq!(moments.len(), track.len(), "{}", view.name);
+        assert!(moments.windows(2).all(|w| w[0].at <= w[1].at));
+        let end = moments.last().unwrap().at + 1.0;
+        let shown = feed.shown(end);
+        assert!((shown.life - view.life).abs() < 1e-6, "{shown:?} {view:?}");
+        assert_eq!(shown.out, view.out);
+        assert_eq!(shown.combo, view.combo);
+        // Its field at the end: nothing left to play.
+        let frame = feed.frame(track, Default::default(), end + 2.0, 5.3);
+        assert!(frame.notes.is_empty());
+    }
+}

@@ -78,6 +78,23 @@ use std::rc::Rc;
 /// ([`Ui::set_design`]).
 pub const DESIGN_MESSAGE: &str = "DesignChanged";
 
+/// The commands the shared bars' parts (the header and the footer, and
+/// what sits in them) take in place of `On`, `Off` and `Cancel`
+/// (`screens::transitions`): the UI plays them only where the bars come or
+/// go, to or from a screen without them. From a screen with bars to
+/// another, the leaving screen's stay as they are while it leaves and the
+/// coming screen's show at once ([`BARS_STAY`]): the bars stay put, only
+/// what is in them changing.
+pub const BARS_ON: &str = "BarsOn";
+pub const BARS_OFF: &str = "BarsOff";
+pub const BARS_CANCEL: &str = "BarsCancel";
+pub const BARS_STAY: &str = "BarsStay";
+
+/// Whether `a`'s tree has the shared bars ([`BARS_OFF`] on a part).
+pub fn has_bars(a: &Actor) -> bool {
+    a.has_command(BARS_OFF) || a.children().iter().any(has_bars)
+}
+
 /// How long after a mouse press its release still counts as a gesture,
 /// host milliseconds (Safari's transient activation, the shortest).
 pub const ACTIVATION_WINDOW: f64 = 1000.0;
@@ -169,6 +186,10 @@ struct Layer {
     /// A screen's: what [`Screen::shown`] last told it (covered or
     /// leaving: not shown).
     shown: bool,
+    /// Leaving or covered for a screen with the shared bars too: its bars
+    /// stayed as they were ([`BARS_ON`]), and the next screen's show at
+    /// once.
+    bars_kept: bool,
 }
 
 /// A pointer held down: where its gesture goes.
@@ -294,7 +315,18 @@ pub struct Ui {
     mark_on: Option<(u64, f64)>,
     /// The mark's entrance is under way: frames are wanted.
     mark_animating: bool,
+    /// The next screen to come in finds the shared bars shown
+    /// ([`BARS_STAY`]): the one before it kept them, or the shell carried
+    /// them over from another UI ([`Ui::carry_bars`]).
+    bars_next: bool,
+    /// Whether the screen a [`UiRequest::Navigate`] or [`UiRequest::Back`]
+    /// leads to has the shared bars ([`Ui::set_bars_route`]).
+    bars_route: Option<BarsRoute>,
 }
+
+/// Whether the screen a request leads to shows the shared bars
+/// ([`Ui::set_bars_route`]).
+pub type BarsRoute = Rc<dyn Fn(&UiRequest) -> bool>;
 
 impl Ui {
     /// A UI for a theme designed at `design` (virtual pixels; the width
@@ -354,7 +386,31 @@ impl Ui {
             mark: None,
             mark_on: None,
             mark_animating: false,
+            bars_next: false,
+            bars_route: None,
         }
+    }
+
+    /// Tells the UI which requests lead to a screen with the shared bars
+    /// (the web's routes): a screen leaving with one keeps its bars as
+    /// they are ([`Ui::bars_kept`]) rather than taking them away.
+    pub fn set_bars_route(&mut self, route: BarsRoute) {
+        self.bars_route = Some(route);
+    }
+
+    /// The screen that left with a request kept its bars shown for the
+    /// next ([`Ui::set_bars_route`]): the shell carries them over to the
+    /// next UI ([`Ui::carry_bars`]).
+    pub fn bars_kept(&self) -> bool {
+        self.layers
+            .iter()
+            .any(|l| matches!(l.phase, Phase::Left) && l.bars_kept)
+    }
+
+    /// The bars of the screen before (another UI's, [`Ui::bars_kept`])
+    /// are shown: the next screen pushed shows its own at once.
+    pub fn carry_bars(&mut self, yes: bool) {
+        self.bars_next = yes;
     }
 
     pub fn viewport(&self) -> &Viewport {
@@ -388,6 +444,10 @@ impl Ui {
         if let Some(l) = self.current_screen_mut()
             && matches!(l.phase, Phase::Active | Phase::Entering(_))
         {
+            // Covered as it is: its bars, if any, are the new screen's
+            // until it shows its own.
+            self.bars_next = has_bars(&l.root) && screen.shared_bars();
+            let l = self.current_screen_mut().expect("the current screen");
             l.phase = Phase::Covered;
             let id = l.id;
             self.set_shown(id, false, false);
@@ -419,10 +479,19 @@ impl Ui {
         let mut problems = Problems::default();
         let mut screen = Some(screen);
         let mut covered = None;
+        let mut kept = false;
         let covering = match self.current_screen_mut() {
             Some(top) if matches!(top.phase, Phase::Active | Phase::Entering(_)) => {
                 covered = Some(top.id);
-                let left = start_transition(&mut top.root, "Off", &["Out"], &mut problems);
+                // From bars to bars, they stay as they are.
+                let keep = has_bars(&top.root) && screen.as_ref().is_some_and(|s| s.shared_bars());
+                let mut left = start_transition(&mut top.root, "Off", &["Out"], &mut problems);
+                if !keep {
+                    top.root.play(BARS_OFF, &mut problems);
+                    left = top.root.tween_time_left();
+                }
+                top.bars_kept = keep;
+                kept = keep;
                 if left > 0.0 {
                     top.phase = Phase::Covering(left);
                     top.then = screen.take();
@@ -444,20 +513,53 @@ impl Ui {
             self.prune_inputs();
             self.touch();
         } else if let Some(screen) = screen {
+            self.bars_next = kept;
             self.push_layer(screen, false, false, None, gesture);
         }
+    }
+
+    /// Whether layer `id`, closing, keeps its bars as they are: it is the
+    /// current screen, shows them, and what comes next (the screen it is
+    /// replaced by, the one under it, or where its request leads) shows
+    /// them too.
+    fn keeps_bars(&self, id: u64) -> bool {
+        let Some(i) = self.index(id) else {
+            return false;
+        };
+        let layer = &self.layers[i];
+        if layer.overlay || layer.chrome || !has_bars(&layer.root) {
+            return false;
+        }
+        if let Some(next) = &layer.then {
+            return next.shared_bars();
+        }
+        if let Some(request) = &layer.leave_with {
+            return self.bars_route.as_ref().is_some_and(|f| f(request));
+        }
+        self.layers[..i]
+            .iter()
+            .rev()
+            .find(|l| !l.chrome && !l.overlay)
+            .is_some_and(|l| {
+                matches!(l.phase, Phase::Covered) && l.screen.shared_bars() && has_bars(&l.root)
+            })
     }
 
     /// The current screen comes in again once nothing covers it.
     fn uncover(&mut self) {
         let mut problems = Problems::default();
+        let keep = std::mem::take(&mut self.bars_next);
         let Some(top) = self.current_screen_mut() else {
             return;
         };
         if !matches!(top.phase, Phase::Covered) {
             return;
         }
-        let left = start_transition(&mut top.root, "On", &["In"], &mut problems);
+        top.bars_kept = false;
+        start_transition(&mut top.root, "On", &["In"], &mut problems);
+        top.root
+            .play(if keep { BARS_STAY } else { BARS_ON }, &mut problems);
+        let left = top.root.tween_time_left();
         top.phase = if left > 0.0 {
             Phase::Entering(left)
         } else {
@@ -1028,7 +1130,7 @@ impl Ui {
                 Phase::Covering(left) => {
                     *left -= dt;
                     if *left <= 0.0 {
-                        covered = layer.then.take();
+                        covered = layer.then.take().map(|s| (s, layer.bars_kept));
                         layer.phase = Phase::Covered;
                     }
                     false
@@ -1046,7 +1148,8 @@ impl Ui {
             if done {
                 self.left(id);
             }
-            if let Some(next) = covered {
+            if let Some((next, keep)) = covered {
+                self.bars_next = keep;
                 self.push_layer(next, false, false, None, false);
             }
         }
@@ -1672,7 +1775,12 @@ impl Ui {
             crate::screens::hold_entrances(&mut root);
             self.held = true;
         }
-        let left = start_transition(&mut root, "On", &["In"], &mut self.problems);
+        let mut left = start_transition(&mut root, "On", &["In"], &mut self.problems);
+        if !overlay && !self.building_chrome {
+            let keep = std::mem::take(&mut self.bars_next);
+            root.play(if keep { BARS_STAY } else { BARS_ON }, &mut self.problems);
+            left = root.tween_time_left();
+        }
         let owner = if overlay { owner } else { None };
         let layer = Layer {
             id,
@@ -1692,6 +1800,7 @@ impl Ui {
             chrome: false,
             built,
             shown: !overlay,
+            bars_kept: false,
         };
         // An overlay goes directly above its owner and the owner's other
         // overlays; a screen on top of everything but the chrome; the
@@ -1732,13 +1841,14 @@ impl Ui {
     /// transition ends.
     fn close(&mut self, id: u64, cancel: bool) {
         let mut problems = Problems::default();
+        let keep = self.keeps_bars(id);
         let Some(layer) = self.layer_mut(id) else {
             return;
         };
         if matches!(layer.phase, Phase::Leaving(_) | Phase::Left) {
             return;
         }
-        let left = if cancel {
+        let mut left = if cancel {
             let child = if hit::find(&layer.root, "Cancel").is_some() {
                 "Cancel"
             } else {
@@ -1748,6 +1858,13 @@ impl Ui {
         } else {
             start_transition(&mut layer.root, "Off", &["Out"], &mut problems)
         };
+        if !keep {
+            layer
+                .root
+                .play(if cancel { BARS_CANCEL } else { BARS_OFF }, &mut problems);
+            left = layer.root.tween_time_left();
+        }
+        layer.bars_kept = keep;
         layer.phase = Phase::Leaving(left);
         self.problems.messages.extend(problems.messages);
         self.set_shown(id, false, false);
@@ -1819,8 +1936,10 @@ impl Ui {
             return;
         };
         if let Some(next) = removed.then {
+            self.bars_next = removed.bars_kept;
             self.push_layer(next, false, false, None, false);
         } else if !removed.overlay {
+            self.bars_next = removed.bars_kept;
             self.uncover();
         }
         self.prune_inputs();

@@ -7,13 +7,18 @@ room-home-title = マルチプレイ
 
 room-home-heading = マルチプレイ
 
-room-home-about = 試作版です。この端末でCPU相手に複数曲の対戦を練習できます。サインインも接続も不要です。
-
 room-home-practice = CPU練習
 
 room-home-private = プライベートルーム
 
-room-home-private-note = プライベートルームは招待制で、Twitchでのサインインが必要です。曲の共有とオンラインでのステージのプレイは今後追加されます。
+room-home-find = マッチング · 近日公開
+room-home-browse = ルームを見る · 近日公開
+room-home-join = リンクで参加
+room-sign-in-title = サインイン
+room-sign-in-for-private = プライベートルームは招待制で、Twitchのアカウントでプレイします。作るにはTwitchでサインインしてください。
+room-sign-in-for-account = Twitchでサインインすると、プライベートルームを作ったり招待に参加したりできます。CPU練習にアカウントは不要です。
+room-join-title = リンクで参加
+room-join-heading = リンクで参加
 
 ## The room.
 
@@ -146,7 +151,7 @@ room-rules-battle-value = サバイバル · 暫定
 room-rules-points-value = 順位制 · 試験的
 
 room-rules-level-note = CPUのレベルは譜面に対する強さで、腕前の評価ではありません。
-room-rules-points-note = 8人未満の得点は試験的なルールによります。
+room-rules-points-note = 8人以外の人数での得点は試験的なルールによります。
 room-rules-locked-note = 変更は次の対戦から適用され、この対戦のルールは変わりません。
 room-rules-clears-note = 適用すると準備OKが解除されます。
 
@@ -202,6 +207,7 @@ room-play-level = Lv { $level }
 room-play-out = アウト
 
 room-play-won = 1位確定
+room-play-more = ほか{ $count }人
 room-play-cue-match-begin = 対戦スタート
 room-play-cue-stage-begin = ステージ { $number } スタート
 room-play-cue-final-stage = ファイナルステージ

@@ -157,21 +157,50 @@ fn the_home_opens_practice_and_back_returns_through_it() {
     h.key("Enter", "Enter");
     h.run(0.5);
     assert_eq!(top(&h), "multiplayer");
-    assert!(h.texts().iter().any(|t| t == "CPU practice"));
+    let texts = h.texts();
+    for t in [
+        "Find match · Coming soon",
+        "Browse rooms · Coming soon",
+        "CPU practice",
+        "Private room",
+        "Join by link",
+        "Sign in with Twitch",
+    ] {
+        assert!(texts.iter().any(|x| x == t), "{t}: {texts:?}");
+    }
+    // Focus waits for the first key, as the start menu's; the grayed
+    // entries take focus and do nothing.
+    assert_eq!(h.ui.focused(), None);
+    h.key("a", "a");
+    assert_eq!(h.ui.focused(), Some("Choice.find"));
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(top(&h), "multiplayer");
+    // The private room asks to sign in first, in a dialog naming Twitch.
+    press(&mut h, "Choice.private");
+    assert_eq!(top(&h), "sign-in");
     assert!(
-        h.texts().iter().any(|t| t.starts_with("Not signed in")),
+        h.texts()
+            .iter()
+            .any(|t| t.starts_with("Private rooms are invite-only")),
         "{:?}",
         h.texts()
     );
-    // The private room signs in first (the sample shell stays).
-    press(&mut h, "Item1");
-    assert_eq!(top(&h), "multiplayer");
+    press(&mut h, "Confirm");
     assert!(
         h.texts().iter().any(|t| t == "Signing in…"),
         "{:?}",
         h.texts()
     );
-    press(&mut h, "Item0");
+    press(&mut h, "Cancel");
+    assert_eq!(top(&h), "multiplayer");
+    // Join by link: a page over the home, Back to it.
+    press(&mut h, "Choice.join");
+    assert_eq!(top(&h), "join-link");
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h), "multiplayer");
+    press(&mut h, "Choice.practice");
     assert_eq!(top(&h), "room");
     assert_eq!(view(&env).phase, "lobby");
     h.key("Escape", "Escape");
@@ -322,8 +351,8 @@ fn the_rules_pop_up_keeps_cpus_within_the_cap_and_locks_the_running_match() {
     }
     assert_eq!(
         view(&env).draft[1],
-        7,
-        "the cap of eight, the player included"
+        8,
+        "the cap of nine, the player included"
     );
     for _ in 0..10 {
         press(&mut h, "Dec.cpus");

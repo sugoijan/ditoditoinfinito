@@ -305,8 +305,8 @@ What is real and what is not in M3:
 - Watching after elimination is not built: when the player is out, their
   play ends as a failed single play does (its fade and its results) and
   the remaining CPUs are played to their end at once to settle the
-  stage. A spectator view, Watching [name] and miniature fields are later
-  work.
+  stage. A spectator view and Watching [name] are later work (M6 adds
+  the miniature fields).
 - The full evaluation can be seen only as the play's results; the room
   does not keep it to reopen later (the design's "My result" detail).
 - The practice room still lives for the session (web) or run (desktop).
@@ -652,8 +652,379 @@ Development-only or mocked in M5d:
   longer calls it (`mpdev=1` and `--mp-dev-content` are gone).
 - The development identity provider stands in for Twitch in every run.
 
-## Provisional choices
+## M6: the opponents' miniature fields, a first look (implemented, 2026-11-10)
 
+A practice stage's CPUs are shown as small fields of their own play in
+the side space, on both shells, for the maintainer to iterate on the look
+from screenshots. It replaces M3's column where the sides have room; the
+column stays as the fallback. (M6b, below, changed the look after the
+maintainer's review: read it for what is current.)
+
+Implemented and tested:
+
+- **A stream of judged moments per player** (`ddi_session::battle::feed`):
+  `Moment { at, tick, lane, judgment, life, out }`, the time it was
+  judged, which note of the copy (its tick and lane), the judgment, the
+  life after it and whether it put the player out. A `FieldFeed` holds a
+  player's moments and draws them a presentation delay after they
+  happened (`LOCAL_DELAY` = 0 for CPUs judged on this device; a network
+  feed would set its own): a hit note leaves the field once its moment
+  shows, a missed one scrolls on past the receptors, each lane flashes
+  its last judgment for `FLASH_SECONDS` (0.4 s), life and Out follow the
+  last moment shown, and out of the stage the field goes blank as a
+  play's does. Nothing is inferred from a note reaching the receptors.
+  The local CPUs feed it from their own judged play
+  (`Opponent::take_judged`, the engine's judge events of each frame,
+  turned into moments by `Battle::advance`); the view never reads the
+  CPU's player, so an online room can later feed the same view from the
+  network.
+- **The copy they play, never the chart**: `TapTrack` is
+  `ddi_engine::cpu::project` (holds and rolls as taps; mines, lifts and
+  fakes left out), the same copy the CPUs are judged on, one for all of
+  a stage's CPUs.
+- **The same song clock**: every miniature scrolls on the local play's
+  drawn song second, at the player's own speed and direction (Reverse
+  puts their receptors at the bottom too); the copy's notes fade in over
+  the last lane of a miniature's height and out half a lane past its
+  receptors (a miniature has no edge to hide them behind).
+- **One noteskin for everything**: the miniatures are drawn by the play's
+  own `NoteskinPlay`, the instance its field is drawn with, in the same
+  frame and the same passes, after the field
+  (`ddi_render::scene::Miniature`, `Renderer::set_miniatures`,
+  `NoteLayer::miniature`). No Lua runs for them and nothing is loaded
+  twice: the skin's components draw their receptors and taps at the
+  miniature's geometry with the frame's clocks, the receptors' `hit`
+  clock and the explosion components' instances from the miniature's own
+  judgments, while the play's own presses, judgments, held notes, drawn
+  positions and camera are put aside and back. A receptor an actor draws
+  (StepMania skins: its state is what the play's own presses' commands
+  made it) is drawn as it rested a second into the play with nothing
+  pressed for half a second, so a miniature's receptors do not press with
+  the player's. An actor's explosion cannot be played without the Lua, so
+  where the skin's explosions are not components (Peters-DDR, the other
+  StepMania skins) the 2D pass draws a soft glow in the judgment's color
+  on the receptor instead. Where the skin has no part, the built-in
+  arrows draw it, as on the play's own field (the skin falls back the
+  same way there).
+- **Two runs whatever their number**: every miniature's panel and
+  built-in parts in one run of sprites, then every miniature's skin quads
+  in one run of quads. A run per miniature cost a render pass each
+  (skins' quads blend in passes of their own) and doubled the GPU time on
+  desktop; batched, the cost below.
+- **Stable slots** (`ddi_shell::opponents::arrange`): the first half of
+  the seats (rounded up) on the field's left, the rest on its right, in
+  the order the room seated them; each side a grid of the same size, its
+  columns from the field out, the block centered in the band the HUD
+  leaves (below the score and above the watermark where they share a
+  side, clear of the quit button's place whether it shows or not). A
+  slot never moves: out, it stays, dimmed, with "Out" in its field and in
+  place of its level. Above each field its name, its level and its life
+  (filled from the middle, as the play's gauge); above the left side the
+  heading "CPUs · taps-only copy", a battle's moment in its place for a
+  few seconds where no line said it, and "Stage won" above the right
+  side. No combo or score.
+- **The dancing hand keeps its side**: while the hand plays the chart
+  (on by default) its picture's frame takes its side (the right half by
+  default) and all the miniatures go to the other side, in more columns.
+- **The narrow fallback**: where a miniature's lane would be under 16
+  logical pixels (a phone held upright: about 14), or lyrics show over the
+  play, M3's column is drawn instead (names and bars, or bars alone).
+- Reduced motion: nothing of the miniatures moves but what the play's own
+  field moves (the notes scrolling); the flashes fade as the play's do.
+- The development switch for measuring: `DDI_MINIATURES=0` on desktop,
+  `localStorage` `ddi.dev.miniatures` set to `0` on the web, shows the
+  column instead (`ddi_shell::opponents::set_miniatures`).
+- Debug state: `__DDI_DEBUG.opponent_fields` (the slots, their sides, the
+  miniatures' lane); desktop's `Host::opponent_fields` (tests).
+- Tests: `crates/session/src/battle/feed.rs` (the copy taps-only and each
+  note found again; a hit leaves and a miss scrolls on, flashes stop,
+  nothing past the visible range; a delay holds the judgment, life, out
+  and the blank field back; moments out of order take their place);
+  `crates/session/src/play/tests/stage.rs` (each CPU's field fed every
+  note of the copy once, in order, its life as shown its gauge's);
+  `crates/render/src/scene.rs` (miniatures after the field on their
+  panels, the built-in parts and a judgment's flash);
+  `crates/render/src/noteskin.rs` (a miniature's own judgment's effect
+  drawn at its lane, the play's hits, presses and drawn positions as they
+  were, actors' explosions not drawn); `crates/shell/src/opponents.rs`
+  (seven slots at 1280×720, 1920×1080 and a phone held sideways, never
+  over the field or the HUD's areas, the same size, smaller than the
+  play's lanes; fewer are larger; Reverse; the hand's side; a phone held
+  upright falls back; Out in place; the cue and Stage won);
+  `crates/desktop/tests/opponent_fields_offscreen.rs` (seven CPUs get seven
+  slots through the real play host; ignored: the look's scenarios'
+  pictures and costs).
+
+Measured costs (seven CPUs in miniature against the same stage with the
+column, Beatucada's Challenge chart on desktop and its Hard chart on the
+web, CPUs at level 3 of 5, the player autoplayed, mean and 95th percentile
+in milliseconds; this Mac's GPU; the dancing hand dominates where it is
+on):
+
+Desktop offscreen (`crates/desktop/tests/opponent_fields_offscreen.rs`,
+`--ignored`; 220 frames at 60 Hz from 22 s, the same play switching from
+miniatures to the column; "record" is the frame body's CPU time, "with
+GPU" the same frame waited for on the GPU):
+
+| Desktop, 1280×720 unless said | Miniatures: record / with GPU | Column: record / with GPU |
+| --- | --- | --- |
+| Infinito, hand off | 0.20 / 1.53 (p95 0.36 / 2.07) | 0.13 / 0.97 (p95 0.23 / 1.09) |
+| Infinito, hand off, 1920×1080 | 0.19 / 1.51 (p95 0.33 / 2.11) | 0.14 / 1.20 (p95 0.26 / 1.92) |
+| Peters-DDR, hand off | 0.40 / 1.43 (p95 0.60 / 1.99) | 0.18 / 0.93 (p95 0.33 / 1.06) |
+| Infinito, hand on (the default) | 1.24 / 3.30 (p95 2.61 / 5.58) | 1.11 / 2.78 (p95 2.67 / 4.79) |
+
+Web (`target/scratch/mp/m6a/m6a.mjs`, the frame recorder, `perf=1`, every
+frame of a whole stage past its fifth second, about 5,900 frames; a
+separate play for each column; "total" is the frame's main-thread work,
+"GPU" WebGPU's submit to done):
+
+| Web | Miniatures: total / GPU | Column: total / GPU |
+| --- | --- | --- |
+| Chrome (WebGPU), 1280×720, hand off | 0.83 / 2.63 (p95 2.1 / 3.6) | 0.69 / 2.22 (p95 1.6 / 3.6) |
+| Chrome (WebGPU), 1280×720, hand on | 1.89 / 3.07 (p95 3.7 / 4.0) | 1.83 / 3.35 (p95 3.6 / 3.9) |
+| Chrome, phone held sideways (844×390 at 3×), hand on | 2.05 / 3.55 (p95 3.9 / 4.5) | 2.10 / 3.44 (p95 4.1 / 4.4) |
+| Chrome, Peters-DDR, 1280×720, hand off | 1.55 / 2.49 (p95 3.8 / 3.0) | not measured |
+| Firefox (WebGL2), 1280×720, hand off | 1.70 (p95 4) | 1.39 (p95 3) |
+| Firefox (WebGL2), 1280×720, hand on | 2.34 (p95 4) | 1.66 (p95 3) |
+
+Seven miniatures cost about 0.1–0.2 ms of main-thread time a frame with
+Infinito (0.2–0.5 ms with Peters-DDR, whose actors are emitted one by one),
+and about 0.3–0.6 ms of GPU time; no browser dropped a frame (Chrome's
+frames 16.7 ms apart throughout, Firefox's 8.3). A phone held upright
+shows the column (no miniatures). No degradation was needed: the
+miniatures use the skin's own textures and materials at their own size,
+with its effects reduced to the hit effects its components draw. A
+first version that gave each miniature its own runs doubled desktop's GPU
+time (a render pass each); batched into two runs, the cost above.
+
+What is real and what is not in M6:
+
+- The miniatures show the CPUs' real judged plays of the tap-only copy,
+  as they happen; they are not decorations driven by life.
+- They are not the faithful miniatures of the design yet: no holds or
+  mines (the CPUs play none), no combo or score, no power, no attacks,
+  no No feed state, nothing of a remote player's own display settings
+  (each miniature takes the local player's speed and direction), and the
+  local player's skin rather than theirs. Online stages still show no one
+  during the play (M5d); the feed is ready for a network stream, the
+  stream is not built.
+- Actor-drawn receptors are frozen at their resting state (their beat's
+  animation from the effects' clocks still runs); actor-drawn explosions
+  are replaced by the glow.
+
+## M6b: the miniatures after review, nine players, far more CPUs (implemented, 2026-11-11)
+
+The maintainer reviewed M6's miniatures (it plays smoothly) and asked for
+these changes; each is built on both shells.
+
+- **Combo.** Each miniature shows its player's combo, drawn by the play's
+  own HUD shader (`ddi_render::hud`, the miniatures' instances of it: the
+  same digits, outline tiers at each hundred and the pulse), placed in the
+  middle of its field as the play's is in the play's field, scaled by its
+  lane (a 72 px lane is the play's size). The stream's moments now carry
+  the combo after them (`Moment::combo`). Legible rather than faithful:
+  it is never scaled below 0.3 of the play's (`MINI_COMBO_MIN_SCALE`),
+  so at the smallest lanes (16 px, 0.22 of the play's) it is larger
+  than its field's scale; at 1280×720 with eight CPUs (32 px lanes,
+  0.44) it is to scale. Hidden once out.
+- **Life gauge** as the play's: the HUD's own gauge (its centered,
+  less-than-linear fill, jade turbulence, damage and recovery trails,
+  Vivid at full life, coral in danger), placed on each field as
+  `life_rect` places the play's on its field (22 units below its top,
+  8 high, four lanes wide, its units the lane over 72). The miniature's
+  field is now shaped as the play's: its receptors a lane and a half from
+  its end (`MINI_RECEPTOR`), seven lanes tall. Each miniature has its own
+  gauge motion. The name and level moved above the field, where nothing
+  else is.
+- **The power bar to come: decided, room left.** It goes above the life
+  bar, on the play's field and on every miniature
+  (`docs/plans/multiplayer-ui.md`, "Play and spectator layout",
+  decision). The play's gauge sits 22 HUD units below the screen's top,
+  so the power bar fits in the 22 units above it; a miniature's gauge
+  sits the same 22 units (scaled) below its field's top, inside its band,
+  so the same room is there on every miniature. Nothing is drawn there
+  yet.
+- **The band.** A miniature's background is the play's field's band: the
+  same black at the field filter's darkness (`filter_alpha` of the
+  player's Options → Display filter), as wide past its lanes as the
+  play's (0.3 lane), square, and absent where the play's field has none
+  (the filter off, nothing behind the field). M6's darker rounded panel
+  is gone.
+- **The dancing hand goes behind the field during a stage**
+  (`dance::Preview::set_behind_field`, the play study's "Hand behind
+  field"): its picture's frame is the field's band, under the band's
+  darkening, out of the miniatures' way; its Off still turns it off; a
+  singleplayer play's hand is where the settings put it, as before. The
+  hand never claims a side any more: the miniatures always use both.
+- **Readable text**: names 14 px semibold (12 px where a slot is under
+  100 px wide), levels and Out 12.5 px, the heading 13 px, brighter
+  muted text; the column's text grew the same way.
+- **The white blot** on Infinito's miniature receptors was the skin's own
+  W1 burst (additive white, opaque for its first frames; the play's field
+  shows the same burst), which at a third of the size covers the whole
+  receptor. A miniature's explosion components are now drawn at 0.4 of
+  their opacity (`noteskin::MINIATURE_HIT_ALPHA`): the burst stays
+  visible as a hit, not a blot.
+- **Nine players, eight opponents.** `RoomPolicy::INITIAL_COMPETITOR_CAP`
+  is 9: the one policy check (`RoomPolicy::check_competitors`), so
+  practice (CPUs 1–8 in Rules) and the private server (it runs the same
+  reducer) both follow it; hosted rules default to nine seats. Awards for
+  nine are `AwardRule::ExperimentalNineV0` (PROVISIONAL, named and
+  versioned): the eight-player table for the first eight places and 0
+  for ninth; marked experimental like the small-field rule; the Rules
+  note now says points for fields other than eight are experimental.
+  The server needs a rebuild and redeploy from this checkout to take the
+  new cap (it depends on `ddi-room` by path; no server code changes).
+- **Eight miniatures lay out** at 1280×720 and 1920×1080 in two 2×2
+  grids (32 and 44 px lanes), on a phone held sideways in two rows of
+  four (16 px lanes; slot gaps went from 12 to 10 px for it), and fall back
+  to the column on a phone held upright.
+- **Far more CPUs, development only.** `RoomClient::development` (policy
+  `RoomPolicy::development`, cap 129; points `AwardScheme::DevelopmentV0`,
+  linear for any field; one stage) is reached only by a development
+  switch: the web's `#/?mp=1&mpcpus=N` (with the hidden multiplayer
+  switch), desktop's `--mp-dev-cpus N`; never from a menu. It is for
+  trying the layout and the cost. Where all the miniatures do not fit at
+  the smallest lane (16 px), as many as fit are shown, the first seats in
+  order, and a line under the right side says how many more
+  ("+49 more", `room-play-more`); the column likewise holds what the
+  screen's height holds, then says how many more. Nothing ever covers
+  the field. (The room screen lists all the players; with a hundred it
+  runs off its page: development only, not addressed.)
+- Tests: `ddi-room` (the cap of nine, the nine-player rule, the
+  development scheme), `ddi-ui` (practice's eight opponents, the
+  development room), `ddi-shell` (eight slots at three sizes, in order,
+  inside their bands with receptors a lane and a half down; 16 to 128
+  opponents at two sizes: the first seats, a count, never over the field,
+  the HUD or each other; the column's count), `ddi-session` (the combo
+  carried and shown, delayed with the rest), `ddi-render` (the bands,
+  the miniature's hit effect), the desktop offscreen test with eight CPUs.
+
+Measured costs (Beatucada, the player autoplayed, CPUs at level 3 of 5, ms,
+mean (p95); "miniatures" against the same stage drawn with the column):
+
+Desktop offscreen (`opponent_fields_offscreen`, `--ignored`; 220 frames at
+60 Hz, the same play switching from miniatures to the column; "record" the
+frame body's CPU time, "with GPU" the frame waited for on the GPU):
+
+| Desktop | Miniatures shown | Miniatures: record / with GPU | Column: record / with GPU |
+| --- | --- | --- | --- |
+| 8 CPUs, 1280×720, hand off | 8 (32 px) | 0.25 / 1.79 (0.43 / 2.49) | 0.14 / 1.00 (0.27 / 1.23) |
+| 8 CPUs, 1280×720, hand behind the field | 8 | 1.33 / 3.54 (2.65 / 5.14) | 1.20 / 2.86 (2.71 / 4.65) |
+| 8 CPUs, 1920×1080, hand off | 8 (44 px) | 0.28 / 1.79 (0.44 / 2.61) | 0.14 / 1.04 (0.30 / 1.32) |
+| 8 CPUs, Peters-DDR, 1280×720 | 8 | 0.55 / 1.71 (0.82 / 2.16) | 0.27 / 1.12 (0.43 / 1.39) |
+| 16 CPUs, 1280×720 (development) | 16 | 0.35 / 2.14 (0.57 / 2.73) | 0.22 / 1.16 (0.38 / 1.40) |
+| 32 CPUs, 1280×720 (development) | 29, +3 more | 0.42 / 2.48 (0.66 / 3.14) | 0.20 / 1.13 (0.34 / 1.36) |
+| 128 CPUs, 1280×720 (development) | 29, +99 more | 0.48 / 2.69 (0.73 / 3.51) | 0.27 / 1.23 (0.45 / 1.51) |
+| 64 CPUs, 1920×1080 (development) | 64 (18 px) | 0.69 / 4.15 (0.93 / 5.53) | 0.22 / 1.24 (0.38 / 1.49) |
+| 128 CPUs, 1920×1080 (development) | 79, +49 more | 0.91 / 5.15 (1.24 / 6.86) | 0.29 / 1.45 (0.51 / 2.42) |
+
+Web (`target/scratch/mp/m6b/m6b.mjs`, the frame recorder over a whole
+stage past its fifth second, about 5,900 frames; a separate play for the
+column; "total" the frame's main-thread work, "GPU" WebGPU's submit to
+done; both browsers held their frame rate throughout, Chrome 16.7 ms,
+Firefox 8.3 ms):
+
+| Web | Miniatures shown | Miniatures: total / GPU | Column: total / GPU |
+| --- | --- | --- | --- |
+| Chrome (WebGPU), 8 CPUs, 1280×720, hand behind | 8 (32 px) | 2.12 / 2.50 (4.0 / 3.5) | 2.15 / 2.44 (4.0 / 3.5) |
+| Chrome, 8 CPUs, 1920×1080, hand off | 8 (44 px) | 0.85 / 2.96 (2.0 / 4.4) | not measured |
+| Chrome, 2 CPUs, 1280×720, hand off | 2 | 0.76 / 2.08 (1.7 / 3.6) | not measured |
+| Chrome, Peters-DDR, 8 CPUs, hand off | 8 | 1.54 / 1.89 (3.6 / 3.0) | not measured |
+| Chrome, phone sideways (844×390 at 3×) | 8 (16 px) | 2.03 / 3.29 (3.6 / 4.0) | not measured |
+| Chrome, phone upright (390×844 at 3×) | the column | 2.00 / 3.04 (3.7 / 3.9) | (the same) |
+| Chrome, 16 CPUs, 1920×1080 (development) | 16 (38 px) | 1.00 / 2.70 (2.5 / 4.3) | not measured |
+| Chrome, 32 CPUs, 1920×1080 (development) | 32 (25 px) | 1.29 / 2.71 (3.0 / 3.9) | not measured |
+| Chrome, 64 CPUs, 1920×1080 (development) | 64 (18 px) | 1.75 / 2.75 (3.8 / 3.8) | not measured |
+| Chrome, 128 CPUs, 1920×1080 (development) | 79, +49 more | 2.03 / 2.91 (3.9 / 3.8) | 1.18 / 2.44 (2.8 / 4.0) |
+| Firefox (WebGL2), 8 CPUs, 1280×720, hand behind | 8 | 2.08 (4) | 1.74 (3) |
+| Firefox, 64 CPUs, 1920×1080 (development) | 64 | 3.76 (6) | 1.34 (2) |
+
+Eight miniatures cost about 0.1 ms of main-thread time a frame (0.3 ms
+with Peters-DDR's actors) and 0.7 ms of GPU time on desktop; the 128
+CPUs' own judging costs little (the column with 128 CPUs: 0.29 ms a
+frame on desktop). What grows with the count is drawing: 64 miniatures
+add about 3 ms of GPU time on desktop and 2.4 ms of main-thread time on
+Firefox (WebGL2's submit), still within a frame here. Past what fits,
+the cost stops growing (only the slots shown are drawn).
+
+Proposed policy for large parties (not decided; the design leaves it
+open): up to eight opponents, everyone in miniature; past what fits at the
+smallest legible lane (about 16 px: some 29 at 1280×720 and 79 at
+1920×1080), a fixed number of miniature slots chosen by relevance rather
+than seat order (the followed player, the player's current target and
+attacker once attacks exist, then the nearest in standing), stable for a
+stage, the rest summarized as a count (and later a dense strip of life
+ticks), since a stage's 100+ fields cost GPU time without being readable.
+
+## M7a: the multiplayer home and the bars that stay put (implemented, 2026-11-11)
+
+The maintainer's feedback on M6b's prototype, first part; both shells.
+
+- **The home is the start menu's column** (`ddi_ui::screens::online_home`,
+  still reached as `screens::online::OnlineScreen` with
+  `OnlinePage::Home`): centered wide buttons in the start menu's style
+  (`TitleMenu.Choice`, `TitleMenu.Disabled`), over the start menu's outline
+  rain (`TitleMenu.Background`, held still under reduced motion), under
+  the shared header and over the shared footer. Focus waits for the first
+  key or button, which only focuses the first entry; hover moves it; Back
+  (Escape, the header's button, a controller's Back) leaves. Rows shrink
+  (to 44 CSS pixels at least) where the bars leave less room, as on a
+  phone held sideways; a narrow footer drops its key hints.
+- **Every entry the design plans** for the menu (`multiplayer-ui.md`,
+  "Menu tree" and the entry study): Find match and Browse rooms grayed
+  out ("· Coming soon", focusable and inert, as the start menu's
+  Multiplayer), CPU practice, Private room (the design's Create room as
+  far as it is built: invite-only, no public rooms), Join by link. The
+  design's main three come first (Find match, Browse rooms, CPU
+  practice), then the secondary two. The design's description beside the
+  focused entry is not built (the column alone).
+- **Join by link** is a page pushed over the home on both shells (it
+  was desktop's field on the home; the web could only open a link): the
+  invite field and Open invite; Back returns to the home.
+- **Sign-in moved to the footer's right**: Sign in with Twitch signed out
+  (or with the server unreachable), the signed-in display name otherwise,
+  which opens a small menu with Sign out; nothing while the server is
+  being asked. Sign-in is asked for where it is needed
+  (`online_home::SignInDialog`): Private room signed out opens a dialog
+  naming Twitch and what it is for (Cancel, Sign in with Twitch); the
+  footer's Sign in opens it for the account. The dialog follows the
+  sign-in through: desktop's wait for the browser (Open the browser again,
+  Cancel), completing, canceled and failed (Try again), and closes itself
+  once signed in, the private room then made. A sign-in already under way
+  when the home is shown (the web back from Twitch, `?signin=canceled`)
+  opens it too. Under the column a muted line says when the server could
+  not be reached, the room is being made, or making it failed.
+- **The bars stay put, everywhere.** The header and the footer (and what
+  sits in the header's row: song select's search, mods and icons,
+  Options' Saved and More, the results' Watch replay, the room's Rules
+  and More) are the bars (`screens::Edge::HeaderBar`, `FooterBar`). From
+  a screen with bars to another they no longer leave and come back: the
+  leaving screen keeps them as they are while its own parts leave, and
+  the next screen's show at once, so only what is in them changes, at the
+  swap, without animation (for now). They still slide in and out to and
+  from a screen without them (the start menu, the play's prompt). This is
+  global: song select and Options both ways, the results to song select,
+  the pages, the multiplayer home and the room, the room and song
+  select's pick. The `Ui` decides (`Screen::shared_bars` says ahead
+  whether a screen may have bars, `ui::has_bars` reads its tree;
+  `BarsOn`, `BarsOff`, `BarsCancel` and `BarsStay` are the parts'
+  commands). On the web each page has its own `Ui`: the route a
+  `Navigate` or `Back` leads to says whether the next page has bars
+  (`router::has_bars`, Back's target from the route trail,
+  `router::back_target`), the leaving page keeps its bars, and the next
+  page's `Ui` shows its own at once (`Ui::bars_kept`, `Ui::carry_bars`).
+  The requests still wait for the exit, as before. The chart editor
+  fades as a whole and has no bars (from song select its header leaves
+  as before). Under the web's loader the bars' entrances are held like
+  every part's.
+- Tests: `ddi-ui` (the bars at rest every frame from song select to
+  Options and back; they still come in from the start menu and leave to
+  it; held until the reveal; carried over from another `Ui`; the home's
+  entries, its sign-in dialog, Join by link and practice; the `qps-ploc`
+  walk over the home, the dialog and Join by link).
+
+## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
@@ -682,7 +1053,7 @@ Development-only or mocked in M5d:
 | Stage plays are not kept in the play history or bests | both shells' record paths | A practice match leaves no history | Whether a stage counts as a personal play |
 | Battle voice `battle-voice-v0`: priorities outcomes/out 40, (attacks 30, none yet), life critical 20, players left 10, openings and the finished song 5; one battle line at a time, a lesser or equal one passed over, never queued | `ddi_session::announcer::battle::BATTLE_VOICE_V0` | Which battle line speaks when two meet | The battle voice's priorities and whether a line may cut another (needs a voice bus that can stop one sound) |
 | A stage leaves out a play's routine lines (combos, comments, life lost, last life, full combos, cleared, failed, grades, records, cheer) | `battle::stage_speaks`, `Announcer::tick` in a stage | A pack without battle lines says only ready, here we go, failed (out) and cleared (finished after a win) in a stage | Whether some routine lines (combo milestones) belong in a battle voice preset |
-| A moment shows only where its own line was not said; for 2.5 s with a 0.25 s fade; in the column's heading's place, nothing in bars-only columns or with no column | `VoicePolicy::cue_seconds`, `cue_fade`, `ddi_shell::opponents` | A phone's narrow column has no cue | Whether cues show always, and where on a phone |
+| A moment shows only where its own line was not said; for 2.5 s with a 0.25 s fade; in the column's heading's place (above the miniatures from M6), nothing in bars-only columns or with no column | `VoicePolicy::cue_seconds`, `cue_fade`, `ddi_shell::opponents` | A phone's narrow column has no cue | Whether cues show always, and where on a phone |
 | Survivors milestones at four and two only; life critical is the gauge's own danger, once a stage, never from the start | `SURVIVOR_MILESTONES`, `Battle::tell` | A one-life gauge never says life critical | The battle preset's danger threshold once battle life exists |
 | The match's line is said on the last stage's results, in the stage end's place; nothing is spoken in the room | `PlaySession::stage_reported` | The match's outcome is heard as the last results open | A room voice for intermission and match results |
 | Each stage is its own Start after the room's countdown (practice's prompt asks for Start) | shells | Two presses per stage: the room's Start, then the prompt's | A shared start in hosted rooms (the room's countdown starts the play) |
@@ -702,6 +1073,16 @@ Development-only or mocked in M5d:
 | A grant: thirty minutes, one song, a whole share's byte limit (2 GB); room shares expire with the room's idle life (seven days from their making) and are deleted when it closes | `ddi_share_protocol::GRANT_TTL_MS`, `../ddi-server` `RoomConfig::share_life_secs` | A song shared in a room lives at most a week unless shared again | Per-room limits and the life of a long room's shares |
 | Any operator (owner, co-host, admin) may ask for a pending stage's grant; only the client that chose it asks by itself | `../ddi-server` `RoomCore::grant_request`, `RoomClient::sync_online` | A co-host can't take over a host's half-done upload from the room screen yet | The "host gone before upload" recovery the study proposes |
 | Start in the lobby is one command (`StartStage` on the first stage); `StartMatch` kept for protocol 1's older clients | `reduce.rs` | A refused Start locks nothing | None (M5c's question answered) |
+| Miniatures: lane at most 45% of the play's and 44 px, at least 16 px (else as many as fit at 16 px and a count, else the column); seven lanes tall, receptors a lane and a half from their end; 10 px between slots, 20 px from the field's band | `ddi_shell::opponents` constants | Eight miniatures at 1280×720 have 32 px lanes (2×2 each side), 44 px at 1920×1080, 16 px on a phone held sideways; a phone held upright shows the column | The miniatures' size, density and placement |
+| First half of the seats on the left, the rest on the right; in a stage the dancing hand is behind the field (its band) | `opponents::arrange`, `dance::Preview::set_behind_field` | The hand is smaller during a stage, darkened by the band | The hand's size and dimming behind the field |
+| Every miniature at the local player's speed and direction | `PlayView::draw` | Opponents' fields read like the player's own, not like theirs | Their own display settings once a remote stream carries them |
+| A judgment shows 0.4 s; a skin's explosion components drawn at 0.4 opacity on a miniature; a skin without them gets a soft glow of the judgment's color | `feed::FLASH_SECONDS`, `noteskin::MINIATURE_HIT_ALPHA`, `opponents::draw_fields` | Infinito's W1 burst is a faint flash on a miniature; Peters-DDR's miniatures glow instead of exploding | The miniature's hit effect |
+| An actor-drawn receptor is drawn as it rested a second into the play | `NoteskinPlay::rest_receptors` | StepMania skins' miniature receptors do not press | None expected (no Lua per miniature) |
+| Life, combo and moments drawn after a presentation delay, 0 for local CPUs | `feed::LOCAL_DELAY`, `FieldFeed::new` | None locally | The online delay and how it is corrected |
+| A miniature's combo never below 0.3 of the play's scale | `hud::MINI_COMBO_MIN_SCALE` | Below 22 px lanes the combo is larger than its field's scale | Legibility against faithfulness at small sizes |
+| Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth | `ddi_room::awards` | A nine-player stage's ninth earns nothing, the first eight as in an eight-player field; marked experimental | The award rule for nine (and whether ninth should earn something) |
+| Development only: practice beyond the cap (129), linear points for any field; past what fits, the first seats in miniature and a count | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::arrange` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |
+| With lyrics shown the column is drawn instead | `PlayView::draw` | A work with lyrics shows the column | Where miniatures go around lyrics |
 | Desktop's session in the config folder's `online-session`, owner-only on Unix, plain text | `crates/desktop/src/online.rs` | Signed in across runs until the session's thirty days | The system keychain instead |
 
 ## Open questions
@@ -721,9 +1102,12 @@ Development-only or mocked in M5d:
   CPUs (the entry study's "Local Start match needs no separate Ready
   action"), or stay two presses as built?
 - Practice: should the next match keep the finished match's songs?
-- The multiplayer home is a page with one working choice; the design's
-  Find match, Browse rooms, Create room and Join by link come with the
-  online slices (or not at all for this prototype).
+- M7a: the home lists Find match and Browse rooms as Coming soon and
+  shows Private room in the design's Create room place (invite-only, no
+  public visibility). Should Create room become its own entry once public
+  rooms exist, Private room then its invite-only option?
+- M7a: the bars change their content at the swap with no animation;
+  should the title or the hints cross-fade later?
 - M3: should CPUs play the full chart (holds, mines) once they can, so
   that life and accuracy compare like for like? Today they play a taps-only
   copy and the player the full chart.
@@ -764,8 +1148,27 @@ Development-only or mocked in M5d:
 - M5d: who recovers a stage whose host left before the upload finished?
   Today any operator may ask for its grant, but the room screen offers it
   only to the device that chose the song.
-- M5c: the sign-in prompt is the home's page itself (a line and the
-  buttons), not a separate panel naming the destination; is that enough?
+- M6: the miniatures take the local player's speed and Reverse. Should
+  they show each opponent's own (the design's "preserve their allowed
+  display settings") once remote players send them?
+- M6: a skin whose explosions are actors (Peters-DDR) gets a colored glow
+  on the miniature's receptor instead; is that acceptable, or should the
+  miniatures always use one effect of our own, whatever the skin?
+- M6: Out dims the field and says "Out" twice (its line and its field);
+  is one enough?
+- M6: at 1920×1080 the miniatures stop growing at 44 px lanes; should they
+  grow with the screen, or keep a fixed share of it?
+- M6b: the hand behind the field is small (the band's width) and
+  darkened by the band; should it be larger behind the field (past the
+  band, under the miniatures' gap), or dimmed further?
+- M6b: at the smallest lanes the combo is larger than its field's scale
+  (legible rather than faithful): acceptable, or hide it there?
+- M6b: what should nine players' ninth place earn (0 now)?
+- M6b: for large parties, which miniatures (the proposal above: by
+  relevance, a fixed count, the rest as a count or a strip)?
+- M5c: the sign-in prompt was the home's page itself. Answered in M7a:
+  a dialog naming Twitch and what it is for, opened where a sign-in is
+  needed.
 - M5c: who may copy the invite: the server gives it to operators
   (owner, co-hosts, admins); should members be able to share it?
 - M5c: an admin who is not a member enters watching from a ticket; the

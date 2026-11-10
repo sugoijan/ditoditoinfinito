@@ -33,6 +33,10 @@ struct Playing {
 }
 
 thread_local! {
+    /// DEVELOPMENT ONLY: the CPUs of the next practice room beyond the cap
+    /// (0: an ordinary one), the web's `mpcpus=N` beside `mp=1`
+    /// (`docs/plans/multiplayer-prototype-progress.md`, M6b).
+    static DEVELOPMENT_CPUS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     static ROOM: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// The stage handed to the play route.
     static PLAYING: RefCell<Option<Playing>> = const { RefCell::new(None) };
@@ -69,10 +73,23 @@ pub(crate) fn current() -> SharedRoom {
         r.borrow_mut()
             .get_or_insert_with(|| {
                 let now = now_ms();
-                RoomClient::shared(now, now)
+                match DEVELOPMENT_CPUS.get() {
+                    0 => RoomClient::shared(now, now),
+                    cpus => std::rc::Rc::new(std::cell::RefCell::new(RoomClient::development(
+                        now, now, cpus,
+                    ))),
+                }
             })
             .clone()
     })
+}
+
+/// DEVELOPMENT ONLY: practice against `cpus` CPUs, beyond the cap, from
+/// the next practice room on (the one there is left): for trying the
+/// miniature fields with far more opponents. Never from a menu.
+pub(crate) fn develop(cpus: u16) {
+    DEVELOPMENT_CPUS.set(cpus);
+    discard();
 }
 
 /// Leave room: the practice forgotten; the next visit makes a new one.

@@ -483,6 +483,11 @@ impl View {
         self.view.host.read_fonts();
     }
 
+    /// Where the last frame drew a stage's opponents' miniature fields.
+    pub fn opponent_fields(&self) -> Option<&ddi_shell::opponents::Fields> {
+        self.view.opponent_fields()
+    }
+
     /// Waits for the lyrics' fonts (tests).
     pub fn wait_for_fonts(&mut self) {
         let host = &mut self.view.host;

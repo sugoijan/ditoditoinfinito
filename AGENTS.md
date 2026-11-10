@@ -535,8 +535,12 @@ Rust and the browser are implementation details, not advertised features.
   priorities, one battle line at a time, a play's routine lines left
   out, the results' line once the shell's `stage_reported` passes the
   room's `MatchEnd`; where no line said one, `PlaySession::battle_cue`,
-  shown in the opponents' column's heading, `ddi_shell::opponents`). Platform-free, natively tested on a
-  fake clock.
+  shown in the opponents' column's heading, `ddi_shell::opponents`;
+  each CPU's miniature field fed by its stream of judged moments,
+  `battle/feed.rs`: `Moment` (when, which note, judgment, life, combo, out),
+  the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
+  for local CPUs, so a network stream can feed the same view later).
+  Platform-free, natively tested on a fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
   `render` (`ddi-shell`), so neither keeps a copy: a play's
   `RenderOptions` and Options' field preview's options and skin from the
@@ -554,9 +558,18 @@ Rust and the browser are implementation details, not advertised features.
   and its setters for both shells (`crates/shell/src/play_view.rs`,
   `PlayView` over each shell's `PlayHost`: its pictures, its movie
   decks, its log, its text; the web's `GameLoop` and desktop's `View`
-  keep their surfaces; a practice stage's CPU opponents in a quiet column
-  beside the field, drawn by its 2D pass, `crates/shell/src/opponents.rs`). Platform-free (native and wasm), natively
-  tested.
+  keep their surfaces; a practice stage's CPU opponents beside the field,
+  `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
+  side space on both sides, clear of the HUD and the quit button's place
+  (the dancing hand goes behind the field during a stage,
+  `dance::Preview::set_behind_field`), drawn by the play's own noteskin
+  after its field on a band as its field's (`ddi_render::scene::Miniature`,
+  `NoteLayer::miniature`: no Lua run, the play's field's state put back),
+  each one's life gauge and combo by the play's HUD shader placed as the
+  play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass; past
+  what fits, the first seats and a count; where a side is too narrow or
+  lyrics show, the quiet column).
+  Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`site/index.html`, with the page's
@@ -738,8 +751,10 @@ Rust and the browser are implementation details, not advertised features.
   (`can`: capabilities from role, admin flag and phase, never from
   participation), stable ids, the match's locked rules beside the next
   match's draft, the competitor cap as one policy check
-  (`RoomPolicy::check_competitors`), and stage awards as named rules (the
-  eight-player table; `ExperimentalLinearV0`, provisional, under eight;
+  (`RoomPolicy::check_competitors`: nine; `RoomPolicy::development`, a
+  development-only practice's 129), and stage awards as named rules (the
+  eight-player table; provisional `ExperimentalLinearV0` under eight and
+  `ExperimentalNineV0` for nine; development-only `DevelopmentLinearV0`;
   exact fractions, `Points`); the battle a stage is played under, by name
   and version, and its ranking of judged runs (`battle.rs`:
   `BattlePreset::GaugeSurvivalV0`, provisional: each competitor's own
@@ -778,8 +793,13 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/multiplayer-prototype-progress.md`), behind a hidden switch
   (`Settings::multiplayer`; desktop's `--multiplayer on|off`): off, the
   start menu's Multiplayer stays "Coming soon"; on, it opens the
-  multiplayer home (`ddi_ui::screens::online::OnlineScreen`, a page: CPU
-  practice, the private online room, the account). `crates/ui/src/state/room.rs` is the room's
+  multiplayer home (`ddi_ui::screens::online::OnlineScreen`, the home
+  itself `screens/online_home.rs`: the start menu's column and rain under
+  the bars; Find match and Browse rooms grayed "Coming soon", CPU
+  practice, Private room, Join by link (a page with the invite field);
+  the account at the footer's right, Sign in with Twitch or the name
+  with Sign out; `SignInDialog` asks for a sign-in where one is needed
+  and follows it through). `crates/ui/src/state/room.rs` is the room's
   client: `RoomClient` holds `ddi_room`'s `LocalAuthority` and a `Mirror`
   kept from its envelopes, sends every change as a command (no room logic
   of its own), knows which library song and chart a stage's opaque content
@@ -983,7 +1003,9 @@ Rust and the browser are implementation details, not advertised features.
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
   `--shared LINK|ID`, `--sharing on|off`, `--multiplayer on|off` (the
   multiplayer prototype's switch; `--screen multiplayer|room`; `--join
-  LINK|INVITE` an online room's invite), `--share IDS|pack:NAME
+  LINK|INVITE` an online room's invite; development only, `--mp-dev-cpus
+  N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`
+  beside `mp=1`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--lang TAG` (the UI's language for the run: `ja`,
@@ -1267,7 +1289,17 @@ surface is not the UI's). Screens follow each other, never cross: a
 screen's parts leave to their edges (the header up, the footer down, the
 list right, the song's side left; `ddi_ui::screens::transitions`), then
 the next screen's come in; on the web a `Navigate` or `Back` request waits
-for that exit, so the address changes about 0.14 s after the press.
+for that exit, so the address changes about 0.14 s after the press. The
+header and footer, the bars (and what sits in the header's row: song
+select's search, Options' Saved), are `Edge::HeaderBar`/`FooterBar`:
+from a screen with bars to another (`Screen::shared_bars`, read from the
+tree by `ddi_ui::ui::has_bars`) they stay put, only what is in them
+changing at the swap, without animation; they slide only to or from a
+screen without them (`BarsOn`/`BarsOff`/`BarsStay`, played by the `Ui`).
+On the web each page has its own `Ui`: `Ui::set_bars_route` says which
+routes have bars (`router::has_bars`, Back by `router::back_target`) and
+`Ui::bars_kept`/`carry_bars` hand them to the next page's `Ui`
+(`ui_dev::theme_ui`). The chart editor fades as a whole and has none.
 Web route ancestry and Options position live in history state; desktop uses
 the UI stack. Every played layout's default keys end with the number pad as
 a second set (4 2 8 6 the arrows, 5 the middle, the corners the diagonals;

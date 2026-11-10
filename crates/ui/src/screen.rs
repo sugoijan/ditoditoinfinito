@@ -279,6 +279,17 @@ pub trait Screen {
         false
     }
 
+    /// The screen may show the shared header and footer, the bars
+    /// (`screens::header`, `screens::footer`, their parts given
+    /// [`crate::ui::BARS_ON`] and its kin by `screens::transitions`): from
+    /// one such screen to another they stay put, only what is in them
+    /// changing, rather than leaving and coming in again. Whether a build
+    /// has them is read from its tree ([`crate::ui::has_bars`]); this
+    /// says ahead, before the screen is built, whether it may.
+    fn shared_bars(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {

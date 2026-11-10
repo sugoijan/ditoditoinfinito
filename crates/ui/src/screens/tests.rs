@@ -2974,3 +2974,92 @@ fn song_select_asks_for_its_intro_and_each_chosen_charts_comment() {
     // No clock (a run that never knew when it began): nothing is this run's.
     assert_eq!(comment(&chart(9, Some(best(500.0))), 0.0), Comment::General);
 }
+
+/// The bars as the top screen draws them: the header's and the footer's
+/// boxes and alphas.
+fn bars(h: &Harness) -> ([f32; 4], [f32; 4], f32, f32) {
+    (
+        h.ui.bounds("Header").expect("a header"),
+        h.ui.bounds("Footer").expect("a footer"),
+        h.actor("Header").current().diffuse()[3],
+        h.actor("Footer").current().diffuse()[3],
+    )
+}
+
+#[test]
+fn the_bars_stay_put_from_song_select_to_options_and_back() {
+    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+    let rest = bars(&h);
+    assert_eq!((rest.2, rest.3), (1.0, 1.0));
+    h.tap(PointerKind::Mouse, "Link.Options");
+    let mut screens = Vec::new();
+    for _ in 0..40 {
+        h.frame(1.0 / 60.0);
+        assert_eq!(bars(&h), rest, "the bars moved on {:?}", s.borrow().screen);
+        screens.push(s.borrow().screen.clone());
+    }
+    assert_eq!(s.borrow().screen, "options");
+    // The rest of the screen did move: options' rows came in.
+    h.key("Escape", "Escape");
+    for _ in 0..40 {
+        h.frame(1.0 / 60.0);
+        assert_eq!(bars(&h), rest, "the bars moved on {:?}", s.borrow().screen);
+    }
+    assert_eq!(s.borrow().screen, "select");
+}
+
+#[test]
+fn the_bars_still_come_and_go_with_a_screen_without_them() {
+    let env = env();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(sample::start_screen(&env, false));
+    h.run(0.5);
+    h.key("a", "a");
+    h.key("Enter", "Enter");
+    // The start menu leaves, then song select comes in, its header from
+    // above.
+    let mut entering = false;
+    for _ in 0..40 {
+        h.frame(1.0 / 60.0);
+        if env.state.borrow().screen == "select"
+            && let Some(a) = h.ui.actor("Header")
+        {
+            entering |= a.current().diffuse()[3] < 1.0;
+        }
+    }
+    assert!(entering, "the header did not come in");
+    let rest = bars(&h);
+    // Back to the start menu: the header leaves with the screen.
+    h.key("Escape", "Escape");
+    h.frame(0.05);
+    let (header, _, alpha, _) = bars(&h);
+    assert!(alpha < 1.0 || header[1] < rest.0[1], "{header:?} {alpha}");
+}
+
+#[test]
+fn held_bars_stay_unseen_until_the_reveal() {
+    let env = env();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.ui.hold_entrances(true);
+    h.push(sample::select_screen(&env, None));
+    h.run(0.5);
+    assert_eq!(h.actor("Header").current().diffuse()[3], 0.0);
+    assert_eq!(h.actor("Footer").current().diffuse()[3], 0.0);
+    h.ui.reveal();
+    h.run(0.5);
+    assert_eq!(h.actor("Header").current().diffuse()[3], 1.0);
+    assert_eq!(h.actor("Footer").current().diffuse()[3], 1.0);
+}
+
+#[test]
+fn a_ui_carries_the_bars_over_from_another() {
+    let env = env();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.ui.carry_bars(true);
+    h.push(sample::select_screen(&env, None));
+    h.frame(1.0 / 60.0);
+    assert_eq!(h.actor("Header").current().diffuse()[3], 1.0);
+    let at = h.ui.bounds("Header").expect("a header");
+    h.run(0.5);
+    assert_eq!(h.ui.bounds("Header"), Some(at));
+}

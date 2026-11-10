@@ -4,8 +4,9 @@
 ## on this device for now), the room's Rules and More pop-ups, and song
 ## select when it chooses a stage's song.
 
-## The multiplayer home: a page under the screen's header, a paragraph
-## (wrapped, about 110 letters a line) and a row of buttons.
+## The multiplayer home: a centered column of wide buttons (about 380 px,
+## about 30 Latin letters) under the screen's header, as the start menu's;
+## the footer's right holds the account (sign in, or the name).
 
 # The page's title beside its back icon on a phone (about 20 letters).
 room-home-title = Multiplayer
@@ -14,19 +15,37 @@ room-home-title = Multiplayer
 # where the language has them.
 room-home-heading = MULTIPLAYER
 
-# The paragraph under the header: what works now.
-room-home-about = A prototype. Practice a match of several songs against CPU opponents on this device: no sign-in and no connection needed.
+# A button: automatic public rooms, not made yet: the button is grayed
+# out.
+room-home-find = Find match · Coming soon
+
+# A button: a list of public rooms, not made yet: grayed out.
+room-home-browse = Browse rooms · Coming soon
 
 # A button: opens the practice room.
 room-home-practice = CPU practice
 
-# A button: makes an invite-only online room (signing in first when
-# signed out).
+# A button: makes an invite-only online room (asking to sign in first
+# when signed out).
 room-home-private = Private room
 
-# A line under the buttons, muted: what a private room is, and what of
-# it is not made yet.
-room-home-private-note = Private rooms are invite-only and need a Twitch sign-in. Sharing the songs and playing the stages online come later.
+# A button: opens a page to paste an invite link into.
+room-home-join = Join by link
+
+# The sign-in dialog's title, asked for when something needs a sign-in.
+room-sign-in-title = Sign in
+
+# The sign-in dialog's text when Private room was chosen signed out
+# (wrapped, about 60 letters a line).
+room-sign-in-for-private = Private rooms are invite-only and are played as your Twitch identity. Sign in with Twitch to make one.
+
+# The sign-in dialog's text when opened from the footer's Sign in.
+room-sign-in-for-account = Sign in with Twitch to make private rooms and join invites. CPU practice needs no account.
+
+# The join-by-link page: its title beside its back icon on a phone, and
+# its name in its header, in small capitals.
+room-join-title = Join by link
+room-join-heading = JOIN BY LINK
 
 ## The room: the players at the left, the selected stage's song and chart
 ## in the middle, the match's stages as a list at the right, Ready and
@@ -264,7 +283,7 @@ room-rules-points-value = By place · experimental
 
 # Lines under the rows, muted.
 room-rules-level-note = A CPU's level is its strength relative to the chart, not a skill rating.
-room-rules-points-note = Points for fewer than eight players follow an experimental rule.
+room-rules-points-note = Points for fields other than eight players follow an experimental rule.
 room-rules-locked-note = Changes apply to the next match; this one keeps its rules.
 room-rules-clears-note = Applying clears readiness.
 
@@ -299,6 +318,12 @@ room-play-out = Out
 # Over the column once the player has won the stage before the song's
 # end (they finish the song).
 room-play-won = Stage won
+
+# Under the opponents' small fields beside the play, when there are more
+# opponents than room for their fields: how many are not shown. Short.
+# Variables:
+#   $count (Number) - how many are not shown
+room-play-more = +{ $count } more
 
 ## A battle's moment no announcer line said, in the column's heading's
 ## place for a few seconds (as narrow: about 22 letters).
@@ -447,8 +472,8 @@ room-account-unreachable = Couldn't reach the server. CPU practice still works.
 room-sign-in = Sign in with Twitch
 room-sign-out = Sign out
 
-# Desktop's home: a field to paste an invite link into, its label and
-# its hint (shown while empty).
+# The join-by-link page: a field to paste an invite link into, its
+# label and its hint (shown while empty).
 room-invite-field = Invite link
 room-invite-field-hint = Paste an invite link
 

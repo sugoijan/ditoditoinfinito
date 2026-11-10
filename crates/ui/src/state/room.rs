@@ -426,15 +426,42 @@ impl RoomClient {
     /// CPUs' seeds come from `seed` (the shells pass the time it was
     /// made, tests a fixed number).
     pub fn new(now_ms: u64, seed: u64) -> RoomClient {
-        let clock = ManualClock::new(now_ms);
         let rules = MatchRules::practice(OpponentSpec {
             level: DEFAULT_CPU_LEVEL,
             seed,
             personality: None,
         });
+        Self::practice_under(now_ms, rules, RoomPolicy::default())
+    }
+
+    /// DEVELOPMENT ONLY: a practice room of one stage against `cpus` CPUs,
+    /// beyond the cap (`RoomPolicy::development`, its points
+    /// `AwardScheme::DevelopmentV0`), for trying the miniature fields' layout
+    /// and cost with far more opponents
+    /// (`docs/plans/multiplayer-prototype-progress.md`, M6b). Reached only by
+    /// the shells' development switches (the web's `mpcpus=`, desktop's
+    /// `--mp-dev-cpus`), never from a menu.
+    pub fn development(now_ms: u64, seed: u64, cpus: u16) -> RoomClient {
+        let policy = RoomPolicy::development();
+        let cpus = cpus.clamp(1, policy.max_competitors - 1);
+        let mut rules = MatchRules::practice(OpponentSpec {
+            level: DEFAULT_CPU_LEVEL,
+            seed,
+            personality: None,
+        });
+        rules.stages = 1;
+        rules.seats = cpus + 1;
+        rules.cpu.mode = ddi_room::CpuMode::Fixed { count: cpus };
+        rules.awards = ddi_room::AwardScheme::DevelopmentV0;
+        Self::practice_under(now_ms, rules, policy)
+    }
+
+    fn practice_under(now_ms: u64, rules: MatchRules, policy: RoomPolicy) -> RoomClient {
+        let clock = ManualClock::new(now_ms);
         // The player's name is the room's data; the screen calls the local
         // player "You" in the language shown.
-        let (authority, client) = LocalAuthority::practice("Player".into(), rules, clock.clone());
+        let (authority, client) =
+            LocalAuthority::practice_under("Player".into(), rules, clock.clone(), policy);
         let me = authority.participant(&client).unwrap_or(ParticipantId(1));
         let mut room = RoomClient {
             link: Link::Local(Box::new(authority)),
@@ -1500,6 +1527,20 @@ mod tests {
     }
 
     #[test]
+    fn practice_seats_eight_opponents_and_development_far_more() {
+        let room = RoomClient::new(0, 7);
+        assert_eq!(room.max_cpus(), 8, "nine competitors, the player included");
+        let dev = RoomClient::development(0, 7, 64);
+        assert_eq!(dev.cpus_of(dev.rules()), 64);
+        assert!(dev.check_rules(dev.rules()).is_ok());
+        assert_eq!(dev.rules().awards, ddi_room::AwardScheme::DevelopmentV0);
+        assert_eq!(dev.max_cpus(), 128);
+        // Never beyond the development cap.
+        let most = RoomClient::development(0, 7, 1000);
+        assert_eq!(most.cpus_of(most.rules()), 128);
+    }
+
+    #[test]
     fn choosing_reports_the_local_content_loaded_and_refuses_what_cpus_cannot_play() {
         let mut room = RoomClient::new(1_000, 7);
         let first = room.stages()[0].id;
@@ -1587,17 +1628,17 @@ mod tests {
     #[test]
     fn rules_follow_the_cap_and_clear_readiness_in_the_lobby() {
         let mut room = RoomClient::new(0, 1);
-        assert_eq!((room.min_cpus(), room.max_cpus()), (1, 7));
+        assert_eq!((room.min_cpus(), room.max_cpus()), (1, 8));
         let s = song("a");
         let first = room.stages()[0].id;
         room.choose(first, &s, &s.charts[0]).unwrap();
         prepare(&mut room);
         room.set_ready(true).unwrap();
-        let mut rules = room.with_cpus(room.rules().clone(), 7);
+        let mut rules = room.with_cpus(room.rules().clone(), 8);
         rules.cpu.opponent.level = 4;
         rules.stages = 2;
         room.save_rules(rules.clone()).unwrap();
-        assert_eq!(room.cpus_of(room.rules()), 7);
+        assert_eq!(room.cpus_of(room.rules()), 8);
         assert_eq!(room.stages().len(), 2);
         assert!(!room.ready(), "a rules change clears readiness");
         // The song is still there; its preparation, cleared with the
@@ -1606,7 +1647,7 @@ mod tests {
         assert!(room.loading(first));
         prepare(&mut room);
         assert_eq!(room.stages()[0].prep(room.me()).loading, Loading::Loaded);
-        let over = room.with_cpus(rules, 8);
+        let over = room.with_cpus(rules, 9);
         assert!(room.check_rules(&over).is_err());
         assert!(matches!(
             room.save_rules(over),
