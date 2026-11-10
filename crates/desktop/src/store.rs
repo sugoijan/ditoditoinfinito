@@ -239,7 +239,9 @@ mod tests {
         }
         s.flush().unwrap();
         assert_eq!(
-            FileStore::open(path.clone()).get(Area::Local, "k").as_deref(),
+            FileStore::open(path.clone())
+                .get(Area::Local, "k")
+                .as_deref(),
             Some("199")
         );
         s.set(Area::Local, "k", "last").unwrap();

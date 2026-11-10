@@ -324,7 +324,7 @@ impl ResultsScreen {
         }
         let note = self.data.notes.join(" · ");
         let (song_list, retry, watch_again, watch_replay, activate, more) = (
-            rm::song_list(),
+            self.song_list_label(),
             rm::retry(),
             rm::watch_again(),
             rm::watch_replay(),
@@ -335,7 +335,7 @@ impl ResultsScreen {
         match self.data.kind {
             ResultsKind::Play => hints.push((&["R"], &retry)),
             ResultsKind::Replay => hints.push((&["R"], &watch_again)),
-            ResultsKind::Kept => {}
+            ResultsKind::Kept | ResultsKind::Stage => {}
         }
         if self.actions.replay.is_some() && self.data.kind != ResultsKind::Replay {
             hints.push((&["V"], &watch_replay));
@@ -345,14 +345,13 @@ impl ResultsScreen {
             (&[HintAction::More], &more),
             (&[HintAction::Back], &song_list),
         ];
-        controller.push((
-            &[HintAction::Select],
-            if self.data.kind == ResultsKind::Kept {
-                &watch_replay
-            } else {
-                &retry
-            },
-        ));
+        match self.data.kind {
+            ResultsKind::Stage => {}
+            ResultsKind::Kept => controller.push((&[HintAction::Select], &watch_replay)),
+            ResultsKind::Play | ResultsKind::Replay => {
+                controller.push((&[HintAction::Select], &retry));
+            }
+        }
         children.push(footer(&env, screen, &hints, &controller, &note, &[], cx));
         self.finish_root(children, cx)
     }
@@ -383,11 +382,7 @@ impl ResultsScreen {
             a
         };
         let mut ty = bh + 16.0;
-        let title = UiText::data(if d.song.subtitle.is_empty() {
-            d.song.title.clone()
-        } else {
-            format!("{} {}", d.song.title, d.song.subtitle)
-        });
+        let title = UiText::data(d.song.title.clone());
         children.push(left(
             cut(env.text("SongTitle", &title, 20.0, 700, "Text"), w),
             0.0,
@@ -476,7 +471,7 @@ impl ResultsScreen {
         // The lamp, FAILED.
         let mut marks = Vec::new();
         // The game's marks, the same in every language.
-        if d.kind != ResultsKind::Play {
+        if matches!(d.kind, ResultsKind::Replay | ResultsKind::Kept) {
             marks.push((
                 "Replay",
                 UiText::data(super::play::REPLAY_MARK).into(),
@@ -1206,9 +1201,18 @@ impl ResultsScreen {
                     v.push(("WatchReplay", rm::watch_replay(), "Button"));
                 }
             }
+            ResultsKind::Stage => {}
         }
-        v.push(("SongList", rm::song_list(), "Button"));
+        v.push(("SongList", self.song_list_label(), "Button"));
         v
+    }
+
+    /// Song list's label: "Back to room" after a stage.
+    fn song_list_label(&self) -> UiText {
+        match self.data.kind {
+            ResultsKind::Stage => ddi_l10n::msg::room::results_back(),
+            _ => rm::song_list(),
+        }
     }
 
     /// Left and Right: the focus along the bar's buttons (from anywhere
@@ -1287,6 +1291,10 @@ impl ResultsScreen {
         // A kept play has no Retry: Start or Select there is its replay.
         if self.data.kind == ResultsKind::Kept {
             return self.watch_replay(cx);
+        }
+        // A stage is played once.
+        if self.data.kind == ResultsKind::Stage {
+            return;
         }
         self.env.state.borrow_mut().status = "retry".into();
         if let Some(r) = self.actions.retry.clone() {

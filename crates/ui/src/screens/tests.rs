@@ -303,7 +303,7 @@ fn row_top(h: &Harness, title: &str) -> Option<f32> {
 fn a_pack_opened_mid_glide_keeps_its_header_in_place() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
     // The selected song's row on the wheel's line.
-    let line = row_top(&h, "Some Things Must (OutFox Edit)").expect("the song's row");
+    let line = row_top(&h, "Some Things Must").expect("the song's row");
     h.key("ArrowDown", "ArrowDown");
     h.run(0.6);
     // Start while the tap is still provisional: it commits the tap, then

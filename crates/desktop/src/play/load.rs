@@ -381,6 +381,31 @@ pub fn load_with(
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
         return load_work(files, entry, &w, rate);
     }
+    load_files(
+        id,
+        files,
+        entry,
+        chart,
+        rate,
+        with_movies,
+        random,
+        edited,
+        cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn load_files(
+    id: &str,
+    files: Files,
+    entry: ManifestEntry,
+    chart: Option<usize>,
+    rate: u32,
+    with_movies: bool,
+    random: bool,
+    edited: Option<&Song>,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<Loaded, LoadFailure> {
     let music_file = chart.map_or(entry.music.as_rel_path(), |c| entry.music_for(c));
     // An FFR level's music is inside it: a SWF read once for both.
     let mut level_music = None;
@@ -610,6 +635,27 @@ impl Drop for Loading {
 }
 
 impl Loading {
+    /// A CPU artifact names a local source directly; it need not be imported.
+    pub fn start_cpu(
+        path: PathBuf,
+        rate: u32,
+        wake: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) -> Loading {
+        let (tx, rx) = mpsc::channel();
+        let id = path.display().to_string();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _ = std::thread::Builder::new()
+            .name("ddi-cpu-load".into())
+            .spawn(move || {
+                let r = std::panic::catch_unwind(|| load_cpu(&path, rate))
+                    .unwrap_or_else(|_| Err("CPU song could not be read".into()));
+                let _ = tx.send(r.map_err(LoadFailure::Other));
+                if let Some(wake) = wake {
+                    wake();
+                }
+            });
+        Loading { id, rx, cancel }
+    }
     /// Starts reading song `id` (chart `chart`'s music at `rate` Hz,
     /// movies when `with_movies`, random ones too with `random`; the
     /// chart editor's song when `edited`); `wake` wakes the event loop
@@ -671,6 +717,59 @@ impl Loading {
             .recv()
             .unwrap_or_else(|_| Err(LoadFailure::Other("the song could not be read".into())))
     }
+}
+
+/// Load the chosen simfile with the ordinary scanner/decoder, without importing
+/// it or touching the user's library. CPU v0 uses local song-folder assets.
+pub fn load_cpu(path: &std::path::Path, rate: u32) -> Result<Loaded, String> {
+    let path = path.canonicalize().map_err(|e| e.to_string())?;
+    let root = path
+        .parent()
+        .ok_or("CPU simfile has no folder")?
+        .to_path_buf();
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid CPU simfile name")?;
+    let chart = RelPathBuf::from(name);
+    let mut paths: Vec<RelPathBuf> = std::fs::read_dir(&root)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| e.file_name().to_str().map(RelPathBuf::from))
+        .collect();
+    paths.sort_unstable();
+    let candidate = ddi_library::pack::SongCandidate {
+        dir: RelPathBuf::new(),
+        chart,
+        format: ddi_library::pack::ChartFormat::of(name)
+            .ok_or("CPU expects an SM/SSC/DWI simfile")?,
+        pack: "CPU prototype".into(),
+    };
+    let reader = DirReader { root: root.clone() };
+    let scanned = ddi_library::scan::scan_song(
+        &reader,
+        &ddi_library::pack::PathIndex::new(&paths),
+        &candidate,
+        &ddi_library::pack::PathIndex::new::<RelPathBuf>(&[]),
+        &crate::library::legacy_text,
+    )
+    .map_err(|e| String::from(ddi_ui::screens::import_report::finding_text(&e)))?;
+    load_files(
+        &format!("cpu:{}", path.display()),
+        Files::Dir {
+            root,
+            dir: RelPathBuf::new(),
+        },
+        scanned.entry,
+        None,
+        rate,
+        false,
+        false,
+        None,
+        &std::sync::atomic::AtomicBool::new(false),
+    )
+    .map_err(String::from)
 }
 
 /// Calibration test `mode` as a song: its generated chart and click

@@ -885,6 +885,8 @@ impl Songs {
                 self.hidden.borrow().save();
             }
             SelectCall::Place(p) => {
+                let mut settings = Settings::cached();
+                ddi_ui::state::place::apply(&p, &mut self.place.borrow_mut(), &mut settings);
                 // The chart shown: its prompt's diagram's skin readied
                 // ahead (the shell's field preview, `Field::warm`).
                 if let (Some(song), Some(chart)) = (&p.song, p.chart) {
@@ -895,18 +897,11 @@ impl Songs {
                         .map(|s| &s.entry)
                         .or_else(|| self.bundled.iter().find(|e| e.id == *song));
                     if let Some(c) = entry.and_then(|e| {
-                        ddi_ui::screens::prompt_controls::Controls::for_chart(
-                            e,
-                            chart,
-                            &Settings::cached(),
-                        )
+                        ddi_ui::screens::prompt_controls::Controls::for_chart(e, chart, &settings)
                     }) {
                         *self.warm.borrow_mut() = Some(Rc::new(c));
                     }
                 }
-                let mut place = self.place.borrow_mut();
-                place.remember(&p);
-                place.save();
             }
             // A kept play (`docs/plans/play-history.md`, Replays): its
             // replay or its results through the play's host; forgotten.

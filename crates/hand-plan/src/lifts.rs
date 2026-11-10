@@ -21,7 +21,7 @@ impl Search {
             });
         }
         let preferred = crate::lift_escape(&self.layout, source, foot);
-        if !double_pump(&self.layout) {
+        if !self.rules.double_pump {
             return Some(preferred);
         }
         let offset = crate::pad_offset(source);
@@ -101,18 +101,15 @@ impl Search {
             .find(|head| {
                 let gap = head.time - self.origin - time;
                 head.is_head()
-                    && note_has_panel(&self.layout, head, target)
+                    && self.rules.has_panel(head, target)
                     && gap >= ls.1
                     && gap <= 0.45
                     && gap - duration < ls.0 + ls.1
                     && self.allowed(target, head.time - self.origin)
             });
-        if same_button(&self.layout, s.panels[1 - d], target) {
+        if self.rules.same_button(s.panels[1 - d], target) {
             let other = 1 - d;
-            if !crate::scored_center(&self.layout)
-                || s.holds[other] > time
-                || time - s.last[other] < 0.055
-            {
+            if !self.rules.scored_center || s.holds[other] > time || time - s.last[other] < 0.055 {
                 return None;
             }
             // A shared tile releases only when both contacts leave together.

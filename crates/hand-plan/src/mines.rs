@@ -45,7 +45,7 @@ impl Search {
                     && a.time == time
                     && self.rows.iter().skip(self.row).flatten().any(|n| {
                         n.is_head()
-                            && note_has_panel(&self.layout, n, target)
+                            && self.rules.has_panel(n, target)
                             && n.time - self.origin == time
                     })
             })
@@ -242,7 +242,7 @@ impl Search {
             let source = s.panels[d];
             let Some(mine) = hazards
                 .iter()
-                .find(|n| n.mine && note_has_panel(&self.layout, n, source))
+                .find(|n| n.mine && self.rules.has_panel(n, source))
             else {
                 continue;
             };
@@ -256,7 +256,7 @@ impl Search {
                 .flatten()
                 .filter(|n| n.is_head())
                 .take_while(|n| n.time - self.origin <= time + if direct { 0.45 } else { 0.170 })
-                .flat_map(|n| crate::note_choices(&self.layout, *n))
+                .flat_map(|n| self.rules.choices(*n))
                 .find_map(|n| {
                     let land = n.time - self.origin;
                     let target = panel(&n);
@@ -330,7 +330,7 @@ impl Search {
                 s.cost += 8. + square(dist / 18.) * 0.65;
             }
         }
-        if crate::escape_stances(&self.layout).is_empty() {
+        if self.rules.escapes.is_empty() {
             self.avoid_mines(s, hazards, time)
         } else {
             self.escape_options(&s)
@@ -347,7 +347,7 @@ impl Search {
     /// its companion supports the hand. Do not force both onto one center.
     /// Two threatened fingers retain the established grouped/air-time paths.
     fn local_escape(&self, s: State, hazards: &[InputNote], time: f64) -> Option<State> {
-        if !double_mat(&self.layout) {
+        if !self.rules.double {
             return None;
         }
         let affected = |d: usize| {
@@ -537,7 +537,7 @@ impl Search {
                     .iter()
                     .skip(self.row + 1)
                     .flatten()
-                    .find(|n| n.is_head() && note_has_panel(&self.layout, n, source))
+                    .find(|n| n.is_head() && self.rules.has_panel(n, source))
             {
                 let t = n.time - self.origin;
                 if t >= last_hazard + 0.1099 && t - last_hazard <= 0.170 {

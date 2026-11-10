@@ -1,0 +1,18 @@
+[package]
+name = "ddi-room"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the multiplayer room, match and stage model"
+publish = false
+
+# Pure and dependency-light on purpose: the local CPU-practice authority and
+# the private server's room authority run the same reducer, and the server
+# must not pull the game's chart, engine or library crates. JSON is the
+# online authority's wire (`online.rs`) and the fake server's.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

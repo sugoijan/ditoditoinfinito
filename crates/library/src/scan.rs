@@ -636,7 +636,7 @@ impl Duplicates {
 /// The paths a song's files may come from: its pack folder's (where a
 /// simfile's `../` reaches), out of the root's sorted `paths`, so a scan
 /// does not go through the whole library for each song.
-fn pack_paths<'a>(paths: &'a [RelPathBuf], c: &SongCandidate) -> &'a [RelPathBuf] {
+fn pack_paths<'a, S: AsRef<str>>(paths: &'a [S], c: &SongCandidate) -> &'a [S] {
     match c.pack_dir() {
         Some(dir) => paths_under(paths, dir),
         None => paths,
@@ -657,13 +657,13 @@ fn paths_under<'a, S: AsRef<str>>(paths: &'a [S], dir: &RelPath) -> &'a [S] {
 /// The [`PathIndex`] of each song's pack (see [`pack_paths`]) out of a
 /// root's sorted `paths`, kept while the songs asked about stay in one
 /// pack, as a scan's do.
-pub struct PackIndexes<'a> {
-    paths: &'a [RelPathBuf],
+pub struct PackIndexes<'a, S> {
+    paths: &'a [S],
     current: Option<(Option<RelPathBuf>, PathIndex<'a>)>,
 }
 
-impl<'a> PackIndexes<'a> {
-    pub fn new(paths: &'a [RelPathBuf]) -> PackIndexes<'a> {
+impl<'a, S: AsRef<str>> PackIndexes<'a, S> {
+    pub fn new(paths: &'a [S]) -> PackIndexes<'a, S> {
         PackIndexes {
             paths,
             current: None,

@@ -1,5 +1,5 @@
 //! The widget screen drawn offscreen on this machine's GPU, as the
-//! desktop window draws it: the list, the controls, the panels. Images
+//! desktop window draws it: the list, the toggle, the panels. Images
 //! fail on desktop for now (no loader), so rows show their placeholders.
 //! Skipped where there is no GPU adapter (CI).
 
@@ -57,8 +57,8 @@ fn the_widget_screen_draws() {
     let close = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 3);
     // The plain look's colors (`look.rs`), 1280/960 window pixels a
     // virtual one: the screen's ground, the first pack's header
-    // (selected), a row's plate, its banner's placeholder, an option
-    // row's plate, a panel.
+    // (selected), a row's plate, its banner's placeholder, the toggle's
+    // plate, a panel.
     assert!(
         close(at(1270, 715), [12, 12, 18]),
         "ground {:?}",
@@ -74,7 +74,7 @@ fn the_widget_screen_draws() {
     );
     assert!(
         close(at(568, 104), [28, 31, 38]),
-        "option row {:?}",
+        "toggle {:?}",
         at(568, 104)
     );
     assert!(

@@ -228,6 +228,12 @@ pub struct Settings {
     /// The token the uploads carry (kept as the rest of the settings
     /// are: as private as the browser's profile).
     pub share_token: String,
+    /// The multiplayer prototype is on
+    /// (`docs/plans/multiplayer-prototype-progress.md`): a hidden switch
+    /// (`#/?mp=1`, desktop's `--multiplayer on`), never a row of Options;
+    /// with it the start menu's Multiplayer opens its menu instead of
+    /// saying "Coming soon".
+    pub multiplayer: bool,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -485,6 +491,7 @@ impl Default for Settings {
             song_offsets: BTreeMap::new(),
             sharing: false,
             share_token: String::new(),
+            multiplayer: false,
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),

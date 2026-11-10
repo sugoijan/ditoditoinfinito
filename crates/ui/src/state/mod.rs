@@ -5,6 +5,8 @@
 pub mod bind;
 pub mod editor;
 pub mod history;
+pub mod online;
 pub mod place;
+pub mod room;
 pub mod select_view;
 pub mod settings;

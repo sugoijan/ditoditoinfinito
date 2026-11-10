@@ -7,6 +7,10 @@ start-singleplayer = Singleplayer
 # Playing together, not made yet: the button is grayed out.
 start-multiplayer = Multiplayer · Coming soon
 
+# Playing together, behind the prototype's hidden switch: opens the
+# multiplayer menu.
+start-multiplayer-open = Multiplayer
+
 start-options = Options
 
 # Who made the game, its songs and the rest; their licenses.

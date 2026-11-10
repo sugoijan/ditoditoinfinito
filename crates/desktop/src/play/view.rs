@@ -1,18 +1,26 @@
 //! A play drawn (`docs/plans/desktop.md`, section 3): the play field's
 //! renderer over the window's surface, through its sRGB view with skins
-//! blending through the plain one (D6, the web's WebGPU arrangement), the
-//! noteskin and its Lua, the backgrounds and their changes, the movies
-//! (feature `video`), the start prompt's picture. As the web's
-//! `game_loop.rs` draws it, the same `ddi_render` code.
+//! blending through the plain one (D6, the web's WebGPU arrangement), in
+//! the frame body both shells share (`ddi_shell::play_view`) over
+//! desktop's parts: RGBA rows, the movies (feature `video`), the scripts'
+//! text and sounds, the lyrics' fonts.
+
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
+use std::sync::mpsc::Receiver;
+use std::time::Instant;
 
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
-use ddi_render::noteskin::{NoteLayer, NoteskinPlay};
-use ddi_render::{Backdrop, RenderOptions, Renderer, SkinBlending};
-use ddi_session::backgrounds::{
-    FpsMeter, FrameShape, MAX_BACKGROUND_SIDE, MAX_CHANGE_SIDE, MovieGuard,
-};
-use ddi_ui::state::settings::{Settings, VideoMode};
+use ddi_render::cosmic::CosmicRasterizer;
+use ddi_render::noteskin::NoteskinPlay;
+use ddi_render::{RenderOptions, Renderer, SkinBlending};
+use ddi_session::backgrounds::{MAX_BACKGROUND_SIDE, MAX_CHANGE_SIDE};
+use ddi_shell::play_view::{Moment, PlayHost, PlayView, Screen, Target};
+use ddi_shell::scripted::ScriptView;
+use ddi_ui::state::settings::Settings;
+#[cfg(feature = "video")]
+use ddi_ui::state::settings::VideoMode;
 
 use super::Play;
 use super::load::Loaded;
@@ -73,70 +81,108 @@ impl Formats {
     }
 }
 
-/// The play field's drawing.
+/// What desktop brings to a play's drawing (`ddi_shell::play_view`):
+/// RGBA rows, the movies through the decoder helper or the OS's decoders
+/// (feature `video`), the scripts' text drawn here and the lyrics' fonts
+/// read on a thread.
+pub struct Desktop {
+    /// The lyrics' fonts (cosmic-text on the system's fonts, read on a
+    /// thread: a first read of the system's fonts is slow) while read,
+    /// once read, and whether they were asked for.
+    fonts: Option<Receiver<CosmicRasterizer>>,
+    font: Option<CosmicRasterizer>,
+    fonts_asked: bool,
+    /// What the hand's budget is measured from.
+    origin: Instant,
+}
+
+impl Desktop {
+    fn new() -> Desktop {
+        Desktop {
+            fonts: None,
+            font: None,
+            fonts_asked: false,
+            origin: Instant::now(),
+        }
+    }
+
+    /// The lyrics' fonts read on a thread, once.
+    fn read_fonts(&mut self) {
+        if std::mem::replace(&mut self.fonts_asked, true) {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("ddi-lyrics-fonts".into())
+            .spawn(move || {
+                let _ = tx.send(CosmicRasterizer::with_families(&crate::gpu::faces(), true));
+            });
+        self.fonts = Some(rx);
+    }
+}
+
+impl PlayHost for Desktop {
+    type Image = Rgba;
+    #[cfg(feature = "video")]
+    type Deck = super::movies::Movies;
+    #[cfg(not(feature = "video"))]
+    type Deck = ddi_shell::play_view::NoMovies;
+
+    fn warn(&self, line: &str) {
+        eprintln!("{line}");
+    }
+
+    fn lua_stopped(&mut self, key: &str, why: &str) {
+        crate::library::noteskins::lua_stopped(key, why);
+    }
+
+    /// Drawn now (white, as a work's layers' text is drawn).
+    fn draw_texts(&mut self, scripts: &mut ScriptView<Rgba>) {
+        for text in scripts.measure() {
+            if let Some((image, size)) = super::scripts::text_image(&text) {
+                scripts.add_text(text, image, size);
+            }
+        }
+    }
+
+    fn text(&mut self) -> Option<Box<dyn ddi_render::RunRasterizer>> {
+        if let Some(rx) = &self.fonts
+            && let Ok(r) = rx.try_recv()
+        {
+            self.fonts = None;
+            self.font = Some(r);
+        }
+        let font = self.font.take()?;
+        Some(Box::new(font))
+    }
+
+    fn seconds(&self) -> f64 {
+        self.origin.elapsed().as_secs_f64()
+    }
+
+    fn before_render(&mut self, device: &wgpu::Device, encoder: &wgpu::CommandEncoder) {
+        #[cfg(feature = "video")]
+        crate::video::protect_external_frames(device, encoder);
+        #[cfg(not(feature = "video"))]
+        let _ = (device, encoder);
+    }
+}
+
+/// The play field's drawing: the shared view (`ddi_shell::play_view`,
+/// through `Deref`) with what desktop keeps of a song (its scripts'
+/// sounds and movies, its music's analysis) and of the window.
 pub struct View {
-    pub dance: ddi_shell::dance::Preview,
-    pub renderer: Renderer,
+    view: PlayView<Desktop>,
     formats: Formats,
-    noteskin: Option<NoteskinPlay>,
-    /// What the skin's Lua stops count against.
-    noteskin_key: String,
-    /// Background textures by what they show (renderer ids).
-    backgrounds: Vec<(BgImage, usize)>,
-    /// Image and movie textures for the backdrop, rebuilt when either
-    /// changes.
-    backdrop_textures: ddi_session::movies::BackdropTextures,
-    /// Decoded images waiting for the GPU.
-    pending: Vec<(BgImage, Rgba)>,
-    /// The background changes, a schedule per layer.
-    schedule: [Vec<BgSegment>; LAYERS],
-    frame_shape: FrameShape,
-    pub fps: FpsMeter,
-    /// A work's back and mask layers.
-    stage: super::stage::StageView,
-    stage_drawn: (usize, usize),
-    /// The song's scripted backgrounds and foregrounds
-    /// (`docs/plans/scripted-backgrounds.md`), and why they stopped.
-    scripts: ddi_shell::scripted::ScriptView<Rgba>,
-    scripts_stopped: Option<ddi_session::scripted::Failure>,
     /// The scripts' sounds decoded (by file, relative to the song's
-    /// folder), and those played since the host last took them.
+    /// folder), and how many they played so far.
     script_sounds: std::collections::HashMap<String, crate::audio::mixer::Sound>,
-    sounds_due: Vec<crate::audio::mixer::Sound>,
-    /// Sounds the scripts played so far.
     pub sounds_played: usize,
-    /// The layers of the play about to start, set on its first frame.
-    stage_track: Option<Option<ddi_engine::sprites::SpriteTrack>>,
-    /// The chart's lyrics, when it has some and they are shown.
-    lyrics: Option<ddi_engine::lyrics::LyricTrack>,
-    /// The 2D pass over the play (the lyrics, cosmic-text on the system's
-    /// fonts): its painter and draw list, once its fonts are read (on a
-    /// thread: a first read of the system's fonts is slow).
-    overlay: Option<(ddi_render::painter::Painter, ddi_render::DrawList)>,
-    fonts: Option<std::sync::mpsc::Receiver<ddi_render::cosmic::CosmicRasterizer>>,
-    pending_fonts: Option<ddi_render::cosmic::CosmicRasterizer>,
-    /// The lyrics drawn in the last frame.
-    lyrics_shown: Vec<String>,
-    /// The display's refresh rate as the OS says it, until frames have
-    /// measured it (the movies' guard's start).
-    pub refresh_hint: Option<f64>,
-    guard: MovieGuard,
-    video: VideoMode,
-    #[cfg(feature = "video")]
-    pub movies: super::movies::Movies,
-    /// The song's scripts' movies (`docs/plans/phase-8-gaps.md`, step 3):
-    /// decoded while drawn, their frames on the scripts' converter.
-    #[cfg(feature = "video")]
-    pub script_movies: super::movies::Movies,
-    /// Their files, kept for [`View::take_scripts`].
+    /// The scripts' movies' files, kept for [`View::take_scripts`].
     script_movie_files: Vec<(String, Result<super::load::MovieAt, String>)>,
-    /// Frames drawn.
-    pub frames: u64,
-    /// The song's generated background (`docs/plans/phase-8-gaps.md`,
-    /// step 5), and its music's analysis while a thread makes it.
-    generated: Option<ddi_shell::generative::Generated>,
-    analysis: Option<std::sync::mpsc::Receiver<ddi_library::generative::Series>>,
-    entrance: Option<ddi_actor::background::Entrance>,
+    /// The music's analysis for the generated background, while a
+    /// thread makes it.
+    analysis: Option<Receiver<ddi_library::generative::Series>>,
     /// The window's scale factor (device pixels per point).
     pub scale: f32,
     /// The quit button is drawn this frame (`Feed::pointer_at`), and
@@ -148,51 +194,36 @@ pub struct View {
     pub present_at: Option<HostTime>,
 }
 
+impl Deref for View {
+    type Target = PlayView<Desktop>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
+impl DerefMut for View {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.view
+    }
+}
+
 impl View {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, formats: Formats) -> View {
+        let renderer = Renderer::new(
+            device,
+            queue,
+            formats.view,
+            formats.blending(),
+            &[ddi_render::HUD_FONT],
+        );
         View {
-            dance: Default::default(),
-            renderer: Renderer::new(
-                device,
-                queue,
-                formats.view,
-                formats.blending(),
-                &[ddi_render::HUD_FONT],
-            ),
+            view: PlayView::new(Desktop::new(), renderer),
             formats,
-            noteskin: None,
-            noteskin_key: String::new(),
-            backgrounds: Vec::new(),
-            backdrop_textures: Default::default(),
-            pending: Vec::new(),
-            schedule: Default::default(),
-            frame_shape: FrameShape::default(),
-            fps: FpsMeter::new(),
-            stage: Default::default(),
-            stage_drawn: (0, 0),
-            scripts: Default::default(),
-            scripts_stopped: None,
             script_sounds: Default::default(),
-            sounds_due: Vec::new(),
             sounds_played: 0,
-            stage_track: None,
-            pending_fonts: None,
-            lyrics: None,
-            overlay: None,
-            fonts: None,
-            lyrics_shown: Vec::new(),
-            refresh_hint: None,
-            guard: MovieGuard::default(),
-            video: VideoMode::Auto,
-            #[cfg(feature = "video")]
-            movies: Default::default(),
-            #[cfg(feature = "video")]
-            script_movies: Default::default(),
             script_movie_files: Vec::new(),
-            frames: 0,
-            generated: None,
             analysis: None,
-            entrance: None,
             scale: 1.0,
             quit_shown: false,
             quit_at: None,
@@ -209,43 +240,42 @@ impl View {
     /// play gives its own: [`View::set_played_song`]), the settings' frame
     /// and video mode, its movies. Its images are read on other threads
     /// ([`View::images_to_read`]) and come in through
-    /// [`View::add_background`]; its scripts are readied by the host
+    /// `add_background`; its scripts are readied by the host
     /// (`super::scripts`) and come in through [`View::set_scripts`].
     pub fn set_song(&mut self, loaded: &Loaded, settings: &Settings) {
-        self.schedule = schedule(&loaded.song, loaded);
-        self.frame_shape = FrameShape::new(settings.background_frame);
-        self.video = settings.video;
-        self.scripts = Default::default();
-        self.scripts_stopped = None;
-        self.script_sounds.clear();
-        self.sounds_due.clear();
+        let layers = schedule(&loaded.song, loaded);
+        let view = &mut self.view;
         #[cfg(feature = "video")]
         {
-            self.movies.reset();
+            view.movies.reset();
             if settings.bg_brightness > 0.0 && settings.video != VideoMode::Off {
                 // The first layer's first movie first: it is the one probed
                 // for the background frame.
-                let first = self.schedule[0].iter().find_map(|s| match &s.image {
+                let first = layers[0].iter().find_map(|s| match &s.image {
                     BgImage::Movie(name) => Some(name.as_str()),
                     _ => None,
                 });
                 let mut movies: Vec<_> = loaded.movies.iter().collect();
                 movies.sort_by_key(|(name, _)| Some(name.as_str()) != first);
                 for (name, at) in movies {
-                    self.movies.add(name, at.clone());
+                    view.movies.add(name, at.clone());
                 }
             }
         }
+        view.set_schedule(layers);
+        view.set_video(settings.video, settings.background_frame);
+        view.set_scripts(Default::default());
+        self.script_sounds.clear();
     }
 
     /// The play about to start plays `song`, `loaded`'s song as played:
     /// shifted by the song offset, which moves its background changes too
     /// (as the web schedules them).
     pub fn set_played_song(&mut self, song: &ddi_chart::Song, loaded: &Loaded) {
-        self.schedule = schedule(song, loaded);
+        self.view.set_schedule(schedule(song, loaded));
         let folders = backgrounds::script_folders_of(&loaded.entry.bg_scripts);
-        self.scripts
-            .retime(&backgrounds::foregrounds(song, &folders));
+        self.view
+            .retime_scripts(&backgrounds::foregrounds(song, &folders));
     }
 
     /// The song's generated background under `settings`
@@ -254,10 +284,9 @@ impl View {
     /// analyzed on a thread where it may show (no picture, or over it);
     /// until then it runs on the beat alone.
     pub fn set_generated(&mut self, loaded: &Loaded, settings: &Settings, calibration: bool) {
-        use ddi_shell::generative::{Generated, needs_music, wanted};
+        use ddi_shell::generative::{needs_music, wanted};
         let want = wanted(settings, &loaded.song, calibration);
-        self.generated = want.map(Generated::new);
-        self.backdrop_textures.set_generated(None);
+        self.view.set_generated(want);
         self.analysis = None;
         if needs_music(want, loaded.entry.background.is_some()) {
             let music = loaded.music.clone();
@@ -283,42 +312,14 @@ impl View {
     pub fn wait_for_generated(&mut self) {
         if let Some(rx) = self.analysis.take()
             && let Ok(series) = rx.recv()
-            && let Some(g) = self.generated.as_mut()
         {
-            g.set_series(std::rc::Rc::new(series));
+            self.view.set_generated_series(Rc::new(series));
         }
     }
 
     /// Whether the song has a generated background.
     pub fn has_generated(&self) -> bool {
-        self.generated.is_some()
-    }
-
-    /// What the generated background did, if the song has one.
-    pub fn generated(&self) -> Option<ddi_shell::generative::Debug> {
-        self.generated.as_ref().map(|g| g.debug())
-    }
-
-    /// What the start prompt shows of the generated background, for a
-    /// song without a picture: its frame at the play's first song second
-    /// and beat (`first`), for a frame of shape `aspect`
-    /// ([`ddi_shell::generative::Generated::still`]). `None` without one,
-    /// or while the cover it folds is read but not up.
-    pub fn generated_still(
-        &self,
-        first: (f64, f64),
-        brightness: f32,
-        reduced: bool,
-        aspect: f32,
-    ) -> Option<ddi_shell::generative::Still> {
-        self.generated.as_ref()?.still(
-            &self.renderer,
-            &self.backgrounds,
-            first,
-            brightness,
-            reduced,
-            aspect,
-        )
+        self.view.generated().is_some()
     }
 
     /// The song's scripts (`docs/plans/scripted-backgrounds.md`), loaded
@@ -331,17 +332,11 @@ impl View {
             sounds: Default::default(),
             movies: Vec::new(),
         });
-        self.scripts = ready.view;
-        self.scripts.forget_textures();
+        self.view.set_scripts(ready.view);
         self.script_sounds = ready.sounds;
-        self.scripts_stopped = None;
         #[cfg(feature = "video")]
-        {
-            self.script_movies.reset();
-            self.script_movies = Default::default();
-            for (name, at) in &ready.movies {
-                self.script_movies.add(name, at.clone());
-            }
+        for (name, at) in &ready.movies {
+            self.view.script_movies.add(name, at.clone());
         }
         self.script_movie_files = ready.movies;
     }
@@ -349,11 +344,7 @@ impl View {
     /// The song's scripts taken back (the view is let go: a lost device),
     /// for the next view to draw ([`View::set_scripts`]); `None` without.
     pub fn take_scripts(&mut self) -> Option<super::scripts::Ready> {
-        if !self.scripts.loaded() {
-            return None;
-        }
-        let mut view = std::mem::take(&mut self.scripts);
-        view.forget_device();
+        let view = self.view.take_scripts()?;
         Some(super::scripts::Ready {
             view,
             sounds: std::mem::take(&mut self.script_sounds),
@@ -361,30 +352,21 @@ impl View {
         })
     }
 
-    /// The scripts' texts not drawn yet, drawn (white, as a work's
-    /// layers' text is drawn).
-    fn draw_script_texts(scripts: &mut ddi_shell::scripted::ScriptView<Rgba>) {
-        for text in scripts.measure() {
-            if let Some((image, size)) = super::scripts::text_image(&text) {
-                scripts.add_text(text, image, size);
-            }
-        }
-    }
-
     /// The scripts' sounds played since last asked, for the host to play
     /// on the play's sound now.
     pub fn take_script_sounds(&mut self) -> Vec<crate::audio::mixer::Sound> {
-        std::mem::take(&mut self.sounds_due)
-    }
-
-    /// Why the song's scripts stopped during the play, if they did.
-    pub fn scripts_stopped(&self) -> Option<&ddi_session::scripted::Failure> {
-        self.scripts_stopped.as_ref()
+        let files = self.view.take_script_sounds();
+        let sounds: Vec<_> = files
+            .iter()
+            .filter_map(|f| self.script_sounds.get(f).cloned())
+            .collect();
+        self.sounds_played += sounds.len();
+        sounds
     }
 
     /// Whether the song's scripts draw (loaded, not stopped).
     pub fn scripts_running(&self) -> bool {
-        self.scripts.running()
+        self.view.scripts().running()
     }
 
     /// The images the song shows (in `calibration`, without the cover a
@@ -432,117 +414,7 @@ impl View {
 
     /// The song's pictures on the device.
     pub fn backgrounds(&self) -> usize {
-        self.backgrounds.len()
-    }
-
-    /// An image read for the song.
-    pub fn add_background(&mut self, what: BgImage, image: Rgba) {
-        if self.backgrounds.iter().any(|(w, _)| *w == what) {
-            return;
-        }
-        self.pending.push((what, image));
-    }
-
-    /// Images read go up: all of them outside play; in play one a frame,
-    /// and only when no change is due within a second (an upload never
-    /// costs a change its frame).
-    fn upload_backgrounds(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, at: Option<f64>) {
-        let count = backgrounds::uploads_due(&self.schedule, at, self.pending.len());
-        let batch: Vec<_> = self.pending.drain(..count).collect();
-        let limit = device.limits().max_texture_dimension_2d;
-        for (what, image) in batch {
-            let [w, h] = image.size;
-            if w.max(h) > limit || w == 0 || h == 0 {
-                continue;
-            }
-            let id = self
-                .renderer
-                .add_background_image(device, [w, h], |texture| write_rgba(queue, texture, &image));
-            match what {
-                BgImage::Song => self.frame_shape.song_bg_aspect = Some(w as f32 / h as f32),
-                BgImage::Still => self.frame_shape.still_aspect = Some(w as f32 / h as f32),
-                _ => {}
-            }
-            self.backgrounds.push((what, id));
-        }
-    }
-
-    /// Draws with `play` (readied for this play's layout and direction,
-    /// its images by texture index: `None` for built-in art) from now on;
-    /// `None`: the built-in arrows.
-    pub fn set_noteskin(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        play: Option<(NoteskinPlay, Vec<Option<Rgba>>, String)>,
-    ) {
-        self.renderer.clear_noteskin_textures();
-        // The layers' and the scripts' textures went with them.
-        self.stage.forget_textures();
-        self.scripts.forget_textures();
-        let srgb = self.renderer.skin_colors_linear();
-        self.noteskin = play.map(|(mut play, images, key)| {
-            self.noteskin_key = key;
-            play.set_srgb(srgb);
-            upload_noteskin(&mut self.renderer, device, queue, &mut play, &images);
-            play
-        });
-        self.renderer
-            .set_skins_drawn(device, queue, self.skins_drawn());
-    }
-
-    /// The noteskin drawn, if any.
-    pub fn noteskin(&self) -> Option<&NoteskinPlay> {
-        self.noteskin.as_ref()
-    }
-
-    /// Continue the prompt's visual entrance from the first drawn play frame.
-    pub fn enter_background(&mut self, from: ddi_actor::background::Reveal, reduced: bool) {
-        self.entrance = Some(ddi_actor::background::Entrance::resume(from, reduced));
-    }
-
-    /// Restart skin commands and the movies' guard for a new play.
-    pub fn start(&mut self) {
-        self.renderer.reset_hud();
-        if let Some(n) = self.noteskin.as_mut() {
-            n.restart();
-        }
-        self.scripts.restart();
-        #[cfg(feature = "video")]
-        self.script_movies.stop();
-        let refresh = self
-            .fps
-            .refresh_estimate()
-            .or(self.refresh_hint)
-            .unwrap_or(60.0);
-        self.guard.start(refresh);
-    }
-
-    /// The pictures read so far on the device (before a play: all of
-    /// them).
-    pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        self.upload_backgrounds(device, queue, None);
-    }
-
-    /// The backgrounds' frame before the play starts, for the prompt's
-    /// picture (`None`: the whole screen).
-    pub fn prompt_frame(&mut self) -> Option<f32> {
-        self.frame_aspect(false)
-    }
-
-    /// The frame's backgrounds' shape (`None`: the whole screen).
-    fn frame_aspect(&mut self, started: bool) -> Option<f32> {
-        #[cfg(feature = "video")]
-        {
-            let movies = &mut self.movies;
-            let shown = movies.shown_any();
-            self.frame_shape
-                .aspect(|| movies.picture_aspect(), shown, started)
-        }
-        #[cfg(not(feature = "video"))]
-        {
-            self.frame_shape.aspect(|| Err(false), false, started)
-        }
+        self.view.pictures().len()
     }
 
     /// One frame of `play` at host time `now` into `view` (the plain
@@ -560,384 +432,71 @@ impl View {
         render: RenderOptions,
         now: HostTime,
     ) {
-        let session = &play.session;
-        let second = self
-            .fps
-            .tick(now.0 * 1000.0)
-            .map(|fps| self.fps.second(fps));
-        let present = self
-            .present_at
-            .take()
-            .unwrap_or_else(|| session.predicted_present(now));
-        let frame = session.frame(present);
-        let started = session.player.started();
-        let playing = started && !session.player.finished();
-        self.upload_backgrounds(device, queue, playing.then_some(frame.song_time));
-        if let Some(track) = self.stage_track.take() {
-            self.apply_stage_track(device, queue, track);
-        }
-        let frame_aspect = self.frame_aspect(started);
-        #[cfg(feature = "video")]
-        {
-            if session.player.finished() {
-                self.movies.stop();
-            } else {
-                let drawing = self.movies.drawing(&self.schedule);
-                self.movies.update(
-                    &self.schedule,
-                    frame.song_time,
-                    self.renderer.background_mut(),
-                    device,
-                    queue,
-                );
-                if self.video == VideoMode::Auto {
-                    let refresh = self
-                        .fps
-                        .refresh_estimate()
-                        .or(self.refresh_hint)
-                        .unwrap_or(60.0);
-                    let late = self.movies.late();
-                    if let Some(action) =
-                        self.guard
-                            .step(now.0 * 1000.0, drawing, second, refresh, late)
-                    {
-                        self.movies.obey(action);
-                    }
-                }
-            }
-        }
-        #[cfg(not(feature = "video"))]
-        let _ = (second, &self.guard, self.video);
-        let mut render = render;
-        render.hud_time = Some(now.0);
-        render.frame_aspect = frame_aspect;
-        if let Some(entrance) = &mut self.entrance {
-            let reveal = entrance.sample(now.0);
-            render.background_reveal = Some(reveal);
-            if reveal == ddi_actor::background::Reveal::default() {
-                self.entrance = None;
-            }
-        }
-        // A generated background: its texture at the frame's size, in
-        // the backdrop's list, drawn when the backdrop shows it.
         if let Some(rx) = &self.analysis
             && let Ok(series) = rx.try_recv()
         {
-            if let Some(g) = self.generated.as_mut() {
-                g.set_series(std::rc::Rc::new(series));
-            }
+            self.view.set_generated_series(Rc::new(series));
             self.analysis = None;
         }
-        if let Some(g) = self.generated.as_mut() {
-            g.prepare(
-                &mut self.renderer,
-                device,
-                &mut self.backdrop_textures,
-                size,
-                &render,
-            );
-        }
-        render.backdrop = self.backdrop(frame.song_time);
-        if let Some(g) = self.generated.as_mut() {
-            g.draw_shown(
-                &mut self.renderer,
-                device,
-                queue,
-                encoder,
-                &render,
-                &self.backgrounds,
-                (frame.song_time, frame.beat),
-            );
-        }
-        let layer = self.noteskin.as_mut().map(|n| {
-            // The skin's Lua stopped: the play goes on with the built-in
-            // skin; the next one tries again, and the second stop turns
-            // its Lua off (a stall is not the skin's: not held against
-            // it).
-            if let Some((why, on_clock)) =
-                ddi_shell::update_noteskin(n, &frame, &session.player, render.reverse)
-            {
-                if on_clock {
-                    eprintln!("noteskin {}: {why}", self.noteskin_key);
-                } else {
-                    crate::library::noteskins::lua_stopped(&self.noteskin_key, why);
-                }
-            }
-            n as &mut dyn NoteLayer
-        });
-        // The field's place, for a work's layers and the lyrics.
-        let (w, h) = (size[0] as f32, size[1] as f32);
-        let span = ddi_render::scene::field_span(&session.layout);
-        let geo = ddi_render::FieldGeometry::placed(w, h, span, render.reverse, render.place);
-        // The quit button, clear of the field's receptors, while the
-        // pointer was moved lately (as the web's touch screens have it).
-        let quit = self
-            .quit_shown
-            .then(|| ddi_render::scene::quit_button(&geo, &session.layout, self.scale, [0.0; 4]));
-        self.renderer.set_quit_button(quit);
-        self.quit_at = quit.map(|b| b.map(|v| v / self.scale));
-        // A work's back and mask layers, placed as the web places them;
-        // the song's scripts in the background frame.
-        let layers = ddi_shell::scripted::draw_layers(
-            &mut self.stage,
-            &mut self.scripts,
-            (&mut self.renderer, device, queue),
-            (frame.song_time, frame.beat),
-            &self.schedule,
-            ([w, h], frame_aspect),
-            geo.center_x(span),
-            (session.danger_shown(), layer.is_some()),
-            Self::draw_script_texts,
-        );
-        if let Some(l) = &layers {
-            self.stage_drawn = l.quads;
-        }
-        if let Some(drawn) = layers.and_then(|l| l.scripts) {
-            if let Some(why) = drawn.stopped {
-                eprintln!("scripted backgrounds stopped: {why}");
-                self.scripts_stopped = Some(why);
-            }
-            for f in drawn.sounds {
-                if let Some(s) = self.script_sounds.get(&f) {
-                    self.sounds_due.push(s.clone());
-                    self.sounds_played += 1;
-                }
-            }
-            // Their movies drawn, decoded on their clocks and their new
-            // frames drawn into their textures (shown from the next frame
-            // on, the first time).
-            #[cfg(feature = "video")]
-            if session.player.finished() {
-                self.script_movies.stop();
-            } else if self.video != VideoMode::Off {
-                let deck = &mut self.script_movies;
-                self.scripts
-                    .play_movies(&mut self.renderer, device, queue, |clips, r| {
-                        deck.update_clips(clips, r, device, queue)
-                    });
-            }
-        }
-        #[cfg(feature = "video")]
-        crate::video::protect_external_frames(device, encoder);
-        let origin = std::time::Instant::now();
-        let format = self.formats.plain.unwrap_or(self.formats.view);
-        self.dance.before_field(
-            device,
-            queue,
-            encoder,
-            &mut self.renderer,
-            format,
-            size,
-            frame.song_time,
-            &|| origin.elapsed().as_secs_f64(),
-        );
-        self.renderer.render(
-            device,
-            queue,
-            encoder,
+        let second = self.view.tick(now.0 * 1000.0);
+        let target = Target {
             view,
             plain,
-            size[0],
-            size[1],
-            &frame,
-            &session.layout,
-            &session.rules.names,
-            render,
-            layer,
-        );
-        self.dance.after_field(
-            device,
-            queue,
-            encoder,
-            plain.unwrap_or(view),
-            format,
             size,
-            frame.song_time,
+            format: self.formats.plain.unwrap_or(self.formats.view),
+        };
+        let moment = Moment {
+            now,
+            present: self.present_at.take(),
+            second,
+        };
+        // The quit button while the pointer was moved lately (as the
+        // web's touch screens have it).
+        let screen = Screen {
+            ratio: self.scale,
+            quit: self.quit_shown.then_some([0.0; 4]),
+            lyrics: true,
+        };
+        let drawn = self.view.draw(
+            (device, queue, encoder),
+            &target,
+            &play.session,
+            render,
+            moment,
+            screen,
         );
-        // The lyrics at this frame's time, over the field's middle.
-        let lyrics = self
-            .lyrics
-            .as_ref()
-            .filter(|_| playing)
-            .map(|track| {
-                // Clear of the HUD's gauge and score, never over the
-                // receptors (no quit button here); the smallest size in
-                // points, as the web's is in CSS pixels.
-                let place = ddi_render::lyrics::Place::for_play(
-                    &geo,
-                    &session.layout,
-                    track.stage(),
-                    None,
-                    self.scale,
-                );
-                (track.at(frame.song_time), place)
-            })
-            .filter(|l| !l.0.is_empty());
-        match lyrics {
-            Some(l) => self.draw_lyrics(device, queue, encoder, view, plain, size, l),
-            None => self.lyrics_shown.clear(),
-        }
-        self.frames += 1;
-    }
-
-    /// A work's layers for the play about to start (`None`: none shown),
-    /// from its first frame.
-    pub fn set_stage_track(&mut self, track: Option<ddi_engine::sprites::SpriteTrack>) {
-        self.stage_track = Some(track);
-    }
-
-    fn apply_stage_track(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        track: Option<ddi_engine::sprites::SpriteTrack>,
-    ) {
-        self.stage.set_track(track);
-        self.renderer.set_stage_quads(Vec::new(), Vec::new());
-        self.stage_drawn = (0, 0);
-        self.renderer
-            .set_skins_drawn(device, queue, self.skins_drawn());
-    }
-
-    /// Whether quads are drawn as skins' are: a noteskin's, a work's
-    /// layers', the song's scripts'.
-    fn skins_drawn(&self) -> bool {
-        self.noteskin.is_some() || self.stage.shown() || self.scripts.running()
+        self.quit_at = drawn.quit_at;
     }
 
     /// The lyrics of the play about to start (`None`: none shown); the
     /// fonts they are drawn with are read meanwhile.
     pub fn set_lyrics(&mut self, lyrics: Option<ddi_engine::lyrics::LyricTrack>) {
-        self.lyrics = lyrics.filter(|t| !t.is_empty());
-        self.lyrics_shown.clear();
-        if self.lyrics.is_some() && self.overlay.is_none() && self.fonts.is_none() {
-            let (tx, rx) = std::sync::mpsc::channel();
-            let _ = std::thread::Builder::new()
-                .name("ddi-lyrics-fonts".into())
-                .spawn(move || {
-                    let _ = tx.send(ddi_render::cosmic::CosmicRasterizer::with_families(
-                        &crate::gpu::faces(),
-                        true,
-                    ));
-                });
-            self.fonts = Some(rx);
+        self.view.set_lyrics(lyrics);
+        if self.view.has_lyrics() {
+            self.view.host.read_fonts();
         }
     }
 
-    /// The lyrics drawn in the last frame.
-    pub fn lyrics_shown(&self) -> &[String] {
-        &self.lyrics_shown
+    /// The fonts the play's text is drawn with (a stage's opponents'
+    /// column), read meanwhile.
+    pub fn read_text(&mut self) {
+        self.view.host.read_fonts();
     }
 
     /// Waits for the lyrics' fonts (tests).
     pub fn wait_for_fonts(&mut self) {
-        if let Some(rx) = &self.fonts
+        let host = &mut self.view.host;
+        if let Some(rx) = host.fonts.take()
             && let Ok(r) = rx.recv()
         {
-            self.fonts = None;
-            self.pending_fonts = Some(r);
-        }
-    }
-
-    /// Draws `lines` through the 2D pass over the frame just encoded:
-    /// through the surface's plain view where it has one (blended encoded,
-    /// as the menus), else through the view itself.
-    #[allow(clippy::too_many_arguments)]
-    fn draw_lyrics(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        plain: Option<&wgpu::TextureView>,
-        size: [u32; 2],
-        (lines, place): (
-            Vec<ddi_engine::lyrics::LyricLine>,
-            ddi_render::lyrics::Place,
-        ),
-    ) {
-        let format = self.formats.plain.unwrap_or(self.formats.view);
-        let target = plain.unwrap_or(view);
-        if let Some(rx) = &self.fonts
-            && let Ok(r) = rx.try_recv()
-        {
-            self.fonts = None;
-            self.pending_fonts = Some(r);
-        }
-        if self.overlay.is_none()
-            && let Some(r) = self.pending_fonts.take()
-        {
-            let mut painter = ddi_render::painter::Painter::new(device, queue, format);
-            painter.set_rasterizer(Box::new(r));
-            self.overlay = Some((painter, ddi_render::DrawList::new()));
-        }
-        let Some((painter, list)) = self.overlay.as_mut() else {
-            return;
-        };
-        // The last frame's draws were submitted by the shell.
-        painter.submitted();
-        list.clear();
-        {
-            let mut measure = painter.measure(1.0);
-            ddi_render::lyrics::draw(list, &lines, &place, &mut measure);
-        }
-        painter.draw(
-            device,
-            queue,
-            encoder,
-            target,
-            size,
-            1.0,
-            None,
-            list,
-            &mut |_, _| {},
-        );
-        let shown = lines.iter().filter(|l| l.opacity > 0.0).map(|l| &*l.text);
-        if !shown
-            .clone()
-            .eq(self.lyrics_shown.iter().map(String::as_str))
-        {
-            self.lyrics_shown = shown.map(str::to_string).collect();
+            host.font = Some(r);
         }
     }
 
     /// A content of the song's layers, read.
     pub fn add_stage_content(&mut self, read: super::stage::Read) {
         let (content, image, size) = read;
-        self.stage.add(content.source(), image, size);
-    }
-
-    /// The layers' quads drawn in the last frame, back and mask.
-    pub fn stage_drawn(&self) -> (usize, usize) {
-        self.stage_drawn
-    }
-
-    /// What shows behind the field at song second `t`: both layers.
-    fn backdrop(&mut self, t: f64) -> Backdrop {
-        // Black under the scripts while they run.
-        let black = self.scripts.running().then_some(ddi_render::BLACK);
-        #[cfg(feature = "video")]
-        let first = &self.schedule[0];
-        #[cfg(feature = "video")]
-        let (all, opening) = {
-            let movies = &self.movies;
-            let all = self.backdrop_textures.get(
-                &self.backgrounds,
-                movies.version(),
-                || movies.shown_ids(),
-                ddi_render::PLAIN,
-                black,
-            );
-            (all, movies.opening_plays(first))
-        };
-        #[cfg(not(feature = "video"))]
-        let (all, opening) = (
-            self.backdrop_textures
-                .get(&self.backgrounds, 0, Vec::new, ddi_render::PLAIN, black),
-            false,
-        );
-        let [first, second] = backgrounds::draws_at(&self.schedule, t, all, opening);
-        Backdrop { first, second }
+        self.view.add_stage_content(content.source(), image, size);
     }
 }
 

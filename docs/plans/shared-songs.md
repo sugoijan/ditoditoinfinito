@@ -88,6 +88,44 @@ token in a request is compared in constant time against the list in the
 `SHARE_TOKENS` secret (one a line); no accounts, no rate limiting beyond
 Cloudflare's, for the proof of concept.
 
+### Room shares (M5d, 2026-11-10)
+
+The multiplayer prototype's online rooms (`multiplayer-prototype-progress.md`,
+M5d) share a stage's song through the same routes, authorized by the room
+instead of a token. The contract's types live in one crate both sides use,
+`crates/share-protocol` (`ddi-share-protocol`, serde only; the game reads
+it through `ddi_library::share`, the Worker depends on it by path), so the
+JSON above has one definition.
+
+- `POST <base>/rooms/<room>/grant {stage}` (signed in; the room's owner,
+  a co-host or an admin, as may choose its song; the stage not started,
+  its chosen content pending or refused) → `{grant, expires_at_ms,
+  max_bytes}`, a grant signed by the Worker for thirty minutes, that
+  room, stage, member and content (`UploadGrant`: the chart's digest as
+  its content key, one song); or `{share}` when the room already has a
+  finished share of the same content, made available at once.
+- The share routes take `Authorization: Grant <grant>` beside the tokens
+  (whose meaning is unchanged): `POST /s` makes a share whose owner is
+  `room:<room>:<player>` (never a token's mark), tied to the room and
+  stage, expiring with the room (its idle life, whatever expiry word was
+  sent), within the grant's limits (`413 grant_limits`); `PUT` and
+  `finish` only on a share made under a grant of the same room, stage,
+  content and member (`403 grant_scope`; a renewed grant goes on with
+  it); `401 grant_expired` (ask the room for another) or `401
+  grant_invalid`; a grant never lists or deletes.
+- On `finish` the Worker tells the room (never the client's word): the
+  stage becomes available with the share's id when the song's record lists
+  the chosen chart's digest, else unavailable (`digest_mismatch`) until it
+  is uploaded again. Every member then reads the share by its id as above
+  and reports the stage loaded only when the chart read has that digest.
+- When the room closes its shares are deleted with their files (the
+  hourly purge takes any left at their expiry).
+
+Room shares are readable by id like any share: the id goes to the room's
+members over the room's socket, but anyone holding it can read the share.
+This is not access limited to the room's members (a later step: a member
+read grant on the share's URLs).
+
 ## The app
 
 - **A shared origin.** `songs::Origin::Shared` beside `Bundled` and

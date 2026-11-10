@@ -1429,10 +1429,28 @@ pub fn register_for_tests(songs: &[LibSong]) {
     }
 }
 
-/// The library's song `id` (a test's first).
+/// The songs online rooms' shares brought into the cache (M5d,
+/// `crate::room`), apart from the scans' registry (a scan replaces it,
+/// and these are no songs of the library): kept for the run.
+fn room_songs() -> &'static RwLock<HashMap<String, LibSong>> {
+    static SONGS: OnceLock<RwLock<HashMap<String, LibSong>>> = OnceLock::new();
+    SONGS.get_or_init(Default::default)
+}
+
+/// Adds an online room's shared songs (`shared:<id>:<n>`, read into the
+/// cache by `crate::share::load`) where plays find songs' files.
+pub fn register_room_songs(songs: &[LibSong]) {
+    if let Ok(mut r) = room_songs().write() {
+        r.extend(songs.iter().map(|s| (s.entry.id.clone(), s.clone())));
+    }
+}
+
+/// The library's song `id` (a test's first, then a room's shared one).
 pub fn song(id: &str) -> Option<LibSong> {
     let tests = test_songs().read().ok().and_then(|r| r.get(id).cloned());
-    tests.or_else(|| registry().read().ok()?.get(id).cloned())
+    tests
+        .or_else(|| room_songs().read().ok()?.get(id).cloned())
+        .or_else(|| registry().read().ok()?.get(id).cloned())
 }
 
 /// The folder a library song's StepMania root is (the one its songs

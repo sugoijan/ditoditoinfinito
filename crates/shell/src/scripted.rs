@@ -365,8 +365,6 @@ pub struct LayersFrame {
     pub stage: Option<(usize, usize)>,
     /// What the scripts did, while they run.
     pub scripts: Option<ScriptFrame>,
-    /// Every back and mask quad given to the renderer.
-    pub quads: (usize, usize),
 }
 
 /// A work's back and mask layers and a song's scripts at song second `t`
@@ -411,12 +409,10 @@ pub fn draw_layers<C: StageContent>(
             (&mut back, &mut mask),
         )
     });
-    let quads = (back.len(), mask.len());
     renderer.set_stage_quads(back, mask);
     Some(LayersFrame {
         stage: drawn_stage,
         scripts: script_frame,
-        quads,
     })
 }
 

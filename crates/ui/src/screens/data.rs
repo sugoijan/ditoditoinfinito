@@ -390,8 +390,8 @@ impl ImportReportView {
 pub struct SongEntry {
     /// Stable within the list (the library's id).
     pub id: String,
+    /// With its subtitle, as the library's entries have it.
     pub title: String,
-    pub subtitle: String,
     pub artist: String,
     /// Its pack's name; `None` for a bundled song.
     pub pack: Option<String>,
@@ -547,6 +547,17 @@ pub struct SelectData {
     /// Songs shared by link (`docs/plans/shared-songs.md`): the list is
     /// the share's songs alone, nothing is added, edited or managed.
     pub shared: Option<SharedView>,
+    /// Choosing a multiplayer stage's song (`screens::room`): the whole
+    /// library, nothing added, edited, managed or shared; Start uses the
+    /// chart shown for the stage.
+    pub pick: Option<PickView>,
+}
+
+/// Song select choosing a stage's song ([`SelectData::pick`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PickView {
+    /// The stage's number, from 1.
+    pub stage: u16,
 }
 
 /// How sharing a pack goes (`docs/plans/shared-songs.md`): the shell's
@@ -830,6 +841,10 @@ pub enum ResultsKind {
     Replay,
     /// A kept play opened from its list: its replay.
     Kept,
+    /// A multiplayer stage's play (`docs/plans/multiplayer-prototype-progress.md`,
+    /// M3): no Retry (a stage is played once), "Back to room" for Song
+    /// list, not kept.
+    Stage,
 }
 
 impl ResultsData {

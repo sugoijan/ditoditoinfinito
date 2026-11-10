@@ -79,16 +79,6 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
             &["Plate", "Label", "Box", "Mark"],
         ),
         (
-            "OptionRow",
-            s(400.0, 42.0, "Turn"),
-            &["Plate", "Label", "Choices"],
-        ),
-        (
-            "Slider",
-            s(400.0, 42.0, "Volume"),
-            &["Plate", "Label", "Track", "Fill", "Knob", "Value"],
-        ),
-        (
             "List.Row",
             s(400.0, 46.0, ""),
             &["Plate", "Banner", "Title", "Subtitle"],
@@ -129,7 +119,6 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
                 "JacketBack",
                 "CdTitle",
                 "Title",
-                "Subtitle",
                 "Artist",
                 "Bpm",
                 "Length",
@@ -394,9 +383,7 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     theme.set_keycap_material(KeycapMaterial::DeepGraySatin);
     for name in [
         "Toggle",
-        "Slider",
-        "OptionRow",
-        "OptionRow.Choice",
+        "OptionRow.Cursor",
         "List.Row",
         "List.Header",
         "List.Bar",
@@ -444,7 +431,6 @@ fn the_screens_in_the_theme() {
     for t in [
         "SELECT MUSIC",
         "Some Things Must",
-        "(OutFox Edit)",
         "160",
         "2:26",
         "HARD",

@@ -82,3 +82,11 @@ prompt-play-quit-this = このボタンを長押しまたは2回押しで終了
 prompt-play-quit-button = 終了ボタンを長押し、または2回タップ
 
 prompt-play-restart = { $key }を長押しまたは2回押しでリスタート
+
+# CPU prototype controls on the start card and results footer (wraps).
+# $seed (String) is the exact reproducible random seed, without grouping.
+# $strength (Number) is the ability multiplier, not a promised score.
+prompt-cpu-description = CPU · タップのみ · 途中終了なし · 強さ { $strength }× · シード { $seed }
+
+# $skills (String) is the seven comma-separated CPU skill multipliers.
+prompt-cpu-skills = スキル: { $skills }

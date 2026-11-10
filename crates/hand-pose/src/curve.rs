@@ -93,9 +93,18 @@ fn coefficients(a: &Knot, b: &Knot, d: f64, j: usize) -> [f64; 6] {
         6. * dx - 3. * dv + da / 2.,
     ]
 }
+/// `u`'s powers 0 to 5, each the product `powi` gives: the binary
+/// decomposition LLVM expands a constant exponent into and `__powidf2`
+/// computes for any other (`u⁵ = u·(u²·u²)`), so values stay bit for bit.
+fn powers(u: f64) -> [f64; 6] {
+    let u2 = u * u;
+    let u4 = u2 * u2;
+    [1., u, u2, u * u2, u4, u * u4]
+}
 pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
     let d = b.t - a.t;
     let u = ((t - a.t) / d).clamp(0., 1.);
+    let power = powers(u);
     let mut out = Knot {
         t,
         p: [0.; 16],
@@ -104,12 +113,12 @@ pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
     };
     for j in 0..16 {
         for (k, &v) in coefficients(a, b, d, j).iter().enumerate() {
-            out.p[j] += v * u.powi(k as i32);
+            out.p[j] += v * power[k];
             if k > 0 {
-                out.v[j] += k as f64 * v * u.powi(k as i32 - 1) / d;
+                out.v[j] += k as f64 * v * power[k - 1] / d;
             }
             if k > 1 {
-                out.a[j] += (k * (k - 1)) as f64 * v * u.powi(k as i32 - 2) / (d * d);
+                out.a[j] += (k * (k - 1)) as f64 * v * power[k - 2] / (d * d);
             }
         }
     }
@@ -118,12 +127,12 @@ pub(crate) fn quintic(a: &Knot, b: &Knot, t: f64) -> Knot {
 /// `quintic`'s position alone, by the same sums.
 fn quintic_position(a: &Knot, b: &Knot, t: f64) -> V {
     let d = b.t - a.t;
-    let u = ((t - a.t) / d).clamp(0., 1.);
+    let power = powers(((t - a.t) / d).clamp(0., 1.));
     std::array::from_fn(|j| {
         coefficients(a, b, d, j)
             .iter()
-            .enumerate()
-            .fold(0., |sum, (k, &v)| sum + v * u.powi(k as i32))
+            .zip(power)
+            .fold(0., |sum, (&v, p)| sum + v * p)
     })
 }
 /// Equivalent world-yaw phase nearest a reference. This never changes a

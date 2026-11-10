@@ -19,7 +19,9 @@ use ddi_ui::state::history::{
 };
 use ddi_ui::state::settings::Settings;
 
+use crate::announcer::battle::{BATTLE_VOICE_V0, Told, VoicePolicy};
 use crate::announcer::{Announcer, Ending, Moment, Prior, SharedVoice, Timing};
+use crate::battle::{Battle, OpponentView, StageOutcome, StageSetup};
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
 use crate::sounds::EventSounds;
 pub use cover::{COVER_DOWN_KEY, COVER_UP_KEY, CoverControl, START_KEYS};
@@ -96,6 +98,9 @@ pub struct SessionConfig {
     pub options: PlayOptions,
     pub volume: f32,
     pub auto: bool,
+    /// Prepared CPU presses, already bound to the projected chart. Automated,
+    /// with human lane input disabled; the usual cancel gesture still works.
+    pub cpu: Option<Vec<Press>>,
     /// Converging calibration test, if this session is one.
     pub calibration: Option<CalMode>,
     /// Autoplay presses this many seconds late (negative = early); testing aid.
@@ -138,6 +143,13 @@ pub struct SessionConfig {
     /// A play staged for the announcer studio's scenes ([`Staging`]):
     /// autoplayed from part-way with what came before given; never kept.
     pub staging: Option<Staging>,
+    /// A multiplayer stage against CPU opponents (`crate::battle`;
+    /// `docs/plans/multiplayer-prototype-progress.md`, M3): they are judged
+    /// beside the play; its gauge's fail is immediate (out of the stage),
+    /// turned off once the player has won it; no turns, removals or rate;
+    /// no quick restart; a quit is a forfeit. The solo CPU demonstration
+    /// ([`Self::cpu`]) is another thing and is not combined with it.
+    pub opponents: Option<StageSetup>,
 }
 
 impl SessionConfig {
@@ -151,6 +163,7 @@ impl SessionConfig {
             options: settings.play_options(devices.as_ref()),
             volume: settings.volume,
             auto,
+            cpu: None,
             calibration: None,
             auto_bias: 0.0,
             devices,
@@ -166,6 +179,7 @@ impl SessionConfig {
             prior: None,
             restart: false,
             staging: None,
+            opponents: None,
         }
     }
 
@@ -185,6 +199,14 @@ impl SessionConfig {
             (None, None) => settings.ruleset_for(chart),
         };
         let mut options = self.replay.as_ref().map_or(self.options, |r| r.options);
+        let mut rules = rules;
+        if self.opponents.is_some() {
+            // A stage: out when the gauge empties; the chart as the CPUs
+            // have it, at its own rate.
+            rules.fail = ddi_engine::FailPolicy::Immediate;
+            options.transform = Default::default();
+            options.clock.rate = 1.0;
+        }
         if self.replay.is_none() {
             options.seed = self.seed;
             options.scroll.speed = ddi_engine::scroll::speed_for_chart(
@@ -370,6 +392,7 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     raw: Vec<RawInput>,
     /// Autoplay: scripted presses at each note's judged time.
     auto: Option<AutoPlay>,
+    cpu: bool,
     aborted: bool,
     last_frame_host: Option<f64>,
     frame_interval: f64,
@@ -411,6 +434,19 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// A staged play's end and restart, song seconds ([`Staging`]).
     scene_until: Option<f64>,
     scene_restart: Option<f64>,
+    /// A multiplayer stage's CPU opponents, and its outcome once the play
+    /// is over ([`SessionConfig::opponents`]).
+    battle: Option<Battle>,
+    stage_outcome: Option<StageOutcome>,
+    /// The battle's moments as told (`crate::announcer::battle`): said by
+    /// the announcer, or shown beside the field where not; whether the
+    /// stage's opening has been told yet.
+    told: Vec<Told>,
+    opening_told: bool,
+    /// The stage's end as its results tell it, and the last frame's host
+    /// seconds (when the results' moments are told).
+    stage_end: Option<ddi_library::announcer::Battle>,
+    last_host: f64,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -563,7 +599,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         song: &Song,
         chart_index: usize,
         settings: &Settings,
-        config: SessionConfig,
+        mut config: SessionConfig,
         mut audio: A,
         buffer: A::Buffer,
         mut inputs: I,
@@ -580,10 +616,40 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .ok_or_else(|| format!("layout {} not playable", chart.layout))?;
         // Calibration keeps its own ruleset; songs follow the ruleset mode;
         // a replay plays by the rules it was played by.
-        let (ruleset, options) = config.player_spec(song, chart_index, settings)?;
-        // A replay is never autoplayed; a staged play always is.
+        let (mut ruleset, options) = config.player_spec(song, chart_index, settings)?;
+        let cpu = config.cpu.is_some();
+        if config.opponents.is_some()
+            && (cpu
+                || config.replay.is_some()
+                || config.calibration.is_some()
+                || config.staging.is_some()
+                || config.start.is_some())
+        {
+            return Err("a stage is played from its start, live".into());
+        }
+        if cpu {
+            // A CPU demonstration completes the song even if its gauge empties.
+            // Timing windows, note matching, scoring and the gauge stay unchanged.
+            ruleset.fail = ddi_engine::FailPolicy::Off;
+            if config.replay.is_some()
+                || config.calibration.is_some()
+                || config.staging.is_some()
+                || config.start.is_some()
+                || config.auto_pad
+                || layout.lanes.len() != 4
+                || config.options.transform != Default::default()
+                || config.options.clock.rate != 1.0
+                || chart
+                    .notes
+                    .iter()
+                    .any(|n| n.kind != ddi_chart::NoteKind::Tap)
+            {
+                return Err("CPU requires an untransformed tap-only 4K chart at 1×".into());
+            }
+            ddi_engine::cpu::validate_script(config.cpu.as_ref().unwrap())?;
+        }
         let staging = config.staging.clone().filter(|_| config.replay.is_none());
-        let auto_play = (config.auto || staging.is_some()) && config.replay.is_none();
+        let auto_play = (config.auto || cpu || staging.is_some()) && config.replay.is_none();
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
         // Any key for the one lane (calibration by ear): judged there, shown
@@ -631,7 +697,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         player.judge_all_in(any_lane);
         // The autoplayer presses the transformed chart's lanes (a staged
         // play's as its touches say).
-        let mut presses = ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias);
+        let mut presses = config.cpu.take().unwrap_or_else(|| {
+            ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias)
+        });
         if let Some(s) = &staging {
             presses = staging::touched(presses, &s.touches);
         }
@@ -653,7 +721,25 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             sample.output_latency,
         ));
         player.clock_sample(sample);
-        let start_ctx = sample.context_time + START_LOOKAHEAD;
+        // Reserve enough lead-in for the CPU's earliest press, including early
+        // errors at the first note. The audio still begins at song time zero.
+        if cpu
+            && auto
+                .as_ref()
+                .is_some_and(|a| a.events.iter().any(|p| p.release > player.song_end_time()))
+        {
+            return Err("CPU motor queue extends past the chart's end; this chart is outside the prototype limits".into());
+        }
+        let cpu_lead = if cpu {
+            auto.as_ref()
+                .and_then(|a| a.events.first())
+                .map_or(0., |p| {
+                    (-p.press - config.options.clock.audio_offset).max(0.)
+                })
+        } else {
+            0.
+        };
+        let start_ctx = sample.context_time + START_LOOKAHEAD + cpu_lead;
         // A work may start part-way into its music (`startFrame`) and end
         // or fade out before the music does.
         let danoni = chart
@@ -715,6 +801,18 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             _ => player.start(start_ctx, song_offset),
         }
+        // A stage's CPU opponents, on the same song and rules, from the
+        // same second.
+        let battle = match config.opponents.take() {
+            Some(setup) => Some(Battle::new(
+                setup,
+                song,
+                chart_index,
+                player.ruleset(),
+                song_offset,
+            )?),
+            None => None,
+        };
         // The announcer, on the music's timeline: its first note is the
         // first judged one the play reaches.
         let first_note = player
@@ -742,6 +840,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             announcer.restarted()
         } else {
             announcer
+        };
+        // A stage's voice: opened by the battle, its routine left out.
+        let announcer = match &battle {
+            Some(b) => announcer.in_stage(b.setup().opening(), BATTLE_VOICE_V0),
+            None => announcer,
         };
         // A staged play has danced already where a note came before its
         // start (no ready, no here we go), its combo and comment gap given.
@@ -801,6 +904,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             held: vec![false; lanes],
             raw: Vec::new(),
             auto,
+            cpu,
             aborted: false,
             last_frame_host: None,
             frame_interval: 1.0 / 60.0,
@@ -808,7 +912,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             last_delta: None,
             calibration: config.calibration.map(|m| (m, Calibrator::default())),
             cancel: Gesture::default(),
-            restart: (config.replay.is_none() && config.calibration.is_none())
+            restart: (config.replay.is_none() && config.calibration.is_none() && battle.is_none())
                 .then(Gesture::default),
             restarted: false,
             devices: config.devices,
@@ -823,6 +927,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             announcer,
             scene_until: staging.as_ref().and_then(|s| s.until),
             scene_restart: staging.as_ref().and_then(|s| s.restart),
+            battle,
+            stage_outcome: None,
+            told: Vec::new(),
+            opening_told: false,
+            stage_end: None,
+            last_host: 0.0,
         })
     }
 
@@ -934,7 +1044,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 continue;
             }
             // A replay's lanes and covers are its log's.
-            if self.replay.is_some() {
+            if self.replay.is_some() || self.cpu {
                 continue;
             }
             if self.cover.feed(
@@ -1023,6 +1133,18 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             // later press on the same lane.
             pending.sort_by(|a, b| a.0.total_cmp(&b.0));
             for (song_t, lane, pressed) in pending {
+                if self.cpu {
+                    // CPU times are already in the song's timeline. A host-time
+                    // round trip would apply different slewed clock drift at
+                    // now and at the earlier input (especially after a stall).
+                    self.held[usize::from(lane)] = pressed;
+                    events.extend(self.player.input_at(
+                        lane,
+                        pressed,
+                        song_t - self.rules.judge.judge_offset,
+                    ));
+                    continue;
+                }
                 // Convert the song time back to a host time by offsetting from now.
                 let host = HostTime(host_now.0 - (heard - song_t));
                 self.apply(
@@ -1046,6 +1168,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             let t = self.player.judge_time(HostTime(judge_now));
             self.ghost_delta = Some(g.delta(&self.player.ruleset().score.view(), t));
         }
+        // A stage's opponents judged to the same point; won, the player
+        // finishes the song whatever the gauge does.
+        let mut moments = Vec::new();
+        if let Some(b) = self.battle.as_mut() {
+            let t = self.player.judge_time(HostTime(judge_now));
+            if b.advance(t, &self.player) == Some(true) {
+                self.player.set_fail(ddi_engine::FailPolicy::Off);
+            }
+            moments = b.take_events();
+        }
         // The event sounds: a mine stepped on now (the step that failed
         // the play too), the claps due soon while it goes on.
         let now = sample.context_time;
@@ -1068,6 +1200,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if self.announcer.speaking() {
             let moment = self.moment(now, frame_dt, HostTime(judge_now));
             self.announcer.tick(&mut *self.audio, &moment);
+        }
+        if self.battle.is_some() {
+            self.last_host = host_now.0;
+            self.tell(moments, now, host_now.0);
         }
 
         // An immediate fail: the engine has stopped judging and the field is
@@ -1153,6 +1289,18 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         } else {
             None
         };
+        // A stage's outcome as the play ends: a quit or an interruption
+        // is a forfeit, unless the stage was decided already.
+        if let (Some(b), Some(event)) = (self.battle.as_mut(), outcome.as_ref()) {
+            let quit = matches!(
+                event,
+                SessionEvent::Aborted { .. } | SessionEvent::Interrupted
+            );
+            let o = b.outcome(&self.player, quit);
+            self.stage_end = b.end_event(&o, quit);
+            self.announcer.stage_end(self.stage_end);
+            self.stage_outcome = Some(o);
+        }
         if outcome.is_some() {
             self.inputs.release();
             self.inputs.pads_running(None);
@@ -1210,6 +1358,93 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// negative); `None` without a ghost or before the play started.
     pub fn ghost_delta(&self) -> Option<GhostDelta> {
         self.ghost_delta
+    }
+
+    /// A stage's CPU opponents as the play shows them, in their slots
+    /// (none: not a stage).
+    pub fn opponents(&self) -> Vec<OpponentView> {
+        self.battle.as_ref().map_or_else(Vec::new, Battle::views)
+    }
+
+    /// A stage's opponents, while one is played.
+    pub fn battle(&self) -> Option<&Battle> {
+        self.battle.as_ref()
+    }
+
+    /// The battle's moments this frame (`crate::announcer::battle`), at
+    /// audio time `now` and host time `host`: the stage's opening once
+    /// the announcer has said it or could not, then each moment, the one
+    /// that matters most first, said where the policy lets it; each told,
+    /// shown where its own line was not said.
+    fn tell(&mut self, mut moments: Vec<ddi_library::announcer::Battle>, now: f64, host: f64) {
+        if !self.opening_told
+            && let Some(said) = self.announcer.opened_with()
+            && let Some(b) = self.battle.as_ref()
+        {
+            self.opening_told = true;
+            self.told.push(Told {
+                event: b.setup().opening(),
+                said,
+                at: host,
+            });
+        }
+        let policy = BATTLE_VOICE_V0;
+        moments.sort_by_key(|e| std::cmp::Reverse(policy.priority(*e)));
+        for event in moments {
+            let said = self.announcer.battle(&mut *self.audio, event, now);
+            self.told.push(Told {
+                event,
+                said,
+                at: host,
+            });
+        }
+    }
+
+    /// The room confirmed this stage's outcome (the shell reported it),
+    /// the match `ending` with it where it was the last: the results'
+    /// battle line, the match's over the stage's.
+    pub fn stage_reported(&mut self, ending: Option<ddi_ui::state::room::MatchEnd>) {
+        if self.battle.is_none() {
+            return;
+        }
+        let ending = ending.map(crate::announcer::battle::match_event);
+        let now = self.audio.now().context_time;
+        let said = self.announcer.stage_results(&mut *self.audio, now, ending);
+        for event in ending.into_iter().chain(self.stage_end.take()) {
+            // Said by its own chain, or not (the match's took its place).
+            let line = ddi_library::announcer::Line::Battle(event);
+            self.told.push(Told {
+                event,
+                said: said.filter(|l| line.chain().contains(l)),
+                at: self.last_host,
+            });
+        }
+    }
+
+    /// The battle's moments told so far (`__DDI_DEBUG.battle`, tests).
+    pub fn battle_told(&self) -> &[Told] {
+        &self.told
+    }
+
+    /// The battle voice's policy, for the cues' look.
+    pub fn battle_policy(&self) -> Option<VoicePolicy> {
+        self.battle.as_ref().map(|_| BATTLE_VOICE_V0)
+    }
+
+    /// The moment shown beside the field at host time `host`, and how old
+    /// it is: the latest the policy shows, while it lasts.
+    pub fn battle_cue(&self, host: f64) -> Option<(ddi_library::announcer::Battle, f64)> {
+        let policy = self.battle_policy()?;
+        let t = self.told.iter().rev().find(|t| t.shown(&policy))?;
+        let age = host - t.at;
+        (age < policy.cue_seconds).then_some((t.event, age))
+    }
+
+    /// A stage's outcome, once, after the play's end
+    /// ([`SessionEvent::Finished`], `Aborted` or `Interrupted`), for the
+    /// shell to report to the room.
+    pub fn take_stage_outcome(&mut self) -> Option<StageOutcome> {
+        self.stage_outcome.take()
     }
 
     /// This session replays a kept play.

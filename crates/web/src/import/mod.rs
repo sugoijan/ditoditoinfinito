@@ -372,7 +372,8 @@ async fn run(
     // in the library.
     let mut shared: Vec<String> = shared_files.iter().map(|(s, _)| s.clone()).collect();
     shared.extend(crate::songs::shared_paths(&db).await.unwrap_or_default());
-    let scan_paths = pack::PathIndex::new(&paths);
+    // Each song's files come from its pack's paths, as desktop lists them.
+    let mut packs = scan::PackIndexes::new(&paths);
     let scan_shared = pack::PathIndex::new(&shared);
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
@@ -395,7 +396,7 @@ async fn run(
         }
         let inputs = Inputs {
             sources: &sources,
-            paths: &scan_paths,
+            paths: packs.of(c),
             shared: &scan_shared,
             folder: origin.as_ref().map(|o| o.folder.as_str()),
             link: origin.as_ref().is_some_and(|o| o.link),

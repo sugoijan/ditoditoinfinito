@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use super::tidy::Measure;
 use super::{
     CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE, Grade, Kept, Line, MAX_BYTES, MAX_FILES,
-    find_announcers,
+    OUR_COMBOS, find_announcers,
 };
 use crate::path::RelPath;
 
@@ -241,8 +241,17 @@ pub struct Draft {
     #[serde(default)]
     pub stepmania: bool,
     pub takes: Vec<Take>,
+    /// The combo lines listed however empty, in order: the author's to
+    /// add to and take from (`gameplay 64 combo`, a pack counting so);
+    /// [`OUR_COMBOS`] to begin with.
+    #[serde(default = "our_combos")]
+    pub combos: Vec<u32>,
     /// The id the next take gets.
     next: u64,
+}
+
+fn our_combos() -> Vec<u32> {
+    OUR_COMBOS.to_vec()
 }
 
 impl Default for Draft {
@@ -254,18 +263,20 @@ impl Default for Draft {
             tidy: true,
             stepmania: false,
             takes: Vec::new(),
+            combos: our_combos(),
             next: 1,
         }
     }
 }
 
 /// The lines the studio lists however empty: every line the game speaks
-/// but Etterna's `evaluation aaaaa` (no rules give it) and `evaluation
-/// f` (`evaluation e` is that moment's line), in the game's order.
+/// but the combos (the draft's own, [`Draft::combos`]), Etterna's
+/// `evaluation aaaaa` (no rules give it) and `evaluation f` (`evaluation
+/// e` is that moment's line), in the game's order.
 pub fn listed() -> Vec<Line> {
     Line::all()
         .into_iter()
-        .filter(|l| !matches!(l, Line::Grade(Grade::Aaaaa | Grade::F)))
+        .filter(|l| !matches!(l, Line::Combo(_) | Line::Grade(Grade::Aaaaa | Grade::F)))
         .collect()
 }
 
@@ -428,16 +439,45 @@ impl Draft {
     pub fn add(&mut self, source: &str, bytes: u64, head: &[u8]) -> u64 {
         let id = self.next;
         self.next += 1;
+        let line = match_line(source);
+        if let Some(Line::Combo(n)) = line {
+            self.add_combo(n);
+        }
         self.takes.push(Take {
             id,
             source: source.to_string(),
             bytes,
             format: Format::sniff(head),
-            line: match_line(source),
+            line,
             tidy: None,
             sound: Sound::Unread,
         });
         id
+    }
+
+    /// Combo line `n` listed (in its place among them); whether it was
+    /// not already.
+    pub fn add_combo(&mut self, n: u32) -> bool {
+        if n == 0 {
+            return false;
+        }
+        match self.combos.binary_search(&n) {
+            Ok(_) => false,
+            Err(at) => {
+                self.combos.insert(at, n);
+                true
+            }
+        }
+    }
+
+    /// Combo line `n` no longer listed; not while a take is on it.
+    pub fn remove_combo(&mut self, n: u32) -> bool {
+        if self.takes_of(Line::Combo(n)).next().is_some() {
+            return false;
+        }
+        let before = self.combos.len();
+        self.combos.retain(|&c| c != n);
+        self.combos.len() < before
     }
 
     pub fn take(&self, id: u64) -> Option<&Take> {
@@ -479,10 +519,11 @@ impl Draft {
         self.takes.iter().filter(|t| t.line.is_none())
     }
 
-    /// Every line the studio shows: [`listed`], and any other a take is
-    /// on (a combo past 1000, Etterna's two), in the game's order.
+    /// Every line the studio shows: [`listed`], the draft's combos, and
+    /// any other a take is on (Etterna's two), in the game's order.
     pub fn lines(&self) -> Vec<Line> {
         let mut lines: BTreeSet<Line> = listed().into_iter().collect();
+        lines.extend(self.combos.iter().map(|&n| Line::Combo(n)));
         lines.extend(self.takes.iter().filter_map(|t| t.line));
         lines.into_iter().collect()
     }

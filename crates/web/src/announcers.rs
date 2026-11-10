@@ -198,11 +198,12 @@ thread_local! {
     ));
 }
 
-/// Whose sounds: a play's (of a chart of `notes` notes), or song
-/// select's.
+/// Whose sounds: a play's (of a chart of `notes` notes), a multiplayer
+/// stage's (`ddi_session::announcer::battle::wanted`), or song select's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum For {
     Play { notes: u32 },
+    Stage,
     Menu,
 }
 
@@ -227,6 +228,7 @@ pub(crate) fn load_voice(
             let (kept, source) = open(&key).await?;
             let wanted = BAGS.with_borrow_mut(|b| match of {
                 For::Play { notes } => ddi_session::announcer::wanted(&kept, notes, b),
+                For::Stage => ddi_session::announcer::battle::wanted(&kept, b),
                 For::Menu => ddi_session::announcer::menu(&kept, b),
             });
             voice

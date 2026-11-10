@@ -17,10 +17,10 @@
 //! on moves to the module where it stands ([`MovieDecoder`]).
 
 use crate::web::movie_source::MovieSource;
-use ddi_library::backgrounds::BgSegment;
+use ddi_library::backgrounds::{BgImage, BgSegment};
 use ddi_platform::video::{
-    ExternalFrame, MovieTrack, VideoBackend, VideoDecoder, VideoError, VideoEvent, VideoFormat,
-    VideoFrame,
+    ExternalFrame, GuardAction, MovieTrack, VideoBackend, VideoDecoder, VideoError, VideoEvent,
+    VideoFormat, VideoFrame,
 };
 use ddi_render::BackgroundPipeline;
 use ddi_session::movies::{AHEAD, MovieShell, MovieSlots};
@@ -758,5 +758,68 @@ impl MovieDeck {
                 .collect::<Vec<_>>(),
             "module": status,
         })
+    }
+}
+
+impl ddi_shell::play_view::Deck for MovieDeck {
+    fn update(
+        &mut self,
+        layers: &[Vec<BgSegment>],
+        t: f64,
+        background: &mut BackgroundPipeline,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        MovieDeck::update(self, layers, t, background, device, queue);
+    }
+
+    fn update_clips(
+        &mut self,
+        clips: &[ddi_session::movies::Clip],
+        background: &mut BackgroundPipeline,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Vec<(String, usize)> {
+        MovieDeck::update_clips(self, clips, background, device, queue)
+    }
+
+    fn picture_aspect(&mut self) -> Result<f32, bool> {
+        MovieDeck::picture_aspect(self)
+    }
+
+    fn stop(&mut self) {
+        MovieDeck::stop(self);
+    }
+
+    fn reset(&mut self) {
+        MovieDeck::reset(self);
+    }
+
+    fn drawing(&self, layers: &[Vec<BgSegment>]) -> Option<usize> {
+        self.slots.drawing(layers)
+    }
+
+    fn shown_any(&self) -> bool {
+        self.slots.shown_any()
+    }
+
+    fn version(&self) -> u64 {
+        self.slots.version()
+    }
+
+    fn shown_ids(&self) -> Vec<(BgImage, usize)> {
+        self.slots.shown_ids().collect()
+    }
+
+    fn opening_plays(&self, first: &[BgSegment]) -> bool {
+        self.slots.opening_plays(first)
+    }
+
+    fn late(&self) -> u64 {
+        self.slots.late()
+    }
+
+    fn obey(&mut self, action: GuardAction) {
+        self.slots.obey(action);
     }
 }

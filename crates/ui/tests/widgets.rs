@@ -1,6 +1,6 @@
 //! The widgets driven through the harness: the virtual list (bounded
 //! actors, text and images over ten thousand items; inertia, snapping,
-//! keys, the scrollbar, the wheel style), the controls, the search field
+//! keys, the scrollbar, the wheel style), the toggle, the search field
 //! with its popup, the panels.
 
 use std::cell::{Cell, RefCell};
@@ -597,40 +597,22 @@ fn the_widget_screen_lists_its_library_with_headers() {
 }
 
 #[test]
-fn option_rows_toggles_and_sliders() {
+fn the_toggle_and_the_panels() {
     let (mut h, state) = widgets(Vec::new());
-    // From the list, right to the search field, then down the rows.
+    // From the list, right to the search field, then down to the toggle.
     h.key("ArrowRight", "ArrowRight");
     assert_eq!(h.ui.focused(), Some("Search"));
     h.key("ArrowDown", "ArrowDown");
-    assert_eq!(h.ui.focused(), Some("Style"));
-    h.key("ArrowRight", "ArrowRight");
-    h.key("ArrowRight", "ArrowRight");
-    h.key("ArrowRight", "ArrowRight");
-    assert_eq!(state.borrow().style, 2, "clamped at the last");
-    h.key("ArrowLeft", "ArrowLeft");
-    assert_eq!(state.borrow().style, 1);
-    // A tap picks a choice (and focuses the row).
-    h.tap(PointerKind::Mouse, "Speed.Choice0");
-    assert_eq!(state.borrow().speed, 0);
-    assert_eq!(h.ui.focused(), Some("Speed"));
-    // The toggle by Start, the slider by keys and by a drag.
-    h.key("ArrowDown", "ArrowDown");
-    h.key("ArrowDown", "ArrowDown");
     assert_eq!(h.ui.focused(), Some("Reverse"));
+    // Start flips it, and so does a tap.
     h.key("Enter", "Enter");
     assert!(state.borrow().reverse);
-    h.key("ArrowDown", "ArrowDown");
-    h.key("ArrowRight", "ArrowRight");
-    assert!((state.borrow().volume - 0.85).abs() < 1e-4);
-    // The track runs from 676 + 260 - 70 - 260 = 606 to 866.
-    h.drag(PointerKind::Mouse, [700.0, 246.0], [600.0, 246.0], 0.2, 4);
-    assert!(state.borrow().volume < 0.01, "{}", state.borrow().volume);
-    // The panels row changes the grid.
-    assert!(h.ui.actor("Panel.Judgements").is_some());
-    h.tap(PointerKind::Mouse, "Panels.Choice1");
-    assert!(h.ui.actor("Panel.Judgements").is_none());
-    assert!(h.ui.actor("Panel.Timing").is_some());
+    h.tap(PointerKind::Mouse, "Reverse");
+    assert!(!state.borrow().reverse);
+    // The panels, on their grid.
+    for panel in ["Judgements", "Timing", "Life", "Summary"] {
+        assert!(h.ui.actor(&format!("Panel.{panel}")).is_some(), "{panel}");
+    }
     h.frame(0.0);
     assert!(h.texts().iter().any(|t| t == "Timing"));
 }

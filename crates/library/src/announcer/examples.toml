@@ -49,6 +49,62 @@
     "Full combo! You hung in there!",
     "You kept it together! Full combo!",
 ]
+"battle match begin" = [
+    "The match begins! Show them what you've got!",
+    "Here comes the match! Good luck out there!",
+]
+"battle stage begin" = [
+    "Next stage! Stay sharp!",
+    "On to the next stage!",
+]
+"battle final stage" = [
+    "Final stage! Everything on the line!",
+    "This is it, the final stage!",
+]
+"battle life critical" = [
+    "Careful, you're hanging by a thread!",
+    "Hold on, don't drop out now!",
+]
+"battle survivors 4" = [
+    "Four left standing!",
+    "Down to four!",
+]
+"battle survivors 2" = [
+    "Just two left! It's a duel!",
+    "Down to the last two!",
+]
+"battle eliminated" = [
+    "You're out of this stage!",
+    "That's it for you this stage!",
+]
+"battle stage won" = [
+    "Stage won! You're the last one standing!",
+    "You took the stage!",
+]
+"battle stage not won" = [
+    "You made it through, but not on top this time.",
+    "You survived! Not the win, though.",
+]
+"battle stage drawn" = [
+    "A tie for first!",
+    "Nobody takes this one alone, it's a draw!",
+]
+"battle song finished" = [
+    "And you finished the song too!",
+    "Winner, all the way to the end!",
+]
+"battle match won" = [
+    "You won the match! Champion!",
+    "The match is yours!",
+]
+"battle match not won" = [
+    "Match over. You'll get them next time!",
+    "Not your match this time. Great effort!",
+]
+"battle match drawn" = [
+    "The match ends in a tie for first!",
+    "A shared victory! What a match!",
+]
 
 [ja]
 "gameplay {n} combo" = [
@@ -83,4 +139,60 @@
 "evaluation full combo w4" = [
     "フルコンボ！粘り勝ち！",
     "最後までつないだ！フルコンボ！",
+]
+"battle match begin" = [
+    "対戦スタート！実力を見せつけよう！",
+    "いよいよ対戦開始！がんばって！",
+]
+"battle stage begin" = [
+    "次のステージ！気を抜かないで！",
+    "次のステージへ行こう！",
+]
+"battle final stage" = [
+    "ファイナルステージ！すべてを懸けて！",
+    "いよいよ最後のステージ！",
+]
+"battle life critical" = [
+    "危ない、もう後がないぞ！",
+    "踏ん張って！ここで落ちるな！",
+]
+"battle survivors 4" = [
+    "残りは4人！",
+    "4人まで絞られた！",
+]
+"battle survivors 2" = [
+    "残り2人！一騎打ちだ！",
+    "最後の2人になった！",
+]
+"battle eliminated" = [
+    "このステージは脱落！",
+    "ここまでか、このステージはおしまい！",
+]
+"battle stage won" = [
+    "ステージ勝利！最後まで立っていた！",
+    "このステージはいただき！",
+]
+"battle stage not won" = [
+    "最後まで残った！でも勝利はならず。",
+    "生き残ったけど、今回は勝てなかった。",
+]
+"battle stage drawn" = [
+    "1位を分け合った！",
+    "決着つかず、引き分け！",
+]
+"battle song finished" = [
+    "曲も最後まで踊りきった！",
+    "勝者、そのまま完走！",
+]
+"battle match won" = [
+    "対戦に勝利！チャンピオンだ！",
+    "この対戦はきみのものだ！",
+]
+"battle match not won" = [
+    "対戦終了。次こそ勝とう！",
+    "今回は届かなかった。よく頑張った！",
+]
+"battle match drawn" = [
+    "1位を分け合って対戦終了！",
+    "勝利を分け合った！すごい対戦だった！",
 ]

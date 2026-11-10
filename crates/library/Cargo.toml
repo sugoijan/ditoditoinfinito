@@ -16,6 +16,7 @@ ddi-chart.workspace = true
 # A work's charts' excessive setting, kept in its entry (`scan`).
 ddi-engine.workspace = true
 ddi-platform.workspace = true
+ddi-share-protocol.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 miniz_oxide.workspace = true

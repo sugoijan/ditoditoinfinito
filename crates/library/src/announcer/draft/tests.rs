@@ -91,8 +91,9 @@ fn takes_are_sorted_moved_and_removed() {
     assert_eq!(d.unsorted().count(), 0);
     assert_eq!(d.remove(a).map(|t| t.id), Some(a));
     assert!(d.take(a).is_none());
-    // A combo past 1000 is listed where a take is on it; Etterna's two
-    // only then.
+    // A combo past 1000 is listed once a take came on it, for good;
+    // Etterna's two only while one is.
+    assert!(d.combos.contains(&1100));
     let lines = d.lines();
     assert!(lines.contains(&Line::Combo(1100)));
     assert!(!lines.contains(&Line::Grade(Grade::Aaaaa)));
@@ -103,6 +104,52 @@ fn takes_are_sorted_moved_and_removed() {
     assert_ne!(c, b);
     // Ids are not given twice, even after a removal.
     assert_eq!(d.add("y.wav", 1, MP3), c + 1);
+}
+
+#[test]
+fn the_combo_lines_are_the_authors_to_add_and_remove() {
+    let mut d = Draft::default();
+    let combos = |d: &Draft| -> Vec<u32> {
+        d.lines()
+            .into_iter()
+            .filter_map(|l| match l {
+                Line::Combo(n) => Some(n),
+                _ => None,
+            })
+            .collect()
+    };
+    // Our packs' to begin with.
+    assert_eq!(combos(&d), OUR_COMBOS);
+    // A pack counting by powers of two.
+    for n in [1024, 64, 128, 256, 512] {
+        assert!(d.add_combo(n));
+    }
+    assert!(!d.add_combo(64), "listed already");
+    assert!(!d.add_combo(0));
+    for n in OUR_COMBOS {
+        assert!(d.remove_combo(n));
+    }
+    assert!(!d.remove_combo(100), "not listed");
+    assert_eq!(combos(&d), [64, 128, 256, 512, 1024]);
+    // In the game's order, before More combo.
+    let lines = d.lines();
+    let at = |l| lines.iter().position(|x| *x == l).unwrap();
+    assert!(at(Line::Combo(1024)) < at(Line::ComboOverflow));
+    // A recording named for a count lists its line; a line with a
+    // recording on it stays.
+    let t = d.add("gameplay 32 combo/a.wav", 1, MP3);
+    assert_eq!(d.take(t).unwrap().line, Some(Line::Combo(32)));
+    assert_eq!(combos(&d), [32, 64, 128, 256, 512, 1024]);
+    assert!(!d.remove_combo(32));
+    d.remove(t);
+    assert!(d.remove_combo(32));
+    // Kept with the draft; a draft from before lists ours.
+    let json = serde_json::to_string(&d).unwrap();
+    assert_eq!(serde_json::from_str::<Draft>(&json).unwrap(), d);
+    let mut old: serde_json::Value = serde_json::from_str(&json).unwrap();
+    old.as_object_mut().unwrap().remove("combos");
+    let old: Draft = serde_json::from_value(old).unwrap();
+    assert_eq!(old.combos, OUR_COMBOS);
 }
 
 #[test]

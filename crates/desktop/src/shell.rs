@@ -345,10 +345,12 @@ impl Shell {
             let songs = songs.clone();
             play.chart_loaded = Some(Rc::new(move |id, song| songs.chart_loaded(id, song)));
         }
-        let ui = if let Some(songs) = songs
-            .as_ref()
-            .filter(|_| matches!(name, "start" | "select" | "options" | "announcer"))
-        {
+        let ui = if let Some(songs) = songs.as_ref().filter(|_| {
+            matches!(
+                name,
+                "start" | "select" | "options" | "announcer" | "multiplayer" | "room"
+            )
+        }) {
             let (ui, env, look) = library_ui_with(name, fold, sound.clone(), songs, quit);
             // Calibration's menu, opened again when a test leaves.
             {
@@ -361,7 +363,14 @@ impl Shell {
             ui
         } else if matches!(
             name,
-            "start" | "select" | "results" | "options" | "credits" | "calibration"
+            "start"
+                | "select"
+                | "results"
+                | "options"
+                | "credits"
+                | "calibration"
+                | "multiplayer"
+                | "room"
         ) {
             let (mut ui, env, look) = theme_ui_with(
                 if name == "options" { "select" } else { name },
@@ -1806,8 +1815,16 @@ pub fn theme_ui_with(
     } else {
         ui.push(sample::start_screen(&env, quit));
     }
-    if first != "start" {
+    if !matches!(first, "start" | "multiplayer" | "room") {
         ui.push(select);
+    }
+    if matches!(first, "multiplayer" | "room") {
+        ui.push(crate::room::home(&env, None, None));
+        if first == "room" {
+            ui.push(crate::room::room_screen(&env, None, None));
+        } else if let Some(invite) = crate::online::take_join() {
+            ui.push(crate::room::invite(&env, invite, None, None));
+        }
     }
     match first {
         "results" => ui.push(sample::results_screen(&env)),
@@ -1840,7 +1857,29 @@ fn library_ui_with(
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold);
     ui.push(title_screen(&env, sound.clone(), Some(songs.clone()), quit));
-    if first != "start" && first != "options" && first != "announcer" {
+    // `--screen multiplayer|room`: the prototype's home, the practice
+    // room over it.
+    if matches!(first, "multiplayer" | "room") {
+        ui.push(crate::room::home(
+            &env,
+            Some(songs.clone()),
+            Some(sound.clone()),
+        ));
+        if first == "room" {
+            ui.push(crate::room::room_screen(
+                &env,
+                Some(songs.clone()),
+                Some(sound.clone()),
+            ));
+        } else if let Some(invite) = crate::online::take_join() {
+            ui.push(crate::room::invite(
+                &env,
+                invite,
+                Some(songs.clone()),
+                Some(sound.clone()),
+            ));
+        }
+    } else if first != "start" && first != "options" && first != "announcer" {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
         // `--shared`: the share's song select over the library's.
         if songs.shared() {
@@ -1996,6 +2035,10 @@ fn title_screen(
             use theme_screens::start::Choice;
             sound.borrow_mut().pause();
             match choice {
+                // The multiplayer prototype, behind `--multiplayer on`.
+                Choice::Multiplayer => {
+                    cx.push(crate::room::home(&e, songs.clone(), Some(sound.clone())));
+                }
                 Choice::Singleplayer => {
                     if let Some(songs) = &songs {
                         cx.push(crate::songs::screen(&e, songs, Some(sound.clone())));
@@ -2023,6 +2066,7 @@ fn title_screen(
             }
         }),
     )
+    .with_multiplayer(ddi_ui::state::settings::Settings::load().multiplayer)
 }
 
 /// Driving the shell with no window and no event loop, frame by frame on

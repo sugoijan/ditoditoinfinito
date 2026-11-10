@@ -4,7 +4,7 @@
 //!   strip of tabs across the top (`StyleTab`).
 //! - **Middle**: option rows as StepMania lays them out (`Options.Row`):
 //!   the label on the left, the choices on the right with the chosen one
-//!   underlined (`OptionRow.Choice`, `OptionRow.Cursor`); numbers, and
+//!   underlined (`OptionRow.Cursor`); numbers, and
 //!   choices too many for the row, step with ◀ value ▶; a row of buttons
 //!   does something (bind, reset, export). The rows scroll (keys keep the
 //!   focused one in view; a wheel or a drag move them).

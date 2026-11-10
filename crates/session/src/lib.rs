@@ -19,6 +19,8 @@
 //!   decoder, their tracks, the frames due and what shows (the shell
 //!   opens the decoders and makes the textures).
 //! - [`stage`]: a Dancing☆Onigiri work's layers' timeline in a play.
+//! - [`battle`]: a multiplayer stage's CPU opponents judged beside the
+//!   play, what it shows of them, and its outcome as the room's ranking.
 //! - [`scripted`]: a song's scripted backgrounds and foregrounds in a
 //!   play: their Lua, the commands at each change, their updates within a
 //!   budget, what each draws.
@@ -28,6 +30,7 @@
 
 pub mod announcer;
 pub mod backgrounds;
+pub mod battle;
 pub mod calibration;
 pub mod listen;
 pub mod movies;

@@ -513,7 +513,7 @@ autoplay stays all top tier throughout (video never touches judging).
   16:9 (split at their geometric mean, 1.54), so a square jacket fills a
   4:3 frame and an ultrawide picture a 16:9 one. It settles once a movie
   frame shows, or when the song starts with no probe running, and never
-  changes after that (`GameLoop::frame_aspect`). The renderer draws the
+  changes after that (`PlayView::frame_aspect`, `ddi_shell::play_view`). The renderer draws the
   layers cover-fitted into the frame through the viewport. A separate
   full-screen base uses the same current layers, cover-fitted in the
   opening source's aspect ratio, Gaussian-blurred (σ = 6, radius 18 at

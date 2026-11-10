@@ -110,8 +110,12 @@ fn japanese(n: u32) -> String {
 
 include!(concat!(env!("OUT_DIR"), "/examples.rs"));
 
-/// A combo in `set`'s words: "One hundred", 百.
+/// A combo in `set`'s words: "One hundred", 百; any count but a
+/// hundred's in digits ("64").
 fn in_words(set: Set, n: u32) -> String {
+    if n == 0 || !n.is_multiple_of(100) {
+        return n.to_string();
+    }
     match set {
         Set::English => english(n),
         Set::Japanese => japanese(n),
@@ -169,6 +173,9 @@ mod tests {
         );
         let ja: Vec<String> = [100, 200, 1000, 1500, 2000, 9900].map(japanese).into();
         assert_eq!(ja, ["百", "二百", "千", "千五百", "二千", "九千九百"]);
+        // Any other count in digits.
+        assert_eq!(more(Set::English, Line::Combo(64))[0], "64 and counting!");
+        assert_eq!(more(Set::Japanese, Line::Combo(222))[0], "222コンボ突破！");
     }
 
     /// The lines our packs say only two ways have more, in both sets.

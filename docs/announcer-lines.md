@@ -76,6 +76,7 @@ silence.
 | `gameplay comment oni` | The same, on a gauge of lives (StepMania's battery, DDR's LIFE4 and RISKY) | the life's comment above | SM |
 | `gameplay 100 combo` … `gameplay 1000 combo` | The combo reaching each hundred | nothing | SM |
 | `gameplay 1100 combo`, `gameplay 1200 combo` … | Each hundred past 1000 | `gameplay combo overflow` | ours |
+| `gameplay 64 combo`, `gameplay 222 combo` … (any count) | The combo reaching that count, for a pack that counts its own way (64, 128, 256…) | nothing | ours |
 | `gameplay combo overflow` | Each hundred past 1000 | nothing | SM |
 | `gameplay combo stopped` | A combo above 50 broken | nothing | SM |
 | `gameplay life lost` | A life lost on a gauge of lives | nothing | ours |
@@ -84,6 +85,12 @@ silence.
 | `gameplay full combo` | As the last note is judged, a full combo kept | nothing | ours |
 | `gameplay cleared` | As the last note is judged (after the full combo's line, if one spoke) | nothing | SM |
 | `gameplay failed` | At the fail (at the end, for a play that fails at its end) | nothing | SM |
+
+A combo line is any count a pack has a folder for: when the combo
+reaches one, the highest reached that frame is said. Where a pack has
+none for a hundred, nothing is said for it, but past 1000 `combo
+overflow` is, as in StepMania (which says only the hundreds to 1000 and
+the overflow, and passes over the other counts' folders).
 
 The comments, the combos and `life lost` share one gap: each waits 2 s
 after the last of them (10 s for a comment), and one that comes sooner
@@ -126,11 +133,53 @@ grades, so no grade line. Autoplay, replays and playtests say neither
 | `select music comment hard` | A chart chosen of meter 10 or more | SM |
 | `select music comment general` | Any other chart chosen | SM |
 
+### In battle
+
+Ours, heard only in multiplayer battles (for now the CPU practice of
+the multiplayer prototype, `docs/plans/multiplayer-prototype-progress.md`,
+M4), never in a play of your own. Each names one moment of a battle as
+the local player lives it (`docs/plans/multiplayer.md`, "Announcer events
+implied by the mechanism"). During a stage the routine lines of a play
+are left out (the combos, the comments, `life lost`, `last life`, the
+full combos, `cleared`, `failed` and the results' grades, records and
+cheer), so that a chart's clear is never heard as a win: the battle's
+lines speak instead, and a pack without them is quiet but for its
+fallbacks. A quit stage still says `evaluation quit`.
+
+| Folder | When | Falls back to |
+|---|---|---|
+| `battle match begin` | As the first stage of a match starts (a one-stage match's too), in place of `ready` | `battle stage begin`, then `gameplay ready` |
+| `battle stage begin` | As a later stage starts, in place of `ready` | `gameplay ready` |
+| `battle final stage` | As the last stage of a match of two or more starts, in place of `ready` | `battle stage begin`, then `gameplay ready` |
+| `battle life critical` | Your life is about to run out while you are still in (the gauge entering danger), once a stage | `gameplay comment danger` |
+| `battle survivors 4`, `battle survivors 2` | The players still in become four, or two, having been more; only the count reached (one passed over in the same moment is not said) | nothing |
+| `battle eliminated` | Your life runs out: you are out of the stage | `gameplay failed` |
+| `battle stage won` | You alone win the stage, as soon as it is decided (when you are the last one in, the song goes on for you), else on the results | nothing |
+| `battle stage not won` | On the results of a stage you finished without winning | nothing |
+| `battle stage drawn` | You share the stage's first place: as it is decided (the last ones out together), else on the results | nothing |
+| `battle song finished` | Having won the stage early, you reach the song's end (on its results) | `gameplay cleared` |
+| `battle match won` | On the results of a match's last stage, the match won alone | nothing |
+| `battle match not won` | The same, the match not won | nothing |
+| `battle match drawn` | The same, first place shared | nothing |
+
+`here we go` still ends half a second before the first note. One battle
+line speaks at a time: one due while another is still speaking speaks
+only if it matters more (an outcome over your life, your life over who
+is left), else it is passed over, never delayed; a line about a moment
+that has passed is never said late. On a match's last stage the match's
+line takes the place of the stage's (where the pack has it). The game
+never needs these lines: where a pack has no line for a moment in play
+(or the announcer is off), the moment shows quietly beside the field
+for a few seconds; the stage's and the match's outcomes are on the
+results and in the room. The moments the design names that the
+prototype cannot have yet (attacks, the readiness deadline, a watched
+stage, a connection lost) have no lines yet.
+
 ### Read, not spoken
 
 These are recognized (and not reported as unknown), but nothing speaks
 them: StepMania 3.9's `stage 1` … `stage final`, `stage event`,
 `game over`, `caution`; screen lines such as `ScreenSelectStyle intro`
 and the `select difficulty comment` family; `gameplay intro`,
-`hurry up`, `title menu game name`, the idle comment, the course and
-battle lines. Calibration never speaks: nothing may cue the player.
+`hurry up`, `title menu game name`, the idle comment, the course lines
+and StepMania's `gameplay battle …` lines (which are not ours above). Calibration never speaks: nothing may cue the player.

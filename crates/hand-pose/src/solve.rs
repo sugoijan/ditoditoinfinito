@@ -1,5 +1,5 @@
 use crate::kinematics::{Eval, Kin};
-use crate::{Model, Parameters, Point};
+use crate::{Model, Parameters, Point, PoseFit};
 #[derive(Clone, Copy)]
 pub struct Goal {
     pub tips: [Point; 2],
@@ -149,7 +149,7 @@ pub fn refine_contacts(
     solve_impl(model, q, prior, goal, cap.min(8), true, true, &STRICT)
 }
 
-fn feasible_direction(
+pub(crate) fn feasible_direction(
     a: [[f64; 14]; 14],
     b: Parameters,
     q: &Parameters,
@@ -220,10 +220,7 @@ pub(crate) fn solve_with(
 ) -> SolveReport {
     solve_impl(model, q, prior, goal, cap, reuse_geometry, false, stop)
 }
-/// Evaluation counts follow the fitting policy: a pose whose geometry is
-/// already known (the accepted line-search candidate, or the final pose) is
-/// still counted once where the original loop evaluated it, so reports are
-/// unchanged; only the repeated arithmetic is skipped.
+/// A fit driven to completion: a [`PoseFit`] without its checkpoints.
 #[allow(clippy::too_many_arguments)]
 fn solve_impl(
     model: &Model,
@@ -235,139 +232,20 @@ fn solve_impl(
     feasible_bounds: bool,
     stop: &Stop,
 ) -> SolveReport {
-    model.clamp(q);
-    let mut kin = [Kin::default(), Kin::default()];
-    // Forward differences' perturbed kinematics, made only where they run.
-    let mut scratch: Option<Kin> = None;
-    let mut base = 0;
-    // Geometry and residual of the current `q`, with its kinematics in `kin[base]`.
-    let mut current: Option<(Eval, [f64; 24])> = None;
-    let mut out = SolveReport::default();
-    for iteration in 0..cap.min(40) {
-        let (g, r) = current.unwrap_or_else(|| {
-            let g = model.evaluate_into(q, &mut kin[base]);
-            (g, residual(&g, q, prior, goal))
-        });
-        current = Some((g, r));
-        out.evaluations += 1;
-        if stop.met(&r) {
-            break;
-        }
-        // Efficient fits take the analytic Jacobian (counted as one
-        // evaluation); the reference keeps forward differences.
-        let analytic = if reuse_geometry {
-            jacobian(model, q, &kin[base], &g)
-        } else {
-            None
-        };
-        let j = if let Some(j) = analytic {
-            out.evaluations += 1;
-            j
-        } else {
-            let mut j = [[0.; 14]; 24];
-            let scratch = scratch.get_or_insert_with(Kin::default);
-            for c in 0..14 {
-                let mut trial = *q;
-                trial[c] += 0.002;
-                let trial_geometry = if reuse_geometry {
-                    model.evaluate_perturbed(&trial, c, &g, &kin[base], scratch)
-                } else {
-                    model.evaluate_into(&trial, scratch)
-                };
-                let rr = residual(&trial_geometry, &trial, prior, goal);
-                out.evaluations += 1;
-                for row in 0..24 {
-                    j[row][c] = (rr[row] - r[row]) / 0.002;
-                }
-            }
-            j
-        };
-        let mut a = [[0.; 14]; 14];
-        let mut b = [0.; 14];
-        for c in 0..14 {
-            for k in 0..14 {
-                a[c][k] = (0..24).map(|row| j[row][c] * j[row][k]).sum::<f64>()
-                    + if c == k { 0.001 } else { 0. };
-            }
-            b[c] = -(0..24).map(|row| j[row][c] * r[row]).sum::<f64>();
-        }
-        let mut delta = if feasible_bounds {
-            feasible_direction(a, b, q, &model.lo, &model.hi)
-        } else {
-            linear(a, b)
-        };
-        // Solve again with outward-pointing bound variables fixed. Merely clamping
-        // the unconstrained step can leave the remaining controls unable to improve.
-        let mut locked = [false; 14];
-        for _ in 0..if feasible_bounds { 0 } else { 14 } {
-            let mut changed = false;
-            for c in 0..14 {
-                if !locked[c]
-                    && ((q[c] <= model.lo[c] + 1e-4 && delta[c] < 0.)
-                        || (q[c] >= model.hi[c] - 1e-4 && delta[c] > 0.))
-                {
-                    locked[c] = true;
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-            let mut aa = a;
-            let mut bb = b;
-            for c in 0..14 {
-                if locked[c] {
-                    for k in 0..14 {
-                        aa[c][k] = 0.;
-                        aa[k][c] = 0.;
-                    }
-                    aa[c][c] = 1.;
-                    bb[c] = 0.;
-                }
-            }
-            delta = linear(aa, bb);
-        }
-        let maximum = delta.iter().map(|v| v.abs()).fold(0., f64::max);
-        let scale = (5. / maximum.max(1e-8)).min(1.);
-        for v in &mut delta {
-            *v *= scale;
-        }
-        let before = energy(&r);
-        let mut accepted = false;
-        let mut change = 0_f64;
-        for _ in 0..6 {
-            let mut candidate = std::array::from_fn(|i| q[i] + delta[i]);
-            model.clamp(&mut candidate);
-            let cg = model.evaluate_into(&candidate, &mut kin[1 - base]);
-            let cr = residual(&cg, &candidate, prior, goal);
-            let after = energy(&cr);
-            out.evaluations += 1;
-            if after <= before {
-                change = (0..14)
-                    .map(|i| (candidate[i] - q[i]).abs())
-                    .fold(0., f64::max);
-                *q = candidate;
-                current = Some((cg, cr));
-                base = 1 - base;
-                accepted = true;
-                break;
-            }
-            for v in &mut delta {
-                *v *= 0.5;
-            }
-        }
-        out.iterations = iteration + 1;
-        if !accepted || change < stop.change {
-            break;
-        }
-    }
-    let (g, r) = current.unwrap_or_else(|| {
-        let g = model.evaluate_into(q, &mut kin[base]);
-        (g, residual(&g, q, prior, goal))
-    });
-    out.target_error_mm = max_tip_error(&g.tips, &goal.tips);
-    out.objective = energy(&r);
-    out
+    let mut fit = PoseFit::with(
+        model,
+        *q,
+        *prior,
+        *goal,
+        cap,
+        reuse_geometry,
+        feasible_bounds,
+        *stop,
+    );
+    while !fit.advance(model) {}
+    let (fitted, report) = fit.result().expect("a finished fit has its result");
+    *q = fitted;
+    report
 }
 /// A fingertip's distance from its target, millimeters.
 pub(crate) fn tip_error(tip: &Point, target: &Point) -> f64 {
@@ -382,6 +260,9 @@ pub(crate) fn max_tip_error(tips: &[Point; 2], targets: &[Point; 2]) -> f64 {
         .map(|d| tip_error(&tips[d], &targets[d]))
         .fold(0., f64::max)
 }
+
+#[cfg(test)]
+mod parity_tests;
 
 #[cfg(test)]
 mod bound_tests {

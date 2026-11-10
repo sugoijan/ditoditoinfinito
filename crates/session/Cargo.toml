@@ -17,6 +17,7 @@ ddi-lua.workspace = true
 ddi-noteskin.workspace = true
 ddi-platform.workspace = true
 ddi-l10n.workspace = true
+ddi-room.workspace = true
 ddi-ui.workspace = true
 # The play's record (`record.rs`): the settings' names as stored.
 serde.workspace = true

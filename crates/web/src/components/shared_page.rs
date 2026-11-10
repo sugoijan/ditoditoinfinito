@@ -52,7 +52,10 @@ impl Component for SharedPage {
                 self.select = Some(mount::<SelectPage>(
                     &parent,
                     "main",
-                    select_page::Props { shared: true },
+                    select_page::Props {
+                        shared: true,
+                        pick: None,
+                    },
                 ));
             }
             Err(e) => {

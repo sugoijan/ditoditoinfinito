@@ -114,6 +114,7 @@ impl Component for ReplayLoader {
                 restart: p.restart.clone(),
                 source: SongSource::Song { id: song, chart },
                 auto: false,
+                cpu: None,
                 auto_pad: false,
                 auto_bias: 0.0,
                 slow: p.slow,
@@ -121,6 +122,7 @@ impl Component for ReplayLoader {
                 replay: Some(prop),
                 edit: false,
                 scene: None,
+                room_stage: None,
             },
         ));
         false

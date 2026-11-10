@@ -2080,11 +2080,19 @@ fn each_play_lines_scene_says_it() {
         Line::Failed,
     ];
     lines.extend((1..=10).map(|n| Line::Combo(n * 100)));
+    // A pack's own counts: one sooner than the scene's lead-in, and two
+    // not hundreds.
+    let own = [Line::Combo(5), Line::Combo(64), Line::Combo(1024)];
+    lines.extend(own);
     lines.extend((1..=3).map(Line::FullComboW));
-    // Every line, said in 0.8 s.
-    let voice = || {
+    // Every line, said in 0.8 s (a count of the pack's own only in its
+    // scene: 5 would be said in every scene).
+    let voice = |line: Line| {
         let mut v = crate::announcer::Voice::default();
-        for line in Line::all().into_iter().chain([Line::ComboOverflow]) {
+        for line in Line::all()
+            .into_iter()
+            .chain(own.into_iter().filter(|l| *l == line))
+        {
             v.expect([line]);
             v.add(line, 0.8);
         }
@@ -2126,7 +2134,7 @@ fn each_play_lines_scene_says_it() {
                     FakeInputs::new(&clock),
                 )
                 .unwrap();
-                s.set_voice(voice());
+                s.set_voice(voice(line));
                 let event = run(&mut s, &clock, 60.0, 200.0);
                 let spoken: Vec<String> = s
                     .announcer_report()
@@ -2198,3 +2206,191 @@ fn each_play_lines_scene_says_it() {
         }
     }
 }
+
+#[test]
+fn cpu_whole_song_matches_native_judge_through_stalls_and_offsets() {
+    let original = bundled("beatucada");
+    let mut song = ddi_engine::cpu::project(&original, 3).unwrap();
+    // Put the first note at zero, exercising a legitimately early first press.
+    let c = &song.charts[3];
+    let j = ddi_engine::Judge::new(&c.notes, c.timing(&song), ddi_engine::presets::itg().judge);
+    let first = j
+        .notes()
+        .iter()
+        .filter(|n| n.judgeable)
+        .map(|n| n.seconds)
+        .reduce(f64::min)
+        .unwrap();
+    song.shift_notes(-first);
+    let c = &song.charts[3];
+    let j = ddi_engine::Judge::new(&c.notes, c.timing(&song), ddi_engine::presets::itg().judge);
+    let mut script = Vec::new();
+    let mut up = [f64::NEG_INFINITY; 4];
+    for (i, n) in j.notes().iter().filter(|n| n.judgeable).enumerate() {
+        if i % 11 == 5 {
+            continue;
+        } // Deliberate omitted taps, plus early/late hits.
+        let delta = [-0.17, 0.008, 0.06, -0.035, 0.13][i % 5];
+        let press = (n.seconds + delta).max(up[n.note.lane as usize] + 0.0001);
+        up[n.note.lane as usize] = press + 0.012;
+        script.push(Press {
+            press,
+            release: press + 0.012,
+            lane: n.note.lane,
+        });
+    }
+    script.sort_by(|a, b| a.press.total_cmp(&b.press));
+    ddi_engine::cpu::validate_script(&script).unwrap();
+    for (fps, offset) in [(60., 0.), (144., 0.04), (2., -0.8)] {
+        let settings = Settings::default();
+        let clock: Clock = Rc::new(RefCell::new(100.));
+        let mut inputs = FakeInputs::new(&clock);
+        inputs.key(101., "ArrowLeft", true);
+        inputs.key(101.1, "ArrowLeft", false);
+        let mut config = SessionConfig::from_settings(&settings, false, None);
+        config.cpu = Some(script.clone());
+        config.options.clock.audio_offset = offset;
+        let mut s = PlaySession::start(
+            &song,
+            3,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.012),
+            110.,
+            inputs,
+        )
+        .unwrap();
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, fps, 200.)
+        else {
+            panic!("CPU did not finish at {fps}");
+        };
+        assert_eq!(
+            facts.log.inputs.len(),
+            script.len() * 2,
+            "Human keys must not enter CPU log"
+        );
+        // The autoplay scheduler cancels device calibration offsets: CPU laws
+        // are in judged chart time, not physical acoustic time.
+        let mut expected = script
+            .iter()
+            .flat_map(|p| {
+                [
+                    ddi_engine::history::LoggedInput {
+                        time: (p.press * 1e6).round() / 1e6,
+                        lane: p.lane,
+                        pressed: true,
+                    },
+                    ddi_engine::history::LoggedInput {
+                        time: (p.release * 1e6).round() / 1e6,
+                        lane: p.lane,
+                        pressed: false,
+                    },
+                ]
+            })
+            .collect::<Vec<_>>();
+        expected.sort_by(|a, b| a.time.total_cmp(&b.time));
+        assert_eq!(
+            facts.log.inputs, expected,
+            "Scheduling at {fps} fps, offset {offset}"
+        );
+        let mut rules = settings.ruleset_for(&song.charts[3]);
+        rules.fail = ddi_engine::FailPolicy::Off;
+        let direct = ddi_engine::history::replay_with(&song, 3, rules, &facts.options, &facts.log);
+        assert_eq!(results.tally, direct.tally);
+        assert_eq!(results.score, direct.score);
+        assert_eq!(results.timeline, direct.timeline);
+        assert_eq!(results.late_edges, 0);
+        assert!(!results.failed);
+        assert_eq!(s.auto.as_ref().unwrap().next, script.len());
+        assert!(s.auto.as_ref().unwrap().pending_release.is_empty());
+    }
+}
+
+#[test]
+fn cpu_misses_finish_and_cancel_still_works() {
+    let song = ddi_engine::cpu::project(&bundled("beatucada"), 3).unwrap();
+    for cancel in [false, true] {
+        let settings = Settings::default();
+        let clock: Clock = Rc::new(RefCell::new(100.));
+        let mut config = SessionConfig::from_settings(&settings, false, None);
+        config.cpu = Some(vec![]);
+        let mut inputs = FakeInputs::new(&clock);
+        if cancel {
+            inputs.key(101., "Escape", true);
+        }
+        let mut s = PlaySession::start(
+            &song,
+            3,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.),
+            110.,
+            inputs,
+        )
+        .unwrap();
+        let end = run(&mut s, &clock, 60., 200.);
+        if cancel {
+            assert!(matches!(end, Some(SessionEvent::Aborted { .. })));
+        } else {
+            let Some(SessionEvent::Finished { results, .. }) = end else {
+                panic!("no-fail CPU stopped");
+            };
+            assert!(!results.failed);
+            assert!(results.tally.taps[5] > 0);
+            assert!(s.player.log().inputs.is_empty());
+        }
+    }
+}
+
+#[test]
+fn cpu_timestamps_do_not_pick_up_slewed_clock_drift() {
+    let song = ddi_engine::cpu::project(&bundled("beatucada"), 3).unwrap();
+    let settings = Settings::default();
+    let clock: Clock = Rc::new(RefCell::new(100.));
+    let c = &song.charts[3];
+    let j = ddi_engine::Judge::new(&c.notes, c.timing(&song), settings.ruleset_for(c).judge);
+    let script: Vec<_> = ddi_engine::autoplay::script(j.notes(), 0.025)
+        .into_iter()
+        .map(|p| Press {
+            release: p.press + 0.012,
+            ..p
+        })
+        .collect();
+    let mut config = SessionConfig::from_settings(&settings, false, None);
+    config.cpu = Some(script.clone());
+    let mut s = PlaySession::start(
+        &song,
+        3,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.012),
+        110.,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    *clock.borrow_mut() += 1.;
+    s.tick(HostTime(*clock.borrow()));
+    // Change the sampled clock relationship, then deliver the full chart in a
+    // long frame. Due inputs must retain their prepared song times exactly.
+    s.audio.latency += 0.005;
+    *clock.borrow_mut() += 130.;
+    let (_, end) = s.tick(HostTime(*clock.borrow()));
+    let Some(SessionEvent::Finished { results, facts, .. }) = end else {
+        panic!("did not finish");
+    };
+    let actual: Vec<_> = facts
+        .log
+        .inputs
+        .iter()
+        .filter(|i| i.pressed)
+        .map(|i| (i.lane, i.time))
+        .collect();
+    let expected: Vec<_> = script
+        .iter()
+        .map(|p| (p.lane, (p.press * 1e6).round() / 1e6))
+        .collect();
+    assert_eq!(actual, expected);
+    assert_eq!(results.late_edges, 0);
+}
+
+mod stage;

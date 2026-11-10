@@ -116,6 +116,96 @@ impl Comment {
     }
 }
 
+/// A multiplayer battle's event, as its line names it (ours: the
+/// `battle …` lines, `docs/announcer-lines.md`, "In battle"; the events of
+/// `docs/plans/multiplayer.md`, "Announcer events implied by the
+/// mechanism", that the prototype's stages produce,
+/// `docs/plans/multiplayer-prototype-progress.md`, M4). Each says one
+/// meaning to the local player; when it fires, its precedence and what
+/// shows where a pack lacks it are `ddi_session::announcer::battle`'s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Battle {
+    /// The first stage of a match begins (a one-stage match's too): in
+    /// place of `gameplay ready`.
+    MatchBegin,
+    /// A later stage begins, not the last.
+    StageBegin,
+    /// The match's last stage begins (announced by the match's length,
+    /// never inferred from who is left).
+    FinalStage,
+    /// The local player's life enters danger while still in (once a
+    /// stage).
+    LifeCritical,
+    /// The players still in become this many (four or two,
+    /// [`SURVIVOR_MILESTONES`]), having been more.
+    Survivors(u8),
+    /// The local player is out of the stage (their life ran out).
+    Eliminated,
+    /// The local player alone won the stage, at its confirmation (before
+    /// the song's end too).
+    StageWon,
+    /// The stage ended with the local player still in but not first.
+    StageNotWon,
+    /// The local player shares the stage's first place.
+    StageDrawn,
+    /// The stage's winner, having played on, reaches the song's end.
+    SongFinished,
+    /// The match's results: first alone, not first, sharing first.
+    MatchWon,
+    MatchNotWon,
+    MatchDrawn,
+}
+
+/// The players-still-in counts [`Battle::Survivors`] speaks at.
+pub const SURVIVOR_MILESTONES: [u8; 2] = [4, 2];
+
+impl Battle {
+    pub const ALL: [Battle; 14] = [
+        Battle::MatchBegin,
+        Battle::StageBegin,
+        Battle::FinalStage,
+        Battle::LifeCritical,
+        Battle::Survivors(SURVIVOR_MILESTONES[0]),
+        Battle::Survivors(SURVIVOR_MILESTONES[1]),
+        Battle::Eliminated,
+        Battle::StageWon,
+        Battle::StageNotWon,
+        Battle::StageDrawn,
+        Battle::SongFinished,
+        Battle::MatchWon,
+        Battle::MatchNotWon,
+        Battle::MatchDrawn,
+    ];
+
+    /// Its folder's name after `battle `.
+    fn name(self) -> String {
+        let fixed = match self {
+            Battle::MatchBegin => "match begin",
+            Battle::StageBegin => "stage begin",
+            Battle::FinalStage => "final stage",
+            Battle::LifeCritical => "life critical",
+            Battle::Survivors(n) => return format!("survivors {n}"),
+            Battle::Eliminated => "eliminated",
+            Battle::StageWon => "stage won",
+            Battle::StageNotWon => "stage not won",
+            Battle::StageDrawn => "stage drawn",
+            Battle::SongFinished => "song finished",
+            Battle::MatchWon => "match won",
+            Battle::MatchNotWon => "match not won",
+            Battle::MatchDrawn => "match drawn",
+        };
+        fixed.to_string()
+    }
+
+    /// One of the stage's openings, said in place of `gameplay ready`.
+    pub fn opens(self) -> bool {
+        matches!(
+            self,
+            Battle::MatchBegin | Battle::StageBegin | Battle::FinalStage
+        )
+    }
+}
+
 /// A line the game speaks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
@@ -133,7 +223,8 @@ pub enum Line {
     CommentDanger,
     /// `gameplay comment oni`: the periodic comment on a battery gauge.
     CommentOni,
-    /// `gameplay <N> combo`, N a hundred: StepMania's to 1000, ours past.
+    /// `gameplay <N> combo`: StepMania's each hundred to 1000; ours any
+    /// other count (past 1000, or a pack counting by 64s).
     Combo(u32),
     /// `gameplay combo overflow`: each hundred past 1000.
     ComboOverflow,
@@ -167,6 +258,8 @@ pub enum Line {
     SelectMusicIntro,
     /// `select music comment <comment>`.
     SelectMusic(Comment),
+    /// `battle <event>` (ours): a multiplayer battle's event.
+    Battle(Battle),
 }
 
 /// Where a line is spoken.
@@ -175,6 +268,9 @@ pub enum Spoken {
     Play,
     Results,
     Menu,
+    /// In multiplayer: a battle's stages, in play and on their results
+    /// (never in a play of one's own).
+    Battle,
 }
 
 /// Who named a line.
@@ -187,7 +283,8 @@ pub enum Origin {
 }
 
 impl Line {
-    /// Every line, combos to 1000 (past it, any hundred is one too).
+    /// Every line, combos StepMania's hundreds to 1000 (any other count is
+    /// one too: [`Line::Combo`]).
     pub fn all() -> Vec<Line> {
         let mut all = vec![
             Line::Ready,
@@ -218,6 +315,7 @@ impl Line {
         all.extend(Grade::ALL.map(Line::Grade));
         all.extend([Line::Cheer, Line::SelectMusicIntro]);
         all.extend(Comment::ALL.map(Line::SelectMusic));
+        all.extend(Battle::ALL.map(Line::Battle));
         all
     }
 
@@ -248,12 +346,13 @@ impl Line {
             Line::Cheer => "evaluation cheer",
             Line::SelectMusicIntro => "select music intro",
             Line::SelectMusic(c) => return format!("select music comment {}", c.name()),
+            Line::Battle(b) => return format!("battle {}", b.name()),
         };
         fixed.to_string()
     }
 
     /// The line a folder name (any case) is, StepMania's alias
-    /// `gameplay combo <N>` included.
+    /// `gameplay combo <N>` included, N any count from 1.
     pub fn parse(name: &str) -> Option<Line> {
         let name = name.to_ascii_lowercase();
         let combo = name
@@ -263,7 +362,7 @@ impl Line {
             .filter(|n| n.bytes().all(|b| b.is_ascii_digit()) && !n.starts_with('0'));
         if let Some(n) = combo {
             let n = n.parse::<u32>().ok()?;
-            return (n >= 100 && n % 100 == 0).then_some(Line::Combo(n));
+            return (n >= 1).then_some(Line::Combo(n));
         }
         Line::all().into_iter().find(|l| l.folder() == name)
     }
@@ -277,6 +376,7 @@ impl Line {
             | Line::Grade(_)
             | Line::Cheer => Spoken::Results,
             Line::SelectMusicIntro | Line::SelectMusic(_) => Spoken::Menu,
+            Line::Battle(_) => Spoken::Battle,
             _ => Spoken::Play,
         }
     }
@@ -289,19 +389,31 @@ impl Line {
             | Line::LastLife
             | Line::LifeLost
             | Line::Quit
-            | Line::FirstClear => Origin::Ours,
-            Line::Combo(n) if n > 1000 => Origin::Ours,
+            | Line::FirstClear
+            | Line::Battle(_) => Origin::Ours,
+            Line::Combo(n) if !stepmanias_combo(n) => Origin::Ours,
             Line::Grade(Grade::Aaaaa | Grade::F) => Origin::Etterna,
             _ => Origin::StepMania,
         }
     }
 
     /// The line, then the lines spoken in its place where an announcer
-    /// lacks it, in order.
+    /// lacks it, in order. A battle's opening falls back on `battle stage
+    /// begin`, then on `gameplay ready` (whose role it takes); its life
+    /// critical on the danger comment, its elimination on `gameplay
+    /// failed` and the winner's finished song on `gameplay cleared`, each
+    /// of which says that moment in a play; the rest on nothing.
     pub fn chain(self) -> Vec<Line> {
         let mut chain = vec![self];
         match self {
-            Line::Combo(n) if n > 1000 => chain.push(Line::ComboOverflow),
+            Line::Battle(Battle::MatchBegin | Battle::FinalStage) => {
+                chain.extend([Line::Battle(Battle::StageBegin), Line::Ready])
+            }
+            Line::Battle(Battle::StageBegin) => chain.push(Line::Ready),
+            Line::Battle(Battle::LifeCritical) => chain.push(Line::CommentDanger),
+            Line::Battle(Battle::Eliminated) => chain.push(Line::Failed),
+            Line::Battle(Battle::SongFinished) => chain.push(Line::Cleared),
+            Line::Combo(n) if past_1000(n) => chain.push(Line::ComboOverflow),
             Line::Restart => chain.push(Line::Ready),
             Line::FullComboW(_) => chain.push(Line::FullCombo),
             Line::Grade(Grade::Aaaaa) => chain.push(Line::Grade(Grade::Aaaa)),
@@ -312,6 +424,23 @@ impl Line {
         chain
     }
 }
+
+/// Whether a combo is one of StepMania's lines: a hundred to 1000.
+pub fn stepmanias_combo(n: u32) -> bool {
+    (100..=1000).contains(&n) && n.is_multiple_of(100)
+}
+
+/// Whether a combo is a hundred past 1000, which `gameplay combo
+/// overflow` speaks for where the pack has no line of its own.
+pub fn past_1000(n: u32) -> bool {
+    n > 1000 && n.is_multiple_of(100)
+}
+
+/// The combo lines our packs have, which the studio lists to begin with
+/// (`assets/announcers/`).
+pub const OUR_COMBOS: [u32; 12] = [
+    100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000,
+];
 
 /// A line is kept by its folder's name ([`Line::folder`]; the studio's
 /// drafts).

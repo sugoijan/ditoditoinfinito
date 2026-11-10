@@ -34,7 +34,7 @@ use ddi_library::announcer::draft::{
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::tidy::{self, Measure};
-use ddi_library::announcer::{Bundled, Line, MAX_BYTES, Spoken};
+use ddi_library::announcer::{Bundled, Line, MAX_BYTES, OUR_COMBOS, Spoken};
 use ddi_library::path::RelPath;
 use ddi_library::scan::Reader;
 use ddi_platform::SoundId;
@@ -1003,6 +1003,9 @@ impl Studio {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
             Spoken::Play => self.play_scene(line, said),
+            // No scene for a multiplayer battle's lines yet (the page
+            // offers none to hear: `studio::hearable`).
+            Spoken::Battle => {}
         }
     }
 
@@ -1042,7 +1045,12 @@ impl Studio {
         };
         let n = self.director.begin_play(line, said);
         let which = |l: Line| matches!(l.spoken(), Spoken::Play | Spoken::Results);
-        let lines: Vec<Line> = Line::all().into_iter().filter(|l| which(*l)).collect();
+        // Our packs' combos past 1000 too (an example's voice).
+        let lines: Vec<Line> = Line::all()
+            .into_iter()
+            .chain(OUR_COMBOS.map(Line::Combo))
+            .filter(|l| which(*l))
+            .collect();
         self.with_voice(n, said, which, &lines, move |s, voiced| {
             let (voice, lengths, words) = voiced;
             let heard = s.heard_in_play.clone();
@@ -1099,6 +1107,25 @@ impl Studio {
                 cx.overlay(picker, true);
                 None
             }
+            Act::AddCombo => {
+                let weak = Rc::downgrade(self);
+                let dialog = studio::combo_dialog(
+                    self.env.clone(),
+                    Rc::new(move |n, _cx| {
+                        let Some(s) = weak.upgrade() else {
+                            return true;
+                        };
+                        if !s.draft.borrow_mut().add_combo(n) {
+                            return false;
+                        }
+                        s.save();
+                        s.dirty.set(true);
+                        true
+                    }),
+                );
+                cx.overlay(dialog, true);
+                None
+            }
             act => self.act(act),
         }
     }
@@ -1130,7 +1157,7 @@ impl Studio {
         }
         match act {
             // ([`studio::apply`]'s.)
-            Act::Tidy | Act::StepMania | Act::Examples | Act::Details => None,
+            Act::Tidy | Act::StepMania | Act::Examples | Act::Details | Act::RemoveCombo(_) => None,
             Act::Add(line) => {
                 let picked = crate::os::pick_recordings();
                 if !picked.is_empty() {
@@ -1160,8 +1187,8 @@ impl Studio {
                 self.play_example(line, i);
                 Some(self.doc())
             }
-            // (The dialog's: its caller's.)
-            Act::Move(_) => None,
+            // (The dialogs': their caller's.)
+            Act::Move(_) | Act::AddCombo => None,
             Act::Remove(id) => {
                 self.remove(id);
                 Some(self.doc())

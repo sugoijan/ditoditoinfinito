@@ -190,7 +190,7 @@ impl App {
             Route::Songs => Box::new(mount::<SelectPage>(
                 root,
                 "main",
-                crate::components::select_page::Props { shared: false },
+                crate::components::select_page::Props::default(),
             )),
             Route::Shared { id } => Box::new(mount::<crate::components::shared_page::SharedPage>(
                 root,
@@ -219,9 +219,19 @@ impl App {
                     restart,
                 },
             )),
+            // A stage the room has not handed over (a reload, an old
+            // address): the room.
+            Route::Play(PlayRoute {
+                stage: Some(id), ..
+            }) if crate::room::playing(*id).is_none() => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props { which: Which::Room },
+            )),
             Route::Play(PlayRoute {
                 song,
                 chart,
+                cpu,
                 force_gl,
                 auto,
                 auto_pad,
@@ -229,6 +239,7 @@ impl App {
                 slow,
                 edit,
                 scene,
+                stage,
                 ..
             }) => Box::new(mount::<GameCanvas>(
                 root,
@@ -239,7 +250,8 @@ impl App {
                         id: song.clone(),
                         chart: *chart,
                     },
-                    auto: *auto,
+                    auto: *auto || cpu.is_some(),
+                    cpu: cpu.clone(),
                     auto_pad: *auto_pad,
                     auto_bias: *bias_ms as f64 / 1000.0,
                     slow: *slow,
@@ -251,6 +263,7 @@ impl App {
                     replay: None,
                     edit: *edit,
                     scene: scene.clone(),
+                    room_stage: stage.and_then(crate::room::playing),
                 },
             )),
             // The chart editor on a song (`docs/plans/editor.md`).
@@ -275,6 +288,7 @@ impl App {
                     restart,
                     source: SongSource::Calibration(crate::calibration::CalMode::parse(mode)),
                     auto: *auto,
+                    cpu: None,
                     auto_pad: false,
                     auto_bias: *bias_ms as f64 / 1000.0,
                     slow: false,
@@ -282,10 +296,62 @@ impl App {
                     replay: None,
                     edit: false,
                     scene: None,
+                    room_stage: None,
                 },
             )),
             // Credits and calibration's menu, our theme's pages on the
             // canvas (step 6.4).
+            // The multiplayer prototype, behind its hidden switch: off,
+            // its routes are the start menu's.
+            Route::Multiplayer
+            | Route::Room
+            | Route::RoomPick { .. }
+            | Route::MpJoin { .. }
+            | Route::MpRoom { .. }
+                if !crate::settings::Settings::load().multiplayer =>
+            {
+                Box::new(mount::<PagePage>(
+                    root,
+                    "main",
+                    page_routes::Props {
+                        which: Which::Start,
+                    },
+                ))
+            }
+            Route::Multiplayer => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Multiplayer,
+                },
+            )),
+            Route::Room => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props { which: Which::Room },
+            )),
+            Route::MpJoin { invite } => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Invite(invite.clone()),
+                },
+            )),
+            Route::MpRoom { id } => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::OnlineRoom(id.clone()),
+                },
+            )),
+            Route::RoomPick { stage, number } => Box::new(mount::<SelectPage>(
+                root,
+                "main",
+                crate::components::select_page::Props {
+                    shared: false,
+                    pick: Some((ddi_room::StageId(*stage), *number)),
+                },
+            )),
             Route::Credits => Box::new(mount::<PagePage>(
                 root,
                 "main",

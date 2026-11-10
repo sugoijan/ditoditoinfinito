@@ -439,13 +439,20 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
     if request.calibration.is_some() {
         return info;
     }
-    PromptInfo::for_chart(
+    let mut info = PromptInfo::for_chart(
         loaded.entry.title.clone(),
         loaded.entry.artist.clone(),
         PromptChart::of(&loaded.song, request.chart),
         settings,
         info.badge,
-    )
+    );
+    if let Some(cpu) = &request.cpu {
+        info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
+    }
+    if let Some(order) = &request.stage {
+        info.set_stage(order.number, order.of, order.cpus.len(), order.others);
+    }
+    info
 }
 
 impl Host {
@@ -757,6 +764,8 @@ impl Host {
             if readied.request.calibration.is_none()
                 && readied.request.replay.is_none()
                 && readied.request.refused.is_none()
+                && readied.request.cpu.is_none()
+                && readied.request.stage.is_none()
             {
                 let mut o = PlayOptions::new(readied.request.settings(), "", env.platform);
                 let bundled = crate::library::noteskins::bundled();
@@ -811,6 +820,13 @@ impl Host {
                 let choice = self.choice.borrow_mut().take();
                 match choice {
                     Some(PromptChoice::Back) if r.scene.is_some() => self.leave_scene(r, ui),
+                    // A stage left from its prompt: a forfeit (the room
+                    // goes on), or the match stopped if its song could not
+                    // be read.
+                    Some(PromptChoice::Back) if r.request.stage.is_some() => {
+                        leave_stage(&r);
+                        Stage::Idle
+                    }
                     Some(PromptChoice::Back) => {
                         // Leaving a test: the menu.
                         if r.request.calibration.is_some() {
@@ -939,6 +955,7 @@ impl Host {
             || request.replay.is_some()
             || request.auto
             || request.scene.is_some()
+            || request.stage.is_some()
         {
             return None;
         }
@@ -986,6 +1003,17 @@ impl Host {
             let known = r.bundled || crate::library::song(&r.request.song).is_some();
             if let Some(mode) = r.request.calibration {
                 r.loaded = Some(Rc::new(super::load::calibration(mode, r.rate)));
+            } else if let Some(source) = r
+                .request
+                .cpu
+                .as_ref()
+                .and_then(|cpu| cpu.source_file.as_ref())
+            {
+                r.loading = Some(Loading::start_cpu(
+                    source.clone(),
+                    r.rate,
+                    self.wake.clone(),
+                ));
             } else if known || r.asked.elapsed().as_secs() >= 30 {
                 // A song never listed fails its load after a while.
                 let s = r.settings();
@@ -1025,10 +1053,17 @@ impl Host {
                             .charts
                             .get(r.request.chart)
                             .map_or(0, |c| c.notes.len() as u32);
+                        // A practice stage's: the battle's lines, not a
+                        // play's routine.
+                        let of = if r.request.stage.is_some() {
+                            super::voice::For::Stage
+                        } else {
+                            super::voice::For::Play { notes }
+                        };
                         r.voice = Some(super::voice::VoiceLoad::start(
                             key,
                             crate::library::all_folders(),
-                            super::voice::For::Play { notes },
+                            of,
                             r.rate,
                             self.wake.clone(),
                         ));
@@ -1115,6 +1150,10 @@ impl Host {
             view.set_generated(&loaded, &settings, calibration);
             view.set_noteskin(dev.device, dev.queue, None);
             view.start();
+            // A stage's opponents' column is text: its fonts read now.
+            if r.request.stage.is_some() {
+                view.read_text();
+            }
             r.view = Some(view);
             // Its pictures are read on threads (again for a view made
             // again, after a lost device); Start waits for them.
@@ -1375,6 +1414,8 @@ impl Host {
             && request.replay.is_none()
             && request.calibration.is_none()
             && request.scene.is_none()
+            && request.cpu.is_none()
+            && request.stage.is_none()
         {
             request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);
         }
@@ -1384,6 +1425,8 @@ impl Host {
             && request.calibration.is_none()
             && request.edited.is_none()
             && request.scene.is_none()
+            && request.cpu.is_none()
+            && request.stage.is_none()
         {
             request.prior = Some(self.plays.as_ref().map_or_else(Default::default, |p| {
                 ddi_session::announcer::Prior::before(
@@ -1535,9 +1578,17 @@ impl Host {
             return;
         };
         let stage = std::mem::replace(&mut self.stage, Stage::Idle);
-        let Stage::Playing(r, play, _) = stage else {
+        let Stage::Playing(r, mut play, _) = stage else {
             return;
         };
+        // A stage's outcome, to the room before its results (a quit or an
+        // interruption: a forfeit).
+        if let Some(o) = play.session.take_stage_outcome() {
+            self.log.push(format!("stage outcome: {:?}", o.ranking));
+            let ending = crate::room::report(o);
+            // The results' battle line, now the room has confirmed it.
+            play.session.stage_reported(ending);
+        }
         // A scene is over.
         if matches!(ended, Ended::SceneOver | Ended::Interrupted) && r.scene.is_some() {
             let mut r = r;
@@ -1683,6 +1734,13 @@ impl Host {
             }
             // (Started again, or left, above.)
             Ended::Restart | Ended::SceneOver => Stage::Idle,
+            // A stage is played once: back to the room (its forfeit
+            // reported above).
+            Ended::Interrupted if play.request.stage.is_some() => {
+                self.log
+                    .push(format!("interrupted stage {}", play.request.song));
+                Stage::Idle
+            }
             Ended::Interrupted => {
                 self.log.push(format!("interrupted {}", play.request.song));
                 let mut r = r;
@@ -1695,6 +1753,23 @@ impl Host {
 
     /// What the play said, for a timed run's lines.
     fn log_said(&mut self, play: &Play) {
+        // A stage's battle moments: said by a line, or shown.
+        let told = play.session.battle_told();
+        if !told.is_empty() {
+            let policy = ddi_session::announcer::battle::BATTLE_VOICE_V0;
+            let moments: Vec<String> = told
+                .iter()
+                .map(|t| {
+                    let line = ddi_library::announcer::Line::Battle(t.event).folder();
+                    match (t.said, t.shown(&policy)) {
+                        (_, true) => format!("{line} (shown)"),
+                        (Some(l), _) => format!("{line} (said: {})", l.folder()),
+                        (None, _) => format!("{line} (results, room)"),
+                    }
+                })
+                .collect();
+            self.log.push(format!("battle: {}", moments.join(", ")));
+        }
         let a = play.session.announcer_report();
         if a == &Default::default() {
             return;
@@ -1798,6 +1873,17 @@ impl Host {
             check.as_ref(),
             replay.as_deref(),
         ));
+        if let Some(cpu) = &play.request.cpu {
+            notes.push(ddi_ui::screens::prompt::cpu_description_with_skills(
+                cpu.level, cpu.seed, cpu.skills,
+            ));
+        }
+        // A stage's: how it went for the player, as the room confirmed it.
+        if let Some(order) = &play.request.stage
+            && let Some(mark) = crate::room::stage_room().borrow().mark_of(order.stage)
+        {
+            notes.insert(0, ddi_ui::screens::room::mark_text(&mark));
+        }
         let mut data = results_data(&PlayInfo {
             results,
             ruleset: &session.rules,
@@ -1807,7 +1893,8 @@ impl Host {
             mods: Vec::new(),
             device_changed,
             video_notes: notes,
-            offset: Some((play.played_offset, settings.song_offset(&id))),
+            offset: (play.request.cpu.is_none() && play.request.stage.is_none())
+                .then(|| (play.played_offset, settings.song_offset(&id))),
             autoplay: match &replay {
                 Some(rp) => rp.record.autoplay.is_some(),
                 None => play.request.auto,
@@ -1819,6 +1906,9 @@ impl Host {
                 ddi_ui::screens::data::ResultsKind::Replay,
                 &rp.when_line(&super::replays::tz_minutes),
             );
+        }
+        if play.request.stage.is_some() {
+            data.kind = ddi_ui::screens::data::ResultsKind::Stage;
         }
         // The play just kept: its replay.
         let watch: Option<ActionFn> = play
@@ -1836,14 +1926,17 @@ impl Host {
             results_action(&self.after, || After::Retry, false)
         };
         let song_list = results_action(&self.after, || After::Leave, true);
-        let offset = ddi_ui::screens::play::song_offset_saver(id);
+        let stage = play.request.stage.is_some();
+        let offset = (play.request.cpu.is_none() && !stage)
+            .then(|| ddi_ui::screens::play::song_offset_saver(id));
         ui.push(ResultsScreen::new(
             env.clone(),
             data,
             ResultsActions {
-                retry: Some(retry),
+                // A stage is played once.
+                retry: (!stage).then_some(retry),
                 song_list: Some(song_list),
-                offset: Some(offset),
+                offset,
                 replay: watch,
             },
         ));
@@ -2120,6 +2213,41 @@ fn read_images(
             }
         });
     rx
+}
+
+/// A stage left from its prompt: a forfeit reported to the room, the CPUs
+/// played to their end; where its song could not be read, the match
+/// stopped instead.
+fn leave_stage(r: &Readied) {
+    let Some(order) = &r.request.stage else {
+        return;
+    };
+    // An online room's: the forfeit is the player's own report.
+    if crate::room::left_online_stage(order.stage) {
+        return;
+    }
+    match &r.loaded {
+        Some(loaded) => {
+            let settings = r.settings();
+            let ruleset = settings.ruleset_for(&loaded.song.charts[r.request.chart]);
+            match ddi_session::battle::forfeit(
+                ddi_session::battle::StageSetup::of(order),
+                &loaded.song,
+                r.request.chart,
+                &ruleset,
+            ) {
+                // Left from the prompt: no play to speak over.
+                Ok(o) => {
+                    crate::room::report(o);
+                }
+                Err(e) => {
+                    eprintln!("room: stage {}: {e}", order.number);
+                    crate::room::current().borrow_mut().stage_lost();
+                }
+            }
+        }
+        None => crate::room::current().borrow_mut().stage_lost(),
+    }
 }
 
 /// A results screen's button: what follows the screen, then leave it.

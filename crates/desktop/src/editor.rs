@@ -377,9 +377,7 @@ impl EditorHost for Host {
     }
 
     fn skin_field(&self) -> Option<SkinField> {
-        Some(ddi_shell::editor_field::skin_field(
-            &Settings::cached(),
-        ))
+        Some(ddi_shell::editor_field::skin_field(&Settings::cached()))
     }
 
     fn show_field(&self, picture: Option<Rc<FieldPicture>>, editor: &Editor) {

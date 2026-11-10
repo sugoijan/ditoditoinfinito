@@ -17,16 +17,10 @@ ddi-l10n.workspace = true
 ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-platform.workspace = true
+ddi-room.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-segmentation.workspace = true
-# Layout frames (P8), optional.
-taffy = { workspace = true, optional = true }
-
-[features]
-default = []
-# Flexbox and grid frames through taffy (`layout`).
-layout = ["dep:taffy"]
 
 [dev-dependencies]
 # Unicode's NFKD for the search in tests (the shells bring their own).

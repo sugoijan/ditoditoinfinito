@@ -37,6 +37,7 @@ pub mod input;
 pub mod keyboard;
 pub mod keys;
 pub mod library;
+pub mod online;
 pub mod options;
 pub mod os;
 pub mod pacing;
@@ -47,6 +48,7 @@ pub mod plays;
 pub mod preview;
 pub mod preview_movie;
 pub mod quit;
+pub mod room;
 pub mod share;
 pub mod shell;
 pub mod songs;
@@ -230,17 +232,33 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// block and late with one and two in flight, four seconds each, and
 /// prints what each did when the play ends. `--shared LINK|ID` opens
 /// song select on a share's songs alone (`share`), `--sharing on|off`
-/// flips the hidden sharing switch (`Settings::sharing`), and `--share
+/// flips the hidden sharing switch (`Settings::sharing`), `--multiplayer
+/// on|off` the multiplayer prototype's (`Settings::multiplayer`; `--screen
+/// multiplayer|room` opens its home or its practice room; `--join
+/// LINK|INVITE` an online room's invite page), and `--share
 /// ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never] [--pack NAME]`
 /// uploads the library's songs as a share without a window and prints
 /// its link (the token from the settings, or `DDI_SHARE_TOKEN`; the
 /// server from `DDI_API_URL`, else the production one).
+/// `--cpu FILE [--cpu-strength relaxed|easy|normal|strong|expert]
+/// [--cpu-seed N]` plays a prepared tap-only keyboard CPU through the judge;
+/// `--play SONG --cpu=1 [--cpu-skills PRESET_OR_VECTOR]` prepares automatically;
+/// no fail, no personal history. Its artifact selects the chart.
+/// `--play SONG --chart N --cpu=1` prepares an analytical CPU directly from
+/// the library chart, with the same strength and seed flags.
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(windows)]
     if !args.is_empty() {
         attach_console();
     }
+    let cpu_request = match play::cpu::arguments(&args) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("CPU: {e}");
+            return;
+        }
+    };
     if args.iter().any(|a| a == "--danoni-bundle-info") {
         #[cfg(danoni_importer)]
         let mut info = danoni::bundle_info();
@@ -331,12 +349,13 @@ pub fn run() {
     }
     let screen = match args.iter().position(|a| a == "--screen") {
         Some(i) => args.get(i + 1).cloned().unwrap_or_default(),
+        None if args.iter().any(|a| a == "--join") => "multiplayer".into(),
         None if args.iter().any(|a| a == "--widgets") => "widgets".into(),
         None if args.iter().any(|a| a == "--dev") => "dev".into(),
         None if args.iter().any(|a| {
             matches!(
                 a.as_str(),
-                "--play" | "--replay" | "--calibrate" | "--edit" | "--shared"
+                "--play" | "--replay" | "--calibrate" | "--edit" | "--shared" | "--cpu"
             )
         }) =>
         {
@@ -366,6 +385,42 @@ pub fn run() {
             // The commands below end the process without the shell.
             let _ = ddi_platform::storage::flush();
         }
+    }
+    // `--multiplayer on|off`: the multiplayer prototype's hidden switch,
+    // as the web's `#/?mp=1` (`docs/plans/multiplayer-prototype-progress.md`).
+    if let Some(on) = args
+        .iter()
+        .position(|a| a == "--multiplayer")
+        .and_then(|i| args.get(i + 1))
+    {
+        let on = match on.as_str() {
+            "on" | "1" => true,
+            "off" | "0" => false,
+            _ => {
+                eprintln!("--multiplayer takes on or off");
+                std::process::exit(2);
+            }
+        };
+        let mut settings = ddi_ui::state::settings::Settings::load();
+        if settings.multiplayer != on {
+            settings.multiplayer = on;
+            settings.save();
+        }
+    }
+    // `--join LINK|INVITE`: an online room's invite page over the
+    // multiplayer home (`crate::online`).
+    if let Some(i) = args.iter().position(|a| a == "--join") {
+        let text = args.get(i + 1).map(String::as_str).unwrap_or_default();
+        if !online::set_join(text) {
+            eprintln!("--join takes an invite link or an invite");
+            std::process::exit(2);
+        }
+    }
+    if matches!(screen.as_str(), "multiplayer" | "room")
+        && !ddi_ui::state::settings::Settings::load().multiplayer
+    {
+        eprintln!("--screen {screen} needs the multiplayer prototype: --multiplayer on");
+        std::process::exit(2);
     }
     // `--share ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never]`: the
     // library's songs uploaded as a share, the link printed (the token
@@ -401,20 +456,20 @@ pub fn run() {
         && matches!(screen.as_str(), "start" | "select" | "options"))
         || screen == "announcer")
         .then(|| {
-        let extra: Vec<std::path::PathBuf> = args
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| *a == "--songs")
-            .filter_map(|(i, _)| args.get(i + 1).map(std::path::PathBuf::from))
-            .collect();
-        songs::Songs::new(extra)
-    });
+            let extra: Vec<std::path::PathBuf> = args
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| *a == "--songs")
+                .filter_map(|(i, _)| args.get(i + 1).map(std::path::PathBuf::from))
+                .collect();
+            songs::Songs::new(extra)
+        });
     // A play or a test opened from here: no first start's offer over it.
     if let Some(s) = &songs
         && args.iter().any(|a| {
             matches!(
                 a.as_str(),
-                "--play" | "--calibrate" | "--replay" | "--edit" | "--shared"
+                "--play" | "--calibrate" | "--replay" | "--edit" | "--shared" | "--cpu"
             )
         })
     {
@@ -489,6 +544,9 @@ pub fn run() {
             .and_then(|i| args.get(i + 1)?.parse().ok())
             .unwrap_or(0);
         *songs.edit.borrow_mut() = Some((song.clone(), chart));
+    }
+    if let Some(request) = cpu_request {
+        *shell.play.requested.borrow_mut() = Some(request);
     }
     // `--replay <play id> [--results]`: a kept play's replay (its
     // prompt at once), or its results (`docs/plans/play-history.md`).

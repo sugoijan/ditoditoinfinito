@@ -11,6 +11,8 @@ use ddi_actor::{Actor, Kind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Singleplayer,
+    /// Only with the prototype's switch on ([`StartScreen::with_multiplayer`]).
+    Multiplayer,
     Options,
     Credits,
     Quit,
@@ -20,6 +22,7 @@ impl Choice {
     pub fn id(self) -> &'static str {
         match self {
             Self::Singleplayer => "Singleplayer",
+            Self::Multiplayer => "Multiplayer",
             Self::Options => "Options",
             Self::Credits => "Credits",
             Self::Quit => "Quit",
@@ -44,6 +47,9 @@ pub struct StartScreen {
     /// What the debug state was last told: the hints' keys (`None`: the
     /// keyboard's) and the compact layout.
     published: Option<(Option<[String; 2]>, bool)>,
+    /// The multiplayer prototype's hidden switch is on: Multiplayer opens
+    /// its menu. Off, it stays "Coming soon", focusable and inert.
+    multiplayer: bool,
 }
 
 impl StartScreen {
@@ -60,7 +66,16 @@ impl StartScreen {
             background_animating: false,
             in_place: false,
             published: None,
+            multiplayer: false,
         }
+    }
+
+    /// Multiplayer opens its menu ([`Choice::Multiplayer`]) when `on`:
+    /// the prototype's hidden switch (`Settings::multiplayer`). Off, the
+    /// menu is as it always was.
+    pub fn with_multiplayer(mut self, on: bool) -> Self {
+        self.multiplayer = on;
+        self
     }
 
     pub fn with_focus(mut self, focus: Option<String>) -> Self {
@@ -79,7 +94,11 @@ impl StartScreen {
     }
 
     fn choices(&self) -> Vec<Choice> {
-        let mut choices = vec![Choice::Singleplayer, Choice::Options, Choice::Credits];
+        let mut choices = vec![Choice::Singleplayer];
+        if self.multiplayer {
+            choices.push(Choice::Multiplayer);
+        }
+        choices.extend([Choice::Options, Choice::Credits]);
         if self.desktop {
             choices.push(Choice::Quit);
         }
@@ -100,9 +119,14 @@ impl StartScreen {
             .max(44.0 / css_scale);
         let gap = env.metric("TitleMenu.Gap", 12.0);
         use ddi_l10n::msg::start;
+        let multiplayer = if self.multiplayer {
+            ("Multiplayer", start::multiplayer_open(), "TitleMenu.Choice")
+        } else {
+            ("Multiplayer", start::multiplayer(), "TitleMenu.Disabled")
+        };
         let mut entries = vec![
             ("Singleplayer", start::singleplayer(), "TitleMenu.Primary"),
-            ("Multiplayer", start::multiplayer(), "TitleMenu.Disabled"),
+            multiplayer,
             ("Options", start::options(), "TitleMenu.Choice"),
             ("Credits", start::credits(), "TitleMenu.Choice"),
         ];
@@ -272,7 +296,9 @@ impl Screen for StartScreen {
             .map(|c| Focusable::new(c.id()))
             .collect();
         // Coming soon is selectable, but deliberately absent from the actions.
-        focus.insert(1, Focusable::new("Multiplayer"));
+        if !self.multiplayer {
+            focus.insert(1, Focusable::new("Multiplayer"));
+        }
         focus
     }
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {

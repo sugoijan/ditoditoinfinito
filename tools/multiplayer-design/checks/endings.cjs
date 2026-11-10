@@ -1,0 +1,35 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const path=require('node:path').join(__dirname, '..', 'battle-endings.html');
+const html=fs.readFileSync(path,'utf8'),source=html.split('<script>')[1].split('</script>')[0];
+const names=[...html.matchAll(/data-view="([^"]+)"/g)].map(m=>m[1]);
+const nodes=names.map(key=>({dataset:{view:key},innerHTML:'',children:[],classList:{toggle(){},contains(){return false}},listeners:{},querySelector(){return null},querySelectorAll(){return[]},addEventListener(k,f){this.listeners[k]=f}}));
+const tweaks={},saved=[],events={},timers=new Map();let timer=0;
+const env={document:{getElementById(id){assert.equal(id,'ddi-battle-endings');return{querySelectorAll(){return nodes}}}},setInterval:f=>{timers.set(++timer,f);return timer},clearInterval:id=>timers.delete(id),window:{openai:{setWidgetState(s){saved.push(JSON.parse(JSON.stringify(s)));return Promise.resolve()}},addEventListener(k,f){events[k]=f}},Tweak:class{constructor(o){this.opts=o;tweaks[o.container.dataset.view]=this;this.count=0}addSelect(o){this.obj=o;this.count++}addToggle(o){this.obj=o;this.count++}}};
+vm.runInNewContext(source.replace('})();','globalThis.inspect={scores,stageRank,context,tick,states,render};})();'),env);
+const I=env.inspect,n=k=>nodes.find(x=>x.dataset.view===k),s=k=>I.states[k],view=k=>n(k).innerHTML;
+const tweak=(k,o)=>{Object.assign(s(k),o);tweaks[k].opts.onChange()};
+const click=(k,a)=>{const b=view(k).match(new RegExp('<button[^>]*data-action="'+a+'"[^>]*>'))?.[0];assert(b,'Missing '+k+'/'+a);assert(!/\bdisabled\b/.test(b),'Disabled '+a);n(k).listeners.click({target:{closest:()=>({dataset:{action:a},disabled:false})}})};
+assert.equal(names.length,6);assert.equal(saved.length,0);assert.equal(timers.size,0);
+for(const x of nodes){assert(!/undefined|NaN/.test(x.innerHTML),x.dataset.view);assert(tweaks[x.dataset.view].count<=12);}
+assert(view('pending').includes('Resolving attack'));assert(!view('pending').includes('trophy'));assert(!view('pending').includes('data-action="ready"'));assert(view('pending').includes('Sol'));
+tweak('pending',{settlement:'Victory'});assert(view('pending').includes('Finishing song'));assert(!view('pending').includes('incoming-cue'));assert(!view('pending').includes('data-action="ready"'));
+tweak('pending',{soloMistakes:true});assert(view('pending').includes('Kai · 1st · +12'));assert(!view('pending').includes('game-outcome'));assert(view('pending').includes('aria-valuenow="0"'));
+tweak('pending',{songEnded:true});assert(view('pending').includes('Stage result'));assert(view('pending').includes('840 / 840'));assert(view('pending').includes('Battle points locked'));click('pending','match');assert(view('pending').includes('Match winner'));
+const regular=I.scores(s('match'));assert.deepEqual(Array.from(regular,p=>[p.name,p.total,p.rank]),[['Mira',40,1],['Sol',37,2],['Kai',35,3],['Quartz',18,4],['Arc',17,5],['Orbit',10,6],['Lumen',8,7],['Echo',7,8]]);
+for(let stage=0;stage<4;stage++)assert.equal(regular.reduce((sum,p)=>sum+p.points[stage],0),43);
+const draw=I.scores(s('draw'));assert.equal(draw.find(p=>p.id==='sol').points[3],10.5);assert.equal(draw.find(p=>p.id==='kai').points[3],10.5);assert.equal(I.stageRank(s('draw'),'kai'),1);assert.equal(I.stageRank(s('draw'),'sol'),1);assert.equal(I.stageRank(s('draw'),'mira'),3);assert.equal(draw.reduce((sum,p)=>sum+p.total,0),172);
+tweak('winner',{settlement:'Draw'});click('winner','evaluation');assert(view('winner').includes('Shared 1st'));assert(view('winner').includes('+10.5'));
+tweak('match',{matchTie:true});const tied=I.scores(s('match'));assert.deepEqual(Array.from(tied.slice(0,3),p=>[p.name,p.total,p.rank]),[['Mira',37,1],['Sol',37,1],['Kai',35,3]]);assert(view('match').includes('Joint winners'));
+click('match','point-kai-1');assert(view('match').includes('Paper Satellites'));click('match','performance');assert.equal(s('match').stage,'4');assert.equal(s('match').evalStage,1);click('match','match');click('match','room');assert(view('match').includes('Next match'));assert(!view('match').includes('Intermission'));
+tweak('match',{role:'Waiting player'});assert(view('match').includes('You joined the next match'));click('match','last');assert(!view('match').includes('>Nia</button>'));assert(view('match').includes('Watched this match'));click('match','ready');click('match','room');assert(s('match').ready);assert(view('match').includes('Nia'));assert(!view('match').includes('>Echo<'));click('match','last');assert(view('match').includes('>Echo</button>'));
+tweak('room',{role:'Waiting player',seatAvailable:false});assert(view('room').includes('Waiting for a seat'));assert(!view('room').includes('data-action="ready"'));assert(!view('room').includes('data-action="start"'));
+tweak('room',{role:'Host',seatAvailable:true,ready:false,othersReady:true});click('room','start');assert.equal(s('room').seconds,15);click('room','last');assert(view('room').includes('Starting in 15s'));click('room','ready');I.tick(n('room'));assert.equal(s('room').startPhase,'countdown');assert.equal(s('room').seconds,3);for(let i=0;i<3;i++)I.tick(n('room'));assert(s('room').newMatch);assert.equal(s('room').ready,false);assert.equal(timers.size,0);assert(view('room').includes('Stage 1 · Paper Satellites'));assert(view('room').includes('aria-valuenow="100"'));assert(view('room').includes('aria-valuenow="0"'));
+// A forgotten Ready excludes only the local host, and does not stall the match.
+tweak('room',{route:'room',role:'Host',ready:false,othersReady:true});click('room','start');for(let i=0;i<18;i++)I.tick(n('room'));assert(s('room').newMatch);assert(!s('room').startedIds.includes('mira'));assert(s('room').startedIds.includes('kai'));assert(view('room').includes('Watching Sol'));
+// No humans ready: the prototype cannot start an unattended CPU-only match.
+tweak('room',{route:'room',ready:false,othersReady:false});assert(/data-action="start"[^>]*disabled/.test(view('room')));
+tweak('room',{route:'room',ready:false,othersReady:true});click('room','start');s('room').othersReady=false;for(let i=0;i<15;i++)I.tick(n('room'));assert.equal(s('room').startPhase,'idle');assert.equal(s('room').newMatch,false);assert.equal(timers.size,0);
+assert(view('stage').includes('600 / 840'));assert(view('stage').includes('Unplayed notes excluded'));click('stage','ready');click('stage','room');assert(s('stage').ready);assert(view('stage').includes('Intermission'));
+tweak('stage',{role:'Waiting player'});assert(!view('stage').includes('data-action="ready"'));assert(view('stage').includes('Waiting for next match'));
+assert(saved.every(x=>Buffer.byteLength(JSON.stringify(x))<16384));events['openai:set_globals']({detail:{globals:{widgetState:saved.at(-1)}}});assert.equal(timers.size,0);
+console.log('Passed six views; pending→victory→solo mistakes→song end; final knockout tie; all four stage sums; shared match ranks; historical result navigation; waiting-player admission and old CPU result retention; Ready inside results; deadline/roster lock; no unattended CPU start; bounded state restoration. Logic checks only.');

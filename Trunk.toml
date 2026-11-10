@@ -81,10 +81,25 @@ stage = "post_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "post-build"]
 
-# The dev server passes the app's `api/` (songs shared by link, more to
-# come; `crates/web/src/share.rs`) to the private Worker run locally
-# (`just dev` in `../ddi-server`), as the route on sugoijan.dev does in
-# production: the app and its server on one origin in both.
+# The dev server passes the app's `api/` (songs shared by link, sign-in
+# and the multiplayer rooms; `crates/web/src/share.rs`,
+# `crates/web/src/online.rs`) to the private Worker run locally (`just dev`
+# in `../ddi-server`), as the route on sugoijan.dev does in production:
+# the app and its server on one origin in both. Redirects go back to the
+# browser as they came (sign-in is a chain of them, with cookies).
 [[proxy]]
 rewrite = "/api/"
 backend = "http://127.0.0.1:8787/ditoditoinfinito/api/"
+no_redirect = true
+
+# A room's WebSocket (`api/sockets/<id>/ws`): Trunk's proxy passes HTTP or
+# WebSockets under a path, not both, so the sockets have a path of their
+# own (the Worker takes the same socket at `rooms/<id>/ws` too). The
+# browser's offer of compression is not passed on: the local Worker
+# (workerd) accepts it and the proxy's own client cannot read compressed
+# frames.
+[[proxy]]
+rewrite = "/api/sockets/"
+backend = "ws://127.0.0.1:8787/ditoditoinfinito/api/sockets/"
+ws = true
+request_headers = { "sec-websocket-extensions" = "x-none" }

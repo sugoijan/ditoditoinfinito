@@ -205,7 +205,6 @@ fn song_entry<'a>(
     SongEntry {
         id: entry.id.clone(),
         title: entry.title.clone(),
-        subtitle: String::new(),
         artist: entry.artist.clone(),
         pack: pack.map(str::to_string),
         bpm_text: entry.bpm.replace('-', "–"),
@@ -236,6 +235,39 @@ fn song_entry<'a>(
         title_translit: entry.title_translit.clone(),
         artist_translit: entry.artist_translit.clone(),
         credit: entry.credit.clone(),
+    }
+}
+
+/// A song's entry as listed with nothing of the player's (no pack, no
+/// bests, every chart): an online room's shared song, read from its share
+/// (`crate::state::room::picked_of`).
+pub fn plain_song_entry(entry: &ManifestEntry) -> SongEntry {
+    SongEntry {
+        id: entry.id.clone(),
+        title: entry.title.clone(),
+        artist: entry.artist.clone(),
+        bpm_text: entry.bpm.replace('-', "–"),
+        length: entry.length as f32,
+        charts: entry
+            .charts
+            .iter()
+            .map(|c| ChartEntry {
+                style: c.layout.clone(),
+                difficulty: difficulty(&c.difficulty),
+                meter: c.meter,
+                notes: c.notes as u32,
+                credit: c.credit.clone(),
+                index: c.index,
+                name: chart_name(entry, c).to_string(),
+                best: None,
+                digest: c.digest,
+                version: c.derivation.as_ref().map(Derivation::kind),
+            })
+            .collect(),
+        title_translit: entry.title_translit.clone(),
+        artist_translit: entry.artist_translit.clone(),
+        credit: entry.credit.clone(),
+        ..SongEntry::default()
     }
 }
 
@@ -353,6 +385,7 @@ pub fn select_data(
         import: ImportView::default(),
         autoplay: false,
         shared: None,
+        pick: None,
     }
 }
 

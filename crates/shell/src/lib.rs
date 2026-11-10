@@ -15,7 +15,11 @@
 //! - [`editor_field`]: the chart editor's field in the player's skin,
 //!   its skin and its place;
 //! - [`generative`]: a play's generated background, the texture it is
-//!   drawn into and its place in the backdrop.
+//!   drawn into and its place in the backdrop;
+//! - [`play_view`]: a play drawn, in one frame body over each shell's
+//!   platform parts;
+//! - [`opponents`]: a multiplayer stage's CPU opponents in a quiet column
+//!   beside the field, drawn by the play's 2D pass.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
@@ -25,6 +29,8 @@ pub mod field_preview;
 pub mod generative;
 
 pub mod hand;
+pub mod opponents;
+pub mod play_view;
 pub mod scripted;
 pub mod stage;
 

@@ -1,0 +1,350 @@
+<style>
+#ddi-unified-room .game { --bg:#161318; --panel:#252129; --raised:#35303b; --ink:#f2eee9; --dim:#b3aab8; --line:#49414e; --pink:#ff6ea0; --mint:#9addbd; --amber:#e9c58b; color-scheme:dark; background:var(--bg); color:var(--ink); font:14px/1.4 'Iosevka Term',ui-monospace,SFMono-Regular,Consolas,monospace; padding:24px; min-height:940px; display:flex; flex-direction:column; gap:22px; position:relative; box-sizing:border-box; }
+#ddi-unified-room .game * {box-sizing:border-box;}
+#ddi-unified-room .game [hidden] {display:none!important;}
+#ddi-unified-room .game :is(h2,h3,p) {margin:0;}
+#ddi-unified-room .game h2 {font-size:25px; font-weight:500; letter-spacing:-.8px;}
+#ddi-unified-room .game h3 {font-size:16px; font-weight:500;}
+#ddi-unified-room .game small,#ddi-unified-room .game .small {font-size:12px;}
+#ddi-unified-room .game .muted {color:var(--dim);}
+#ddi-unified-room .game .accent {color:var(--pink);}
+#ddi-unified-room .game .eyebrow {font-size:12px; text-transform:uppercase; letter-spacing:1.1px; color:var(--dim);}
+#ddi-unified-room .game button {color:var(--ink); background:var(--panel); border:1px solid transparent; border-radius:5px; padding:9px 12px; font:inherit; min-height:38px;}
+#ddi-unified-room .game button.quiet {background:transparent;}
+#ddi-unified-room .game button.primary {background:var(--raised); outline:2px solid var(--pink); outline-offset:3px;}
+#ddi-unified-room .game button.twitch {background:#9146ff; color:#fff;}
+#ddi-unified-room .game button[aria-pressed=true] {background:var(--raised); border-color:var(--pink);}
+#ddi-unified-room .game button:hover:not(:disabled) {background:var(--raised);}
+#ddi-unified-room .game button:disabled {opacity:.5; cursor:default;}
+#ddi-unified-room .game .icon-button {display:inline-flex; align-items:center; justify-content:center; gap:7px;}
+#ddi-unified-room .game svg {width:17px; height:17px; flex-shrink:0;}
+#ddi-unified-room .game .header {display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; padding-right:75px;}
+#ddi-unified-room .game .room-title {display:flex; align-items:center; gap:12px;}
+#ddi-unified-room .game .head-actions,#ddi-unified-room .game .row {display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
+#ddi-unified-room .game .avatar {display:inline-grid; place-items:center; width:29px; height:29px; background:var(--raised); border-radius:50%; color:var(--ink);}
+#ddi-unified-room .game .room-body {display:grid; grid-template-columns:minmax(145px,.72fr) minmax(210px,1.1fr) minmax(220px,1.35fr); gap:24px; align-items:start; flex:1;}
+#ddi-unified-room .game .roster {display:grid; gap:2px; margin-top:14px;}
+#ddi-unified-room .game .member {display:grid; grid-template-columns:18px minmax(0,1fr) 28px 18px; align-items:center; gap:7px; padding:8px 6px; min-height:39px;}
+#ddi-unified-room .game .member.self {background:var(--panel); border-radius:4px;}
+#ddi-unified-room .game .member .rank {color:var(--dim); font-size:12px;}
+#ddi-unified-room .game .member .name {overflow-wrap:anywhere;}
+#ddi-unified-room .game .member .points {font-variant-numeric:tabular-nums; text-align:right;}
+#ddi-unified-room .game .member .state {display:flex; color:var(--mint);}
+#ddi-unified-room .game .member .state.loading {color:var(--amber);}
+#ddi-unified-room .game .cpu {font-size:11px; color:var(--dim); letter-spacing:.4px;}
+#ddi-unified-room .game .waiters {margin-top:20px; padding-top:14px; border-top:1px solid var(--line);}
+#ddi-unified-room .game .section-title {display:flex; justify-content:space-between; gap:8px; align-items:center;}
+#ddi-unified-room .game .selected {display:grid; gap:14px;}
+#ddi-unified-room .game .art {background:linear-gradient(135deg,var(--a,#4b2540),var(--b,#174948)); min-height:140px; padding:18px; display:flex; align-items:flex-end; position:relative; overflow:hidden; border-radius:5px;}
+#ddi-unified-room .game .art::before {content:''; position:absolute; width:130%; height:2px; background:var(--pink); left:-15%; top:46%; transform:rotate(-18deg); box-shadow:0 12px 0 #ff6ea04d,0 -15px 0 #9addbd55;}
+#ddi-unified-room .game .art-word {font-size:18px; letter-spacing:2px; opacity:.9; position:relative;}
+#ddi-unified-room .game .song-title {font-size:23px; font-weight:500; line-height:1.15; overflow-wrap:anywhere;}
+#ddi-unified-room .game .song-meta {display:flex; flex-wrap:wrap; gap:6px 16px; color:var(--dim); font-size:12px;}
+#ddi-unified-room .game .ladder {display:grid; gap:4px;}
+#ddi-unified-room .game .difficulty {display:flex; justify-content:space-between; align-items:center; background:var(--panel); padding:8px 13px; border-radius:4px; color:var(--dim);}
+#ddi-unified-room .game .difficulty.chosen {background:var(--raised); color:var(--ink); box-shadow:inset 3px 0 var(--pink);}
+#ddi-unified-room .game .difficulty .meter {font-size:21px; color:var(--pink);}
+#ddi-unified-room .game .wheel {display:grid; gap:9px; padding:13px 7px;}
+#ddi-unified-room .game button.song-row {display:grid; grid-template-columns:38px minmax(0,1fr) auto; gap:12px; text-align:left; align-items:center; padding:12px 10px; min-height:66px; margin-left:var(--drift,0px);}
+#ddi-unified-room .game button.song-row.selected {background:var(--raised); outline:3px solid var(--pink); outline-offset:3px; min-height:85px;}
+#ddi-unified-room .game button.song-row.past {opacity:.62;}
+#ddi-unified-room .game .thumb {width:38px; height:34px; border-radius:3px; background:linear-gradient(130deg,var(--a,#4b2540),var(--b,#174948)); display:grid; place-items:center; color:var(--ink); font-size:12px;}
+#ddi-unified-room .game .song-row .title {display:block; font-weight:500; overflow-wrap:anywhere;}
+#ddi-unified-room .game .song-row small {display:block; margin-top:3px; color:var(--dim);}
+#ddi-unified-room .game .song-row .meter {font-size:21px; color:var(--pink);}
+#ddi-unified-room .game .song-row.empty {background:transparent; border:1px dashed var(--line); color:var(--dim);}
+#ddi-unified-room .game .result {display:flex; gap:13px; align-items:baseline; border-top:1px solid var(--line); padding-top:13px; margin-top:3px;}
+#ddi-unified-room .game .result strong {font-size:25px; font-weight:500;}
+#ddi-unified-room .game .transfer {display:grid; gap:6px; font-size:12px; color:var(--dim);}
+#ddi-unified-room .game .track {height:3px; background:var(--raised); border-radius:2px;}
+#ddi-unified-room .game .fill {height:3px; background:var(--mint); width:62%; border-radius:2px;}
+#ddi-unified-room .game .footer {margin-top:auto; border-top:1px solid var(--line); padding-top:18px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:18px; align-items:center;}
+#ddi-unified-room .game .footer .left {display:grid; gap:5px;}
+#ddi-unified-room .game .divider {height:24px; width:1px; background:var(--line); margin:0 5px;}
+#ddi-unified-room .game .stage-label {font-size:12px; color:var(--dim); margin-bottom:7px;}
+#ddi-unified-room .game .toast {font-size:12px; color:var(--amber); min-height:18px;}
+#ddi-unified-room .game .overlay {position:absolute; inset:0; z-index:5; background:#09070bd9; display:flex; align-items:center; justify-content:center; padding:25px; border-radius:0;}
+#ddi-unified-room .game .dialog {background:var(--panel); border:1px solid var(--line); border-radius:9px; width:min(100%,430px); padding:24px; display:grid; gap:22px; box-shadow:0 20px 70px #0008;}
+#ddi-unified-room .game .dialog.wide {width:100%;}
+#ddi-unified-room .game .dialog-head {display:flex; align-items:center; justify-content:space-between; gap:12px;}
+#ddi-unified-room .game .rule-row {display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:8px 0; border-bottom:1px solid var(--line);}
+#ddi-unified-room .game .library {display:grid; grid-template-columns:minmax(180px,.85fr) minmax(220px,1.3fr); gap:28px; align-items:start;}
+#ddi-unified-room .game input {font:inherit; padding:10px 12px; width:100%; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:5px; min-width:0;}
+#ddi-unified-room .game .browser {border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--panel); max-width:460px; width:100%;}
+#ddi-unified-room .game .browser-bar {padding:12px 20px; background:var(--raised); font-size:12px; display:flex; gap:9px; align-items:center;}
+#ddi-unified-room .game .auth-body {padding:28px; display:grid; gap:24px;}
+#ddi-unified-room .game .invite-wrap {display:grid; place-items:center; flex:1; padding:15px 0;}
+#ddi-unified-room .game .invite {width:min(100%,440px); display:grid; gap:24px;}
+#ddi-unified-room .game .invite-preview {padding:22px; background:var(--panel); border-radius:7px; display:grid; gap:15px;}
+#ddi-unified-room .game .invite-preview .mini-people {display:flex; align-items:center; gap:8px;}
+#ddi-unified-room .game .invite-preview .avatar {border:2px solid var(--panel);}
+#ddi-unified-room .game .invite-preview .avatar + .avatar {margin-left:-12px;}
+#ddi-unified-room .game .menu-list {display:grid; gap:5px;}
+#ddi-unified-room .game .menu-list button {text-align:left;}
+#ddi-unified-room .game:has(.dialog.wide) {min-height:940px;}
+@media(max-width:850px){#ddi-unified-room .game .room-body{grid-template-columns:minmax(195px,.9fr) minmax(220px,1.1fr);}#ddi-unified-room .game .people{grid-column:1/-1;grid-row:2;}#ddi-unified-room .game .roster{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px;}#ddi-unified-room .game .waiters{margin-top:10px;}#ddi-unified-room .game .selected{grid-column:1;}#ddi-unified-room .game .playlist{grid-column:2;}#ddi-unified-room .game{min-height:1100px;}}
+@media(max-width:540px){#ddi-unified-room .game{padding:17px;min-height:1600px;}#ddi-unified-room .game .header{padding-right:0;}#ddi-unified-room .game .room-body,#ddi-unified-room .game .library{grid-template-columns:1fr;}#ddi-unified-room .game .selected{grid-column:1;grid-row:1;}#ddi-unified-room .game .playlist{grid-column:1;grid-row:2;}#ddi-unified-room .game .people{grid-column:1;grid-row:3;}#ddi-unified-room .game .roster{grid-template-columns:1fr;}#ddi-unified-room .game .overlay{position:static;padding:10px 0;background:var(--bg);}#ddi-unified-room .game.has-overlay>.room-body,#ddi-unified-room .game.has-overlay>.evaluation,#ddi-unified-room .game.has-overlay>.footer{display:none;}#ddi-unified-room .game .dialog{padding:18px;}#ddi-unified-room .game .art{min-height:95px;}#ddi-unified-room .game .library .wheel{padding:10px 7px;}#ddi-unified-room .game .footer .row{row-gap:15px;}}
+@media(pointer:coarse){#ddi-unified-room .game button{min-height:44px;}}
+
+#ddi-unified-room .game .evaluation {display:grid;grid-template-columns:minmax(220px,.9fr) minmax(240px,1.2fr);gap:42px;flex:1;}
+#ddi-unified-room .game .eval-summary,#ddi-unified-room .game .eval-panels {display:grid;gap:16px;align-content:start;}
+#ddi-unified-room .game .eval-outcome {display:flex;gap:18px;align-items:baseline;flex-wrap:wrap;}
+#ddi-unified-room .game .eval-outcome strong {font-size:48px;font-weight:500;}
+#ddi-unified-room .game .judgments {display:grid;gap:9px;}
+#ddi-unified-room .game .judgment {display:grid;grid-template-columns:85px 1fr 35px;gap:12px;align-items:center;}
+#ddi-unified-room .game .judge-track {height:8px;background:var(--panel);}
+#ddi-unified-room .game .judge-track span {display:block;height:8px;background:var(--mint);}
+#ddi-unified-room .game .judgment:last-child .judge-track span {background:var(--pink);}
+#ddi-unified-room .game .eval-facts {display:grid;grid-template-columns:1fr auto;gap:10px 16px;margin-top:12px;font-variant-numeric:tabular-nums;}
+#ddi-unified-room .game .eval-facts span:nth-child(odd) {color:var(--dim);}
+#ddi-unified-room .game svg.life-plot {width:100%;height:auto;margin-top:16px;}
+#ddi-unified-room .game .plot-labels {display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--dim);}
+@media(max-width:640px){#ddi-unified-room .game .evaluation{grid-template-columns:1fr;gap:28px;}}
+#ddi-unified-room .game .role-badge {display:inline-block;font-size:11px;color:var(--mint);padding:1px 4px;background:var(--raised);border-radius:3px;vertical-align:middle;}
+#ddi-unified-room .game .member .role-badge {display:table;margin-top:3px;}
+#ddi-unified-room .game .member small,#ddi-unified-room .game .observer small {display:block;font-size:11px;}
+#ddi-unified-room .game .observer {display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:center;padding:10px 6px;}
+#ddi-unified-room .game .observer.self {background:var(--panel);}
+#ddi-unified-room .game .control-stack {display:grid;gap:18px;}
+#ddi-unified-room .game .segmented {display:flex;flex-wrap:wrap;gap:8px;margin:9px 0;}
+#ddi-unified-room .game .selected-choice {border-color:var(--pink);background:var(--raised);}
+#ddi-unified-room .game .activity-item {padding:10px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere;}
+#ddi-unified-room .game:has(.control-stack) {min-height:940px;}
+#ddi-unified-room .game .room-body>* {min-width:0;}
+@media(max-width:540px){#ddi-unified-room .game:has(.control-stack){min-height:1600px;}}
+</style>
+<div id="ddi-unified-room">
+<div class="viz-carousel" aria-label="Invites and unified multiplayer rooms">
+<section data-variant="Automatic intermission" aria-label="Automatic intermission"><div class="game" data-view="automatic-intermission" aria-label="Automatic match with disconnected host"></div></section>
+<section data-variant="Admin assistance" hidden aria-label="Admin assistance"><div class="game" data-view="admin-intermission" aria-label="Admin entering a full private room"></div></section>
+<section data-variant="Co-host watching" hidden aria-label="Co-host watching"><div class="game" data-view="cohost-intermission" aria-label="Watching co-host and optional host transfer"></div></section>
+<section data-variant="Host room controls" hidden aria-label="Host room controls"><div class="game" data-view="host-controls-intermission" aria-label="Room ownership and advancement"></div></section>
+<section hidden data-variant="Stage evaluation" aria-label="Stage evaluation"><div class="game" data-view="player-evaluation-intermission" aria-label="Battle evaluation and readiness"></div></section>
+<section hidden data-variant="Invite and sign-in" aria-label="Invite and Twitch sign-in"><div class="game" data-view="invite" aria-label="Invite flow"></div></section>
+<section data-variant="Host lobby" hidden aria-label="Host lobby"><div class="game" data-view="host-lobby" aria-label="Host library and lobby"></div></section>
+<section data-variant="Host intermission" hidden aria-label="Host intermission"><div class="game" data-view="host-intermission" aria-label="Host intermission"></div></section>
+<section data-variant="Player intermission" hidden aria-label="Player intermission"><div class="game" data-view="player-intermission" aria-label="Player intermission"></div></section>
+<section data-variant="Waiting for next match" hidden aria-label="Waiting for next match"><div class="game" data-view="waiting-intermission" aria-label="Waiting player room"></div></section>
+</div>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('ddi-unified-room');
+const nodes=[...root.querySelectorAll('.game')];
+const songs=[
+ {id:'night',title:'Night Current',artist:'Soft Circuit',pack:'Afterimage',bpm:120,time:'2:16',meter:9,a:'#54273d',b:'#164c4a'},
+ {id:'paper',title:'Paper Satellites',artist:'Luma',pack:'Afterimage',bpm:142,time:'2:04',meter:8,a:'#514b69',b:'#293652'},
+ {id:'signal',title:'Signal Bloom',artist:'Arc Light',pack:'Home Collection',bpm:128,time:'2:31',meter:10,a:'#21365b',b:'#623747'},
+ {id:'glass',title:'Glass Harbor',artist:'Soft Circuit',pack:'Home Collection',bpm:136,time:'1:58',meter:7,a:'#215061',b:'#50465d'},
+ {id:'after',title:'Afterimage',artist:'Luma',pack:'Afterimage',bpm:150,time:'2:10',meter:11,a:'#4d3265',b:'#633840'},
+ {id:'violet',title:'Violet Line',artist:'Arc Light',pack:'Home Collection',bpm:112,time:'2:24',meter:6,a:'#32274b',b:'#4f3158'}
+];
+const members=[{id:'mira',name:'Mira',rank:1,pts:21,host:true},{id:'sol',name:'Sol',rank:2,pts:19},{id:'kai',name:'Kai',rank:3,pts:16},{id:'quartz',name:'Quartz',rank:4,pts:10,cpu:true},{id:'arc',name:'Arc',rank:5,pts:7,cpu:true},{id:'orbit',name:'Orbit',rank:5,pts:7,cpu:true},{id:'lumen',name:'Lumen',rank:7,pts:3,cpu:true},{id:'echo',name:'Echo',rank:7,pts:3,cpu:true}];
+const store={};
+const icon=n=>`<i data-lucide="${n}" aria-hidden="true"></i>`;
+const button=(label,action,cls='',disabled=false,aria='')=>`<button type="button" class="cursor-interaction ${cls}" data-action="${action}" ${disabled?'disabled':''} ${aria?`aria-label="${aria}"`:''}>${label}</button>`;
+const getSong=id=>songs.find(x=>x.id===id)||songs[0];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function defaults(key){
+ const controls=key==='host-controls-intermission',auto=key==='automatic-intermission',admin=key==='admin-intermission',co=key==='cohost-intermission',inter=key.includes('intermission');
+ return {step:key==='invite'?'invite':admin?'admin-preview':'room',phase:inter?'intermission':'lobby',signed:key!=='invite',ready:key.startsWith('host'),overlay:controls?'control':'',selected:inter?2:0,stage:inter?2:0,queue:['paper','signal','night',auto||admin||co||controls?'violet':null],candidate:'night',query:'',progress:'complete',transfers:['complete','complete','complete','complete'],levels:['Hard','Hard','Hard','Hard'],candidateLevel:'Hard',otherReady:auto||admin||co,matchStarts:true,desktop:false,lateEntry:false,scheduled:false,deadline:auto?30:0,evaluation:key.includes('evaluation'),deadlineDemo:false,sitout:false,excluded:[],notice:'',pending:false,automatic:auto,held:false,holdReason:'',holdAfter:false,hostConnected:!(auto||admin||co),cohostAssigned:co||controls,ownerId:'mira',transferOnDisconnect:false,graceElapsed:false,manualOffer:false,runClock:false,songEnded:false,activity:[],adminEntry:'watch'};
+}
+function apply(target,src){if(!src||typeof src!=='object')return;if(['mira','jules'].includes(src.ownerId))target.ownerId=src.ownerId;target.scheduled=false;target.runClock=false;target.deadline=Number.isInteger(src.deadline)&&src.deadline>=0&&src.deadline<=30?src.deadline:0;if(Number.isInteger(src.stage)&&src.stage>=0&&src.stage<4)target.stage=src.stage;if(typeof src.holdReason==='string')target.holdReason=src.holdReason.slice(0,100);if(Array.isArray(src.activity))target.activity=src.activity.filter(x=>typeof x==='string').slice(-8).map(x=>x.slice(0,100));for(const p of ['signed','ready','otherReady','matchStarts','desktop','lateEntry','pending','evaluation','sitout','automatic','held','holdAfter','hostConnected','cohostAssigned','transferOnDisconnect','graceElapsed','manualOffer'])if(typeof src[p]==='boolean')target[p]=src[p];if(Array.isArray(src.excluded)&&src.excluded.every(x=>members.some(m=>m.id===x)))target.excluded=[...src.excluded];if(['invite','authorizing','verifying','canceled','room','admin-preview'].includes(src.step))target.step=src.step;if(['lobby','intermission','playing','complete'].includes(src.phase))target.phase=src.phase;if(['complete','sharing','failed'].includes(src.progress))target.progress=src.progress;if(Array.isArray(src.transfers)&&src.transfers.length===4&&src.transfers.every(x=>['complete','sharing','failed'].includes(x)))target.transfers=[...src.transfers];if(Array.isArray(src.levels)&&src.levels.length===4&&src.levels.every(x=>['Easy','Medium','Hard'].includes(x)))target.levels=[...src.levels];if(['Easy','Medium','Hard'].includes(src.candidateLevel))target.candidateLevel=src.candidateLevel;if(Number.isInteger(src.selected)&&src.selected>=0&&src.selected<4)target.selected=src.selected;if(Array.isArray(src.queue)&&src.queue.length===4&&src.queue.every(x=>x===null||songs.some(a=>a.id===x)))target.queue=[...src.queue];if(songs.some(a=>a.id===src.candidate))target.candidate=src.candidate;}
+function save(key){const s=store[key];window.openai?.setWidgetState?.({modelContent:{view:key,step:s.step,phase:s.phase,selectedStage:s.selected+1,playlist:s.queue,sharing:s.progress,matchStartsDuringSignIn:s.matchStarts,advance:s.automatic?'automatic':'host',host:s.ownerId,hostConnected:s.hostConnected,watching:key==='admin-intermission'||key==='cohost-intermission',held:s.held},privateContent:{version:3,views:Object.fromEntries(Object.entries(store).map(([k,value])=>{const {startIn,runClock,focusReturn,query,songEnded,...rest}=value;return [k,rest];}))}})?.catch(()=>{});}
+for(const n of nodes){store[n.dataset.view]=defaults(n.dataset.view);if(window.openai?.widgetState?.privateContent?.version===3)apply(store[n.dataset.view],window.openai.widgetState.privateContent.views?.[n.dataset.view]);}
+function context(node){
+ const key=node.dataset.view,s=store[key],host=key.startsWith('host'),admin=key==='admin-intermission',cohost=key==='cohost-intermission',watching=admin||cohost,local=host?'mira':admin?'rowan':cohost?'jules':key==='invite'||key.startsWith('waiting')?'nia':'kai',waiting=key.startsWith('waiting')||(key==='invite'&&s.phase!=='lobby'),owner=local===s.ownerId,operator=owner&&(local!=='mira'||s.hostConnected)||admin&&s.step==='room'||cohost&&s.cohostAssigned;
+ return {key,s,host,admin,cohost,watching,waiting,local,owner,operator,inter:s.phase!=='lobby',playing:s.phase==='playing',current:s.stage,name:local==='mira'?'Mira':local==='rowan'?'Rowan':local==='jules'?'Jules':local==='kai'?'Kai':'Nia'};
+}
+function currentLoaded(v){return !!v.s.queue[v.current]&&v.s.transfers[v.current]==='complete';}
+function ready(m,v){if(m.cpu)return true;if(m.id==='mira'&&!v.s.hostConnected)return false;if(m.id===v.local)return v.s.ready;return v.s.otherReady||m.id==='mira';}
+function header(v){return `<header class="header"><div class="room-title">${button(icon('arrow-left'),'back','quiet icon-button',false,'Back')}<div><span class="eyebrow">Room</span><h2>After Hours</h2></div><span class="muted" aria-label="Invite only">${icon('lock-keyhole')}</span></div><div class="head-actions"><span class="small muted">${v.inter?'Stage '+(v.current+1)+' / 4':'4 stages'}</span>${button(icon('sliders-horizontal'),'rules','quiet icon-button',false,'Rules')}${button(`<span class="avatar">${v.name[0]}</span>${v.name}`,'account','quiet icon-button')}${v.admin?roleBadge('Admin'):v.owner?roleBadge('Host'):v.cohost&&v.s.cohostAssigned?roleBadge('Co-host'):''}${button(icon('ellipsis'),'more','quiet icon-button',false,'More')}</div></header>`;}
+function roster(v){
+ const list=participants(v),observers=[];
+ if(v.s.cohostAssigned||v.s.ownerId==='jules')observers.push({id:'jules',name:'Jules',role:v.s.ownerId==='jules'?'Host':'Co-host'});
+ if(v.admin&&v.s.step==='room')observers.push({id:'rowan',name:'Rowan',role:'Admin'});
+ return `<aside class="people"><div class="section-title"><h3>${v.inter?'Standings':'Players'}</h3><span class="small muted">${v.inter?'pts':'8 / 8'}</span></div><div class="roster">${list.map(m=>{
+ const offline=m.id==='mira'&&!v.s.hostConnected,excluded=v.s.excluded.includes(m.id),r=!excluded&&ready(m,v)&&currentLoaded(v),failed=v.s.transfers[v.current]==='failed',loading=v.s.transfers[v.current]==='sharing';
+ const status=offline?'Disconnected':excluded?'Sitting out':v.playing?'Playing':failed?'Content failed':loading?'Loading':r?'Ready':'Not ready';
+ return `<div class="member ${m.id===v.local?'self':''} ${offline?'offline':''}"><span class="rank">${v.inter?m.rank:''}</span><span class="name">${m.name}${m.id===v.local?' <span class="accent">·</span>':''}${m.cpu?' <span class="cpu">CPU</span>':''}${m.id===v.s.ownerId?roleBadge('Host'):''}${offline?'<small class="muted">Disconnected</small>':''}</span><span class="points">${v.inter?m.pts:''}</span><span class="state ${offline||loading?'loading':''}" aria-label="${status}">${icon(offline?'wifi-off':excluded?'clock-3':v.playing?'play':failed?'triangle-alert':loading?'loader-circle':r?'check':'minus')}</span></div>`;}).join('')}</div>
+ ${v.waiting||v.key!=='invite'?`<div class="waiters"><span class="eyebrow">Next match</span><div class="member ${v.waiting?'self':''}"><span>${icon('clock-3')}</span><span>Nia${v.waiting?' <span class="accent">·</span>':''}</span><span></span><span class="muted">${icon('eye')}</span></div></div>`:''}
+ ${observers.length?`<div class="waiters"><span class="eyebrow">Watching</span>${observers.map(m=>`<div class="observer ${m.id===v.local?'self':''}"><span>${icon('eye')}</span><span>${m.name} ${roleBadge(m.role)}${m.id==='rowan'&&v.s.pending?'<small class="muted">'+(v.s.lateEntry?'Seat requested · next stage':'Seat requested · next match')+'</small>':''}</span></div>`).join('')}</div>`:''}</aside>`;
+}
+function art(song){return `<div class="art" style="--a:${song.a};--b:${song.b}" aria-hidden="true"><span class="art-word">${song.title.toUpperCase()}</span></div>`;}
+function meter(song,level){return level==='Easy'?Math.max(2,song.meter-5):level==='Medium'?song.meter-2:song.meter;}
+function details(song,level='Hard',interactive=false){return `${art(song)}<div><h3 class="song-title">${song.title}</h3><p class="muted small">${song.artist}</p></div><div class="song-meta"><span>${song.bpm} BPM</span><span>${song.time}</span><span>Single</span></div><div class="ladder" aria-label="Charts">${['Easy','Medium','Hard'].map(l=>interactive?`<button type="button" class="cursor-interaction difficulty ${l===level?'chosen':''}" data-action="level-${l}" aria-pressed="${l===level}"><span>${l}</span><span class="meter">${meter(song,l)}</span></button>`:`<div class="difficulty ${l===level?'chosen':''}"><span>${l}</span><span class="meter">${meter(song,l)}</span></div>`).join('')}</div>`;}
+function transfer(v){if(v.s.transfers[v.s.selected]==='complete')return '';if(v.s.transfers[v.s.selected]==='failed')return `<div class="transfer" role="status"><span>Sharing failed</span>${button('Retry','retry')}</div>`;return `<div class="transfer" role="status"><span>Sharing · 6.2 / 10 MB</span><div class="track" role="progressbar" aria-label="Song upload" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div></div></div>`;}
+function songRow(song,index,v,library=false){const sel=library?v.s.candidate===song.id:v.s.selected===index;const past=!library&&index<v.current;const drift=sel?0:Math.min(18,Math.abs(index-(library?songs.findIndex(x=>x.id===v.s.candidate):v.s.selected))*8);if(!song)return button(`<span class="thumb">${index+1}</span><span class="title">${v.operator?'Choose song':'Not chosen'}</span>${icon('plus')}`,'slot-'+index,'song-row empty',false,'Stage '+(index+1)+': choose song');return `<button type="button" class="cursor-interaction song-row ${sel?'selected':''} ${past?'past':''}" data-action="${library?'candidate-'+song.id:'slot-'+index}" style="--drift:${drift}px;--a:${song.a};--b:${song.b}" aria-label="${library?song.title:'Stage '+(index+1)+': '+song.title}" aria-pressed="${sel}"><span class="thumb">${library?'':past?'✓':index+1}</span><span><span class="title">${song.title}</span><small>${library?song.pack:past?'Completed':index===v.current?(v.playing?'Playing':'Next stage'):song.artist}</small></span><span class="meter">${meter(song,library?v.s.candidateLevel:v.s.levels[index])}</span></button>`;}
+function main(v){const song=getSong(v.s.queue[v.s.selected]);return `<main class="room-body">${roster(v)}<section class="selected"><div class="stage-label">Stage ${v.s.selected+1}${v.s.selected<v.current?' · Complete':''}</div>${v.s.queue[v.s.selected]?details(song,v.s.levels[v.s.selected]):'<h3>Choose a song</h3>'}${v.operator&&v.s.phase!=='complete'&&v.s.selected>=v.current+(v.playing?1:0)?button(icon('music-2')+' Change song','library','icon-button',v.s.scheduled):''}${transfer(v)}${v.inter&&!v.waiting&&!v.watching?`<div class="result"><strong>${v.host?'2nd':'3rd'}</strong><span class="muted">Stage 2</span><span class="accent">+${v.host?9:7}</span>${button(icon('chart-no-axes-column'),'result','quiet icon-button',false,'Stage result details')}</div>`:''}</section><section class="playlist"><div class="section-title"><h3>Match songs</h3>${v.operator&&v.s.phase!=='complete'?button(icon('plus'),'add-song','quiet icon-button',v.s.scheduled,'Choose a song for an empty stage'):''}</div><div class="wheel">${v.s.queue.map((id,i)=>songRow(id?getSong(id):null,i,v)).join('')}</div></section></main>`;}
+function footer(v){
+ const s=v.s,timed=s.deadline>0,humans=readyHumans(v);let status,action='',note='';
+ if(s.phase==='complete'){status='Match complete';note='Next match · host starts';}
+ else if(v.playing){status=s.sitout?'Sitting out stage '+(v.current+1):'Stage '+(v.current+1)+' · playing';note=s.holdAfter?'Will hold after this stage':s.automatic?'Automatic · next stage after the song':'Song in progress';}
+ else if(s.scheduled){status=s.sitout?'Sitting out stage '+(v.current+1):'Starting · '+(s.startIn||3);note=s.sitout?'0 stage points · return next stage':s.notice;}
+ else if(s.held){status='On hold';note=s.holdReason;}
+ else if(timed){status='Next stage · 0:'+String(s.deadline).padStart(2,'0');note=s.deadline<=15?'Ready deadline · unready players sit out':'Automatic · readiness closes at 0:00';}
+ else{status=s.automatic?'Automatic':!s.hostConnected&&!v.operator?'Waiting for host':v.watching?'Watching':v.waiting?'Next match':s.ready?'Ready':'Not ready';note=!s.hostConnected?(s.ownerId==='mira'?'Mira disconnected · host retained':'Mira disconnected'):v.operator?`${humans} / 3 ready · 5 CPUs`:'';}
+ if(s.notice&&!s.scheduled&&!timed&&!v.playing)note=s.notice;
+ if(v.watching){action=button(icon('eye')+' Watching','watch','quiet icon-button')+(v.admin?button(s.pending?'Seat requested':'Play','play-request','',s.pending):'');}
+ else if(v.waiting||s.sitout){action=button(icon('eye')+' Watch','watch','primary icon-button')+(v.waiting&&s.lateEntry?button('Join next stage','late-entry'):'');}
+ else if(!v.playing&&!s.scheduled&&s.phase!=='complete'){action=button(s.ready?'Cancel ready':'Ready','ready',s.ready?'':'primary',false,s.ready?'Cancel ready':'Ready');}
+ let operation='';
+ if(v.operator){
+ if(v.playing)operation=button(s.holdAfter?'Cancel hold':'Hold after this stage','hold-after');
+ else if(s.phase==='complete')operation=button('Room control','control');
+ else if(s.scheduled)operation=button('Cancel start','cancel-start');
+ else if(s.held)operation=button('Resume · 15 s','resume','',humans===0||!currentLoaded(v));
+ else if(timed)operation=button('Hold','hold');
+ else operation=button(s.automatic?'Resume · 15 s':allReady(v)?(v.inter?'Start stage '+(v.current+1):'Start match'):'Start in 15 s',s.automatic?'resume':'start','',humans===0||!currentLoaded(v));
+ }
+ return `<footer class="footer"><div class="left"><span>${status}</span><span class="toast" role="status">${note}</span></div><div class="row">${s.evaluation?button('Room','room'):v.inter&&!v.waiting&&!v.watching?button('Evaluation','result'):''}${!v.watching?button(icon('settings-2'),'options','quiet icon-button',false,'My options'):''}${action}${operation?'<span class="divider"></span>'+operation:''}</div></footer>`;
+}
+function evaluation(v){const counts=[['Marvelous',480],['Perfect',92],['Great',18],['Good',6],['Miss',4]];return `<main class="evaluation"><section class="eval-summary"><span class="eyebrow">Stage 2 · evaluation</span><div class="eval-outcome"><strong>${v.host?'2nd':'3rd'}</strong><span class="accent">+${v.host?9:7}</span><span class="muted">${v.host?21:16} match pts</span></div><h3 class="song-title">Signal Bloom</h3><p class="muted small">Single · Hard 10 · DDR A judgments</p><p class="small">Eliminated · 1:42 / 2:31</p><div class="judgments">${counts.map(([name,count])=>`<div class="judgment"><span>${name}</span><span class="judge-track"><span style="width:${count/480*100}%"></span></span><span>${count}</span></div>`).join('')}</div><p class="small muted">600 / 840 notes judged</p><div class="eval-facts"><span>Max combo</span><span>168</span><span>Mean offset</span><span>+4 ms</span><span>Deviation</span><span>18 ms</span></div></section><section class="eval-panels"><div><div class="section-title"><h3>Battle life</h3><span class="small muted">100 → 0</span></div><svg class="life-plot" viewBox="0 0 420 110" role="img" aria-label="Illustrative battle life falls to zero at 1 minute 42 seconds; remainder of song unplayed"><rect x="284" y="0" width="136" height="110" fill="var(--panel)"/><line x1="0" x2="420" y1="100" y2="100" stroke="var(--line)"/><polyline points="0,10 40,10 60,18 95,18 125,32 160,40 190,40 215,61 248,67 270,84 284,100" fill="none" stroke="var(--mint)" stroke-width="2"/><line x1="284" x2="284" y1="0" y2="110" stroke="var(--pink)" stroke-width="1"/></svg><div class="plot-labels"><span>0:00</span><span>1:42 · eliminated</span><span>2:31</span></div><p class="small muted">Shaded: unplayed</p></div><div><h3>Battle</h3><div class="eval-facts"><span>Attacks sent / received</span><span>4 / 5</span><span>Mines removed by defense</span><span>12</span><span>Attack mines hit / avoided</span><span>3 / 25</span></div></div><div><h3>Timing by beat</h3><div class="eval-facts"><span>Quarter notes</span><span>+2 ms</span><span>Eighth notes</span><span>+5 ms</span><span>Sixteenth notes</span><span>+8 ms</span></div></div></section></main>`;}
+function baseModal(v){const type=v.s.overlay;if(!type)return '';let title='',body='',wide=false;if(type==='rules'){title='Battle rules';body=`<div>${[['Preset','Standard'],['Attacks','Mines'],['Defense','Accuracy weakening'],['Stages','4'],['Return each song','On'],['Mid-match entry',v.s.lateEntry?'On':'Off']].map(([a,b])=>`<div class="rule-row"><span class="muted">${a}</span><span>${b}</span></div>`).join('')}</div><span class="small muted">${v.inter?'Locked for this match':'Changes clear readiness'}</span>`;}
+ if(type==='library'){title='Choose song';wide=true;const song=getSong(v.s.candidate);const matches=songs.filter(x=>(x.title+' '+x.artist+' '+x.pack).toLowerCase().includes(v.s.query.toLowerCase()));body=`<label><span class="eyebrow">All songs</span><input data-search aria-label="Search local library" placeholder="Search songs…" value="${esc(v.s.query)}"></label><div class="library"><section class="selected">${details(song,v.s.candidateLevel,true)}${button('Use for stage '+(v.s.selected+1),'commit-song','primary')}</section><section><div class="wheel">${matches.map((song,i)=>songRow(song,songs.indexOf(song),v,true)).join('')||'<p class="muted">No songs found</p>'}</div></section></div>`;}
+ if(type==='account'){title=v.name;body=`<div class="row">${icon('user-round')}<span>Twitch</span></div><div class="menu-list">${button('Sign out','signout')}${button('Change account','switch')}</div>`;}
+ if(type==='more'){title='Room';body=`<div class="menu-list">${v.operator?button('Room control','control')+button('Players','manage'):''}${v.owner?button('Invite','invite-link'):''}${button('Activity','activity')}${button('Rules','rules')}${button('Leave room','leave')}</div>`;}
+ if(type==='options'){title='My options';body=`<div class="rule-row"><span>Targeting</span><span>Spread</span></div><div class="rule-row"><span>Scroll / skin / audio</span><span>Personal</span></div>`;}
+ if(type==='result'){title='Stage 2';body=`<div class="rule-row"><span>Placement</span><span>${v.host?'2nd':'3rd'}</span></div><div class="rule-row"><span>Points</span><span>+${v.host?9:7}</span></div><div class="rule-row"><span>Match total</span><span>${v.host?21:16}</span></div>`;}
+ if(type==='watch'){title='Watching';body='<p>Stage 3 starts when the host is ready.</p>';}
+ if(type==='late-entry'){title='Join stage 3';body='<p>Stages 1–2: 0 points</p>'+button('Request a seat','request-seat','primary');}
+ if(type==='manage'){title='Players';body=members.filter(x=>!x.cpu).map(m=>`<div class="rule-row"><span>${m.name}</span><span>${ready(m,v)?'Ready':m.id==='sol'?'Loading':'Not ready'}</span></div>`).join('');}
+ if(type==='invite-link'){title='Invite';body='<p>After Hours</p><span class="muted small">Room link · preview only</span>';}
+ if(type==='leave'||type==='signout'||type==='switch'){title=type==='leave'?'Leave room?':'Sign out?';body='<p class="muted">Earned results stay with this player.</p>'+button('Leave room','confirm-leave','primary');}
+ return `<div class="overlay"><section class="dialog ${wide?'wide':''}" role="dialog" aria-modal="true" aria-label="${title}"><div class="dialog-head"><h3>${title}</h3>${button(icon('x'),'close','quiet icon-button',false,'Close')}</div>${body}</section></div>`;}
+function auth(v){const s=v.s;if(s.step==='authorizing')return `<header class="header"><h2>After Hours</h2><span class="muted small">${s.desktop?'Waiting in browser':'Signing in'}</span></header><div class="invite-wrap"><section class="browser" aria-label="Simulated Twitch authorization"><div class="browser-bar">${icon('external-link')}<span>Twitch · authorization preview</span></div><div class="auth-body"><h2>Continue to Dito Dito Infinito</h2><div class="row"><span class="avatar">N</span><span>Nia</span></div><p class="muted small">Basic profile</p><div class="row">${button('Authorize','authorize','twitch')}${button('Cancel','cancel-auth','quiet')}</div><span class="small muted">Preview only · no Twitch connection</span></div></section></div>`;
+ if(s.step==='verifying')return `<header class="header"><h2>After Hours</h2><span class="muted small">Signed in as Nia</span></header><div class="invite-wrap"><div class="invite"><div class="row">${icon('check')}<h2>Signed in</h2></div><div class="invite-preview"><h3>After Hours</h3><span class="muted">${s.matchStarts?'Match started · next match entry':'Ready to join'}</span></div>${button(s.desktop?'Return to game':'Return to room','return','primary')}</div></div>`;
+ return `<header class="header"><span class="eyebrow">Multiplayer</span><span class="muted small">Signed out</span></header><div class="invite-wrap"><section class="invite"><div><span class="eyebrow">Room invite</span><h2>After Hours</h2></div><div class="invite-preview"><div class="row">${icon('lock-keyhole')}<span>Mira’s room</span></div><div class="mini-people"><span class="avatar">M</span><span class="avatar">K</span><span class="avatar">S</span><span class="muted small">3 players · CPU fill</span></div><div class="row"><span>4 stages</span><span class="muted">Standard Battle</span></div></div>${s.step==='canceled'?'<p class="small muted" role="status">Sign-in canceled</p>':''}${button('Continue with Twitch','signin','twitch')}${button('Back','back','quiet')}</section></div><footer class="footer"><span class="small muted">${s.desktop?'Opens your browser':'Returns to this room'}</span></footer>`;
+}
+function render(node){const v=context(node),wasOverlay=node.classList.contains('has-overlay'),previous=node.contains(document.activeElement)?document.activeElement?.dataset?.action:null;node.classList.toggle('has-overlay',!!v.s.overlay);node.innerHTML=v.s.step==='admin-preview'?adminPreview(v):v.s.step==='room'?header(v)+(v.s.evaluation?evaluation(v):main(v))+footer(v)+modal(v):auth(v);if(globalThis.lucide)lucide.createIcons({attrs:{width:17,height:17}});for(const child of node.children){child.inert=!!v.s.overlay&&!child.classList.contains('overlay');}if(v.s.overlay){const target=previous&&wasOverlay?node.querySelector(`[data-action="${previous}"]`):node.querySelector('[data-search]')||node.querySelector('[data-action="close"]');target?.focus({preventScroll:true});}else if(previous||wasOverlay){const restore=wasOverlay?(v.s.focusReturn||'rules'):previous;node.querySelector(`[data-action="${restore}"]`)?.focus({preventScroll:true});}}
+function act(node,action){
+ const v=context(node),s=v.s;if(!s.overlay)s.focusReturn=action;
+ if(['advance-host','advance-auto','hold','resume','hold-after','control','start','cancel-start','cancel-deadline'].includes(action)&&!v.operator)return;
+ if(['add-cohost','remove-cohost','toggle-transfer','offer-host'].includes(action)&&!v.owner)return;
+ if(action==='admin-join'&&v.admin){s.step='room';s.pending=s.adminEntry==='play';record(v,'Joined watching');}
+ else if(action==='entry-watch'||action==='entry-play'){s.adminEntry=action==='entry-watch'?'watch':'play';}
+ else if(action==='advance-auto'){if(!prepared(v))return;s.automatic=true;record(v,'Automatic advance enabled');if(!v.playing&&v.inter&&s.phase!=='complete'&&!s.held&&!s.scheduled)beginDeadline(node,30);}
+ else if(action==='advance-host'){s.automatic=false;cancelDeadline(node);s.runClock=false;record(v,'Host advance enabled');}
+ else if(action==='hold'){cancelDeadline(node);s.runClock=false;s.held=true;s.holdReason='Held by '+v.name;record(v,'Held advancement');}
+ else if(action==='resume'){if(s.phase==='complete'||!currentLoaded(v)||readyHumans(v)===0)return;beginDeadline(node,15);record(v,'Resumed · 15 s readiness window');}
+ else if(action==='hold-after'){s.holdAfter=!s.holdAfter;s.holdAfterBy=v.name;record(v,s.holdAfter?'Hold after this stage':'Canceled hold after this stage');}
+ else if(action==='add-cohost'){s.cohostAssigned=true;record(v,'Jules made co-host');}
+ else if(action==='remove-cohost'){s.cohostAssigned=false;s.transferOnDisconnect=false;s.manualOffer=false;record(v,'Jules removed as co-host');}
+ else if(action==='toggle-transfer'){if(!s.cohostAssigned)return;s.transferOnDisconnect=!s.transferOnDisconnect;record(v,'Disconnect transfer '+(s.transferOnDisconnect?'enabled':'disabled'));}
+ else if(action==='offer-host'){s.manualOffer=true;record(v,'Host offered to Jules');}
+ else if(action==='accept-host'&&v.cohost&&s.ownerId==='mira'&&(s.manualOffer||!s.hostConnected&&s.transferOnDisconnect&&s.graceElapsed)){s.ownerId='jules';s.cohostAssigned=false;s.manualOffer=false;s.transferOnDisconnect=false;record(v,'Accepted host');}
+ else if(action==='result'&&!v.watching){s.evaluation=true;s.overlay='';}
+ else if(action==='room'){s.evaluation=false;}
+ else if(action==='cancel-deadline'){cancelDeadline(node);s.runClock=false;s.notice='Deadline canceled';}
+ else if(action==='signin'){s.step='authorizing';s.overlay='';}
+ else if(action==='cancel-auth'){s.step='canceled';}
+ else if(action==='authorize'){s.signed=true;s.step='verifying';}
+ else if(action==='return'){s.phase=s.matchStarts?'intermission':'lobby';s.stage=s.phase==='intermission'?2:0;s.selected=s.stage;s.step='room';s.ready=false;s.notice='';}
+ else if(action==='back'){if(v.key==='invite'){s.step='invite';s.overlay='';s.signed=false;}else s.overlay='leave';}
+ else if(action==='ready'&&!v.waiting&&!v.watching&&!s.scheduled&&!v.playing){s.ready=!s.ready;s.notice='';if(s.automatic&&s.deadline&&!deadlineTimers.has(v.key))beginDeadline(node,s.deadline);}
+ else if(action==='start'&&v.operator&&s.phase!=='complete'&&readyHumans(v)>0&&currentLoaded(v)){if(allReady(v)){beginStart(node);s.evaluation=false;s.notice='';}else beginDeadline(node);record(v,'Started stage readiness');}
+ else if(action==='cancel-start'){cancelStart(node);s.scheduled=false;s.sitout=false;s.excluded=[];s.held=true;s.holdReason='Start canceled by '+v.name;s.notice='';}
+ else if(action==='close'){s.overlay='';}
+ else if(action.startsWith('slot-')){s.selected=Number(action.slice(5));s.progress=s.transfers[s.selected];if(!s.queue[s.selected]&&v.operator&&!s.scheduled&&!v.playing){s.candidate='night';s.overlay='library';}}
+ else if(action==='library'&&v.operator&&!s.scheduled&&s.selected>=v.current+(v.playing?1:0)){s.candidate=s.queue[s.selected]||'night';s.candidateLevel=s.levels[s.selected];s.query='';s.overlay='library';}
+ else if(action==='add-song'&&v.operator&&!s.scheduled){const i=s.queue.findIndex((x,i)=>!x&&i>=v.current+(v.playing?1:0));if(i>=0){s.selected=i;s.candidate='night';s.query='';s.overlay='library';}}
+ else if(action.startsWith('level-')){s.candidateLevel=action.slice(6);}
+ else if(action.startsWith('candidate-')){s.candidate=action.slice(10);}
+ else if(action==='commit-song'&&v.operator&&!s.scheduled&&s.selected>=v.current+(v.playing?1:0)){if(s.selected===v.current){cancelDeadline(node);s.held=true;s.holdReason='Song changed · ready again';}s.queue[s.selected]=s.candidate;s.focusReturn='slot-'+s.selected;s.overlay='';s.progress='sharing';s.transfers[s.selected]='sharing';s.levels[s.selected]=s.candidateLevel;if(s.selected===v.current){s.ready=false;s.otherReady=false;s.notice='Song changed';}else s.notice='Stage '+(s.selected+1)+' updated';record(v,'Changed stage '+(s.selected+1)+(s.selected===v.current?' · readiness reset':''));scheduleShare(node);}
+ else if(action==='retry'){s.progress='sharing';s.transfers[s.selected]='sharing';scheduleShare(node);}
+ else if(action==='confirm-leave'){cancelStart(node);cancelDeadline(node);s.overlay='';s.step=v.admin?'admin-preview':'invite';s.signed=false;}
+ else if(action==='request-seat'){s.overlay='';s.pending=true;s.notice=s.lateEntry?'Seat requested · next stage':'Seat requested · next match';}
+ else{s.overlay=action;}
+ render(node);save(v.key);
+}
+function participants(v){let list=[...members];if(v.key==='invite'&&!v.waiting)list=[...list.slice(0,7),{id:'nia',name:'Nia',rank:0,pts:0}];return list;}
+function allReady(v){return currentLoaded(v)&&participants(v).every(m=>ready(m,v));}
+function readyHumans(v){return currentLoaded(v)?participants(v).filter(m=>!m.cpu&&ready(m,v)).length:0;}
+function prepared(v){return v.s.queue.slice(v.current).every((id,i)=>id&&v.s.transfers[i+v.current]==='complete');}
+function record(v,message){v.s.activity.push(`${v.name} · ${message}`);v.s.activity=v.s.activity.slice(-8);}
+function roleBadge(label){return `<span class="role-badge">${label}</span>`;}
+function controlModal(v){
+ const s=v.s,offer=v.cohost&&s.ownerId==='mira'&&(s.manualOffer||!s.hostConnected&&s.transferOnDisconnect&&s.graceElapsed);
+ return `<div class="control-stack"><div><span class="eyebrow">Advance</span><div class="segmented">${button('Host','advance-host',s.automatic?'':'selected-choice',!v.operator)}${button('Automatic','advance-auto',s.automatic?'selected-choice':'',!v.operator||!prepared(v))}</div>${!prepared(v)?'<p class="small muted">Share every remaining song to enable Automatic.</p>':'<p class="small muted">Stops at match results</p>'}</div>
+ <div class="rule-row"><span>${s.phase==='complete'?'Match complete':v.playing?'After this stage':s.held?'On hold':s.deadline?'Next stage in '+s.deadline+' s':'Next stage'}</span>${v.operator&&s.phase!=='complete'?button(v.playing?(s.holdAfter?'Cancel hold':'Hold after this stage'):s.held?'Resume · 15 s':'Hold',v.playing?'hold-after':s.held?'resume':'hold','',!v.playing&&s.held&&(readyHumans(v)===0||!currentLoaded(v))):''}</div>${s.held?`<p class="small muted">${esc(s.holdReason)}</p>`:''}
+ <div><span class="eyebrow">Room control</span><div class="rule-row"><span>${s.ownerId==='mira'?'Mira':'Jules'} ${roleBadge('Host')}</span><span class="muted">${s.ownerId==='mira'&&!s.hostConnected?'Disconnected':s.ownerId==='jules'?'Watching':'Playing'}</span></div>
+ ${s.cohostAssigned&&s.ownerId!=='jules'?`<div class="rule-row"><span>Jules ${roleBadge('Co-host')}</span>${v.owner?button('Remove','remove-cohost','quiet'):'<span class="muted">Watching</span>'}</div>`:''}
+ ${v.admin?`<div class="rule-row"><span>Rowan ${roleBadge('Admin')}</span><span class="muted">Watching</span></div>`:''}
+ ${v.owner&&s.ownerId!=='jules'&&!s.cohostAssigned?button('Add co-host · Jules','add-cohost'):''}</div>
+ ${v.owner?`<div><div class="rule-row"><span>Transfer on disconnect</span>${button(s.transferOnDisconnect?'On · Jules':'Off','toggle-transfer','',!s.cohostAssigned)}</div><p class="small muted">${s.transferOnDisconnect?'After 60 s · Jules must accept':'Ownership stays with the host'}</p>${s.cohostAssigned?button(s.manualOffer?'Offer sent to Jules':'Offer host to Jules','offer-host','',s.manualOffer):''}</div>`:!s.hostConnected&&s.ownerId==='mira'?`<p class="small muted">${s.transferOnDisconnect?(s.graceElapsed?'Host offer available to Jules':'Transfer to Jules · 60 s grace'):'Host transfer is off'}</p>`:''}
+ ${offer?`<div class="rule-row"><span>Mira → Jules</span>${button('Accept host','accept-host','primary')}</div>`:''}</div>`;
+}
+function adminPreview(v){return `<header class="header"><div><span class="eyebrow">Rooms</span><h2>After Hours</h2></div><div class="row">Rowan ${roleBadge('Admin')}</div></header><div class="invite-wrap"><section class="invite"><div class="invite-preview"><div class="row">${icon('lock-keyhole')}<span>Invite only</span></div><div class="rule-row"><span>Mira ${roleBadge('Host')}</span><span class="muted">Disconnected</span></div><div class="row"><span>8 / 8 playing slots</span><span class="muted">Stage 3 / 4</span></div></div><div class="segmented">${button(icon('eye')+' Watch','entry-watch',v.s.adminEntry==='watch'?'selected-choice icon-button':'icon-button')}${button('Play','entry-play',v.s.adminEntry==='play'?'selected-choice':'')}</div><p class="small muted">${v.s.adminEntry==='watch'?'Visible in Watching · Admin':v.s.lateEntry?'Watching now · request next stage':'Watching now · request next match'}</p>${button(v.s.adminEntry==='watch'?'Join watching':'Join & request a seat','admin-join','primary')}</section></div>`;}
+function modal(v){
+ const type=v.s.overlay;
+ if(!['control','activity','play-request','watch'].includes(type))return baseModal(v);
+ const title=type==='control'?'Room control':type==='activity'?'Room activity':type==='play-request'?'Play':'Watching';
+ let body='';
+ if(type==='control')body=controlModal(v);
+ if(type==='activity')body=(v.s.activity.length?v.s.activity:[v.s.hostConnected?'Room opened':'Mira · Disconnected']).map(x=>`<div class="activity-item">${esc(x)}</div>`).join('');
+ if(type==='play-request')body=`<p>${v.s.lateEntry?'Next stage · 0 points for earlier stages':'Next match'}</p><p class="small muted">8 / 8 playing slots · seat required</p>${button('Request a seat','request-seat','primary')}`;
+ if(type==='watch')body=`<p>${v.playing?getSong(v.s.queue[v.current]).title:v.s.scheduled?'Stage '+(v.current+1)+' starting':v.s.held?v.s.holdReason:v.s.deadline?'Next stage · '+v.s.deadline+' s':v.s.automatic?'Automatic advance':'Waiting for start'}</p>`;
+ return `<div class="overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="${title}"><div class="dialog-head"><h3>${title}</h3>${button(icon('x'),'close','quiet icon-button',false,'Close')}</div>${body}</section></div>`;
+}
+function finishSong(node){
+ const v=context(node),s=v.s;cancelStart(node);cancelDeadline(node);s.scheduled=false;s.sitout=false;s.excluded=[];s.songEnded=false;s.ready=false;s.evaluation=false;
+ if(s.stage===3){s.phase='complete';s.held=false;s.notice='Match complete · rankings retained';return;}
+ s.stage++;s.selected=s.stage;s.progress=s.transfers[s.stage];s.phase='intermission';
+ if(s.holdAfter){s.held=true;s.holdReason='Held by '+(s.holdAfterBy||'co-host');s.holdAfter=false;}
+ else if(s.automatic){if(prepared(context(node)))beginDeadline(node,30);else{s.held=true;s.holdReason='Next song unavailable';}}
+}
+const startTimers=new Map();
+function cancelStart(node){const key=node.dataset.view;if(startTimers.has(key))clearInterval(startTimers.get(key));startTimers.delete(key);store[key].startIn=3;}
+function beginStart(node){
+ const key=node.dataset.view,s=store[key];cancelStart(node);s.scheduled=true;s.startIn=3;const v=context(node);
+ s.excluded=participants(v).filter(m=>!ready(m,v)).map(m=>m.id);s.sitout=!v.waiting&&!v.watching&&!s.ready;
+ const end=Date.now()+3000;startTimers.set(key,setInterval(()=>{
+  s.startIn=Math.max(0,Math.ceil((end-Date.now())/1000));
+  if(!s.startIn){cancelStart(node);s.scheduled=false;s.phase='playing';s.overlay='';s.evaluation=false;}
+  render(node);save(key);
+ },250));
+}
+const deadlineTimers=new Map();
+function cancelDeadline(node){const key=node.dataset.view;if(deadlineTimers.has(key))clearInterval(deadlineTimers.get(key));deadlineTimers.delete(key);store[key].deadline=0;}
+function beginDeadline(node,seconds=15){
+ const key=node.dataset.view;cancelDeadline(node);const s=store[key];s.deadline=seconds;s.notice='';s.held=false;s.holdReason='';s.runClock=true;const end=Date.now()+seconds*1000;
+ const timer=setInterval(()=>{const remaining=Math.max(0,Math.ceil((end-Date.now())/1000));if(remaining===s.deadline)return;s.deadline=remaining;if(remaining===0){cancelDeadline(node);s.runClock=false;const v=context(node);if(!currentLoaded(v)||readyHumans(v)===0){s.held=true;s.holdReason=!currentLoaded(v)?'Stage content unavailable':'No ready players';}else{s.excluded=participants(v).filter(m=>!ready(m,v)).map(m=>m.id);s.sitout=!v.waiting&&!v.watching&&!s.ready;s.scheduled=true;s.evaluation=false;s.overlay='';s.notice=`${8-s.excluded.length} playing · ${s.excluded.length} sitting out`;beginStart(node);}}render(node);save(key);},250);deadlineTimers.set(key,timer);
+}
+const shareTimers=new Map();
+function scheduleShare(node){const key=node.dataset.view,stage=store[key].selected,timerKey=key+':'+stage;if(shareTimers.has(timerKey))clearTimeout(shareTimers.get(timerKey));const timer=setTimeout(()=>{store[key].transfers[stage]='complete';if(store[key].selected===stage)store[key].progress='complete';render(node);save(key);shareTimers.delete(timerKey);},1800);shareTimers.set(timerKey,timer);}
+for(const node of nodes){const key=node.dataset.view;render(node);node.addEventListener('click',e=>{const b=e.target.closest('button');if(b?.dataset.action&&!b.disabled)act(node,b.dataset.action);});node.addEventListener('input',e=>{if(e.target.matches('[data-search]')){const cursor=e.target.selectionStart;store[key].query=e.target.value;render(node);const input=node.querySelector('[data-search]');input?.focus({preventScroll:true});input?.setSelectionRange(cursor,cursor);}});node.addEventListener('keydown',e=>{if(e.key==='Escape'&&store[key].overlay){store[key].overlay='';render(node);save(key);}});
+ if(globalThis.Tweak){
+ const tweak=new Tweak({container:node,onChange:()=>{
+  const s=store[key];
+  if(key.includes('evaluation')&&!s.deadlineDemo)cancelDeadline(node);
+  if(s.deadlineDemo&&s.deadline===0&&!s.scheduled)beginDeadline(node);
+  s.transfers[s.selected]=s.progress;
+  if(s.phase==='playing'){cancelStart(node);cancelDeadline(node);s.scheduled=false;s.evaluation=false;}
+  else if(s.runClock&&s.deadline>0&&!deadlineTimers.has(key))beginDeadline(node,s.deadline);
+  else if(!s.runClock&&deadlineTimers.has(key)){clearInterval(deadlineTimers.get(key));deadlineTimers.delete(key);}
+  if(s.songEnded&&s.phase==='playing')finishSong(node);else s.songEnded=false;
+  render(node);save(key);
+ }});
+ if(key==='invite'){tweak.addToggle(store[key],'matchStarts',{label:'Match starts during sign-in'});tweak.addToggle(store[key],'desktop',{label:'Desktop browser handoff'});}
+ else {
+  tweak.addToggle(store[key],'otherReady',{label:'Other players ready'});
+  if(key.startsWith('host')||key==='admin-intermission'||key==='cohost-intermission')tweak.addSelect(store[key],'progress',{label:'Selected song sharing',options:[{label:'Complete',value:'complete'},{label:'Sharing',value:'sharing'},{label:'Failed',value:'failed'}]});
+ }
+ if(key.includes('evaluation'))tweak.addToggle(store[key],'deadlineDemo',{label:'Host opens 15-second deadline'});
+ if(key.startsWith('waiting')||key==='admin-intermission')tweak.addToggle(store[key],'lateEntry',{label:'Allow late entry'});
+ if(['automatic-intermission','admin-intermission','cohost-intermission','host-controls-intermission'].includes(key)){
+  tweak.addToggle(store[key],'hostConnected',{label:'Mira connected'});
+  tweak.addToggle(store[key],'runClock',{label:'Run intermission clock'});
+  tweak.addSelect(store[key],'phase',{label:'Stage state',options:[{label:'Intermission',value:'intermission'},{label:'Playing',value:'playing'}]});
+  tweak.addToggle(store[key],'songEnded',{label:'Finish current song'});
+ }
+ if(key==='cohost-intermission'){
+  tweak.addToggle(store[key],'transferOnDisconnect',{label:'Host enabled disconnect transfer'});
+  tweak.addToggle(store[key],'graceElapsed',{label:'60-second disconnect grace elapsed'});
+ }
+ }
+
+}
+window.addEventListener('openai:set_globals',e=>{const saved=e.detail?.globals?.widgetState;if(saved?.privateContent?.version===3){for(const n of nodes){cancelDeadline(n);cancelStart(n);apply(store[n.dataset.view],saved.privateContent.views?.[n.dataset.view]);render(n);}}});
+})();
+</script>

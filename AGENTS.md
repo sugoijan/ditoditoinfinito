@@ -228,8 +228,10 @@ Rust and the browser are implementation details, not advertised features.
   editor saved it or made it new (`edited.rs`), a music file's title
   and artist from its tags (`tags.rs`), the lines announcers speak and
   the announcers found among an import's files (`announcer.rs`:
-  StepMania's layout and aliases, Etterna's two names and ours; our
-  bundled packs' keys, `bundled:<name>`, and the web's index of them
+  StepMania's layout and aliases, Etterna's two names and ours; the
+  multiplayer battle's own category, `Line::Battle`, `Spoken::Battle`,
+  folders `battle …`, with their fallbacks, heard only in a stage;
+  our bundled packs' keys, `bundled:<name>`, and the web's index of them
   with what each sound says; `docs/plans/announcers.md`; every line,
   when it speaks and what it falls back to, for pack authors:
   `docs/announcer-lines.md`; the announcer studio's drafts, takes
@@ -242,8 +244,8 @@ Rust and the browser are implementation details, not advertised features.
   of stored entries written (`zip::write_stored`) and 16-bit WAVs
   (`wav.rs`), and what the shells and the
   private shared-songs Worker agree on without the web's record types
-  (`share.rs`: share ids, `shared:<id>:<n>` song ids, the time left;
-  `docs/plans/shared-songs.md`), the music's analysis a generated
+  (`share.rs`: `ddi_share_protocol` re-exported, the time left, the
+  refusals worded, a grant's refusals kept; `docs/plans/shared-songs.md`), the music's analysis a generated
   background follows (`music.rs`, made at a play's load; its transform,
   `fft.rs`, the chart editor's too) and those backgrounds' four looks
   with the study's approved values (`generative.rs`: `stands_in`, never
@@ -522,7 +524,18 @@ Rust and the browser are implementation details, not advertised features.
   before judged at once, `Player::start_staged`, notes missed or pressed
   off, a combo given, step 4; `announcer/scene/director.rs`, what a
   scene does and when over a shell's `SceneHost`, step 5); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
-  (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
+  (`crates/web/src/play.rs` is the web's); a multiplayer practice
+  stage's CPU opponents (`battle.rs`, `SessionConfig::opponents`, apart
+  from the solo CPU demo's `cpu`: each a `ddi_engine::cpu::Opponent`
+  judged beside the play, shown read-only, the stage's outcome as the
+  room's ranking, `take_stage_outcome`; a stage-left-at-its-prompt
+  forfeit, `battle::forfeit`; the battle's moments it tells,
+  `Battle::take_events`, spoken by a stage's voice,
+  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V0`, its
+  priorities, one battle line at a time, a play's routine lines left
+  out, the results' line once the shell's `stage_reported` passes the
+  room's `MatchEnd`; where no line said one, `PlaySession::battle_cue`,
+  shown in the opponents' column's heading, `ddi_shell::opponents`). Platform-free, natively tested on a
   fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
   `render` (`ddi-shell`), so neither keeps a copy: a play's
@@ -537,8 +550,13 @@ Rust and the browser are implementation details, not advertised features.
   (within the device's largest texture), its place in the backdrop's
   list, the cover the kaleidoscope folds and the start prompt's still
   of it, drawn for the 2D pass when it asks (`Stills`)
-  (`crates/shell/src/generative.rs`). Platform-free (native
-  and wasm), natively tested.
+  (`crates/shell/src/generative.rs`), and a play drawn: one frame body
+  and its setters for both shells (`crates/shell/src/play_view.rs`,
+  `PlayView` over each shell's `PlayHost`: its pictures, its movie
+  decks, its log, its text; the web's `GameLoop` and desktop's `View`
+  keep their surfaces; a practice stage's CPU opponents in a quiet column
+  beside the field, drawn by its 2D pass, `crates/shell/src/opponents.rs`). Platform-free (native and wasm), natively
+  tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`site/index.html`, with the page's
@@ -594,7 +612,8 @@ Rust and the browser are implementation details, not advertised features.
   (`crates/web/src/share.rs`: the share read from the private Worker,
   `api` beside the page, the private Worker's route on the app's origin
   (`DDI_API_URL` at build or `window.__DDI_API_URL` instead), held in memory
-  for the session, its songs `shared:<id>:<n>` read by URL through
+  for the session (several at once, by id: an online room's stages each
+  have one), its songs `shared:<id>:<n>` read by URL through
   `songs::Origin::Shared`; `components/shared_page.rs` then song
   select in its shared mode, `select_page::Props::shared`,
   `SelectData::shared`: headed "SHARED SONGS", nothing added, managed
@@ -705,6 +724,146 @@ Rust and the browser are implementation details, not advertised features.
   the editor hosts, MCP bridge, local development patches and authoring tests.
 - `crates/importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
+- `crates/share-protocol/` songs shared by link's wire contract
+  (`ddi-share-protocol`, serde only, as `crates/importer-protocol` is): ids,
+  limits, expiry words, the share's JSON as made, answered and listed,
+  path checks, file paths and routes, and an online room's upload grant
+  (its claims, `Authorization: Grant`, its answer). `ddi_library::share`
+  re-exports it for the game; the private server (`../ddi-server`)
+  depends on it by path and keeps no copy. Pure, natively tested.
+- `crates/room/` the multiplayer room, match and stage model (`ddi-room`,
+  `docs/plans/multiplayer-prototype-progress.md`): serde and JSON only, no
+  chart/engine/library or I/O, so the private server can run it too;
+  content is an opaque song key and chart digest. Membership and roles
+  (`can`: capabilities from role, admin flag and phase, never from
+  participation), stable ids, the match's locked rules beside the next
+  match's draft, the competitor cap as one policy check
+  (`RoomPolicy::check_competitors`), and stage awards as named rules (the
+  eight-player table; `ExperimentalLinearV0`, provisional, under eight;
+  exact fractions, `Points`); the battle a stage is played under, by name
+  and version, and its ranking of judged runs (`battle.rs`:
+  `BattlePreset::GaugeSurvivalV0`, provisional: each competitor's own
+  ruleset gauge as life, empty is out of the stage; `rank`, `decided`). The reducer (`reduce.rs`): commands from an
+  `Actor` (a member, or the authority for joins, connections, content status
+  and confirmed outcomes) decided into events, atomic, refusals typed
+  (`Rejection`); `RoomState::commit` applies a revision's events, so a
+  mirror holds the same state; `advance(now)` runs the readiness deadline
+  and the countdown. The phase machine is multiplayer-ui.md's State model;
+  participation is derived (`RoomState::participation`), never stored.
+  Conflicting edits carry the base revision they were made against.
+  The wire (`protocol.rs`): a versioned envelope (`v`, client id, `seq`,
+  `base`; the authority answers ack/reject/events/snapshot with the room's
+  revision), id-keyed maps as `[key, value]` pairs, and `Mirror`, a
+  client's copy that detects a missed revision. `authority.rs`: the
+  `RoomAuthority` trait the shells hold, and `LocalAuthority`, CPU
+  practice's authority on an injected `Clock` (idempotent retries by
+  `seq`, a snapshot after a stale refusal). `online.rs`: the
+  `OnlineAuthority`, the private server's room (`../ddi-server`'s
+  `RoomDO`, this reducer) over a socket each shell supplies
+  (`Transport`): the JSON codec, a mirror whose gaps send `Resync`
+  (`{"v":1,"want":"snapshot"}`), commands kept until answered and sent
+  again with their `(client, seq)` after a reconnect, duplicates and old
+  revisions passed over, `LinkState` (joining, connected, reconnecting on
+  a fresh ticket by `ReconnectPolicy::RECONNECT_BACKOFF_V0`, and the ends:
+  4401 sign in again, 4410 closed, 4000 left); tickets sans-IO
+  (`wants_ticket`, `ticket`). `fake.rs`: `FakeServer`, that room in
+  process behind JSON text both ways with faults (delay, duplicate, drop,
+  reorder, stale, close codes). Tests:
+  `crates/room/tests/walkthroughs.rs`, the handoff's walkthroughs;
+  `tests/authority.rs`, the envelope and the authority; `tests/online.rs`,
+  the adapter contract (one script through `LocalAuthority` and through
+  `OnlineAuthority` + `FakeServer`, the same rooms) and the network's
+  faults. Pure (serde and JSON), natively tested.
+- The multiplayer prototype's CPU practice (M2 and M3,
+  `docs/plans/multiplayer-prototype-progress.md`), behind a hidden switch
+  (`Settings::multiplayer`; desktop's `--multiplayer on|off`): off, the
+  start menu's Multiplayer stays "Coming soon"; on, it opens the
+  multiplayer home (`ddi_ui::screens::online::OnlineScreen`, a page: CPU
+  practice, the private online room, the account). `crates/ui/src/state/room.rs` is the room's
+  client: `RoomClient` holds `ddi_room`'s `LocalAuthority` and a `Mirror`
+  kept from its envelopes, sends every change as a command (no room logic
+  of its own), knows which library song and chart a stage's opaque content
+  names (`Picked`), refuses charts the CPU cannot play (`eligible`: one
+  player, four lanes), hands the shell each chosen song to prepare
+  (`LoadJob`, `RoomCall::Prepare`: the chart read and `check_chart`, the
+  CPUs' plan built; `finish_load` reports it loaded or a `LoadProblem`),
+  and each stage whose countdown is over to play, once (`StageOrder`,
+  `RoomCall::PlayStage`), whose judged outcome the shell reports as the
+  authority (`report_stage`); `SharedRoom` is what the shells keep across
+  screens. A stage's prompt says so (`PromptInfo::set_stage`), its results
+  go back to the room (`ResultsKind::Stage`: no Retry), and the room shows
+  the intermission (places, points, the player's `mark_text`) and the
+  match's results; stage plays are never kept in the history.
+  Online rooms (M5c, M5d): `RoomClient::online` holds an online link
+  instead (`crates/ui/src/state/online/link.rs`: `ddi_room`'s
+  `OnlineAuthority` over the shell's socket, its tickets, the room's name
+  and invite, a stage's upload grant); its roles come from the shared
+  `ddi_room::can` (`RoomClient::may`). The operator's pick is the room's
+  commit (`ChooseContent`, pending): the client asks the room for the
+  stage's grant and hands the shell an `UploadJob` (`RoomCall::Upload`:
+  the song uploaded as the room's share with `Authorization: Grant`,
+  `upload_progress`/`upload_finished`, an expired grant renewed, a
+  failure said with More's Retry sharing); once the room says the stage
+  is available with its share, every member prepares it
+  (`LoadJob::share`: read from the share, its chart found by the digest,
+  `prepare_chart`, `finish_shared_load`; loaded only with the digest
+  chosen). A stage is played on each member's device
+  (`StageOrder::others`, nobody else shown during the play), its run
+  reported as the member's own (`report_run`, `ddi_room`'s
+  `ReportOutcome`; self-reported), the room ranking the reports
+  (`gauge-survival-v0`). Desktop's threads answer through the client's
+  inbox (`set_inbox`, `ShellNews`). `crates/ui/src/state/online/` is the sign-in and the
+  rooms' HTTP, sans-IO (`Online` over the shell's `Http`; `api.rs` each
+  request and answer; desktop's attempt polled, the web's page left for
+  the server's sign-in), `screens/online.rs` the multiplayer home and an
+  invite's page as pages made from it (`OnlineScreen`, `OnlineCall` to
+  the shell). `screens/room.rs` the unified room (players, the stage's song card and
+  chart, the stages; the status line, Ready and Start apart, `RoomCall` to
+  the shell; `ThemeState::room`, a `RoomView`, for tests),
+  `screens/room_dialogs.rs` its Rules (the running match's rules locked
+  beside the next match's, applied through the room) and the refusal
+  notice; song select's pick mode (`SelectData::pick`: the library, nothing
+  added, edited or shared, Enter "Use for stage N"). Text in
+  `locales/*/room.ftl`. Desktop keeps the room for the run
+  (`crates/desktop/src/room.rs`: the home, the room and the pick on the
+  UI's stack; `--screen multiplayer|room`, refused with the switch off; a
+  stage played over the room through the play host, `play::Request::stage`,
+  `room_screen_with` for tests, `tests/room_stage_flow.rs`). Its online
+  rooms (M5c, `crates/desktop/src/online.rs`): HTTP through ureq on a
+  thread a request, the room's socket through tungstenite (native-tls,
+  as ureq) on a thread of its own, signing in by the server's attempt in
+  the system browser (`crate::os::open_url`) long-polled, the session kept
+  in the config folder's `online-session` (never `share_token`, a
+  refreshed one from `x-ddi-session`); `--join LINK|INVITE` opens an
+  invite's page; a stage's song uploaded (`share::upload_room`) or read
+  from the room's share into the cache (`share::load`, the songs in
+  `library::register_room_songs`) on threads (`room::upload`,
+  `room::prepare_online`); `tests/online.rs` runs against a local server
+  named by `DDI_ONLINE_API` (sign-in, a room, an upload under the grant,
+  the guest's load from the share, the start and both runs reported).
+  The web keeps it for the session (`crates/web/src/room.rs`, thread-local
+  as `crate::share` is): `#/?mp=1` (`mp=0`) sets the switch, `#/mp` is the
+  home, `#/room` the room and `#/room/pick?stage=<id>&n=<number>` song
+  select's pick mode (`select_page::Props::pick`, the page's
+  `Which::Multiplayer`/`Which::Room`), a stage played at
+  `#/play?song=…&chart=…&stage=<id>` (`game_canvas::Props::room_stage`, its
+  outcome reported by the game loop, back to `#/room`; an address the room
+  did not hand over shows the room); with the switch off those routes show
+  the start menu. A reload starts a new practice. Online rooms (M5c,
+  `crates/web/src/online.rs`): `#/mp` is the online home
+  (`ddi_ui::screens::online::OnlineScreen`), `#/mp/join/<invite>` an
+  invite's page (its link carries `mp=1`, the switch),
+  `#/mp/room/<id>` the online room; signing in leaves the page for the
+  server's `api/auth/twitch/login?return=<route>` and comes back to the
+  route (`?signin=canceled` when canceled), what it was for kept in
+  `sessionStorage` (`ddi.mp.after`); the session is the server's HttpOnly
+  cookie; a room's socket is the browser's `WebSocket` on
+  `api/sockets/<id>/ws`; a stage's song uploaded under the room's grant
+  (`crate::room::upload`, `share::upload_room`: an imported or a bundled
+  song), read from the room's share (`crate::room::prepare_for`), its
+  stage played at `#/play?…&stage=<id>` back to `#/mp/room/<id>`
+  (`crate::room::play_in`, `back_route`). `Trunk.toml` passes `/api/` (redirects untouched) and
+  `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
   Rust 1.99 (as does the SDK). Both share the root lock; the `importer` profile
   keeps native builds unwinding with bounded compiler memory.
@@ -816,13 +975,15 @@ Rust and the browser are implementation details, not advertised features.
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
   tuned for size and aborting on panics). Flags (`ddi_desktop::run`):
   `--songs DIR` (a folder for this run), `--sample`, `--screen
-  start|select|results|options|calibration|credits|announcer`, `--dev`, `--widgets`,
+  start|select|results|options|calibration|credits|announcer|multiplayer|room`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
   `--edit SONG [--chart N]` (the chart editor on it),
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its
   results),
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
-  `--shared LINK|ID`, `--sharing on|off`, `--share IDS|pack:NAME
+  `--shared LINK|ID`, `--sharing on|off`, `--multiplayer on|off` (the
+  multiplayer prototype's switch; `--screen multiplayer|room`; `--join
+  LINK|INVITE` an online room's invite), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--lang TAG` (the UI's language for the run: `ja`,
@@ -844,6 +1005,17 @@ Rust and the browser are implementation details, not advertised features.
 - The web build is compiled with wasm SIMD (`.cargo/config.toml`'s
   `+simd128` for `wasm32-unknown-unknown`, `--enable-simd` for wasm-opt in
   index.html; the page refuses a browser without it, `no-wasm-simd`).
+- CPU player: desktop `--play SONG --chart N --cpu=1 --cpu-strength normal
+  --cpu-seed 7`; web `#/play?song=ID&chart=N&cpu=1&strength=normal&seed=7`.
+  Automatic mode accepts web `skills=` / desktop `--cpu-skills`: a preset or seven
+  0.5–2 multipliers (Stream, Jumpstream, Handstream, Stamina, JackSpeed, Chordjack,
+  Technical). These are pattern proxies, not MSD measurements; balanced preserves
+  the original seeded inputs. See `docs/plans/cpu-player.md`.
+  Prepares an analytical plan locally for imported/bundled keyboard 4K charts.
+  Tap-only, 1×, no fail; normal judge, no personal history or bests. Strength
+  is chart-relative. Optional external prepared profiles use `--cpu FILE` or
+  a site-relative `cpu=cpu/custom.json`; none are bundled. See
+  `docs/plans/cpu-player.md` for limits, architecture and verification.
 - `just dev` dev server (auto-reloads on every rebuild; unsuitable for long
   runtime tests). `just dev 0.0.0.0` serves the local network, but a LAN
   address over HTTP is not a secure context (no gamepads, no WebGPU); from

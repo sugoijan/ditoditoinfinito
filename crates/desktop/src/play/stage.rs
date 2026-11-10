@@ -199,10 +199,6 @@ impl ddi_shell::stage::StageContent for Rgba {
     }
 }
 
-/// The layers in a play: the contents read (a retry keeps them), their
-/// textures, the play's timeline.
-pub type StageView = ddi_shell::stage::StageView<Rgba>;
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2493,6 +2493,10 @@ fn publish(h: &Host) {
     if let Some(t) = &h.theme {
         let st = t.env.state.borrow();
         names.extend(st.page_items.iter().cloned());
+        // The multiplayer room's controls, under its dialogs too.
+        if let Some(room) = &st.room {
+            names.extend(room.items.iter().cloned());
+        }
         names.extend(
             [
                 "More",
@@ -2658,11 +2662,7 @@ fn publish(h: &Host) {
         set(&o, "blur", w.blur.into());
         set(&o, "items", (w.items as f64).into());
         set(&o, "pool", (w.pool as f64).into());
-        set(&o, "style", (w.style as f64).into());
-        set(&o, "speed", (w.speed as f64).into());
-        set(&o, "panels", (w.panels as f64).into());
         set(&o, "reverse", w.reverse.into());
-        set(&o, "volume", w.volume.into());
         set(&o, "search", w.search.as_str().into());
         set(&o, "popup", w.popup.into());
         let a = js_sys::Array::new();
@@ -2768,6 +2768,16 @@ fn publish(h: &Host) {
                 set(&v, "waiting", strings(&p.waiting));
                 v.into()
             }),
+        );
+        // The multiplayer prototype's room (`ddi_ui::screens::room::RoomView`).
+        set(
+            &o,
+            "room",
+            st.room
+                .as_ref()
+                .and_then(|r| serde_json::to_string(r).ok())
+                .and_then(|j| js_sys::JSON::parse(&j).ok())
+                .unwrap_or(JsValue::NULL),
         );
         set(&o, "autoplay", st.autoplay.into());
         set(&o, "pageFocus", st.page_focus.into());

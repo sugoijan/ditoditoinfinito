@@ -1,0 +1,665 @@
+//! The room's state: every fact the reducer keeps, and the views derived
+//! from them (participation, eligibility, standings). Mutated only through
+//! events (`reduce.rs`), so a client mirror that applies the same events
+//! holds the same state.
+
+use crate::awards::{Finish, Placement, StageResult};
+use crate::battle::ReportedRun;
+use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, StageId};
+use crate::member::{Connection, Intent, Member, MemberKind, OpponentSpec, Role};
+use crate::phase::{Interruption, Phase};
+use crate::points::Points;
+use crate::rules::{Access, ContentSource, MatchRules, RoomPolicy, RulesProblem};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomState {
+    pub room: RoomId,
+    pub revision: Revision,
+    pub policy: RoomPolicy,
+    pub source: ContentSource,
+    pub access: Access,
+    #[serde(with = "crate::ids::pairs")]
+    pub members: BTreeMap<ParticipantId, Member>,
+    /// The rules the next match will start with: the explicit next-match
+    /// draft, never the running match's rules.
+    pub next: NextMatchDraft,
+    /// The next match's stages, in order; as many as `next.rules.stages`.
+    /// In the lobby, readiness gathers on the first.
+    pub playlist: Vec<Stage>,
+    /// The running match, or the one just finished or interrupted until the
+    /// room opens the next.
+    pub current: Option<Match>,
+    pub phase: Phase,
+    /// Finished matches, oldest first, at most `policy.history`.
+    pub history: Vec<MatchRecord>,
+    pub counters: Counters,
+}
+
+/// The next unused id of each kind. Ids are never reused.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Counters {
+    pub participant: u64,
+    pub matches: u64,
+    pub stage: u64,
+}
+
+/// The next match's rules as saved by an operator.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NextMatchDraft {
+    pub rules: MatchRules,
+    /// When it was last saved, or last retargeted by a match start: an edit
+    /// made against an older view is stale.
+    pub saved_at: Revision,
+    /// Set when the boundary's revalidation found these rules unusable now
+    /// (more reserved players than seats, say). Blocks the next start until
+    /// an operator saves rules that pass.
+    pub review: Option<RulesProblem>,
+}
+
+/// One match: its locked rules, its roster and its stages.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Match {
+    pub id: MatchId,
+    pub rules: MatchRules,
+    #[serde(with = "crate::ids::pairs")]
+    pub roster: BTreeMap<ParticipantId, Seat>,
+    pub stages: Vec<Stage>,
+}
+
+/// A competitor's place in a match.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Seat {
+    /// The first stage they could play: the match's first, or a later one
+    /// for a late entrant (earlier stages count zero).
+    pub first_stage: StageId,
+    /// Persistent elimination ended their match.
+    pub out_for_match: bool,
+}
+
+/// One stage: what it plays, who prepared for it and how it went.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage {
+    pub id: StageId,
+    pub content: Option<StageContent>,
+    /// When the content was last chosen; an edit against an older view is
+    /// stale.
+    pub content_changed_at: Revision,
+    /// Bumped whenever this stage's readiness is invalidated (its content
+    /// replaced, the lobby's rules changed). Ready and Start carry it.
+    pub readiness_rev: u32,
+    /// Readiness and loading for this stage, per person. Absent means not
+    /// ready and nothing loaded.
+    #[serde(with = "crate::ids::pairs")]
+    pub prep: BTreeMap<ParticipantId, Prep>,
+    /// Set when its start was committed.
+    pub play: Option<StagePlay>,
+}
+
+impl Stage {
+    pub fn new(id: StageId) -> Self {
+        Self {
+            id,
+            content: None,
+            content_changed_at: Revision(0),
+            readiness_rev: 0,
+            prep: BTreeMap::new(),
+            play: None,
+        }
+    }
+
+    pub fn prep(&self, id: ParticipantId) -> Prep {
+        self.prep.get(&id).cloned().unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StageContent {
+    pub id: ContentId,
+    pub status: ContentStatus,
+    /// Where the members fetch it (an online room's: the share its upload
+    /// made, `ddi_share_protocol`), once available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share: Option<String>,
+}
+
+/// Whether the room can use a stage's content, as its authority knows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentStatus {
+    /// Being shared; nobody can load it yet.
+    Pending,
+    Available,
+    /// Sharing failed or the content is gone; `code` says why.
+    Unavailable {
+        code: String,
+    },
+}
+
+/// One person's preparation for one stage. Ready is intent and may be set
+/// while loading; only ready and loaded is eligible.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Prep {
+    pub ready: bool,
+    pub loading: Loading,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Loading {
+    #[default]
+    NotStarted,
+    Loading {
+        permille: u16,
+    },
+    Loaded,
+    Failed {
+        code: String,
+    },
+}
+
+/// A committed stage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagePlay {
+    pub lineup: BTreeSet<ParticipantId>,
+    /// Match competitors who did not start, and why. They earn zero.
+    #[serde(with = "crate::ids::pairs")]
+    pub sat_out: BTreeMap<ParticipantId, SitOutReason>,
+    pub start_at: Millis,
+    pub result: Option<StageResult>,
+    pub song_ended: bool,
+    /// The match stopped before this stage's result was confirmed: no award.
+    pub interrupted: bool,
+    /// The starters' own reports of their runs (an online stage's, M5d).
+    #[serde(default, with = "crate::ids::pairs")]
+    pub reports: BTreeMap<ParticipantId, ReportedRun>,
+    /// When the first report of the song played to its end came.
+    #[serde(default)]
+    pub song_end_at: Option<Millis>,
+}
+
+impl StagePlay {
+    /// Its lineup has no CPU: its result comes from its starters' reports.
+    pub fn self_reported(&self, members: &BTreeMap<ParticipantId, Member>) -> bool {
+        !self
+            .lineup
+            .iter()
+            .any(|id| members.get(id).is_some_and(Member::is_cpu))
+    }
+}
+
+/// Why a match competitor did not start a stage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SitOutReason {
+    NotReady,
+    StillLoading,
+    LoadFailed,
+    NotConnected,
+    Watching,
+    Left,
+}
+
+impl SitOutReason {
+    /// Whether the person could still become eligible before a deadline,
+    /// which is what a readiness window waits for.
+    pub fn may_still_join(self) -> bool {
+        matches!(
+            self,
+            Self::NotReady | Self::StillLoading | Self::LoadFailed | Self::NotConnected
+        )
+    }
+}
+
+/// A finished match, kept in the room.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MatchRecord {
+    pub played: Match,
+    /// The match's CPU seats, which left the room with it.
+    #[serde(with = "crate::ids::pairs")]
+    pub cpus: BTreeMap<ParticipantId, Member>,
+    pub ending: MatchEnding,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchEnding {
+    Completed,
+    /// Partial results: confirmed stages only, no overall winner.
+    Interrupted {
+        reason: Interruption,
+    },
+}
+
+impl MatchRecord {
+    /// The overall winner or tied winners; none for an interrupted match.
+    pub fn winners(&self) -> Vec<ParticipantId> {
+        match self.ending {
+            MatchEnding::Completed => winners(&self.played.standings()),
+            MatchEnding::Interrupted { .. } => Vec::new(),
+        }
+    }
+}
+
+fn winners(standings: &[Standing]) -> Vec<ParticipantId> {
+    standings
+        .iter()
+        .filter(|s| s.rank == 1)
+        .map(|s| s.participant)
+        .collect()
+}
+
+/// A competitor's standing in a match.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Standing {
+    pub participant: ParticipantId,
+    /// Equal totals share a rank.
+    pub rank: u16,
+    pub total: Points,
+    /// One entry per stage of the match, in order.
+    pub stages: Vec<StageStanding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StageStanding {
+    Placed(Placement),
+    SatOut(SitOutReason),
+    /// Not played: before their entry, or not reached.
+    NotPlayed,
+    /// Started without a confirmed result: running, or interrupted (no award).
+    Unconfirmed,
+}
+
+impl Match {
+    pub fn stage(&self, id: StageId) -> Option<&Stage> {
+        self.stages.iter().find(|s| s.id == id)
+    }
+
+    pub fn stage_index(&self, id: StageId) -> Option<usize> {
+        self.stages.iter().position(|s| s.id == id)
+    }
+
+    /// Stage awards summed per competitor (equal stage weights; a missed or
+    /// unconfirmed stage is zero, never an estimate).
+    pub fn standings(&self) -> Vec<Standing> {
+        let mut out: Vec<Standing> = self
+            .roster
+            .keys()
+            .map(|&id| {
+                let stages: Vec<StageStanding> = self
+                    .stages
+                    .iter()
+                    .map(|stage| match &stage.play {
+                        None => StageStanding::NotPlayed,
+                        Some(play) => {
+                            if let Some(p) = play.result.as_ref().and_then(|r| r.placement(id)) {
+                                StageStanding::Placed(*p)
+                            } else if let Some(reason) = play.sat_out.get(&id) {
+                                StageStanding::SatOut(*reason)
+                            } else if play.lineup.contains(&id) {
+                                StageStanding::Unconfirmed
+                            } else {
+                                StageStanding::NotPlayed
+                            }
+                        }
+                    })
+                    .collect();
+                let total = stages
+                    .iter()
+                    .map(|s| match s {
+                        StageStanding::Placed(p) => p.points,
+                        _ => Points::ZERO,
+                    })
+                    .sum();
+                Standing {
+                    participant: id,
+                    rank: 0,
+                    total,
+                    stages,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.total
+                .cmp(&a.total)
+                .then(a.participant.cmp(&b.participant))
+        });
+        let totals: Vec<Points> = out.iter().map(|s| s.total).collect();
+        for s in &mut out {
+            let above = totals.iter().filter(|t| **t > s.total).count();
+            s.rank = u16::try_from(above + 1).unwrap_or(u16::MAX);
+        }
+        out
+    }
+}
+
+/// What a member is doing now, derived from the room's separate facts
+/// (`docs/plans/multiplayer-ui.md`, State model). Viewing results is not
+/// among them: it changes nothing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Participation {
+    Left,
+    /// Chose to watch (an admin observer, say).
+    Watching,
+    /// Wants to play; arrived during the match and waits for the next.
+    WaitingNextMatch,
+    /// Persistent elimination ended their match.
+    OutForMatch,
+    /// Admitted for the upcoming stage, not ready.
+    NotReady {
+        stage: StageId,
+    },
+    /// Ready requested; loading the stage's content.
+    ReadyLoading {
+        stage: StageId,
+    },
+    /// Ready and loaded: eligible.
+    ReadyLoaded {
+        stage: StageId,
+    },
+    /// The required content failed to load.
+    LoadFailed {
+        stage: StageId,
+    },
+    /// In the committed lineup, counting down.
+    Committed {
+        stage: StageId,
+    },
+    Competing {
+        stage: StageId,
+    },
+    /// Confirmed winner, finishing the song (adds nothing).
+    WinnerFinishing {
+        stage: StageId,
+    },
+    /// Confirmed place in a stage whose winner may still be playing.
+    Placed {
+        stage: StageId,
+        place: u16,
+        finish: Finish,
+    },
+    SittingOut {
+        stage: StageId,
+        reason: SitOutReason,
+    },
+    /// Nothing to prepare: the match is over or interrupted.
+    Idle,
+}
+
+impl RoomState {
+    /// A new room in its lobby, its owner the first member.
+    pub fn new(
+        room: RoomId,
+        owner: Identity,
+        owner_name: String,
+        policy: RoomPolicy,
+        rules: MatchRules,
+        source: ContentSource,
+    ) -> Self {
+        let owner_id = ParticipantId(1);
+        let playlist: Vec<Stage> = (1..=u64::from(rules.stages))
+            .map(|i| Stage::new(StageId(i)))
+            .collect();
+        let mut members = BTreeMap::new();
+        members.insert(
+            owner_id,
+            Member {
+                id: owner_id,
+                kind: MemberKind::Human {
+                    identity: owner,
+                    name: owner_name,
+                },
+                role: Role::Owner,
+                admin: false,
+                intent: Intent::Play,
+                connection: Connection::Connected,
+                left: false,
+            },
+        );
+        Self {
+            room,
+            revision: Revision(0),
+            counters: Counters {
+                participant: 2,
+                matches: 1,
+                stage: playlist.len() as u64 + 1,
+            },
+            policy,
+            source,
+            access: Access::default(),
+            members,
+            next: NextMatchDraft {
+                rules,
+                saved_at: Revision(0),
+                review: None,
+            },
+            playlist,
+            current: None,
+            phase: Phase::Lobby,
+            history: Vec::new(),
+        }
+    }
+
+    pub fn member(&self, id: ParticipantId) -> Option<&Member> {
+        self.members.get(&id)
+    }
+
+    pub fn member_by_identity(&self, identity: &Identity) -> Option<&Member> {
+        self.members
+            .values()
+            .find(|m| m.identity() == Some(identity))
+    }
+
+    /// A stage of the running match or of the next match's playlist.
+    pub fn stage(&self, id: StageId) -> Option<&Stage> {
+        self.current
+            .as_ref()
+            .and_then(|m| m.stage(id))
+            .or_else(|| self.playlist.iter().find(|s| s.id == id))
+    }
+
+    pub(crate) fn stage_mut(&mut self, id: StageId) -> Option<&mut Stage> {
+        if let Some(m) = &mut self.current
+            && let Some(s) = m.stages.iter_mut().find(|s| s.id == id)
+        {
+            return Some(s);
+        }
+        self.playlist.iter_mut().find(|s| s.id == id)
+    }
+
+    /// The stage gathering readiness now, if any.
+    pub fn upcoming_stage(&self) -> Option<StageId> {
+        match &self.phase {
+            Phase::Lobby => self.playlist.first().map(|s| s.id),
+            Phase::Preparing { stage, .. } => Some(*stage),
+            Phase::Intermission { next } => Some(*next),
+            _ => None,
+        }
+    }
+
+    /// The room's next time-driven step on the authority's clock, if any:
+    /// the readiness window's deadline or the countdown's start. An
+    /// authority runs [`RoomState::advance`] then (a server's alarm).
+    pub fn next_deadline(&self) -> Option<Millis> {
+        match &self.phase {
+            Phase::Preparing {
+                window: Some(w), ..
+            } => Some(w.deadline),
+            Phase::Countdown { start_at, .. } => Some(*start_at),
+            Phase::Stage { stage } => self.report_deadline(*stage),
+            _ => None,
+        }
+    }
+
+    /// When a self-reported stage (`StagePlay::self_reported`) settles
+    /// without the reports still missing (`OutcomePolicy`).
+    pub fn report_deadline(&self, stage: StageId) -> Option<Millis> {
+        let play = self.stage(stage)?.play.as_ref()?;
+        if !play.self_reported(&self.members) || play.result.is_some() {
+            return None;
+        }
+        let p = &self.policy.outcomes;
+        let cap = play.start_at.after(p.stage_cap_ms);
+        Some(match play.song_end_at {
+            Some(at) => at.after(p.after_song_end_ms).min(cap),
+            None => cap,
+        })
+    }
+
+    /// The running match (not one that already ended).
+    pub fn running_match(&self) -> Option<&Match> {
+        self.current
+            .as_ref()
+            .filter(|_| self.phase.kind().match_running())
+    }
+
+    /// People present who want a competitive seat: the human seats the next
+    /// match must hold.
+    pub fn reserved_humans(&self) -> usize {
+        self.members
+            .values()
+            .filter(|m| !m.left && !m.is_cpu() && m.intent == Intent::Play)
+            .count()
+    }
+
+    /// Why `id` would not start `stage` now, or `None` if eligible (a CPU,
+    /// or a connected person who is ready, loaded and wants to play).
+    pub fn sit_out_reason(&self, stage: &Stage, id: ParticipantId) -> Option<SitOutReason> {
+        let Some(m) = self.members.get(&id) else {
+            return Some(SitOutReason::Left);
+        };
+        if m.left {
+            return Some(SitOutReason::Left);
+        }
+        if m.is_cpu() {
+            return None;
+        }
+        if m.intent == Intent::Watch {
+            return Some(SitOutReason::Watching);
+        }
+        if m.connection != Connection::Connected {
+            return Some(SitOutReason::NotConnected);
+        }
+        let prep = stage.prep(id);
+        match prep.loading {
+            Loading::Failed { .. } => Some(SitOutReason::LoadFailed),
+            _ if !prep.ready => Some(SitOutReason::NotReady),
+            Loading::Loaded => None,
+            _ => Some(SitOutReason::StillLoading),
+        }
+    }
+
+    /// The match's competitors who may start its next stage: its roster
+    /// less those persistent elimination took out.
+    pub fn candidates(&self) -> Vec<ParticipantId> {
+        self.current
+            .iter()
+            .flat_map(|m| m.roster.iter())
+            .filter(|(_, seat)| !seat.out_for_match)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// The running match's standings, or `None` outside a match.
+    pub fn standings(&self) -> Option<Vec<Standing>> {
+        self.current.as_ref().map(Match::standings)
+    }
+
+    /// The overall winners, once the match's results are in.
+    pub fn match_winners(&self) -> Vec<ParticipantId> {
+        match (&self.phase, &self.current) {
+            (Phase::MatchResults, Some(m)) => winners(&m.standings()),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn participation(&self, id: ParticipantId) -> Option<Participation> {
+        let m = self.members.get(&id)?;
+        if m.left {
+            return Some(Participation::Left);
+        }
+        let prepared = |stage: StageId| {
+            let Some(s) = self.stage(stage) else {
+                return Participation::Idle;
+            };
+            let prep = s.prep(id);
+            match (prep.ready, &prep.loading) {
+                (_, Loading::Failed { .. }) => Participation::LoadFailed { stage },
+                (false, _) => Participation::NotReady { stage },
+                (true, Loading::Loaded) => Participation::ReadyLoaded { stage },
+                (true, _) => Participation::ReadyLoading { stage },
+            }
+        };
+        let Some(current) = self.running_match() else {
+            return Some(match &self.phase {
+                Phase::Lobby if m.intent == Intent::Watch => Participation::Watching,
+                Phase::Lobby => self.upcoming_stage().map_or(Participation::Idle, prepared),
+                _ => Participation::Idle,
+            });
+        };
+        let Some(seat) = current.roster.get(&id) else {
+            return Some(match m.intent {
+                Intent::Play => Participation::WaitingNextMatch,
+                Intent::Watch => Participation::Watching,
+            });
+        };
+        if seat.out_for_match {
+            return Some(Participation::OutForMatch);
+        }
+        Some(match &self.phase {
+            Phase::Preparing { stage, .. } | Phase::Intermission { next: stage } => {
+                if m.intent == Intent::Watch {
+                    Participation::Watching
+                } else {
+                    prepared(*stage)
+                }
+            }
+            Phase::Countdown { stage, .. }
+            | Phase::Stage { stage }
+            | Phase::SongCompletion { stage } => {
+                let play = current.stage(*stage).and_then(|s| s.play.as_ref());
+                match play {
+                    Some(play) if play.lineup.contains(&id) => {
+                        match (
+                            &self.phase,
+                            play.result.as_ref().and_then(|r| r.placement(id)),
+                        ) {
+                            (Phase::Countdown { .. }, _) => {
+                                Participation::Committed { stage: *stage }
+                            }
+                            (_, Some(p)) if p.place == 1 && !play.song_ended => {
+                                Participation::WinnerFinishing { stage: *stage }
+                            }
+                            (_, Some(p)) => Participation::Placed {
+                                stage: *stage,
+                                place: p.place,
+                                finish: p.finish,
+                            },
+                            _ => Participation::Competing { stage: *stage },
+                        }
+                    }
+                    Some(play) => match play.sat_out.get(&id) {
+                        Some(reason) => Participation::SittingOut {
+                            stage: *stage,
+                            reason: *reason,
+                        },
+                        None => Participation::Watching,
+                    },
+                    None => Participation::Idle,
+                }
+            }
+            _ => Participation::Idle,
+        })
+    }
+
+    /// The CPU profile behind a member, if it is a CPU seat.
+    pub fn opponent(&self, id: ParticipantId) -> Option<&OpponentSpec> {
+        match &self.members.get(&id)?.kind {
+            MemberKind::Cpu { opponent, .. } => Some(opponent),
+            MemberKind::Human { .. } => None,
+        }
+    }
+}

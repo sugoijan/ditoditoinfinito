@@ -37,13 +37,16 @@ fn every_line_reads_back_from_its_folder_in_any_case() {
         assert_eq!(Line::parse(&folder.to_uppercase()), Some(line), "{folder}");
         assert_eq!(classify(&folder), Kind::Line(line));
     }
-    // StepMania's alias, and our combos past 1000.
+    // StepMania's alias, and our combos of any other count.
     assert_eq!(Line::parse("Gameplay Combo 300"), Some(Line::Combo(300)));
     assert_eq!(Line::parse("gameplay 1500 combo"), Some(Line::Combo(1500)));
+    assert_eq!(Line::parse("gameplay 64 combo"), Some(Line::Combo(64)));
+    assert_eq!(Line::parse("gameplay combo 222"), Some(Line::Combo(222)));
+    assert_eq!(Line::parse("gameplay 1 combo"), Some(Line::Combo(1)));
     assert_eq!(Line::Combo(1500).origin(), Origin::Ours);
+    assert_eq!(Line::Combo(64).origin(), Origin::Ours);
     assert_eq!(Line::Combo(1000).origin(), Origin::StepMania);
     for not in [
-        "gameplay 150 combo",
         "gameplay 0 combo",
         "gameplay 0100 combo",
         "gameplay 99999999999 combo",
@@ -84,6 +87,9 @@ fn a_missing_line_falls_back_along_its_chain() {
         [Line::Combo(1200), Line::ComboOverflow]
     );
     assert_eq!(Line::Combo(500).chain(), [Line::Combo(500)]);
+    // Only a hundred past 1000 is More combo's.
+    assert_eq!(Line::Combo(1024).chain(), [Line::Combo(1024)]);
+    assert_eq!(Line::Combo(64).chain(), [Line::Combo(64)]);
     assert_eq!(Line::Restart.chain(), [Line::Restart, Line::Ready]);
     assert_eq!(
         Line::FullComboW(1).chain(),
@@ -492,4 +498,168 @@ fn a_bundled_announcers_key_is_apart_from_an_imported_ones() {
     assert!(!json.contains("bundled"));
     let back: Kept = serde_json::from_str(&serde_json::to_string(&ours).unwrap()).unwrap();
     assert_eq!(back, ours);
+}
+
+#[test]
+fn our_combos_are_the_combo_lines_our_packs_have() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/announcers");
+    for pack in std::fs::read_dir(&root).unwrap() {
+        let pack = pack.unwrap().path();
+        if !pack.is_dir() {
+            continue;
+        }
+        let mut combos: Vec<u32> = std::fs::read_dir(&pack)
+            .unwrap()
+            .filter_map(|e| match Line::parse(e.ok()?.file_name().to_str()?) {
+                Some(Line::Combo(n)) => Some(n),
+                _ => None,
+            })
+            .collect();
+        combos.sort();
+        assert_eq!(combos, OUR_COMBOS, "{}", pack.display());
+    }
+}
+
+#[test]
+fn the_battle_lines_have_their_own_folders_and_category() {
+    let folders: Vec<String> = Battle::ALL
+        .iter()
+        .map(|&b| Line::Battle(b).folder())
+        .collect();
+    assert_eq!(
+        folders,
+        [
+            "battle match begin",
+            "battle stage begin",
+            "battle final stage",
+            "battle life critical",
+            "battle survivors 4",
+            "battle survivors 2",
+            "battle eliminated",
+            "battle stage won",
+            "battle stage not won",
+            "battle stage drawn",
+            "battle song finished",
+            "battle match won",
+            "battle match not won",
+            "battle match drawn",
+        ]
+    );
+    for b in Battle::ALL {
+        let line = Line::Battle(b);
+        assert_eq!(line.spoken(), Spoken::Battle, "{b:?}");
+        assert_eq!(line.origin(), Origin::Ours, "{b:?}");
+        assert!(Line::all().contains(&line), "{b:?}");
+    }
+    // Only the milestones are lines; StepMania's old battle names stay
+    // read and unused, never these.
+    assert_eq!(Line::parse("battle survivors 3"), None);
+    assert_eq!(
+        classify("gameplay battle trick level1"),
+        Kind::Unused("gameplay battle trick level1".into())
+    );
+    assert_eq!(
+        classify("evaluation win"),
+        Kind::Unused("evaluation win".into())
+    );
+    // A pack's battle folders make it an announcer as other lines do.
+    let found = find_announcers(
+        &files(
+            &[
+                "Pack/battle match begin/a.ogg",
+                "Pack/battle stage won/b.ogg",
+                "Pack/battle eliminated/c.ogg",
+            ],
+            10,
+        ),
+        "root",
+    );
+    assert_eq!(found.announcers.len(), 1);
+    assert_eq!(found.announcers[0].lines.len(), 3);
+}
+
+#[test]
+fn a_missing_battle_line_falls_back_on_the_play_line_of_its_moment() {
+    let b = Line::Battle;
+    assert_eq!(
+        b(Battle::MatchBegin).chain(),
+        [b(Battle::MatchBegin), b(Battle::StageBegin), Line::Ready]
+    );
+    assert_eq!(
+        b(Battle::FinalStage).chain(),
+        [b(Battle::FinalStage), b(Battle::StageBegin), Line::Ready]
+    );
+    assert_eq!(
+        b(Battle::StageBegin).chain(),
+        [b(Battle::StageBegin), Line::Ready]
+    );
+    assert_eq!(
+        b(Battle::LifeCritical).chain(),
+        [b(Battle::LifeCritical), Line::CommentDanger]
+    );
+    assert_eq!(
+        b(Battle::Eliminated).chain(),
+        [b(Battle::Eliminated), Line::Failed]
+    );
+    assert_eq!(
+        b(Battle::SongFinished).chain(),
+        [b(Battle::SongFinished), Line::Cleared]
+    );
+    // Outcomes and milestones have nothing to fall back on: a chart's
+    // clear is not a stage's win.
+    for alone in [
+        Battle::Survivors(4),
+        Battle::Survivors(2),
+        Battle::StageWon,
+        Battle::StageNotWon,
+        Battle::StageDrawn,
+        Battle::MatchWon,
+        Battle::MatchNotWon,
+        Battle::MatchDrawn,
+    ] {
+        assert_eq!(b(alone).chain(), [b(alone)], "{alone:?}");
+    }
+    // A kept pack with only the play lines speaks them in the battle's
+    // place.
+    let mut kept = Kept::default();
+    kept.lines
+        .insert("gameplay ready".into(), vec!["r.ogg".into()]);
+    kept.lines
+        .insert("gameplay failed".into(), vec!["f.ogg".into()]);
+    assert_eq!(
+        kept.files(b(Battle::FinalStage)).map(|(l, _)| l),
+        Some(Line::Ready)
+    );
+    assert_eq!(
+        kept.files(b(Battle::Eliminated)).map(|(l, _)| l),
+        Some(Line::Failed)
+    );
+    assert_eq!(kept.files(b(Battle::StageWon)), None);
+}
+
+#[test]
+fn the_battle_lines_leave_the_studio_s_names_for_other_lines_alone() {
+    use draft::match_line;
+    // Ends of the play lines' folders still find them alone.
+    for (path, line) in [
+        ("lost.wav", Some(Line::LifeLost)),
+        ("danger 2.wav", Some(Line::CommentDanger)),
+        ("failed.wav", Some(Line::Failed)),
+        ("cleared.wav", Some(Line::Cleared)),
+        ("ready.wav", Some(Line::Ready)),
+        // The battle's, by their folder or an end of their own.
+        (
+            "battle stage won 2.wav",
+            Some(Line::Battle(Battle::StageWon)),
+        ),
+        ("eliminated.wav", Some(Line::Battle(Battle::Eliminated))),
+        ("final stage.wav", Some(Line::Battle(Battle::FinalStage))),
+        // Two lines' ends.
+        ("begin.wav", None),
+        ("drawn.wav", None),
+    ] {
+        assert_eq!(match_line(path), line, "{path}");
+    }
+    // The studio lists them, as every line the game speaks.
+    assert!(draft::listed().contains(&Line::Battle(Battle::MatchBegin)));
 }

@@ -356,8 +356,8 @@ impl Job {
         );
     }
     fn unit(&mut self, m: &Model) -> bool {
-        // Preserve the accepted blocking route as an independent numerical
-        // reference and for offline consumers that do not need to yield.
+        // Preserve the accepted blocking route for offline consumers that do
+        // not need to yield.
         if self.fitting.is_none() && matches!(self.stage, 0 | 4) {
             let reuse = matches!(self.preparation, PreparationMode::Efficient60);
             let stop = self.stop;

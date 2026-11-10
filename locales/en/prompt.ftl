@@ -178,3 +178,11 @@ prompt-play-quit-button = hold or double-tap the quit button
 # Variables:
 #   $key (String) - the key, as its cap prints it (R, \)
 prompt-play-restart = hold or double-tap { $key } to restart
+
+# CPU prototype controls on the start card and results footer (wraps).
+# $seed (String) is the exact reproducible random seed, without grouping.
+# $strength (Number) is the ability multiplier, not a promised score.
+prompt-cpu-description = CPU · Tap-only · No fail · Strength { $strength }× · Seed { $seed }
+
+# $skills (String) is the seven comma-separated CPU skill multipliers.
+prompt-cpu-skills = Skills: { $skills }

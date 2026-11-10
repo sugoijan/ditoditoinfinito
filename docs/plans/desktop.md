@@ -1941,7 +1941,8 @@ Built in `crates/desktop/src/play/`:
   its pipelines encoding (skins blend as the scene does; `Offscreen` is
   not open to it: it needs an sRGB target): the same picture
   (`a_plain_surface_draws_the_same_play`, mean difference under 3 of
-  255).
+  255). The frame itself is drawn by the body both shells share
+  (`ddi_shell::play_view::PlayView`, over desktop's `PlayHost`).
 - **`skins.rs`:** the chosen noteskin readied natively, as the web's
   `noteskins.rs` does in two passes: bundled skins from the index,
   the song folders' `NoteSkins/` (`library::noteskins`), the Lua run by

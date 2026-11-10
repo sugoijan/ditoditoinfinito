@@ -1,7 +1,9 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
 //! uses the fragment: `#/` (Start), `#/select` (Songs), `#/play?song=<id>&chart=<n>`, `#/options`,
 //! `#/calibrate`, `#/credits`, `#/results`, `#/edit?song=<id>&chart=<n>`,
-//! `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`.
+//! `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`; behind the
+//! multiplayer prototype's switch (`#/?mp=1`), `#/mp`, `#/room` and
+//! `#/room/pick?stage=<id>&n=<number>`.
 
 use ddi_library::share::percent_encode;
 use std::collections::BTreeMap;
@@ -11,6 +13,7 @@ use std::collections::BTreeMap;
 pub(crate) struct PlayRoute {
     pub(crate) song: String,
     pub(crate) chart: usize,
+    pub(crate) cpu: Option<ddi_engine::cpu::Selection>,
     /// `gfx=gl` forces the WebGL2 backend.
     pub(crate) force_gl: bool,
     /// `auto=1` plays the chart automatically (testing / demo).
@@ -35,6 +38,10 @@ pub(crate) struct PlayRoute {
     /// that line (`crate::studio_scene`): staged, never kept, back to
     /// the studio.
     pub(crate) scene: Option<String>,
+    /// `stage=<stage id>`: a stage of the practice room (`crate::room`):
+    /// played against its CPUs, never kept, its outcome reported to the
+    /// room, back to the room.
+    pub(crate) stage: Option<u64>,
 }
 
 impl PlayRoute {
@@ -84,6 +91,25 @@ pub(crate) enum Route {
     Credits,
     /// The announcer studio (`docs/plans/announcer-studio.md`).
     Studio,
+    /// The multiplayer prototype (`docs/plans/multiplayer-prototype-progress.md`),
+    /// behind its hidden switch (`#/?mp=1`): its home (`#/mp`), the
+    /// practice room (`#/room`) and song select choosing a stage's song
+    /// (`#/room/pick?stage=<id>&n=<number>`).
+    Multiplayer,
+    Room,
+    RoomPick {
+        stage: u64,
+        number: u16,
+    },
+    /// An invite's page (`#/mp/join/<invite>`, M5c): the room it is for,
+    /// joining it; the link carries `mp=1`, the switch.
+    MpJoin {
+        invite: String,
+    },
+    /// An online room (`#/mp/room/<id>`), joined already.
+    MpRoom {
+        id: String,
+    },
     /// The video decoder check; `src=a,b` checks those site files,
     /// `decoder=webcodecs` the browser's decoder and `decoder=both` both,
     /// comparing their frames.
@@ -134,10 +160,54 @@ impl Route {
         {
             return Route::Shared { id: id.to_string() };
         }
+        if let Some(invite) = path.strip_prefix("mp/join/") {
+            return Route::MpJoin {
+                invite: invite.to_string(),
+            };
+        }
+        if let Some(id) = path.strip_prefix("mp/room/") {
+            return Route::MpRoom { id: id.to_string() };
+        }
+        let cpu = if path == "play" {
+            if let Some(profile) = params.get("cpu") {
+                if ["auto", "bias", "replay", "view", "edit", "scene", "stage"]
+                    .iter()
+                    .any(|key| params.contains_key(key))
+                {
+                    return Route::NotFound(
+                        "CPU cannot be combined with autoplay, bias, replay, editor or scene parameters".into(),
+                    );
+                }
+                match ddi_engine::cpu::Selection::parse(
+                    profile,
+                    params.get("strength").map_or("normal", String::as_str),
+                    params.get("seed").map_or("1", String::as_str),
+                )
+                .and_then(|cpu| {
+                    cpu.with_skills(params.get("skills").map_or("balanced", String::as_str))
+                }) {
+                    Ok(cpu) => Some(cpu),
+                    Err(error) => return Route::NotFound(error),
+                }
+            } else {
+                if params.contains_key("strength")
+                    || params.contains_key("seed")
+                    || params.contains_key("skills")
+                {
+                    return Route::NotFound(
+                        "CPU strength, seed and skills require cpu=1 or a profile path".into(),
+                    );
+                }
+                None
+            }
+        } else {
+            None
+        };
         match path {
             "" => Route::Home,
             "select" => Route::Songs,
             "play" => Route::Play(PlayRoute {
+                cpu,
                 song: params.get("song").cloned().unwrap_or_default(),
                 chart: params
                     .get("chart")
@@ -152,6 +222,7 @@ impl Route {
                 view_results: params.get("view").is_some_and(|v| v == "results"),
                 edit: params.get("edit").is_some_and(|v| v == "1"),
                 scene: params.get("scene").filter(|s| !s.is_empty()).cloned(),
+                stage: params.get("stage").and_then(|s| s.parse().ok()),
             }),
             "edit" => Route::Edit {
                 song: params.get("song").cloned().unwrap_or_default(),
@@ -172,6 +243,15 @@ impl Route {
             },
             "credits" => Route::Credits,
             "announcer" => Route::Studio,
+            "mp" => Route::Multiplayer,
+            "room" => Route::Room,
+            "room/pick" => match (
+                params.get("stage").and_then(|s| s.parse().ok()),
+                params.get("n").and_then(|s| s.parse().ok()),
+            ) {
+                (Some(stage), Some(number)) => Route::RoomPick { stage, number },
+                _ => Route::Room,
+            },
             "skin-preview" => Route::SkinPreview {
                 params: params
                     .iter()
@@ -226,19 +306,36 @@ impl Route {
                 slow,
                 replay,
                 view_results,
+                cpu,
                 edit,
                 scene,
+                stage,
             }) => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
                 let slow = if *slow { "&slow=1" } else { "" };
-                let edit = match scene {
-                    Some(line) => format!("&scene={}", percent_encode(line)),
-                    None if *edit => "&edit=1".into(),
-                    None => String::new(),
+                let edit = match (scene, stage) {
+                    (Some(line), _) => format!("&scene={}", percent_encode(line)),
+                    (None, Some(id)) => format!("&stage={id}"),
+                    (None, None) if *edit => "&edit=1".into(),
+                    (None, None) => String::new(),
                 };
                 if let Some(id) = replay {
                     let view = if *view_results { "&view=results" } else { "" };
                     return format!("#/play?replay={}{view}{gl}{slow}", percent_encode(id));
+                }
+                if let Some(cpu) = cpu {
+                    let skills = if cpu.skills == ddi_engine::cpu::Skills::default() {
+                        String::new()
+                    } else {
+                        format!("&skills={}", percent_encode(&cpu.skills.to_string()))
+                    };
+                    return format!(
+                        "#/play?song={}&chart={chart}&cpu={}&strength={}&seed={}{skills}{gl}{slow}",
+                        percent_encode(song),
+                        percent_encode(cpu.path.as_deref().unwrap_or("1")),
+                        ddi_engine::cpu::LABELS[cpu.level].to_ascii_lowercase(),
+                        cpu.seed
+                    );
                 }
                 let auto = match (*auto, *auto_pad) {
                     (_, true) => "&auto=pad",
@@ -267,6 +364,11 @@ impl Route {
             }
             Route::Credits => "#/credits".into(),
             Route::Studio => "#/announcer".into(),
+            Route::Multiplayer => "#/mp".into(),
+            Route::Room => "#/room".into(),
+            Route::RoomPick { stage, number } => format!("#/room/pick?stage={stage}&n={number}"),
+            Route::MpJoin { invite } => format!("#/mp/join/{}", percent_encode(invite)),
+            Route::MpRoom { id } => format!("#/mp/room/{}", percent_encode(id)),
             Route::VideoCheck { sources, decoder } => {
                 let mut query = Vec::new();
                 if !sources.is_empty() {
@@ -312,6 +414,7 @@ impl Route {
             .unwrap_or_default();
         keep_testing(&hash);
         share_switch(&hash);
+        multiplayer_switch(&hash);
         lang_switch(&hash);
         Route::parse(&hash)
     }
@@ -353,12 +456,13 @@ pub(crate) fn keep_testing(hash: &str) {
         return;
     }
     crate::perf::note_address(query);
-    // The chart editor's playtest and the announcer studio's scenes say
-    // nothing about the session's plays (their `auto` is their own).
+    // The chart editor's playtest, the announcer studio's scenes and a
+    // practice room's stages say nothing about the session's plays
+    // (their `auto` is their own).
     if path == "play"
         && query
             .split('&')
-            .any(|kv| kv == "edit=1" || kv.starts_with("scene="))
+            .any(|kv| kv == "edit=1" || kv.starts_with("scene=") || kv.starts_with("stage="))
     {
         return;
     }
@@ -429,6 +533,47 @@ fn share_switch(hash: &str) {
         settings.sharing = on;
         settings.save();
     }
+}
+
+/// The multiplayer prototype's hidden switch
+/// (`docs/plans/multiplayer-prototype-progress.md`): `#/?mp=1` on the start
+/// route (or on an invite's link, `#/mp/join/<invite>?mp=1`) sets
+/// `Settings::multiplayer`, `mp=0` clears it; never a row of Options. Off,
+/// the start menu's Multiplayer says "Coming soon" and the prototype's
+/// routes lead to the start menu.
+fn multiplayer_switch(hash: &str) {
+    let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
+        return;
+    };
+    let path = path.trim_start_matches('/');
+    // The start route, or an invite's link (which carries the switch so it
+    // opens where it was never set).
+    if !path.is_empty() && !path.starts_with("mp/join/") {
+        return;
+    }
+    let Some(on) = query.split('&').find_map(|kv| match kv.split_once('=') {
+        Some(("mp", "1")) => Some(true),
+        Some(("mp", "0")) => Some(false),
+        _ => None,
+    }) else {
+        return;
+    };
+    let mut settings = crate::settings::Settings::load();
+    if settings.multiplayer != on {
+        settings.multiplayer = on;
+        settings.save();
+    }
+}
+
+/// A parameter of the current address's query, if there.
+pub(crate) fn query_param(key: &str) -> Option<String> {
+    let hash = web_sys::window()?.location().hash().ok()?;
+    let (_, query) = hash.split_once('?')?;
+    query.split('&').find_map(|kv| match kv.split_once('=') {
+        Some((k, v)) if k == key => Some(percent_decode(v)),
+        None if kv == key => Some(String::new()),
+        _ => None,
+    })
 }
 
 /// The testing parameters kept ([`keep_testing`]), `&`-joined.
@@ -611,6 +756,12 @@ pub(crate) fn back() {
     }
     use ddi_ui::navigation::Destination;
     let current = Route::current();
+    // The multiplayer prototype's routes opened directly: each its parent.
+    let multiplayer = match &current {
+        Route::RoomPick { .. } => Some(Route::Room),
+        Route::Room | Route::MpJoin { .. } | Route::MpRoom { .. } => Some(Route::Multiplayer),
+        _ => None,
+    };
     // A shared song's play opened directly: its share is its list.
     let shared = match &current {
         Route::Play(PlayRoute { song, .. }) => {
@@ -630,9 +781,10 @@ pub(crate) fn back() {
         Route::Credits => Destination::Credits,
         _ => Destination::Calibration,
     };
-    let parent = match (destination.fallback(), shared) {
-        (Destination::Songs, Some(share)) => share,
-        (Destination::Songs, None) => Route::Songs,
+    let parent = match (multiplayer, destination.fallback(), shared) {
+        (Some(parent), _, _) => parent,
+        (None, Destination::Songs, Some(share)) => share,
+        (None, Destination::Songs, None) => Route::Songs,
         _ => Route::Home,
     }
     .to_hash();
@@ -744,6 +896,48 @@ mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test]
+    fn cpu_route_roundtrip_and_conflicts() {
+        let route = Route::parse(
+            "#/play?song=beatucada&chart=3&cpu=1&strength=easy&seed=18446744073709551615",
+        );
+        assert!(
+            matches!(&route,Route::Play(PlayRoute{cpu:Some(c),..}) if c.level==1 && c.seed==u64::MAX)
+        );
+        assert_eq!(Route::parse(&route.to_hash()), route);
+        for suffix in [
+            "cpu=1&auto=1",
+            "cpu=1&edit=1",
+            "cpu=1&scene=gameplay",
+            "cpu=1&bias=0",
+            "cpu=1&replay=x",
+            "cpu=1&seed=-1",
+            "cpu=1&strength=bad",
+            "strength=easy",
+            "skills=jacks",
+            "cpu=1&skills=1,2",
+            "cpu=1&skills=0.1,1,1,1,1,1,1",
+            "cpu=cpu/a.json&skills=jacks",
+            "cpu=../x.json",
+        ] {
+            assert!(matches!(
+                Route::parse(&format!("#/play?song=beatucada&{suffix}")),
+                Route::NotFound(_)
+            ));
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn cpu_personality_routes_round_trip() {
+        for input in ["jacks", "1.1,0.9,1,1.25,0.8,1,1"] {
+            let route = Route::parse(&format!("#/play?song=beatucada&cpu=1&skills={input}"));
+            assert!(
+                matches!(&route,Route::Play(PlayRoute{cpu:Some(c),..}) if c.skills==ddi_engine::cpu::Skills::parse(input).unwrap())
+            );
+            assert_eq!(Route::parse(&route.to_hash()), route);
+        }
+    }
+
+    #[wasm_bindgen_test]
     fn decode_round_trips_encode() {
         for s in [
             "",
@@ -777,6 +971,7 @@ mod tests {
         assert_eq!(
             r,
             Route::Play(PlayRoute {
+                cpu: None,
                 force_gl: true,
                 auto: true,
                 slow: true,

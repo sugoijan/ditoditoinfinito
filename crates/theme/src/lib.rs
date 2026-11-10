@@ -684,8 +684,6 @@ impl Infinito {
             let ty = bh + 12.0 + 17.6;
             let mut title = at_left(self.text("Title", "", 32.0, 700, "Text"), 0.0, ty);
             max_width(&mut title, w * 0.78);
-            let mut sub = at_right(self.text("Subtitle", "", 17.0, 400, "Muted"), w, ty + 4.0);
-            max_width(&mut sub, w * 0.2);
             let ay = bh + 12.0 + 35.2 + 2.0 + 10.2;
             let mut artist = at_left(self.text("Artist", "", 17.0, 400, "Secondary"), 0.0, ay);
             max_width(&mut artist, w * 0.5);
@@ -708,7 +706,6 @@ impl Infinito {
             let pack_x = after(&pack_label, pack_label_x, pack_label_x + 38.0);
             c.extend([
                 title,
-                sub,
                 artist,
                 at_left(
                     tracked(self.text("BpmLabel", "BPM", 12.0, 400, "Muted"), 80),
@@ -1209,8 +1206,8 @@ impl Infinito {
         } else {
             (0.0, 0.0)
         };
-        // The option row widget is focused; the options screen's rows are
-        // told which is (their frame is what takes focus).
+        // The toggle is focused; the options screen's rows are told which
+        // is (their frame is what takes focus).
         let (on, off) = if centered {
             ("GainFocus", "LoseFocus")
         } else {
@@ -1227,16 +1224,7 @@ impl Infinito {
         max_width(&mut label, if centered { 186.0 } else { 216.0 });
         self.colored(&mut label, on, "Text");
         self.colored(&mut label, off, "Secondary");
-        let mut parts = vec![p, label];
-        if centered {
-            // Where the choices go (the option row widget's `Choices`).
-            let span = w - 16.0 - 190.0 - 16.0;
-            let mut choices = quad("Choices", [span, h], [0.0; 4]);
-            call(&mut choices, "x", &[x0 + 16.0 + 190.0 + span / 2.0]);
-            choices.visible = false;
-            parts.push(choices);
-        }
-        frame("", parts)
+        frame("", vec![p, label])
     }
 }
 
@@ -1382,7 +1370,6 @@ impl Look for Infinito {
                     "stoptweening;linear,0.08;zoom,0.3;diffusealpha,0",
                 );
                 if let Kind::Frame(c) = &mut f.kind {
-                    c.retain(|a| a.name != "Choices");
                     // The whole row takes a tap, not only its ends: a hit
                     // area must be drawn, however faintly.
                     let hit = quad("Hit", spec.size, [0.0, 0.0, 0.0, 0.004]);
@@ -1391,27 +1378,7 @@ impl Look for Infinito {
                 }
                 f
             }
-            "OptionRow" => self.option_row(spec, true),
-            "OptionRow.Choice" => self.text("", &spec.text, 15.0, 600, "Text"),
             "OptionRow.Cursor" => quad("", [w, 2.0], self.c("Accent")),
-            "Slider" => {
-                let mut f = self.option_row(spec, true);
-                let track_w = w * 0.45;
-                let l = w / 2.0 - 80.0 - track_w;
-                let mut track = round(quad("Track", [track_w, 4.0], self.c("Line2")), 2.0);
-                call(&mut track, "x", &[l + track_w / 2.0]);
-                let mut fill = round(quad("Fill", [track_w, 4.0], self.c("Accent")), 2.0);
-                call(&mut fill, "x", &[l]);
-                call(&mut fill, "halign", &[0.0]);
-                let mut knob = round(quad("Knob", [8.0, h * 0.55], self.c("Text")), 4.0);
-                call(&mut knob, "x", &[l]);
-                let value = at_right(self.num("Value", "", 15.0, "Text"), w / 2.0 - 16.0, 0.0);
-                if let Kind::Frame(c) = &mut f.kind {
-                    c.retain(|a| a.name != "Choices");
-                    c.extend([track, fill, knob, value]);
-                }
-                f
-            }
             "SongList.Row" => self.song_row(spec),
             "SongList.Header" => self.song_header(spec),
             "List.Row" => {

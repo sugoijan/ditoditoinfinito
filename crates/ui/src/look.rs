@@ -1,6 +1,6 @@
 //! What widgets look like, behind a small seam (`docs/plans/ui-core.md`,
 //! P6): a widget asks the [`Look`] for its component by name (`Button`,
-//! `List.Row`, `Slider`, …) and gets actors back; a look that has no such
+//! `List.Row`, `Toggle`, …) and gets actors back; a look that has no such
 //! component falls back to [`Plain`], the built-in dark look, as noteskins
 //! fall back to `default`. Widgets never draw themselves: they move,
 //! show and fill the component's named parts and play commands on it
@@ -13,9 +13,7 @@
 //!
 //! - `Button`: `Plate`, `Label`.
 //! - `Toggle`: `Plate`, `Label`, `Box`, `Mark`.
-//! - `OptionRow`: `Plate`, `Label`; `OptionRow.Choice`: a text;
-//!   `OptionRow.Cursor`: under the chosen one.
-//! - `Slider`: `Plate`, `Label`, `Track`, `Fill`, `Knob`, `Value`.
+//! - `OptionRow.Cursor`: under an option row's chosen choice.
 //! - `List.Row`: `Plate`, `Banner` (a sprite the row's image is put on, a
 //!   placeholder until it loads), `Title`, `Subtitle`; `List.Header`:
 //!   `Plate`, `Title`; `List.Bar`: `Track`, `Thumb`.
@@ -482,36 +480,6 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 call(&mut ring, "cornerradius", &[w.min(h) / 2.0]);
                 frame(vec![ring])
             }
-            "OptionRow" | "Slider" => {
-                let mut label = text("Label", &spec.text, size, MUTED);
-                call(&mut label, "x", &[-w / 2.0 + 12.0]);
-                call(&mut label, "halign", &[0.0]);
-                let mut parts = vec![lit_plate(spec.size), label];
-                if name == "OptionRow" {
-                    // Where the choices go: the right two thirds.
-                    let span = w * 2.0 / 3.0 - 16.0;
-                    let mut choices = quad("Choices", [span, h], [0.0; 4]);
-                    call(&mut choices, "x", &[-w / 2.0 + w / 3.0 + span / 2.0]);
-                    choices.visible = false;
-                    parts.push(choices);
-                }
-                if name == "Slider" {
-                    let track_w = w * 0.5;
-                    let left = w / 2.0 - 70.0 - track_w;
-                    let mut track = quad("Track", [track_w, 4.0], [0.3, 0.31, 0.36, 1.0]);
-                    call(&mut track, "x", &[left + track_w / 2.0]);
-                    let mut fill = quad("Fill", [track_w, 4.0], LIT);
-                    call(&mut fill, "x", &[left]);
-                    call(&mut fill, "halign", &[0.0]);
-                    let mut knob = quad("Knob", [10.0, h * 0.6], TEXT);
-                    call(&mut knob, "x", &[left]);
-                    let mut value = text("Value", "", size, TEXT);
-                    call(&mut value, "x", &[w / 2.0 - 12.0]);
-                    call(&mut value, "halign", &[1.0]);
-                    parts.extend([track, fill, knob, value]);
-                }
-                frame(parts)
-            }
             // The quick volume's slider ([`crate::widgets::volume`]): the
             // track upright, filled from the bottom, the level over it.
             "Volume.Popup" => {
@@ -534,7 +502,6 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                     knob,
                 ])
             }
-            "OptionRow.Choice" => text("", &spec.text, size, TEXT),
             "OptionRow.Cursor" => quad("", [w, 2.0], LIT),
             "List.Row" => {
                 let mut plate = quad("Plate", spec.size, PLATE);

@@ -7,7 +7,10 @@
 //! background changes play comes when the play loads
 //! ([`ensure_all`]). And the way up: the songs of the library a player
 //! chose uploaded as a share ([`upload`], song select's Share… or
-//! `--share`), with the token kept in the settings.
+//! `--share`), with the token kept in the settings, or an online room's
+//! stage song under the room's upload grant ([`upload_room`], M5d).
+//! Several shares are kept at once (an online room's stages each have
+//! one).
 //!
 //! HTTP through ureq, synchronous, on the threads that call: no runtime
 //! in the game; TLS through the system's own stack and trust store.
@@ -54,8 +57,9 @@ struct Current {
     root: PathBuf,
 }
 
-/// The share loaded last: its files' places, for a play's loading.
-static CURRENT: Mutex<Option<Current>> = Mutex::new(None);
+/// The shares loaded this run, by id: their files' places, for a play's
+/// loading.
+static LOADED: Mutex<Vec<Current>> = Mutex::new(Vec::new());
 
 /// What is coming down now: songs done of all (the list's load), and
 /// the file being fetched with its bytes so far of all.
@@ -98,7 +102,8 @@ fn download_over() {
     }
 }
 
-fn agent() -> ureq::Agent {
+/// The HTTP client the share and the online rooms use (`crate::online`).
+pub(crate) fn agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::NativeTls)
         .root_certs(ureq::tls::RootCerts::PlatformVerifier)
@@ -208,8 +213,9 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
         expires_at: doc.expires_at,
         songs,
     };
-    if let Ok(mut c) = CURRENT.lock() {
-        *c = Some(Current { doc, root });
+    if let Ok(mut c) = LOADED.lock() {
+        c.retain(|c| c.doc.id != loaded.id);
+        c.push(Current { doc, root });
     }
     Ok(loaded)
 }
@@ -221,10 +227,10 @@ pub fn ensure_all(id: &str) -> Result<(), ShareError> {
         return Ok(());
     };
     let (doc, root) = {
-        let c = CURRENT.lock().map_err(|_| not_loaded())?;
+        let c = LOADED.lock().map_err(|_| not_loaded())?;
         let c = c
-            .as_ref()
-            .filter(|c| c.doc.id == share)
+            .iter()
+            .find(|c| c.doc.id == share)
             .ok_or_else(not_loaded)?;
         (c.doc.clone(), c.root.clone())
     };
@@ -384,10 +390,47 @@ pub fn upload(
         songs: ids.len(),
         ..ShareView::default()
     };
+    let (songs, sources) = gather(ids, &mut view)?;
+    progress(&view);
+    let auth = format!("Bearer {token}");
+    let id = send_share(
+        pack, expires, songs, sources, &auth, false, &mut view, progress,
+    )?;
+    Ok(link_of(&id))
+}
+
+/// An online room's stage song (M5d), library song `song` (its own or a
+/// bundled one), uploaded as the room's share under the room's `grant`
+/// (its expiry the room's: the server's to set); `progress` is told the
+/// bytes sent of all. The share's id.
+pub fn upload_room(
+    song: &str,
+    grant: &str,
+    progress: &mut dyn FnMut(f64, f64),
+) -> Result<String, ShareError> {
+    let mut view = ShareView {
+        state: ShareState::Uploading,
+        songs: 1,
+        ..ShareView::default()
+    };
+    let (songs, sources) = gather(&[song.to_string()], &mut view)?;
+    progress(0.0, view.bytes);
+    let auth = format!("Grant {grant}");
+    let mut tell = |v: &ShareView| progress(v.done_bytes, v.bytes);
+    send_share("", "1d", songs, sources, &auth, true, &mut view, &mut tell)
+}
+
+type Songs = Vec<ShareSongDoc>;
+type Sources = Vec<Vec<(String, Source)>>;
+
+/// The library's songs `ids` as a share lists them: each song's record and
+/// files by the paths a share keeps them under, their bytes' sources; the
+/// sizes counted in `view`.
+fn gather(ids: &[String], view: &mut ShareView) -> Result<(Songs, Sources), ShareError> {
     // Every song's files first: their sizes make the share.
     let now_ms = crate::clock::epoch_ms().floor();
     let mut songs = Vec::new();
-    let mut sources: Vec<Vec<(String, Source)>> = Vec::new();
+    let mut sources: Sources = Vec::new();
     for id in ids {
         let (files, entry) = Files::of(id).ok_or_else(|| ShareError::NoChart(id.clone()))?;
         let song_pack = crate::library::song(id).map(|s| s.pack).unwrap_or_default();
@@ -416,7 +459,32 @@ pub fn upload(
         });
         sources.push(these);
     }
-    progress(&view);
+    Ok((songs, sources))
+}
+
+/// A refusal as read from a response: a grant's with its code
+/// (`contract::grant_refusal`), else as the token's.
+fn refused(status: u16, body: Option<&str>, grant: bool) -> ShareError {
+    if grant {
+        contract::grant_refusal(status, body)
+    } else {
+        contract::refusal(status, body)
+    }
+}
+
+/// `songs` made a share at the server with `auth` (`Bearer <token>` or
+/// `Grant <grant>`), each file put, the share finished; its id.
+#[allow(clippy::too_many_arguments)]
+fn send_share(
+    pack: &str,
+    expires: &str,
+    songs: Songs,
+    sources: Sources,
+    auth: &str,
+    grant: bool,
+    view: &mut ShareView,
+    progress: &mut dyn FnMut(&ShareView),
+) -> Result<String, ShareError> {
     let new = NewShare {
         pack: pack.to_string(),
         expires: expires.to_string(),
@@ -425,19 +493,19 @@ pub fn upload(
     };
     let agent = agent();
     let base = base();
-    let auth = format!("Bearer {token}");
     let body = serde_json::to_vec(&new).map_err(ShareError::failed("making the share"))?;
     let mut resp = agent
         .post(format!("{base}/s"))
-        .header("Authorization", &auth)
+        .header("Authorization", auth)
         .header("Content-Type", "application/json")
         .send(body.as_slice())
         .map_err(ShareError::failed("making the share"))?;
     let status = resp.status().as_u16();
     if status != 201 {
-        return Err(contract::refusal(
+        return Err(refused(
             status,
             resp.body_mut().read_to_string().ok().as_deref(),
+            grant,
         ));
     }
     let answer = |e: &dyn std::fmt::Display| ShareError::Answer(e.to_string());
@@ -451,7 +519,7 @@ pub fn upload(
             let len = source.len();
             let req = agent
                 .put(&url)
-                .header("Authorization", &auth)
+                .header("Authorization", auth)
                 .header("Content-Type", "application/octet-stream")
                 .header("Content-Length", &len.to_string());
             let sent = match source {
@@ -470,28 +538,33 @@ pub fn upload(
             if status != 200 {
                 return Err(ShareError::of(
                     stored,
-                    contract::refusal(status, resp.body_mut().read_to_string().ok().as_deref()),
+                    refused(
+                        status,
+                        resp.body_mut().read_to_string().ok().as_deref(),
+                        grant,
+                    ),
                 ));
             }
             view.done_bytes += len as f64;
-            progress(&view);
+            progress(view);
         }
         view.done_songs += 1;
-        progress(&view);
+        progress(view);
     }
     let mut resp = agent
         .post(format!("{base}/s/{id}/finish"))
-        .header("Authorization", &auth)
+        .header("Authorization", auth)
         .send_empty()
         .map_err(ShareError::failed("finishing the share"))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(contract::refusal(
+        return Err(refused(
             status,
             resp.body_mut().read_to_string().ok().as_deref(),
+            grant,
         ));
     }
-    Ok(link_of(&id))
+    Ok(id)
 }
 
 /// The bytes of a song's file `named`: a folder's file by its path, a

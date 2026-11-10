@@ -24,11 +24,12 @@ static BAGS: LazyLock<Mutex<Bags>> = LazyLock::new(|| {
     Mutex::new(Bags::new(seed))
 });
 
-/// Whose sounds: a play's (of a chart of `notes` notes), or song
-/// select's.
+/// Whose sounds: a play's (of a chart of `notes` notes), a multiplayer
+/// stage's (`ddi_session::announcer::battle::wanted`), or song select's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum For {
     Play { notes: u32 },
+    Stage,
     Menu,
 }
 
@@ -76,6 +77,9 @@ impl VoiceLoad {
                 let wanted = match (BAGS.lock(), of) {
                     (Ok(mut bags), For::Play { notes }) => {
                         ddi_session::announcer::wanted(&a.kept, notes, &mut bags)
+                    }
+                    (Ok(mut bags), For::Stage) => {
+                        ddi_session::announcer::battle::wanted(&a.kept, &mut bags)
                     }
                     (Ok(mut bags), For::Menu) => ddi_session::announcer::menu(&a.kept, &mut bags),
                     (Err(_), _) => return,

@@ -1,0 +1,913 @@
+//! The online state against a fake server's HTTP: desktop's sign-in
+//! attempt from start to a room made, canceled and failed attempts, the
+//! web's sign-in leaving and coming back, a refreshed session kept, an
+//! invite's preview in each of its states, and an online room's client
+//! over the fake room (`ddi_room::fake`): joining, its connection, 4401,
+//! and the development-only content to the readiness window, countdown
+//! and the development stop.
+
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
+
+use super::api::{ApiRequest, ApiResponse, Method};
+use super::*;
+
+pub(crate) type Handler = Box<dyn FnMut(&ApiRequest) -> Option<ApiResponse>>;
+
+/// HTTP answered by `handler` (none: the answer never comes), each
+/// request kept.
+pub(crate) struct FakeHttp {
+    pub(crate) handler: Rc<RefCell<Handler>>,
+    pub(crate) log: Rc<RefCell<Vec<ApiRequest>>>,
+    pub(crate) out: VecDeque<(u64, ApiResponse)>,
+}
+
+impl Http for FakeHttp {
+    fn start(&mut self, id: u64, request: ApiRequest) {
+        self.log.borrow_mut().push(request.clone());
+        if let Some(r) = (self.handler.borrow_mut())(&request) {
+            self.out.push_back((id, r));
+        }
+    }
+
+    fn poll(&mut self) -> Vec<(u64, ApiResponse)> {
+        self.out.drain(..).collect()
+    }
+}
+
+pub(crate) fn ok(body: &str) -> Option<ApiResponse> {
+    Some(ApiResponse {
+        status: 200,
+        body: body.into(),
+        session: None,
+    })
+}
+
+pub(crate) fn err(status: u16, code: &str) -> Option<ApiResponse> {
+    Some(ApiResponse {
+        status,
+        body: format!(r#"{{"error":"{code}"}}"#),
+        session: None,
+    })
+}
+
+pub(crate) const ME: &str = r#"{"player_id":"dev:carol","login":"carol","display_name":"Carol","admin":false,"expires_at_ms":1}"#;
+pub(crate) const INVITE: &str = "Room000001.abcdefghijABCDEFGHIJ01";
+
+pub(crate) struct Rig {
+    pub(crate) online: SharedOnline,
+    pub(crate) log: Rc<RefCell<Vec<ApiRequest>>>,
+    pub(crate) saved: Rc<RefCell<Vec<Option<String>>>>,
+}
+
+pub(crate) fn rig(platform: Platform, handler: Handler) -> Rig {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let http = FakeHttp {
+        handler: Rc::new(RefCell::new(handler)),
+        log: log.clone(),
+        out: VecDeque::new(),
+    };
+    let saved = Rc::new(RefCell::new(Vec::new()));
+    let s = saved.clone();
+    let online = Online::new(
+        Box::new(http),
+        OnlineConfig {
+            platform,
+            site: "http://localhost:8080/".into(),
+        },
+    )
+    .with_token(
+        None,
+        Rc::new(move |t| s.borrow_mut().push(t.map(str::to_string))),
+    )
+    .shared();
+    Rig { online, log, saved }
+}
+
+fn paths(log: &Rc<RefCell<Vec<ApiRequest>>>) -> Vec<String> {
+    log.borrow()
+        .iter()
+        .map(|r| format!("{} {}", r.method.as_str(), r.path))
+        .collect()
+}
+
+#[test]
+fn desktop_signs_in_through_an_attempt_then_makes_the_room() {
+    let polls = Rc::new(RefCell::new(0));
+    let p = polls.clone();
+    let r = rig(
+        Platform::Desktop,
+        Box::new(move |req| match (req.method, req.path.as_str()) {
+            (Method::Post, "/auth/attempts") => {
+                assert_eq!(req.body.as_deref(), Some(r#"{"return":"/mp"}"#));
+                Some(ApiResponse {
+                    status: 201,
+                    body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","expires_at_ms":9}"#.into(),
+                    session: None,
+                })
+            }
+            (Method::Get, "/auth/attempts/a1") => {
+                assert_eq!(req.poll.as_deref(), Some("s1"));
+                assert_eq!(req.bearer, None, "a poll carries no session");
+                *p.borrow_mut() += 1;
+                if *p.borrow() < 3 {
+                    ok(r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
+                } else {
+                    ok(
+                        r#"{"status":"done","session_token":"tok","return":"/mp","expires_at_ms":9}"#,
+                    )
+                }
+            }
+            (Method::Get, "/me") => {
+                assert_eq!(req.bearer.as_deref(), Some("tok"));
+                ok(ME)
+            }
+            (Method::Post, "/rooms") => {
+                assert_eq!(req.bearer.as_deref(), Some("tok"));
+                Some(ApiResponse {
+                    status: 201,
+                    body: format!(r#"{{"room_id":"Room000001","invite":"{INVITE}"}}"#),
+                    session: Some("tok2".into()),
+                })
+            }
+            (Method::Post, "/auth/logout") => {
+                assert_eq!(req.bearer.as_deref(), Some("tok2"));
+                Some(ApiResponse {
+                    status: 204,
+                    body: String::new(),
+                    session: None,
+                })
+            }
+            _ => panic!("unexpected {req:?}"),
+        }),
+    );
+    let mut o = r.online.borrow_mut();
+    o.private_room();
+    assert!(matches!(
+        o.sign_in_state(),
+        SignIn::Starting { dest: Dest::Create }
+    ));
+    o.poll(0);
+    // The browser opens on the attempt, once.
+    assert_eq!(
+        o.take_redirect(),
+        Some(Redirect::Browser("http://api/auth/attempts/a1/open".into()))
+    );
+    assert_eq!(o.take_redirect(), None);
+    assert!(matches!(o.sign_in_state(), SignIn::Waiting { .. }));
+    // Open again: the same attempt's page.
+    o.open_browser_again();
+    assert!(matches!(o.take_redirect(), Some(Redirect::Browser(_))));
+    for t in 1..=5 {
+        o.poll(t * 100);
+    }
+    assert_eq!(*polls.borrow(), 3, "polled until done, one at a time");
+    assert_eq!(o.me().unwrap().display_name, "Carol");
+    assert_eq!(o.sign_in_state(), &SignIn::Idle);
+    assert_eq!(o.epoch(), 1);
+    // Resumed: the room made, the re-signed session kept.
+    assert_eq!(o.take_entered().as_deref(), Some("Room000001"));
+    assert_eq!(
+        *r.saved.borrow(),
+        vec![Some("tok".to_string()), Some("tok2".to_string())]
+    );
+    drop(o);
+    assert_eq!(
+        paths(&r.log),
+        vec![
+            "POST /auth/attempts",
+            "GET /auth/attempts/a1",
+            "GET /auth/attempts/a1",
+            "GET /auth/attempts/a1",
+            "GET /me",
+            "POST /rooms"
+        ]
+    );
+    // The next request carries the newer session; signing out forgets it.
+    r.online.borrow_mut().sign_out();
+    assert_eq!(r.saved.borrow().last(), Some(&None));
+    assert_eq!(r.online.borrow().account(), &Account::SignedOut);
+}
+
+#[test]
+fn a_canceled_attempt_signs_nobody_in_and_failures_keep_the_destination() {
+    let r = rig(
+        Platform::Desktop,
+        Box::new(|req| match (req.method, req.path.as_str()) {
+            (Method::Post, "/auth/attempts") => {
+                ok(r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#)
+            }
+            // The poll's answer never comes before the cancel.
+            (Method::Get, "/auth/attempts/a1") => None,
+            (Method::Delete, "/auth/attempts/a1") => {
+                assert_eq!(req.poll.as_deref(), Some("s1"));
+                Some(ApiResponse {
+                    status: 204,
+                    body: String::new(),
+                    session: None,
+                })
+            }
+            _ => panic!("unexpected {req:?}"),
+        }),
+    );
+    let mut o = r.online.borrow_mut();
+    o.sign_in(Dest::Join(INVITE.into()));
+    o.poll(0);
+    o.poll(1);
+    o.cancel_sign_in();
+    assert_eq!(
+        o.sign_in_state(),
+        &SignIn::Canceled {
+            dest: Dest::Join(INVITE.into())
+        }
+    );
+    o.poll(2);
+    assert!(o.me().is_none());
+    assert!(r.saved.borrow().is_empty());
+    drop(o);
+    assert!(paths(&r.log).contains(&"DELETE /auth/attempts/a1".to_string()));
+
+    // The server's own ends of an attempt.
+    for (status, expect) in [
+        (r#"{"status":"canceled"}"#, "canceled"),
+        (r#"{"status":"expired"}"#, "attempt_expired"),
+        (r#"{"status":"claimed"}"#, "attempt_claimed"),
+    ] {
+        let body = status.to_string();
+        let r = rig(
+            Platform::Desktop,
+            Box::new(move |req| match (req.method, req.path.as_str()) {
+                (Method::Post, "/auth/attempts") => {
+                    ok(r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#)
+                }
+                (Method::Get, "/auth/attempts/a1") => ok(&body),
+                _ => panic!("unexpected {req:?}"),
+            }),
+        );
+        let mut o = r.online.borrow_mut();
+        o.sign_in(Dest::Create);
+        o.poll(0);
+        o.poll(1);
+        match o.sign_in_state() {
+            SignIn::Canceled { dest } => {
+                assert_eq!((expect, dest), ("canceled", &Dest::Create))
+            }
+            SignIn::Failed { dest, code } => {
+                assert_eq!((code.as_str(), dest), (expect, &Dest::Create))
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // A poll the network lost goes again after a while, not at once.
+    let n = Rc::new(RefCell::new(0));
+    let c = n.clone();
+    let r = rig(
+        Platform::Desktop,
+        Box::new(move |req| match (req.method, req.path.as_str()) {
+            (Method::Post, "/auth/attempts") => {
+                ok(r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#)
+            }
+            (Method::Get, "/auth/attempts/a1") => {
+                *c.borrow_mut() += 1;
+                Some(ApiResponse::unreachable())
+            }
+            _ => panic!("unexpected {req:?}"),
+        }),
+    );
+    let mut o = r.online.borrow_mut();
+    o.sign_in(Dest::Home);
+    o.poll(1_000);
+    o.poll(1_001);
+    o.poll(1_500);
+    assert_eq!(*n.borrow(), 1);
+    o.poll(3_001);
+    o.poll(3_002);
+    assert_eq!(*n.borrow(), 2);
+    assert!(matches!(o.sign_in_state(), SignIn::Waiting { .. }));
+}
+
+#[test]
+fn the_web_leaves_for_the_servers_page_and_resumes_the_join_on_return() {
+    let cookie = Rc::new(RefCell::new(false));
+    let c = cookie.clone();
+    let r = rig(
+        Platform::Web,
+        Box::new(move |req| match (req.method, req.path.as_str()) {
+            (Method::Get, "/me") if *c.borrow() => ok(ME),
+            (Method::Get, "/me") => err(401, "signed_out"),
+            (Method::Get, p) if p.starts_with("/invites/") => ok(
+                r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","members":2,"expires_at_ms":9}"#,
+            ),
+            (Method::Post, "/rooms/Room000001/join") => {
+                assert!(req.body.as_deref().unwrap().contains(INVITE));
+                ok(
+                    r#"{"room_id":"Room000001","participant":3,"intent":"play","participation":{"not_ready":{"stage":1}},"already":false}"#,
+                )
+            }
+            _ => panic!("unexpected {req:?}"),
+        }),
+    );
+    let mut o = r.online.borrow_mut();
+    o.open_invite(INVITE);
+    // Signed out (the cookie is not there yet): joining signs in first.
+    o.poll(0);
+    o.join_invite();
+    assert_eq!(
+        o.take_redirect(),
+        Some(Redirect::Page(
+            "/auth/twitch/login?return=%2Fmp%2Fjoin%2FRoom000001.abcdefghijABCDEFGHIJ01".into()
+        ))
+    );
+    // The page came back signed in: who it is, then the join again.
+    *cookie.borrow_mut() = true;
+    o.returned(Dest::Join(INVITE.into()));
+    o.poll(1);
+    o.poll(2);
+    assert_eq!(o.take_entered().as_deref(), Some("Room000001"));
+    // The web keeps no token.
+    assert!(r.saved.borrow().is_empty());
+    o.sign_in_canceled(Dest::Home);
+    assert_eq!(o.sign_in_state(), &SignIn::Canceled { dest: Dest::Home });
+}
+
+#[test]
+fn an_invites_preview_says_each_state_and_a_refused_join_says_why() {
+    use crate::screens::online::{admission_text, invite_problem};
+    let cases: Vec<(Option<ApiResponse>, &str)> = vec![
+        (
+            ok(
+                r#"{"room_id":"Room000001","room_name":"R","host_display_name":"Alice","phase":"lobby","admission":"open","members":1}"#,
+            ),
+            "open",
+        ),
+        (
+            ok(
+                r#"{"room_id":"Room000001","room_name":"R","host_display_name":"Alice","phase":"stage","admission":"next_match","members":3}"#,
+            ),
+            "next_match",
+        ),
+        (
+            ok(
+                r#"{"room_id":"Room000001","room_name":"R","host_display_name":"Alice","phase":"lobby","admission":"closed","members":3}"#,
+            ),
+            "closed",
+        ),
+        (
+            ok(
+                r#"{"room_id":"Room000001","room_name":"R","host_display_name":"Alice","phase":"lobby","admission":"full","members":32}"#,
+            ),
+            "full",
+        ),
+        (err(410, "invite_expired"), "invite_expired"),
+        (err(403, "invite_rotated"), "invite_rotated"),
+        (err(404, "invite_unknown"), "invite_unknown"),
+        (err(410, "room_closed"), "room_closed"),
+        (Some(ApiResponse::unreachable()), "unreachable"),
+    ];
+    let mut said = Vec::new();
+    for (answer, what) in cases {
+        let a = RefCell::new(answer);
+        let r = rig(
+            Platform::Web,
+            Box::new(move |req| match req.path.as_str() {
+                "/me" => err(401, "signed_out"),
+                _ => a.borrow_mut().take(),
+            }),
+        );
+        let mut o = r.online.borrow_mut();
+        o.open_invite(INVITE);
+        o.poll(0);
+        let view = o.invite().unwrap();
+        let text: String = match view.preview.as_ref().unwrap() {
+            Ok(p) => {
+                assert_eq!(
+                    format!("{:?}", p.admission).to_lowercase().replace('_', ""),
+                    what.replace('_', "")
+                );
+                admission_text(p.admission).into()
+            }
+            Err(p) => {
+                assert_eq!(p.code, what);
+                invite_problem(p).into()
+            }
+        };
+        assert_eq!(o.account(), &Account::SignedOut);
+        said.push(text);
+    }
+    // Each state is worded on its own.
+    let distinct: std::collections::BTreeSet<_> = said.iter().collect();
+    assert_eq!(distinct.len(), said.len(), "{said:?}");
+
+    // A join refused (the invite rotated during sign-in): the reason, the
+    // preview read again, no room entered.
+    let joins = Rc::new(RefCell::new(0));
+    let j = joins.clone();
+    let r = rig(
+        Platform::Web,
+        Box::new(move |req| match (req.method, req.path.as_str()) {
+            (Method::Get, "/me") => ok(ME),
+            (Method::Get, _) => err(403, "invite_rotated"),
+            (Method::Post, _) => {
+                *j.borrow_mut() += 1;
+                err(403, "invite_rotated")
+            }
+            _ => None,
+        }),
+    );
+    let mut o = r.online.borrow_mut();
+    o.open_invite(INVITE);
+    o.poll(0);
+    o.join_invite();
+    o.poll(1);
+    let v = o.invite().unwrap();
+    assert_eq!(v.refused.as_ref().unwrap().code, "invite_rotated");
+    assert!(!v.joining);
+    assert_eq!(o.take_entered(), None);
+    assert_eq!(*joins.borrow(), 1);
+}
+
+pub(crate) mod room {
+    //! An online room's client over the fake room.
+
+    use super::*;
+    use crate::state::room::{
+        LoadProblem, Picked, Refusal, RoomClient, Sharing, SharingProblem, UploadJob,
+    };
+    use ddi_room::fake::{FakeServer, FakeSocket, Fault, SharedFake};
+    use ddi_room::{
+        ClientId, Command, ContentStatus, Identity, Intent, LinkState, Loading, ManualClock, Phase,
+        PhaseKind, Role, RoomPolicy, Run,
+    };
+
+    fn me_of(name: &str) -> String {
+        format!(
+            r#"{{"player_id":"dev:{name}","login":"{name}","display_name":"{name}","admin":false,"expires_at_ms":1}}"#
+        )
+    }
+
+    /// `who`'s online state, its HTTP the fake room's: tickets, the
+    /// summary, the invite and stages' upload grants (for operators, as
+    /// the server decides them; numbered `grant-<who>-<n>`).
+    pub(crate) fn person(server: &SharedFake, who: &'static str) -> SharedOnline {
+        let mut grants = 0;
+        let s = server.clone();
+        let handler: Handler = Box::new(move |req| {
+            let identity = Identity::new(format!("dev:{who}"));
+            match (req.method, req.path.as_str()) {
+                (Method::Get, "/me") => ok(&me_of(who)),
+                (Method::Get, "/rooms/Room000001") => ok(
+                    r#"{"room_id":"Room000001","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}"#,
+                ),
+                (Method::Post, "/rooms/Room000001/ticket") => {
+                    match s.borrow_mut().ticket(&identity) {
+                        Ok(t) => ok(&format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#)),
+                        Err(_) => err(403, "not_a_member"),
+                    }
+                }
+                (Method::Get, "/rooms/Room000001/invite") if who == "alice" => ok(&format!(
+                    r#"{{"invite":"{INVITE}","expires_at_ms":9,"admission":"open"}}"#
+                )),
+                (Method::Get, "/rooms/Room000001/invite") => err(403, "not_an_operator"),
+                (Method::Post, "/rooms/Room000001/grant") => {
+                    let srv = s.borrow();
+                    let operator = srv
+                        .state()
+                        .member_by_identity(&identity)
+                        .is_some_and(|m| m.admin || matches!(m.role, Role::Owner | Role::CoHost));
+                    if !operator {
+                        return err(403, "not_an_operator");
+                    }
+                    grants += 1;
+                    ok(&format!(
+                        r#"{{"grant":"grant-{who}-{grants}","expires_at_ms":9,"max_bytes":100.0}}"#
+                    ))
+                }
+                _ => panic!("unexpected {req:?}"),
+            }
+        });
+        let http = FakeHttp {
+            handler: Rc::new(RefCell::new(handler)),
+            log: Rc::new(RefCell::new(Vec::new())),
+            out: VecDeque::new(),
+        };
+        let online = Online::new(
+            Box::new(http),
+            OnlineConfig {
+                platform: Platform::Web,
+                site: "http://localhost:8080/".into(),
+            },
+        )
+        .shared();
+        online.borrow_mut().check();
+        online.borrow_mut().poll(0);
+        online
+    }
+
+    pub(crate) fn client(
+        server: &SharedFake,
+        online: SharedOnline,
+        who: &str,
+        now: u64,
+    ) -> RoomClient {
+        RoomClient::online(
+            online,
+            "Room000001",
+            Box::new(FakeSocket::new(server.clone())),
+            ClientId::new(format!("{who}-web")),
+            now,
+        )
+    }
+
+    /// The shell's uploads of `room`, as the server ends them: the room
+    /// told by the server (the Worker's word on `finish`) that the stage is
+    /// available with share `share`, the client that its upload ended.
+    pub(crate) fn upload(
+        server: &SharedFake,
+        room: &mut RoomClient,
+        share: &str,
+    ) -> Vec<UploadJob> {
+        let jobs = room.take_upload_jobs();
+        for j in &jobs {
+            room.upload_progress(j.stage, 50.0, 100.0);
+            server
+                .borrow_mut()
+                .authority(Command::SetContentStatus {
+                    stage: j.stage,
+                    status: ContentStatus::Available,
+                    share: Some(share.into()),
+                })
+                .unwrap();
+            room.upload_finished(j.stage, Ok(share.into()));
+        }
+        jobs
+    }
+
+    /// Every song `room` asked for prepared, as a shell does: from the
+    /// library, or from the room's share (read as [`song`], its id the
+    /// shared one).
+    pub(crate) fn prepare(room: &mut RoomClient) {
+        for job in room.take_load_jobs() {
+            if job.share.is_some() {
+                let s = song();
+                let picked = Picked {
+                    song: crate::screens::data::SongEntry {
+                        id: job.song.clone(),
+                        ..s.clone()
+                    },
+                    chart: s.charts[0].clone(),
+                };
+                room.finish_shared_load(&job, Ok(picked));
+            } else {
+                room.finish_load(&job, Ok(()));
+            }
+        }
+    }
+
+    pub(crate) fn tick(clock: &ManualClock, rooms: &mut [&mut RoomClient], ms: u64) {
+        for _ in 0..4 {
+            clock.advance(ms / 4);
+            let now = ddi_room::Clock::now(clock).0;
+            for r in rooms.iter_mut() {
+                r.tick(now);
+            }
+        }
+    }
+
+    pub(crate) fn song() -> crate::screens::data::SongEntry {
+        crate::screens::data::SongEntry {
+            id: "bundled:a".into(),
+            title: "A".into(),
+            charts: vec![crate::screens::data::ChartEntry {
+                style: "dance-single".into(),
+                digest: Some(ddi_chart::ChartDigest(7)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn room_of(clock: &ManualClock, others: &[&str]) -> SharedFake {
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default(),
+            clock.clone(),
+        )
+        .shared();
+        for who in others {
+            server
+                .borrow_mut()
+                .join(Identity::new(format!("dev:{who}")), who, Intent::Play)
+                .unwrap();
+        }
+        server
+    }
+
+    fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {
+        Picked {
+            song: crate::screens::data::SongEntry {
+                id: "shared:abc12345:0".into(),
+                ..s.clone()
+            },
+            chart: s.charts[0].clone(),
+        }
+    }
+
+    /// M5d: the host's pick uploads under the room's grant, the guest reads
+    /// it from the share and reports loaded, both ready, Start (one
+    /// command) opens the window for a member who never loads, the
+    /// countdown, the stage handed to each to play against the others'
+    /// devices, each reporting its own run; the room ranks them.
+    #[test]
+    fn the_host_s_song_is_uploaded_loaded_from_the_share_and_the_stage_played() {
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob", "carol"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        let mut carol = client(&server, person(&server, "carol"), "carol", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert_eq!(alice.link_state(), LinkState::Connected);
+        assert_eq!(alice.name(), Some("After Hours"));
+        assert!(alice.may(ddi_room::Capability::ChooseContent));
+        assert!(!bob.may(ddi_room::Capability::ChooseContent));
+        alice.fetch_invite();
+        bob.fetch_invite();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(
+            alice.invite_link().as_deref(),
+            Some("http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1")
+        );
+        assert_eq!(bob.invite_link(), None);
+        // The pick is the commit: pending, the grant asked for, the upload
+        // handed to the shell once.
+        let s = song();
+        let stage = alice.stages()[0].id;
+        alice.choose(stage, &s, &s.charts[0]).unwrap();
+        assert_eq!(alice.sharing(stage), Some(&Sharing::Asking));
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        let st = &bob.stages()[0];
+        assert_eq!(st.content.as_ref().unwrap().status, ContentStatus::Pending);
+        assert!(bob.take_upload_jobs().is_empty(), "only the one who chose");
+        let jobs = alice.take_upload_jobs();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(
+            (jobs[0].grant.as_str(), jobs[0].song.id.as_str()),
+            ("grant-alice-1", "bundled:a")
+        );
+        assert!(alice.take_upload_jobs().is_empty());
+        alice.upload_progress(stage, 30.0, 60.0);
+        assert_eq!(
+            alice.sharing(stage),
+            Some(&Sharing::Uploading {
+                done: 30.0,
+                total: 60.0
+            })
+        );
+        // Bob may not choose: refused by the room, said on his status.
+        let mut other = song();
+        other.id = "bundled:b".into();
+        other.charts[0].digest = Some(ddi_chart::ChartDigest(8));
+        assert!(bob.choose(stage, &other, &other.charts[0]).is_err());
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert!(matches!(
+            bob.refusal(),
+            Some(Refusal::Room(ddi_room::Rejection::Unauthorized { .. }))
+        ));
+        // The server finishes the share: available with its id.
+        server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage,
+                status: ContentStatus::Available,
+                share: Some("abc12345".into()),
+            })
+            .unwrap();
+        alice.upload_finished(stage, Ok("abc12345".into()));
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        // Each prepares it: Alice from her library, Bob from the share.
+        let a = alice.take_load_jobs();
+        assert_eq!((a.len(), a[0].share.as_deref()), (1, None));
+        assert_eq!(a[0].song, "bundled:a");
+        let b = bob.take_load_jobs();
+        assert_eq!(b[0].share.as_deref(), Some("abc12345"));
+        assert_eq!(b[0].song, "shared:abc12345:0");
+        assert_eq!(b[0].digest, Some(ddi_chart::ChartDigest(7)));
+        assert!(!b[0].cpus);
+        let st = &bob.stages()[0];
+        assert_eq!(st.prep(bob.me()).loading, Loading::Loading { permille: 0 });
+        alice.finish_load(&a[0], Ok(()));
+        bob.finish_shared_load(&b[0], Ok(shared_pick(&s)));
+        // Carol's device never answers: still loading.
+        let _ = carol.take_load_jobs();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        let content = bob.stages()[0].content.clone().unwrap();
+        assert_eq!(
+            bob.picked(&content.id).unwrap().song.id,
+            "shared:abc12345:0"
+        );
+        assert_eq!(bob.stages()[0].prep(bob.me()).loading, Loading::Loaded);
+        // Readiness is Ready and Loaded; Start opens the window for Carol,
+        // who sits out at its deadline still loading.
+        alice.set_ready(true).unwrap();
+        bob.set_ready(true).unwrap();
+        carol.set_ready(true).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        alice.start().unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert!(matches!(
+            bob.state().phase,
+            Phase::Preparing {
+                window: Some(_),
+                ..
+            }
+        ));
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 15_000);
+        assert_eq!(bob.state().phase.kind(), PhaseKind::Countdown);
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 4_000);
+        assert_eq!(alice.state().phase.kind(), PhaseKind::Stage);
+        let play = alice.state().current.as_ref().unwrap().stages[0]
+            .play
+            .clone()
+            .unwrap();
+        assert_eq!(
+            play.sat_out.get(&carol.me()),
+            Some(&ddi_room::SitOutReason::StillLoading)
+        );
+        assert!(carol.take_stage_order().is_none(), "sitting out");
+        // Each plays it on its own device, against one other.
+        let oa = alice.take_stage_order().unwrap();
+        let ob = bob.take_stage_order().unwrap();
+        assert!(alice.take_stage_order().is_none(), "once");
+        assert_eq!((oa.others, ob.others), (1, 1));
+        assert!(oa.cpus.is_empty());
+        assert_eq!(oa.song.id, "bundled:a");
+        assert_eq!(ob.song.id, "shared:abc12345:0");
+        bob.report_run(ob.stage, Run::Out { at: 12.5 }).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert_eq!(alice.state().phase.kind(), PhaseKind::Stage);
+        alice
+            .report_run(
+                oa.stage,
+                Run::Live {
+                    life: 0.4,
+                    accuracy: 0.8,
+                },
+            )
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert_eq!(bob.state().phase.kind(), PhaseKind::Intermission);
+        assert_eq!(bob.mark_of(ob.stage).unwrap().placement.place, 2);
+        assert_eq!(alice.mark_of(oa.stage).unwrap().placement.place, 1);
+        assert_eq!(alice.state(), server.borrow().state());
+        assert_eq!(bob.state(), server.borrow().state());
+    }
+
+    /// An expired grant is renewed and the upload made again; a failed
+    /// upload is said and retried when asked; the room's refusal of what
+    /// was shared (no chosen chart in it) offers a retry too; a member
+    /// whose copy has another chart reports it failed.
+    #[test]
+    fn sharing_renews_retries_and_a_wrong_chart_is_refused() {
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let s = song();
+        let stage = alice.stages()[0].id;
+        alice.choose(stage, &s, &s.charts[0]).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let jobs = alice.take_upload_jobs();
+        assert_eq!(jobs[0].grant, "grant-alice-1");
+        // The grant expired on the way: a new one, the upload again.
+        alice.upload_finished(
+            stage,
+            Err(ddi_library::share::grant_refusal(
+                401,
+                Some("grant_expired"),
+            )),
+        );
+        assert_eq!(alice.sharing(stage), Some(&Sharing::Asking));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let jobs = alice.take_upload_jobs();
+        assert_eq!(jobs[0].grant, "grant-alice-2");
+        // Another failure: said, and retried only when asked.
+        alice.upload_finished(stage, Err(ddi_library::share::ShareError::TooLarge));
+        assert!(matches!(
+            alice.sharing(stage),
+            Some(Sharing::Failed(SharingProblem::Upload(_)))
+        ));
+        assert!(alice.may_retry_sharing(stage));
+        assert!(!bob.may_retry_sharing(stage));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert!(alice.take_upload_jobs().is_empty());
+        alice.retry_sharing(stage);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(alice.take_upload_jobs()[0].grant, "grant-alice-3");
+        // The server found the share without the chosen chart: blocked, a
+        // retry offered, nothing uploaded again by itself.
+        server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage,
+                status: ContentStatus::Unavailable {
+                    code: "digest_mismatch".into(),
+                },
+                share: None,
+            })
+            .unwrap();
+        alice.upload_finished(stage, Ok("abc12345".into()));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert!(alice.may_retry_sharing(stage));
+        assert!(alice.take_upload_jobs().is_empty(), "not again by itself");
+        // Shared at last; Bob's copy has another chart: failed, said so.
+        server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage,
+                status: ContentStatus::Available,
+                share: Some("def67890".into()),
+            })
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let b = bob.take_load_jobs();
+        bob.finish_shared_load(&b[0], Err(LoadProblem::Changed));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.load_problem(stage), Some(LoadProblem::Changed));
+        bob.set_ready(true).unwrap();
+        assert_eq!(bob.start().err(), Some(Refusal::Load(LoadProblem::Changed)));
+    }
+
+    /// A pending song cannot start, and the refused Start locks nothing.
+    #[test]
+    fn a_pending_song_cannot_start() {
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &[]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        let s = song();
+        let stage = alice.stages()[0].id;
+        alice.choose(stage, &s, &s.charts[0]).unwrap();
+        tick(&clock, &mut [&mut alice], 400);
+        let st = &alice.stages()[0];
+        assert_eq!(st.content.as_ref().unwrap().status, ContentStatus::Pending);
+        let _ = alice.start();
+        tick(&clock, &mut [&mut alice], 400);
+        assert!(matches!(
+            alice.refusal(),
+            Some(Refusal::Room(ddi_room::Rejection::ContentPending))
+        ));
+        assert_eq!(alice.state().phase, Phase::Lobby, "no match locked");
+    }
+
+    #[test]
+    fn a_session_ended_in_the_room_asks_to_sign_in_again_and_comes_back() {
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default(),
+            clock.clone(),
+        )
+        .shared();
+        let online = person(&server, "alice");
+        let mut alice = client(&server, online.clone(), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        server.borrow_mut().fault(
+            ddi_room::ParticipantId(1),
+            Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
+        );
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(alice.link_state(), LinkState::SignInAgain);
+        // Nothing opens by itself; only Sign in again does.
+        assert_eq!(online.borrow_mut().take_redirect(), None);
+        tick(&clock, &mut [&mut alice], 60_000);
+        assert_eq!(alice.link_state(), LinkState::SignInAgain);
+        alice.sign_in_again();
+        assert_eq!(
+            online.borrow_mut().take_redirect(),
+            Some(Redirect::Page(
+                "/auth/twitch/login?return=%2Fmp%2Froom%2FRoom000001".into()
+            ))
+        );
+        // Back, signed in: the same row, connected again.
+        online
+            .borrow_mut()
+            .returned(Dest::Room("Room000001".into()));
+        tick(&clock, &mut [&mut alice], 400);
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(alice.link_state(), LinkState::Connected);
+        assert_eq!(alice.me(), ddi_room::ParticipantId(1));
+        assert_eq!(server.borrow().state().members.len(), 1);
+        // A dropped socket: Reconnecting, then back on a fresh ticket.
+        server.borrow_mut().drop_socket(ddi_room::ParticipantId(1));
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(alice.link_state(), LinkState::Reconnecting { attempt: 1 });
+        tick(&clock, &mut [&mut alice], 800);
+        assert_eq!(alice.link_state(), LinkState::Connected);
+    }
+}

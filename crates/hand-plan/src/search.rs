@@ -319,6 +319,7 @@ pub struct Search {
     counts: Vec<Boundary>,
     result: Option<Result<(ContactPlan, SearchReport), String>>,
     layout: String,
+    rules: Rules,
     initial: Initial,
     seed: Option<SearchSeed>,
     commit_time: f64,
@@ -341,7 +342,8 @@ impl Search {
         seed: Option<&SearchSeed>,
         known: Option<f64>,
     ) -> Result<Self, String> {
-        let lanes = layout_lanes(&input.layout)?;
+        let rules = Rules::of(&input.layout)?;
+        let lanes = rules.mat.lane_count();
         if !o.lead.is_finite()
             || o.lead < 0.
             || !o.tail.is_finite()
@@ -395,7 +397,7 @@ impl Search {
         }
         if notes.is_empty() {
             if seed.is_some() {
-                return Ok(Self::with_rows(Vec::new(), 0., o, &input.layout));
+                return Ok(Self::with_rows(Vec::new(), 0., o, rules));
             }
             return Err("No judgeable notes".into());
         }
@@ -407,7 +409,7 @@ impl Search {
         }
         if notes.iter().any(|n| {
             n.lane as usize >= lanes
-                || layout_panels(&input.layout).unwrap().get(n.lane as usize) != Some(&n.panel)
+                || rules.mat.panels().get(n.lane as usize) != Some(&n.panel)
                 || !n.time.is_finite()
                 || n.end.is_some_and(|(_, e)| !e.is_finite())
         }) {
@@ -424,7 +426,7 @@ impl Search {
         let mut rows: Vec<Vec<InputNote>> = Vec::new();
         for n in notes
             .into_iter()
-            .flat_map(|n| crate::note_choices(&input.layout, n).take(if n.mine { 2 } else { 1 }))
+            .flat_map(|n| rules.choices(n).take(if n.mine { 2 } else { 1 }))
         {
             if rows.last().is_none_or(|r| {
                 if rolling {
@@ -446,8 +448,8 @@ impl Search {
             rows[0][0].time - o.lead
         };
         let mines = rows.iter().flatten().filter(|n| n.mine).copied().collect();
-        let mut search = Self::with_rows(rows, origin, o, &input.layout);
-        if double_mat(&search.layout) {
+        let mut search = Self::with_rows(rows, origin, o, rules);
+        if rules.double {
             // Only the uncommitted opening rest follows the first received head.
             // Avoid making an immediate right-pad start cross the whole mat.
             if let Some(n) = search.rows.iter().flatten().find(|n| !n.mine) {
@@ -477,7 +479,7 @@ impl Search {
                     } else {
                         [offset + 7, offset + 9]
                     }
-                } else if double_pump(&search.layout) {
+                } else if rules.double_pump {
                     let split = search
                         .rows
                         .iter()
@@ -513,56 +515,39 @@ impl Search {
         Ok(search)
     }
     fn shape(&self, p: [u8; 2]) -> (f64, f64) {
-        if double_mat(&self.layout) {
+        if self.rules.double {
             crate::double_geometry::SHAPES[p[0] as usize - 1][p[1] as usize - 1]
         } else {
             SHAPES[index(p[0])][index(p[1])]
         }
     }
     fn distance(&self, p: u8, old: u8, d: usize) -> f64 {
-        if double_mat(&self.layout) {
+        if self.rules.double {
             crate::double_geometry::DISTANCE[d][p as usize - 1][old as usize - 1]
         } else {
             DISTANCE[d][index(p)][index(old)]
         }
     }
     fn position(&self, panel: u8) -> [f64; 2] {
-        if double_mat(&self.layout) {
-            layout_geometry(&self.layout)
-                .expect("validated layout")
-                .position(ddi_dance_mat::Tile::try_from(panel).expect("validated tile"))
-                .expect("validated pad")
-        } else {
-            ddi_hand_pose::panel_position(panel, 24.).expect("validated panel")
-        }
+        self.rules.position(panel)
     }
     fn legal(&self, panels: [u8; 2], heading: f64, span: f64) -> bool {
-        if double_mat(&self.layout) {
-            // The static survey fitted every policy-admitted ordered pair at
-            // 24 mm. Pump's center pair needs 90 mm nominal anchor separation
-            // (72 mm between tile centers), versus dance's 65.521 mm maximum.
-            // 9A's 64 scored pairs span 4.72–67.28 mm, including narrow
-            // crossed assignments. These are candidate envelopes, not
-            // anatomical reach certificates.
-            // Scored pairs must also pass the unchanged No Stretch regions.
-            let layout = ddi_dance_mat::MatLayout::from_id(&self.layout).unwrap();
-            let [a, b] = panels.map(|p| ddi_dance_mat::Tile::try_from(p).unwrap());
-            let (minimum, maximum) = if self.layout == "danoni-9A" {
-                (4.7, 68.)
-            } else if double_pump(&self.layout) {
-                (6., 90.)
-            } else {
-                (6., 66.)
-            };
+        if self.rules.double {
+            // Within the layout's candidate envelope (`Rules::envelope`),
+            // scored pairs must also pass the unchanged No Stretch regions.
+            let (minimum, maximum) = self.rules.envelope;
             return (minimum..=maximum).contains(&span)
-                && (layout.lane_for_tile(a).is_none()
-                    || layout.lane_for_tile(b).is_none()
-                    || layout.pair_allowed(a, b));
+                && (self.rules.lane(panels[0]).is_none()
+                    || self.rules.lane(panels[1]).is_none()
+                    || self.rules.mat.pair_allowed(
+                        ddi_dance_mat::Tile::try_from(panels[0]).unwrap(),
+                        ddi_dance_mat::Tile::try_from(panels[1]).unwrap(),
+                    ));
         }
         // These layouts include the 50.8 mm opposite-corner stance and
         // reversed escape stances. Actual reach and rotation remain
         // subject to the unchanged bounded pose solver and contact checks.
-        if crate::wide_stances(&self.layout) {
+        if self.rules.wide {
             (8. ..=51.).contains(&span)
         } else {
             (8. ..=48.).contains(&span) && heading.abs() <= 76.
@@ -571,13 +556,13 @@ impl Search {
     fn facing_cost(&self, heading: f64) -> f64 {
         // Keep broad turns available, but prefer the reference-facing family
         // over unnecessarily crossing the fingers through a reversed stance.
-        if crate::wide_stances(&self.layout) {
+        if self.rules.wide {
             square(heading / 45.) * 4.
         } else {
             0.
         }
     }
-    fn with_rows(rows: Vec<Vec<InputNote>>, origin: f64, o: Options, layout: &str) -> Self {
+    fn with_rows(rows: Vec<Vec<InputNote>>, origin: f64, o: Options, rules: Rules) -> Self {
         let mut next = [f64::INFINITY; 18];
         let mut future = vec![next; rows.len()];
         if o.restore_early_window > 0. {
@@ -587,8 +572,8 @@ impl Search {
                     if !n.mine && !n.roll_refresh {
                         next[index(panel(n))] = n.time - origin;
                         // An Oni head reserves both of 9A's centers.
-                        if layout == "danoni-9A" && n.lane == 4 {
-                            next[index(14)] = n.time - origin;
+                        if let Some(centers) = rules.oni.filter(|_| n.lane == 4) {
+                            next[index(centers[1])] = n.time - origin;
                         }
                     }
                 }
@@ -598,7 +583,8 @@ impl Search {
             skipped_roll_tail_refreshes: 0,
             rows,
             mines: Vec::new(),
-            layout: layout.into(),
+            layout: rules.mat.id().into(),
+            rules,
             origin,
             options: o,
             future,
@@ -640,11 +626,11 @@ impl Search {
                 .collect::<Vec<_>>();
             Self::new_with_rolls(input, &future, o, None, None)?
         } else {
-            Self::with_rows(Vec::new(), 0., o, &input.layout)
+            Self::with_rows(Vec::new(), 0., o, Rules::of(&input.layout)?)
         };
         let mut opening_seed = seed.clone();
         let mut state = seed.state.clone();
-        if double_mat(&input.layout)
+        if s.rules.double
             && seed.release_floor == 0.
             && state.tick.is_none()
             && s.rows.iter().flatten().any(|n| !n.mine)
@@ -659,8 +645,7 @@ impl Search {
         state.cost = 0.;
         state.rank = 0;
         state.boundary = None;
-        s.mines = physical_hazards(
-            &input.layout,
+        s.mines = s.rules.hazards(
             input
                 .notes
                 .iter()
@@ -700,9 +685,7 @@ impl Search {
     // received head can reuse this landing and emits its usual one event.
     fn safe_return(&self, panel: u8, land: f64) -> bool {
         let next = self.rows.iter().skip(self.row + 1).flatten().find(|n| {
-            n.is_head()
-                && note_has_panel(&self.layout, n, panel)
-                && n.time - self.origin >= land - 1e-9
+            n.is_head() && self.rules.has_panel(n, panel) && n.time - self.origin >= land - 1e-9
         });
         next.is_none_or(|n| {
             let gap = n.time - self.origin - land;
@@ -726,16 +709,12 @@ impl Search {
                 if a.time + self.unknown_head_window <= known {
                     return true;
                 }
-                let layout = ddi_dance_mat::MatLayout::from_id(&self.layout).unwrap();
-                if layout
-                    .lane_for_tile(ddi_dance_mat::Tile::try_from(a.panel).unwrap())
-                    .is_none()
-                {
+                if self.rules.lane(a.panel).is_none() {
                     return true;
                 }
                 self.rows.iter().skip(self.row).flatten().any(|n| {
                     n.is_head()
-                        && note_has_panel(&self.layout, n, a.panel)
+                        && self.rules.has_panel(n, a.panel)
                         && n.time - self.origin == a.time
                 })
             })
@@ -798,7 +777,8 @@ impl Search {
         Some(seed)
     }
     pub(crate) fn committed_plan(seed: &SearchSeed, known: f64) -> ContactPlan {
-        let mut s = Self::with_rows(Vec::new(), 0., Options::default(), &seed.layout);
+        let rules = Rules::of(&seed.layout).expect("a planned layout");
+        let mut s = Self::with_rows(Vec::new(), 0., Options::default(), rules);
         s.initial = Initial {
             left: seed.state.tracks[0]
                 .values()
@@ -989,8 +969,8 @@ impl Search {
         (a[0] - b[0]).hypot(a[1] - b[1]) > 60.
     }
     fn escape_options(&self, old: &State) -> std::borrow::Cow<'static, [[u8; 2]]> {
-        let stances = crate::escape_stances(&self.layout);
-        if !double_pump(&self.layout) && self.layout != "danoni-9A" {
+        let stances = self.rules.escapes;
+        if !self.rules.double_pump && self.layout != "danoni-9A" {
             return std::borrow::Cow::Borrowed(stances);
         }
         let mut choices = stances.to_vec();
@@ -1013,11 +993,11 @@ impl Search {
         landing: [u8; 2],
         moving: usize,
     ) -> std::borrow::Cow<'static, [u8]> {
-        if !double_mat(&self.layout) {
-            return std::borrow::Cow::Borrowed(crate::support_tiles(&self.layout));
+        if !self.rules.double {
+            return std::borrow::Cow::Borrowed(self.rules.supports);
         }
         let other = 1 - moving;
-        let mut targets = crate::support_tiles(&self.layout).to_vec();
+        let mut targets = self.rules.supports.to_vec();
         targets.retain(|&p| {
             let mut stance = landing;
             stance[other] = p;
@@ -1092,7 +1072,7 @@ impl Search {
         head: f64,
     ) -> Option<(u8, f64, f64)> {
         let mut candidates = Vec::new();
-        for panel in 1..=if double_mat(&self.layout) { 18 } else { 9 } {
+        for panel in 1..=if self.rules.double { 18 } else { 9 } {
             if panel == source {
                 continue;
             }
@@ -1144,7 +1124,7 @@ impl Search {
         let mut cost = old.cost;
         let mut landing = old.panels;
         let mut returns = Vec::new();
-        let lift_jump = crate::wide_stances(&self.layout)
+        let lift_jump = self.rules.wide
             && group.len() == 2
             && group.iter().all(|n| n.lift)
             && self.wide([panel(&group[0]), panel(&group[1])])
@@ -1152,7 +1132,7 @@ impl Search {
                 .iter()
                 .enumerate()
                 .any(|(i, n)| old.panels[assignment[i]] != panel(n));
-        let support_jump = crate::wide_stances(&self.layout)
+        let support_jump = self.rules.wide
             && old.aux.backwards().any(|a| {
                 a.kind == RestoreKind::SupportStep
                     && a.time == land
@@ -1162,7 +1142,7 @@ impl Search {
             let d = assignment[i];
             let other = 1 - d;
             let target = panel(n);
-            if self.layout == "danoni-9A" && n.lane == 4 && !n.roll_refresh {
+            if self.rules.is_oni(n) && !n.roll_refresh {
                 // Prefer the bank of the received following arrows, especially
                 // while freezing a long Oni hold. Never inspect unknown notes
                 // or change a center after its physical prefix is published.
@@ -1202,14 +1182,14 @@ impl Search {
             if held_at_hit && o.hold_restore_window == 0. {
                 return None;
             }
-            if same_button(&self.layout, old.panels[other], target)
+            if self.rules.same_button(old.panels[other], target)
                 && !assignment[..group.len()].contains(&other)
                 && !(self.layout == "danoni-9B"
                     && old.tracks[other]
                         .backwards()
                         .any(|s| s.release <= land && s.land > land))
             {
-                if !crate::scored_center(&self.layout) {
+                if !self.rules.scored_center {
                     return None;
                 }
                 // A shared scored tile needs both fingers lifted for a new
@@ -1227,11 +1207,9 @@ impl Search {
                     target
                 } else if self.layout == "danoni-9A" {
                     self.lift_destination(old, old.panels[other], other)?
-                } else if double_pump(&self.layout) {
+                } else if self.rules.double_pump {
                     crate::lift_escape(&self.layout, target, other)
-                } else if let Some(stance) = crate::escape_stances(&self.layout)
-                    .first()
-                    .filter(|_| crate::wide_stances(&self.layout))
+                } else if let Some(stance) = self.rules.escapes.first().filter(|_| self.rules.wide)
                 {
                     stance[other]
                 } else if n.roll {
@@ -1250,11 +1228,11 @@ impl Search {
                             .flatten()
                             .filter(|head| head.is_head())
                             .take_while(|head| head.time - self.origin < land + 0.060)
-                            .flat_map(|head| crate::note_choices(&self.layout, *head))
+                            .flat_map(|head| self.rules.choices(*head))
                             .find_map(|head| {
                                 let p = panel(&head);
                                 let t = head.time - self.origin;
-                                if same_button(&self.layout, p, target) || t <= land {
+                                if self.rules.same_button(p, target) || t <= land {
                                     return None;
                                 }
                                 let mut stance = landing;
@@ -1485,7 +1463,7 @@ impl Search {
             }
             cost += square(dist / 18.) * 0.65 + penalty;
         }
-        if crate::wide_stances(&self.layout)
+        if self.rules.wide
             && group.len() == 1
             && !group[0].lift
             && !group[0].roll_refresh
@@ -1545,8 +1523,10 @@ impl Search {
             let old = &self.states[self.parent];
             // Only Oni has two targets. Choice is part of each beam state and
             // becomes immutable with the published physical contact prefix.
-            let variants = if self.layout == "danoni-9A" && heads.iter().any(|n| n.lane == 4) {
-                [5, 14]
+            let variants = if let Some(centers) =
+                self.rules.oni.filter(|_| heads.iter().any(|n| n.lane == 4))
+            {
+                centers
                     .into_iter()
                     .map(|target| {
                         heads
@@ -1590,7 +1570,7 @@ impl Search {
                         if direct_lifts && !heads.iter().any(|n| n.lift) {
                             break;
                         }
-                        if crate::wide_stances(&self.layout)
+                        if self.rules.wide
                             && heads.len() == 1
                             && !heads[0].lift
                             && !heads[0].roll_refresh
@@ -1760,8 +1740,8 @@ impl Search {
         let roll_pulses = rolls::pulses(&holds, &tracks);
         let plan = ContactPlan {
             layout: self.layout.clone(),
-            version: if double_mat(&self.layout) { 2 } else { 1 },
-            mat: (double_mat(&self.layout)).then(|| layout_geometry(&self.layout).unwrap()),
+            version: if self.rules.double { 2 } else { 1 },
+            mat: self.rules.double.then(|| layout_geometry(&self.layout).unwrap()),
             scope: if self.mines.is_empty() {"Automatic bounded-beam planning from imported chart taps/holds. No manual assignments, lift timestamps or accepted motion inputs."} else {"Automatic bounded-beam planning of taps/holds with explicit mine-clearance contacts."}.into(),
             initial: self.initial.clone(),
             placement: Placement::default(),
@@ -1822,7 +1802,7 @@ mod double_tests {
                 hold_handoff_window: 0.14,
                 ..Default::default()
             },
-            "dance-double",
+            Rules::of("dance-double").unwrap(),
         );
         let mut old = State::initial();
         old.panels = [17, 13];
@@ -1862,7 +1842,8 @@ mod pump_double_tests {
     #[test]
     fn pump_candidate_envelopes_cover_the_surveyed_pairs_and_bound_unscored_escapes() {
         for layout in ["pump-halfdouble", "pump-double"] {
-            let search = Search::with_rows(Vec::new(), 0., Options::default(), layout);
+            let rules = Rules::of(layout).unwrap();
+            let search = Search::with_rows(Vec::new(), 0., Options::default(), rules);
             let mat = ddi_dance_mat::MatLayout::from_id(layout).unwrap();
             assert_eq!(
                 crate::support_tiles(layout),
@@ -1979,7 +1960,12 @@ mod mine_return_tests {
     }
     #[test]
     fn fixed_return_needs_enough_received_context_before_it_is_committed() {
-        let mut search = Search::with_rows(Vec::new(), 0., Options::default(), "dance-single");
+        let mut search = Search::with_rows(
+            Vec::new(),
+            0.,
+            Options::default(),
+            Rules::of("dance-single").unwrap(),
+        );
         search.duration = Some(4.);
         search.commit_time = 3.5;
         let mut state = State::initial();
@@ -2022,7 +2008,7 @@ mod mine_return_tests {
             vec![vec![head(3.)], vec![head(3.9)], vec![head(4.)]],
             0.,
             Options::default(),
-            "dance-single",
+            Rules::of("dance-single").unwrap(),
         );
         assert!(search.safe_return(4, 3.9));
         assert!(!search.safe_return(4, 3.85));

@@ -587,6 +587,19 @@ impl Player {
         self.failed
     }
 
+    /// When the gauge first said failed (judged song seconds), whatever
+    /// the fail policy did then ([`Results::gauge_failed_at`]).
+    pub fn gauge_failed_at(&self) -> Option<f64> {
+        self.gauge_failed_at
+    }
+
+    /// The fail policy from now on: a battle's confirmed winner plays on
+    /// to the song's end whatever its gauge does (`FailPolicy::Off`). A
+    /// fail that happened stays.
+    pub fn set_fail(&mut self, fail: FailPolicy) {
+        self.ruleset.fail = fail;
+    }
+
     pub fn combo(&self) -> u32 {
         self.combo
     }

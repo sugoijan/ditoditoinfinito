@@ -18,6 +18,7 @@ ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-lua.workspace = true
 ddi-ui.workspace = true
+ddi-room.workspace = true
 ddi-l10n.workspace = true
 # The play session, shared with desktop (step 7.1).
 ddi-session.workspace = true
@@ -48,6 +49,7 @@ web-sys = { workspace = true, features = [
     "Blob",
     "BlobPropertyBag",
     "CanvasRenderingContext2d",
+    "CloseEvent",
     "CompositionEvent",
     "Crypto",
     "CssStyleDeclaration",
@@ -131,6 +133,7 @@ web-sys = { workspace = true, features = [
     "VisibilityState",
     "VisualViewport",
     "WebGl2RenderingContext",
+    "WebSocket",
     "WheelEvent",
     "Window",
     "Worker",

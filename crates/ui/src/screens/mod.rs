@@ -25,7 +25,7 @@
 //!   `Select`, `Deselect`, `Available`, `Unavailable`; `Full` and
 //!   `Empty` on a cell. `SongList.Header` (`List.Header`): `Plate`,
 //!   `Chevron`, `Title`, `Count`; `Select`, `Deselect`.
-//! - `SongInfo` (`Panel`): `Banner`, `Title`, `Subtitle`, `Artist`,
+//! - `SongInfo` (`Panel`): `Banner`, `Title`, `Artist`,
 //!   `Bpm`, `Length`, `Pack`, `Line` (artist, BPM and length on one
 //!   line, for a narrow one).
 //! - `StyleTab` (centered; `Button`): `Label`, `Count`, `Extent`;
@@ -70,6 +70,7 @@ pub mod import_report;
 #[cfg(test)]
 mod l10n_tests;
 pub mod numbers;
+pub mod online;
 pub mod options;
 pub mod options_dialogs;
 pub mod options_model;
@@ -84,6 +85,10 @@ pub mod prompt;
 pub mod prompt_controls;
 pub mod prompt_options;
 pub mod results;
+pub mod room;
+pub mod room_dialogs;
+#[cfg(test)]
+mod room_tests;
 pub mod sample;
 pub mod select;
 pub mod select_dialogs;
@@ -226,6 +231,8 @@ pub struct ThemeState {
     pub editor: Option<editor::EditorView>,
     /// The start prompt, while it is up.
     pub prompt: Option<prompt::PromptView>,
+    /// The multiplayer room, once shown (`room.rs`).
+    pub room: Option<room::RoomView>,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

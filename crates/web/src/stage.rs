@@ -37,7 +37,3 @@ impl Drop for Bitmap {
         self.0.close();
     }
 }
-
-/// The layers in a play: the contents decoded, their textures, the play's
-/// timeline.
-pub(crate) type StageView = ddi_shell::stage::StageView<Bitmap>;

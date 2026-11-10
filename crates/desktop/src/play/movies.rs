@@ -7,9 +7,9 @@
 //! has), lead time and queue depth as the web's, so a movie changes,
 //! loops and stops where the web's does.
 
-use ddi_library::backgrounds::BgSegment;
+use ddi_library::backgrounds::{BgImage, BgSegment};
 use ddi_platform::video::{
-    VideoBackend, VideoCodec, VideoContainer, VideoError, VideoFormat, VideoFrame,
+    GuardAction, VideoBackend, VideoCodec, VideoContainer, VideoError, VideoFormat, VideoFrame,
 };
 use ddi_render::BackgroundPipeline;
 use ddi_session::movies::{MovieShell, MovieSlots};
@@ -236,5 +236,68 @@ impl Movies {
         if crate::video::show(background, device, queue, id, frame) {
             self.slots.shown(name);
         }
+    }
+}
+
+impl ddi_shell::play_view::Deck for Movies {
+    fn update(
+        &mut self,
+        layers: &[Vec<BgSegment>],
+        t: f64,
+        background: &mut BackgroundPipeline,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        Movies::update(self, layers, t, background, device, queue);
+    }
+
+    fn update_clips(
+        &mut self,
+        clips: &[ddi_session::movies::Clip],
+        background: &mut BackgroundPipeline,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Vec<(String, usize)> {
+        Movies::update_clips(self, clips, background, device, queue)
+    }
+
+    fn picture_aspect(&mut self) -> Result<f32, bool> {
+        Movies::picture_aspect(self)
+    }
+
+    fn stop(&mut self) {
+        self.slots.stop();
+    }
+
+    fn reset(&mut self) {
+        self.slots.reset();
+    }
+
+    fn drawing(&self, layers: &[Vec<BgSegment>]) -> Option<usize> {
+        self.slots.drawing(layers)
+    }
+
+    fn shown_any(&self) -> bool {
+        self.slots.shown_any()
+    }
+
+    fn version(&self) -> u64 {
+        self.slots.version()
+    }
+
+    fn shown_ids(&self) -> Vec<(BgImage, usize)> {
+        self.slots.shown_ids().collect()
+    }
+
+    fn opening_plays(&self, first: &[BgSegment]) -> bool {
+        self.slots.opening_plays(first)
+    }
+
+    fn late(&self) -> u64 {
+        self.slots.late()
+    }
+
+    fn obey(&mut self, action: GuardAction) {
+        self.slots.obey(action);
     }
 }

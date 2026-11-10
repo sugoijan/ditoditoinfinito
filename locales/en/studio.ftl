@@ -125,6 +125,12 @@ studio-section-select = On the song select screen
 studio-section-play = During gameplay
 studio-section-results = On the results screen
 
+# The lines heard only in multiplayer battles (against other players or
+# CPUs), then a note under the heading: the studio has no scene for them
+# yet, so their Hear buttons are missing.
+studio-section-battle = In multiplayer battles
+studio-section-battle-note = Heard only in multiplayer battles. There is no scene to hear them in here yet; where a pack has none of these, the game shows the moment quietly on screen.
+
 ## The lines' names: a zone's heading, a choice in the line picker, the
 ## scene's heading in quotes ("“Ready”"). Short: about 28 letters. Most
 ## name what the announcer says or the moment it says it.
@@ -141,9 +147,10 @@ studio-line-comment-danger = In danger
 # The comment on a life gauge of lives (a battery).
 studio-line-comment-oni = On lives
 
-# A combo reached (every hundred notes in a row).
+# A combo reached: a count of notes in a row (each hundred, or any other
+# count a pack has a line for).
 # Variables:
-#   $combo (String) - the combo ("100", "1500")
+#   $combo (String) - the combo ("100", "1500", "64")
 studio-line-combo = { $combo } combo
 
 # Past 1000 notes in a row, each hundred.
@@ -191,6 +198,29 @@ studio-line-select-repeat = Played again
 studio-line-select-hard = A hard chart
 studio-line-select-general = Any other chart
 
+# The multiplayer battle's lines (studio-section-battle).
+studio-line-battle-match-begin = Match begins
+studio-line-battle-stage-begin = Stage begins
+studio-line-battle-final-stage = Final stage
+studio-line-battle-life-critical = Life critical
+
+# The players still in a stage become this many.
+# Variables:
+#   $count (Number) - how many are left (4 or 2)
+studio-line-battle-survivors = { $count } players left
+
+# The player's life ran out: out of this stage.
+studio-line-battle-eliminated = Out of the stage
+studio-line-battle-stage-won = Stage won
+studio-line-battle-stage-not-won = Stage not won
+studio-line-battle-stage-drawn = Stage drawn
+
+# The stage's winner played on to the song's end.
+studio-line-battle-song-finished = Song finished after winning
+studio-line-battle-match-won = Match won
+studio-line-battle-match-not-won = Match not won
+studio-line-battle-match-drawn = Match drawn
+
 ## When each line is said: a sentence under the line's name, wrapped.
 
 studio-when-ready = As a song starts.
@@ -203,7 +233,7 @@ studio-when-comment-oni = Every 10 seconds on a life gauge of lives (a battery).
 
 # A combo line.
 # Variables:
-#   $count (Number) - the combo (100, 1500)
+#   $count (Number) - the combo (100, 64, 1024)
 studio-when-combo = { $count } notes in a row.
 
 # A combo line past 1000: the game says it where it has it, else More
@@ -251,6 +281,25 @@ studio-when-select-repeat = When a chart is chosen that was played earlier this 
 studio-when-select-hard = When a chart of level 10 or more is chosen.
 studio-when-select-general = When any other chart is chosen.
 
+# The multiplayer battle's lines (studio-section-battle).
+studio-when-battle-match-begin = As the first stage of a match starts, in place of Ready.
+studio-when-battle-stage-begin = As a later stage starts, in place of Ready.
+studio-when-battle-final-stage = As the last stage of a match starts, in place of Ready.
+studio-when-battle-life-critical = When the player's life is about to run out, once a stage.
+
+# Variables:
+#   $count (Number) - how many are left (4 or 2)
+studio-when-battle-survivors = When the players still in the stage become { $count }.
+
+studio-when-battle-eliminated = When the player's life runs out: out of the stage.
+studio-when-battle-stage-won = As the player wins the stage alone, even before the song ends.
+studio-when-battle-stage-not-won = On the results of a stage the player finished without winning.
+studio-when-battle-stage-drawn = On the results of a stage whose first place the player shares.
+studio-when-battle-song-finished = As a player who already won the stage reaches the song's end.
+studio-when-battle-match-won = On the results of a match's last stage, the match won.
+studio-when-battle-match-not-won = On the results of a match's last stage, the match not won.
+studio-when-battle-match-drawn = On the results of a match's last stage, first place shared.
+
 ## A line's zone, under its name and when it is said.
 
 # With the details on: the folder a pack keeps the line's sounds in.
@@ -277,6 +326,9 @@ studio-missing-instead = Nothing yet: “{ $line }” is said instead.
 studio-missing-next-line = Nothing yet: the results' next line is said instead.
 studio-missing-silent = Nothing yet: the game says nothing then.
 
+# A multiplayer battle's line with no recording.
+studio-missing-shown = Nothing yet: the game only shows the moment on screen.
+
 # Under Here we go: Ready's recordings (or Restart's) and Here we go's,
 # the longest of each, take this long together, so a chart whose first
 # note comes sooner gets only Here we go (the lines' names, as above).
@@ -294,6 +346,29 @@ studio-hear-recorded = Hear it in the game
 # The same where the line has no recording: our announcer's example is
 # heard.
 studio-hear-example = Hear an example in the game
+
+# On a combo line with no recording: takes the line off the page (Add a
+# combo line… brings it back).
+studio-remove-combo = Remove this line
+
+# Below the combo lines: a button adding a combo line for a count typed in
+# a dialog, then what it is for.
+studio-add-combo = Add a combo line…
+studio-add-combo-help = For a pack that counts its own way (64, 128, 256…): the game says a combo line as the combo reaches its count.
+
+## The dialog of Add a combo line…: a field for the count, then OK and
+## Cancel.
+
+studio-combo-title = Add a combo line
+studio-combo-note = The combo it is said at: a whole number from 1.
+
+# Under the field, when what was typed is not a count.
+studio-combo-not-a-count = Type a whole number from 1.
+
+# Under the field, when the page lists that combo line already.
+# Variables:
+#   $count (Number) - the count typed (64)
+studio-combo-listed = There is a line for { $count } already.
 
 ## A recording on a line: a button that plays it (its file's name and
 ## length, after ▶), then buttons to move or remove it.
@@ -371,6 +446,10 @@ studio-picker-line-play = { $line } · Gameplay
 # Variables:
 #   $line (String) - the line's name (studio-line-…)
 studio-picker-line-results = { $line } · Results screen
+
+# Variables:
+#   $line (String) - the line's name (studio-line-…)
+studio-picker-line-battle = { $line } · Multiplayer
 
 # Under the title.
 # Variables:

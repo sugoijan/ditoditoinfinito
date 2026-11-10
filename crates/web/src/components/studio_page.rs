@@ -50,7 +50,7 @@ use ddi_library::announcer::draft::{
     Adopted, Draft, HEAD, Sound, Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
-use ddi_library::announcer::{Bundled, Line, Spoken, tidy};
+use ddi_library::announcer::{Bundled, Line, OUR_COMBOS, Spoken, tidy};
 use ddi_platform::AudioBackend;
 use ddi_session::announcer::scene::director::{
     self, Director, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
@@ -1015,6 +1015,9 @@ impl Studio {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
             Spoken::Play => self.play_scene(line, said),
+            // No scene for a multiplayer battle's lines yet (the page
+            // offers none to hear: `studio::hearable`).
+            Spoken::Battle => {}
         }
         self.publish();
     }
@@ -1044,8 +1047,10 @@ impl Studio {
         let n = self.director.begin_play(line, said);
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            // Our packs' combos past 1000 too (an example's voice).
             let lines: Vec<Line> = Line::all()
                 .into_iter()
+                .chain(OUR_COMBOS.map(Line::Combo))
                 .filter(|l| matches!(l.spoken(), Spoken::Play | Spoken::Results))
                 .collect();
             let voiced = match said {
@@ -1277,7 +1282,7 @@ impl Studio {
         }
         match act {
             // ([`studio::apply`]'s.)
-            Act::Tidy | Act::StepMania | Act::Examples | Act::Details => None,
+            Act::Tidy | Act::StepMania | Act::Examples | Act::Details | Act::RemoveCombo(_) => None,
             Act::Add(line) => {
                 self.pick_line.set(Some(line));
                 if let Some(i) = self.files_input.borrow().as_ref() {
@@ -1340,6 +1345,26 @@ impl Studio {
                 self.remove(id);
                 self.publish();
                 Some(self.doc())
+            }
+            Act::AddCombo => {
+                let env = self.env.borrow().clone()?;
+                let weak = Rc::downgrade(self);
+                let dialog = studio::combo_dialog(
+                    env,
+                    Rc::new(move |n, _cx| {
+                        let Some(s) = weak.upgrade() else {
+                            return true;
+                        };
+                        if !s.draft.borrow_mut().add_combo(n) {
+                            return false;
+                        }
+                        s.save();
+                        s.send();
+                        true
+                    }),
+                );
+                cx.overlay(dialog, true);
+                None
             }
             Act::Export => {
                 self.export();

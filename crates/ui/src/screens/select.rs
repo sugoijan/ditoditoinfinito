@@ -558,12 +558,7 @@ impl ListModel for Wheel<'_> {
             }
             Item::Song(s) => {
                 let song = &self.data.songs[s];
-                let title = if song.subtitle.is_empty() {
-                    song.title.clone()
-                } else {
-                    format!("{} {}", song.title, song.subtitle)
-                };
-                set_text(item, "Title", &data(&title));
+                set_text(item, "Title", &data(&song.title));
                 set_text(item, "Subtitle", &data(&song.artist));
                 let banner = song
                     .banner
@@ -928,11 +923,17 @@ impl SelectScreen {
         if on { self.with_sharing() } else { self }
     }
 
+    /// The list is fixed: a share's songs, or the library while choosing
+    /// a stage's song; nothing is added, edited, managed or shared.
+    fn fixed_list(&self) -> bool {
+        self.data.shared.is_some() || self.data.pick.is_some()
+    }
+
     /// What Share… would share: the imported song shown, or the imported
     /// pack whose header is shown, `(pack, its songs' ids, the title)`
     /// (the song's or the pack's name).
     fn shareable(&self) -> Option<(String, Vec<String>, Option<String>)> {
-        if !self.sharing || self.data.shared.is_some() {
+        if !self.sharing || self.fixed_list() {
             return None;
         }
         let pack_songs = |name: &str| -> Vec<String> {
@@ -965,7 +966,7 @@ impl SelectScreen {
 
     /// The imported song shown, when it is one.
     fn shown_imported(&self) -> Option<&SongEntry> {
-        if !self.sharing || self.data.shared.is_some() {
+        if !self.sharing || self.fixed_list() {
             return None;
         }
         match self.selected_item()? {
@@ -1447,7 +1448,7 @@ impl SelectScreen {
                 ("More", "•••", screen[0] - margin - 22.0),
             ] {
                 // A share: nothing to add.
-                if name == "AddIcon" && self.data.shared.is_some() {
+                if name == "AddIcon" && self.fixed_list() {
                     continue;
                 }
                 children.push(env.component(
@@ -1464,7 +1465,9 @@ impl SelectScreen {
             look::ellipsized(&mut title, room.max(40.0));
             children.push(left(title, margin + 56.0, 28.0));
         } else {
-            let name = if self.data.shared.is_some() {
+            let name = if let Some(pick) = self.data.pick {
+                ddi_l10n::msg::room::pick_heading(pick.stage)
+            } else if self.data.shared.is_some() {
                 msg::title_shared()
             } else {
                 msg::title()
@@ -1600,7 +1603,7 @@ impl SelectScreen {
         };
         let Some(song) = self.song() else {
             for p in [
-                "Title", "Subtitle", "Artist", "Bpm", "Length", "Pack", "Line", "Offset", "Credit",
+                "Title", "Artist", "Bpm", "Length", "Pack", "Line", "Offset", "Credit",
             ] {
                 set_text(info, p, "");
             }
@@ -1608,7 +1611,6 @@ impl SelectScreen {
             return;
         };
         set_text(info, "Title", &data(&song.title));
-        set_text(info, "Subtitle", &data(&song.subtitle));
         set_text(info, "Artist", &data(&song.artist));
         set_text(info, "Bpm", &data(&song.bpm_text));
         set_text(info, "Length", &data(&song.length_text()));
@@ -2110,7 +2112,10 @@ impl SelectScreen {
             msg::hint_song(),
             msg::hint_chart(),
             msg::hint_style(),
-            msg::hint_play(),
+            match self.data.pick {
+                Some(pick) => ddi_l10n::msg::room::pick_use(pick.stage),
+                None => msg::hint_play(),
+            },
             msg::hint_search(),
         );
         let (open_close, choose, go_to, close) = (
@@ -2125,7 +2130,11 @@ impl SelectScreen {
             ddi_l10n::msg::common::more(),
             msg::hint_activate(),
         );
-        let esc = msg::hint_start_menu();
+        let esc = if self.data.pick.is_some() {
+            ddi_l10n::msg::room::hint_back()
+        } else {
+            msg::hint_start_menu()
+        };
         let typing_note = msg::typing_note();
         let (link_manage, link_add, link_options, link_calibrate) = (
             msg::link_manage(),
@@ -2135,7 +2144,7 @@ impl SelectScreen {
         );
         // The plays are P's (its hint); the credits and the source are
         // the start menu's and the credits'.
-        let shared = self.data.shared.is_some();
+        let shared = self.fixed_list();
         let mut links: Vec<(&str, &str)> = Vec::new();
         if manage && !shared {
             links.push(("Link.Manage", link_manage.as_str()));
@@ -2343,6 +2352,9 @@ impl SelectScreen {
     /// What Manage acts on: the selected header's pack, or the selected
     /// song (imported), when something can be done.
     fn manageable(&self) -> Option<Manage> {
+        if self.data.pick.is_some() {
+            return None;
+        }
         let pack = |name: Option<&str>| {
             self.data
                 .packs
@@ -2884,10 +2896,13 @@ impl SelectScreen {
                             chart.meter
                         ));
                         let env = self.env.clone();
-                        let started = ddi_platform::storage::started_ms();
-                        cx.request(UiRequest::Announce(Line::SelectMusic(comment(
-                            &chart, started,
-                        ))));
+                        // Choosing a stage's song is no play to comment on.
+                        if self.data.pick.is_none() {
+                            let started = ddi_platform::storage::started_ms();
+                            cx.request(UiRequest::Announce(Line::SelectMusic(comment(
+                                &chart, started,
+                            ))));
+                        }
                         (self.play)(&song, &chart, &env, cx);
                     }
                     None => self.status(format!("no {} charts", self.style_name())),
@@ -3123,11 +3138,10 @@ impl SelectScreen {
 
 /// What a song is searched by: its fields, its charts' credits and
 /// names, and its transliterations.
-fn search_fields(s: &SongEntry) -> ([&str; 5], impl Iterator<Item = &str> + '_, [&str; 2]) {
+fn search_fields(s: &SongEntry) -> ([&str; 4], impl Iterator<Item = &str> + '_, [&str; 2]) {
     (
         [
             s.title.as_str(),
-            s.subtitle.as_str(),
             s.artist.as_str(),
             s.pack.as_deref().unwrap_or_default(),
             s.credit.as_str(),
@@ -3344,7 +3358,7 @@ impl Screen for SelectScreen {
             self.search.name.clone()
         });
         let mut v = vec![wheel, along(&self.search.name), along("ClearSearch")];
-        let shared = self.data.shared.is_some();
+        let shared = self.fixed_list();
         if self.layout.compact {
             for n in [
                 "Back",
@@ -3825,7 +3839,7 @@ impl SelectScreen {
             Input::Key(k)
                 if self.letter_shortcut(k)
                     && self.editing
-                    && self.data.shared.is_none()
+                    && !self.fixed_list()
                     && k.key.eq_ignore_ascii_case("e") =>
             {
                 self.edit(cx);
@@ -4032,7 +4046,7 @@ impl SelectScreen {
         {
             items.push(("WatchBest".into(), msg::more_watch_best().into()));
         }
-        let shared = self.data.shared.is_some();
+        let shared = self.fixed_list();
         if self.editing && !shared && self.song().is_some() {
             items.push(("EditChart".into(), msg::more_edit().into()));
         }
@@ -4145,7 +4159,7 @@ impl SelectScreen {
                 let env = self.env.clone();
                 (self.options)(&env, cx);
             }
-            "Link.Add" | "AddIcon" if self.data.shared.is_some() => {}
+            "Link.Add" | "AddIcon" if self.fixed_list() => {}
             "Link.Add" | "AddIcon" => {
                 // Back on the wheel once the dialog closes.
                 cx.focus("Wheel");

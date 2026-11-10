@@ -373,6 +373,7 @@ pub enum Badge {
     None,
     Auto,
     Replay,
+    Cpu,
 }
 
 impl Badge {
@@ -393,6 +394,7 @@ impl Badge {
             Badge::None => "",
             Badge::Auto => "AUTOPLAY",
             Badge::Replay => "REPLAY",
+            Badge::Cpu => "CPU",
         }
     }
 }
@@ -420,7 +422,65 @@ impl PromptChart {
     }
 }
 
+/// Frozen CPU controls, shown on both the prompt and results. The seed stays
+/// a string so even a full 64-bit value is preserved without number grouping.
+pub fn cpu_description(level: usize, seed: u64) -> String {
+    msg::prompt::cpu_description(
+        UiText::data(seed.to_string()),
+        ddi_engine::cpu::STRENGTHS[level],
+    )
+    .into()
+}
+
+pub fn cpu_description_with_skills(
+    level: usize,
+    seed: u64,
+    skills: ddi_engine::cpu::Skills,
+) -> String {
+    let base = cpu_description(level, seed);
+    if skills == ddi_engine::cpu::Skills::default() {
+        return base;
+    }
+    let detail: String = msg::prompt::cpu_skills(UiText::data(skills.vector())).into();
+    format!("{base} · {detail}")
+}
+
 impl PromptInfo {
+    /// Marks this as an automated tap-only demonstration, never calibration.
+    pub fn set_cpu(&mut self, level: usize, seed: u64) {
+        self.set_cpu_with_skills(level, seed, ddi_engine::cpu::Skills::default());
+    }
+
+    pub fn set_cpu_with_skills(
+        &mut self,
+        level: usize,
+        seed: u64,
+        skills: ddi_engine::cpu::Skills,
+    ) {
+        self.badge = Badge::Cpu;
+        self.mods = cpu_description_with_skills(level, seed, skills);
+        self.timing = None;
+    }
+
+    /// A multiplayer stage's prompt (`docs/plans/multiplayer-prototype-progress.md`,
+    /// M3): stage `number` of `stages` against `cpus` CPUs on a tap-only
+    /// copy, out when the gauge empties, before the mods; no timing line
+    /// (a stage is no time to calibrate).
+    pub fn set_stage(&mut self, number: u16, stages: u16, cpus: usize, others: u16) {
+        // An online room's stage: other people on their own devices.
+        let note: String = if others > 0 {
+            msg::room::prompt_stage_online(number, stages, others).into()
+        } else {
+            msg::room::prompt_stage(number, stages, cpus).into()
+        };
+        self.mods = if self.mods.is_empty() {
+            note
+        } else {
+            format!("{note} · {}", self.mods)
+        };
+        self.timing = None;
+    }
+
     /// A song's card: its title and artist (data, as read from its
     /// files), its chart's line and difficulty, the mods, the badge (the
     /// timing line stays the caller's).
@@ -2123,6 +2183,25 @@ mod tests {
         );
         assert_eq!((test.chart.as_str(), test.mods.as_str()), ("", ""));
         assert_eq!(test.badge, Badge::Replay);
+    }
+
+    #[test]
+    fn cpu_card_keeps_full_seed_and_suppresses_calibration() {
+        let mut info = PromptInfo {
+            timing: Some("calibrate".into()),
+            ..Default::default()
+        };
+        info.set_cpu(2, u64::MAX);
+        assert_eq!(info.badge, Badge::Cpu);
+        assert_eq!(info.timing, None);
+        assert!(info.mods.contains("18446744073709551615"));
+        assert!(info.mods.contains("CPU"));
+        let neutral = info.mods.clone();
+        info.set_cpu_with_skills(2, u64::MAX, ddi_engine::cpu::Skills::default());
+        assert_eq!(info.mods, neutral);
+        let skills = ddi_engine::cpu::Skills::parse("jacks").unwrap();
+        info.set_cpu_with_skills(2, u64::MAX, skills);
+        assert!(info.mods.contains(&skills.vector()));
     }
 
     thread_local! {

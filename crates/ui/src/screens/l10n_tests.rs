@@ -225,7 +225,13 @@ fn studio_texts() -> Vec<String> {
         out.push(p.note.into());
     }
     let empty = Draft::default();
-    for line in Line::all() {
+    // A pack's own counts too, and what the combo dialog says.
+    out.push(ddi_l10n::msg::studio::combo_not_a_count().into());
+    out.push(ddi_l10n::msg::studio::combo_listed(64).into());
+    for line in Line::all()
+        .into_iter()
+        .chain([64, 1024, 1500].map(Line::Combo))
+    {
         out.push(studio::name(line).into());
         out.push(studio::when(line).into());
         out.push(studio::without(line, &empty).into());
@@ -745,6 +751,461 @@ fn editor_walk(env: &Env, harness: &dyn Fn() -> Harness, all: bool, found: &mut 
     }
 }
 
+/// The multiplayer prototype's screens (`room.rs`): the gated start
+/// menu, its home, the room in each phase with a song and without, its
+/// Rules (in the lobby and locked) and More, song select choosing a
+/// stage's song, and a chart refused.
+fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<String>) {
+    use crate::state::room::{Refusal, RoomClient, Unsupported};
+    for desktop in [false, true] {
+        let mut h = harness();
+        h.push(sample::start_screen(env, desktop).with_multiplayer(true));
+        shown(&mut h, found);
+    }
+    let mut h = harness();
+    h.push(sample::multiplayer_screen(env));
+    shown(&mut h, found);
+    let song = sample::bundled()
+        .into_iter()
+        .find(|s| s.charts.iter().any(|c| c.style == "dance-single"))
+        .expect("a sample song with a Single chart");
+    let chart = song
+        .charts
+        .iter()
+        .find(|c| c.style == "dance-single")
+        .unwrap()
+        .clone();
+    let room = RoomClient::shared(0, 1);
+    let show = |h: &mut Harness, found: &mut BTreeSet<String>| {
+        shown(h, found);
+        // Rules and More over it.
+        h.tap(PointerKind::Mouse, "Rules");
+        shown(h, found);
+        h.key("Escape", "Escape");
+        h.run(0.3);
+        h.tap(PointerKind::Mouse, "More");
+        shown(h, found);
+        h.key("Escape", "Escape");
+        h.run(0.3);
+    };
+    // Empty, then each phase with a song: refused, ready, counting down,
+    // on, stopped.
+    let mut h = harness();
+    h.push(sample::room_screen(env, room.clone()));
+    show(&mut h, found);
+    let first = room.borrow().stages()[0].id;
+    room.borrow_mut().choose(first, &song, &chart).unwrap();
+    let _ = room.borrow_mut().start();
+    show(&mut h, found);
+    room.borrow_mut().set_ready(true).unwrap();
+    show(&mut h, found);
+    room.borrow_mut().start().unwrap();
+    show(&mut h, found);
+    room.borrow_mut().tick(10_000);
+    show(&mut h, found);
+    room.borrow_mut().stop_match().unwrap();
+    show(&mut h, found);
+    // Song select choosing a stage's song, and a chart refused.
+    let mut h = harness();
+    h.push(sample::pick_screen(
+        env,
+        room.clone(),
+        first,
+        1,
+        sample::select(),
+    ));
+    shown(&mut h, found);
+    let mut h = harness();
+    h.push(super::room_dialogs::NoticeDialog::refusal(
+        env.clone(),
+        &Refusal::Chart(Unsupported::Layout {
+            style: "dance-double".into(),
+        }),
+    ));
+    shown(&mut h, found);
+    // Every refusal's words.
+    use ddi_room::{CapExceeded, Rejection, RulesProblem};
+    for r in [
+        Rejection::NoContent,
+        Rejection::NotEnoughReady {
+            ready_humans: 0,
+            competitors: 1,
+        },
+        Rejection::StageStarted,
+        Rejection::WrongPhase {
+            phase: ddi_room::PhaseKind::Stage,
+        },
+        Rejection::InvalidRules(RulesProblem::StageCount { stages: 0, max: 16 }),
+        Rejection::InvalidRules(RulesProblem::OverCap(CapExceeded {
+            requested: 9,
+            cap: 8,
+        })),
+        Rejection::InvalidRules(RulesProblem::TooFewSeats { seats: 1, min: 2 }),
+        Rejection::InvalidRules(RulesProblem::EliminationWithLateEntry),
+        Rejection::UnknownClient,
+    ] {
+        checked(
+            vec![super::room::refusal_text(&Refusal::Room(r)).into()],
+            found,
+        );
+    }
+    use crate::state::room::LoadProblem;
+    for r in [
+        Refusal::Preparing,
+        Refusal::Load(LoadProblem::Unreadable),
+        Refusal::Load(LoadProblem::Changed),
+        Refusal::Load(LoadProblem::CpuCannotPlay),
+    ] {
+        checked(vec![super::room::refusal_text(&r).into()], found);
+    }
+    // A match played (M3): the intermission with the player's result and
+    // the places, the match's results, a stopped match's partial ones.
+    use ddi_room::{Finish, Finisher};
+    let report = |room: &crate::state::room::SharedRoom, last: bool| {
+        let mut r = room.borrow_mut();
+        r.set_ready(true).unwrap();
+        r.start().unwrap();
+        let now = r.now_ms() + 3_000;
+        r.tick(now);
+        let order = r.take_stage_order().unwrap();
+        let mut ranking: Vec<Vec<Finisher>> = order
+            .cpus
+            .iter()
+            .map(|c| {
+                vec![Finisher {
+                    participant: c.participant,
+                    finish: Finish::Eliminated,
+                }]
+            })
+            .collect();
+        let me = vec![Finisher {
+            participant: order.me,
+            finish: Finish::Survived,
+        }];
+        if last {
+            ranking.push(me);
+        } else {
+            ranking.insert(0, me);
+        }
+        r.report_stage(order.stage, ranking, false).unwrap();
+    };
+    for stop in [false, true] {
+        let room = RoomClient::shared(0, 1);
+        let mut h = harness();
+        h.push(sample::room_screen(env, room.clone()));
+        let ids: Vec<_> = room.borrow().stages().iter().map(|s| s.id).collect();
+        for id in ids.iter().take(2) {
+            room.borrow_mut().choose(*id, &song, &chart).unwrap();
+        }
+        let rules = ddi_room::MatchRules {
+            stages: 2,
+            ..room.borrow().rules().clone()
+        };
+        room.borrow_mut().save_rules(rules).unwrap();
+        shown(&mut h, found);
+        report(&room, false);
+        show(&mut h, found);
+        if stop {
+            room.borrow_mut().stop_match().unwrap();
+        } else {
+            report(&room, true);
+        }
+        show(&mut h, found);
+    }
+    // A stage's results, its prompt's note, its play's column and every
+    // kind of the player's stage result.
+    let mut h = harness();
+    let mut data = sample::results();
+    data.kind = super::data::ResultsKind::Stage;
+    h.push(super::results::ResultsScreen::new(
+        env.clone(),
+        data,
+        Default::default(),
+    ));
+    shown(&mut h, found);
+    use ddi_l10n::msg::room as m;
+    let mut info = super::prompt::PromptInfo::default();
+    info.set_stage(1, 4, 3, 0);
+    let mut online = super::prompt::PromptInfo::default();
+    online.set_stage(2, 4, 0, 2);
+    checked(
+        vec![
+            info.mods,
+            online.mods,
+            m::play_heading().into(),
+            m::play_level(3).into(),
+            m::play_out().into(),
+            m::play_won().into(),
+            // A battle's moments shown in the column's heading's place.
+            m::play_cue_match_begin().into(),
+            m::play_cue_stage_begin(2).into(),
+            m::play_cue_final_stage().into(),
+            m::play_cue_life_critical().into(),
+            m::play_cue_survivors(2).into(),
+            m::play_cue_eliminated().into(),
+            m::play_cue_stage_drawn().into(),
+        ],
+        found,
+    );
+    for finish in [Finish::Survived, Finish::Eliminated, Finish::Forfeit] {
+        let mark = crate::state::room::StageMark {
+            number: 2,
+            placement: ddi_room::Placement {
+                participant: ddi_room::ParticipantId(1),
+                place: 2,
+                finish,
+                points: ddi_room::Points::ratio(5, 2),
+            },
+            field: 4,
+            experimental: true,
+        };
+        checked(vec![super::room::mark_text(&mark)], found);
+    }
+}
+
+/// Online rooms (M5c): the home signed out, signing in on desktop
+/// (waiting, canceled, failed) and signed in with the invite field; an
+/// invite's page in each state; the online room as its owner and as a
+/// member, its connection's states, the development stop and More.
+fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<String>) {
+    use super::online::{OnlinePage, OnlineScreen};
+    use crate::state::online::tests::{INVITE, ME, err, ok, rig};
+    use crate::state::online::{Dest, Platform};
+    let quiet = || -> super::online::OnlineShell { Rc::new(|_, _| {}) };
+    // The home, signed out, on both shells; then signing in on desktop.
+    for platform in [Platform::Web, Platform::Desktop] {
+        let r = rig(platform, Box::new(|_| err(401, "signed_out")));
+        let mut h = harness();
+        h.push(OnlineScreen::new(
+            env.clone(),
+            r.online.clone(),
+            OnlinePage::Home,
+            quiet(),
+        ));
+        shown(&mut h, found);
+    }
+    let attempt = r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#;
+    let r = rig(
+        Platform::Desktop,
+        Box::new(move |req| match req.path.as_str() {
+            "/auth/attempts" => ok(attempt),
+            "/me" => err(401, "signed_out"),
+            _ => None,
+        }),
+    );
+    let mut h = harness();
+    h.push(OnlineScreen::new(
+        env.clone(),
+        r.online.clone(),
+        OnlinePage::Home,
+        quiet(),
+    ));
+    r.online.borrow_mut().sign_in(Dest::Create);
+    shown(&mut h, found);
+    r.online.borrow_mut().cancel_sign_in();
+    shown(&mut h, found);
+    // Signed in: the account, Sign out, the invite field and its refusal.
+    let r = rig(
+        Platform::Desktop,
+        Box::new(|req| match req.path.as_str() {
+            "/me" => ok(ME),
+            _ => err(409, "room_limit"),
+        }),
+    );
+    let mut h = harness();
+    h.push(OnlineScreen::new(
+        env.clone(),
+        r.online.clone(),
+        OnlinePage::Home,
+        quiet(),
+    ));
+    shown(&mut h, found);
+    r.online.borrow_mut().private_room();
+    shown(&mut h, found);
+    // An invite's page: reading, each admission, each refusal.
+    let previews = [
+        None,
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","members":2}"#,
+        ),
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"stage","admission":"next_match","members":1}"#,
+        ),
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"closed","members":3}"#,
+        ),
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"full","members":32}"#,
+        ),
+        err(410, "invite_expired"),
+        err(403, "invite_rotated"),
+        err(404, "invite_unknown"),
+        err(410, "room_closed"),
+        err(500, "worker_error"),
+        Some(crate::state::online::api::ApiResponse::unreachable()),
+    ];
+    for (signed_in, preview) in [false, true]
+        .into_iter()
+        .flat_map(|s| previews.iter().cloned().map(move |p| (s, p)))
+    {
+        let p = std::cell::RefCell::new(preview);
+        let r = rig(
+            Platform::Web,
+            Box::new(move |req| match req.path.as_str() {
+                "/me" if signed_in => ok(ME),
+                "/me" => err(401, "signed_out"),
+                _ => p.borrow_mut().take(),
+            }),
+        );
+        let mut h = harness();
+        h.push(OnlineScreen::new(
+            env.clone(),
+            r.online.clone(),
+            OnlinePage::Invite(INVITE.into()),
+            quiet(),
+        ));
+        shown(&mut h, found);
+    }
+    // The online room: an owner and a member over the fake room, through
+    // its states.
+    use crate::state::online::tests::room::{client, person, song, tick};
+    use ddi_room::fake::{FakeServer, Fault};
+    use ddi_room::{Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    let alice = Rc::new(std::cell::RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    let bob = Rc::new(std::cell::RefCell::new(client(
+        &server,
+        person(&server, "bob"),
+        "bob",
+        1_000,
+    )));
+    let mut ha = harness();
+    ha.push(sample::room_screen(env, alice.clone()));
+    let mut hb = harness();
+    hb.push(sample::room_screen(env, bob.clone()));
+    shown(&mut ha, found);
+    let step = |ms: u64| {
+        tick(
+            &clock,
+            &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut()],
+            ms,
+        );
+    };
+    step(400);
+    let s = song();
+    let first = alice.borrow().stages()[0].id;
+    alice.borrow_mut().choose(first, &s, &s.charts[0]).unwrap();
+    step(400);
+    for h in [&mut ha, &mut hb] {
+        shown(h, found);
+        h.tap(PointerKind::Mouse, "More");
+        shown(h, found);
+        h.key("Escape", "Escape");
+        h.run(0.3);
+    }
+    checked(
+        [
+            crate::state::online::link::LinkNotice::InviteCopied,
+            crate::state::online::link::LinkNotice::InviteReplaced,
+            crate::state::online::link::LinkNotice::InviteNotReplaced,
+        ]
+        .into_iter()
+        .map(|n| {
+            alice.borrow_mut().set_link_notice(Some(n));
+            ha.run(0.5);
+            ha.texts()
+        })
+        .collect::<Vec<_>>()
+        .concat(),
+        found,
+    );
+    alice.borrow_mut().set_link_notice(None);
+    // Sharing the stage's song (M5d): the upload as it goes, its failure
+    // and More's retry, then the room's refusal of a share without the
+    // chosen chart, then the shared song read by both.
+    {
+        use crate::state::online::tests::room::{prepare, upload};
+        // The screen handed the upload to its (sample) shell already.
+        let _ = alice.borrow_mut().take_upload_jobs();
+        alice.borrow_mut().upload_progress(first, 10.0, 40.0);
+        shown(&mut ha, found);
+        alice
+            .borrow_mut()
+            .upload_finished(first, Err(ddi_library::share::ShareError::TooLarge));
+        shown(&mut ha, found);
+        ha.tap(PointerKind::Mouse, "More");
+        shown(&mut ha, found);
+        ha.key("Escape", "Escape");
+        server
+            .borrow_mut()
+            .authority(ddi_room::Command::SetContentStatus {
+                stage: first,
+                status: ddi_room::ContentStatus::Unavailable {
+                    code: "digest_mismatch".into(),
+                },
+                share: None,
+            })
+            .unwrap();
+        step(400);
+        shown(&mut ha, found);
+        shown(&mut hb, found);
+        alice.borrow_mut().retry_sharing(first);
+        server
+            .borrow_mut()
+            .authority(ddi_room::Command::SetContentStatus {
+                stage: first,
+                status: ddi_room::ContentStatus::Pending,
+                share: None,
+            })
+            .unwrap();
+        step(400);
+        upload(&server, &mut alice.borrow_mut(), "abc12345");
+        step(400);
+        prepare(&mut alice.borrow_mut());
+        prepare(&mut bob.borrow_mut());
+        step(400);
+        shown(&mut ha, found);
+        shown(&mut hb, found);
+    }
+    // The connection's states, as Bob's row and Bob's own status say them.
+    server.borrow_mut().drop_socket(ParticipantId(2));
+    step(100);
+    shown(&mut ha, found);
+    shown(&mut hb, found);
+    server.borrow_mut().fault(
+        ParticipantId(1),
+        Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
+    );
+    step(100);
+    shown(&mut ha, found);
+    ha.tap(PointerKind::Mouse, "More");
+    shown(&mut ha, found);
+    ha.key("Escape", "Escape");
+    server.borrow_mut().fault(
+        ParticipantId(2),
+        Fault::Close(ddi_room::online::close::ROOM_CLOSED),
+    );
+    step(1_000);
+    shown(&mut hb, found);
+}
+
 fn walk() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let env = env();
@@ -759,6 +1220,8 @@ fn walk() -> BTreeSet<String> {
         h.push(sample::select_screen(&env, None));
         shown(&mut h, &mut found);
         select_walk(&env, &harness, &mut found);
+        room_walk(&env, &harness, &mut found);
+        online_walk(&env, &harness, &mut found);
         // The prompt's steps, as the shells hand them in: the loading
         // screen's own word is an identifier, never shown; an error's
         // explanation is still the loader's.
@@ -885,6 +1348,13 @@ fn walk() -> BTreeSet<String> {
             ));
             shown(&mut h, &mut found);
         }
+        // The announcer studio's Add a combo line….
+        let mut h = harness();
+        h.push(super::studio::combo_dialog(
+            env.clone(),
+            Rc::new(|_, _| true),
+        ));
+        shown(&mut h, &mut found);
     }
     // Options' rows on each shell, every value of each, and the
     // confirmations.

@@ -88,6 +88,7 @@ pub(crate) enum SongSource {
 /// decoded) or nothing (the calibration click track is synthesized).
 pub(crate) struct Loaded {
     pub(crate) song: Song,
+    pub(crate) cpu: Option<Rc<ddi_engine::cpu::Plan>>,
     pub(crate) title: String,
     pub(crate) subtitle: String,
     pub(crate) music_bytes: Option<Vec<u8>>,
@@ -244,6 +245,7 @@ pub(crate) struct Props {
     pub(crate) source: SongSource,
     pub(crate) backend: BackendPreference,
     pub(crate) auto: bool,
+    pub(crate) cpu: Option<ddi_engine::cpu::Selection>,
     /// Autoplay through the headless tests' fake gamepad.
     pub(crate) auto_pad: bool,
     /// Autoplay bias in seconds (testing aid).
@@ -261,6 +263,11 @@ pub(crate) struct Props {
     /// The announcer studio's scene in play of this line (its folder,
     /// `crate::studio_scene`): staged, never kept, back to the studio.
     pub(crate) scene: Option<String>,
+    /// A practice room's stage (`crate::room`; `#/play?…&stage=<id>`):
+    /// played against its CPUs, no play options or countdown, never
+    /// kept; its outcome reported to the room (by the game loop, as the
+    /// play ends), its results going back to the room.
+    pub(crate) room_stage: Option<Rc<ddi_ui::state::room::StageOrder>>,
 }
 
 /// The page's few DOM elements around the canvas.
@@ -656,6 +663,7 @@ impl Component for GameCanvas {
                 // (`GameLoop::frame`).
                 let skin = noteskin_ready(&Settings::load(), &song, 0, 0.0);
                 let loaded = Loaded {
+                    cpu: None,
                     song,
                     title: mode.title(),
                     subtitle: mode.hint(),
@@ -778,7 +786,11 @@ impl Component for GameCanvas {
         // with its own, nor a test's); the skins for its skin row come
         // from storage.
         let options = match &ctx.props().source {
-            SongSource::Song { id, chart } if replay.is_none() => {
+            SongSource::Song { id, chart }
+                if replay.is_none()
+                    && ctx.props().cpu.is_none()
+                    && ctx.props().room_stage.is_none() =>
+            {
                 let mut o = PlayOptions::new(
                     play_settings.clone(),
                     "",
@@ -1034,12 +1046,14 @@ impl GameCanvas {
                         .get(*chart)
                         .map_or(0, |c| c.notes.len() as u32);
                     let voice = ddi_session::announcer::SharedVoice::default();
-                    crate::announcers::load_voice(
-                        key,
-                        crate::announcers::For::Play { notes },
-                        voice.clone(),
-                        self.alive.clone(),
-                    );
+                    // A practice stage's: the battle's lines, not a play's
+                    // routine.
+                    let of = if ctx.props().room_stage.is_some() {
+                        crate::announcers::For::Stage
+                    } else {
+                        crate::announcers::For::Play { notes }
+                    };
+                    crate::announcers::load_voice(key, of, voice.clone(), self.alive.clone());
                     self.voice = Some(voice);
                 }
                 self.song = Status::Ready(song);
@@ -1243,6 +1257,20 @@ impl GameCanvas {
                 if matches!(self.stage, Stage::Playing) || self.results.is_some() {
                     return false;
                 }
+                // A stage left from its prompt: a forfeit (the CPUs played
+                // to their end), unless already reported.
+                if let Some(order) = ctx.props().room_stage.as_deref()
+                    && crate::room::playing(order.stage.0).is_some()
+                {
+                    let song = match &self.song {
+                        Status::Ready(s) => Some(&s.song),
+                        _ => None,
+                    };
+                    let rules = song
+                        .and_then(|s| s.charts.get(order.chart.index))
+                        .map(|c| self.settings.ruleset_for(c));
+                    crate::room::leave_before_play(order, song, rules.as_ref());
+                }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
@@ -1372,7 +1400,7 @@ impl GameCanvas {
                 // New devices play on the defaults, kept as their profile
                 // from now (no banner, no step: `quiet-calibration.md`); a
                 // replay changes no setting.
-                if self.replay.is_none() {
+                if self.replay.is_none() && ctx.props().cpu.is_none() {
                     self.register_devices();
                 }
                 self.analyze_music(ctx, &buffer);
@@ -1489,6 +1517,11 @@ impl GameCanvas {
                 self.stage = Stage::Interrupted;
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
+                }
+                // A stage is played once: its forfeit reported (the game
+                // loop did), back to the room.
+                if ctx.props().room_stage.is_some() {
+                    back_route(ctx.props()).return_to();
                 }
                 true
             }
@@ -1972,7 +2005,11 @@ impl GameCanvas {
         else {
             return;
         };
-        if !self.settings.ghost || self.replay.is_some() || ctx.props().edit {
+        if !self.settings.ghost
+            || self.replay.is_some()
+            || ctx.props().edit
+            || ctx.props().cpu.is_some()
+        {
             return;
         }
         let best =
@@ -2050,6 +2087,16 @@ impl GameCanvas {
             }
         };
         config.session.seed = self.play_seed;
+        if let Some(cpu) = &ctx.props().cpu {
+            config.session.seed = cpu.seed;
+            config.session.options.transform = Default::default();
+            config.session.options.clock.rate = 1.;
+        }
+        config.session.opponents = ctx
+            .props()
+            .room_stage
+            .as_deref()
+            .map(ddi_session::battle::StageSetup::of);
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
         // The editor's playtest from its cursor.
@@ -2260,7 +2307,12 @@ impl GameCanvas {
             SongSource::Calibration(_) => 0.0,
         };
         // The best play's ghost beside it, lined up by the song offsets.
-        if self.settings.ghost && self.replay.is_none() && self.scene.is_none() {
+        if self.settings.ghost
+            && self.replay.is_none()
+            && self.scene.is_none()
+            && ctx.props().cpu.is_none()
+            && ctx.props().room_stage.is_none()
+        {
             config.session.ghost = self.ghost.clone().map(|g| g.for_play(shift));
         }
         // What the history says of the chart before this play, for the
@@ -2269,6 +2321,8 @@ impl GameCanvas {
             && self.replay.is_none()
             && !ctx.props().edit
             && self.scene.is_none()
+            && ctx.props().cpu.is_none()
+            && ctx.props().room_stage.is_none()
         {
             config.session.prior = Some(ddi_session::announcer::Prior::before(
                 &crate::history::plays().history(),
@@ -2279,6 +2333,28 @@ impl GameCanvas {
         }
         if let Some(r) = self.kept() {
             crate::replay::publish(&r.id, "playing", None, None);
+        }
+        if let Some(cpu) = &ctx.props().cpu {
+            let Some(profile) = &song.cpu else {
+                self.stage = Stage::Error("CPU profile missing".into());
+                return;
+            };
+            let mut script = match profile.script_with_skills(cpu.level, cpu.seed, cpu.skills) {
+                Ok(s) => s,
+                Err(e) => {
+                    self.stage = Stage::Error(e.into());
+                    return;
+                }
+            };
+            for press in &mut script {
+                press.press += shift;
+                press.release += shift;
+            }
+            config.session.cpu = Some(script);
+            config.session.seed = cpu.seed;
+            config.session.options.transform = Default::default();
+            config.session.options.clock.rate = 1.;
+            config.session.ghost = None;
         }
         self.played_offset = shift;
         let play_song = song.song.shifted(shift);
@@ -2344,7 +2420,7 @@ impl GameCanvas {
                     );
                     game.set_lyrics(lyrics);
                     game.set_stage_track(stage_track);
-                    game.set_background_schedule(schedule);
+                    game.set_schedule(schedule);
                     game.set_session(session);
                     game.enter_background(
                         entrance,
@@ -2543,7 +2619,7 @@ impl GameCanvas {
     /// mods it will play with.
     fn prompt_info(&self, ctx: &Context<Self>) -> PromptInfo {
         let props = ctx.props();
-        match (&self.song, &props.source) {
+        let mut info = match (&self.song, &props.source) {
             (Status::Ready(song), SongSource::Song { chart, .. }) => PromptInfo {
                 timing: self.timing_hint(ctx),
                 ..PromptInfo::for_chart(
@@ -2596,7 +2672,14 @@ impl GameCanvas {
                 },
                 ..PromptInfo::default()
             },
+        };
+        if let Some(cpu) = &props.cpu {
+            info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
         }
+        if let Some(order) = &props.room_stage {
+            info.set_stage(order.number, order.of, order.cpus.len(), order.others);
+        }
+        info
     }
 
     /// The song's picture as the play opens on it: its opening still,
@@ -2895,10 +2978,25 @@ impl GameCanvas {
         results: &Results,
         facts: crate::play::PlayFacts,
     ) {
+        if let Some(cpu) = &ctx.props().cpu {
+            // Read-only parity diagnostics, never persisted as a personal play.
+            if let Some(window) = web_sys::window()
+                && let Ok(text) = serde_json::to_string(&serde_json::json!({
+                    "strength": ddi_engine::cpu::LABELS[cpu.level],
+                    "model": if cpu.path.is_some() { "prepared" } else { "analytical-runtime-v1" },
+                    "seed": cpu.seed.to_string(), "skills": cpu.skills.values(), "skills_version": 1, "log": facts.log,
+                    "results": results,
+                }))
+                && let Ok(value) = js_sys::JSON::parse(&text)
+            {
+                let _ = js_sys::Reflect::set(&window, &"__DDI_CPU_PLAY".into(), &value);
+            }
+            return;
+        }
         use ddi_ui::state::history::Autoplay;
         // The editor's playtests are tests, not plays; nor are the
-        // announcer studio's scenes.
-        if ctx.props().edit || self.scene.is_some() {
+        // announcer studio's scenes, nor a practice room's stages.
+        if ctx.props().edit || self.scene.is_some() || ctx.props().room_stage.is_some() {
             return;
         }
         let Status::Ready(song) = &self.song else {
@@ -3000,7 +3098,6 @@ impl GameCanvas {
         };
         let song_entry = SongEntry {
             title: song.title.clone(),
-            subtitle: String::new(),
             artist: song.subtitle.clone(),
             length: self.song_length as f32,
             banner: song.banner.clone(),
@@ -3026,6 +3123,19 @@ impl GameCanvas {
             self.kept(),
         );
         video_notes.extend(scripts_note);
+        if let Some(cpu) = &ctx.props().cpu {
+            video_notes.push(ddi_ui::screens::prompt::cpu_description_with_skills(
+                cpu.level, cpu.seed, cpu.skills,
+            ));
+        }
+        // A stage's: how it went for the player, as the room confirmed it.
+        let stage = ctx.props().room_stage.clone();
+        if let Some(mark) = stage
+            .as_ref()
+            .and_then(|o| crate::room::last_room().borrow().mark_of(o.stage))
+        {
+            video_notes.insert(0, ddi_ui::screens::room::mark_text(&mark));
+        }
         let kept = self.kept().cloned();
         let mut data = results_data(&PlayInfo {
             results,
@@ -3036,7 +3146,8 @@ impl GameCanvas {
             mods: Vec::new(),
             device_changed: *device_changed,
             video_notes,
-            offset: Some((self.played_offset, settings.song_offset(&id))),
+            offset: (ctx.props().cpu.is_none() && stage.is_none())
+                .then(|| (self.played_offset, settings.song_offset(&id))),
             autoplay: match &kept {
                 Some(r) => r.record.autoplay.is_some(),
                 None => ctx.props().auto,
@@ -3055,6 +3166,9 @@ impl GameCanvas {
                 kind,
                 &r.when_line(&crate::history::tz_minutes),
             );
+        }
+        if stage.is_some() {
+            data.kind = ddi_ui::screens::data::ResultsKind::Stage;
         }
         // Its replay: the play just kept's, or the kept play's.
         let replay_id = match &kept {
@@ -3112,7 +3226,8 @@ impl GameCanvas {
         } else {
             retry
         };
-        let offset = ddi_ui::screens::play::song_offset_saver(id);
+        let offset = (ctx.props().cpu.is_none() && stage.is_none())
+            .then(|| ddi_ui::screens::play::song_offset_saver(id));
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
@@ -3132,9 +3247,10 @@ impl GameCanvas {
             env.clone(),
             data.clone(),
             ResultsActions {
-                retry: (!view_results).then_some(retry),
+                // A stage is played once.
+                retry: (!view_results && stage.is_none()).then_some(retry),
                 song_list: Some(song_list),
-                offset: Some(offset),
+                offset,
                 replay,
             },
         ));
@@ -3298,6 +3414,9 @@ fn js_debug(
 fn back_route(props: &Props) -> Route {
     if props.scene.is_some() {
         return Route::Studio;
+    }
+    if props.room_stage.is_some() {
+        return crate::room::back_route();
     }
     match &props.source {
         SongSource::Song { id, chart } if props.edit => Route::Edit {
@@ -3504,12 +3623,36 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     let edit = ctx.props().edit;
     // The cover the generated background's kaleidoscope folds.
     let generated = settings.clone();
+    let cpu = ctx.props().cpu.clone();
     ctx.link().send_future(async move {
-        let r = load_song(&id, chart).await.map(|mut loaded| {
-            // The editor's playtest: the song as edited.
+        let r = async {
+            let mut loaded = load_song(&id, chart).await?;
             if edit && let Some((song, _)) = crate::editor::playtest(&id) {
                 loaded.song = song;
             }
+            let profile = if let Some(cpu) = cpu {
+                if chart >= loaded.song.charts.len() {
+                    return Err(LoadError::from("CPU chart missing"));
+                }
+                let profile = if let Some(path) = &cpu.path {
+                    ddi_engine::cpu::Plan::Prepared(
+                        crate::cpu::load(path).await.map_err(LoadError::from)?,
+                    )
+                } else {
+                    ddi_engine::cpu::Plan::automatic(&loaded.song, chart)
+                        .map_err(LoadError::from)?
+                };
+                loaded.song = profile
+                    .check_song(&loaded.song, chart)
+                    .map_err(LoadError::from)?;
+                Some(Rc::new(profile))
+            } else {
+                None
+            };
+            Ok((loaded, profile))
+        }
+        .await
+        .map(|(mut loaded, cpu)| {
             // The song's own images, then those found in shared folders,
             // under the names it uses; the movies that play.
             let (bg_images, bg_videos) = backgrounds::files_shown(
@@ -3825,6 +3968,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             Rc::new(Loaded {
                 pictures,
                 scripts: true,
+                cpu,
                 title: loaded.entry.title.clone(),
                 subtitle: loaded.entry.artist.clone(),
                 bg_images,

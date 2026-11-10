@@ -16,10 +16,11 @@ use std::rc::Rc;
 use ddi_engine::player::Results;
 use ddi_engine::rules::{FullCombo, GradeTable};
 use ddi_engine::transform::SplitMix64;
-use ddi_library::announcer::{Grade, Kept, Line, Spoken};
+use ddi_library::announcer::{Battle, Grade, Kept, Line, Spoken};
 use ddi_library::path::RelPathBuf;
 use ddi_platform::AudioBackend;
 
+pub mod battle;
 pub mod scene;
 
 pub use ddi_library::announcer::{CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE};
@@ -206,6 +207,19 @@ impl<B> Voice<B> {
             .find(|l| self.lines.get(l).is_some_and(|b| !b.is_empty()))
     }
 
+    /// The highest count past `old` and up to `new` it has a combo line
+    /// for, decoded or being decoded.
+    fn combo_within(&self, old: u32, new: u32) -> Option<u32> {
+        self.lines
+            .keys()
+            .chain(&self.expected)
+            .filter_map(|l| match *l {
+                Line::Combo(n) if n > old && n <= new => Some(n),
+                _ => None,
+            })
+            .max()
+    }
+
     fn expects(&self, line: Line) -> bool {
         line.chain().iter().any(|l| self.expected.contains(l))
     }
@@ -345,7 +359,9 @@ pub struct Report {
     /// The lines started or scheduled, by folder, and the context time
     /// each starts (one scheduled ahead and cut by a quit is listed).
     pub spoken: Vec<(String, f64)>,
-    /// Gated lines that came too soon after another (5.1 drops them).
+    /// Gated lines that came too soon after another (5.1 drops them), and
+    /// a stage's battle lines passed over for one that mattered as much
+    /// or more ([`battle::VoicePolicy::priority`]).
     pub dropped: u32,
     /// Lines due that were being decoded but were not yet.
     pub missing: Vec<String>,
@@ -455,6 +471,10 @@ pub struct Announcer<B> {
     /// the life's line), and what the voice held then: not tried again
     /// each frame until one of them changes.
     unsaid: Option<(bool, Line, (usize, usize))>,
+    /// A multiplayer stage's voice ([`battle`]): its opening is the
+    /// battle's, its routine lines left out, its battle lines one at a
+    /// time.
+    stage: Option<battle::StageVoice>,
     pub report: Report,
 }
 
@@ -484,8 +504,26 @@ impl<B> Announcer<B> {
             lives: None,
             ended: false,
             unsaid: None,
+            stage: None,
             report: Report::default(),
         }
+    }
+
+    /// A multiplayer stage's (`crate::battle`): opened by `opening` in
+    /// place of ready, spoken under `policy` ([`battle`]).
+    pub fn in_stage(mut self, opening: Battle, policy: battle::VoicePolicy) -> Announcer<B> {
+        self.opening = Line::Battle(opening);
+        self.stage = Some(battle::StageVoice::new(policy));
+        self
+    }
+
+    /// A stage's opening, once the play has begun: the line it was said
+    /// with (`None`: nothing was, or nothing speaks). `None` before.
+    pub fn opened_with(&self) -> Option<Option<Line>> {
+        if !self.speaking() {
+            return Some(None);
+        }
+        self.stage.as_ref().and_then(|s| s.opened)
     }
 
     /// A quick restart's play (decision 79): `gameplay restart` opens
@@ -537,9 +575,18 @@ impl<B> Announcer<B> {
     /// Speaks the first of `lines` it has a sound for at `at`; whether
     /// one spoke. What it lacks is reported, the first line's name.
     fn say<A: AudioBackend<Buffer = B>>(&mut self, audio: &mut A, lines: &[Line], at: f64) -> bool {
-        let Some(voice) = self.voice.clone() else {
-            return false;
-        };
+        self.say_found(audio, lines, at).is_some()
+    }
+
+    /// [`Announcer::say`], the line found and spoken (of the first's
+    /// chain, or a later one's).
+    fn say_found<A: AudioBackend<Buffer = B>>(
+        &mut self,
+        audio: &mut A,
+        lines: &[Line],
+        at: f64,
+    ) -> Option<Line> {
+        let voice = self.voice.clone()?;
         let mut voice = voice.borrow_mut();
         for &line in lines {
             let Some((found, sound)) = voice.next(line) else {
@@ -551,7 +598,7 @@ impl<B> Announcer<B> {
             };
             if audio.play_voice(sound, at, volume).is_ok() {
                 self.report.spoken.push((found.folder(), at));
-                return true;
+                return Some(found);
             }
         }
         if let Some(&first) = lines.first() {
@@ -564,7 +611,24 @@ impl<B> Announcer<B> {
                 self.report.absent.push(name);
             }
         }
-        false
+        None
+    }
+
+    /// The combo line due as the combo goes from `old` to `new`: the
+    /// highest count reached that the voice has a line for (any count:
+    /// `gameplay 64 combo`), else the hundred crossed (StepMania's to
+    /// 1000; past it, `combo overflow` where the pack has no line of its
+    /// own, as in 5.1).
+    fn combo_due(&self, old: u32, new: u32) -> Option<Line> {
+        if new <= old {
+            return None;
+        }
+        let own = self
+            .voice
+            .as_ref()
+            .and_then(|v| v.borrow().combo_within(old, new));
+        own.or_else(|| (new / 100 > old / 100 && new >= 100).then_some(new / 100 * 100))
+            .map(Line::Combo)
     }
 
     /// A gated line: spoken when `gap` seconds have passed since the last
@@ -591,35 +655,47 @@ impl<B> Announcer<B> {
     /// (ready alone where the announcer has no here we go).
     fn open<A: AudioBackend<Buffer = B>>(&mut self, audio: &mut A, now: f64) {
         self.opened = true;
-        let Some(first) = self.first_note else {
-            return;
-        };
-        let start = now + LEAD;
-        let by = self.timing.at(first) - GO_BEFORE;
-        let ready = self.opening;
-        match (
-            self.length(audio, ready),
-            self.length(audio, Line::HereWeGo),
-        ) {
-            (Some(r), Some(g)) if start + r <= by - g => {
-                self.say(audio, &[ready], start);
-                self.say(audio, &[Line::HereWeGo], by - g);
+        // What the opening was said with, and until when (a stage's).
+        let mut said = None;
+        if let Some(first) = self.first_note {
+            let start = now + LEAD;
+            let by = self.timing.at(first) - GO_BEFORE;
+            let ready = self.opening;
+            match (
+                self.length(audio, ready),
+                self.length(audio, Line::HereWeGo),
+            ) {
+                (Some(r), Some(g)) if start + r <= by - g => {
+                    said = self
+                        .say_found(audio, &[ready], start)
+                        .map(|l| (l, start + r));
+                    self.say(audio, &[Line::HereWeGo], by - g);
+                }
+                (_, Some(g)) if by - g >= start => {
+                    self.say(audio, &[Line::HereWeGo], by - g);
+                }
+                // No room for here we go: nothing.
+                (_, Some(_)) => {}
+                (Some(r), None) if start + r <= by => {
+                    said = self
+                        .say_found(audio, &[ready], start)
+                        .map(|l| (l, start + r));
+                    // Here we go may be decoded yet, and fit after it.
+                    self.go_after = Some(start + r);
+                }
+                (Some(_), None) => self.go_after = Some(start),
+                (None, None) => {
+                    // Ready due and not there (reported); here we go may
+                    // come.
+                    self.say(audio, &[ready], start);
+                    self.go_after = Some(start);
+                }
             }
-            (_, Some(g)) if by - g >= start => {
-                self.say(audio, &[Line::HereWeGo], by - g);
-            }
-            // No room for here we go: nothing.
-            (_, Some(_)) => {}
-            (Some(r), None) if start + r <= by => {
-                self.say(audio, &[ready], start);
-                // Here we go may be decoded yet, and fit after it.
-                self.go_after = Some(start + r);
-            }
-            (Some(_), None) => self.go_after = Some(start),
-            (None, None) => {
-                // Ready due and not there (reported); here we go may come.
-                self.say(audio, &[ready], start);
-                self.go_after = Some(start);
+        }
+        if let (Some(stage), Line::Battle(opening)) = (self.stage.as_mut(), self.opening) {
+            stage.opened = Some(said.map(|(l, _)| l));
+            if let Some((_, until)) = said {
+                stage.busy = Some((until, stage.policy.priority(opening)));
             }
         }
     }
@@ -647,6 +723,14 @@ impl<B> Announcer<B> {
                 None => {}
             }
         }
+        // A stage leaves a play's routine lines out: its battle's moments
+        // speak instead ([`Announcer::battle`]).
+        if self.stage.is_some() {
+            self.combo = m.combo;
+            self.lives = m.lives;
+            self.ended |= m.ended;
+            return;
+        }
         if !self.ended {
             self.since += m.dt.clamp(0.0, 0.25);
         }
@@ -670,13 +754,13 @@ impl<B> Announcer<B> {
                     self.gated(audio, &[Line::LifeLost], COMBO_GAP, m.now);
                 }
             }
-            // The combo crossing a hundred, one line a frame; a combo of
-            // more than 50 broken.
+            // The combo reaching a count the pack has a line for, or
+            // crossing a hundred, one line a frame; a combo of more than
+            // 50 broken.
             let (old, new) = (self.combo, m.combo);
             if lost {
-            } else if new / 100 > old / 100 && new >= 100 {
-                let n = new / 100 * 100;
-                self.gated(audio, &[Line::Combo(n)], COMBO_GAP, m.now);
+            } else if let Some(line) = self.combo_due(old, new) {
+                self.gated(audio, &[line], COMBO_GAP, m.now);
             } else if old > COMBO_STOPPED_AT && new < COMBO_STOPPED_AT {
                 self.gated(audio, &[Line::ComboStopped], COMBO_GAP, m.now);
             }
@@ -754,6 +838,14 @@ impl<B> Announcer<B> {
             return;
         }
         let at = now + LEAD;
+        // A stage's results: a quit's own line; the rest is the battle's,
+        // once the room has confirmed the stage ([`Announcer::stage_results`]).
+        if self.stage.is_some() {
+            if r.quit {
+                self.say(audio, &[Line::Quit], at);
+            }
+            return;
+        }
         let lines = results_lines(self.prior, r, grades, combo_w4);
         if lines.is_empty() {
             return;
@@ -762,6 +854,65 @@ impl<B> Announcer<B> {
         if spoke && cheers(r, grades) {
             self.say(audio, &[Line::Cheer], at + CHEER_DELAY);
         }
+    }
+}
+
+impl<B> Announcer<B> {
+    /// A stage's battle `event` at `now` (audio clock): its line (or what
+    /// speaks in its place) said at once where the policy lets it, else
+    /// passed over, never delayed. The line said, if one was.
+    pub fn battle<A: AudioBackend<Buffer = B>>(
+        &mut self,
+        audio: &mut A,
+        event: Battle,
+        now: f64,
+    ) -> Option<Line> {
+        if !self.speaking() {
+            return None;
+        }
+        let at = now + LEAD;
+        let stage = self.stage.as_ref()?;
+        if !stage.may_speak(event, at) {
+            self.report.dropped += 1;
+            return None;
+        }
+        let priority = stage.policy.priority(event);
+        let line = Line::Battle(event);
+        let length = self.length(audio, line).unwrap_or(0.0);
+        let said = self.say_found(audio, &[line], at)?;
+        if let Some(stage) = self.stage.as_mut() {
+            stage.busy = Some((at + length, priority));
+        }
+        Some(said)
+    }
+
+    /// A stage's end as its results will tell it (`crate::battle::Battle::
+    /// end_event`), kept until the room has confirmed it.
+    pub fn stage_end(&mut self, event: Option<Battle>) {
+        if let Some(stage) = self.stage.as_mut() {
+            stage.end = event;
+        }
+    }
+
+    /// The stage's results' line once the room has confirmed it, at `now`
+    /// (audio clock): on a match's last stage the match's `ending` (where
+    /// the pack has it: one outcome, never two stacked), else the stage's
+    /// end kept. The line said, if one was.
+    pub fn stage_results<A: AudioBackend<Buffer = B>>(
+        &mut self,
+        audio: &mut A,
+        now: f64,
+        ending: Option<Battle>,
+    ) -> Option<Line> {
+        let end = self.stage.as_mut()?.end.take();
+        if !self.speaking() {
+            return None;
+        }
+        let lines: Vec<Line> = ending.into_iter().chain(end).map(Line::Battle).collect();
+        if lines.is_empty() {
+            return None;
+        }
+        self.say_found(audio, &lines, now + LEAD)
     }
 }
 

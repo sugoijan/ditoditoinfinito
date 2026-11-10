@@ -349,6 +349,47 @@ fn combos_speak_behind_the_shared_gate() {
 }
 
 #[test]
+fn a_pack_counting_its_own_way_speaks_its_counts() {
+    // Powers of two, and More combo.
+    let lines = [
+        (Line::Combo(64), 1.0),
+        (Line::Combo(128), 1.0),
+        (Line::Combo(1024), 1.0),
+        (Line::ComboOverflow, 1.0),
+    ];
+    let mut audio = Fake::default();
+    let mut a = announcer(&lines, 0.0, None);
+    let mut combo = 0;
+    let mut t = 0.0;
+    // A note every 0.2 s up to 1150 (the nth from 0.2 × (n − 1) s): 64
+    // at 12.6 s, then 128 and 1024, More combo for 1100 (no line of its
+    // own).
+    while combo < 1150 {
+        combo += 1;
+        t += 0.2;
+        run(&mut a, &mut audio, t - 0.2, t, |m| m.combo = combo);
+    }
+    assert_eq!(
+        spoken(&a),
+        [
+            "gameplay 64 combo",
+            "gameplay 128 combo",
+            "gameplay 1024 combo",
+            "gameplay combo overflow"
+        ]
+    );
+    let said = a.report.spoken[0].1;
+    assert!((said - TIMING.at(12.6)).abs() < 0.05, "{said}");
+    // Hundreds it has no line for are only reported.
+    assert!(a.report.absent.contains(&"gameplay 100 combo".to_string()));
+    // Two counts in one frame: the higher.
+    let mut a = announcer(&lines, 0.0, None);
+    run(&mut a, &mut audio, 0.0, 3.0, |m| m.combo = 60);
+    run(&mut a, &mut audio, 3.0, 3.1, |m| m.combo = 130);
+    assert_eq!(spoken(&a), ["gameplay 128 combo"]);
+}
+
+#[test]
 fn the_end_is_cleared_or_failed_once() {
     let lines = [(Line::Cleared, 1.0), (Line::Failed, 1.0)];
     let mut audio = Fake::default();

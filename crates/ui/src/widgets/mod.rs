@@ -8,7 +8,7 @@
 //! - [`list`]: a virtual list (rows built only for what shows, reused),
 //!   with section headers, inertia, snapping, a scrollbar and a wheel
 //!   style.
-//! - [`controls`]: toggles, option rows, sliders.
+//! - [`controls`]: a toggle, and the press look of what a pointer presses.
 //! - [`field`]: a text field with an autocomplete popup.
 //! - [`volume`]: the quick volume control, its slider under its icon.
 

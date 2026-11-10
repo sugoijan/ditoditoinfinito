@@ -10,6 +10,7 @@
 //! tests run it the same way on a fake clock, with no device
 //! ([`crate::audio::Audio::headless`]).
 
+pub mod cpu;
 pub mod host;
 pub mod load;
 #[cfg(feature = "video")]
@@ -48,6 +49,8 @@ pub struct Request {
     pub backdrop: Option<String>,
     /// Autoplay (`--auto`, song select's switch): never counted.
     pub auto: bool,
+    /// Frozen local CPU profile; its sampled inputs are never personal scores.
+    pub cpu: Option<cpu::CpuRequest>,
     /// Autoplay through a test pad (`--auto=pad`): the presses go
     /// through the bindings as a controller's.
     pub auto_pad: bool,
@@ -83,6 +86,11 @@ pub struct Request {
     pub scene: Option<Rc<SceneOrder>>,
     /// How the scene's play is staged (once its chart is read).
     pub staging: Option<ddi_session::play::Staging>,
+    /// A multiplayer stage of the practice room (`crate::room`;
+    /// `docs/plans/multiplayer-prototype-progress.md`, M3): played against
+    /// its CPUs, never kept, its outcome reported to the room before its
+    /// results, which go back to the room.
+    pub stage: Option<Rc<ddi_ui::state::room::StageOrder>>,
 }
 
 /// A line's scene in play, from the announcer studio
@@ -121,6 +129,7 @@ impl Request {
             song: song.to_string(),
             chart,
             auto,
+            cpu: None,
             backdrop: None,
             auto_pad: false,
             calibration: None,
@@ -136,6 +145,17 @@ impl Request {
             restart: false,
             scene: None,
             staging: None,
+            stage: None,
+        }
+    }
+
+    /// Stage `order` of the practice room: its prompt without a countdown
+    /// or play options, the play against its CPUs.
+    pub fn stage(order: ddi_ui::state::room::StageOrder) -> Request {
+        Request {
+            backdrop: order.song.background.clone(),
+            stage: Some(Rc::new(order.clone())),
+            ..Request::song(&order.song.id, order.chart.index, false)
         }
     }
 
@@ -181,8 +201,16 @@ impl Request {
         config.prior = self.prior;
         config.restart = self.restart;
         config.staging = self.staging.clone();
+        if let Some(cpu) = &self.cpu {
+            config.seed = cpu.seed;
+            config.options.transform = Default::default();
+            config.options.clock.rate = 1.;
+        }
         if let Some(mode) = self.calibration {
             config.calibrate(mode);
+        }
+        if let Some(order) = &self.stage {
+            config.opponents = Some(ddi_session::battle::StageSetup::of(order));
         }
         // A replay: its log on the lanes, its options and rules, the
         // offsets this device needs.
@@ -437,7 +465,38 @@ impl Play {
             .as_deref()
             .filter(|_| request.replay.is_none() && request.calibration.is_none())
             .map(|g| g.clone().for_play(shift));
-        let song = loaded.song.shifted(shift);
+        let song = if let Some(cpu) = &request.cpu {
+            if request.replay.is_some()
+                || request.calibration.is_some()
+                || request.auto_pad
+                || request.edited.is_some()
+                || request.scene.is_some()
+            {
+                return Err("CPU cannot run as a replay, calibration or test pad".into());
+            }
+            let automatic;
+            let profile = if let Some(profile) = &cpu.profile {
+                profile.as_ref()
+            } else {
+                automatic = ddi_engine::cpu::Plan::automatic(&loaded.song, request.chart)?;
+                &automatic
+            };
+            let mut projected = profile.check_song(&loaded.song, request.chart)?;
+            let mut script = profile.script_with_skills(cpu.level, cpu.seed, cpu.skills)?;
+            for p in &mut script {
+                p.press += shift;
+                p.release += shift;
+            }
+            config.cpu = Some(script);
+            config.seed = cpu.seed;
+            config.options.transform = Default::default();
+            config.options.clock.rate = 1.;
+            config.ghost = None;
+            projected.shift_notes(shift);
+            std::borrow::Cow::Owned(projected)
+        } else {
+            loaded.song.shifted(shift)
+        };
         let xruns_at_start = audio.xruns();
         let inputs = DesktopInputs::new(feed.clone(), request.auto_pad);
         let session = Session::start(
@@ -545,6 +604,8 @@ impl Play {
             || self.request.replay.is_some()
             || self.request.edited.is_some()
             || self.request.scene.is_some()
+            || self.request.cpu.is_some()
+            || self.request.stage.is_some()
         {
             return;
         }

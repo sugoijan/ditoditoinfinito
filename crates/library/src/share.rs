@@ -1,29 +1,11 @@
 //! Songs shared by link (`docs/plans/shared-songs.md`): what both shells
-//! and the private Worker agree on without the web's record types. A
-//! share is named by a short id; its songs are `shared:<id>:<n>` to the
-//! library and the history.
+//! agree on without the web's record types. A share is named by a short
+//! id; its songs are `shared:<id>:<n>` to the library and the history.
+//! The wire contract the private Worker keeps too (ids, limits, the
+//! documents, routes, upload grants) is `ddi_share_protocol`, re-exported
+//! here so the game's callers name it as before.
 
-/// A share id as the links carry it: 1 to 32 characters of `[0-9A-Za-z]`.
-pub fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric())
-}
-
-/// The id of song `n` of share `share`.
-pub fn song_id(share: &str, n: usize) -> String {
-    format!("shared:{share}:{n}")
-}
-
-/// The share and the index a shared song's id names.
-pub fn parse_song_id(id: &str) -> Option<(&str, usize)> {
-    let rest = id.strip_prefix("shared:")?;
-    let (share, n) = rest.rsplit_once(':')?;
-    valid_id(share).then_some(())?;
-    Some((share, n.parse().ok()?))
-}
-
-pub fn is_shared_id(id: &str) -> bool {
-    parse_song_id(id).is_some()
-}
+pub use ddi_share_protocol::*;
 
 /// How long a share has left at `now` (Unix seconds), in a few words;
 /// `None` when it never expires.
@@ -40,106 +22,9 @@ pub fn expires_in(expires_at: Option<f64>, now: f64) -> Option<String> {
     })
 }
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::manifest::ManifestEntry;
-
-/// The server's address where a build names no other: the Worker's
-/// route beside the app's page.
-pub const DEFAULT_BASE: &str = "https://sugoijan.dev/ditoditoinfinito/api";
-
-/// The server's words for how long a share lasts.
-pub const EXPIRIES: [&str; 5] = ["1h", "1d", "1w", "1m", "never"];
-
-/// A share as the server answers `GET <base>/s/<id>`. The records are
-/// the web's stored song records as JSON: the web reads them whole (`R`
-/// its record type), desktop takes the entry and the pack
-/// ([`record_entry`]).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ShareDoc<R = Value> {
-    #[serde(default)]
-    pub pack: String,
-    /// Unix seconds; `None`: never.
-    #[serde(default)]
-    pub expires_at: Option<f64>,
-    #[serde(default)]
-    pub created_at: f64,
-    pub songs: Vec<ShareSongDoc<R>>,
-    /// The art's URL, if any.
-    #[serde(default)]
-    pub pack_art: Value,
-    /// The share's id, as loaded (not in the server's answer).
-    #[serde(skip)]
-    pub id: String,
-}
-
-/// What `POST <base>/s` is sent: the share to make, its files by path
-/// and size (their bytes follow, one `PUT` each).
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct NewShare<R = Value> {
-    pub pack: String,
-    /// One of [`EXPIRIES`].
-    pub expires: String,
-    pub songs: Vec<ShareSongDoc<R>>,
-    /// Whether the pack's art comes.
-    pub pack_art: bool,
-}
-
-/// The server's answer to `POST <base>/s`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct Created {
-    pub id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShareSongDoc<R = Value> {
-    pub record: R,
-    #[serde(default)]
-    pub files: Vec<ShareFileDoc>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShareFileDoc {
-    pub path: String,
-    #[serde(default)]
-    pub bytes: f64,
-    /// Relative to the base the share was read at, or absolute; empty
-    /// when the share is being made.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub url: String,
-}
-
-/// A share as the server lists it (`GET <base>/s`, with a token).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ShareSummary {
-    pub id: String,
-    #[serde(default)]
-    pub pack: String,
-    #[serde(default)]
-    pub songs: usize,
-    #[serde(default)]
-    pub bytes: f64,
-    #[serde(default)]
-    pub created_at: i64,
-    #[serde(default)]
-    pub expires_at: Option<i64>,
-    #[serde(default)]
-    pub finished: bool,
-    /// Made with the token that asked.
-    #[serde(default)]
-    pub mine: bool,
-}
-
-/// The listing: the asking token's role (`admin` sees and deletes every
-/// share, `upload` its own) and the shares it may see.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShareListing {
-    #[serde(default)]
-    pub role: String,
-    #[serde(default)]
-    pub shares: Vec<ShareSummary>,
-}
 
 /// What went wrong reading, making, listing or deleting a share
 /// (`docs/plans/localization.md`, step 4), on either shell: a value the
@@ -248,6 +133,38 @@ pub fn refusal(status: u16, body: Option<&str>) -> ShareError {
                 .map(str::to_string),
         },
     }
+}
+
+/// The server's refusal of an upload made under a room's grant
+/// (`Authorization: Grant`): a grant's own refusal keeps its code
+/// (`refusals`, the body) so the room's client can tell an expired grant,
+/// which it renews, from the rest; anything else as [`refusal`].
+pub fn grant_refusal(status: u16, body: Option<&str>) -> ShareError {
+    let code = body.map(str::trim).filter(|b| {
+        [
+            refusals::GRANT_EXPIRED,
+            refusals::GRANT_INVALID,
+            refusals::GRANT_SCOPE,
+            refusals::GRANT_LIMITS,
+        ]
+        .contains(b)
+    });
+    match code {
+        Some(code) => ShareError::Status {
+            status,
+            body: Some(code.to_string()),
+        },
+        None => refusal(status, body),
+    }
+}
+
+/// The upload's grant expired (ask the room for another and upload
+/// again).
+pub fn grant_expired(e: &ShareError) -> bool {
+    matches!(
+        e.root(),
+        ShareError::Status { status: 401, body: Some(b) } if b == refusals::GRANT_EXPIRED
+    )
 }
 
 /// A size in a few words ("12 MB").
@@ -361,45 +278,6 @@ pub fn parse_link(arg: &str) -> Option<String> {
     valid_id(id).then(|| id.to_string())
 }
 
-/// A listed URL as fetched: an absolute one as it is, a relative one
-/// under `base`.
-pub fn resolve_url(base: &str, url: &str) -> String {
-    if url.contains("://") {
-        url.to_string()
-    } else {
-        format!(
-            "{}/{}",
-            base.trim_end_matches('/'),
-            url.trim_start_matches('/')
-        )
-    }
-}
-
-/// The URL of file `stored` of song `n` of share `id` at `base`, as the
-/// server has it (what a listing leaves out is asked for there).
-pub fn file_url(base: &str, id: &str, n: usize, stored: &str) -> String {
-    let encoded: Vec<String> = stored.split('/').map(percent_encode).collect();
-    format!(
-        "{}/s/{id}/f/{n}/{}",
-        base.trim_end_matches('/'),
-        encoded.join("/")
-    )
-}
-
-/// `part` percent-encoded but for RFC 3986's unreserved characters.
-pub fn percent_encode(part: &str) -> String {
-    let mut out = String::new();
-    for b in part.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
 /// The page a share is opened at: the API's base is `api` beside the
 /// page, so the link is the base without it, then `#/s/<id>`.
 pub fn link_of(base: &str, id: &str) -> String {
@@ -509,6 +387,25 @@ mod tests {
             file_url("https://w/app/api/", "abc12345", 1, "bg/a b.png"),
             "https://w/app/api/s/abc12345/f/1/bg/a%20b.png"
         );
+    }
+
+    #[test]
+    fn a_grant_s_refusals_keep_their_code() {
+        let expired = grant_refusal(401, Some("grant_expired"));
+        assert!(grant_expired(&expired));
+        assert!(grant_expired(&ShareError::of("song.ogg", expired)));
+        assert_eq!(
+            grant_refusal(403, Some("grant_scope")),
+            ShareError::Status {
+                status: 403,
+                body: Some("grant_scope".into())
+            }
+        );
+        assert_eq!(
+            grant_refusal(401, Some("unauthorized")),
+            ShareError::TokenRefused
+        );
+        assert!(!grant_expired(&ShareError::TokenRefused));
     }
 
     #[test]

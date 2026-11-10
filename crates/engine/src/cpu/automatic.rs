@@ -1,0 +1,305 @@
+//! Portable analytical CPU v1. This is a new runtime policy, not an export of
+//! the learned MSD-conditioned checkpoints. The frequency recipe, timing grid,
+//! 9–80 ms width bounds and input motor come from the research baseline.
+use super::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Plan {
+    Prepared(Profile),
+    Automatic(Box<Automatic>),
+}
+
+impl Plan {
+    pub fn automatic(song: &Song, index: usize) -> Result<Self, String> {
+        Automatic::new(song, index).map(|p| Self::Automatic(Box::new(p)))
+    }
+
+    pub fn check_song(&self, song: &Song, index: usize) -> Result<Song, String> {
+        match self {
+            Self::Prepared(p) => p.check_song(song, index),
+            Self::Automatic(p) => {
+                if index >= song.charts.len() || song.chart_digest(index) != p.digest {
+                    return Err("CPU plan belongs to a different chart".into());
+                }
+                let projected = project(song, index)?;
+                if chart_rows(&projected, index)? != p.rows {
+                    return Err("CPU plan timing differs from this chart".into());
+                }
+                Ok(projected)
+            }
+        }
+    }
+
+    pub fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
+        self.script_with_skills(level, seed, Skills::default())
+    }
+
+    pub fn script_with_skills(
+        &self,
+        level: usize,
+        seed: u64,
+        skills: Skills,
+    ) -> Result<Vec<Press>, String> {
+        match self {
+            Self::Prepared(p) if skills == Skills::default() => p.script(level, seed),
+            Self::Prepared(_) => Err("CPU skill modifiers require an automatic plan".into()),
+            Self::Automatic(p) if skills == Skills::default() => p.script(level, seed),
+            Self::Automatic(p) => p.script_with_skills(level, seed, skills),
+        }
+    }
+
+    pub fn model(&self) -> &str {
+        match self {
+            Self::Prepared(p) => &p.model,
+            Self::Automatic(_) => "analytical-runtime-v1",
+        }
+    }
+}
+
+/// Rows, frequencies and seven causal demands per event, plus six small laws. No
+/// per-chart model, Python, teacher, network call, or dense rows×strengths×bins.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Automatic {
+    digest: ChartDigest,
+    rows: Vec<Row>,
+    frequency: Vec<f64>,
+    good: [f64; 91],
+    bad: [[f64; 91]; 5],
+    width: f64,
+    demand: Vec<[f64; 7]>,
+}
+
+fn chart_rows(song: &Song, index: usize) -> Result<Vec<Row>, String> {
+    let chart = &song.charts[index];
+    if chart.notes.len() > MAX_AUTOMATIC_ROWS * 4 {
+        return Err("CPU chart exceeds the note limit".into());
+    }
+    let judge = Judge::new(&chart.notes, chart.timing(song), presets::itg().judge);
+    let mut by_tick: BTreeMap<Tick, Row> = BTreeMap::new();
+    for n in judge.notes().iter().filter(|n| n.judgeable) {
+        if n.note.kind != NoteKind::Tap
+            || n.note.lane >= 4
+            || !n.seconds.is_finite()
+            || n.seconds.abs() > 86400.
+        {
+            return Err("CPU expects finite tap-only 4K notes within one day".into());
+        }
+        let row = by_tick.entry(n.note.tick).or_insert(Row {
+            seconds: n.seconds,
+            mask: 0,
+        });
+        let bit = 1 << n.note.lane;
+        if row.mask & bit != 0 {
+            return Err("Duplicate CPU lane at one row".into());
+        }
+        row.mask |= bit;
+    }
+    if by_tick.is_empty() || by_tick.len() > MAX_AUTOMATIC_ROWS {
+        return Err(format!(
+            "CPU needs 1–{MAX_AUTOMATIC_ROWS} playable tap rows"
+        ));
+    }
+    let mut rows: Vec<_> = by_tick.into_values().collect();
+    // Playback follows judged seconds, including simultaneous rows after warps
+    // or source-specific timing; it need not follow increasing beat numbers.
+    rows.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
+    Ok(rows)
+}
+
+impl Automatic {
+    fn new(song: &Song, index: usize) -> Result<Self, String> {
+        let projected = project(song, index)?;
+        let rows = chart_rows(&projected, index)?;
+        let frequency = frequencies(&rows);
+        let count: u32 = rows.iter().map(|r| r.mask.count_ones()).sum();
+        let mean = rows
+            .iter()
+            .zip(&frequency)
+            .map(|(r, f)| r.mask.count_ones() as f64 * f)
+            .sum::<f64>()
+            / count as f64;
+        let good = gaussian(9.);
+        let reward = |q: &[f64; 91]| {
+            q.iter()
+                .zip(basis::REWARDS)
+                .map(|(p, r)| p * r)
+                .sum::<f64>()
+        };
+        // Same independent-note 95%-Wife analytical anchor as the research
+        // baseline, now across the whole song. Input matching and the selected
+        // game judge can change the actual score; this is not a score promise.
+        let target = ((0.95 + 0.0001 * 2.75) / 0.9999 - (1. - mean) * reward(&good)) / mean;
+        let (mut lo, mut hi) = (9., 80.);
+        for _ in 0..32 {
+            let mid = (lo + hi) * 0.5;
+            if reward(&gaussian(mid)) > target {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let width = (lo + hi) * 0.5;
+        let bad = STRENGTHS.map(|s| gaussian((width / s).clamp(9., 80.)));
+        let demand = personality::demands(&rows);
+        Ok(Self {
+            digest: song.chart_digest(index),
+            rows,
+            frequency,
+            good,
+            bad,
+            width,
+            demand,
+        })
+    }
+
+    fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
+        let bad = self.bad.get(level).ok_or("CPU strength must be 0..4")?;
+        let scale = STRENGTHS[level].powi(-2);
+        motor(&self.rows, seed, |i, u, within| {
+            let f = (self.frequency[i] * scale).min(1.);
+            let mut q = [0.; 91];
+            for (j, p) in q[..90].iter_mut().enumerate() {
+                *p = ((1. - f) * self.good[j] + f * bad[j]) * 0.9999;
+            }
+            q[90] = 0.0001;
+            offset(&basis::EDGES, &q, u, within)
+        })
+    }
+
+    fn skill_law(&self, row: usize, strength: f64, logs: &[f64; 7]) -> [f64; 91] {
+        let ability = strength
+            * self.demand[row]
+                .iter()
+                .zip(logs)
+                .map(|(d, s)| d * s)
+                .sum::<f64>()
+                .exp();
+        let frequency = (self.frequency[row] / ability.powi(2)).min(1.);
+        let bad = gaussian((self.width / ability).clamp(9., 80.));
+        let mut q = [0.; 91];
+        for (i, p) in q[..90].iter_mut().enumerate() {
+            *p = ((1. - frequency) * self.good[i] + frequency * bad[i]) * 0.9999;
+        }
+        q[90] = 0.0001;
+        q
+    }
+
+    fn script_with_skills(
+        &self,
+        level: usize,
+        seed: u64,
+        skills: Skills,
+    ) -> Result<Vec<Press>, String> {
+        let strength = *STRENGTHS.get(level).ok_or("CPU strength must be 0..4")?;
+        let logs = skills.log_values();
+        let mut current = None;
+        let mut q = [0.; 91];
+        motor(&self.rows, seed, |i, u, within| {
+            // Compute a law once per row, not once per chord note. Memory stays
+            // bounded by the compact plan; no full-song probability matrix.
+            if current != Some(i) {
+                q = self.skill_law(i, strength, &logs);
+                current = Some(i);
+            }
+            offset(&basis::EDGES, &q, u, within)
+        })
+    }
+}
+
+/// Research frequency recipe, with continuous history across the song:
+/// closely spaced rows, lane repetitions and chords raise error frequency.
+fn frequencies(rows: &[Row]) -> Vec<f64> {
+    let mut last = [f64::NEG_INFINITY; 4];
+    let mut previous = f64::NEG_INFINITY;
+    rows.iter()
+        .map(|r| {
+            let density = ((0.30 - (r.seconds - previous)) / 0.20).clamp(0., 1.);
+            let mut repeat: f64 = 0.;
+            for (lane, t) in last.iter_mut().enumerate() {
+                if r.mask & (1 << lane) != 0 {
+                    repeat = repeat.max(((0.18 - (r.seconds - *t)) / 0.10).clamp(0., 1.));
+                    *t = r.seconds;
+                }
+            }
+            previous = r.seconds;
+            let chord = ((r.mask.count_ones() - 1) as f64 / 2.).min(1.);
+            0.1 + 0.9 * density.max(repeat).max(chord)
+        })
+        .collect()
+}
+
+// Standard normal upper-tail approximation (absolute error <8e-8). Only
+// nonnegative arguments are needed, avoiding cancellation in the far tails.
+fn tail(x: f64) -> f64 {
+    let t = 1. / (1. + 0.2316419 * x);
+    let polynomial = t
+        * (0.319381530
+            + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+    (-0.5 * x * x).exp() * 0.3989422804014327 * polynomial
+}
+
+fn gaussian(width_ms: f64) -> [f64; 91] {
+    let sigma = width_ms / 1000.;
+    let tails = basis::EDGES.map(|x| if x == 0. { 0.5 } else { tail(x.abs() / sigma) });
+    let mut q = [0.; 91];
+    for i in 0..88 {
+        q[i] = if basis::EDGES[i] >= 0. {
+            tails[i] - tails[i + 1]
+        } else if basis::EDGES[i + 1] <= 0. {
+            tails[i + 1] - tails[i]
+        } else {
+            1. - tails[i] - tails[i + 1]
+        };
+    }
+    q[88] = tails[0];
+    q[89] = tails[88];
+    q
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probability_mass_symmetry_and_stronger_error_ordering() {
+        for width in [9., 20., 40., 80.] {
+            let q = gaussian(width);
+            assert!(q.iter().all(|p| *p >= 0. && p.is_finite()));
+            assert!((q.iter().sum::<f64>() - 1.).abs() < 1e-12);
+            for i in 0..44 {
+                assert!((q[i] - q[87 - i]).abs() < 1e-12);
+            }
+        }
+        assert!((tail(1.) - 0.15865525393145707).abs() < 8e-8);
+    }
+
+    #[test]
+    fn history_tracks_repeated_lanes_and_recovers_after_gap() {
+        let f = frequencies(&[
+            Row {
+                seconds: 0.,
+                mask: 1,
+            },
+            Row {
+                seconds: 0.12,
+                mask: 1,
+            },
+            Row {
+                seconds: 0.24,
+                mask: 2,
+            },
+            Row {
+                seconds: 3.,
+                mask: 2,
+            },
+            Row {
+                seconds: 4.,
+                mask: 7,
+            },
+        ]);
+        assert_eq!(f[0], 0.1);
+        assert!(f[1] > 0.9 && f[2] > 0.9);
+        assert_eq!(f[3], 0.1);
+        assert_eq!(f[4], 1.);
+    }
+}

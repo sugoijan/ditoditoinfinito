@@ -16,8 +16,10 @@ serde_json.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
+ddi-l10n.workspace = true
 ddi-library.workspace = true
 ddi-noteskin.workspace = true
+ddi-platform.workspace = true
 ddi-render.workspace = true
 ddi-session.workspace = true
 ddi-ui.workspace = true
@@ -25,4 +27,4 @@ wgpu.workspace = true
 
 [dev-dependencies]
 ddi-dance-mat.workspace = true
-ddi-platform.workspace = true
+ddi-room.workspace = true

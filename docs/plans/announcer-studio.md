@@ -221,7 +221,13 @@ made on the way:
 
 - **The studio lists every line but Etterna's two** (`evaluation
   aaaaa`, which no rules give, and `evaluation f`, whose moment is
-  `evaluation e`'s), and any line a take is on (combos past 1000 too).
+  `evaluation e`'s), and any line a take is on.
+- **The combo lines are the author's list** (`Draft::combos`): our
+  packs' counts to begin with (`OUR_COMBOS`: the hundreds to 1000, 1500
+  and 2000), any count added (Add a combo line…: a pack counting by
+  64s), one with no recording removed; a recording named for a count
+  adds it. The game says any count a pack has (`docs/announcer-lines.md`).
+  A count our packs lack has no example to hear until it is recorded.
 - **`README.txt` sits at the zip's root,** beside `Announcers/`, so the
   import passes nothing over in the announcer's folder.
 - **`ready` and `here we go` together** are noted past 4 s with the half

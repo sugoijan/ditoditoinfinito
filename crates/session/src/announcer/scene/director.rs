@@ -344,7 +344,7 @@ pub fn draft_voice<S>(
 ) -> Voiced<S> {
     let mut voice = Voice::default();
     let mut lengths = HashMap::new();
-    for line in Line::all().into_iter().filter(|l| which(*l)) {
+    for line in draft.lines().into_iter().filter(|l| which(*l)) {
         let takes: Vec<&Take> = draft
             .takes_of(line)
             .filter(|t| decoded.contains_key(&t.id))

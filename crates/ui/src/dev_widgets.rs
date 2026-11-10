@@ -9,11 +9,9 @@
 //! - A search field with suggestions from the titles, artists and packs
 //!   (`ddi_library::suggest`, folded by the shell's NFKD); submitting
 //!   selects the first song that matches.
-//! - Option rows (style, speed, which results panels), a toggle, a
-//!   slider.
-//! - Results-like panels laid out by a grid frame (`crate::layout`):
-//!   judgement counts as bars, a timing histogram, a life graph, a
-//!   summary; the panels row chooses which.
+//! - A toggle.
+//! - Results-like panels laid out on a grid: judgement counts as bars, a
+//!   timing histogram, a life graph, a summary.
 //!
 //! What it did is in [`WidgetState`], shared with the shell for tests.
 
@@ -25,13 +23,12 @@ use ddi_actor::{Actor, Kind};
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
 use crate::graph;
-use crate::hit;
 use crate::look::{self, Look, Plain, Spec, call};
 use crate::message::Message;
 use crate::nav::Focusable;
 use crate::request::{EnterKey, InputHints, InputMode};
 use crate::screen::{Cx, Handled, Input, Screen};
-use crate::widgets::controls::{OptionRow, Slider, Toggle};
+use crate::widgets::controls::Toggle;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel};
 use crate::widgets::set_text;
@@ -57,13 +54,9 @@ pub struct WidgetState {
     pub items: usize,
     /// Item actors built (bounded by what shows).
     pub pool: usize,
-    pub style: usize,
-    pub speed: usize,
     /// The list's motion blur now, virtual pixels.
     pub blur: f32,
-    pub panels: usize,
     pub reverse: bool,
-    pub volume: f32,
     pub search: String,
     pub suggestions: Vec<String>,
     pub popup: bool,
@@ -288,18 +281,10 @@ pub struct WidgetScreen {
     suggester: RefCell<Option<Suggester>>,
     list: List,
     search: SearchField,
-    style: OptionRow,
-    speed: OptionRow,
-    panels: OptionRow,
     reverse: Toggle,
-    volume: Slider,
 }
 
-const PANEL_SETS: [&[&str]; 3] = [
-    &["Judgements", "Timing", "Life", "Summary"],
-    &["Timing"],
-    &["Life", "Summary"],
-];
+const PANELS: [&str; 4] = ["Judgements", "Timing", "Life", "Summary"];
 
 impl WidgetScreen {
     pub fn new(state: SharedWidgets, fold: FoldFn) -> WidgetScreen {
@@ -319,32 +304,7 @@ impl WidgetScreen {
             suggester: RefCell::new(None),
             list,
             search,
-            style: OptionRow::new(
-                "Style",
-                "Style",
-                [x, 86.0],
-                w,
-                &["Single", "Double", "Solo"],
-                0,
-            ),
-            speed: OptionRow::new(
-                "Speed",
-                "Speed",
-                [x, 126.0],
-                w,
-                &["×1", "×1.5", "×2", "×2.5", "×3", "×4"],
-                3,
-            ),
-            panels: OptionRow::new(
-                "Panels",
-                "Results",
-                [x, 166.0],
-                w,
-                &["All", "Timing", "Life"],
-                0,
-            ),
-            reverse: Toggle::new("Reverse", "Reverse", [x, 206.0], w, false),
-            volume: Slider::new("Volume", "Volume", [x, 246.0], w, 0.8),
+            reverse: Toggle::new("Reverse", "Reverse", [x, 86.0], w, false),
             songs,
             state,
         }
@@ -362,11 +322,7 @@ impl WidgetScreen {
         s.blur = self.list.blur();
         s.items = self.list.len();
         s.pool = self.list.pool();
-        s.style = self.style.index;
-        s.speed = self.speed.index;
-        s.panels = self.panels.index;
         s.reverse = self.reverse.on;
-        s.volume = self.volume.value;
         s.search = self.search.text.clone();
         s.popup = self.search.popup_open();
         s.suggestions = self
@@ -377,13 +333,11 @@ impl WidgetScreen {
             .collect();
     }
 
-    /// The panels for the chosen set, laid out by a grid frame.
+    /// The panels, laid out on a grid.
     fn panels_actor(&self) -> Actor {
         let look: &dyn Look = &self.look;
         let rect = [416.0, 278.0, 520.0, 232.0];
-        let names = PANEL_SETS[self.panels.index.min(PANEL_SETS.len() - 1)];
-        let columns: u16 = if names.len() > 1 { 2 } else { 1 };
-        let placed = panel_rects(names, columns, rect);
+        let placed = panel_rects(&PANELS, 2, rect);
         let mut children = Vec::new();
         // Deterministic stand-ins for a play's records.
         let offsets = sample_offsets(400);
@@ -446,13 +400,6 @@ impl WidgetScreen {
         let mut f = Actor::new(Kind::Frame(children));
         f.name = "PanelGrid".into();
         f
-    }
-
-    fn rebuild_panels(&self, root: &mut Actor) {
-        let fresh = self.panels_actor();
-        if let Some(p) = hit::find_mut(root, "PanelGrid") {
-            *p = fresh;
-        }
     }
 
     /// The first row matching `text` (its title, artist or pack), selected.
@@ -533,33 +480,25 @@ fn suggest_with(suggester: &Suggester, fold: &FoldFn, typed: &str) -> Vec<(Strin
         .collect()
 }
 
-/// Where the named panels go: a grid frame when layout frames are built
-/// in, else equal cells by hand.
+/// Where the named panels go: equal cells by hand.
 fn panel_rects(names: &[&str], columns: u16, rect: [f32; 4]) -> Vec<(String, [f32; 4])> {
     let columns = columns.max(1);
-    #[cfg(feature = "layout")]
-    {
-        crate::layout::compute(&crate::layout::grid(names, columns, 8.0), rect)
-    }
-    #[cfg(not(feature = "layout"))]
-    {
-        let rows = (names.len() as u16).div_ceil(columns).max(1);
-        let (w, h) = (
-            (rect[2] - 8.0 * f32::from(columns - 1)) / f32::from(columns),
-            (rect[3] - 8.0 * f32::from(rows - 1)) / f32::from(rows),
-        );
-        names
-            .iter()
-            .enumerate()
-            .map(|(i, n)| {
-                let (c, r) = ((i as u16 % columns) as f32, (i as u16 / columns) as f32);
-                (
-                    n.to_string(),
-                    [rect[0] + c * (w + 8.0), rect[1] + r * (h + 8.0), w, h],
-                )
-            })
-            .collect()
-    }
+    let rows = (names.len() as u16).div_ceil(columns).max(1);
+    let (w, h) = (
+        (rect[2] - 8.0 * f32::from(columns - 1)) / f32::from(columns),
+        (rect[3] - 8.0 * f32::from(rows - 1)) / f32::from(rows),
+    );
+    names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let (c, r) = ((i as u16 % columns) as f32, (i as u16 / columns) as f32);
+            (
+                n.to_string(),
+                [rect[0] + c * (w + 8.0), rect[1] + r * (h + 8.0), w, h],
+            )
+        })
+        .collect()
 }
 
 /// Timing offsets (ms) shaped like a play's: most near zero, a few late.
@@ -604,11 +543,7 @@ impl Screen for WidgetScreen {
         let children = vec![
             ground,
             self.list.build(look),
-            self.style.build(look),
-            self.speed.build(look),
-            self.panels.build(look),
             self.reverse.build(look),
-            self.volume.build(look),
             self.panels_actor(),
             status,
             // Last: its popup lies over the rest.
@@ -622,15 +557,7 @@ impl Screen for WidgetScreen {
         songs.right = Some("Search".into());
         let mut search = Focusable::new("Search");
         search.left = Some("Songs".into());
-        vec![
-            songs,
-            search,
-            Focusable::new("Style"),
-            Focusable::new("Speed"),
-            Focusable::new("Panels"),
-            Focusable::new("Reverse"),
-            Focusable::new("Volume"),
-        ]
+        vec![songs, search, Focusable::new("Reverse")]
     }
 
     fn animating(&self) -> bool {
@@ -682,34 +609,10 @@ impl Screen for WidgetScreen {
             }
         }
         let mut handled = Handled::No;
-        let (h, changed) = self.style.input(input, root, is("Style"));
-        if let Some(i) = changed {
-            self.status(root, format!("style {}", self.style.choices[i]));
-        }
-        handled = if h == Handled::Yes { h } else { handled };
-        let (h, changed) = self.speed.input(input, root, is("Speed"));
-        if let Some(i) = changed {
-            self.status(root, format!("speed {}", self.speed.choices[i]));
-        }
-        handled = if h == Handled::Yes { h } else { handled };
-        let (h, changed) = self.panels.input(input, root, is("Panels"));
-        if changed.is_some() {
-            self.rebuild_panels(root);
-            self.status(
-                root,
-                format!("panels {}", self.panels.choices[self.panels.index]),
-            );
-        }
-        handled = if h == Handled::Yes { h } else { handled };
         if let Some(on) = self.reverse.input(input, root) {
             self.status(root, format!("reverse {}", if on { "on" } else { "off" }));
             handled = Handled::Yes;
         }
-        let (h, changed) = self.volume.input(input, root, is("Volume"));
-        if let Some(v) = changed {
-            self.status(root, format!("volume {:.0} %", v * 100.0));
-        }
-        handled = if h == Handled::Yes { h } else { handled };
         self.publish();
         handled
     }

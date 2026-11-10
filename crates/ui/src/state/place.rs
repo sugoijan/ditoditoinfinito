@@ -84,6 +84,25 @@ impl MenuPlace {
     }
 }
 
+/// Song select's committed `report` in either shell: remembered in `place`,
+/// its style kept as the settings' (the play's bindings and Options' field
+/// preview follow it), each saved only when it changed.
+pub fn apply(
+    report: &crate::screens::select::SelectPlace,
+    place: &mut MenuPlace,
+    settings: &mut crate::state::settings::Settings,
+) {
+    let before = place.clone();
+    place.remember(report);
+    if *place != before {
+        place.save();
+    }
+    if !report.style.is_empty() && settings.style != report.style {
+        settings.style = report.style.clone();
+        settings.save();
+    }
+}
+
 /// How the closed packs kept by earlier runs name the bundled songs (a
 /// saved value: a pack of this name shares their closing).
 pub const CLOSED_BUNDLED: &str = "Bundled songs";
@@ -140,6 +159,37 @@ mod tests {
         assert!(resumed.search.is_empty());
         assert_eq!(resumed.closed, Some(vec![CLOSED_BUNDLED.into()]));
         assert!(resumed.is_closed(None) && !resumed.is_closed(Some("My Pack")));
+    }
+
+    #[test]
+    fn a_committed_place_keeps_its_style_as_the_settings_and_saves_changes_only() {
+        use crate::state::settings::{KEY as SETTINGS, Settings};
+        storage::install(Rc::new(storage::MemoryStore::default()));
+        let (mut place, mut settings) = (MenuPlace::default(), Settings::default());
+        let report = crate::screens::select::SelectPlace {
+            song: Some("u-song".into()),
+            chart: Some(1),
+            style: "dance-double".into(),
+            ..Default::default()
+        };
+        apply(&report, &mut place, &mut settings);
+        assert_eq!(settings.style, "dance-double");
+        assert_eq!(MenuPlace::load(), place);
+        assert!(storage::get(Area::Local, SETTINGS).is_some());
+        // The same place again: nothing is written.
+        storage::remove(Area::Session, KEY);
+        storage::remove(Area::Local, KEY);
+        storage::remove(Area::Local, SETTINGS);
+        apply(&report, &mut place, &mut settings);
+        assert!(storage::get(Area::Session, KEY).is_none());
+        assert!(storage::get(Area::Local, SETTINGS).is_none());
+        // No style reported: the settings' stays.
+        apply(
+            &crate::screens::select::SelectPlace::default(),
+            &mut place,
+            &mut settings,
+        );
+        assert_eq!(settings.style, "dance-double");
     }
 
     #[test]

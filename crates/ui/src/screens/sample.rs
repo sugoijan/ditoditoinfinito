@@ -18,11 +18,10 @@ use super::results::{ResultsActions, ResultsScreen};
 use super::select::{OpenFn, PlayFn, SelectScreen};
 use crate::screen::Cx;
 
-/// The bundled songs: id, title, subtitle, artist, BPM, length (s),
+/// The bundled songs: id, title, artist, BPM, length (s),
 /// banner, background, charts (style, difficulty, meter, step artist,
 /// notes), as `songs/index.json` lists them.
 type Bundled = (
-    &'static str,
     &'static str,
     &'static str,
     &'static str,
@@ -39,7 +38,6 @@ const BUNDLED: [Bundled; 4] = [
     (
         "beatucada",
         "Beatucada",
-        "",
         "Kurio Prokos",
         122.0,
         108.0,
@@ -61,7 +59,6 @@ const BUNDLED: [Bundled; 4] = [
     (
         "into-my-dream",
         "Into My Dream",
-        "",
         "Lagoona",
         140.0,
         147.0,
@@ -83,7 +80,6 @@ const BUNDLED: [Bundled; 4] = [
     (
         "some-things-must",
         "Some Things Must",
-        "(OutFox Edit)",
         "Sevish",
         160.0,
         146.0,
@@ -109,7 +105,6 @@ const BUNDLED: [Bundled; 4] = [
     (
         "sweeteners",
         "Sweeteners",
-        "",
         "Jack5",
         153.0,
         157.0,
@@ -140,10 +135,9 @@ pub fn bundled() -> Vec<SongEntry> {
     BUNDLED
         .iter()
         .map(
-            |(id, title, subtitle, artist, bpm, length, banner, background, charts)| SongEntry {
+            |(id, title, artist, bpm, length, banner, background, charts)| SongEntry {
                 id: id.to_string(),
                 title: title.to_string(),
-                subtitle: subtitle.to_string(),
                 artist: artist.to_string(),
                 pack: None,
                 bpm_text: format!("{bpm}"),
@@ -277,7 +271,6 @@ pub fn select() -> SelectData {
             songs.push(SongEntry {
                 id: format!("sample-{n}"),
                 title,
-                subtitle: String::new(),
                 artist: ARTISTS[rng.below(ARTISTS.len())].to_string(),
                 pack: Some(pack.to_string()),
                 bpm_text: format!("{bpm}"),
@@ -870,11 +863,140 @@ pub fn start_screen(env: &Env, desktop: bool) -> super::start::StartScreen {
             use super::start::Choice;
             match choice {
                 Choice::Singleplayer => cx.push(select_screen(&e, None)),
+                Choice::Multiplayer => cx.push(multiplayer_screen(&e)),
                 Choice::Options => cx.push(options_screen(&e, None)),
                 Choice::Credits => cx.push(credits_screen(&e, &super::credits::sample())),
                 Choice::Quit => cx.request(crate::UiRequest::Quit),
             }
         }),
+    )
+}
+
+/// The multiplayer home over a fresh practice room on the sample songs
+/// (developer routes, headless tests), signed out of a sample server.
+pub fn multiplayer_screen(env: &Env) -> super::online::OnlineScreen {
+    multiplayer_home(env, crate::state::room::RoomClient::shared(0, 1))
+}
+
+/// A server that knows nobody: `/me` signed out, nothing else answered
+/// (samples and tests).
+pub struct SampleHttp {
+    answers: Vec<(u64, crate::state::online::api::ApiResponse)>,
+}
+
+impl crate::state::online::Http for SampleHttp {
+    fn start(&mut self, id: u64, request: crate::state::online::api::ApiRequest) {
+        if request.path == "/me" {
+            self.answers.push((
+                id,
+                crate::state::online::api::ApiResponse {
+                    status: 401,
+                    body: r#"{"error":"signed_out"}"#.into(),
+                    session: None,
+                },
+            ));
+        }
+    }
+
+    fn poll(&mut self) -> Vec<(u64, crate::state::online::api::ApiResponse)> {
+        std::mem::take(&mut self.answers)
+    }
+}
+
+/// A sample online state, signed out, on `platform`.
+pub fn online(platform: crate::state::online::Platform) -> crate::state::online::SharedOnline {
+    crate::state::online::Online::new(
+        Box::new(SampleHttp {
+            answers: Vec::new(),
+        }),
+        crate::state::online::OnlineConfig {
+            platform,
+            site: "https://sugoijan.dev/ditoditoinfinito/".into(),
+        },
+    )
+    .shared()
+}
+
+/// The multiplayer home over `room`: CPU practice opens it.
+pub fn multiplayer_home(
+    env: &Env,
+    room: crate::state::room::SharedRoom,
+) -> super::online::OnlineScreen {
+    use super::online::{OnlineCall, OnlinePage, OnlineScreen};
+    let e = env.clone();
+    OnlineScreen::new(
+        env.clone(),
+        online(crate::state::online::Platform::Web),
+        OnlinePage::Home,
+        Rc::new(move |call, cx| match call {
+            OnlineCall::Practice => cx.push(room_screen(&e, room.clone())),
+            OnlineCall::Leave => cx.close(true),
+            _ => {}
+        }),
+    )
+}
+
+/// The room on `room`, its songs chosen from the sample songs
+/// ([`pick_screen`]).
+pub fn room_screen(env: &Env, room: crate::state::room::SharedRoom) -> super::room::RoomScreen {
+    use super::room::{RoomCall, RoomScreen};
+    let e = env.clone();
+    let shared = room.clone();
+    RoomScreen::new(
+        env.clone(),
+        room,
+        Rc::new(move |call, cx| match call {
+            RoomCall::Leave => cx.close(true),
+            RoomCall::Discard => {
+                *shared.borrow_mut() = crate::state::room::RoomClient::new(0, 1);
+                cx.close(true);
+            }
+            RoomCall::ChooseSong { stage, number } => {
+                cx.push(pick_screen(&e, shared.clone(), stage, number, select()));
+            }
+            // The sample songs have no charts to read: prepared at once
+            // (a development screen; the shells read the real chart).
+            RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
+            // Nor a play: the stage stays on until stopped. Practice has
+            // no sign-in, and nothing to upload.
+            RoomCall::PlayStage(_) | RoomCall::Redirect(_) | RoomCall::Upload(_) => {}
+        }),
+    )
+}
+
+/// Song select over `data` choosing stage `stage`'s song (the
+/// `number`th) for `room`: a chart the CPUs cannot play is refused in a
+/// pop-up; one they can goes to the room, and song select closes.
+pub fn pick_screen(
+    env: &Env,
+    room: crate::state::room::SharedRoom,
+    stage: ddi_room::StageId,
+    number: u16,
+    mut data: SelectData,
+) -> SelectScreen {
+    data.pick = Some(super::data::PickView { stage: number });
+    let screen = SelectScreen::new(
+        env.clone(),
+        data,
+        None,
+        Rc::new(
+            move |song, chart, env, cx| match room.borrow_mut().choose(stage, song, chart) {
+                Ok(()) => cx.close(false),
+                Err(why) => cx.overlay(
+                    super::room_dialogs::NoticeDialog::refusal(env.clone(), &why),
+                    true,
+                ),
+            },
+        ),
+        Rc::new(|_, _| {}),
+    );
+    screen.with_shell(
+        Rc::new(|call, cx| {
+            if call == super::select::SelectCall::Leave {
+                cx.close(true);
+            }
+        }),
+        Default::default(),
     )
 }
 

@@ -95,6 +95,8 @@ struct Shared {
     /// Songs shared by link (`crate::share`): the share's songs alone,
     /// nothing stored, imported or managed.
     of_share: bool,
+    /// Choosing the practice room's stage a song ([`Props::pick`]).
+    pick: Option<(ddi_room::StageId, u16)>,
     /// The imported packs' names, once a library load (the debug state).
     packs: RefCell<Vec<String>>,
     /// The import as the debug state says it, as of its last change.
@@ -158,10 +160,14 @@ pub(crate) struct SelectPage {
 }
 
 /// `shared`: song select on the share loaded last (`crate::share`),
-/// its songs alone, nothing of the library.
+/// its songs alone, nothing of the library. `pick`: choosing the
+/// multiplayer practice room's stage (its id and number) a song
+/// (`crate::room`): the library, nothing added, edited or shared; the
+/// chart chosen goes to the room, which the page goes back to.
 #[derive(Clone, PartialEq, Default)]
 pub(crate) struct Props {
     pub(crate) shared: bool,
+    pub(crate) pick: Option<(ddi_room::StageId, u16)>,
 }
 
 /// The library song select lists: the player's own, or the current
@@ -204,6 +210,7 @@ impl Component for SelectPage {
             music_input: NodeRef::default(),
             place: RefCell::new(MenuPlace::load()),
             of_share: shared,
+            pick: ctx.props().pick,
             packs: RefCell::new(Vec::new()),
             import_debug: RefCell::new(ImportDebug::now()),
             movie: RefCell::default(),
@@ -512,7 +519,26 @@ impl SelectPage {
         let env = theme.env().clone();
         let place = self.shared.place.borrow().clone();
         let data = self.data(&place);
-        let play: PlayFn = {
+        let play: PlayFn = if let Some((stage, _)) = self.shared.pick {
+            // The chart for the room's stage, or why the CPUs cannot play
+            // it; chosen, back to the room.
+            Rc::new(move |song, chart, env, cx| {
+                let chosen = crate::room::picking()
+                    .borrow_mut()
+                    .choose(stage, song, chart);
+                match chosen {
+                    Ok(()) => {
+                        crate::room::chosen(stage);
+                        crate::select_preview::close();
+                        cx.request(UiRequest::Back);
+                    }
+                    Err(why) => cx.overlay(
+                        ddi_ui::screens::room_dialogs::NoticeDialog::refusal(env.clone(), &why),
+                        true,
+                    ),
+                }
+            })
+        } else {
             let shared = self.shared.clone();
             Rc::new(move |song, chart, _env, cx| {
                 crate::web::screen::set_song_backdrop(&song.id, song.background.as_deref());
@@ -541,10 +567,16 @@ impl SelectPage {
             Rc::new(move |call, cx| shell_call(&shared, call, cx))
         };
         let screen = SelectScreen::new(env.clone(), data, None, play, options)
-            .with_shell(shell, self.shared.feed.clone())
-            .with_editing()
-            // Share… while the hidden switch is on (`crate::share`).
-            .with_sharing_if(Settings::load().sharing)
+            .with_shell(shell, self.shared.feed.clone());
+        let screen = if self.shared.pick.is_some() {
+            screen
+        } else {
+            screen
+                .with_editing()
+                // Share… while the hidden switch is on (`crate::share`).
+                .with_sharing_if(Settings::load().sharing)
+        };
+        let screen = screen
             // A chart's kept plays (`docs/plans/play-history.md`, Replays).
             .with_plays(ddi_ui::state::history::plays_list(
                 crate::history::plays(),
@@ -593,6 +625,10 @@ impl SelectPage {
             data.import = select_data::import_view(&settings);
         }
         data.autoplay = crate::router::autoplay();
+        data.pick = self
+            .shared
+            .pick
+            .map(|(_, stage)| ddi_ui::screens::data::PickView { stage });
         data
     }
 
@@ -817,20 +853,11 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             let entry = song.and_then(|id| shared.library.borrow().as_ref()?.entry(&id).cloned());
             crate::select_preview::select(entry);
         }
+        // Choosing a stage's song moves no singleplayer place.
+        SelectCall::Place(_) if shared.pick.is_some() => {}
         SelectCall::Place(p) => {
-            let mut place = shared.place.borrow().clone();
-            place.remember(&p);
-            if *shared.place.borrow() != place {
-                place.save();
-                *shared.place.borrow_mut() = place;
-            }
-            // The style the settings keep (the play's bindings and the
-            // options' preview follow it).
             let mut settings = Settings::cached();
-            if settings.style != p.style && !p.style.is_empty() {
-                settings.style = p.style;
-                settings.save();
-            }
+            ddi_ui::state::place::apply(&p, &mut shared.place.borrow_mut(), &mut settings);
             // The chart shown: its prompt's diagram's skin readied ahead
             // (the app's field preview, at the host's next frame).
             if let (Some(song), Some(chart)) = (&p.song, p.chart) {

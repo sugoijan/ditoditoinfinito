@@ -1,0 +1,16 @@
+[package]
+name = "ddi-share-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: what the game and its private server agree on for songs shared by link"
+publish = false
+
+# Serde only, on purpose: the private server (`../ddi-server`) depends on
+# it by path and must not pull the game's library, chart or engine crates.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

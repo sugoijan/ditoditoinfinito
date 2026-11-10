@@ -32,6 +32,7 @@ ddi-session.workspace = true
 # What both shells do between the settings and the renderer.
 ddi-shell.workspace = true
 ddi-ui.workspace = true
+ddi-room.workspace = true
 ddi-l10n = { workspace = true, features = ["embed-faces"] }
 # The system's languages, for the UI's (`ddi_l10n::set_system_languages`).
 sys-locale = "0.3.2"
@@ -67,6 +68,9 @@ dirs = "7.0.0"
 # providers build C and assembly, which the Windows check from a Mac
 # cannot).
 ureq = { version = "3.5.0", default-features = false, features = ["native-tls-no-default"] }
+# The multiplayer prototype's online rooms (`src/online.rs`): a room's
+# WebSocket on a thread of its own, over the same system TLS as ureq.
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "native-tls"] }
 # Background movies (`src/video.rs`, feature `video`): the contract with
 # `ddi-video-helper`, the sandboxed FFmpeg process `build.rs` builds and
 # stages beside the executable (`video/helper`); FFmpeg is never linked

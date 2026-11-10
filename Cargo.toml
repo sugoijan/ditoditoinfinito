@@ -39,6 +39,8 @@ ddi-session = { path = "crates/session" }
 ddi-shell = { path = "crates/shell" }
 ddi-svg-worker = { path = "crates/svg-worker" }
 ddi-l10n = { path = "crates/l10n" }
+ddi-room = { path = "crates/room" }
+ddi-share-protocol = { path = "crates/share-protocol" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
 lunita = "0.1"
@@ -88,7 +90,6 @@ fluent-bundle = "0.16.0"
 fluent-syntax = "0.12.0"
 unic-langid = "0.9.6"
 intl_pluralrules = "7.0.2"
-taffy = { version = "0.15.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 symphonia = { version = "0.6.1", default-features = false }
 
 # xtask

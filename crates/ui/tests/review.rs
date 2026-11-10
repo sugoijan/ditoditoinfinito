@@ -10,7 +10,6 @@ use ddi_actor::{Actor, Drawn, Kind, UNTEXTURED};
 use ddi_ui::event::{PointerKind, PointerPhase};
 use ddi_ui::look::{Plain, call};
 use ddi_ui::testing::Harness;
-use ddi_ui::widgets::controls::Slider;
 use ddi_ui::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
 use ddi_ui::widgets::{set_image, set_text};
 use ddi_ui::{Cx, Focusable, Handled, Input, Screen, TextMode};
@@ -49,24 +48,19 @@ struct Seen {
     scroll: f64,
     animating: bool,
     reload: bool,
-    volume: f32,
 }
 
 struct S {
     list: List,
     model: Rows,
-    slider: Slider,
     seen: Rc<RefCell<Seen>>,
-    /// Where the list and the slider are put: a frame moved by this.
+    /// Where the list is put: a frame moved by this.
     offset: [f32; 2],
 }
 
 impl Screen for S {
     fn build(&mut self, _cx: &mut Cx) -> Actor {
-        let mut f = Actor::new(Kind::Frame(vec![
-            self.list.build(&Plain),
-            self.slider.build(&Plain),
-        ]));
+        let mut f = Actor::new(Kind::Frame(vec![self.list.build(&Plain)]));
         call(&mut f, "xy", &self.offset);
         f.name = "Moved".into();
         Actor::new(Kind::Frame(vec![f]))
@@ -91,13 +85,6 @@ impl Screen for S {
         s.animating = self.list.animating();
     }
     fn input(&mut self, input: &Input, root: &mut Actor, _cx: &mut Cx) -> Handled {
-        let (h, v) = self.slider.input(input, root, false);
-        if let Some(v) = v {
-            self.seen.borrow_mut().volume = v;
-        }
-        if h == Handled::Yes {
-            return h;
-        }
         let (h, e) = self.list.input(input, root, &self.model);
         self.seen.borrow_mut().events.extend(e);
         h
@@ -123,12 +110,10 @@ fn mk(n: usize, rect: [f32; 4], style: ListStyle, offset: [f32; 2], images: bool
         images,
     };
     let list = List::new(c, &model);
-    let slider = Slider::new("V", "Volume", [700.0, 40.0], [400.0, 34.0], 0.5);
     let mut h = Harness::new([960.0, 540.0], [960.0, 540.0], 1.0, TextMode::Mirror);
     h.push(S {
         list,
         model,
-        slider,
         seen: seen.clone(),
         offset,
     });
@@ -278,17 +263,8 @@ fn the_selection_follows_its_item_across_a_reload() {
 #[test]
 fn widgets_work_inside_a_moved_frame() {
     let Made { mut h, seen, .. } = mk(1000, RECT, ListStyle::Plain, [100.0, 50.0], false);
-    // The slider's track (from its look, around its centre) is moved by
-    // (100, 50): drag along it to its left end.
-    h.drag(
-        PointerKind::Mouse,
-        [100.0 + 700.0 + 50.0, 50.0 + 40.0],
-        [100.0 + 700.0 - 300.0, 50.0 + 40.0],
-        0.2,
-        4,
-    );
-    assert!(seen.borrow().volume < 0.01, "{}", seen.borrow().volume);
-    // The list's scrollbar, moved too: drag its thumb to the middle.
+    // The list's scrollbar, moved by (100, 50): drag its thumb to the
+    // middle.
     let x = 100.0 + 20.0 + 400.0 - 4.0;
     h.pointer(
         1,

@@ -53,6 +53,12 @@ impl ValueDialog {
         }
     }
 
+    /// A whole number to type: the keyboard of digits where there is one.
+    pub fn numeric(mut self) -> Self {
+        self.field.hints.mode = InputMode::Numeric;
+        self
+    }
+
     /// The same validated value, edited through numeric controls.
     pub fn numbers(self, numbers: super::numbers::Numbers) -> super::numbers::NumberDialog {
         super::numbers::NumberDialog::new(self.env, &self.title, numbers, self.on_submit)

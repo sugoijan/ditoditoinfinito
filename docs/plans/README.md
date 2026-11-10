@@ -5,6 +5,112 @@ built, how it was checked and what was left; `docs/PLAN.md` holds the
 architecture, the decisions and the roadmap they belong to. Status as of
 2026-10-22. Dates are each plan's own (* its first commit).
 
+## CPU player
+
+Seven pattern skill multipliers now work in automatic mode on desktop and web;
+balanced preserves existing inputs. Presets/custom vectors require no profiles.
+
+- [CPU player](cpu-player.md) (2026-11-10): implemented; automatic analytical
+  preparation for imported/bundled keyboard 4K charts, seeded strength controls,
+  shared input motor/judge, native and browser integration checks.
+
+## Multiplayer design
+
+- [Multiplayer prototype progress](multiplayer-prototype-progress.md)
+  (2026-11-10): what the prototype has actually built and tested, kept apart
+  from the design studies below. M1: the shared room, match and stage model
+  (`crates/room`). M2: the CPU-practice room on both shells behind a hidden
+  switch (`#/?mp=1`, `--multiplayer on`), bound to the model's local
+  authority, songs from the library through song select's pick mode. M3:
+  stages played against engine-judged CPU opponents (a taps-only copy,
+  provisional gauge survival), the intermission, the match's results and
+  the next match. M4: the battle's announcer lines as their own category
+  (`battle …`), spoken in a stage under a provisional voice policy, shown
+  beside the field where no line said them; listed by the studio, no
+  recordings. M5c: invite-only online rooms on both shells against the
+  private server (Twitch sign-in, make, invite preview, join, the room
+  bound to the server's authority through `ddi-room`'s online adapter,
+  reconnects, roles). M5d: the host's song shared with the room through
+  song sharing under the room's upload grant (`crates/share-protocol`, the
+  contract the server shares), each member loading it from the share by
+  its digest, Start as one command, each stage played on every member's
+  device and ranked by the room from the players' own (self-reported)
+  runs, to the match's results. Provisional choices and open questions
+  listed.
+- [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
+  (2026-11-10): the maintainer authorized parallel implementation of these two
+  flows while the original design lane continues. Separates selected constraints,
+  working defaults and unresolved contracts; includes suggested slices, repository
+  integration points and acceptance walkthroughs. The
+  [copyable handover prompt](multiplayer-prototype-prompt.md) starts that work;
+  [six archived mockup studies and seven logic checks](../../tools/multiplayer-design/README.md)
+  preserve the reviewed examples. Documentation/snapshots only in this handoff,
+  with no game/server implementation or claim of validated balance.
+- [Multiplayer navigation and screens](multiplayer-ui.md) (2026-11-09): first
+  menu tree and layout draft for discovery, hosted/automatic/local rooms,
+  preparation, play/watch, intermission and match results. Separates room phase,
+  participation, readiness and connection; includes compact/large-room behavior
+  and announcer contexts. Twitch sign-in is selected for online identity, with
+  return-to-room, cancellation and reauthentication states; no game-managed
+  passwords/registration. Latest mockups fuse lobby, playlist and standings,
+  reuse the song-select wheel for the host's entire local library, put Rules in
+  a pop-up and model automatic sharing through the existing shared-song service.
+  Includes the signed-out invite and return-to-room flow, personal stage
+  evaluation, and a proposed host-triggered readiness deadline that makes
+  unready participants sit out a stage instead of stalling it. Updated mockups
+  include automatic advancement with a disconnected host, watching co-hosts,
+  admin assistance without a playing slot, and owner-only controls. Automatic
+  ownership transfer defaults Off and requires acceptance when enabled.
+  Admins can watch or request a playing seat; holds and readiness remain separate
+  from ownership. The play/watch study adds a single incoming warning, separate
+  automatic power indicator, faithful opponent miniatures around normal gameplay,
+  elimination-to-spectator transition, winner completion and a 128-player layout
+  study. Miniatures preserve the followed player's display settings and enlarge
+  into the spectator field; transport and large-party density remain proposals.
+  The quieter HUD study puts power above life in every field, makes score optional,
+  reduces incoming cues and compares the hand behind the note band. Electrical
+  attack examples add committed-target curves, a traveling shock-arrow pulse,
+  recipient highlights and a reduced-motion treatment.
+  Ending examples distinguish pending hazards from confirmed victory, let the
+  survivor finish, show stage-by-stage match points and shared ranks, and return
+  to the same room with fresh readiness and waiting-player admission. Historical
+  results remain available without blocking the next match's start.
+  Reconnect examples add stale remote previews, conditional same-stage recovery,
+  confirmed disconnect forfeits, watching and next-stage return, missed starts,
+  same-account Twitch recovery and unavailable/interrupted room distinctions.
+  Reconnect timing and attack-history validation remain provisional.
+  Entry examples connect the multiplayer home to public-room discovery,
+  automatic search/gathering with CPU fill, and local CPU practice. They include
+  admission rechecks after sign-in, loading deadlines, no-human-ready behavior,
+  offline song/CPU setup and a representative stage start; no services or bot
+  simulation are implemented.
+  The 2026-11-10 room-settings study adds creation, public/invite-only access,
+  CPU seat/profile configuration, locked current-match rules and explicit
+  next-match drafts. It validates incompatible rules and capacity, preserves
+  readiness for access/future changes, and rechecks saved proposals at the match
+  boundary. All changes remain design mockups.
+  Proposed layouts and local mock interactions only;
+  no multiplayer implementation.
+- [Multiplayer battle](multiplayer.md) (2026-11-08): provisional experience
+  design; proposed Room → Match → Stage vocabulary. Persistent rooms run finite
+  matches of one or more songs (four proposed by default), with overall rankings.
+  New players wait for the next match unless the host enables late entry, which
+  earns nothing for missed stages and gets no compensation. Stage resets by
+  default, optional persistent elimination, public/invite-only hosted rooms,
+  automatic public rooms with CPU fill and local CPU practice. Eight participants initially, 100+ as a design
+  target. Automatic mine attacks, non-spending accuracy-based weakening, recovery,
+  winner song completion and distinct stage/match announcer events. A
+  [placement-points study](../research/multiplayer-scoring.md) compares stage wins
+  with consistent high placements; moderate podium bonuses are the preferred
+  provisional default. Mixed-skill exploration now focuses on adaptation without
+  prior skill knowledge: chart switching, a protected opening and bounded attack
+  earning; manual handicaps and teams alone do not meet that launch constraint
+  (2026-11-09). Design proceeds
+  while the simulator develops independently; no validated battle default yet.
+  CPU/private-room prototype implementation was authorized separately on
+  2026-11-10 through the handoff above. Builds on the [exploration](../research/multiplayer.md), reference
+  comparisons and the six [simulation scenarios](../research/multiplayer-simulations.md).
+
 ## Noteskins and Lua
 
 - [Noteskins](noteskins.md) (2026-10-10): done; Lua and models in their own
@@ -310,7 +416,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
   short link loads a song or a pack from a private Cloudflare Worker to
   play without entering the library, with an expiry; a hidden,
   token-authenticated uploader in the app; the contract both repositories
-  keep.
+  keep (one crate since 2026-11-10, `crates/share-protocol`), and online
+  rooms' shares made under a room's upload grant (M5d).
 - [Quiet calibration](quiet-calibration.md) (2026-10-29): done
   (decision 76), the thresholds to tune by playing. The
   device banners, the devices line, the prompt's new-device step and the

@@ -136,7 +136,7 @@ impl Search {
         let h = held(s, d, land).filter(|h| {
             h.roll && h.panel == panel(n) && n.end.is_some_and(|(tick, _)| tick == h.end_tick)
         })?;
-        if s.panels[d] != panel(n) || same_button(&self.layout, s.panels[1 - d], panel(n)) {
+        if s.panels[d] != panel(n) || self.rules.same_button(s.panels[1 - d], panel(n)) {
             return None;
         }
         if (s.last[d] - land).abs() < 1e-9

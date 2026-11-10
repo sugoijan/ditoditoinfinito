@@ -14,12 +14,15 @@ use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as m;
 use ddi_library::announcer::draft::{Draft, Note, Sound, Take};
 use ddi_library::announcer::examples::{self, Set};
-use ddi_library::announcer::{Bundled, Comment, Grade, Line, Spoken};
+use ddi_library::announcer::{
+    Battle, Bundled, Comment, Grade, Line, OUR_COMBOS, Spoken, past_1000,
+};
 use ddi_platform::storage::{self, Area};
 
 use super::Env;
 use super::data::Platform;
 use super::dialog::{ActionsDialog, PickFn};
+use super::editor_dialogs::{SubmitFn, ValueDialog};
 use super::page::{Action, Block, PageDoc, PageTitle};
 use crate::screen::Cx;
 
@@ -121,6 +124,21 @@ pub fn name(line: Line) -> UiText {
         Line::SelectMusic(Comment::Repeat) => m::line_select_repeat(),
         Line::SelectMusic(Comment::Hard) => m::line_select_hard(),
         Line::SelectMusic(Comment::General) => m::line_select_general(),
+        Line::Battle(b) => match b {
+            Battle::MatchBegin => m::line_battle_match_begin(),
+            Battle::StageBegin => m::line_battle_stage_begin(),
+            Battle::FinalStage => m::line_battle_final_stage(),
+            Battle::LifeCritical => m::line_battle_life_critical(),
+            Battle::Survivors(n) => m::line_battle_survivors(n),
+            Battle::Eliminated => m::line_battle_eliminated(),
+            Battle::StageWon => m::line_battle_stage_won(),
+            Battle::StageNotWon => m::line_battle_stage_not_won(),
+            Battle::StageDrawn => m::line_battle_stage_drawn(),
+            Battle::SongFinished => m::line_battle_song_finished(),
+            Battle::MatchWon => m::line_battle_match_won(),
+            Battle::MatchNotWon => m::line_battle_match_not_won(),
+            Battle::MatchDrawn => m::line_battle_match_drawn(),
+        },
     }
 }
 
@@ -134,7 +152,7 @@ pub fn when(line: Line) -> UiText {
         Line::CommentGood => m::when_comment_good(),
         Line::CommentDanger => m::when_comment_danger(),
         Line::CommentOni => m::when_comment_oni(),
-        Line::Combo(n) if n > 1000 => m::when_combo_past_1000(n),
+        Line::Combo(n) if past_1000(n) => m::when_combo_past_1000(n),
         Line::Combo(n) => m::when_combo(n),
         Line::ComboOverflow => m::when_combo_overflow(),
         Line::ComboStopped => m::when_combo_stopped(),
@@ -168,6 +186,21 @@ pub fn when(line: Line) -> UiText {
         Line::SelectMusic(Comment::Repeat) => m::when_select_repeat(),
         Line::SelectMusic(Comment::Hard) => m::when_select_hard(),
         Line::SelectMusic(Comment::General) => m::when_select_general(),
+        Line::Battle(b) => match b {
+            Battle::MatchBegin => m::when_battle_match_begin(),
+            Battle::StageBegin => m::when_battle_stage_begin(),
+            Battle::FinalStage => m::when_battle_final_stage(),
+            Battle::LifeCritical => m::when_battle_life_critical(),
+            Battle::Survivors(n) => m::when_battle_survivors(n),
+            Battle::Eliminated => m::when_battle_eliminated(),
+            Battle::StageWon => m::when_battle_stage_won(),
+            Battle::StageNotWon => m::when_battle_stage_not_won(),
+            Battle::StageDrawn => m::when_battle_stage_drawn(),
+            Battle::SongFinished => m::when_battle_song_finished(),
+            Battle::MatchWon => m::when_battle_match_won(),
+            Battle::MatchNotWon => m::when_battle_match_not_won(),
+            Battle::MatchDrawn => m::when_battle_match_drawn(),
+        },
     }
 }
 
@@ -183,6 +216,9 @@ pub fn without(line: Line, draft: &Draft) -> UiText {
     }
     match line {
         Line::FirstClear | Line::NewRecord | Line::EvaluationFullCombo(_) => m::missing_next_line(),
+        // A battle's moment shows on screen without a line
+        // (`ddi_session::announcer::battle`).
+        Line::Battle(_) => m::missing_shown(),
         _ => m::missing_silent(),
     }
 }
@@ -313,6 +349,7 @@ fn line_zone(
     if takes.is_empty() {
         body.push(Block::Muted(without(line, draft).into()));
     }
+    let unrecorded = takes.is_empty();
     for t in takes {
         take_blocks(draft, view, t, true, &mut body);
     }
@@ -323,7 +360,7 @@ fn line_zone(
         body.push(Block::Note(m::opening_long(seconds(s)).into()));
     }
     let mut actions = vec![Action::new(format!("add:{folder}"), m::add_recording())];
-    if hearable(line) {
+    if hearable(line) && (recorded(line, draft) || has_example(line)) {
         let label = if recorded(line, draft) {
             m::hear_recorded()
         } else {
@@ -331,15 +368,30 @@ fn line_zone(
         };
         actions.push(Action::new(format!("hear:{folder}"), label));
     }
+    if let Line::Combo(n) = line
+        && unrecorded
+    {
+        actions.push(Action::new(format!("remove-combo:{n}"), m::remove_combo()));
+    }
     body.push(Block::Actions(actions));
     Block::Zone { id: folder, body }
 }
 
 /// Whether `line` has a scene to hear it in: on song select, in play
 /// (step 4) and on the results (`evaluation aaaaa`, which no play gets,
-/// has none).
+/// has none, nor have a multiplayer battle's lines yet).
 pub fn hearable(line: Line) -> bool {
-    line != Line::Grade(Grade::Aaaaa)
+    line != Line::Grade(Grade::Aaaaa) && line.spoken() != Spoken::Battle
+}
+
+/// Whether our packs of the examples say `line`, or what speaks in its
+/// place: a count of a pack's own (64) has nothing to hear until it is
+/// recorded.
+fn has_example(line: Line) -> bool {
+    match line {
+        Line::Combo(n) => OUR_COMBOS.contains(&n) || past_1000(n),
+        _ => true,
+    }
 }
 
 /// Whether the draft has something to say for `line`: a recording on it
@@ -492,9 +544,18 @@ pub fn doc(
         (Spoken::Menu, m::section_select()),
         (Spoken::Play, m::section_play()),
         (Spoken::Results, m::section_results()),
+        (Spoken::Battle, m::section_battle()),
     ] {
         b.push(Block::Heading(heading.into()));
+        // Heard in multiplayer alone, with no scene here yet.
+        if spoken == Spoken::Battle {
+            b.push(Block::Muted(m::section_battle_note().into()));
+        }
         for &line in lines.iter().filter(|l| l.spoken() == spoken) {
+            // The combo lines' own button, after them.
+            if line == Line::ComboOverflow {
+                b.extend(switch("add-combo", m::add_combo(), m::add_combo_help()));
+            }
             b.push(line_zone(draft, view, line, examples));
         }
     }
@@ -532,6 +593,10 @@ pub enum Act {
     UseInGame,
     /// Hear a line in the game: its scene on the screen it is spoken on.
     Hear(Line),
+    /// A combo line for a count typed in a dialog ([`combo_dialog`]).
+    AddCombo,
+    /// Combo line `n` off the page.
+    RemoveCombo(u32),
 }
 
 /// The press `id` of [`doc`]'s.
@@ -547,6 +612,7 @@ pub fn act(id: &str) -> Option<Act> {
         "export" => Act::Export,
         "save" => Act::Save,
         "use" => Act::UseInGame,
+        "add-combo" => Act::AddCombo,
         _ => {
             let (kind, rest) = id.split_once(':')?;
             match kind {
@@ -555,6 +621,7 @@ pub fn act(id: &str) -> Option<Act> {
                 "play" => Act::Play(take(rest)?),
                 "move" => Act::Move(take(rest)?),
                 "remove" => Act::Remove(take(rest)?),
+                "remove-combo" => Act::RemoveCombo(rest.parse().ok()?),
                 "example" => {
                     let (folder, i) = rest.rsplit_once(':')?;
                     Act::Example(Line::parse(folder)?, i.parse().ok()?)
@@ -620,6 +687,12 @@ pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
             view.details = !view.details;
             Applied::View
         }
+        Act::RemoveCombo(n) => {
+            if !draft.remove_combo(n) {
+                return None;
+            }
+            Applied::Draft
+        }
         _ => return None,
     })
 }
@@ -652,12 +725,14 @@ pub struct Picker {
 
 pub fn picker(draft: &Draft, take: u64) -> Option<Picker> {
     let t = draft.take(take)?;
-    // In the page's order: song select's, play's, the results'.
+    // In the page's order: song select's, play's, the results', the
+    // battle's.
     let mut lines = draft.lines();
     lines.sort_by_key(|l| match l.spoken() {
         Spoken::Menu => 0,
         Spoken::Play => 1,
         Spoken::Results => 2,
+        Spoken::Battle => 3,
     });
     let mut items: Vec<(String, String)> = lines
         .into_iter()
@@ -666,6 +741,7 @@ pub fn picker(draft: &Draft, take: u64) -> Option<Picker> {
                 Spoken::Menu => m::picker_line_select(name(l)),
                 Spoken::Play => m::picker_line_play(name(l)),
                 Spoken::Results => m::picker_line_results(name(l)),
+                Spoken::Battle => m::picker_line_battle(name(l)),
             };
             (l.folder(), label.into())
         })
@@ -701,7 +777,38 @@ pub fn in_gesture(a: Act) -> bool {
             | Act::Details
             | Act::Export
             | Act::UseInGame
+            | Act::RemoveCombo(_)
     )
+}
+
+/// What adding combo line `n` does: whether it was not listed already.
+pub type ComboFn = Rc<dyn Fn(u32, &mut Cx) -> bool>;
+
+/// A count typed: a whole number from 1 (spaces and digit grouping
+/// left out: "1,024").
+pub fn combo_count(text: &str) -> Option<u32> {
+    let digits: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, ',' | '.' | '_'))
+        .collect();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u32>().ok().filter(|&n| n >= 1)
+}
+
+/// The dialog of Add a combo line…: a count typed, a whole number from
+/// 1, not listed already.
+pub fn combo_dialog(env: Env, on_add: ComboFn) -> ValueDialog {
+    let submit: SubmitFn = Rc::new(move |text: &str, cx: &mut Cx| {
+        let n = combo_count(text).ok_or_else(|| m::combo_not_a_count().to_string())?;
+        if on_add(n, cx) {
+            Ok(())
+        } else {
+            Err(m::combo_listed(n).to_string())
+        }
+    });
+    ValueDialog::new(env, &m::combo_title(), &m::combo_note(), "", submit).numeric()
 }
 
 #[cfg(test)]
@@ -747,6 +854,80 @@ mod tests {
         }
         assert_eq!(act("play:x"), None);
         assert_eq!(act("add:nothing"), None);
+    }
+
+    /// The combo lines are the author's: ours to begin with, any count
+    /// added, any without a recording removed.
+    #[test]
+    fn combo_lines_are_added_and_removed() {
+        let combos = |d: &Draft| -> Vec<String> {
+            zones(&doc(
+                d,
+                &View::default(),
+                &BTreeMap::new(),
+                Default::default(),
+            ))
+            .into_iter()
+            .filter(|z| z.ends_with(" combo") && z != "gameplay full combo")
+            .collect()
+        };
+        let mut d = Draft::default();
+        assert_eq!(combos(&d).len(), OUR_COMBOS.len());
+        let text = format!(
+            "{:?}",
+            doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
+        );
+        // Add a combo line… after them, before More combo.
+        let add = text.find("\"add-combo\"").unwrap();
+        assert!(text.find("\"gameplay 2000 combo\"").unwrap() < add);
+        assert!(add < text.find("id: \"gameplay combo overflow\"").unwrap());
+        assert!(text.contains("\"remove-combo:100\""));
+        assert!(text.contains("\"hear:gameplay 100 combo\""));
+        assert_eq!(act("add-combo"), Some(Act::AddCombo));
+        assert_eq!(act("remove-combo:64"), Some(Act::RemoveCombo(64)));
+        assert_eq!(act("remove-combo:x"), None);
+        assert!(in_gesture(Act::AddCombo) && !in_gesture(Act::RemoveCombo(1)));
+        // Counted by powers of two.
+        let mut v = View::default();
+        for n in OUR_COMBOS {
+            assert_eq!(
+                apply(Act::RemoveCombo(n), &mut d, &mut v),
+                Some(Applied::Draft)
+            );
+        }
+        assert_eq!(apply(Act::RemoveCombo(100), &mut d, &mut v), None);
+        for t in ["64", " 128 ", "1,024"] {
+            assert!(d.add_combo(combo_count(t).unwrap()));
+        }
+        for not in ["", "0", "-5", "1.5e3", "abc", "99999999999"] {
+            assert_eq!(combo_count(not), None, "{not}");
+        }
+        assert_eq!(
+            combos(&d),
+            [
+                "gameplay 64 combo",
+                "gameplay 128 combo",
+                "gameplay 1024 combo"
+            ]
+        );
+        // A count of its own has no example to hear until recorded, and
+        // is not removed while recorded.
+        let text = format!(
+            "{:?}",
+            doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
+        );
+        assert!(!text.contains("\"hear:gameplay 64 combo\""));
+        d.add("gameplay 64 combo.wav", 1, MP3);
+        let text = format!(
+            "{:?}",
+            doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
+        );
+        assert!(text.contains("\"hear:gameplay 64 combo\""));
+        assert!(!text.contains("\"remove-combo:64\""));
+        assert!(text.contains("\"remove-combo:128\""));
+        assert_eq!(apply(Act::RemoveCombo(64), &mut d, &mut v), None);
+        assert_eq!(when(Line::Combo(1024)).to_string(), "1,024 notes in a row.");
+        assert_eq!(name(Line::Combo(64)).to_string(), "64 combo");
     }
 
     /// Use in the game and Export are always on the page, grayed out while
@@ -832,6 +1013,55 @@ mod tests {
         assert!(in_gesture(Act::Hear(Line::Cheer)));
     }
 
+    #[test]
+    fn the_battle_lines_are_their_own_section_without_scenes() {
+        let mut d = Draft::default();
+        d.add("battle stage won.wav", 1, MP3);
+        let page = doc(&d, &View::default(), &BTreeMap::new(), Default::default());
+        let text = format!("{:?}", page.blocks);
+        // The section comes last, its note under its heading.
+        let heading = format!("Heading({:?})", m::section_battle().to_string());
+        let note = format!("Muted({:?})", m::section_battle_note().to_string());
+        let at = text.find(&heading).expect("the battle's section");
+        assert!(
+            text[at..].starts_with(&format!("{heading}, {note}")),
+            "{text}"
+        );
+        assert!(
+            at > text
+                .find(&format!("{:?}", m::section_results().to_string()))
+                .unwrap()
+        );
+        for b in Battle::ALL {
+            let line = Line::Battle(b);
+            assert!(zones(&page).contains(&line.folder()), "{b:?}");
+            // Recorded or not, there is no scene to hear it in yet.
+            assert!(!hearable(line), "{b:?}");
+            assert!(
+                !text.contains(&format!("\"hear:{}\"", line.folder())),
+                "{b:?}"
+            );
+        }
+        assert!(recorded(Line::Battle(Battle::StageWon), &d));
+        // Unrecorded: shown on screen, or what speaks in its place.
+        assert_eq!(
+            without(Line::Battle(Battle::StageNotWon), &d).to_string(),
+            m::missing_shown().to_string()
+        );
+        let mut ready = Draft::default();
+        ready.add("gameplay ready.wav", 1, MP3);
+        assert_eq!(
+            without(Line::Battle(Battle::StageBegin), &ready).to_string(),
+            m::missing_instead(name(Line::Ready)).to_string()
+        );
+        // The picker lists them after the results', marked multiplayer.
+        let p = picker(&d, 1).expect("a take");
+        let last = p.items.last().unwrap();
+        assert_eq!(last.0, "battle match drawn");
+        let label = m::picker_line_battle(name(Line::Battle(Battle::MatchDrawn)));
+        assert_eq!(last.1, label.to_string());
+    }
+
     fn zones(doc: &PageDoc) -> Vec<String> {
         doc.blocks
             .iter()
@@ -847,7 +1077,7 @@ mod tests {
         let mut d = Draft::default();
         let empty = doc(&d, &View::default(), &BTreeMap::new(), Default::default());
         let z = zones(&empty);
-        assert_eq!(z.len(), listed().len());
+        assert_eq!(z.len(), listed().len() + OUR_COMBOS.len());
         assert_eq!(z[0], "select music intro");
         d.add("New Recording.m4a", 1, b"");
         d.add("gameplay 1100 combo.wav", 1, MP3);

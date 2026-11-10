@@ -96,6 +96,7 @@ restores imported songs when its asynchronous library scan supplies them.
 
 Detailed research with sources lives in [`docs/research/`](research/):
 
+- [`multiplayer.md`](research/multiplayer.md) — exploration started 2026-10-26: accuracy-centered survival, battle royale, generated challenges and synchronization tradeoffs; reference comparisons and simulation scenarios. A [provisional battle design](plans/multiplayer.md) began 2026-11-08, including announcer event contexts; balance and implementation remain open.
 - [`formats-sm-ssc-dwi.md`](research/formats-sm-ssc-dwi.md) — StepMania `.sm`/`.ssc` and DWI formats, timing semantics, existing parsers, test fixtures.
 - [`formats-ffr-danoni.md`](research/formats-ffr-danoni.md) — FlashFlashRevolution (R^3) and Dancing☆Onigiri (danoniplus) chart data, key modes, judgement, gauges.
 - [`rules-ddr-itg-dwi.md`](research/rules-ddr-itg-dwi.md) — DDR / StepMania / ITG / DWI timing windows, scoring, gauges, options, note colors.
@@ -113,6 +114,14 @@ Reference implementations to consult while building: StepMania 5.1 (`5_1-new` br
 
 ---
 
+CPU player (2026-11-10): a portable analytical CPU for imported/bundled keyboard
+4K charts, with five strengths and deterministic seeds on desktop and web.
+Tap-only and no fail through the production judge; no personal score records.
+Seven pattern skill multipliers are available through web `skills=` and desktop
+`--cpu-skills`, with presets and custom vectors. Balanced retains the existing
+seeded inputs; these controls are heuristic, not calibrated MSD ratings.
+See [CPU player](plans/cpu-player.md) for controls, limits and verification.
+
 ## 1. Goals and non-goals
 
 Goals, in priority order:
@@ -122,7 +131,34 @@ Goals, in priority order:
 3. Pluggable everything the brief names: input devices, song sources and formats, note skins and color schemes, background layers, and rulesets (judgement windows, scoring, combo, gauge, fail policy).
 4. Eventually the union of DDR, StepMania, DWI, FFR and Dancing☆Onigiri features: holds, rolls, mines, lifts, fakes, shock arrows, speed/scroll changes, warps, arbitrary lane layouts (4-panel, 6-panel solo, 5-key onigiri, 7-key, …), lyrics and background events.
 
-Non-goals for now: multiplayer, online scores, mobile as a sync-accurate target, keysounds, editor.
+Non-goals for now: full multiplayer rollout, online scores, mobile as a sync-accurate target, keysounds, editor.
+Focused CPU-practice and invite-only-room prototyping is authorized as of
+2026-11-10; see the [prototype handoff](plans/multiplayer-prototype-handoff.md).
+What it has built is in the [progress note](plans/multiplayer-prototype-progress.md):
+the shared room model, and a CPU-practice room on both shells behind a hidden
+switch, its stages played against engine-judged CPUs to the match's results;
+the public start menu still says "Coming soon".
+
+Multiplayer research began 2026-10-26 ([exploration](research/multiplayer.md));
+a [provisional battle design](plans/multiplayer.md) began 2026-11-08 while the
+player simulator develops independently. Proposed vocabulary: persistent Room,
+finite Match (the battle session; one or more songs, four proposed by default),
+and Stage (one song). Hosted public/private rooms, automatic public rooms with
+CPUs, and local CPU practice use the same battle mechanism. Matches end with
+overall rankings; newcomers normally wait for the next match, with uncompensated
+late entry as a host option. Fresh battles each stage, optional persistent
+elimination and winner song completion remain. Eight participants is the initial
+cap with 100+ a design target. Stage/match announcer events follow those
+mechanisms. On 2026-11-10 the maintainer authorized a separate implementation
+lane for CPU practice and invite-only rooms while this design work continues.
+The [handoff and scope](plans/multiplayer-prototype-handoff.md),
+[implementation prompt](plans/multiplayer-prototype-prompt.md) and
+[archived mockups](../tools/multiplayer-design/README.md) package that starting
+point. No runtime implementation is included in the documentation handoff;
+balance, full online battle synchronization and the remaining modes stay open.
+A [navigation and screen plan](plans/multiplayer-ui.md) began 2026-11-09,
+covering the menu tree, room and participation states, layout sketches and
+announcer contexts for the three ways to play.
 
 ## 2. What the research settled
 

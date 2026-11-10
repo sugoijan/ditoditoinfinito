@@ -417,31 +417,41 @@ pub fn stage(
                     };
                 scene(s, caption)
             }
-            // The combo crossing a hundred a few steps after the start.
+            // The combo reaching its count a few steps after the start
+            // (a count smaller than those steps: from none, sooner).
             Line::Combo(_) | Line::ComboOverflow => {
                 let n = match line {
                     Line::Combo(n) => n,
                     _ => 1100,
                 };
                 let from = before(steps.after(first + 4.0)?, 0.4);
-                let rises = steps.rises(from, from + LEAD).max(1);
+                let rises = steps.rises(from, from + LEAD).max(1).min(n);
                 let at = steps
                     .combos
                     .iter()
                     .copied()
                     .filter(|&s| s >= from)
                     .nth(rises as usize - 1)?;
+                // The steps before would make more: the last of them
+                // missed.
+                let mut touches = Vec::new();
+                if steps.rises(0.0, from) > n - rises
+                    && let Some(last) = steps.combos.iter().copied().rfind(|&s| s < from)
+                {
+                    touches.push(Touch::miss(last - 0.01, last + 0.01));
+                }
                 scene(
                     Staging {
                         from,
-                        combo: n.checked_sub(rises)?,
+                        touches,
+                        combo: n - rises,
                         since: COMBO_GAP,
                         until: Some(at + len(line) + TAIL),
                         ..Staging::default()
                     },
                     Caption::Combo {
                         count: n,
-                        past: n > 1000,
+                        past: ddi_library::announcer::past_1000(n),
                     },
                 )
             }

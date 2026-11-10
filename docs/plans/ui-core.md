@@ -164,6 +164,8 @@ they were drawn at.
   the like map onto what our screens send.
 - **P8. Layout frames via taffy**, behind a feature of `ui`, where a form
   or the results' panels want flex or grid; everything else is absolute.
+  Dropped (2026-11-10): the screens are laid out by hand, and the feature
+  and taffy went (see steps 4 and 6.1).
 - **P9. Textures by source, cached.** Banners, jackets, theme art and
   backgrounds load through one cache keyed by source (bundled path,
   imported blob, theme file) and scale, decoded off the main thread (the
@@ -636,21 +638,24 @@ Done (2026-10-15):
   follows, tap to select and again to activate, a draggable scrollbar, and
   a wheel style (the selected row on a fixed line).
 - **Controls** (`widgets/controls.rs`): toggle, StepMania-style
-  option row, slider. **Search field** (`widgets/field.rs`) with a
+  option row, slider (the option row and slider served only the widget
+  screen, Options and the quick volume drawing their own, and were
+  removed on 2026-11-10). **Search field** (`widgets/field.rs`) with a
   suggestion popup that never shows while composing, fed by
   `ddi_library::suggest` (prefix, then word start, then anywhere; titles
   before artists before packs; folding and romaji as search has them).
-- **Layout frames** (`crates/ui/src/layout.rs`): taffy behind the `layout`
-  feature, off in both shells for now: flex and grid cost 77 KB of wasm,
-  about twice the estimate, and a hand-made grid serves so far; to decide
-  again with the results screen (step 6.1). **Graphs** (`graph.rs`):
-  segments, polylines, bars, points, a histogram, a line over time.
+- **Layout frames**: taffy behind a `layout` feature, off in both shells:
+  flex and grid cost 77 KB of wasm, about twice the estimate, and a
+  hand-made grid serves. Decided with the results screen (step 6.1): the
+  feature, its module and taffy were removed on 2026-11-10. **Graphs**
+  (`graph.rs`): segments, polylines, bars, points, a histogram, a line
+  over time.
 - **Widget screen** (`crates/ui/src/dev_widgets.rs`; `#/ui-dev?screen=widgets`,
   `--widgets` on desktop; lists take a component prefix, `SongList.Row`
   falling back to `List.Row`): 10,000 songs under 200 packs (the library's
-  own first, with banners), search with suggestions, option rows, a
-  toggle, a slider, and a results-like grid whose panels an option row
-  changes.
+  own first, with banners), search with suggestions, a toggle and a
+  results-like grid of panels (option rows and a slider, one choosing the
+  panels, until 2026-11-10).
 - **Checked:** harness tests per widget; Playwright in Chrome (WebGPU,
   WebGL2) and Firefox, banners loaded only for rows shown; wheel
   scrolling at 0.6 ms a frame on Chrome's WebGPU, 1.1 ms on WebGL2,
@@ -926,8 +931,8 @@ Done, 6.1 results (2026-10-15):
   (2 a second before); `__DDI_LOSE_DEVICE` loses a WebGL2 context too.
 - **Layout frames:** taffy stays out. The panels are a grid of two
   columns the screen computes in a few lines; nothing configurable here
-  needs flex or grid yet, and taffy costs 77 KB of wasm. To be decided
-  again if players arrange their own panels.
+  needs flex or grid, and taffy costs 77 KB of wasm. Closed: the `layout`
+  feature and taffy were removed (2026-11-10), the hand-written grid kept.
 - **Checked:** mapping tests per ruleset (names, missing tiers, tally
   against timeline, lamp and assist, failed, money and percent, lanes of
   4, 5, 7, 8 and 10), the screen's actions in the harness; autoplay to
@@ -1521,7 +1526,7 @@ Done, 6.4 part two (2026-10-16):
   file the shell keeps: the opening still, else the background (the
   web keeps both under the play's background name), cover-fitted into
   the background frame (the play's automatic shape too,
-  `GameLoop::prompt_frame`), dimmed by the backgrounds' brightness, a
+  `PlayView::prompt_frame`), dimmed by the backgrounds' brightness, a
   blurred, dimmer copy over the rest as the play's extension, and the
   field filter's band where the chart's lanes will be
   (`ddi_render::scene::filter_band`, shared with the play). The 2D pass

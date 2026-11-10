@@ -3,7 +3,7 @@
 //! Takes a chart, a [`Ruleset`] and [`PlayOptions`], consumes timestamped
 //! [`InputEvent`]s and [`ClockSample`](ddi_platform::ClockSample)s, and
 //! produces a [`Frame`] for the renderer plus [`JudgeEvent`]s. No I/O, no
-//! randomness, no platform code; tested natively with replay fixtures.
+//! global randomness, no platform code; tested natively with replay fixtures.
 //!
 //! Modules:
 //! - [`clock`]: host ↔ audio clock anchor and offsets.
@@ -16,6 +16,7 @@
 //! - [`cover`]: lane covers (Sudden+, Hidden+).
 //! - [`transform`]: Turn and Cut chart transforms.
 //! - [`autoplay`]: the autoplayer's press script.
+//! - [`cpu`]: seeded sampling of prepared CPU timing laws.
 //! - [`demo`]: a looping autoplayed chart for skin previews.
 //! - [`frame`]: the render snapshot.
 //! - [`player`]: the orchestrator.
@@ -30,6 +31,7 @@ pub mod bindings;
 pub mod calibration;
 pub mod clock;
 pub mod cover;
+pub mod cpu;
 pub mod demo;
 pub mod frame;
 pub mod history;

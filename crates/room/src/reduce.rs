@@ -1,0 +1,1357 @@
+//! The reducer: commands decided against the state into events, events
+//! applied to the state. Deterministic (ordered maps, ids from counters,
+//! time passed in) and atomic (a refused command changes nothing), so the
+//! local practice authority and the server run the same transitions and a
+//! client mirror applying the events holds the same state.
+
+use crate::awards::{Finish, Finisher, StageResult};
+use crate::battle::{BattlePreset, Entrant, ReportedRun, Run};
+use crate::command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
+use crate::ids::{Millis, ParticipantId, Revision, StageId};
+use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, can};
+use crate::phase::{Phase, ReadinessWindow};
+use crate::rules::{Access, Admission, ContentSource};
+use crate::state::{
+    ContentStatus, Match, MatchEnding, MatchRecord, RoomState, Seat, SitOutReason, Stage,
+    StageContent, StagePlay,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+type Decided = Result<(), Rejection>;
+
+impl RoomState {
+    /// Decide `command` from `actor`, made against the client's view at
+    /// `base`, at authority time `now`. On success the state is at the next
+    /// revision and the events say what changed (none: nothing changed, and
+    /// the revision stays). On refusal nothing changes.
+    pub fn apply(
+        &mut self,
+        actor: Actor,
+        base: Option<Revision>,
+        command: &Command,
+        now: Millis,
+    ) -> Result<Vec<Event>, Rejection> {
+        let mut work = self.clone();
+        let mut out = Vec::new();
+        work.decide(actor, base, command, now, &mut out)?;
+        if !out.is_empty() {
+            work.revision = work.revision.next();
+            *self = work;
+        }
+        Ok(out)
+    }
+
+    /// Run what time decides: a readiness window's deadline, a committed
+    /// countdown's start.
+    pub fn advance(&mut self, now: Millis) -> Vec<Event> {
+        let mut work = self.clone();
+        let mut out = Vec::new();
+        work.tick(now, &mut out);
+        if !out.is_empty() {
+            work.revision = work.revision.next();
+            *self = work;
+        }
+        out
+    }
+
+    /// Apply one revision's events (a mirror's way of following the
+    /// authority).
+    pub fn commit(&mut self, events: &[Event]) {
+        for e in events {
+            self.evolve(e);
+        }
+        self.revision = self.revision.next();
+    }
+
+    fn emit(&mut self, out: &mut Vec<Event>, event: Event) {
+        self.evolve(&event);
+        out.push(event);
+    }
+
+    // ---- permission helpers ----
+
+    fn require(&self, actor: Actor, capability: Capability) -> Decided {
+        match actor {
+            Actor::Authority => Ok(()),
+            Actor::Member(id) => {
+                let m = self.present_human(id)?;
+                if can(m.role, m.admin, capability, self.phase.kind()) {
+                    Ok(())
+                } else {
+                    Err(Rejection::Unauthorized { capability })
+                }
+            }
+        }
+    }
+
+    fn present_human(&self, id: ParticipantId) -> Result<&Member, Rejection> {
+        let m = self.members.get(&id).ok_or(Rejection::NotAMember)?;
+        if m.left {
+            Err(Rejection::NotPresent)
+        } else if m.is_cpu() {
+            Err(Rejection::Unauthorized {
+                capability: Capability::Participate,
+            })
+        } else {
+            Ok(m)
+        }
+    }
+
+    fn own(&self, actor: Actor) -> Result<ParticipantId, Rejection> {
+        match actor {
+            Actor::Authority => Err(Rejection::NotAMember),
+            Actor::Member(id) => self.present_human(id).map(|m| m.id),
+        }
+    }
+
+    fn authority_only(actor: Actor) -> Decided {
+        match actor {
+            Actor::Authority => Ok(()),
+            Actor::Member(_) => Err(Rejection::AuthorityOnly),
+        }
+    }
+
+    fn check_base(base: Option<Revision>, changed_at: Revision) -> Decided {
+        let base = base.ok_or(Rejection::MissingBase)?;
+        if changed_at > base {
+            Err(Rejection::Stale { base, changed_at })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn wrong_phase(&self) -> Rejection {
+        Rejection::WrongPhase {
+            phase: self.phase.kind(),
+        }
+    }
+
+    fn fresh_stage(&mut self) -> StageId {
+        let id = StageId(self.counters.stage);
+        self.counters.stage += 1;
+        id
+    }
+
+    // ---- decisions ----
+
+    fn decide(
+        &mut self,
+        actor: Actor,
+        base: Option<Revision>,
+        command: &Command,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        match command {
+            Command::SetIntent { intent } => {
+                let id = self.own(actor)?;
+                if self.members[&id].intent == *intent {
+                    return Ok(());
+                }
+                if *intent == Intent::Play {
+                    self.policy
+                        .check_competitors(self.reserved_humans() + 1)
+                        .map_err(Rejection::Cap)?;
+                }
+                self.emit(
+                    out,
+                    Event::IntentChanged {
+                        participant: id,
+                        intent: *intent,
+                    },
+                );
+                Ok(())
+            }
+            Command::SetReady {
+                stage,
+                readiness_rev,
+                ready,
+            } => {
+                let id = self.own(actor)?;
+                if self.members[&id].intent != Intent::Play {
+                    return Err(Rejection::NotPlaying);
+                }
+                self.check_preparing(id, *stage, *readiness_rev)?;
+                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
+                if s.content.is_none() {
+                    return Err(Rejection::NoContent);
+                }
+                if s.prep(id).ready != *ready {
+                    self.emit(
+                        out,
+                        Event::ReadyChanged {
+                            stage: *stage,
+                            participant: id,
+                            ready: *ready,
+                        },
+                    );
+                }
+                Ok(())
+            }
+            Command::ReportLoading {
+                stage,
+                readiness_rev,
+                loading,
+            } => {
+                let id = self.own(actor)?;
+                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
+                if s.play.is_some() {
+                    return Err(Rejection::StageStarted);
+                }
+                if s.readiness_rev != *readiness_rev {
+                    return Err(Rejection::StaleReadiness {
+                        current: s.readiness_rev,
+                    });
+                }
+                if s.content.is_none() {
+                    return Err(Rejection::NoContent);
+                }
+                if s.prep(id).loading != *loading {
+                    self.emit(
+                        out,
+                        Event::LoadingChanged {
+                            stage: *stage,
+                            participant: id,
+                            loading: loading.clone(),
+                        },
+                    );
+                }
+                Ok(())
+            }
+            Command::Leave => {
+                let id = self.own(actor)?;
+                // Cancel first, so the departure also clears the readiness
+                // the canceled start held.
+                self.cancel_if_committed(id, out);
+                self.emit(out, Event::MemberLeft { participant: id });
+                Ok(())
+            }
+            Command::ReportOutcome { stage, run } => {
+                let id = self.own(actor)?;
+                match self.phase {
+                    Phase::Stage { stage: s } if s == *stage => {}
+                    Phase::SongCompletion { stage: s } if s == *stage => {
+                        return Err(Rejection::ResultAlreadyConfirmed);
+                    }
+                    _ => return Err(self.wrong_phase()),
+                }
+                let play = self
+                    .stage(*stage)
+                    .and_then(|s| s.play.as_ref())
+                    .ok_or(Rejection::UnknownStage)?;
+                if !play.lineup.contains(&id) {
+                    return Err(Rejection::NotInLineup);
+                }
+                // A stage with CPUs is ranked by the authority that judges
+                // them (practice), never from reports.
+                if !play.self_reported(&self.members) {
+                    return Err(Rejection::AuthorityOnly);
+                }
+                match play.reports.get(&id) {
+                    Some(r) if r == run => return Ok(()),
+                    Some(_) => return Err(Rejection::AlreadyReported),
+                    None => {}
+                }
+                self.emit(
+                    out,
+                    Event::OutcomeReported {
+                        stage: *stage,
+                        participant: id,
+                        run: *run,
+                        at: now,
+                    },
+                );
+                let all = self
+                    .stage(*stage)
+                    .and_then(|s| s.play.as_ref())
+                    .is_some_and(|p| p.lineup.iter().all(|id| p.reports.contains_key(id)));
+                if all {
+                    self.settle(*stage, out);
+                }
+                Ok(())
+            }
+            Command::ChooseContent { stage, content } => {
+                self.require(actor, Capability::ChooseContent)?;
+                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
+                Self::check_base(base, s.content_changed_at)?;
+                if s.play.is_some() {
+                    return Err(match self.phase {
+                        Phase::Countdown { stage: c, .. } if c == *stage => {
+                            Rejection::StartCommitted
+                        }
+                        _ => Rejection::StageStarted,
+                    });
+                }
+                if s.content.as_ref().map(|c| &c.id) == content.as_ref() {
+                    return Ok(());
+                }
+                let status = match self.source {
+                    ContentSource::LocalLibrary => ContentStatus::Available,
+                    ContentSource::Shared => ContentStatus::Pending,
+                };
+                if let Phase::Preparing {
+                    stage: p,
+                    window: Some(_),
+                } = self.phase
+                    && p == *stage
+                {
+                    self.emit(
+                        out,
+                        Event::StartCanceled {
+                            stage: p,
+                            reason: CancelReason::ContentReplaced,
+                        },
+                    );
+                    self.emit(
+                        out,
+                        Event::PhaseChanged {
+                            phase: Phase::Preparing {
+                                stage: p,
+                                window: None,
+                            },
+                        },
+                    );
+                }
+                self.emit(
+                    out,
+                    Event::ContentChosen {
+                        stage: *stage,
+                        content: content.clone().map(|id| StageContent {
+                            id,
+                            status,
+                            share: None,
+                        }),
+                    },
+                );
+                Ok(())
+            }
+            Command::SaveNextRules { rules } => {
+                self.require(actor, Capability::EditNextRules)?;
+                Self::check_base(base, self.next.saved_at)?;
+                rules
+                    .validate(&self.policy, self.reserved_humans())
+                    .map_err(Rejection::InvalidRules)?;
+                let have = self.playlist.len();
+                let added = (have..usize::from(rules.stages))
+                    .map(|_| self.fresh_stage())
+                    .collect();
+                if self.current.is_none() {
+                    self.emit(out, Event::PlaylistReadinessCleared);
+                }
+                self.emit(
+                    out,
+                    Event::NextRulesSaved {
+                        rules: rules.clone(),
+                        added,
+                    },
+                );
+                if self.next.review.is_some() {
+                    self.emit(out, Event::NextRulesReviewed { review: None });
+                }
+                Ok(())
+            }
+            Command::StartMatch => {
+                self.require(actor, Capability::Advance)?;
+                if self.phase != Phase::Lobby {
+                    return Err(self.wrong_phase());
+                }
+                Self::check_base(base, self.next.saved_at)?;
+                self.start_match(out)
+            }
+            Command::PrepareNextStage => {
+                self.require(actor, Capability::Advance)?;
+                let Phase::Intermission { next } = self.phase else {
+                    return Err(self.wrong_phase());
+                };
+                self.prepare(next, out);
+                Ok(())
+            }
+            Command::StartStage {
+                stage,
+                readiness_rev,
+            } => {
+                self.require(actor, Capability::Advance)?;
+                match self.phase {
+                    // The match and its first stage, as one change.
+                    Phase::Lobby if self.playlist.first().is_some_and(|s| s.id == *stage) => {
+                        Self::check_base(base, self.next.saved_at)?;
+                        self.start_match(out)?;
+                    }
+                    Phase::Intermission { next } if next == *stage => self.prepare(next, out),
+                    Phase::Preparing { stage: p, window } if p == *stage => {
+                        if window.is_some() {
+                            return Err(Rejection::WindowOpen);
+                        }
+                    }
+                    Phase::Countdown { stage: c, .. } if c == *stage => {
+                        return Err(Rejection::StartCommitted);
+                    }
+                    Phase::Preparing { .. } | Phase::Intermission { .. } => {
+                        return Err(Rejection::NotUpcoming);
+                    }
+                    _ => return Err(self.wrong_phase()),
+                }
+                self.start_stage(*stage, *readiness_rev, now, out)
+            }
+            Command::CancelStart { stage } => {
+                self.require(actor, Capability::Advance)?;
+                match self.phase {
+                    Phase::Preparing {
+                        stage: p,
+                        window: Some(_),
+                    }
+                    | Phase::Countdown { stage: p, .. }
+                        if p == *stage =>
+                    {
+                        self.cancel_start(p, CancelReason::ByOperator, out);
+                        Ok(())
+                    }
+                    _ => Err(Rejection::NothingToCancel),
+                }
+            }
+            Command::StopMatch => {
+                self.require(actor, Capability::StopMatch)?;
+                self.interrupt(crate::phase::Interruption::Stopped, out);
+                Ok(())
+            }
+            Command::OpenNextMatch => {
+                self.require(actor, Capability::Advance)?;
+                let ending = match self.phase {
+                    Phase::MatchResults => MatchEnding::Completed,
+                    Phase::Interrupted { reason } => MatchEnding::Interrupted { reason },
+                    _ => return Err(self.wrong_phase()),
+                };
+                self.emit(out, Event::MatchClosed { ending });
+                // The boundary: the saved draft is checked against who wants
+                // to play now; a problem keeps it pending and blocks Start.
+                let review = self
+                    .next
+                    .rules
+                    .validate(&self.policy, self.reserved_humans())
+                    .err();
+                if review != self.next.review {
+                    self.emit(out, Event::NextRulesReviewed { review });
+                }
+                self.emit(
+                    out,
+                    Event::PhaseChanged {
+                        phase: Phase::Lobby,
+                    },
+                );
+                Ok(())
+            }
+            Command::SetCoHost { participant, on } => {
+                self.require(actor, Capability::ManageCoHosts)?;
+                let m = self
+                    .members
+                    .get(participant)
+                    .ok_or(Rejection::UnknownParticipant)?;
+                if m.is_cpu() {
+                    return Err(Rejection::NotAHuman);
+                }
+                if m.left {
+                    return Err(Rejection::NotPresent);
+                }
+                if m.role == Role::Owner {
+                    return Err(Rejection::OwnerRole);
+                }
+                let role = if *on { Role::CoHost } else { Role::Member };
+                if m.role != role {
+                    self.emit(
+                        out,
+                        Event::RoleChanged {
+                            participant: *participant,
+                            role,
+                        },
+                    );
+                }
+                Ok(())
+            }
+            Command::SetAccess {
+                admission,
+                rotate_invite,
+            } => {
+                self.require(actor, Capability::ChangeAccess)?;
+                let access = Access {
+                    admission: *admission,
+                    invite_generation: self.access.invite_generation + u32::from(*rotate_invite),
+                };
+                if access != self.access {
+                    self.emit(out, Event::AccessChanged { access });
+                }
+                Ok(())
+            }
+            Command::Join {
+                identity,
+                name,
+                admin,
+                intent,
+            } => {
+                Self::authority_only(actor)?;
+                if let Some(m) = self.member_by_identity(identity) {
+                    // The same person back: the same row, whatever the
+                    // admission now says.
+                    if m.left || m.connection != Connection::Connected {
+                        let participant = m.id;
+                        self.emit(out, Event::MemberRestored { participant });
+                    }
+                    return Ok(());
+                }
+                if self.access.admission == Admission::Closed && !admin {
+                    return Err(Rejection::AdmissionClosed);
+                }
+                let present = self
+                    .members
+                    .values()
+                    .filter(|m| !m.left && !m.is_cpu())
+                    .count();
+                let limit = usize::from(self.policy.max_members)
+                    + if *admin {
+                        usize::from(self.policy.admin_reserve)
+                    } else {
+                        0
+                    };
+                if present >= limit {
+                    return Err(Rejection::RoomFull);
+                }
+                if *intent == Intent::Play {
+                    self.policy
+                        .check_competitors(self.reserved_humans() + 1)
+                        .map_err(Rejection::Cap)?;
+                }
+                let id = ParticipantId(self.counters.participant);
+                self.emit(
+                    out,
+                    Event::MemberJoined {
+                        member: Member {
+                            id,
+                            kind: MemberKind::Human {
+                                identity: identity.clone(),
+                                name: name.clone(),
+                            },
+                            role: Role::Member,
+                            admin: *admin,
+                            intent: *intent,
+                            connection: Connection::Connected,
+                            left: false,
+                        },
+                    },
+                );
+                Ok(())
+            }
+            Command::SetConnection {
+                participant,
+                connection,
+            } => {
+                Self::authority_only(actor)?;
+                let m = self
+                    .members
+                    .get(participant)
+                    .ok_or(Rejection::UnknownParticipant)?;
+                if m.is_cpu() {
+                    return Err(Rejection::NotAHuman);
+                }
+                if m.connection == *connection {
+                    return Ok(());
+                }
+                if *connection == Connection::Disconnected {
+                    self.cancel_if_committed(*participant, out);
+                }
+                self.emit(
+                    out,
+                    Event::ConnectionChanged {
+                        participant: *participant,
+                        connection: *connection,
+                    },
+                );
+                Ok(())
+            }
+            Command::SetContentStatus {
+                stage,
+                status,
+                share,
+            } => {
+                Self::authority_only(actor)?;
+                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
+                let current = s.content.as_ref().ok_or(Rejection::NoContent)?;
+                if current.status == *status && current.share == *share {
+                    return Ok(());
+                }
+                if s.play.is_some()
+                    && !matches!(self.phase, Phase::Countdown { stage: c, .. } if c == *stage)
+                {
+                    return Err(Rejection::StageStarted);
+                }
+                self.emit(
+                    out,
+                    Event::ContentStatusChanged {
+                        stage: *stage,
+                        status: status.clone(),
+                        share: share.clone(),
+                    },
+                );
+                if matches!(status, ContentStatus::Unavailable { .. }) {
+                    match self.phase {
+                        Phase::Countdown { stage: p, .. }
+                        | Phase::Preparing {
+                            stage: p,
+                            window: Some(_),
+                        } if p == *stage => {
+                            self.cancel_start(p, CancelReason::ContentUnavailable, out)
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+            Command::ConfirmStage { stage, ranking } => {
+                Self::authority_only(actor)?;
+                match self.phase {
+                    Phase::Stage { stage: s } if s == *stage => {}
+                    Phase::SongCompletion { stage: s } if s == *stage => {
+                        return Err(Rejection::ResultAlreadyConfirmed);
+                    }
+                    _ => return Err(self.wrong_phase()),
+                }
+                self.confirm(*stage, ranking, out)?;
+                self.emit(
+                    out,
+                    Event::PhaseChanged {
+                        phase: Phase::SongCompletion { stage: *stage },
+                    },
+                );
+                Ok(())
+            }
+            Command::EndSong { stage, ranking } => {
+                Self::authority_only(actor)?;
+                match (&self.phase, ranking) {
+                    (Phase::Stage { stage: s }, Some(ranking)) if s == stage => {
+                        self.confirm(*stage, ranking, out)?;
+                    }
+                    (Phase::Stage { stage: s }, None) if s == stage => {
+                        return Err(Rejection::ResultMissing);
+                    }
+                    (Phase::SongCompletion { stage: s }, None) if s == stage => {}
+                    (Phase::SongCompletion { stage: s }, Some(_)) if s == stage => {
+                        return Err(Rejection::ResultAlreadyConfirmed);
+                    }
+                    _ => return Err(self.wrong_phase()),
+                }
+                self.end_song(*stage, out);
+                Ok(())
+            }
+            Command::Interrupt { reason } => {
+                Self::authority_only(actor)?;
+                if !self.phase.kind().match_running() {
+                    return Err(self.wrong_phase());
+                }
+                self.interrupt(*reason, out);
+                Ok(())
+            }
+        }
+    }
+
+    /// May `id` prepare for `stage` now?
+    fn check_preparing(&self, id: ParticipantId, stage: StageId, readiness_rev: u32) -> Decided {
+        if self.upcoming_stage() != Some(stage) {
+            return Err(match self.phase {
+                Phase::Countdown { stage: c, .. } if c == stage => Rejection::StartCommitted,
+                _ if self.stage(stage).is_none() => Rejection::UnknownStage,
+                _ => Rejection::NotUpcoming,
+            });
+        }
+        if let Some(m) = self.running_match() {
+            let seat = m.roster.get(&id).ok_or(Rejection::NotInMatch)?;
+            if seat.out_for_match {
+                return Err(Rejection::OutForMatch);
+            }
+        }
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        if s.readiness_rev != readiness_rev {
+            return Err(Rejection::StaleReadiness {
+                current: s.readiness_rev,
+            });
+        }
+        Ok(())
+    }
+
+    fn start_match(&mut self, out: &mut Vec<Event>) -> Decided {
+        let rules = self.next.rules.clone();
+        rules
+            .validate(&self.policy, self.reserved_humans())
+            .map_err(Rejection::RulesNeedReview)?;
+        let humans: Vec<ParticipantId> = self
+            .members
+            .values()
+            .filter(|m| !m.left && !m.is_cpu() && m.intent == Intent::Play)
+            .map(|m| m.id)
+            .collect();
+        if humans.is_empty() {
+            return Err(Rejection::NoPlayingHumans);
+        }
+        let cpus = (1..=rules.cpu_seats(humans.len()))
+            .map(|n| {
+                let ordinal = u16::try_from(n).unwrap_or(u16::MAX);
+                let id = ParticipantId(self.counters.participant + n as u64 - 1);
+                Member {
+                    id,
+                    kind: MemberKind::Cpu {
+                        ordinal,
+                        opponent: rules.cpu.opponent.for_seat(ordinal),
+                    },
+                    role: Role::Member,
+                    admin: false,
+                    intent: Intent::Play,
+                    connection: Connection::Connected,
+                    left: false,
+                }
+            })
+            .collect();
+        let playlist = (0..rules.stages).map(|_| self.fresh_stage()).collect();
+        let id = crate::ids::MatchId(self.counters.matches);
+        let first = self.playlist[0].id;
+        self.emit(
+            out,
+            Event::MatchStarted {
+                id,
+                rules,
+                humans,
+                cpus,
+                playlist,
+            },
+        );
+        if self.next.review.is_some() {
+            self.emit(out, Event::NextRulesReviewed { review: None });
+        }
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Preparing {
+                    stage: first,
+                    window: None,
+                },
+            },
+        );
+        Ok(())
+    }
+
+    /// Enter `stage`'s preparation, admitting late entrants where the rules
+    /// allow (into vacant seats only, never a CPU's).
+    fn prepare(&mut self, stage: StageId, out: &mut Vec<Event>) {
+        if let Some(m) = &self.current
+            && m.rules.mid_match_entry
+        {
+            let vacant = usize::from(m.rules.seats).saturating_sub(m.roster.len());
+            let waiting: Vec<ParticipantId> = self
+                .members
+                .values()
+                .filter(|p| {
+                    !p.left
+                        && !p.is_cpu()
+                        && p.intent == Intent::Play
+                        && !m.roster.contains_key(&p.id)
+                })
+                .map(|p| p.id)
+                .take(vacant)
+                .collect();
+            if !waiting.is_empty() {
+                self.emit(
+                    out,
+                    Event::LateEntrantsAdmitted {
+                        stage,
+                        participants: waiting,
+                    },
+                );
+            }
+        }
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Preparing {
+                    stage,
+                    window: None,
+                },
+            },
+        );
+    }
+
+    fn content_ready(&self, stage: &Stage) -> Decided {
+        match &stage.content {
+            None => Err(Rejection::NoContent),
+            Some(c) => match c.status {
+                ContentStatus::Pending => Err(Rejection::ContentPending),
+                ContentStatus::Unavailable { .. } => Err(Rejection::ContentUnavailable),
+                ContentStatus::Available => Ok(()),
+            },
+        }
+    }
+
+    /// Who would start `stage` now, and who would sit out and why.
+    fn lineup(&self, stage: &Stage) -> (Vec<ParticipantId>, Vec<(ParticipantId, SitOutReason)>) {
+        let mut lineup = Vec::new();
+        let mut sat_out = Vec::new();
+        for id in self.candidates() {
+            match self.sit_out_reason(stage, id) {
+                None => lineup.push(id),
+                Some(reason) => sat_out.push((id, reason)),
+            }
+        }
+        (lineup, sat_out)
+    }
+
+    fn enough(&self, lineup: &[ParticipantId]) -> (bool, u16, u16) {
+        let humans = lineup
+            .iter()
+            .filter(|id| !self.members[id].is_cpu())
+            .count();
+        let p = &self.policy.readiness;
+        let humans = u16::try_from(humans).unwrap_or(u16::MAX);
+        let all = u16::try_from(lineup.len()).unwrap_or(u16::MAX);
+        (
+            humans >= p.min_ready_humans && all >= p.min_competitors,
+            humans,
+            all,
+        )
+    }
+
+    fn start_stage(
+        &mut self,
+        stage: StageId,
+        readiness_rev: u32,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        if s.readiness_rev != readiness_rev {
+            return Err(Rejection::StaleReadiness {
+                current: s.readiness_rev,
+            });
+        }
+        self.content_ready(s)?;
+        let (lineup, sat_out) = self.lineup(s);
+        let (enough, ready_humans, competitors) = self.enough(&lineup);
+        if !enough {
+            return Err(Rejection::NotEnoughReady {
+                ready_humans,
+                competitors,
+            });
+        }
+        // Wait only for those who could still become eligible; a departed
+        // or watching competitor is recorded as sitting out, not waited for.
+        if !sat_out.iter().any(|(_, reason)| reason.may_still_join()) {
+            self.commit_start(stage, lineup, sat_out, now, out);
+        } else {
+            let deadline = now.after(self.policy.readiness.window_ms);
+            self.emit(
+                out,
+                Event::PhaseChanged {
+                    phase: Phase::Preparing {
+                        stage,
+                        window: Some(ReadinessWindow {
+                            deadline,
+                            readiness_rev,
+                        }),
+                    },
+                },
+            );
+        }
+        Ok(())
+    }
+
+    fn commit_start(
+        &mut self,
+        stage: StageId,
+        lineup: Vec<ParticipantId>,
+        sat_out: Vec<(ParticipantId, SitOutReason)>,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) {
+        let start_at = now.after(self.policy.readiness.countdown_ms);
+        self.emit(
+            out,
+            Event::StartCommitted {
+                stage,
+                lineup,
+                sat_out,
+                start_at,
+            },
+        );
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Countdown { stage, start_at },
+            },
+        );
+    }
+
+    fn cancel_start(&mut self, stage: StageId, reason: CancelReason, out: &mut Vec<Event>) {
+        self.emit(out, Event::StartCanceled { stage, reason });
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Preparing {
+                    stage,
+                    window: None,
+                },
+            },
+        );
+    }
+
+    /// A committed starter leaving or disconnecting before the start
+    /// invalidates the lineup.
+    fn cancel_if_committed(&mut self, id: ParticipantId, out: &mut Vec<Event>) {
+        if let Phase::Countdown { stage, .. } = self.phase
+            && self
+                .stage(stage)
+                .and_then(|s| s.play.as_ref())
+                .is_some_and(|p| p.lineup.contains(&id))
+        {
+            self.cancel_start(stage, CancelReason::RosterChanged, out);
+        }
+    }
+
+    fn confirm(
+        &mut self,
+        stage: StageId,
+        ranking: &[Vec<Finisher>],
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        let (lineup, scheme) = {
+            let m = self.current.as_ref().ok_or(Rejection::UnknownStage)?;
+            let s = m.stage(stage).ok_or(Rejection::UnknownStage)?;
+            let play = s.play.as_ref().ok_or(Rejection::UnknownStage)?;
+            (play.lineup.clone(), m.rules.awards)
+        };
+        let mut seen = BTreeSet::new();
+        for group in ranking {
+            if group.is_empty() {
+                return Err(Rejection::InvalidRanking(RankingProblem::EmptyGroup));
+            }
+            for f in group {
+                if !lineup.contains(&f.participant) {
+                    return Err(Rejection::InvalidRanking(RankingProblem::NotInLineup(
+                        f.participant,
+                    )));
+                }
+                if !seen.insert(f.participant) {
+                    return Err(Rejection::InvalidRanking(RankingProblem::Duplicate(
+                        f.participant,
+                    )));
+                }
+            }
+        }
+        if let Some(missing) = lineup.iter().find(|id| !seen.contains(id)) {
+            return Err(Rejection::InvalidRanking(RankingProblem::Missing(*missing)));
+        }
+        let rule = scheme
+            .rule_for(lineup.len())
+            .map_err(Rejection::NoAwardRule)?;
+        let result = StageResult::award(rule, ranking).ok_or(Rejection::NoAwardRule(
+            crate::awards::NoAwardRule {
+                field: u16::try_from(lineup.len()).unwrap_or(u16::MAX),
+            },
+        ))?;
+        self.emit(out, Event::StageConfirmed { stage, result });
+        Ok(())
+    }
+
+    /// A self-reported stage's result from its starters' reports (those
+    /// who never reported are forfeits), ranked by the match's battle as
+    /// practice ranks it (`battle::rank`), then the song's end.
+    fn settle(&mut self, stage: StageId, out: &mut Vec<Event>) {
+        let Some((entrants, preset)) = self.current.as_ref().and_then(|m| {
+            let play = m.stage(stage)?.play.as_ref()?;
+            let entrants: Vec<Entrant> = play
+                .lineup
+                .iter()
+                .map(|id| Entrant {
+                    participant: *id,
+                    run: play
+                        .reports
+                        .get(id)
+                        .map_or(Run::Forfeit, |r: &ReportedRun| r.run()),
+                })
+                .collect();
+            Some((entrants, BattlePreset::parse(&m.rules.battle)))
+        }) else {
+            return;
+        };
+        // One preset exists; an unknown id ranks as it does
+        // (`BattlePreset::GaugeSurvivalV0`).
+        let ranking = match preset.unwrap_or(BattlePreset::GaugeSurvivalV0) {
+            BattlePreset::GaugeSurvivalV0 => crate::battle::rank(&entrants),
+        };
+        if self.confirm(stage, &ranking, out).is_ok() {
+            self.end_song(stage, out);
+        }
+    }
+
+    fn end_song(&mut self, stage: StageId, out: &mut Vec<Event>) {
+        self.emit(out, Event::SongEnded { stage });
+        let Some(m) = &self.current else { return };
+        if !m.rules.return_each_stage {
+            let out_now: Vec<ParticipantId> = m
+                .stage(stage)
+                .and_then(|s| s.play.as_ref())
+                .and_then(|p| p.result.as_ref())
+                .map(|r| {
+                    r.placements
+                        .iter()
+                        .filter(|p| matches!(p.finish, Finish::Eliminated | Finish::Forfeit))
+                        .map(|p| p.participant)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !out_now.is_empty() {
+                self.emit(
+                    out,
+                    Event::OutForMatch {
+                        participants: out_now,
+                    },
+                );
+            }
+        }
+        let next = self
+            .current
+            .as_ref()
+            .and_then(|m| m.stage_index(stage).and_then(|i| m.stages.get(i + 1)))
+            .map(|s| s.id);
+        let phase = match next {
+            Some(next) => Phase::Intermission { next },
+            None => Phase::MatchResults,
+        };
+        self.emit(out, Event::PhaseChanged { phase });
+    }
+
+    fn interrupt(&mut self, reason: crate::phase::Interruption, out: &mut Vec<Event>) {
+        self.emit(out, Event::MatchInterrupted { reason });
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Interrupted { reason },
+            },
+        );
+    }
+
+    fn tick(&mut self, now: Millis, out: &mut Vec<Event>) {
+        match self.phase.clone() {
+            Phase::Preparing {
+                stage,
+                window: Some(w),
+            } if now >= w.deadline => {
+                let Some(s) = self.stage(stage) else { return };
+                if self.content_ready(s).is_err() {
+                    self.cancel_start(stage, CancelReason::ContentUnavailable, out);
+                    return;
+                }
+                let (lineup, sat_out) = self.lineup(s);
+                if self.enough(&lineup).0 {
+                    self.commit_start(stage, lineup, sat_out, now, out);
+                } else {
+                    self.cancel_start(stage, CancelReason::BelowMinimum, out);
+                }
+            }
+            Phase::Stage { stage } if self.report_deadline(stage).is_some_and(|at| now >= at) => {
+                self.settle(stage, out);
+            }
+            Phase::Countdown { stage, start_at } if now >= start_at => {
+                self.emit(
+                    out,
+                    Event::PhaseChanged {
+                        phase: Phase::Stage { stage },
+                    },
+                );
+                // Persistent elimination: missing a stage ends the match.
+                let missed: Vec<ParticipantId> = self
+                    .current
+                    .as_ref()
+                    .filter(|m| !m.rules.return_each_stage)
+                    .and_then(|m| m.stage(stage))
+                    .and_then(|s| s.play.as_ref())
+                    .map(|p| p.sat_out.keys().copied().collect())
+                    .unwrap_or_default();
+                if !missed.is_empty() {
+                    self.emit(
+                        out,
+                        Event::OutForMatch {
+                            participants: missed,
+                        },
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // ---- events applied ----
+
+    pub(crate) fn evolve(&mut self, event: &Event) {
+        let pending = self.revision.next();
+        match event {
+            Event::MemberJoined { member } => {
+                self.counters.participant = self.counters.participant.max(member.id.0 + 1);
+                self.members.insert(member.id, member.clone());
+            }
+            Event::MemberRestored { participant } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.left = false;
+                    m.connection = Connection::Connected;
+                }
+            }
+            Event::MemberLeft { participant } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.left = true;
+                    m.connection = Connection::Disconnected;
+                }
+                self.drop_prep(*participant, true);
+            }
+            Event::ConnectionChanged {
+                participant,
+                connection,
+            } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.connection = *connection;
+                }
+                if *connection == Connection::Disconnected {
+                    self.drop_prep(*participant, true);
+                }
+            }
+            Event::IntentChanged {
+                participant,
+                intent,
+            } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.intent = *intent;
+                }
+                if *intent == Intent::Watch {
+                    self.drop_prep(*participant, false);
+                }
+            }
+            Event::RoleChanged { participant, role } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.role = *role;
+                }
+            }
+            Event::AccessChanged { access } => self.access = *access,
+            Event::ContentChosen { stage, content } => {
+                if let Some(s) = self.stage_mut(*stage) {
+                    s.content = content.clone();
+                    s.content_changed_at = pending;
+                    s.readiness_rev += 1;
+                    s.prep.clear();
+                }
+            }
+            Event::ContentStatusChanged {
+                stage,
+                status,
+                share,
+            } => {
+                if let Some(c) = self.stage_mut(*stage).and_then(|s| s.content.as_mut()) {
+                    c.status = status.clone();
+                    c.share = share.clone();
+                }
+            }
+            Event::OutcomeReported {
+                stage,
+                participant,
+                run,
+                at,
+            } => {
+                if let Some(p) = self.stage_mut(*stage).and_then(|s| s.play.as_mut()) {
+                    p.reports.insert(*participant, *run);
+                    if run.finished_song() && p.song_end_at.is_none() {
+                        p.song_end_at = Some(*at);
+                    }
+                }
+            }
+            Event::PlaylistReadinessCleared => {
+                for s in &mut self.playlist {
+                    s.readiness_rev += 1;
+                    s.prep.clear();
+                }
+            }
+            Event::ReadyChanged {
+                stage,
+                participant,
+                ready,
+            } => {
+                if let Some(s) = self.stage_mut(*stage) {
+                    s.prep.entry(*participant).or_default().ready = *ready;
+                }
+            }
+            Event::LoadingChanged {
+                stage,
+                participant,
+                loading,
+            } => {
+                if let Some(s) = self.stage_mut(*stage) {
+                    s.prep.entry(*participant).or_default().loading = loading.clone();
+                }
+            }
+            Event::NextRulesSaved { rules, added } => {
+                self.next.rules = rules.clone();
+                self.next.saved_at = pending;
+                self.playlist.truncate(usize::from(rules.stages));
+                for id in added {
+                    self.counters.stage = self.counters.stage.max(id.0 + 1);
+                    self.playlist.push(Stage::new(*id));
+                }
+            }
+            Event::NextRulesReviewed { review } => self.next.review = *review,
+            Event::MatchStarted {
+                id,
+                rules,
+                humans,
+                cpus,
+                playlist,
+            } => {
+                let stages = std::mem::take(&mut self.playlist);
+                let first = stages.first().map_or(StageId(0), |s| s.id);
+                let mut roster = BTreeMap::new();
+                for p in humans.iter().chain(cpus.iter().map(|c| &c.id)) {
+                    roster.insert(
+                        *p,
+                        Seat {
+                            first_stage: first,
+                            out_for_match: false,
+                        },
+                    );
+                }
+                for cpu in cpus {
+                    self.counters.participant = self.counters.participant.max(cpu.id.0 + 1);
+                    self.members.insert(cpu.id, cpu.clone());
+                }
+                for s in playlist {
+                    self.counters.stage = self.counters.stage.max(s.0 + 1);
+                    self.playlist.push(Stage::new(*s));
+                }
+                self.counters.matches = self.counters.matches.max(id.0 + 1);
+                // The draft now names the match after this one; an edit made
+                // before the start is stale and never reaches these rules.
+                self.next.saved_at = pending;
+                self.current = Some(Match {
+                    id: *id,
+                    rules: rules.clone(),
+                    roster,
+                    stages,
+                });
+            }
+            Event::LateEntrantsAdmitted {
+                stage,
+                participants,
+            } => {
+                if let Some(m) = &mut self.current {
+                    for p in participants {
+                        m.roster.insert(
+                            *p,
+                            Seat {
+                                first_stage: *stage,
+                                out_for_match: false,
+                            },
+                        );
+                    }
+                }
+            }
+            Event::PhaseChanged { phase } => self.phase = phase.clone(),
+            Event::StartCommitted {
+                stage,
+                lineup,
+                sat_out,
+                start_at,
+            } => {
+                if let Some(s) = self.stage_mut(*stage) {
+                    s.play = Some(StagePlay {
+                        lineup: lineup.iter().copied().collect(),
+                        sat_out: sat_out.iter().copied().collect(),
+                        start_at: *start_at,
+                        result: None,
+                        song_ended: false,
+                        interrupted: false,
+                        reports: BTreeMap::new(),
+                        song_end_at: None,
+                    });
+                }
+            }
+            Event::StartCanceled { stage, .. } => {
+                if let Some(s) = self.stage_mut(*stage)
+                    && s.play.as_ref().is_some_and(|p| p.result.is_none())
+                {
+                    s.play = None;
+                }
+            }
+            Event::StageConfirmed { stage, result } => {
+                if let Some(p) = self.stage_mut(*stage).and_then(|s| s.play.as_mut()) {
+                    p.result = Some(result.clone());
+                }
+            }
+            Event::SongEnded { stage } => {
+                if let Some(p) = self.stage_mut(*stage).and_then(|s| s.play.as_mut()) {
+                    p.song_ended = true;
+                }
+            }
+            Event::OutForMatch { participants } => {
+                if let Some(m) = &mut self.current {
+                    for p in participants {
+                        if let Some(seat) = m.roster.get_mut(p) {
+                            seat.out_for_match = true;
+                        }
+                    }
+                }
+            }
+            Event::MatchInterrupted { .. } => {
+                if let Some(m) = &mut self.current {
+                    for p in m.stages.iter_mut().filter_map(|s| s.play.as_mut()) {
+                        if p.result.is_none() && !p.song_ended {
+                            p.interrupted = true;
+                        }
+                    }
+                }
+            }
+            Event::MatchClosed { ending } => {
+                if let Some(played) = self.current.take() {
+                    let cpus = played
+                        .roster
+                        .keys()
+                        .filter_map(|id| {
+                            self.members
+                                .get(id)
+                                .filter(|m| m.is_cpu())
+                                .map(|m| (*id, m.clone()))
+                        })
+                        .collect::<BTreeMap<_, _>>();
+                    for id in cpus.keys() {
+                        self.members.remove(id);
+                    }
+                    self.history.push(MatchRecord {
+                        played,
+                        cpus,
+                        ending: *ending,
+                    });
+                    let keep = usize::from(self.policy.history);
+                    if self.history.len() > keep {
+                        let drop = self.history.len() - keep;
+                        self.history.drain(..drop);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Forget `id`'s readiness for every stage not yet started (and their
+    /// loading too when `loading`), as a departure or disconnect does.
+    fn drop_prep(&mut self, id: ParticipantId, loading: bool) {
+        let stages = self
+            .current
+            .iter_mut()
+            .flat_map(|m| m.stages.iter_mut())
+            .chain(self.playlist.iter_mut())
+            .filter(|s| s.play.is_none());
+        for s in stages {
+            if loading {
+                s.prep.remove(&id);
+            } else if let Some(p) = s.prep.get_mut(&id) {
+                p.ready = false;
+            }
+        }
+    }
+}

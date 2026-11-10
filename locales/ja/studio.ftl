@@ -69,6 +69,8 @@ studio-unsorted-help = { $platform ->
 studio-section-select = 選曲画面
 studio-section-play = プレイ中
 studio-section-results = リザルト画面
+studio-section-battle = マルチプレイの対戦
+studio-section-battle-note = マルチプレイの対戦でのみ再生されます。ここで聞ける場面はまだありません。パックにない場合、その場面は画面に小さく表示されます。
 
 studio-line-ready = 準備
 studio-line-here-we-go = スタート
@@ -113,6 +115,19 @@ studio-line-select-new = 新しい譜面
 studio-line-select-repeat = もう一度
 studio-line-select-hard = 難しい譜面
 studio-line-select-general = ほかの譜面
+studio-line-battle-match-begin = 対戦開始
+studio-line-battle-stage-begin = ステージ開始
+studio-line-battle-final-stage = ファイナルステージ
+studio-line-battle-life-critical = ライフ危険
+studio-line-battle-survivors = 残り{ $count }人
+studio-line-battle-eliminated = ステージからアウト
+studio-line-battle-stage-won = ステージ1位
+studio-line-battle-stage-not-won = ステージ1位ならず
+studio-line-battle-stage-drawn = ステージ1位タイ
+studio-line-battle-song-finished = 1位のまま曲の最後まで
+studio-line-battle-match-won = 対戦1位
+studio-line-battle-match-not-won = 対戦1位ならず
+studio-line-battle-match-drawn = 対戦1位タイ
 
 studio-when-ready = 曲が始まるときに再生します。
 studio-when-here-we-go = 最初のノーツの直前に再生し、その0.5秒前に言い終わります。
@@ -161,6 +176,19 @@ studio-when-select-new = このルールで一度もプレイしていない譜�
 studio-when-select-repeat = 今回の起動中にすでにプレイした譜面を選ぶと再生します。
 studio-when-select-hard = レベル10以上の譜面を選んだときに再生します。
 studio-when-select-general = それ以外の譜面を選んだときに再生します。
+studio-when-battle-match-begin = 対戦の最初のステージが始まるときに、「準備」の代わりに再生します。
+studio-when-battle-stage-begin = 2つ目以降のステージが始まるときに、「準備」の代わりに再生します。
+studio-when-battle-final-stage = 対戦の最後のステージが始まるときに、「準備」の代わりに再生します。
+studio-when-battle-life-critical = プレイヤーのライフが尽きそうになったとき、1ステージに1回再生します。
+studio-when-battle-survivors = ステージに残っているプレイヤーが{ $count }人になったときに再生します。
+studio-when-battle-eliminated = プレイヤーのライフが尽き、ステージからアウトになったときに再生します。
+studio-when-battle-stage-won = プレイヤーがひとりでステージ1位に決まったときに、曲の途中でも再生します。
+studio-when-battle-stage-not-won = 最後まで残ったものの1位になれなかったステージのリザルトで再生します。
+studio-when-battle-stage-drawn = 1位を分け合ったステージのリザルトで再生します。
+studio-when-battle-song-finished = すでにステージ1位に決まったプレイヤーが曲の最後まで来たときに再生します。
+studio-when-battle-match-won = 対戦の最後のステージのリザルトで、対戦でひとり1位のときに再生します。
+studio-when-battle-match-not-won = 対戦の最後のステージのリザルトで、対戦で1位になれなかったときに再生します。
+studio-when-battle-match-drawn = 対戦の最後のステージのリザルトで、1位を分け合ったときに再生します。
 
 studio-line-folder = フォルダー：{ $folder }
 
@@ -172,6 +200,7 @@ studio-missing-instead = まだありません。代わりに「{ $line }」が�
 
 studio-missing-next-line = まだありません。代わりにリザルトの次のセリフが再生されます。
 studio-missing-silent = まだ録音がないため、この場面では何も再生されません。
+studio-missing-shown = まだありません。その場面は画面に表示されるだけです。
 
 studio-opening-long = 「準備」と「スタート」を合わせると{ $seconds }秒かかります。最初のノーツがそれより早い曲では「スタート」だけを言います。
 
@@ -180,6 +209,18 @@ studio-add-recording = { -studio-button-add-recording }…
 studio-hear-recorded = ゲームで聞く
 
 studio-hear-example = ゲームで例を聞く
+
+studio-remove-combo = このセリフを外す
+
+studio-add-combo = コンボのセリフを追加…
+studio-add-combo-help = 独自の数え方をするパック（64、128、256…）向け：コンボがその数になったときにセリフを再生します。
+
+studio-combo-title = コンボのセリフを追加
+studio-combo-note = セリフを再生するコンボ数（1以上の整数）。
+
+studio-combo-not-a-count = 1以上の整数を入力してください。
+
+studio-combo-listed = { $count }コンボのセリフはもうあります。
 
 studio-take = { $file } · { $seconds }秒
 
@@ -219,6 +260,7 @@ studio-picker-line-select = { $line } · 選曲画面
 studio-picker-line-play = { $line } · プレイ中
 
 studio-picker-line-results = { $line } · リザルト画面
+studio-picker-line-battle = { $line } · マルチプレイ
 
 studio-picker-note = セリフを選んでいる間、「{ $file }」を再生します。
 

@@ -98,10 +98,6 @@ pub fn layout_geometry(layout: &str) -> Result<ddi_dance_mat::Geometry, String> 
         ddi_dance_mat::Geometry::single()
     })
 }
-/// Whether the center is a scored lane, so it cannot be a safe escape tile.
-pub(crate) fn scored_center(layout: &str) -> bool {
-    layout_panels(layout).is_ok_and(|panels| panels.contains(&5))
-}
 /// Unscored support stances. An empty list requires air-time avoidance.
 pub(crate) fn escape_stances(layout: &str) -> &'static [[u8; 2]] {
     match layout {
@@ -158,6 +154,94 @@ pub(crate) fn support_tiles(layout: &str) -> &'static [u8] {
         Some(stance) if stance[0] == stance[1] => &stance[..1],
         Some(stance) => stance,
         None => &[],
+    }
+}
+/// What the search asks of its layout for each candidate, resolved once from
+/// the layout's id.
+#[derive(Clone, Copy)]
+pub(crate) struct Rules {
+    pub(crate) mat: ddi_dance_mat::MatLayout,
+    /// Two pads in explicit geometry (`double_mat`).
+    pub(crate) double: bool,
+    pub(crate) double_pump: bool,
+    /// Corner and reversed stances (`wide_stances`).
+    pub(crate) wide: bool,
+    /// The center is a scored lane, so it cannot be a safe escape tile.
+    pub(crate) scored_center: bool,
+    /// 9A's Oni (lane 4): its two centers, canonical first.
+    pub(crate) oni: Option<[u8; 2]>,
+    /// A two-pad stance's nominal candidate span, millimeters.
+    pub(crate) envelope: (f64, f64),
+    pub(crate) escapes: &'static [[u8; 2]],
+    pub(crate) supports: &'static [u8],
+    /// Each tile's position (by id less one), where the layout has it.
+    positions: [Option<[f64; 2]>; 18],
+    /// Each tile's lane (by id less one), where it is scored.
+    lanes: [Option<u8>; 18],
+}
+impl Rules {
+    pub(crate) fn of(layout: &str) -> Result<Self, String> {
+        let geometry = layout_geometry(layout)?;
+        let mat = ddi_dance_mat::MatLayout::from_id(layout).expect("a supported layout");
+        let tile = |i: usize| ddi_dance_mat::Tile::try_from(i as u8 + 1).expect("a tile id");
+        let double_pump = double_pump(layout);
+        Ok(Self {
+            mat,
+            double: double_mat(layout),
+            double_pump,
+            wide: wide_stances(layout),
+            scored_center: mat.panels().contains(&5),
+            oni: match mat.targets(4) {
+                [canonical, other] => Some([canonical.id(), other.id()]),
+                _ => None,
+            },
+            // The static survey fitted every policy-admitted ordered pair at
+            // 24 mm. Pump's center pair needs 90 mm nominal anchor separation
+            // (72 mm between tile centers), versus dance's 65.521 mm maximum.
+            // 9A's 64 scored pairs span 4.72–67.28 mm, including narrow
+            // crossed assignments. These are candidate envelopes, not
+            // anatomical reach certificates.
+            envelope: if layout == "danoni-9A" {
+                (4.7, 68.)
+            } else if double_pump {
+                (6., 90.)
+            } else {
+                (6., 66.)
+            },
+            escapes: escape_stances(layout),
+            supports: support_tiles(layout),
+            positions: std::array::from_fn(|i| geometry.position(tile(i))),
+            lanes: std::array::from_fn(|i| mat.lane_for_tile(tile(i)).map(|l| l as u8)),
+        })
+    }
+    pub(crate) fn position(&self, panel: u8) -> [f64; 2] {
+        self.positions[panel as usize - 1].expect("validated panel")
+    }
+    /// A tile's lane, as `replay::lane` gives it.
+    pub(crate) fn lane(&self, panel: u8) -> Option<u8> {
+        *self.lanes.get(usize::from(panel).checked_sub(1)?)?
+    }
+    /// Whether a contact on `panel` presses `n`'s one logical chart button.
+    pub(crate) fn has_panel(&self, n: &InputNote, panel: u8) -> bool {
+        self.lane(panel) == Some(n.lane)
+    }
+    pub(crate) fn same_button(&self, a: u8, b: u8) -> bool {
+        a == b || self.oni.is_some_and(|c| c.contains(&a) && c.contains(&b))
+    }
+    pub(crate) fn is_oni(&self, n: &InputNote) -> bool {
+        self.oni.is_some() && n.lane == 4
+    }
+    /// `n` on each tile it may be pressed on: an Oni on either center.
+    pub(crate) fn choices(&self, n: InputNote) -> impl Iterator<Item = InputNote> {
+        let alias = self
+            .oni
+            .filter(|_| n.lane == 4)
+            .map(|c| InputNote { panel: c[1], ..n });
+        std::iter::once(n).chain(alias)
+    }
+    /// Hazards constrain both physical centers without duplicating the judged note.
+    pub(crate) fn hazards(&self, notes: impl Iterator<Item = InputNote>) -> Vec<InputNote> {
+        notes.flat_map(|n| self.choices(n)).collect()
     }
 }
 #[cfg(test)]
@@ -343,18 +427,4 @@ impl ContactPlan {
 /// Resolve a physical contact back to its one logical chart button.
 pub(crate) fn note_has_panel(layout: &str, n: &InputNote, panel: u8) -> bool {
     replay::lane(layout, panel) == Some(n.lane)
-}
-pub(crate) fn same_button(layout: &str, a: u8, b: u8) -> bool {
-    a == b || (layout == "danoni-9A" && [5, 14].contains(&a) && [5, 14].contains(&b))
-}
-/// Hazards constrain both physical centers without duplicating the judged note.
-pub(crate) fn physical_hazards(
-    layout: &str,
-    notes: impl Iterator<Item = InputNote>,
-) -> Vec<InputNote> {
-    notes.flat_map(|n| note_choices(layout, n)).collect()
-}
-fn note_choices(layout: &str, n: InputNote) -> impl Iterator<Item = InputNote> {
-    let alias = (layout == "danoni-9A" && n.lane == 4).then_some(InputNote { panel: 14, ..n });
-    std::iter::once(n).chain(alias)
 }
