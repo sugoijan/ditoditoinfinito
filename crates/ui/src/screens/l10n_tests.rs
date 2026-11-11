@@ -776,45 +776,81 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         .unwrap()
         .clone();
     let room = RoomClient::shared(0, 1);
+    // The room's song select: the Rules first (Reset and OK), then Rules
+    // from its button, Add custom, Players and More over it.
     let show = |h: &mut Harness, found: &mut BTreeSet<String>| {
         shown(h, found);
-        // Rules and More over it.
-        h.tap(PointerKind::Mouse, "Rules");
-        shown(h, found);
-        h.key("Escape", "Escape");
-        h.run(0.3);
-        h.tap(PointerKind::Mouse, "More");
-        shown(h, found);
-        h.key("Escape", "Escape");
-        h.run(0.3);
+        // The standings pop up by themselves after a stage: shown, closed.
+        while h.ui.layers().last().is_some_and(|l| l.name != "select") {
+            shown(h, found);
+            h.key("Enter", "Enter");
+            h.run(0.3);
+        }
+        for (open, inner) in [
+            ("Room.Rules", Some("AddCustom")),
+            ("Room.Players", None),
+            ("More", None),
+        ] {
+            if h.ui.bounds(open).is_none() {
+                continue;
+            }
+            h.tap(PointerKind::Mouse, open);
+            shown(h, found);
+            if let Some(inner) = inner
+                && h.ui.bounds(inner).is_some()
+            {
+                h.tap(PointerKind::Mouse, inner);
+                shown(h, found);
+                h.key("Escape", "Escape");
+                h.run(0.3);
+            }
+            h.key("Escape", "Escape");
+            h.run(0.3);
+        }
     };
-    // Empty, then each phase with a song: refused, ready, counting down,
-    // on, stopped.
     let mut h = harness();
     h.push(sample::room_screen(env, room.clone()));
+    shown(&mut h, found);
+    h.tap(PointerKind::Mouse, "Ok");
     show(&mut h, found);
-    let first = room.borrow().stages()[0].id;
-    room.borrow_mut().choose(first, &song, &chart).unwrap();
-    let _ = room.borrow_mut().start();
+    // A pick refused, then made: the prompt with Ready and its players,
+    // ready, counting down, on, sitting out; stopped.
+    if let Some(double) = song.charts.iter().find(|c| c.style != "dance-single") {
+        assert!(room.borrow_mut().pick(&song, double).is_err());
+        shown(&mut h, found);
+        room.borrow_mut().clear_refusal();
+    }
+    room.borrow_mut().pick(&song, &chart).unwrap();
     show(&mut h, found);
+    let stage = room.borrow().stages()[0].id;
+    let quiet: super::room::RoomShell = Rc::new(|_, _| {});
+    let prompt = |h: &mut Harness, found: &mut BTreeSet<String>| {
+        let state = Rc::new(std::cell::RefCell::new(
+            super::prompt::PromptState::default(),
+        ));
+        state.borrow_mut().info.title = ddi_l10n::UiText::data(&song.title).into();
+        h.push(
+            super::prompt::PromptScreen::new(env.clone(), state, Rc::new(|_, _| {})).with_room(
+                room.clone(),
+                stage,
+                quiet.clone(),
+            ),
+        );
+        shown(h, found);
+    };
+    let mut hp = harness();
+    prompt(&mut hp, found);
+    for job in room.borrow_mut().take_load_jobs() {
+        room.borrow_mut().finish_load(&job, Ok(()));
+    }
     room.borrow_mut().set_ready(true).unwrap();
     show(&mut h, found);
-    room.borrow_mut().start().unwrap();
-    show(&mut h, found);
+    let mut hp = harness();
+    prompt(&mut hp, found);
     room.borrow_mut().tick(10_000);
     show(&mut h, found);
     room.borrow_mut().stop_match().unwrap();
     show(&mut h, found);
-    // Song select choosing a stage's song, and a chart refused.
-    let mut h = harness();
-    h.push(sample::pick_screen(
-        env,
-        room.clone(),
-        first,
-        1,
-        sample::select(),
-    ));
-    shown(&mut h, found);
     let mut h = harness();
     h.push(super::room_dialogs::NoticeDialog::refusal(
         env.clone(),
@@ -835,6 +871,9 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         Rejection::WrongPhase {
             phase: ddi_room::PhaseKind::Stage,
         },
+        Rejection::Unauthorized {
+            capability: ddi_room::Capability::ChooseContent,
+        },
         Rejection::InvalidRules(RulesProblem::StageCount { stages: 0, max: 16 }),
         Rejection::InvalidRules(RulesProblem::OverCap(CapExceeded {
             requested: 9,
@@ -848,6 +887,12 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             vec![super::room::refusal_text(&Refusal::Room(r)).into()],
             found,
         );
+        let mut h = harness();
+        h.push(super::room_dialogs::NoticeDialog::refusal(
+            env.clone(),
+            &Refusal::Room(Rejection::UnknownClient),
+        ));
+        shown(&mut h, found);
     }
     use crate::state::room::LoadProblem;
     for r in [
@@ -858,13 +903,30 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     ] {
         checked(vec![super::room::refusal_text(&r).into()], found);
     }
-    // A match played (M3): the intermission with the player's result and
+    for skills in [
+        "balanced",
+        "stream",
+        "jacks",
+        "chords",
+        "stamina",
+        "technical",
+        "1,1,1,1,1,1,0.9",
+    ] {
+        checked(
+            vec![super::room::personality_text(Some(skills)).into()],
+            found,
+        );
+    }
+    // A match played (M3): the standings with the player's result and
     // the places, the match's results, a stopped match's partial ones.
     use ddi_room::{Finish, Finisher};
     let report = |room: &crate::state::room::SharedRoom, last: bool| {
         let mut r = room.borrow_mut();
+        r.pick(&song, &chart).unwrap();
+        for job in r.take_load_jobs() {
+            r.finish_load(&job, Ok(()));
+        }
         r.set_ready(true).unwrap();
-        r.start().unwrap();
         let now = r.now_ms() + 3_000;
         r.tick(now);
         let order = r.take_stage_order().unwrap();
@@ -891,25 +953,27 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     };
     for stop in [false, true] {
         let room = RoomClient::shared(0, 1);
-        let mut h = harness();
-        h.push(sample::room_screen(env, room.clone()));
-        let ids: Vec<_> = room.borrow().stages().iter().map(|s| s.id).collect();
-        for id in ids.iter().take(2) {
-            room.borrow_mut().choose(*id, &song, &chart).unwrap();
-        }
+        room.borrow_mut().set_rules_seen(true);
         let rules = ddi_room::MatchRules {
             stages: 2,
             ..room.borrow().rules().clone()
         };
         room.borrow_mut().save_rules(rules).unwrap();
+        let mut h = harness();
+        h.push(sample::room_screen(env, room.clone()));
         shown(&mut h, found);
         report(&room, false);
+        // The standings pop up; Continue; song select between stages.
+        shown(&mut h, found);
+        h.key("Enter", "Enter");
         show(&mut h, found);
         if stop {
             room.borrow_mut().stop_match().unwrap();
         } else {
             report(&room, true);
         }
+        shown(&mut h, found);
+        h.key("Enter", "Enter");
         show(&mut h, found);
     }
     // A stage's results, its prompt's note, its play's column and every
@@ -1129,9 +1193,21 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         );
     };
     step(400);
+    // Each one's Rules first (Bob's read only), then the room.
+    for h in [&mut ha, &mut hb] {
+        shown(h, found);
+        h.tap(PointerKind::Mouse, "Ok");
+        shown(h, found);
+    }
+    // The host's resting song shown to Bob, then picked.
     let s = song();
+    alice.borrow_mut().hover(Some((&s, &s.charts[0])));
+    for _ in 0..8 {
+        step(500);
+    }
+    shown(&mut hb, found);
+    alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
     let first = alice.borrow().stages()[0].id;
-    alice.borrow_mut().choose(first, &s, &s.charts[0]).unwrap();
     step(400);
     for h in [&mut ha, &mut hb] {
         shown(h, found);
@@ -1162,7 +1238,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     // chosen chart, then the shared song read by both.
     {
         use crate::state::online::tests::room::{prepare, upload};
-        // The screen handed the upload to its (sample) shell already.
+        // The screen handed the uploads to its (sample) shell already.
         let _ = alice.borrow_mut().take_upload_jobs();
         alice.borrow_mut().upload_progress(first, 10.0, 40.0);
         shown(&mut ha, found);

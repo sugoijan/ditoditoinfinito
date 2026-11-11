@@ -1096,6 +1096,128 @@ The larger hand costs nothing measurable over M6b's (the same picture,
 framed closer). 96 miniatures cost about 0.1 ms of GPU time more than
 M6b's 79.
 
+## M7b: the match flow as the maintainer confirmed it (implemented, 2026-11-11)
+
+The room screen of M2 to M7a is gone: song select is the room. Both
+shells, CPU practice and private online rooms.
+
+- **Rules first.** Entering practice or a room opens the Rules pop-up by
+  itself (`RulesDialog::first`): Reset (the defaults, the pop-up stays)
+  and OK (applies, closes); Back closes it without applying. It does not
+  open by itself again until the player leaves (Back to the home) and
+  comes back (`RoomClient::rules_seen`). From the header's Rules later:
+  Cancel and Apply, as before. A member who does not operate the room
+  sees it read only, with OK (or Close) alone.
+- **Song select is the room's main view** (`SelectScreen::with_room`,
+  `screens/select_room.rs`). The host (an operator) sees their own list;
+  Enter ("Pick for stage N") is `Command::Pick`: the song becomes the
+  next (or first) stage's, the match starts (from the lobby, or after a
+  match's results: the next match, the finished one recorded) or goes on
+  (between stages), and the stage's readiness window opens, as one change
+  refused whole (`NotEnoughReady` for a field that could never start,
+  `WindowOpen` while one gathers, a stale base). No lobby Start match, no
+  lobby Ready, no pre-picking; the stage count still comes from Rules.
+  Nothing is added, edited, managed or shared from the room's song
+  select; its place is not singleplayer's.
+- **After a stage**: its results (Back to room), then the standings pop-up
+  over song select (`StandingsDialog`: the player's result line, every
+  place, each stage's points, the total; Continue), then song select for
+  the next pick. After the last stage the match's results the same way,
+  then song select picks the next match's first song.
+- **What the others see** (`following`): song select's song side shows the
+  host's resting song (the spotlight) and its chart; the list's place
+  holds the room's panel: the status, the match's picks (each stage's
+  song, its chart and the player's result) and the players, scrolling
+  with Up and Down, the wheel or its ▲/▼ marks. They cannot pick (Enter
+  does nothing, no Enter hint). The host's song is told once it rested
+  `SPOTLIGHT_REST_MS` (3 s, PROVISIONAL): a `ContentCard` (title, artist,
+  difficulty, meter, style) shows at once; online, the whole playable
+  song is uploaded under a grant for "stage 0" (`SPOTLIGHT`) and the
+  others read the room's share of it (`LoadJob` on stage 0,
+  `RoomClient::spotlight`), which gives its banner and its preview (the
+  web's preview finds shared songs, `share::entry`; desktop registers
+  them as for stages). Moving through the list sends nothing. The pick
+  of that chart then reuses the share in the reducer
+  (`RoomState::known_share`, by chart digest, as the server's reuse is):
+  available at once, nothing uploaded again; a pick before the upload
+  finished waits for it (`SetSpotlightShare` makes the waiting stage
+  available too) or uploads it itself. In practice nobody follows: no
+  spotlight is sent.
+- **Readiness on the stage's prompt** (`PromptScreen::with_room`,
+  `screens/prompt_room.rs`): the prompt opens for everyone the moment
+  the host picks (for a member once their device has the song). Its
+  Start is Ready (again: Cancel ready); its countdown counts down to
+  Ready where the shell asks for one (as auto-start: on the web only on a
+  context song select handed over running, the host's pick press or the
+  follower's song select, never made outside a gesture; on desktop
+  always); any other press cancels it. Beside the controls' diagram the
+  players and whether each is ready (CPUs say CPU), scrolling past four
+  rows. Under the song the status: "Stage n starts once everyone is
+  ready · s". The stage starts for everyone as soon as every connected
+  player who could still join is ready and loaded, or at the deadline;
+  the prompt then presses Start itself (`PromptChoice::Start` outside a
+  gesture: the Ready press made the web's audio context,
+  `PromptChoice::Ready`, the music decoded on it ahead). Whoever is not
+  ready then sits the stage out: the prompt says so for 2.5 s and goes
+  back to song select, which says "You're sitting out stage n; the others
+  are playing it." Back on the prompt before the start withdraws
+  (`RoomClient::leave_prompt`: not ready; the host's Back closes the
+  window, back to picking), never a forfeit; once the stage is on it is
+  a forfeit, as before.
+- **The model** (`ddi_room`, protocol 2, still taking 1):
+  `Command::Pick`, `Command::Spotlight`, `Event::SpotlightChanged`,
+  `Command::SetSpotlightShare` (the authority's, by chart),
+  `StageContent::card`, `RoomState::spotlight`; `hosted-deadline-v1`: the
+  window's deadline counts from when its song is available to everyone
+  (a window whose song is still being shared waits past it), and it ends
+  early once everyone connected who could still join is ready and loaded
+  (v0 never shortened it, the study's proposal; the maintainer's flow
+  supersedes it). A disconnected member does not hold the early start.
+  The server (`../ddi-server`) runs it: grants for stage 0 and its share
+  taken by the room (its README, "Room shares").
+- **Status line**: one line at the top of the list's column, under the
+  header (the host's, above the list; the others', the panel's first
+  line). Chosen because it sits beside what it talks about (the pick and
+  the room's song), is read where the eye goes after the header, and is
+  never covered by the footer's hints or the play's own prompt, where
+  M2's bottom-left line was.
+- **CPU roster** (`state/cpu_roster.rs`, `cpu_roster.json`): 24 named CPUs
+  of our own, each a personality (`ddi_engine::cpu::Skills` preset or
+  seven multipliers) and a level; practice starts with three drawn from
+  the room's seed (`CpuMode::Roster`, each seat its own `OpponentSpec`
+  with `name` and `personality`). In Rules: each CPU removable, Add random
+  (one not seated, `RosterAim::Any`, the hook for aiming at a balanced
+  level later) and Add custom (`AddCpuDialog`: by level, several at once,
+  or one by name). The stage plays each with its personality
+  (`Opponent::with_skills`) and shows its name. The 9-player cap holds
+  (Add is disabled at eight CPUs); the development switch `mpcpus` keeps
+  its fixed count of unnamed CPUs. Online rooms seat no CPUs yet.
+- **Where the room's other parts went**: Rules and Players in the header
+  (in More on a phone), Players a pop-up of the panel (the picks and
+  every player with readiness, connection, role, level and personality,
+  scrolling); More keeps invite, stop, retry sharing, sign in again and
+  Leave room. The host keeps the list's full width for picking, and the
+  others' list place is free for the panel, which is why the players
+  live there for them and one press away for the host.
+- Tests: `ddi-room` walkthroughs (a pick starting the match and the early
+  start, sitting out at the deadline, the next match after results; a
+  pick refused whole; the spotlight shared once and reused, a pending
+  song holding the window; the roster's seats and limits), `ddi-ui`
+  (the client's flow, leaving the prompt, the roster; the online
+  spotlight ahead of the pick and the reuse, a pending song; the screens
+  in the harness: Rules first, the host's pick and a refused chart, the
+  roster pop-ups, the prompt's Ready and the room's start, sitting out,
+  standings and match results, phone sizes, the host and the follower
+  online; the `qps-ploc` walk), `ddi-session` (stages from picks),
+  `ddi-desktop` (the room flow offscreen, `--test online` against a local
+  server), the server's native tests (the spotlight's grant and share).
+  At runtime: practice in Chrome and Firefox, and three browsers online
+  (`target/scratch/mp/m7b/`), screenshots reviewed.
+
+Development-only or mocked in M7b: the development identity provider for
+online runs; `mpcpus`; online rooms seat no CPUs (Rules shows no roster
+there).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -1155,10 +1277,31 @@ M6b's 79.
 | Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth | `ddi_room::awards` | A nine-player stage's ninth earns nothing, the first eight as in an eight-player field; marked experimental | The award rule for nine (and whether ninth should earn something) |
 | Development only: practice beyond the cap (129), linear points for any field; past what fits, the opponents take turns in the slots, `ROTATION_V0` (8 s a turn, 0.4 s darkening, none under reduced motion), each always in its own slot, priority seats never rotating (none yet) | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::rotate`, `opponents::priority_seats` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |
 | With lyrics shown the column is drawn instead | `PlayView::draw` | A work with lyrics shows the column | Where miniatures go around lyrics |
+| Spotlight rest `spotlight-rest-v0`: 3 s before the host's resting song is told to the room (and, online, uploaded) | `state::room::SPOTLIGHT_REST_MS` | Guests see a song three seconds after the host stops on it; scrolling sends nothing | The rest's length; whether to upload on rest or only show the card |
+| Readiness `hosted-deadline-v1`: 30 s from the song's availability (the server's `ROOM_READINESS_WINDOW_MS`, 15 s in its `wrangler.toml`, overrides), early start once every connected candidate is ready and loaded | `rules::ReadinessPolicy` | A stage starts when the last person readies; a disconnected one waits for the deadline | The window's length; whether a reconnecting member should hold the early start |
+| The prompt goes back 2.5 s after the room lets go of it (sat out, canceled) | `prompt_room.rs` `GONE_SECONDS` | The line is readable, then song select | None expected |
+| Add random draws any unseated catalog CPU (`RosterAim::Any`) | `state::cpu_roster` | A practice field's levels are mixed | The balanced aim (a level near the people's) |
+| Practice starts with three CPUs drawn from the room's seed | `state::room::STARTING_CPUS` | Every practice room has a different three | Fixed starters, or the last roster kept |
+| A pick's readiness and the countdown: the host's Back on the prompt cancels the window (back to picking); a member's withdraws only themself | `RoomClient::leave_prompt` | The host can change their mind before the start | Whether the host's Back should keep the window for the others |
 | Desktop's session in the config folder's `online-session`, owner-only on Unix, plain text | `crates/desktop/src/online.rs` | Signed in across runs until the session's thirty days | The system keychain instead |
 
 ## Open questions
 
+- M7b: the readiness window now ends as soon as everyone is ready (the
+  study proposed that it never shortens). Is a disconnected member right
+  to hold only the deadline, not the early start?
+- M7b: the spotlight uploads the whole song after a 3 s rest. Is that
+  too eager on slow links (a host browsing slowly uploads several songs),
+  and should the card alone show until the pick?
+- M7b: the follower's view keeps song select's song side and puts the
+  panel in the list's place; the host reaches the same panel through
+  Players. Should the host see the players permanently too (a narrower
+  list)?
+- M7b: the 24 CPU names in `crates/ui/src/state/cpu_roster.json` are
+  invented, for your review.
+- M7b: the server's `ROOM_READINESS_WINDOW_MS` is 15 s in its
+  `wrangler.toml` (your file); the model's default is now 30 s, counted
+  from the song's availability. Raise it there?
 - Fields under eight: keep a linear rule, scale the eight-player table, or
   something else? Should sit-outs count toward the field?
 - Should a forfeit occupy a place (it does: last of its group) or be

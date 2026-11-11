@@ -1,9 +1,11 @@
 //! The multiplayer prototype's practice room for the session
-//! (`docs/plans/multiplayer-prototype-progress.md`, M2). Every route mounts
-//! a fresh page, so the room lives here, beside the pages, as the share
-//! does (`crate::share`): the room page (`#/room`), song select choosing a
-//! stage's song (`#/room/pick`) and later the stage's play read the same
-//! one. A reload starts a new practice; nothing is stored.
+//! (`docs/plans/multiplayer-prototype-progress.md`, M2, M7b). Every route
+//! mounts a fresh page, so the room lives here, beside the pages, as the
+//! share does (`crate::share`): the room's song select (`#/room`, its main
+//! view) and the stage's prompt and play read the same one. A reload
+//! starts a new practice; nothing is stored. The room screens' calls go
+//! through [`shell`] (song select's) and [`prompt_room`] (a stage's
+//! prompt's).
 //!
 //! A chosen stage's song is prepared here ([`prepare`]: its chart read
 //! from the library and the CPUs' plan checked), and a stage whose
@@ -18,7 +20,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ddi_room::StageId;
 use ddi_ui::state::room::{
     LoadJob, LoadProblem, RoomClient, SharedRoom, StageOrder, UploadJob, picked_of, prepare_chart,
 };
@@ -43,22 +44,98 @@ thread_local! {
     /// The room the last stage handed over is of, and the route its
     /// results go back to.
     static LAST: RefCell<Option<(Route, SharedRoom)>> = const { RefCell::new(None) };
-    /// The stage whose song was just chosen: the room focuses it on return.
-    static CHOSEN: RefCell<Option<StageId>> = const { RefCell::new(None) };
-    /// The online room song select's pick mode chooses for (none: the
-    /// practice room).
-    static PICK: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
 }
 
-/// Song select's pick mode chooses for `room` (an online room), else for
-/// the practice room.
-pub(crate) fn pick_for(room: Option<SharedRoom>) {
-    PICK.with(|p| *p.borrow_mut() = room);
+/// Which room song select is the main view of (M7b): the session's
+/// practice room, or online room `id` (`crate::online::room`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RoomRoute {
+    Practice,
+    Online(String),
 }
 
-/// The room song select's pick mode chooses a stage's song for.
-pub(crate) fn picking() -> SharedRoom {
-    PICK.with(|p| p.borrow().clone()).unwrap_or_else(current)
+impl RoomRoute {
+    pub(crate) fn room(&self) -> SharedRoom {
+        match self {
+            RoomRoute::Practice => current(),
+            RoomRoute::Online(id) => crate::online::room(id),
+        }
+    }
+
+    /// Its address: where its stages' results come back to.
+    pub(crate) fn route(&self) -> Route {
+        match self {
+            RoomRoute::Practice => Route::Room,
+            RoomRoute::Online(id) => Route::MpRoom { id: id.clone() },
+        }
+    }
+}
+
+/// The room's calls from its screens (song select, a stage's prompt):
+/// Back to the multiplayer home, Leave room forgets the room first (an
+/// online one told), Sign in again leaves for the server's sign-in, its
+/// songs prepared (`prepare_for`) and uploaded (`upload`), and a stage's
+/// prompt opened on the play route (`play_in`), song select's running
+/// preview context handed over to it so its audio starts without another
+/// press (`AGENTS.md`'s gesture rule: never a context made outside one).
+pub(crate) fn shell(which: RoomRoute) -> ddi_ui::screens::room::RoomShell {
+    use ddi_ui::UiRequest;
+    use ddi_ui::screens::room::RoomCall;
+    let room = which.room();
+    Rc::new(move |call, cx| match call {
+        RoomCall::Leave => cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash())),
+        RoomCall::Discard => {
+            match &which {
+                RoomRoute::Practice => discard(),
+                RoomRoute::Online(_) => crate::online::discard(),
+            }
+            cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash()));
+        }
+        RoomCall::Redirect(r) => crate::components::page_routes::redirect(r),
+        RoomCall::Prepare(job) => prepare_for(room.clone(), job),
+        RoomCall::Upload(job) => upload(room.clone(), *job),
+        RoomCall::PlayStage(order) => {
+            if let Some(audio) = crate::select_preview::hand_over(cx.in_gesture()) {
+                crate::web::audio::keep_for_play(&order.song.id, order.chart.index, audio);
+            }
+            cx.request(UiRequest::Navigate(play_in(
+                room.clone(),
+                which.route(),
+                *order,
+            )));
+        }
+    })
+}
+
+/// A stage's prompt left before the room started it (M7b): the player
+/// withdraws (not ready; an operator's pick reopened), whether so.
+pub(crate) fn withdraw(order: &StageOrder) -> bool {
+    let room = playing_room();
+    let exit = room.borrow_mut().leave_prompt(order.stage);
+    if exit == ddi_ui::state::room::PromptExit::Withdraw {
+        PLAYING.with(|p| p.borrow_mut().take());
+        return true;
+    }
+    false
+}
+
+/// The room of the stage being played, and its shell's calls, for the
+/// stage's prompt.
+pub(crate) fn prompt_room() -> (SharedRoom, ddi_ui::screens::room::RoomShell) {
+    let room = playing_room();
+    let shell: ddi_ui::screens::room::RoomShell = {
+        let room = room.clone();
+        Rc::new(move |call, _cx| {
+            use ddi_ui::screens::room::RoomCall;
+            match call {
+                RoomCall::Prepare(job) => prepare_for(room.clone(), job),
+                RoomCall::Upload(job) => upload(room.clone(), *job),
+                RoomCall::Redirect(r) => crate::components::page_routes::redirect(r),
+                _ => {}
+            }
+        })
+    };
+    (room, shell)
 }
 
 /// Milliseconds since the epoch: the clock the screens share
@@ -96,23 +173,6 @@ pub(crate) fn develop(cpus: u16) {
 pub(crate) fn discard() {
     ROOM.with(|r| r.borrow_mut().take());
     PLAYING.with(|p| p.borrow_mut().take());
-    CHOSEN.with(|c| c.borrow_mut().take());
-}
-
-/// A stage's song was chosen (song select's pick mode).
-pub(crate) fn chosen(stage: StageId) {
-    CHOSEN.with(|c| *c.borrow_mut() = Some(stage));
-}
-
-/// The stage chosen last, once.
-pub(crate) fn take_chosen() -> Option<StageId> {
-    CHOSEN.with(|c| c.borrow_mut().take())
-}
-
-/// Prepares a practice stage's song on this device ([`prepare_for`] the
-/// practice room).
-pub(crate) fn prepare(job: LoadJob) {
-    prepare_for(current(), job);
 }
 
 /// Prepares a stage's song on this device for `room`: its chart read (as a
@@ -176,11 +236,6 @@ pub(crate) fn upload(room: SharedRoom, job: UploadJob) {
         }
         room.borrow_mut().upload_finished(job.stage, result);
     });
-}
-
-/// A practice stage to play ([`play_in`] the practice room).
-pub(crate) fn play(order: StageOrder) -> String {
-    play_in(current(), Route::Room, order)
 }
 
 /// A stage of `room` to play: kept for the play route, whose address it

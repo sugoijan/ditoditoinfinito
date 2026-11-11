@@ -236,19 +236,42 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         .clone();
     let (a, b) = (Rc::new(RefCell::new(a)), Rc::new(RefCell::new(b)));
     a.borrow_mut().set_inbox(ddi_desktop::room::inbox());
-    let stage = a.borrow().stages()[0].id;
-    a.borrow_mut().choose(stage, &song, &chart).unwrap();
-    let mut job = None;
-    tick_until(&mut [&mut a.borrow_mut()], |r| {
-        r[0].sharing(stage)
-            .is_some_and(|s| matches!(s, ddi_ui::state::room::Sharing::Uploading { .. }))
-    });
-    for j in a.borrow_mut().take_upload_jobs() {
-        job = Some(j);
+    // M7b: the host's song select rests on it; after the rest the room
+    // shows it to the guest and it is uploaded ahead, under a grant for no
+    // stage (desktop's sharing code).
+    a.borrow_mut().hover(Some((&song, &chart)));
+    let mut jobs = Vec::new();
+    let waited = Instant::now();
+    while jobs.is_empty() {
+        a.borrow_mut().tick(now());
+        jobs = a.borrow_mut().take_upload_jobs();
+        assert!(waited.elapsed() < Duration::from_secs(30), "timed out");
+        std::thread::sleep(Duration::from_millis(30));
     }
-    let job = job.expect("an upload with the room's grant");
-    assert!(!job.grant.is_empty());
-    ddi_desktop::room::upload(job);
+    for j in jobs {
+        assert_eq!(j.stage, ddi_ui::state::room::SPOTLIGHT);
+        assert!(!j.grant.is_empty());
+        ddi_desktop::room::upload(j);
+    }
+    tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
+        r.iter().all(|r| {
+            r.state()
+                .spotlight
+                .as_ref()
+                .is_some_and(|s| s.share.is_some())
+        })
+    });
+    // The guest reads it from the room's share (its banner and preview).
+    b.borrow_mut().set_inbox(ddi_desktop::room::inbox());
+    let jobs = b.borrow_mut().take_load_jobs();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].stage, ddi_ui::state::room::SPOTLIGHT);
+    ddi_desktop::room::prepare_online(&b, jobs.into_iter().next().unwrap());
+    tick_until(&mut [&mut b.borrow_mut()], |r| {
+        r[0].spotlight().is_some_and(|(_, p)| p.is_some())
+    });
+    // The pick reuses that share: available at once, nothing uploaded.
+    a.borrow_mut().pick(&song, &chart).unwrap();
     tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
         r.iter().all(|r| {
             r.stages()[0]
@@ -257,11 +280,21 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
                 .is_some_and(|c| c.status == ddi_room::ContentStatus::Available)
         })
     });
+    assert!(a.borrow_mut().take_upload_jobs().is_empty());
+    let stage = a.borrow().stages()[0].id;
     let share = b.borrow().stages()[0]
         .content
         .as_ref()
         .and_then(|c| c.share.clone())
         .expect("the room's share");
+    assert_eq!(
+        Some(share.as_str()),
+        a.borrow()
+            .state()
+            .spotlight
+            .as_ref()
+            .and_then(|s| s.share.as_deref())
+    );
     // Each prepares it: the host from its library, the guest from the
     // room's share (desktop's reader, into the cache).
     let jobs = a.borrow_mut().take_load_jobs();
@@ -269,7 +302,6 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         assert!(j.share.is_none());
         ddi_desktop::room::prepare_online(&a, j);
     }
-    b.borrow_mut().set_inbox(ddi_desktop::room::inbox());
     let jobs = b.borrow_mut().take_load_jobs();
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].share.as_deref(), Some(share.as_str()));
@@ -288,30 +320,18 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         b.borrow().picked(&content.id).unwrap().song.id,
         format!("shared:{share}:0")
     );
-    // Ready, Start, the countdown; each plays it on its own device and
-    // reports its own run; the room ranks them.
+    // Each one's prompt; both Ready: the room starts the stage at once
+    // (its countdown); each plays it on its own device and reports its
+    // own run; the room ranks them.
+    let mut orders = Vec::new();
+    for r in [&a, &b] {
+        orders.push(r.borrow_mut().take_stage_order().expect("its prompt"));
+    }
     a.borrow_mut().set_ready(true).unwrap();
     b.borrow_mut().set_ready(true).unwrap();
     tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
-        r.iter().all(|r| {
-            r.state()
-                .stage(stage)
-                .is_some_and(|s| s.prep.values().filter(|p| p.ready).count() == 2)
-        })
+        r.iter().all(|r| r.stage_started(stage))
     });
-    a.borrow_mut().start().unwrap();
-    let mut orders = Vec::new();
-    tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
-        r.iter()
-            .all(|r| r.state().phase.kind() == ddi_room::PhaseKind::Stage)
-    });
-    for r in [&a, &b] {
-        orders.push(
-            r.borrow_mut()
-                .take_stage_order()
-                .expect("the stage to play"),
-        );
-    }
     assert_eq!((orders[0].others, orders[1].others), (1, 1));
     a.borrow_mut()
         .report_run(

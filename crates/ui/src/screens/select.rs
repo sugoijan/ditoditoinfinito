@@ -66,7 +66,10 @@ use super::data::PackEntry;
 /// The parts that move as the screen comes and goes ([`super::transitions`]),
 /// both layouts' (a part the layout lacks is skipped): what sits in the
 /// header's row is the header's (the bars stay put from screen to screen).
-const SELECT_PARTS: [(&str, super::Edge); 17] = {
+#[path = "select_room.rs"]
+mod room_mode;
+
+const SELECT_PARTS: [(&str, super::Edge); 18] = {
     use super::Edge::{FooterBar, HeaderBar, Left, None, Right};
     [
         ("Header", HeaderBar),
@@ -81,6 +84,7 @@ const SELECT_PARTS: [(&str, super::Edge); 17] = {
         ("PackTitle", HeaderBar),
         ("Footer", FooterBar),
         ("Wheel", Right),
+        ("RoomParts", Right),
         ("Wheel.Track", Right),
         ("Wheel.Thumb", Right),
         ("Song", Left),
@@ -727,6 +731,12 @@ pub struct SelectScreen {
     /// How open the wheel's room for the selected row is (closed while
     /// it flicks).
     open: f32,
+    /// The multiplayer room it is the main view of (M7b, `select_room.rs`).
+    room: Option<room_mode::RoomMode>,
+    /// Whether the room's parts were built for its host, and the room's
+    /// name the header was built with.
+    room_built_host: Option<bool>,
+    room_built_heading: Option<String>,
 }
 
 /// The wheel's model over a screen's fields, each borrowed on its own
@@ -834,6 +844,9 @@ impl SelectScreen {
             navigation: Navigation::default(),
             wheel_motion: None,
             open: 1.0,
+            room: None,
+            room_built_host: None,
+            room_built_heading: None,
         };
         let resume = data.resume.clone();
         let resume_pack = data.resume_pack.clone();
@@ -927,7 +940,7 @@ impl SelectScreen {
     /// The list is fixed: a share's songs, or the library while choosing
     /// a stage's song; nothing is added, edited, managed or shared.
     fn fixed_list(&self) -> bool {
-        self.data.shared.is_some() || self.data.pick.is_some()
+        self.data.shared.is_some() || self.room.is_some()
     }
 
     /// What Share… would share: the imported song shown, or the imported
@@ -1356,8 +1369,12 @@ impl SelectScreen {
             // the header's row and the mods leaves it.
             let [sw, _] = self.layout.screen;
             let margin = self.layout.margin;
-            let room =
-                sw - margin - env.metric("Header.TitleEnd", 460.0) - self.mods_width() - 108.0;
+            let mods = if self.room.is_some() {
+                self.room_buttons_width()
+            } else {
+                self.mods_width()
+            };
+            let room = sw - margin - env.metric("Header.TitleEnd", 460.0) - mods - 108.0;
             let w = env
                 .metric("Select.Search.Width", 560.0)
                 .min(room)
@@ -1365,14 +1382,17 @@ impl SelectScreen {
             let [_, fy, _, fh] = self.layout.field;
             self.layout.field = [sw - margin - w - 76.0, fy, w, fh];
         }
-        let l = self.layout;
+        let l = self.room_layout(self.layout);
         let screen = l.screen;
         let mut children = vec![ground(&env, screen), self.backdrop.build(&env, screen)];
         // The wheel.
         self.list.config = wheel_config(&l);
         self.list.config.glide = !self.reduced;
         self.list.reset_actors();
-        children.push(self.list.build(&*env.look));
+        let mut wheel = self.list.build(&*env.look);
+        // A room's follower has no list: the room's panel is there.
+        wheel.visible = !self.following();
+        children.push(wheel);
         if !l.compact {
             let [x, y, _, h] = l.wheel;
             let bar_x = screen[0] - 10.0 - 1.5;
@@ -1417,13 +1437,15 @@ impl SelectScreen {
             }
             song.push(style);
             song.push(frame("Charts", Vec::new()));
-            let play = env.component(
+            let mut play = env.component(
                 "PlayButton",
                 "Button",
                 &Spec::new([w, l.play_h], msg::play_button()),
                 "Play",
                 [w / 2.0, l.play_y],
             );
+            // A room's follower picks nothing.
+            play.visible = !self.following();
             song.push(play);
         } else {
             song.push(frame("Tabs", Vec::new()));
@@ -1448,8 +1470,11 @@ impl SelectScreen {
                 ("SearchIcon", "/", screen[0] - margin - 74.0),
                 ("More", "•••", screen[0] - margin - 22.0),
             ] {
-                // A share: nothing to add.
-                if name == "AddIcon" && self.fixed_list() {
+                // A share: nothing to add. A room's follower: nothing to
+                // search.
+                if (name == "AddIcon" && self.fixed_list())
+                    || (name == "SearchIcon" && self.following())
+                {
                     continue;
                 }
                 children.push(env.component(
@@ -1466,15 +1491,17 @@ impl SelectScreen {
             look::ellipsized(&mut title, room.max(40.0));
             children.push(left(title, margin + 56.0, 28.0));
         } else {
-            let name = if let Some(pick) = self.data.pick {
-                ddi_l10n::msg::room::pick_heading(pick.stage)
+            let name = if let Some(rm) = &self.room {
+                super::room::heading(&rm.room.borrow())
             } else if self.data.shared.is_some() {
                 msg::title_shared()
             } else {
                 msg::title()
             };
             children.push(header(&env, cx, screen[0], &name));
-            children.push(self.mods(l.field[0] - 16.0));
+            if self.room.is_none() {
+                children.push(self.mods(l.field[0] - 16.0));
+            }
             children.push(super::more_button(
                 &env,
                 [screen[0] - l.margin - 32.0, 32.0],
@@ -1493,6 +1520,10 @@ impl SelectScreen {
         if l.compact {
             field.visible = self.typing || !self.search.text.is_empty();
         }
+        // A room's follower has nothing to search.
+        if self.following() {
+            field.visible = false;
+        }
         children.push(field);
         children.push(env.component(
             "Search.Clear",
@@ -1506,6 +1537,8 @@ impl SelectScreen {
             children.push(self.volume.build(&*env.look, cx));
         }
         children.push(frame("Notices", Vec::new()));
+        let parts = self.room_parts(cx);
+        children.push(parts);
         let mut root = Actor::new(Kind::Frame(children));
         // The header's row from above, the footer from below, the wheel
         // from the right, the song's side from the left, the backdrop
@@ -1671,7 +1704,11 @@ impl SelectScreen {
         let cd_title = song.cd_title.as_deref().map(|c| cx.texture(c, 128.0));
         set_image(info, "CdTitle", cd_title);
         if self.layout.compact {
-            let pack = pack_label(song.pack.as_deref());
+            // A room's: its name in the pack's place.
+            let pack = match &self.room {
+                Some(rm) => super::room::heading(&rm.room.borrow()),
+                None => pack_label(song.pack.as_deref()),
+            };
             if let Some(t) = hit::find_mut(root, "PackTitle")
                 && let Kind::Text(t) = &mut t.kind
             {
@@ -2113,9 +2150,10 @@ impl SelectScreen {
             msg::hint_song(),
             msg::hint_chart(),
             msg::hint_style(),
-            match self.data.pick {
-                Some(pick) => ddi_l10n::msg::room::pick_use(pick.stage),
-                None => msg::hint_play(),
+            match self.room_play_hint() {
+                Some(Some(hint)) => String::from(hint),
+                Some(None) => String::new(),
+                None => msg::hint_play().into(),
             },
             msg::hint_search(),
         );
@@ -2131,7 +2169,7 @@ impl SelectScreen {
             ddi_l10n::msg::common::more(),
             msg::hint_activate(),
         );
-        let esc = if self.data.pick.is_some() {
+        let esc = if self.room.is_some() {
             ddi_l10n::msg::room::hint_back()
         } else {
             msg::hint_start_menu()
@@ -2221,6 +2259,8 @@ impl SelectScreen {
         if self.editing && !shared && now == Hints::Song && !self.layout.compact {
             hints.push(h(&["E"], &edit));
         }
+        // A room's follower picks nothing: no Enter.
+        hints.retain(|(_, label)| !label.is_empty());
         // A share's name and its time left, where nothing else is said.
         let shared_note: Option<String> = self.data.shared.as_ref().map(|v| {
             match &v.expires {
@@ -2366,7 +2406,7 @@ impl SelectScreen {
     /// What Manage acts on: the selected header's pack, or the selected
     /// song (imported), when something can be done.
     fn manageable(&self) -> Option<Manage> {
-        if self.data.pick.is_some() {
+        if self.room.is_some() {
             return None;
         }
         let pack = |name: Option<&str>| {
@@ -2582,7 +2622,8 @@ impl SelectScreen {
             self.fill_info(root, cx);
             self.publish_dirty = true;
         }
-        if let Some(d) = data {
+        // A room's follower shows the host's song, not its own list.
+        if let Some(d) = data.filter(|_| !self.following()) {
             self.cancel_navigation();
             self.set_data(d, false);
             self.fill_tabs(root);
@@ -2910,13 +2951,15 @@ impl SelectScreen {
                             chart.meter
                         ));
                         let env = self.env.clone();
-                        // Choosing a stage's song is no play to comment on.
-                        if self.data.pick.is_none() {
-                            let started = ddi_platform::storage::started_ms();
-                            cx.request(UiRequest::Announce(Line::SelectMusic(comment(
-                                &chart, started,
-                            ))));
+                        // A room's pick is no play to comment on.
+                        if self.room.is_some() {
+                            self.room_start(&song, &chart, cx);
+                            return;
                         }
+                        let started = ddi_platform::storage::started_ms();
+                        cx.request(UiRequest::Announce(Line::SelectMusic(comment(
+                            &chart, started,
+                        ))));
                         (self.play)(&song, &chart, &env, cx);
                     }
                     None => self.status(format!("no {} charts", self.style_name())),
@@ -2931,6 +2974,13 @@ impl SelectScreen {
     fn back(&mut self, _root: &mut Actor, cx: &mut Cx) -> Handled {
         self.cancel_navigation();
         self.tell(cx);
+        if self.room.is_some() {
+            // The room's preview stops as song select's does.
+            self.told_shown = false;
+            self.call(SelectCall::Shown(false), cx);
+            self.room_back(cx);
+            return Handled::Yes;
+        }
         self.call(SelectCall::Leave, cx);
         Handled::Yes
     }
@@ -3066,6 +3116,10 @@ impl SelectScreen {
     }
 
     fn publish(&self) {
+        if self.room.is_some() {
+            let items = self.focusables().into_iter().map(|f| f.name).collect();
+            self.room_publish(items);
+        }
         let mut st = self.env.state.borrow_mut();
         st.screen = "select".into();
         st.compact = self.layout.compact;
@@ -3350,9 +3404,16 @@ impl Screen for SelectScreen {
         let row: Vec<String> = if self.layout.compact {
             Vec::new()
         } else {
-            std::iter::once(self.search.name.clone())
+            let room: Vec<String> = if self.room.is_some() {
+                vec!["Room.Rules".into(), "Room.Players".into()]
+            } else {
+                Vec::new()
+            };
+            let mods = if self.room.is_some() { 0 } else { n };
+            room.into_iter()
+                .chain((!self.following()).then(|| self.search.name.clone()))
                 .chain(clear.then(|| "ClearSearch".to_string()))
-                .chain((0..n).map(|i| format!("Mod{i}")))
+                .chain((0..mods).map(|i| format!("Mod{i}")))
                 .chain(["Volume".to_string(), "More".to_string()])
                 .collect()
         };
@@ -3386,7 +3447,9 @@ impl Screen for SelectScreen {
                 "StyleButton",
                 "Play",
             ] {
-                if shared && n == "AddIcon" {
+                if (shared && n == "AddIcon")
+                    || (self.following() && matches!(n, "SearchIcon" | "Play"))
+                {
                     continue;
                 }
                 v.push(Focusable::new(n));
@@ -3414,8 +3477,16 @@ impl Screen for SelectScreen {
         v.extend((0..self.notices.len()).map(|i| Focusable::new(format!("Notice.Link{i}"))));
         v.extend((0..n).map(|i| along(&format!("Mod{i}"))));
         if !self.layout.compact {
+            if self.room.is_some() {
+                v.push(along("Room.Rules"));
+                v.push(along("Room.Players"));
+            }
             v.push(along("Volume"));
             v.push(along("More"));
+        }
+        if self.following() {
+            v.push(Focusable::new("Panel.Up"));
+            v.push(Focusable::new("Panel.Down"));
         }
         v
     }
@@ -3434,6 +3505,10 @@ impl Screen for SelectScreen {
             || self.wheel_motion.is_some()
             || self.list.animating()
             || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        self.room_wake_at()
     }
 
     fn animating(&self) -> bool {
@@ -3459,6 +3534,7 @@ impl Screen for SelectScreen {
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        self.room_update(root, cx);
         if !cx.is_current_screen() {
             return;
         }
@@ -3694,7 +3770,10 @@ impl Screen for SelectScreen {
             self.publish();
             return Handled::Yes;
         }
-        let h = self.input_inner(input, root, cx);
+        let h = match self.room_input(input, root, cx) {
+            Some(h) => h,
+            None => self.input_inner(input, root, cx),
+        };
         // The song the selection shows, now: a Start in the same poll as a
         // move acts on the song moved to.
         self.follow();
@@ -3712,6 +3791,7 @@ impl Screen for SelectScreen {
             self.hints = None;
             self.fill_footer(root, cx);
         }
+        self.room_message(m, root, cx);
         if let Some(id) = super::menu_pick(m, "Select.Suggestion")
             && let Ok(i) = id.parse::<i64>()
         {
@@ -4045,6 +4125,9 @@ impl SelectScreen {
     }
 
     fn open_more(&self, cx: &mut Cx) {
+        if self.room_more(cx) {
+            return;
+        }
         let mut items: Vec<(String, String)> =
             vec![("SearchIcon".into(), msg::more_search().into())];
         if !self.search.text.trim().is_empty() && !self.search.suggestions.is_empty() {
@@ -4120,6 +4203,9 @@ impl SelectScreen {
     }
 
     fn activate(&mut self, name: &str, root: &mut Actor, cx: &mut Cx) -> Handled {
+        if let Some(h) = self.room_activate(name, root, cx) {
+            return h;
+        }
         if let Some(i) = name
             .strip_prefix("Tab")
             .and_then(|n| n.parse::<usize>().ok())

@@ -39,9 +39,22 @@ impl Opponent {
         level: usize,
         seed: u64,
     ) -> Result<Opponent, String> {
+        Self::with_skills(song, chart, ruleset, level, seed, Skills::default())
+    }
+
+    /// [`Opponent::new`] with a personality: `skills` bend its strength
+    /// per pattern (`super::personality`).
+    pub fn with_skills(
+        song: &Song,
+        chart: usize,
+        ruleset: Ruleset,
+        level: usize,
+        seed: u64,
+        skills: Skills,
+    ) -> Result<Opponent, String> {
         let plan = Plan::automatic(song, chart)?;
         let projected = plan.check_song(song, chart)?;
-        let presses = plan.script(level, seed)?;
+        let presses = plan.script_with_skills(level, seed, skills)?;
         let judge_offset = ruleset.judge.judge_offset;
         let mut player = Player::new(
             &projected,

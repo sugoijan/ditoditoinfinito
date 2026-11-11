@@ -149,12 +149,6 @@ pub(crate) fn room(id: &str) -> SharedRoom {
     room
 }
 
-/// The online room shown last, if any (song select's pick chooses its
-/// stage's song).
-pub(crate) fn shown_room() -> Option<SharedRoom> {
-    ROOM.with_borrow(|r| r.as_ref().map(|(_, r)| r.clone()))
-}
-
 /// Leave room: forgotten (its socket closed once the room answered).
 pub(crate) fn discard() {
     ROOM.with_borrow_mut(|r| *r = None);

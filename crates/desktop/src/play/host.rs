@@ -649,6 +649,9 @@ impl Host {
                 // A card's action (none on desktop: the theme's results).
                 PromptChoice::Action(_) => cx.close(true),
                 PromptChoice::Allow => return,
+                // A room's Ready: nothing to ready on desktop (its audio
+                // starts without a gesture); the room starts the stage.
+                PromptChoice::Ready => return,
                 // This play's options, at once; the poll readies what
                 // they change (`Host::ready`).
                 PromptChoice::Option { id, index } => {
@@ -668,7 +671,14 @@ impl Host {
             }
             *choice.borrow_mut() = Some(c);
         });
-        ui.push(PromptScreen::new(env.clone(), r.prompt.clone(), act).over_select());
+        let mut prompt = PromptScreen::new(env.clone(), r.prompt.clone(), act).over_select();
+        // A room's stage (M7b): its prompt is the readiness check.
+        if let Some(order) = &r.request.stage {
+            let room = crate::room::stage_room();
+            let shell = crate::room::prompt_shell(&room);
+            prompt = prompt.with_room(room, order.stage, shell);
+        }
+        ui.push(prompt);
     }
 
     /// The play's news between frames: a play asked for, the song read,
@@ -863,6 +873,7 @@ impl Host {
                     // (The options are applied in the prompt's call.)
                     Some(
                         PromptChoice::Allow
+                        | PromptChoice::Ready
                         | PromptChoice::Option { .. }
                         | PromptChoice::SaveOptions,
                     )
@@ -873,6 +884,7 @@ impl Host {
                     }
                     Some(
                         PromptChoice::Allow
+                        | PromptChoice::Ready
                         | PromptChoice::Option { .. }
                         | PromptChoice::SaveOptions,
                     )
@@ -2231,8 +2243,9 @@ fn leave_stage(r: &Readied) {
     let Some(order) = &r.request.stage else {
         return;
     };
-    // An online room's: the forfeit is the player's own report.
-    if crate::room::left_online_stage(order.stage) {
+    // Before its start: withdrawn; an online room's forfeit is the
+    // player's own report.
+    if crate::room::left_stage(order.stage) {
         return;
     }
     match &r.loaded {

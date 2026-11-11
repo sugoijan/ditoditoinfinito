@@ -1236,6 +1236,7 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
         level: 0,
         seed: 42,
         personality: None,
+        name: None,
     };
     let mut rules = MatchRules::practice(opponent);
     rules.stages = 2;
@@ -1614,6 +1615,7 @@ fn self_reported_stages_have_a_cap_and_cpu_stages_take_no_reports() {
             level: 2,
             seed: 1,
             personality: None,
+            name: None,
         }),
         ContentSource::LocalLibrary,
     );
@@ -1628,4 +1630,303 @@ fn self_reported_stages_have_a_cap_and_cpu_stages_take_no_reports() {
         Err(Rejection::AuthorityOnly)
     );
     assert_eq!(p.s.report_deadline(stage), None);
+}
+
+// ---- M7b: the maintainer's match flow (pick, spotlight, early start) ----
+
+fn card(n: u32) -> ContentCard {
+    ContentCard {
+        title: format!("Song {n}"),
+        artist: "Artist".into(),
+        difficulty: "Hard".into(),
+        meter: 9,
+        style: "dance-single".into(),
+    }
+}
+
+impl Room {
+    fn pick(&mut self, n: u32) -> Result<Vec<Event>, Rejection> {
+        self.by(
+            self.host,
+            Command::Pick {
+                content: song(n),
+                card: Some(Box::new(card(n))),
+            },
+        )
+    }
+
+    fn window(&self) -> ReadinessWindow {
+        match self.s.phase {
+            Phase::Preparing {
+                window: Some(w), ..
+            } => w,
+            ref p => panic!("no readiness window: {p:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_pick_starts_the_match_and_the_stage_starts_once_everyone_is_ready() {
+    let mut r = Room::hosted(2);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    let bo = r.join("bo", Intent::Play);
+    r.pick(1).unwrap();
+    // The match started with its first stage's window open, its song
+    // carded for the picks' history.
+    let s1 = r.upcoming();
+    assert!(r.s.running_match().is_some());
+    let w = r.window();
+    assert_eq!(
+        w.deadline,
+        Millis(r.now + r.s.policy.readiness.window_ms),
+        "a local song is available at once: the deadline counts from the pick"
+    );
+    assert_eq!(
+        r.s.stage(s1).unwrap().content.as_ref().unwrap().card,
+        Some(card(1))
+    );
+    // Picking again while the window runs is refused.
+    assert_eq!(r.pick(2), Err(Rejection::WindowOpen));
+    r.ready(host);
+    r.ready(ana);
+    assert!(matches!(r.s.phase, Phase::Preparing { .. }));
+    // The last one ready starts it at once, long before the deadline.
+    r.ready(bo);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    let s1 = r.play();
+    r.end(s1, &[&[ana], &[host], &[bo]]);
+    // Between stages the host's next pick goes on with the match.
+    assert_eq!(r.s.phase, Phase::Intermission { next: r.upcoming() });
+    r.pick(2).unwrap();
+    let s2 = r.upcoming();
+    assert_ne!(s1, s2);
+    r.ready(host);
+    r.ready(ana);
+    // Bo does not ready: at the deadline he sits the stage out.
+    let w = r.window();
+    r.wait(w.deadline.0 - r.now);
+    let s2p = r.play();
+    assert_eq!(s2p, s2);
+    assert_eq!(
+        r.part(bo),
+        Participation::SittingOut {
+            stage: s2,
+            reason: SitOutReason::NotReady
+        }
+    );
+    r.end(s2, &[&[host], &[ana]]);
+    assert_eq!(r.s.phase, Phase::MatchResults);
+    // After the match's results a pick opens the next match.
+    let before = r.s.current.as_ref().unwrap().id;
+    r.pick(3).unwrap();
+    assert_eq!(r.s.history.len(), 1, "the finished match is recorded");
+    assert_ne!(r.s.current.as_ref().unwrap().id, before);
+    assert!(matches!(
+        r.s.phase,
+        Phase::Preparing {
+            window: Some(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_pick_is_refused_whole_for_a_field_that_could_never_start_or_a_non_operator() {
+    let mut r = Room::hosted(2);
+    // Alone with no CPUs: two competitors are needed.
+    assert_eq!(
+        r.pick(1),
+        Err(Rejection::NotEnoughReady {
+            ready_humans: 1,
+            competitors: 1
+        })
+    );
+    assert!(r.s.current.is_none(), "nothing locked");
+    let ana = r.join("ana", Intent::Play);
+    assert!(matches!(
+        r.by(
+            ana,
+            Command::Pick {
+                content: song(1),
+                card: None
+            }
+        ),
+        Err(Rejection::Unauthorized { .. })
+    ));
+    let long = ContentCard {
+        title: "x".repeat(ContentCard::MAX_TEXT + 1),
+        ..card(1)
+    };
+    assert_eq!(
+        r.by(
+            r.host,
+            Command::Pick {
+                content: song(1),
+                card: Some(Box::new(long))
+            }
+        ),
+        Err(Rejection::InvalidCard)
+    );
+    // A stale view of the lobby's rules is refused too.
+    let base = Some(r.s.revision);
+    let mut rules = r.s.next.rules.clone();
+    rules.stages = 3;
+    r.by(r.host, Command::SaveNextRules { rules }).unwrap();
+    assert!(matches!(
+        r.based(
+            r.host,
+            base,
+            Command::Pick {
+                content: song(1),
+                card: None
+            }
+        ),
+        Err(Rejection::Stale { .. })
+    ));
+}
+
+#[test]
+fn the_spotlight_is_shared_once_and_a_pick_of_it_reuses_the_share() {
+    let mut rules = MatchRules::hosted();
+    rules.stages = 2;
+    let mut r = Room::new(rules, ContentSource::Shared);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    // Ana may not set the spotlight; the host may, before any match.
+    assert!(matches!(
+        r.by(
+            ana,
+            Command::Spotlight {
+                content: Some(song(1)),
+                card: None
+            }
+        ),
+        Err(Rejection::Unauthorized { .. })
+    ));
+    r.by(
+        host,
+        Command::Spotlight {
+            content: Some(song(1)),
+            card: Some(Box::new(card(1))),
+        },
+    )
+    .unwrap();
+    let spot = r.s.spotlight.clone().unwrap();
+    assert_eq!((spot.by, spot.share.as_deref()), (host, None));
+    // The same again changes nothing (no revision).
+    let rev = r.s.revision;
+    r.by(
+        host,
+        Command::Spotlight {
+            content: Some(song(1)),
+            card: Some(Box::new(card(1))),
+        },
+    )
+    .unwrap();
+    assert_eq!(r.s.revision, rev);
+    // Its upload finished: the spotlight has its share.
+    r.sys(Command::SetSpotlightShare {
+        chart: song(1).chart,
+        share: "Share001".into(),
+    })
+    .unwrap();
+    assert_eq!(
+        r.s.spotlight.as_ref().unwrap().share.as_deref(),
+        Some("Share001")
+    );
+    // Picking it: available at once with that share, nothing uploaded.
+    r.pick(1).unwrap();
+    let s1 = r.upcoming();
+    let c = r.s.stage(s1).unwrap().content.clone().unwrap();
+    assert_eq!(
+        (c.status, c.share.as_deref()),
+        (ContentStatus::Available, Some("Share001"))
+    );
+    r.ready(host);
+    r.ready(ana);
+    let s1 = r.play();
+    for (who, life) in [(host, 0.5), (ana, 0.4)] {
+        report(
+            &mut r,
+            who,
+            s1,
+            Run::Live {
+                life,
+                accuracy: 0.9,
+            },
+        )
+        .unwrap();
+    }
+    assert!(matches!(r.s.phase, Phase::Intermission { .. }));
+    // A song never in the spotlight waits for its share: the window does
+    // not run out meanwhile, and counts from when it arrives.
+    r.pick(2).unwrap();
+    let s2 = r.upcoming();
+    assert!(r.s.content_pending(s2));
+    assert_eq!(r.s.next_deadline(), None);
+    assert!(r.wait(r.s.policy.readiness.window_ms * 3).is_empty());
+    r.sys(Command::SetSpotlightShare {
+        chart: song(2).chart,
+        share: "Share002".into(),
+    })
+    .unwrap();
+    assert!(!r.s.content_pending(s2));
+    assert_eq!(
+        r.window().deadline,
+        Millis(r.now + r.s.policy.readiness.window_ms)
+    );
+    // A song in another stage's record is known too.
+    assert_eq!(r.s.known_share(&song(1)).as_deref(), Some("Share001"));
+    // The host leaving clears their spotlight.
+    r.by(host, Command::Leave).unwrap();
+    assert_eq!(r.s.spotlight, None);
+}
+
+#[test]
+fn a_roster_seats_its_own_named_cpus_and_bounds_their_text() {
+    let mut rules = MatchRules::hosted();
+    rules.stages = 1;
+    rules.seats = 3;
+    rules.cpu.mode = CpuMode::Roster;
+    rules.cpu.roster = vec![
+        OpponentSpec {
+            level: 1,
+            seed: 11,
+            personality: Some("jacks".into()),
+            name: Some("Mira".into()),
+        },
+        OpponentSpec {
+            level: 4,
+            seed: 12,
+            personality: None,
+            name: Some("Tobi".into()),
+        },
+    ];
+    assert_eq!(rules.cpu_seats(1), 2);
+    let mut r = Room::new(rules.clone(), ContentSource::LocalLibrary);
+    r.pick(1).unwrap();
+    let cpus: Vec<OpponentSpec> =
+        r.s.candidates()
+            .into_iter()
+            .filter_map(|id| r.s.opponent(id).cloned())
+            .collect();
+    assert_eq!(cpus, rules.cpu.roster, "each seat its own profile");
+    // Alone with CPUs: the stage starts once the player is ready.
+    r.ready(r.host);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    let mut long = rules.clone();
+    long.cpu.roster[0].name = Some("n".repeat(OpponentSpec::MAX_TEXT + 1));
+    assert_eq!(
+        long.validate(&RoomPolicy::default(), 1),
+        Err(RulesProblem::CpuText)
+    );
+    // Over the cap: still one policy check.
+    let mut many = rules;
+    many.seats = 10;
+    many.cpu.roster = vec![many.cpu.roster[0].clone(); 9];
+    assert!(matches!(
+        many.validate(&RoomPolicy::default(), 1),
+        Err(RulesProblem::OverCap(_))
+    ));
 }

@@ -184,6 +184,10 @@ pub(crate) enum Msg {
     /// The start prompt's Start, with the music decoded already
     /// ([`Msg::Predecoded`]).
     BeginDecoded,
+    /// A room's stage's Ready (M7b): the audio context made inside its
+    /// press, on which the music decodes ahead, as on song select's
+    /// handed-over one: the room's start (no gesture) then plays it.
+    ReadyAudio(Box<WebAudio>),
     /// The music, decoded before Start on the context song select handed
     /// over (`crate::web::audio::keep_for_play`).
     Predecoded(Result<(WebAudio, AudioBuffer), String>),
@@ -541,6 +545,31 @@ impl PromptShell {
                 }
                 self.state.borrow_mut().set_step(PromptStep::Loading);
                 send(Msg::Begin(Box::new(audio), from_pad));
+            }
+            // A room's Ready, in its press: a context for the play the
+            // room starts later, unless one runs already (handed over, or
+            // made at an earlier Ready); the countdown's is no gesture.
+            PromptChoice::Ready => {
+                let early = self
+                    .predecoded
+                    .borrow()
+                    .as_ref()
+                    .map(|(a, _)| a.context().clone())
+                    .or_else(|| self.early_ctx.borrow().clone());
+                if let Some(early) = early {
+                    if cx.in_gesture() {
+                        let _ = early.resume();
+                    }
+                    return;
+                }
+                if !cx.in_gesture() || cx.menu_from_pad() {
+                    return;
+                }
+                if let Ok(a) = WebAudio::new() {
+                    a.resume_now();
+                    *self.early_ctx.borrow_mut() = Some(a.context().clone());
+                    send(Msg::ReadyAudio(Box::new(a)));
+                }
             }
             PromptChoice::Back => send(Msg::BackRequested),
             PromptChoice::Allow => {
@@ -1257,10 +1286,12 @@ impl GameCanvas {
                 if matches!(self.stage, Stage::Playing) || self.results.is_some() {
                     return false;
                 }
-                // A stage left from its prompt: a forfeit (the CPUs played
-                // to their end), unless already reported.
+                // A stage left from its prompt: before the room started it,
+                // withdrawn (M7b); once on, a forfeit (the CPUs played to
+                // their end), unless already reported.
                 if let Some(order) = ctx.props().room_stage.as_deref()
                     && crate::room::playing(order.stage.0).is_some()
+                    && !crate::room::withdraw(order)
                 {
                     let song = match &self.song {
                         Status::Ready(s) => Some(&s.song),
@@ -1321,6 +1352,11 @@ impl GameCanvas {
                     Msg::Decoded(Ok((audio, buffer)))
                 });
                 true
+            }
+            Msg::ReadyAudio(audio) => {
+                self.early_audio = Some(*audio);
+                self.predecode(ctx);
+                false
             }
             Msg::Predecoded(r) => {
                 self.predecoding = false;
@@ -2528,7 +2564,7 @@ impl GameCanvas {
             st.version != before || waited
         };
         if self.prompt.is_none() {
-            self.open_prompt();
+            self.open_prompt(ctx.props().room_stage.clone());
         } else if changed && let Some(p) = &self.prompt {
             crate::components::ui_dev::wake(&p.host);
         }
@@ -2738,7 +2774,7 @@ impl GameCanvas {
     /// Puts the prompt on the canvas: the play's frames give way to the
     /// screen's (the play's loop keeps measuring the display and readying
     /// the backgrounds, drawing nothing).
-    fn open_prompt(&mut self) {
+    fn open_prompt(&mut self, ctx_stage: Option<Rc<ddi_ui::state::room::StageOrder>>) {
         use ddi_ui::screens::prompt::PromptScreen;
         let Some(container) = self.slot.cast::<HtmlElement>() else {
             return;
@@ -2751,7 +2787,13 @@ impl GameCanvas {
         if let Some(frame) = self.scene_frame(&env, false) {
             ui.push_chrome(frame);
         }
-        ui.push(PromptScreen::new(env, self.prompt_state.clone(), act));
+        let mut prompt = PromptScreen::new(env, self.prompt_state.clone(), act);
+        // A room's stage (M7b): its prompt is the readiness check.
+        if let Some(order) = ctx_stage.as_deref() {
+            let (room, shell) = crate::room::prompt_room();
+            prompt = prompt.with_room(room, order.stage, shell);
+        }
+        ui.push(prompt);
         // What tests read: `__DDI_DEBUG.prompt` and `prompt_backdrop`.
         let state = self.prompt_state.clone();
         let extra = Box::new(move |obj: &js_sys::Object| prompt_debug(obj, &state.borrow()));

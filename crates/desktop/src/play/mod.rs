@@ -155,6 +155,8 @@ impl Request {
         Request {
             backdrop: order.song.background.clone(),
             stage: Some(Rc::new(order.clone())),
+            // Its prompt counts down to Ready, as song select's to Start.
+            countdown: true,
             ..Request::song(&order.song.id, order.chart.index, false)
         }
     }

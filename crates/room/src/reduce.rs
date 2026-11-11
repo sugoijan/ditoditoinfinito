@@ -12,8 +12,8 @@ use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, ca
 use crate::phase::{Phase, ReadinessWindow};
 use crate::rules::{Access, Admission, ContentSource};
 use crate::state::{
-    ContentStatus, Match, MatchEnding, MatchRecord, RoomState, Seat, SitOutReason, Stage,
-    StageContent, StagePlay,
+    ContentCard, ContentStatus, Match, MatchEnding, MatchRecord, RoomState, Seat, SitOutReason,
+    Spotlight, Stage, StageContent, StagePlay,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,6 +34,7 @@ impl RoomState {
         let mut work = self.clone();
         let mut out = Vec::new();
         work.decide(actor, base, command, now, &mut out)?;
+        work.maybe_commit(now, &mut out);
         if !out.is_empty() {
             work.revision = work.revision.next();
             *self = work;
@@ -223,6 +224,9 @@ impl RoomState {
                 // Cancel first, so the departure also clears the readiness
                 // the canceled start held.
                 self.cancel_if_committed(id, out);
+                if self.spotlight.as_ref().is_some_and(|s| s.by == id) {
+                    self.emit(out, Event::SpotlightChanged { spotlight: None });
+                }
                 self.emit(out, Event::MemberLeft { participant: id });
                 Ok(())
             }
@@ -320,6 +324,7 @@ impl RoomState {
                             id,
                             status,
                             share: None,
+                            card: None,
                         }),
                     },
                 );
@@ -416,28 +421,68 @@ impl RoomState {
             }
             Command::OpenNextMatch => {
                 self.require(actor, Capability::Advance)?;
-                let ending = match self.phase {
-                    Phase::MatchResults => MatchEnding::Completed,
-                    Phase::Interrupted { reason } => MatchEnding::Interrupted { reason },
-                    _ => return Err(self.wrong_phase()),
-                };
-                self.emit(out, Event::MatchClosed { ending });
-                // The boundary: the saved draft is checked against who wants
-                // to play now; a problem keeps it pending and blocks Start.
-                let review = self
-                    .next
-                    .rules
-                    .validate(&self.policy, self.reserved_humans())
-                    .err();
-                if review != self.next.review {
-                    self.emit(out, Event::NextRulesReviewed { review });
+                self.open_next_match(out)
+            }
+            Command::Pick { content, card } => {
+                self.require(actor, Capability::ChooseContent)?;
+                self.require(actor, Capability::Advance)?;
+                if card.as_ref().is_some_and(|c| !c.fits()) {
+                    return Err(Rejection::InvalidCard);
                 }
-                self.emit(
-                    out,
-                    Event::PhaseChanged {
-                        phase: Phase::Lobby,
-                    },
-                );
+                self.pick(base, content, card.as_deref(), now, out)
+            }
+            Command::Spotlight { content, card } => {
+                self.require(actor, Capability::ChooseContent)?;
+                let by = self.own(actor)?;
+                if card.as_ref().is_some_and(|c| !c.fits()) {
+                    return Err(Rejection::InvalidCard);
+                }
+                let spotlight = content.as_ref().map(|content| Spotlight {
+                    content: content.clone(),
+                    card: card.as_deref().cloned().unwrap_or_default(),
+                    by,
+                    share: self.known_share(content),
+                });
+                if spotlight != self.spotlight {
+                    self.emit(out, Event::SpotlightChanged { spotlight });
+                }
+                Ok(())
+            }
+            Command::SetSpotlightShare { chart, share } => {
+                Self::authority_only(actor)?;
+                if let Some(s) = &self.spotlight
+                    && s.content.chart == *chart
+                    && s.share.as_deref() != Some(share.as_str())
+                {
+                    let spotlight = Some(Spotlight {
+                        share: Some(share.clone()),
+                        ..s.clone()
+                    });
+                    self.emit(out, Event::SpotlightChanged { spotlight });
+                }
+                // A pick of the same content waiting for its share takes it.
+                let waiting: Vec<StageId> = self
+                    .current
+                    .iter()
+                    .flat_map(|m| m.stages.iter())
+                    .chain(self.playlist.iter())
+                    .filter(|st| st.play.is_none())
+                    .filter(|st| {
+                        st.content.as_ref().is_some_and(|c| {
+                            c.id.chart == *chart && c.status == ContentStatus::Pending
+                        })
+                    })
+                    .map(|st| st.id)
+                    .collect();
+                for stage in waiting {
+                    self.content_status(
+                        stage,
+                        ContentStatus::Available,
+                        Some(share.clone()),
+                        now,
+                        out,
+                    );
+                }
                 Ok(())
             }
             Command::SetCoHost { participant, on } => {
@@ -582,26 +627,7 @@ impl RoomState {
                 {
                     return Err(Rejection::StageStarted);
                 }
-                self.emit(
-                    out,
-                    Event::ContentStatusChanged {
-                        stage: *stage,
-                        status: status.clone(),
-                        share: share.clone(),
-                    },
-                );
-                if matches!(status, ContentStatus::Unavailable { .. }) {
-                    match self.phase {
-                        Phase::Countdown { stage: p, .. }
-                        | Phase::Preparing {
-                            stage: p,
-                            window: Some(_),
-                        } if p == *stage => {
-                            self.cancel_start(p, CancelReason::ContentUnavailable, out)
-                        }
-                        _ => {}
-                    }
-                }
+                self.content_status(*stage, status.clone(), share.clone(), now, out);
                 Ok(())
             }
             Command::ConfirmStage { stage, ranking } => {
@@ -651,6 +677,204 @@ impl RoomState {
         }
     }
 
+    /// Stage `stage`'s content becomes `status` (with `share`). Unusable,
+    /// its window or countdown is canceled; available, its window's
+    /// deadline counts from now (the song reached everyone just now).
+    fn content_status(
+        &mut self,
+        stage: StageId,
+        status: ContentStatus,
+        share: Option<String>,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) {
+        self.emit(
+            out,
+            Event::ContentStatusChanged {
+                stage,
+                status: status.clone(),
+                share,
+            },
+        );
+        match (&status, self.phase.clone()) {
+            (
+                ContentStatus::Unavailable { .. },
+                Phase::Countdown { stage: p, .. }
+                | Phase::Preparing {
+                    stage: p,
+                    window: Some(_),
+                },
+            ) if p == stage => self.cancel_start(p, CancelReason::ContentUnavailable, out),
+            (
+                ContentStatus::Available,
+                Phase::Preparing {
+                    stage: p,
+                    window: Some(w),
+                },
+            ) if p == stage => self.emit(
+                out,
+                Event::PhaseChanged {
+                    phase: Phase::Preparing {
+                        stage: p,
+                        window: Some(ReadinessWindow {
+                            deadline: now.after(self.policy.readiness.window_ms),
+                            ..w
+                        }),
+                    },
+                },
+            ),
+            _ => {}
+        }
+    }
+
+    /// Close the finished or interrupted match and open the next one's
+    /// admission in the lobby, its saved draft checked again.
+    fn open_next_match(&mut self, out: &mut Vec<Event>) -> Decided {
+        let ending = match self.phase {
+            Phase::MatchResults => MatchEnding::Completed,
+            Phase::Interrupted { reason } => MatchEnding::Interrupted { reason },
+            _ => return Err(self.wrong_phase()),
+        };
+        self.emit(out, Event::MatchClosed { ending });
+        // The boundary: the saved draft is checked against who wants to
+        // play now; a problem keeps it pending and blocks Start.
+        let review = self
+            .next
+            .rules
+            .validate(&self.policy, self.reserved_humans())
+            .err();
+        if review != self.next.review {
+            self.emit(out, Event::NextRulesReviewed { review });
+        }
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Lobby,
+            },
+        );
+        Ok(())
+    }
+
+    /// [`Command::Pick`]: the stage the room plays next gets `content`, the
+    /// match starts or goes on, and the stage's readiness window opens.
+    fn pick(
+        &mut self,
+        base: Option<Revision>,
+        content: &crate::ids::ContentId,
+        card: Option<&ContentCard>,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        let stage = match self.phase.clone() {
+            Phase::Lobby => {
+                Self::check_base(base, self.next.saved_at)?;
+                let first = self.playlist.first().map(|s| s.id);
+                self.start_match(out)?;
+                first.ok_or(Rejection::UnknownStage)?
+            }
+            Phase::MatchResults | Phase::Interrupted { .. } => {
+                Self::check_base(base, self.next.saved_at)?;
+                self.open_next_match(out)?;
+                let first = self.playlist.first().map(|s| s.id);
+                self.start_match(out)?;
+                first.ok_or(Rejection::UnknownStage)?
+            }
+            Phase::Intermission { next } => {
+                self.prepare(next, out);
+                next
+            }
+            Phase::Preparing {
+                stage,
+                window: None,
+            } => stage,
+            Phase::Preparing {
+                window: Some(_), ..
+            } => return Err(Rejection::WindowOpen),
+            Phase::Countdown { .. } => return Err(Rejection::StartCommitted),
+            _ => return Err(self.wrong_phase()),
+        };
+        // A field that could never start is refused before anything locks.
+        let candidates = self.candidates();
+        let humans = candidates
+            .iter()
+            .filter(|id| self.members.get(id).is_some_and(|m| !m.is_cpu()))
+            .count();
+        let p = &self.policy.readiness;
+        if humans < usize::from(p.min_ready_humans)
+            || candidates.len() < usize::from(p.min_competitors)
+        {
+            return Err(Rejection::NotEnoughReady {
+                ready_humans: u16::try_from(humans).unwrap_or(u16::MAX),
+                competitors: u16::try_from(candidates.len()).unwrap_or(u16::MAX),
+            });
+        }
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        if s.play.is_some() {
+            return Err(Rejection::StageStarted);
+        }
+        if s.content.as_ref().map(|c| &c.id) != Some(content) {
+            let (status, share) = match self.source {
+                ContentSource::LocalLibrary => (ContentStatus::Available, None),
+                ContentSource::Shared => match self.known_share(content) {
+                    Some(share) => (ContentStatus::Available, Some(share)),
+                    None => (ContentStatus::Pending, None),
+                },
+            };
+            self.emit(
+                out,
+                Event::ContentChosen {
+                    stage,
+                    content: Some(StageContent {
+                        id: content.clone(),
+                        status,
+                        share,
+                        card: card.cloned(),
+                    }),
+                },
+            );
+        }
+        let readiness_rev = self.stage(stage).map_or(0, |s| s.readiness_rev);
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Preparing {
+                    stage,
+                    window: Some(ReadinessWindow {
+                        deadline: now.after(self.policy.readiness.window_ms),
+                        readiness_rev,
+                    }),
+                },
+            },
+        );
+        Ok(())
+    }
+
+    /// A readiness window ends early once everyone connected who could
+    /// still join is ready and loaded (`hosted-deadline-v1`): the start
+    /// commits at once. A member whose connection is down does not hold
+    /// it; the deadline still waits for them.
+    fn maybe_commit(&mut self, now: Millis, out: &mut Vec<Event>) {
+        let Phase::Preparing {
+            stage,
+            window: Some(_),
+        } = self.phase
+        else {
+            return;
+        };
+        let Some(s) = self.stage(stage) else { return };
+        if self.content_ready(s).is_err() {
+            return;
+        }
+        let (lineup, sat_out) = self.lineup(s);
+        let waiting = sat_out
+            .iter()
+            .any(|(_, r)| r.may_still_join() && *r != SitOutReason::NotConnected);
+        if waiting || !self.enough(&lineup).0 {
+            return;
+        }
+        self.commit_start(stage, lineup, sat_out, now, out);
+    }
+
     /// May `id` prepare for `stage` now?
     fn check_preparing(&self, id: ParticipantId, stage: StageId, readiness_rev: u32) -> Decided {
         if self.upcoming_stage() != Some(stage) {
@@ -697,7 +921,7 @@ impl RoomState {
                     id,
                     kind: MemberKind::Cpu {
                         ordinal,
-                        opponent: rules.cpu.opponent.for_seat(ordinal),
+                        opponent: rules.cpu_for_seat(ordinal),
                     },
                     role: Role::Member,
                     admin: false,
@@ -1040,6 +1264,11 @@ impl RoomState {
                 window: Some(w),
             } if now >= w.deadline => {
                 let Some(s) = self.stage(stage) else { return };
+                // A song still being shared: the window waits for it (its
+                // deadline starts again once it is available).
+                if self.content_pending(stage) {
+                    return;
+                }
                 if self.content_ready(s).is_err() {
                     self.cancel_start(stage, CancelReason::ContentUnavailable, out);
                     return;
@@ -1133,6 +1362,7 @@ impl RoomState {
                 }
             }
             Event::AccessChanged { access } => self.access = *access,
+            Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),
             Event::ContentChosen { stage, content } => {
                 if let Some(s) = self.stage_mut(*stage) {
                     s.content = content.clone();

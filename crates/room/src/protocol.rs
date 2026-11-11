@@ -20,8 +20,11 @@ use crate::ids::{ClientId, Revision};
 use crate::state::RoomState;
 use serde::{Deserialize, Serialize};
 
-/// The protocol this build speaks.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// The protocol this build speaks. 2 (M7b): the match flow's `pick`,
+/// `spotlight` and `set_spotlight_share` commands, the `spotlight_changed`
+/// event, content cards, CPU rosters; version 1's envelopes and frames are
+/// still accepted.
+pub const PROTOCOL_VERSION: u32 = 2;
 /// The oldest protocol an authority still accepts. The web app deploys on
 /// push, the server separately and desktop builds lag, so an authority
 /// keeps accepting the previous version once there is one.

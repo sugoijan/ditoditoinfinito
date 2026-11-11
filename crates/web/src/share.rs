@@ -91,6 +91,13 @@ pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
     Some(ddi_library::share::file_url(&base(), share, n, path))
 }
 
+/// The entry of shared song `song_id`, if its share was read this
+/// session (an online room's follower's preview of the host's song).
+pub(crate) fn entry(song_id: &str) -> Option<ddi_library::manifest::ManifestEntry> {
+    let (share, n) = parse_song_id(song_id)?;
+    Some(kept(share)?.songs.get(n)?.record.entry.clone())
+}
+
 /// The size the share lists for file `path` of the shared song
 /// `song_id`, if it lists it.
 pub(crate) fn file_size(song_id: &str, path: &str) -> Option<u64> {

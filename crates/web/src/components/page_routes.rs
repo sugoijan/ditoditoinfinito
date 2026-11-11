@@ -31,14 +31,12 @@ pub(crate) enum Which {
     /// A shared link that does not exist or expired (`crate::share`):
     /// why, and the way to the start menu.
     SharedGone(ddi_library::share::ShareError),
-    /// The multiplayer prototype's home (`#/mp`) and its practice room
-    /// (`#/room`, `crate::room`), behind the hidden switch; an invite's
-    /// page (`#/mp/join/<invite>`) and an online room (`#/mp/room/<id>`,
-    /// `crate::online`).
+    /// The multiplayer prototype's home (`#/mp`), behind the hidden
+    /// switch, and an invite's page (`#/mp/join/<invite>`,
+    /// `crate::online`). The rooms are song select's (M7b,
+    /// `select_page::Props::room`).
     Multiplayer,
-    Room,
     Invite(String),
-    OnlineRoom(String),
 }
 
 #[derive(Clone, PartialEq)]
@@ -119,7 +117,6 @@ impl PagePage {
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
             Which::SharedGone(why) => ("shared", shared_gone_doc(why)),
             Which::Multiplayer | Which::Invite(_) => ("multiplayer", PageDoc::default()),
-            Which::Room | Which::OnlineRoom(_) => ("room", PageDoc::default()),
         };
         let shell: PageShell = {
             let env = env.clone();
@@ -171,11 +168,6 @@ impl PagePage {
                 // Under the loader, which shows the title already.
                 .in_place(crate::boot::shown()),
             );
-        } else if which == Which::Room {
-            ui.push(room_screen(&env));
-        } else if let Which::OnlineRoom(id) = &which {
-            multiplayer_arrived();
-            ui.push(online_room_screen(&env, id));
         } else if which == Which::Multiplayer {
             multiplayer_arrived();
             ui.push(online_screen(&env, OnlinePage::Home));
@@ -197,57 +189,18 @@ impl PagePage {
     }
 }
 
-/// The practice room (`crate::room`): Back to the multiplayer home,
-/// Leave room forgets it first, Choose song opens song select in its pick
-/// mode (`#/room/pick`), which comes back here.
-fn room_screen(env: &ddi_ui::screens::Env) -> ddi_ui::screens::room::RoomScreen {
-    use ddi_ui::screens::room::{RoomCall, RoomScreen};
-    let screen = RoomScreen::new(
-        env.clone(),
-        crate::room::current(),
-        Rc::new(|call, cx| match call {
-            RoomCall::Leave => cx.request(UiRequest::Back),
-            RoomCall::Discard => {
-                crate::room::discard();
-                cx.request(UiRequest::Back);
-            }
-            RoomCall::ChooseSong { stage, number } => {
-                crate::room::pick_for(None);
-                cx.request(UiRequest::Navigate(
-                    Route::RoomPick {
-                        stage: stage.0,
-                        number,
-                    }
-                    .to_hash(),
-                ));
-            }
-            RoomCall::Prepare(job) => crate::room::prepare(job),
-            // On the play route; its results come back here.
-            RoomCall::PlayStage(order) => {
-                cx.request(UiRequest::Navigate(crate::room::play(*order)));
-            }
-            // Practice never signs in, and shares nothing.
-            RoomCall::Redirect(_) | RoomCall::Upload(_) => {}
-        }),
-    );
-    match crate::room::take_chosen() {
-        Some(stage) => screen.with_stage(stage),
-        None => screen,
-    }
-}
-
 use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
 use ddi_ui::state::online::Redirect;
 
 /// A multiplayer route opened: a sign-in's return taken from its
 /// address.
-fn multiplayer_arrived() {
+pub(crate) fn multiplayer_arrived() {
     let canceled = crate::router::query_param("signin").as_deref() == Some("canceled");
     crate::online::arrived(canceled);
 }
 
 /// Where signing in sends the page.
-fn redirect(r: Redirect) {
+pub(crate) fn redirect(r: Redirect) {
     match r {
         Redirect::Page(path) => crate::online::leave_for_sign_in(&path),
         // Desktop's; the web leaves the page instead.
@@ -273,57 +226,6 @@ fn online_screen(env: &ddi_ui::screens::Env, which: OnlinePage) -> OnlineScreen 
             OnlineCall::Leave => cx.request(UiRequest::Back),
         }),
     )
-}
-
-/// An online room (`crate::online::room`): Back to the multiplayer home,
-/// Leave room tells the room and forgets it, Choose song opens song
-/// select's pick mode for it, Sign in again leaves for the server's
-/// sign-in. The host's pick is uploaded as the room's share
-/// (`crate::room::upload`), each stage's song prepared from the library or
-/// the share (`crate::room::prepare_for`), and a stage played on the play
-/// route as practice's are, its run reported to the room.
-fn online_room_screen(env: &ddi_ui::screens::Env, id: &str) -> ddi_ui::screens::room::RoomScreen {
-    use ddi_ui::screens::room::{RoomCall, RoomScreen};
-    let room = crate::online::room(id);
-    let this = room.clone();
-    let room_id = id.to_string();
-    let screen = RoomScreen::new(
-        env.clone(),
-        room,
-        Rc::new(move |call, cx| match call {
-            RoomCall::Leave => cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash())),
-            RoomCall::Discard => {
-                crate::online::discard();
-                cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash()));
-            }
-            RoomCall::ChooseSong { stage, number } => {
-                crate::room::pick_for(crate::online::shown_room());
-                cx.request(UiRequest::Navigate(
-                    Route::RoomPick {
-                        stage: stage.0,
-                        number,
-                    }
-                    .to_hash(),
-                ));
-            }
-            RoomCall::Redirect(r) => redirect(r),
-            RoomCall::Prepare(job) => crate::room::prepare_for(this.clone(), job),
-            RoomCall::Upload(job) => crate::room::upload(this.clone(), *job),
-            RoomCall::PlayStage(order) => {
-                cx.request(UiRequest::Navigate(crate::room::play_in(
-                    this.clone(),
-                    Route::MpRoom {
-                        id: room_id.clone(),
-                    },
-                    *order,
-                )));
-            }
-        }),
-    );
-    match crate::room::take_chosen() {
-        Some(stage) => screen.with_stage(stage),
-        None => screen,
-    }
 }
 
 /// Puts `doc` in the feed and tells the screen once the host is free.

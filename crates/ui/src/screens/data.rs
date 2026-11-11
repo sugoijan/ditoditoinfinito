@@ -547,17 +547,6 @@ pub struct SelectData {
     /// Songs shared by link (`docs/plans/shared-songs.md`): the list is
     /// the share's songs alone, nothing is added, edited or managed.
     pub shared: Option<SharedView>,
-    /// Choosing a multiplayer stage's song (`screens::room`): the whole
-    /// library, nothing added, edited, managed or shared; Start uses the
-    /// chart shown for the stage.
-    pub pick: Option<PickView>,
-}
-
-/// Song select choosing a stage's song ([`SelectData::pick`]).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PickView {
-    /// The stage's number, from 1.
-    pub stage: u16,
 }
 
 /// How sharing a pack goes (`docs/plans/shared-songs.md`): the shell's

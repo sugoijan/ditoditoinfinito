@@ -223,10 +223,13 @@ impl App {
             // address): the room.
             Route::Play(PlayRoute {
                 stage: Some(id), ..
-            }) if crate::room::playing(*id).is_none() => Box::new(mount::<PagePage>(
+            }) if crate::room::playing(*id).is_none() => Box::new(mount::<SelectPage>(
                 root,
                 "main",
-                page_routes::Props { which: Which::Room },
+                crate::components::select_page::Props {
+                    shared: false,
+                    room: Some(crate::room::RoomRoute::Practice),
+                },
             )),
             Route::Play(PlayRoute {
                 song,
@@ -303,11 +306,7 @@ impl App {
             // canvas (step 6.4).
             // The multiplayer prototype, behind its hidden switch: off,
             // its routes are the start menu's.
-            Route::Multiplayer
-            | Route::Room
-            | Route::RoomPick { .. }
-            | Route::MpJoin { .. }
-            | Route::MpRoom { .. }
+            Route::Multiplayer | Route::Room | Route::MpJoin { .. } | Route::MpRoom { .. }
                 if !crate::settings::Settings::load().multiplayer =>
             {
                 Box::new(mount::<PagePage>(
@@ -325,10 +324,15 @@ impl App {
                     which: Which::Multiplayer,
                 },
             )),
-            Route::Room => Box::new(mount::<PagePage>(
+            // The room's song select (M7b): the practice room's, an online
+            // room's.
+            Route::Room => Box::new(mount::<SelectPage>(
                 root,
                 "main",
-                page_routes::Props { which: Which::Room },
+                crate::components::select_page::Props {
+                    shared: false,
+                    room: Some(crate::room::RoomRoute::Practice),
+                },
             )),
             Route::MpJoin { invite } => Box::new(mount::<PagePage>(
                 root,
@@ -337,19 +341,12 @@ impl App {
                     which: Which::Invite(invite.clone()),
                 },
             )),
-            Route::MpRoom { id } => Box::new(mount::<PagePage>(
-                root,
-                "main",
-                page_routes::Props {
-                    which: Which::OnlineRoom(id.clone()),
-                },
-            )),
-            Route::RoomPick { stage, number } => Box::new(mount::<SelectPage>(
+            Route::MpRoom { id } => Box::new(mount::<SelectPage>(
                 root,
                 "main",
                 crate::components::select_page::Props {
                     shared: false,
-                    pick: Some((ddi_room::StageId(*stage), *number)),
+                    room: Some(crate::room::RoomRoute::Online(id.clone())),
                 },
             )),
             Route::Credits => Box::new(mount::<PagePage>(

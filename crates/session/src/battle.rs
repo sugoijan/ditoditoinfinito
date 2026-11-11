@@ -179,13 +179,25 @@ impl Battle {
                 let mut rules = ruleset.fresh();
                 rules.fail = ddi_engine::FailPolicy::Immediate;
                 let level = usize::from(seat.level).min(levels - 1);
-                let mut opponent = Opponent::new(song, chart, rules, level, seat.seed)?;
+                // A roster CPU's personality (M7b); an unreadable one plays
+                // balanced.
+                let skills = seat
+                    .skills
+                    .as_deref()
+                    .and_then(|v| ddi_engine::cpu::Skills::parse(v).ok())
+                    .unwrap_or_default();
+                let mut opponent =
+                    Opponent::with_skills(song, chart, rules, level, seat.seed, skills)?;
                 opponent.start(song_offset);
                 let feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
                 Ok(Seat {
                     seat: seat.clone(),
                     opponent,
-                    name: m::cpu_name(seat.ordinal).into(),
+                    // A roster's name is data, the same in every language.
+                    name: seat
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| m::cpu_name(seat.ordinal).into()),
                     level: m::play_level(level + 1).into(),
                     feed,
                 })

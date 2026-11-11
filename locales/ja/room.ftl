@@ -24,13 +24,9 @@ room-join-heading = リンクで参加
 
 room-practice-heading = CPU練習
 
-room-practice-note = 試作版 · この端末のみ
-
 room-players = プレイヤー
 
 room-players-count = { $players } / { $cap }
-
-room-players-line = あなたとCPU { $cpus }人 · レベル { $level } / { $levels }
 
 room-you = あなた
 
@@ -44,41 +40,17 @@ room-state-ready = 準備OK
 room-state-not-ready = 未準備
 room-state-playing = プレイ中
 
-room-points = { $points } pt
-
 room-stage = ステージ { $number }
 
-room-stage-chart = ステージ { $number } · { $chart }
-
 room-stage-empty = 曲が未選択
-
-room-no-song = このステージの曲を選んでください。
-
-room-choose-song = 曲を選ぶ
-
-room-change-song = 曲を変更
-
-room-stage-locked = このステージは開始済みのため、曲は変更できません。
 
 room-rules = ルール
 
 room-ready = 準備OK
 room-unready = 準備を取り消す
-room-start-match = 対戦開始
-room-start-stage = ステージ { $number } 開始
-room-cancel-start = 開始を取り消す
 room-stop-match = 対戦を中止
-room-new-match = 次の対戦
 
 ## The status line.
-
-room-status-choose = ステージ { $number } の曲を選んでください。
-
-room-status-not-ready = 準備ができたら「準備OK」を押し、対戦を開始します。
-
-room-status-ready = 準備OKです。いつでも開始できます。
-
-room-status-window = あと { $seconds } 秒で開始します。準備ができていない人はこのステージを休みます。
 
 room-status-countdown = ステージ { $number } まであと { $seconds }…
 
@@ -86,15 +58,9 @@ room-status-playing = ステージ { $number } をプレイ中です。
 
 room-status-preparing = ステージ { $number } の曲を準備しています…
 
-room-status-stopped = 対戦を中止しました。終わったステージの結果は残ります。
-
-room-status-over = 対戦が終わりました。
-
 ## Refusals.
 
 room-refused-no-song = 先にこのステージの曲を選んでください。
-
-room-refused-not-ready = 先に「準備OK」を押してください。
 
 room-refused-started = そのステージは開始済みのため、変更できません。
 
@@ -126,9 +92,7 @@ room-chart-unsupported-title = CPU非対応
 
 ## Song select choosing a stage's song.
 
-room-pick-heading = ステージ { $number } の曲
-
-room-pick-use = ステージ { $number } に使う
+room-pick-use = ステージ { $number } に決定
 
 ## The Rules pop-up.
 
@@ -164,8 +128,6 @@ room-rules-apply = 適用
 
 room-leave = ルームを出る
 
-
-
 ## A stage's prompt, results and the room between stages.
 
 room-prompt-stage = ステージ { $number } / { $stages } · CPU { $cpus }人とタップのみの譜面で対戦 · ゲージが尽きるとアウト
@@ -183,8 +145,6 @@ room-mark-forfeit = ステージ { $number }: 途中でやめた · { $field }�
 room-mark-experimental = 得点は試験的
 
 room-rank-points = { $rank }位 · { $points }点
-
-room-status-next = 準備ができたら「準備OK」を押し、ステージ { $number } を開始します。
 
 room-results-title = 対戦結果
 
@@ -217,7 +177,6 @@ room-play-cue-stage-drawn = 1位タイ
 ## The footer's key hints.
 
 room-hint-move = 移動
-room-hint-select = 決定
 room-hint-back = 戻る
 
 ## Online rooms.
@@ -309,8 +268,6 @@ room-conn-joining = 接続中
 room-conn-reconnecting = 再接続中
 room-conn-away = 離席
 
-room-online-note = オンライン・試作版
-
 room-host-song = ホストが選んだ曲
 
 room-status-sharing = ステージ{ $number }の曲をルームに共有しています…
@@ -339,4 +296,80 @@ room-invite-not-replaced = 招待を差し替えられませんでした。
 
 room-status-host-chooses = ステージ{ $number }の曲はホストが選びます。
 
-room-no-song-yet = まだ曲が選ばれていません。
+## The match flow (M7b).
+
+room-status-pick-first = 曲を選んで対戦を始めましょう。
+
+room-status-host-picks-first = ホストが最初の曲を選んでいます。
+
+room-status-pick-next = ステージ{ $number }の曲を選んでください。
+
+room-status-gathering = 全員の準備ができたらステージ{ $number }開始 · { $seconds }秒
+
+room-status-sitting-out = ステージ{ $number }は見学です。ほかのプレイヤーがプレイ中です。
+
+room-status-pick-new-match = 対戦終了。曲を選んで次の対戦を始めましょう。
+
+room-status-stopped-pick = 対戦を中止しました。曲を選んで次の対戦を始めましょう。
+
+room-status-host-picks-new-match = 対戦終了。次の対戦の最初の曲はホストが選びます。
+
+room-cpu-style-balanced = バランス
+room-cpu-style-stream = 連打
+room-cpu-style-jacks = 縦連
+room-cpu-style-chords = 同時押し
+room-cpu-style-stamina = 体力
+room-cpu-style-technical = テクニック
+room-cpu-style-custom = カスタム
+
+room-state-loading = 読み込み中
+room-state-loading-percent = 読み込み中 { $percent }%
+room-state-load-failed = 読み込み失敗
+room-state-sitting-out = 見学
+
+room-mark-short = { $field }人中 { $place }位 · +{ $points }点
+room-mark-short-forfeit = { $field }人中 { $place }位 · 退出
+
+room-picks-heading = 選曲
+
+room-picks-count = { $stages }曲中 { $picked }曲
+
+room-panel-more-above = ▲ ほか{ $count }件
+room-panel-more-below = ▼ ほか{ $count }件
+
+room-refused-too-few = ステージを始めるにはプレイヤーが足りません。
+room-refused-host-only = ホストだけが行えます。
+room-refused-title = できません
+
+room-rules-ok = OK
+
+room-rules-locked-line = { $stages }ステージ · CPU { $cpus }人
+
+room-rules-no-cpus = CPU対戦相手なし。
+
+room-rules-remove = ×
+
+room-rules-add-random = ランダムに追加
+room-rules-add-custom = 選んで追加…
+
+room-add-cpus-title = CPUを追加
+
+room-add-cpus-count = 人数
+
+room-add-cpus-at-level = レベル{ $level }で{ $count }人追加
+
+room-add-cpus-by-name = または名前で1人
+
+room-add-cpus-full = 席がいっぱいです。
+
+room-add-cpus-none-left = すべてのCPUが参加済みです。
+
+room-standings-title = ステージ{ $number }の順位
+
+room-standings-continue = 次へ
+
+room-prompt-sat-out = 準備が間に合わなかったため、このステージは見学です。
+
+room-prompt-canceled = ステージの開始は取り消されました。
+
+room-cpu-label = CPU

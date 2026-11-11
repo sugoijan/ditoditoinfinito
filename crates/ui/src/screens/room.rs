@@ -1,46 +1,40 @@
-//! The multiplayer prototype's screens (`docs/plans/multiplayer-ui.md`,
-//! "Unified room layout and roles"; `docs/plans/multiplayer-prototype-progress.md`,
-//! M2): the multiplayer home (a page) and the room, one screen with the
-//! players and their standing at the left, the selected stage's song and
-//! chart in the middle, the match's stages at the right, Ready and Start
-//! (separate actions) at the bottom right; Rules and More are pop-ups
-//! (`room_dialogs.rs`).
+//! The multiplayer prototype's room, as the maintainer's match flow shows it
+//! (`docs/plans/multiplayer-prototype-progress.md`, M7b): no room screen of
+//! its own any more. The room's main view is song select (`select_room.rs`):
+//! the host's own list, whose Start on a song picks the next stage's song
+//! and starts (or goes on with) the match, and the others' song select
+//! following the host's resting song with the match's picks and the players
+//! beside it. Readiness gathers on the stage's start prompt (`prompt_room.rs`).
+//! Rules, Players and the stage's standings are pop-ups (`room_dialogs.rs`).
 //!
-//! The screen binds to a [`SharedRoom`] (`crate::state::room`): it reads
-//! the room from the client's mirror and asks for changes as commands; it
-//! keeps no room logic. Choosing a stage's song is the shell's: it opens
-//! song select in its pick mode ([`RoomCall::ChooseSong`]), whose chart
-//! goes back through [`RoomClient::choose`](crate::state::room::RoomClient::choose).
-//!
-//! - **Keys and controllers**: the directions move between the stages,
-//!   the song's button and the actions (the stage focused is the one
-//!   shown); Start on a stage or Choose song opens song select for it;
-//!   More (a controller's West) opens More; Back leaves for the
-//!   multiplayer home, the room kept.
-//! - **Pointers**: a tap on a stage, a button.
+//! What lives here is what those screens share: the calls to the shell
+//! ([`RoomCall`]), the room's per-frame pump ([`Pump`]: the client ticked,
+//! the songs to prepare and share handed to the shell, the prompt opened
+//! when a stage gathers), the status line and the rows they show, the room's
+//! More menu, and the debug state ([`RoomView`]). Every screen binds to the
+//! [`SharedRoom`] client and keeps no room logic: changes are commands the
+//! room accepts or refuses.
 
 use std::rc::Rc;
 
-use ddi_actor::{Actor, Kind};
+use ddi_actor::Actor;
 use ddi_l10n::UiText;
-use ddi_l10n::msg::{common, room as m, select as sm};
+use ddi_l10n::msg::{common, room as m};
 use ddi_room::{
-    Capability, Connection, Finish, LinkState, MemberKind, Participation, Phase, Rejection, Role,
-    RulesProblem, Stage, StageId, StageStanding,
+    Capability, Connection, ContentStatus, Finish, LinkState, MemberKind, Participation, Phase,
+    Rejection, Role, RulesProblem, StageId, StageStanding,
 };
 use serde::Serialize;
 
-use super::{Backdrop, Env, ground, header, left, right};
-use crate::look::{self, Spec, call};
-use crate::nav::{Focusable, MenuAction};
-use crate::screen::{Cx, Handled, Input, Screen};
+use super::{Env, left, right};
+use crate::look;
+use crate::screen::Cx;
 use crate::state::online::Redirect;
 use crate::state::online::link::LinkNotice;
 use crate::state::room::{
-    LoadJob, LoadProblem, Refusal, RoomClient, SharedRoom, Sharing, SharingProblem, StageMark,
-    StageOrder, Unsupported, UploadJob, cpu_levels,
+    LoadJob, LoadProblem, Refusal, RoomClient, RoomView as Where, SharedRoom, Sharing,
+    SharingProblem, StageMark, StageOrder, Unsupported, UploadJob, cpu_levels,
 };
-use crate::widgets::{play as play_command, set_image, set_text};
 
 /// What the room asks of its shell.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,19 +43,19 @@ pub enum RoomCall {
     Leave,
     /// Leave room: the practice forgotten, then back to the home.
     Discard,
-    /// Open song select to choose stage `stage`'s song (the `number`th).
-    ChooseSong { stage: StageId, number: u16 },
     /// Prepare a stage's song on this device (read its chart, check the
-    /// CPUs' plan) and answer `RoomClient::finish_load`.
+    /// CPUs' plan) and answer `RoomClient::finish_load`; the spotlight's
+    /// song (`state::room::SPOTLIGHT`) answers `finish_shared_load`.
     Prepare(LoadJob),
-    /// The stage's countdown is over: play it (its prompt, the play with
-    /// the CPUs, its results), report its outcome
+    /// A stage gathers readiness with this player in it (M7b): open its
+    /// start prompt (`prompt_room.rs`: Ready, the players), which plays it
+    /// once the room starts it, reports its outcome
     /// (`RoomClient::report_stage`, an online room's `report_run`) and
-    /// come back to the room.
+    /// comes back to the room.
     PlayStage(Box<StageOrder>),
-    /// An online room: upload the stage's song as the room's share with
-    /// its grant, telling `RoomClient::upload_progress` and
-    /// `upload_finished`.
+    /// An online room: upload a stage's (or the spotlight's) song as the
+    /// room's share with its grant, telling `RoomClient::upload_progress`
+    /// and `upload_finished`.
     Upload(Box<UploadJob>),
     /// An online room's Sign in again: go where signing in needs (the
     /// server's page on the web, the system browser on desktop).
@@ -73,44 +67,52 @@ pub type RoomShell = Rc<dyn Fn(RoomCall, &mut Cx)>;
 /// The room as the debug state shows it (`ThemeState::room`), for tests.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct RoomView {
+    /// What shows it: `select` (song select, the host's or following) or
+    /// `prompt` (a stage's start prompt).
+    pub view: String,
     /// The phase (`lobby`, `preparing`, `countdown`, `stage`, …).
     pub phase: String,
     /// The revision of the room the screen shows.
     pub revision: u64,
-    /// The selected stage's index in the list.
-    pub selected: usize,
+    /// The local player may pick (an operator): song select is theirs.
+    pub host: bool,
     pub stages: Vec<RoomStageView>,
     pub members: Vec<RoomMemberView>,
-    /// The rules the shown stages play under: CPU count and level (from
-    /// 1), stages.
+    /// The CPUs the shown rules seat, and the stages.
     pub cpus: u16,
-    pub level: u8,
     pub stage_count: u16,
     /// The running match's rules are locked (a match exists).
     pub locked: bool,
     pub ready: bool,
-    /// Whole seconds left of the countdown.
+    /// Whole seconds left of the countdown or the readiness window.
     pub countdown: Option<u64>,
     /// The status line, and the refusal it says (its kind), if any.
     pub status: String,
     pub refusal: Option<String>,
-    /// The Start button's label.
-    pub start: String,
     /// Finished matches kept in the room.
     pub history: usize,
-    /// The room's own controls (`Stage.<i>`, `Choose`, `Ready`, `Start`,
-    /// `Rules`, `More`, `Back`): where a shell's debug view finds them,
-    /// whatever dialog said its own since.
+    /// The screen's own controls: where a shell's debug view finds them.
     pub items: Vec<String>,
-    /// The Rules pop-up is open; its draft (stages, CPUs, level from 1)
-    /// and what the room says of it.
+    /// The Rules pop-up is open (`first`: the one entering opens, Reset
+    /// and OK); its draft (stages, CPUs) and what the room says of it.
     pub rules_open: bool,
+    pub rules_first: bool,
     pub draft: Vec<u16>,
     pub rules_problem: Option<String>,
-    /// The local player's last stage result, as said under the song.
+    /// The roster pop-ups: Add custom, Players, the stage's standings.
+    pub add_open: bool,
+    pub players_open: bool,
+    pub standings_open: bool,
+    /// The local player's last stage result, as said.
     pub mark: Option<String>,
     /// The match's standings (in a match or its results), best first.
     pub standings: Vec<RoomStandingView>,
+    /// The operator's resting song (its title) and, once this device has
+    /// it, its song id (a member's: the room's share of it).
+    pub spotlight: Option<String>,
+    pub spotlight_song: Option<String>,
+    /// The match's picks as the history shows them, one a stage.
+    pub picks: Vec<String>,
     /// An online room (M5c): its id and name, the link (`joining`,
     /// `connected`, `reconnecting`, `sign_in_again`, `closed`, `left`),
     /// the local player's role (`owner`, `co_host`, `member`) and admin
@@ -158,8 +160,9 @@ pub struct RoomMemberView {
     pub id: u64,
     pub name: String,
     pub cpu: bool,
-    /// A CPU's level, from 1.
+    /// A CPU's level, from 1, and personality.
     pub level: Option<u8>,
+    pub personality: Option<String>,
     pub ready: bool,
     pub points: String,
     /// A CPU that takes its seat when the match starts.
@@ -172,1081 +175,761 @@ pub struct RoomMemberView {
     pub participation: String,
 }
 
-/// One player's row as the column shows it.
-struct Row {
-    name: String,
-    sub: String,
-    state: String,
-    me: bool,
+/// A room screen's per-frame work: the client ticked on the UI's clock,
+/// an online room's own (signing in again, the invite fetched for its
+/// operators), the songs to prepare and upload handed to the shell
+/// whatever is over the screen, and, where the screen is the current one,
+/// the stage whose prompt this player belongs on opened once.
+#[derive(Default)]
+pub struct Pump {
+    seen: Option<u64>,
 }
 
-/// Where the parts go.
-#[derive(Clone, Copy, Default)]
-struct Layout {
-    size: [f32; 2],
-    zoom: f32,
-    compact: bool,
-    margin: f32,
-    top: f32,
-    /// The players' column, the song's and the stages' (`[x, w]`).
-    players: [f32; 2],
-    song: [f32; 2],
-    stages: [f32; 2],
-    /// The stages' rows' height and gap, and the bottom of their room.
-    row: f32,
-    gap: f32,
-    bottom: f32,
-    /// The action row's middle.
-    actions_y: f32,
-}
-
-impl Layout {
-    fn new(env: &Env, cx: &Cx) -> Layout {
-        let vp = cx.viewport().screen;
-        let (size, zoom, compact) = super::compact_fit(env, vp);
-        let [w, h] = size;
-        let footer = env.metric("Footer.Height", 40.0);
-        if compact {
-            let margin = 16.0;
-            let col = ((w - 3.0 * margin) / 2.0).max(120.0);
-            Layout {
-                size,
-                zoom,
-                compact,
-                margin,
-                top: 76.0,
-                players: [margin, w - 2.0 * margin],
-                song: [margin, col],
-                stages: [2.0 * margin + col, col],
-                row: 40.0,
-                gap: 4.0,
-                bottom: h - footer - 52.0,
-                actions_y: h - footer - 26.0,
-            }
-        } else {
-            let margin = env.metric("Margin", 32.0);
-            let players = 240.0;
-            let song = 480.0_f32.min(w * 0.4);
-            let stages_x = margin + players + 24.0 + song + 24.0;
-            Layout {
-                size,
-                zoom,
-                compact,
-                margin,
-                top: env.metric("Header.Height", 64.0) + 24.0,
-                players: [margin, players],
-                song: [margin + players + 24.0, song],
-                stages: [stages_x, (w - margin - stages_x).max(160.0)],
-                row: 64.0,
-                gap: 8.0,
-                bottom: h - footer - 72.0,
-                actions_y: h - footer - 34.0,
-            }
+impl Pump {
+    /// Runs it; whether the room changed since the last run.
+    pub fn run(&mut self, room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) -> bool {
+        room.borrow_mut()
+            .tick((cx.clock() * 1000.0).max(0.0) as u64);
+        online_update(room, shell, cx);
+        let jobs = room.borrow_mut().take_load_jobs();
+        for job in jobs {
+            shell(RoomCall::Prepare(job), cx);
         }
-    }
-}
-
-pub struct RoomScreen {
-    env: Env,
-    room: SharedRoom,
-    shell: RoomShell,
-    /// The stage shown (an index into the list), followed by focus.
-    selected: usize,
-    /// The room's version and the countdown's second last drawn.
-    seen: Option<(u64, Option<u64>)>,
-    layout: Layout,
-    backdrop: Backdrop,
-    live: super::Live,
-    /// The focus to take at the first build (a stage coming back from
-    /// song select).
-    initial: Option<String>,
-    /// A dialog or another screen was over it: it says what it shows
-    /// again once uncovered.
-    covered: bool,
-    /// The room's phase when last looked at.
-    phase: Option<ddi_room::PhaseKind>,
-    /// The UI's clock at the last update ([`Screen::wake_at`]).
-    time: f64,
-}
-
-impl RoomScreen {
-    pub fn new(env: Env, room: SharedRoom, shell: RoomShell) -> RoomScreen {
-        let selected = {
-            let r = room.borrow();
-            let upcoming = r.state().upcoming_stage();
-            r.stages()
-                .iter()
-                .position(|s| Some(s.id) == upcoming)
-                .unwrap_or(0)
-        };
-        RoomScreen {
-            env,
-            room,
-            shell,
-            selected,
-            seen: None,
-            layout: Layout::default(),
-            backdrop: Backdrop::new(),
-            live: Default::default(),
-            initial: None,
-            covered: false,
-            phase: None,
-            time: 0.0,
+        let uploads = room.borrow_mut().take_upload_jobs();
+        for job in uploads {
+            shell(RoomCall::Upload(Box::new(job)), cx);
         }
+        let version = room.borrow().version();
+        self.seen.replace(version) != Some(version)
     }
 
-    /// Opens with stage `stage` selected and focused (back from choosing
-    /// its song).
-    pub fn with_stage(mut self, stage: StageId) -> RoomScreen {
-        if let Some(i) = self
-            .room
-            .borrow()
-            .stages()
-            .iter()
-            .position(|s| s.id == stage)
-        {
-            self.selected = i;
-            self.initial = Some(stage_name(i));
-        }
-        self
-    }
-
-    fn countdown(&self) -> Option<u64> {
-        let r = self.room.borrow();
-        match r.state().phase {
-            Phase::Countdown { start_at, .. } => {
-                Some(start_at.0.saturating_sub(r.now_ms()).div_ceil(1000))
-            }
-            Phase::Preparing {
-                window: Some(w), ..
-            } => Some(w.deadline.0.saturating_sub(r.now_ms()).div_ceil(1000)),
-            _ => None,
-        }
-    }
-
-    fn selected_stage(&self) -> Option<Stage> {
-        self.room.borrow().stages().get(self.selected).cloned()
-    }
-
-    /// Whether the selected stage's song can be chosen now: unstarted,
-    /// by someone who may choose (the room's own rule).
-    fn choosable(&self) -> bool {
-        self.selected_stage().is_some_and(|s| s.play.is_none())
-            && self.room.borrow().may(Capability::ChooseContent)
-    }
-
-    fn ready_shown(&self) -> bool {
-        let r = self.room.borrow();
-        let s = r.state();
-        let gathering = matches!(
-            s.phase,
-            Phase::Lobby | Phase::Preparing { window: None, .. } | Phase::Intermission { .. }
-        );
-        if !gathering {
+    /// The stage's prompt, where the room says this player belongs on it
+    /// (a pick gathering readiness): handed to the shell once.
+    pub fn open_prompt(room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) -> bool {
+        if room.borrow().view() == Where::Select {
             return false;
         }
-        if !r.is_online() {
-            return true;
-        }
-        // Online, only a player gathering readiness has Ready: one who
-        // watches or waits for the next match has none (never a grayed
-        // Ready), nor does anyone before the room is reached.
-        r.link_state() == LinkState::Connected
-            && matches!(
-                s.participation(r.me()),
-                Some(
-                    Participation::NotReady { .. }
-                        | Participation::ReadyLoading { .. }
-                        | Participation::ReadyLoaded { .. }
-                        | Participation::LoadFailed { .. }
-                )
-            )
-    }
-
-    /// Whether Start (or what it becomes: Cancel start, Stop match, Next
-    /// match) is offered: to whom the room lets do it.
-    fn start_shown(&self) -> bool {
-        let r = self.room.borrow();
-        if r.is_online() && r.link_state() != LinkState::Connected {
-            return false;
-        }
-        match r.state().phase {
-            Phase::Stage { .. } | Phase::SongCompletion { .. } => r.may(Capability::StopMatch),
-            _ => r.may(Capability::Advance),
+        let order = room.borrow_mut().take_stage_order();
+        match order {
+            Some(order) => {
+                shell(RoomCall::PlayStage(Box::new(order)), cx);
+                true
+            }
+            None => false,
         }
     }
+}
 
-    /// The header's name: the practice's, or the online room's own.
-    fn heading(&self) -> UiText {
-        let r = self.room.borrow();
-        match (r.is_online(), r.name()) {
-            (false, _) => m::practice_heading(),
-            (true, Some(name)) => UiText::data(name.to_uppercase()),
-            (true, None) => m::home_heading(),
-        }
-    }
-
-    fn start_label(&self) -> UiText {
-        let r = self.room.borrow();
-        let s = r.state();
-        let number = |id: StageId| {
-            r.stages()
-                .iter()
-                .position(|st| st.id == id)
-                .map_or(1, |i| i + 1)
+/// An online room's own: where signing in again sends the shell, the
+/// invite asked for once the player operates the room.
+fn online_update(room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) {
+    let (redirect, fetch) = {
+        let r = room.borrow();
+        let Some(link) = r.online_link() else {
+            return;
         };
-        match &s.phase {
-            Phase::Lobby => m::start_match(),
-            Phase::Preparing {
-                window: None,
-                stage,
-            } => m::start_stage(number(*stage)),
-            Phase::Intermission { next } => m::start_stage(number(*next)),
-            Phase::Preparing { .. } | Phase::Countdown { .. } => m::cancel_start(),
-            Phase::Stage { .. } | Phase::SongCompletion { .. } => m::stop_match(),
-            Phase::MatchResults | Phase::Interrupted { .. } => m::new_match(),
+        let fetch = r.link_state() == LinkState::Connected
+            && r.may(Capability::ChooseContent)
+            && r.invite_link().is_none();
+        let mut o = link.online().borrow_mut();
+        // Back in this room after signing in again: it is shown.
+        let _ = o.take_entered();
+        (o.take_redirect(), fetch)
+    };
+    if fetch {
+        room.borrow_mut().fetch_invite();
+    }
+    if let Some(r) = redirect {
+        shell(RoomCall::Redirect(r), cx);
+    }
+}
+
+/// The room's name for the header: CPU PRACTICE, or the online room's.
+pub fn heading(r: &RoomClient) -> UiText {
+    match (r.is_online(), r.name()) {
+        (false, _) => m::practice_heading(),
+        (true, Some(name)) => UiText::data(name.to_uppercase()),
+        (true, None) => m::home_heading(),
+    }
+}
+
+/// A stage's number in the shown stages, from 1.
+fn number_of(r: &RoomClient, id: StageId) -> usize {
+    r.stages()
+        .iter()
+        .position(|st| st.id == id)
+        .map_or(1, |i| i + 1)
+}
+
+/// Whole seconds left of the countdown or the readiness window (a window
+/// waiting for its song to be shared has none yet).
+pub fn seconds_left(r: &RoomClient) -> Option<u64> {
+    let s = r.state();
+    let at = match &s.phase {
+        Phase::Countdown { start_at, .. } => *start_at,
+        Phase::Preparing {
+            stage,
+            window: Some(w),
+        } if !s.content_pending(*stage) => w.deadline,
+        _ => return None,
+    };
+    Some(at.0.saturating_sub(r.now_ms()).div_ceil(1000))
+}
+
+/// The room's status line (M7b: above the list on song select, the
+/// panel's first line for the others, the prompt's under its song): what
+/// the room waits for, and the last refusal or link change.
+pub fn status(r: &RoomClient) -> UiText {
+    if r.is_online() {
+        match r.link_state() {
+            LinkState::Joining => return m::link_joining(),
+            LinkState::Reconnecting { .. } => return m::link_reconnecting(),
+            LinkState::SignInAgain => return m::link_sign_in_again(),
+            LinkState::Closed => return m::link_closed(),
+            LinkState::Left => return m::link_left(),
+            LinkState::Connected => {}
         }
     }
-
-    fn status(&self) -> UiText {
-        let r = self.room.borrow();
-        if r.is_online() {
-            match r.link_state() {
-                LinkState::Joining => return m::link_joining(),
-                LinkState::Reconnecting { .. } => return m::link_reconnecting(),
-                LinkState::SignInAgain => return m::link_sign_in_again(),
-                LinkState::Closed => return m::link_closed(),
-                LinkState::Left => return m::link_left(),
-                LinkState::Connected => {}
-            }
-        }
-        if let Some(why) = r.refusal() {
-            return refusal_text(why);
-        }
-        if let Some(n) = r.link_notice() {
-            return match n {
-                LinkNotice::InviteCopied => m::invite_copied(),
-                LinkNotice::InviteReplaced => m::invite_replaced(),
-                LinkNotice::InviteNotReplaced => m::invite_not_replaced(),
-            };
-        }
-        let s = r.state();
-        let number = |id: StageId| {
-            r.stages()
-                .iter()
-                .position(|st| st.id == id)
-                .map_or(1, |i| i + 1)
+    if let Some(why) = r.refusal() {
+        return refusal_text(why);
+    }
+    if let Some(n) = r.link_notice() {
+        return match n {
+            LinkNotice::InviteCopied => m::invite_copied(),
+            LinkNotice::InviteReplaced => m::invite_replaced(),
+            LinkNotice::InviteNotReplaced => m::invite_not_replaced(),
         };
-        let seconds = self.countdown().unwrap_or(0);
-        match &s.phase {
-            Phase::Lobby | Phase::Preparing { window: None, .. } | Phase::Intermission { .. } => {
-                let Some(up) = s.upcoming_stage() else {
-                    return m::status_over();
-                };
-                let has_song = s.stage(up).is_some_and(|st| st.content.is_some());
-                let pending = s
-                    .stage(up)
-                    .and_then(|st| st.content.as_ref())
-                    .is_some_and(|c| c.status == ddi_room::ContentStatus::Pending);
-                if !has_song && !r.may(Capability::ChooseContent) {
-                    m::status_host_chooses(number(up))
-                } else if !has_song {
-                    m::status_choose(number(up))
-                } else if let Some(text) = sharing_status(&r, up, number(up)) {
-                    text
-                } else if r.is_online() && pending {
-                    m::status_sharing(number(up))
-                } else if let Some(p) = r.load_problem(up) {
-                    load_problem_text(p)
-                } else if r.loading(up) {
-                    m::status_preparing(number(up))
-                } else if r.ready() {
-                    m::status_ready()
-                } else if s.phase == Phase::Lobby {
-                    m::status_not_ready()
-                } else {
-                    m::status_next(number(up))
-                }
-            }
-            Phase::Preparing { .. } => m::status_window(seconds),
-            Phase::Countdown { stage, .. } => m::status_countdown(number(*stage), seconds),
-            Phase::Stage { stage } | Phase::SongCompletion { stage } if r.is_online() => {
-                m::status_online_stage(number(*stage))
-            }
-            Phase::Stage { stage } | Phase::SongCompletion { stage } => {
-                m::status_playing(number(*stage))
-            }
-            Phase::MatchResults => m::status_over(),
-            Phase::Interrupted { .. } => m::status_stopped(),
-        }
     }
-
-    fn rows(&self) -> Vec<Row> {
-        let r = self.room.borrow();
-        let s = r.state();
-        let levels = cpu_levels();
-        let standings = s.standings().unwrap_or_default();
-        // Places once a stage gave points; before, the points alone.
-        let placed = r.last_mark().is_some();
-        let points = |id| {
-            standings
-                .iter()
-                .find(|st| st.participant == id)
-                .map(|st| {
-                    if placed {
-                        m::rank_points(st.rank, st.total.to_string()).into()
-                    } else {
-                        m::points(st.total.to_string()).into()
-                    }
-                })
-                .unwrap_or_default()
-        };
-        let in_match = s.current.is_some() && s.phase != Phase::Lobby;
-        let mut rows = Vec::new();
-        for member in s.members.values().filter(|mb| !mb.left) {
-            match &member.kind {
-                MemberKind::Human { .. } => {
-                    let me = member.id == r.me();
-                    let name: String = if me {
-                        m::you().into()
-                    } else {
-                        UiText::data(member_name(member)).into()
-                    };
-                    let state = match s.participation(member.id) {
-                        Some(
-                            Participation::ReadyLoaded { .. }
-                            | Participation::ReadyLoading { .. }
-                            | Participation::Committed { .. },
-                        ) => m::state_ready().into(),
-                        Some(Participation::NotReady { .. } | Participation::LoadFailed { .. }) => {
-                            m::state_not_ready().into()
-                        }
-                        Some(Participation::Competing { .. }) => m::state_playing().into(),
-                        _ => String::new(),
-                    };
-                    let (sub, state) = if r.is_online() {
-                        online_row(s, member, in_match.then(|| points(member.id)), state)
-                    } else {
-                        (
-                            if in_match {
-                                points(member.id)
-                            } else {
-                                String::new()
-                            },
-                            state,
-                        )
-                    };
-                    rows.push(Row {
-                        name,
-                        sub,
-                        state,
-                        me,
-                    });
-                }
-                MemberKind::Cpu { ordinal, opponent } => rows.push(Row {
-                    name: m::cpu_name(*ordinal).into(),
-                    sub: m::cpu_level(u16::from(opponent.level) + 1, levels).into(),
-                    state: points(member.id),
-                    me: false,
-                }),
-            }
-        }
-        if !in_match {
-            // Before the match: the CPUs its rules will seat.
-            let rules = &s.next.rules;
-            for n in 1..=r.cpus_of(rules) {
-                rows.push(Row {
-                    name: m::cpu_name(n).into(),
-                    sub: m::cpu_level(u16::from(rules.cpu.opponent.level) + 1, levels).into(),
-                    state: m::cpu_at_start().into(),
-                    me: false,
-                });
-            }
-        }
-        rows
-    }
-
-    /// The window of stage rows shown: its first and how many.
-    fn window(&self, count: usize) -> (usize, usize) {
-        let l = &self.layout;
-        let room = (l.bottom - l.top).max(l.row);
-        let fit = ((room + l.gap) / (l.row + l.gap)).floor().max(1.0) as usize;
-        if count <= fit {
-            return (0, count);
-        }
-        let first = self.selected.saturating_sub(fit / 2).min(count - fit);
-        (first, fit)
-    }
-
-    fn tree(&mut self, cx: &mut Cx) -> Actor {
-        self.layout = Layout::new(&self.env, cx);
-        let l = self.layout;
-        let env = self.env.clone();
-        let [w, h] = l.size;
-        let stages: Vec<Stage> = self.room.borrow().stages().to_vec();
-        self.selected = self.selected.min(stages.len().saturating_sub(1));
-        let mut children = vec![ground(&env, l.size), self.backdrop.build(&env, l.size)];
-
-        // The header: Back, the room's name; Rules and More at the right.
-        let mut top = Vec::new();
-        if l.compact {
-            top.push(super::back_button(
-                &env,
-                [44.0, 44.0],
-                [l.margin + 22.0, 28.0],
-            ));
-            let mut title = env.text("Title", &self.heading(), 16.0, 700, "Text");
-            look::ellipsized(&mut title, (w - 2.0 * l.margin - 260.0).max(60.0));
-            top.push(left(title, l.margin + 56.0, 28.0));
-        } else {
-            top.push(header(&env, cx, w, &self.heading()));
-        }
-        let more_x = w - l.margin - 32.0;
-        top.push(super::more_button(&env, [more_x, 32.0]));
-        let rules = m::rules();
-        let rw = (look::mono_width(&rules, 15.0) + 24.0).max(72.0);
-        top.push(env.component(
-            "Button",
-            "Button",
-            &Spec::new([rw, 40.0], rules.as_str()),
-            "Rules",
-            [more_x - 32.0 - 12.0 - rw / 2.0, 32.0],
-        ));
-        children.push(super::frame("Top", top));
-
-        // The players.
-        let rows = self.rows();
-        let mut players = Vec::new();
-        let [px, pw] = l.players;
-        let cap = self.room.borrow().state().policy.max_competitors;
-        if l.compact {
-            let (cpus, level) = {
-                let r = self.room.borrow();
-                let rules = r.rules();
-                (r.cpus_of(rules), u16::from(rules.cpu.opponent.level) + 1)
-            };
-            let words = if self.room.borrow().is_online() {
-                m::online_note()
+    let s = r.state();
+    let host = r.may(Capability::ChooseContent);
+    let seconds = seconds_left(r).unwrap_or(0);
+    match &s.phase {
+        Phase::Lobby => {
+            if host {
+                m::status_pick_first()
             } else {
-                m::players_line(cpus, level, cpu_levels())
-            };
-            let mut line = env.text("Players.Line", &words, 13.0, 400, "Secondary");
-            look::ellipsized(&mut line, pw - 80.0);
-            players.push(left(line, px, l.top - 14.0));
-            players.push(right(
-                env.text(
-                    "Players.Count",
-                    &m::players_count(rows.len(), cap),
-                    13.0,
-                    400,
-                    "Muted",
-                ),
-                px + pw,
-                l.top - 14.0,
-            ));
-        } else {
-            players.push(left(
-                env.text("Players.Heading", &m::players(), 13.0, 700, "Muted"),
-                px,
-                l.top + 8.0,
-            ));
-            players.push(right(
-                env.text(
-                    "Players.Count",
-                    &m::players_count(rows.len(), cap),
-                    13.0,
-                    400,
-                    "Muted",
-                ),
-                px + pw,
-                l.top + 8.0,
-            ));
-            let mut y = l.top + 44.0;
-            for (i, row) in rows.iter().enumerate() {
-                let color = if row.me { "Text" } else { "Secondary" };
-                let mut name = env.text(&format!("Player{i}.Name"), &row.name, 16.0, 600, color);
-                look::ellipsized(&mut name, pw - 90.0);
-                players.push(left(name, px, y));
-                if !row.sub.is_empty() {
-                    let mut sub = env.text(&format!("Player{i}.Sub"), &row.sub, 12.0, 400, "Muted");
-                    look::ellipsized(&mut sub, pw - 90.0);
-                    players.push(left(sub, px, y + 18.0));
-                }
-                players.push(right(
-                    env.text(&format!("Player{i}.State"), &row.state, 13.0, 600, "Muted"),
-                    px + pw,
-                    y,
-                ));
-                y += 48.0;
-                if y > l.bottom {
-                    break;
-                }
+                m::status_host_picks_first()
             }
-            let note_text = if self.room.borrow().is_online() {
-                m::online_note()
+        }
+        Phase::Preparing {
+            stage,
+            window: None,
+        }
+        | Phase::Intermission { next: stage } => {
+            let n = number_of(r, *stage);
+            if host {
+                m::status_pick_next(n)
             } else {
-                m::practice_note()
-            };
-            let mut note = env.text("Players.Note", &note_text, 12.0, 400, "Muted");
-            look::ellipsized(&mut note, pw);
-            players.push(left(note, px, y + 4.0));
-        }
-        children.push(super::frame("Players", players));
-
-        // The selected stage's song and chart; at the match's end, its
-        // results in their place.
-        let over = matches!(
-            self.room.borrow().state().phase,
-            Phase::MatchResults | Phase::Interrupted { .. }
-        );
-        if over {
-            children.push(self.results_part());
-        } else {
-            children.push(self.song_part(cx, stages.get(self.selected)));
-        }
-
-        // The stages.
-        let [sx, sw] = l.stages;
-        let (first, n) = self.window(stages.len());
-        let mut list = Vec::new();
-        for (k, stage) in stages.iter().enumerate().skip(first).take(n) {
-            let y = l.top + (k - first) as f32 * (l.row + l.gap);
-            let mut row = env.component(
-                "List.Row",
-                "Button",
-                &Spec::new([sw, l.row], ""),
-                &stage_name(k),
-                [sx, y],
-            );
-            let picked = stage
-                .content
-                .as_ref()
-                .and_then(|c| self.room.borrow().picked(&c.id).cloned());
-            let title: String = match (&picked, &stage.content) {
-                (Some(p), _) => UiText::data(&p.song.title).into(),
-                // Online: another person's song, not known here.
-                (None, Some(_)) => m::host_song().into(),
-                (None, None) => m::stage_empty().into(),
-            };
-            let sub: String = match &picked {
-                Some(p) => m::stage_chart(
-                    k + 1,
-                    UiText::data(format!("{} {}", p.chart.label(), p.chart.meter_text())),
-                )
-                .into(),
-                None => m::stage(k + 1).into(),
-            };
-            set_text(&mut row, "Title", &title);
-            set_text(&mut row, "Subtitle", &sub);
-            let banner = picked
-                .as_ref()
-                .and_then(|p| p.song.banner.as_deref())
-                .map(|b| cx.texture(b, 128.0));
-            set_image(&mut row, "Banner", banner);
-            play_command(
-                &mut row,
-                if k == self.selected {
-                    "Select"
-                } else {
-                    "Deselect"
-                },
-            );
-            row.finish_tweening();
-            list.push(row);
-        }
-        children.push(super::frame("Stages", list));
-
-        // The action row: the status at the left, Ready and Start at the
-        // right (Choose song too, on a phone).
-        let mut actions = Vec::new();
-        let bw = if l.compact { 132.0 } else { 172.0 };
-        let bh = if l.compact { 40.0 } else { 44.0 };
-        let mut x = w - l.margin - bw / 2.0;
-        let start = self.start_shown();
-        if start {
-            actions.push(env.component(
-                "Button",
-                "Button",
-                &Spec::new([bw, bh], self.start_label().as_str()),
-                "Start",
-                [x, l.actions_y],
-            ));
-        }
-        if self.ready_shown() {
-            if start {
-                x -= bw + 12.0;
+                m::status_host_chooses(n)
             }
-            let label = if self.room.borrow().ready() {
-                m::unready()
+        }
+        Phase::Preparing {
+            stage,
+            window: Some(_),
+        } => {
+            let n = number_of(r, *stage);
+            if let Some(text) = sharing_status(r, *stage, n) {
+                text
+            } else if s.content_pending(*stage) {
+                m::status_sharing(n)
+            } else if let Some(p) = r.load_problem(*stage) {
+                load_problem_text(p)
+            } else if r.loading(*stage) {
+                m::status_preparing(n)
             } else {
-                m::ready()
-            };
-            actions.push(env.component(
-                "Button",
-                "Button",
-                &Spec::new([bw, bh], label.as_str()),
-                "Ready",
-                [x, l.actions_y],
-            ));
+                m::status_gathering(n, seconds)
+            }
         }
-        if l.compact && self.choosable() {
-            x -= bw + 12.0;
-            actions.push(self.choose_button([bw, bh], [x, l.actions_y]));
+        Phase::Countdown { stage, .. } => m::status_countdown(number_of(r, *stage), seconds),
+        Phase::Stage { stage } | Phase::SongCompletion { stage } => {
+            let n = number_of(r, *stage);
+            match s.participation(r.me()) {
+                Some(Participation::SittingOut { .. }) => m::status_sitting_out(n),
+                _ if r.is_online() => m::status_online_stage(n),
+                _ => m::status_playing(n),
+            }
         }
-        if !start && !self.ready_shown() && !(l.compact && self.choosable()) {
-            // No buttons: the status has the row.
-            x = w - l.margin + bw / 2.0 + 16.0;
-        }
-        // The status left of the buttons; on a phone with no room there,
-        // above them, the screen's width.
-        let beside = x - bw / 2.0 - 16.0 - l.margin;
-        let (room, middle) = if l.compact && beside < 160.0 {
-            (w - 2.0 * l.margin, l.actions_y - bh / 2.0 - 26.0)
-        } else {
-            (beside.max(80.0), l.actions_y)
-        };
-        let lines = super::dialog::wrap_lines(&self.status(), room, 13.0);
-        for (i, line) in lines.iter().take(2).enumerate() {
-            let mut t = env.text(&format!("Status{i}"), line, 13.0, 400, "Secondary");
-            look::ellipsized(&mut t, room);
-            let dy = (i as f32 - (lines.len().min(2) as f32 - 1.0) / 2.0) * 17.0;
-            actions.push(left(t, l.margin, middle + dy));
-        }
-        children.push(super::frame("Actions", actions));
-
-        // The footer's hints.
-        children.push(self.footer(cx));
-
-        let mut root = Actor::new(Kind::Frame(children));
-        call(&mut root, "zoom", &[l.zoom]);
-        super::transitions(
-            &mut root,
-            &env,
-            &[
-                ("Top", super::Edge::HeaderBar),
-                ("Players", super::Edge::Left),
-                ("Song", super::Edge::Left),
-                ("Stages", super::Edge::Right),
-                ("Actions", super::Edge::Bottom),
-                ("Footer", super::Edge::FooterBar),
-                ("Backdrop", super::Edge::None),
-            ],
-        );
-        let _ = h;
-        root
+        Phase::MatchResults if host => m::status_pick_new_match(),
+        Phase::Interrupted { .. } if host => m::status_stopped_pick(),
+        Phase::MatchResults | Phase::Interrupted { .. } => m::status_host_picks_new_match(),
     }
+}
 
-    /// An online room's own: where signing in again sends the shell, the
-    /// invite asked for once the player operates the room.
-    fn online_update(&mut self, cx: &mut Cx) {
-        let (redirect, fetch) = {
-            let r = self.room.borrow();
-            let Some(link) = r.online_link() else {
-                return;
-            };
-            let fetch = r.link_state() == LinkState::Connected
-                && r.may(Capability::ChooseContent)
-                && r.invite_link().is_none();
-            let mut o = link.online().borrow_mut();
-            // Back in this room after signing in again: it is shown.
-            let _ = o.take_entered();
-            (o.take_redirect(), fetch)
-        };
-        if fetch {
-            self.room.borrow_mut().fetch_invite();
-        }
-        if let Some(r) = redirect {
-            (self.shell)(RoomCall::Redirect(r), cx);
-        }
+/// One person's or CPU's row, as the players panel, its pop-up and the
+/// prompt show it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlayerRow {
+    pub name: String,
+    /// Under the name: a role, a CPU's level and personality, the points.
+    pub sub: String,
+    /// At the right: ready or not, a connection's trouble, the place.
+    pub state: String,
+    pub me: bool,
+    /// Ready (or a CPU, which needs no readiness) for the upcoming stage.
+    pub ready: bool,
+    pub cpu: bool,
+}
+
+/// A CPU's personality's name (`Streams`), or Custom for multipliers of
+/// its own.
+pub fn personality_text(skills: Option<&str>) -> UiText {
+    match skills.map(crate::state::cpu_roster::preset) {
+        None | Some(Some("balanced")) => m::cpu_style_balanced(),
+        Some(Some("stream")) => m::cpu_style_stream(),
+        Some(Some("jacks")) => m::cpu_style_jacks(),
+        Some(Some("chords")) => m::cpu_style_chords(),
+        Some(Some("stamina")) => m::cpu_style_stamina(),
+        Some(Some("technical")) => m::cpu_style_technical(),
+        Some(_) => m::cpu_style_custom(),
     }
+}
 
-    fn choose_button(&self, size: [f32; 2], at: [f32; 2]) -> Actor {
-        let has_song = self.selected_stage().is_some_and(|s| s.content.is_some());
-        let label = if has_song {
-            m::change_song()
-        } else {
-            m::choose_song()
-        };
-        self.env.component(
-            "Button",
-            "Button",
-            &Spec::new(size, label.as_str()),
-            "Choose",
-            at,
-        )
+/// A CPU's name: a roster's (data), else "CPU n".
+pub fn cpu_name(spec: &ddi_room::OpponentSpec, ordinal: u16) -> String {
+    match &spec.name {
+        Some(n) => UiText::data(n).into(),
+        None => m::cpu_name(ordinal).into(),
     }
+}
 
-    /// The song part: the song's card (`SongInfo`, as song select's), its
-    /// chart's row, and Choose song.
-    fn song_part(&self, cx: &mut Cx, stage: Option<&Stage>) -> Actor {
-        let l = self.layout;
-        let env = &self.env;
-        let [x, w] = l.song;
-        let picked = stage
-            .and_then(|s| s.content.as_ref())
-            .and_then(|c| self.room.borrow().picked(&c.id).cloned());
-        let info_h = if l.compact { 170.0 } else { 300.0 };
-        let mut info = env.component(
-            "SongInfo",
-            "Panel",
-            &Spec::new([w, info_h], ""),
-            "Info",
-            [0.0, 0.0],
-        );
-        let mut children = Vec::new();
-        match &picked {
-            Some(p) => {
-                let song = &p.song;
-                set_text(&mut info, "Title", &UiText::data(&song.title));
-                set_text(&mut info, "Artist", &UiText::data(&song.artist));
-                set_text(&mut info, "Bpm", &UiText::data(&song.bpm_text));
-                set_text(&mut info, "Length", &UiText::data(song.length_text()));
-                let pack = crate::state::select_view::pack_label(song.pack.as_deref());
-                set_text(&mut info, "Pack", &pack);
-                set_text(
-                    &mut info,
-                    "Line",
-                    &sm::info_line(&song.artist, &song.bpm_text, song.length_text()),
-                );
-                let side = if l.compact { w } else { 560.0 };
-                let banner = song.banner.as_deref().map(|b| cx.texture(b, side));
-                set_image(&mut info, "Banner", banner);
-            }
-            None => {
-                if stage.is_some_and(|st| st.content.is_some()) {
-                    set_text(&mut info, "Title", &m::host_song());
-                }
-                set_image(&mut info, "Banner", None);
-                // No song: the card's labels with nothing beside them say
-                // nothing.
-                for part in ["BpmLabel", "AfterBpm"] {
-                    if let Some(a) = crate::widgets::part(&mut info, part) {
-                        a.visible = false;
-                    }
-                }
-            }
-        }
-        children.push(info);
-        let mut y = info_h + 10.0;
-        let chart_h = if l.compact { 36.0 } else { 52.0 };
-        match (&picked, stage) {
-            (Some(p), _) => {
-                let c = &p.chart;
-                let mut r = env.component(
-                    "ChartLadder.Row",
-                    "List.Row",
-                    &Spec::new([w, chart_h], c.difficulty.name()),
-                    "Chart",
-                    [0.0, y],
-                );
-                set_text(&mut r, "Label", &UiText::data(c.label().to_uppercase()));
-                set_text(&mut r, "Title", &UiText::data(c.label()));
-                let notes: String = sm::chart_notes(c.notes).into();
-                set_text(&mut r, "Notes", &notes);
-                set_text(&mut r, "Subtitle", &notes);
-                set_text(&mut r, "Meter", &c.meter_text());
-                for p in ["Grade", "Score", "LampText"] {
-                    set_text(&mut r, p, "");
-                }
-                play_command(&mut r, "Lamp.None");
-                play_command(&mut r, c.difficulty.name());
-                play_command(&mut r, "Select");
-                r.finish_tweening();
-                children.push(r);
-            }
-            (None, Some(st)) if st.content.is_none() => {
-                let words = if self.room.borrow().may(Capability::ChooseContent) {
-                    m::no_song()
-                } else {
-                    m::no_song_yet()
-                };
-                let t = env.text("NoSong", &words, 15.0, 400, "Muted");
-                children.push(left(t, 0.0, y + chart_h / 2.0));
-            }
-            _ => {}
-        }
-        y += chart_h + 12.0;
-        if !l.compact {
-            if self.choosable() {
-                children.push(self.choose_button([200.0, 40.0], [100.0, y + 20.0]));
-            } else if stage.is_some_and(|st| st.play.is_some()) {
-                let mut t = env.text("Locked", &m::stage_locked(), 13.0, 400, "Muted");
-                look::ellipsized(&mut t, w);
-                children.push(left(t, 0.0, y + 20.0));
-            }
-            y += 52.0;
-        }
-        // Between stages: how the last one went for the player.
-        if let Some(mark) = self.room.borrow().last_mark() {
-            let size = if l.compact { 11.0 } else { 13.0 };
-            let lines = super::dialog::wrap_lines(&mark_text(&mark), w, size);
-            for (i, line) in lines.iter().take(3).enumerate() {
-                let mut t = env.text(&format!("Mark{i}"), line, size, 600, "Secondary");
-                look::ellipsized(&mut t, w);
-                children.push(left(t, 0.0, y + size / 2.0 + i as f32 * (size + 4.0)));
-            }
-        }
-        let mut f = super::frame("Song", children);
-        call(&mut f, "xy", &[x, l.top]);
-        f
-    }
+/// A CPU's line under its name: its level of the engine's, and its
+/// personality.
+pub fn cpu_sub(spec: &ddi_room::OpponentSpec) -> String {
+    format!(
+        "{} · {}",
+        m::cpu_level(u16::from(spec.level) + 1, cpu_levels()),
+        personality_text(spec.personality.as_deref())
+    )
+}
 
-    /// The match's results where the song was: its title, the winners,
-    /// and each player's place, total and stages' points.
-    fn results_part(&self) -> Actor {
-        let l = self.layout;
-        let env = &self.env;
-        let [x, w] = l.song;
-        let r = self.room.borrow();
-        let s = r.state();
-        let mut children = Vec::new();
-        let completed = s.phase == Phase::MatchResults;
-        let title = if completed {
-            m::results_title()
-        } else {
-            m::results_stopped()
-        };
-        let mut t = env.text("Results.Title", &title, 18.0, 700, "Text");
-        look::ellipsized(&mut t, w);
-        children.push(left(t, 0.0, 12.0));
-        let standings = s.standings().unwrap_or_default();
-        let name = |id| match s.member(id) {
-            Some(mb) if mb.id == r.me() => String::from(m::you()),
-            Some(mb) => match &mb.kind {
-                MemberKind::Cpu { ordinal, .. } => m::cpu_name(*ordinal).into(),
-                MemberKind::Human { .. } => UiText::data(member_name(mb)).into(),
-            },
-            None => String::new(),
-        };
-        let mut y = 40.0;
-        if completed {
-            let winners: Vec<String> = standings
-                .iter()
-                .filter(|st| st.rank == 1)
-                .map(|st| name(st.participant))
-                .collect();
-            let line = m::results_winners(winners.len(), UiText::data(winners.join(", ")));
-            let mut t = env.text("Results.Winners", &line, 14.0, 600, "Gold");
-            look::ellipsized(&mut t, w);
-            children.push(left(t, 0.0, y));
-            y += 30.0;
-        }
-        // The table: place, name, then each stage and the total at the
-        // right (the stages only where they fit).
-        let stages = standings.first().map_or(0, |st| st.stages.len());
-        let cell = 40.0;
-        let total_w = 64.0;
-        let show_stages = !l.compact && w - 36.0 - 120.0 - total_w >= cell * stages as f32;
-        let header = |key: &str, text: &str, at: f32, children: &mut Vec<Actor>| {
-            children.push(right(env.text(key, text, 11.0, 700, "Muted"), at, y));
-        };
-        header("Results.Total", &m::results_total(), w, &mut children);
-        if show_stages {
-            for i in 0..stages {
-                let at = w - total_w - cell * (stages - 1 - i) as f32;
-                header(
-                    &format!("Results.S{i}"),
-                    &m::results_stage(i + 1),
-                    at,
-                    &mut children,
-                );
-            }
-        }
-        y += 22.0;
-        let row = if l.compact { 24.0 } else { 30.0 };
-        for (k, st) in standings.iter().enumerate() {
-            if y > l.bottom - l.top {
-                break;
-            }
-            let me = st.participant == r.me();
-            let color = if me { "Text" } else { "Secondary" };
-            children.push(left(
-                env.numbers(
-                    &format!("Results.Rank{k}"),
-                    &st.rank.to_string(),
-                    14.0,
-                    "Muted",
-                ),
-                0.0,
-                y,
-            ));
-            let mut n = env.text(
-                &format!("Results.Name{k}"),
-                &name(st.participant),
-                14.0,
-                600,
-                color,
-            );
-            let room = w
-                - 36.0
-                - total_w
-                - if show_stages {
-                    cell * stages as f32
-                } else {
-                    0.0
-                };
-            look::ellipsized(&mut n, room.max(40.0));
-            children.push(left(n, 36.0, y));
-            children.push(right(
-                env.numbers(
-                    &format!("Results.Total{k}"),
-                    &st.total.to_string(),
-                    14.0,
-                    color,
-                ),
-                w,
-                y,
-            ));
-            if show_stages {
-                for (i, cell_of) in st.stages.iter().enumerate() {
-                    let text: String = match cell_of {
-                        StageStanding::Placed(p) => p.points.to_string(),
-                        _ => m::results_none().into(),
-                    };
-                    let at = w - total_w - cell * (stages - 1 - i) as f32;
-                    children.push(right(
-                        env.numbers(&format!("Results.Cell{k}.{i}"), &text, 13.0, "Muted"),
-                        at,
-                        y,
-                    ));
-                }
-            }
-            y += row;
-        }
-        drop(r);
-        let mut f = super::frame("Song", children);
-        call(&mut f, "xy", &[x, l.top]);
-        f
-    }
-
-    fn footer(&self, cx: &mut Cx) -> Actor {
-        use ddi_engine::MenuInput as A;
-        let (mv, select, back, more) = (
-            m::hint_move(),
-            m::hint_select(),
-            m::hint_back(),
-            common::more(),
-        );
-        let hints: Vec<(&[&str], &str)> = vec![
-            (&["↑", "↓", "←", "→"], mv.as_str()),
-            (&["ENTER"], select.as_str()),
-            (&["ESC"], back.as_str()),
-        ];
-        let controller: Vec<(&[A], &str)> = vec![
-            (&[A::Up, A::Down, A::Left, A::Right], mv.as_str()),
-            (&[A::Confirm, A::Start], select.as_str()),
-            (&[A::More], more.as_str()),
-            (&[A::Back], back.as_str()),
-        ];
-        let l = self.layout;
-        super::footer(&self.env, l.size, &hints, &controller, "", &[], cx)
-    }
-
-    /// Says what the screen shows (`ThemeState::room`).
-    fn publish(&self) {
-        let r = self.room.borrow();
-        let s = r.state();
-        let rules = r.rules();
-        let stages = r
-            .stages()
+/// Everyone in the room: the people present, then the CPUs (the match's,
+/// or before it those its rules will seat).
+pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
+    let s = r.state();
+    let standings = s.standings().unwrap_or_default();
+    let in_match = s.current.is_some() && s.phase != Phase::Lobby;
+    let points = |id| {
+        standings
             .iter()
-            .map(|st| {
-                let p = st.content.as_ref().and_then(|c| r.picked(&c.id));
-                RoomStageView {
-                    id: st.id.0,
-                    song: p.map(|p| p.song.id.clone()),
-                    chart: p.map(|p| p.chart.index),
-                    started: st.play.is_some(),
-                    content: st.content.as_ref().map(|c| {
-                        match c.status {
-                            ddi_room::ContentStatus::Pending => "pending",
-                            ddi_room::ContentStatus::Available => "available",
-                            ddi_room::ContentStatus::Unavailable { .. } => "unavailable",
+            .find(|st| st.participant == id)
+            .filter(|_| in_match)
+            .map(|st| m::rank_points(st.rank, st.total.to_string()).into())
+    };
+    let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
+    let mut rows = Vec::new();
+    for member in s.members.values().filter(|mb| !mb.left) {
+        match &member.kind {
+            MemberKind::Human { .. } => {
+                let me = member.id == r.me();
+                let name: String = if me {
+                    m::you().into()
+                } else {
+                    UiText::data(member_name(member)).into()
+                };
+                let prep = upcoming.map(|st| st.prep(member.id));
+                let ready = prep.as_ref().is_some_and(|p| p.ready);
+                let state: String = match s.participation(member.id) {
+                    Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => {
+                        m::state_ready().into()
+                    }
+                    Some(Participation::ReadyLoading { .. }) => match prep.map(|p| p.loading) {
+                        Some(ddi_room::Loading::Loading { permille }) if permille > 0 => {
+                            m::state_loading_percent(u32::from(permille / 10)).into()
                         }
-                        .to_string()
-                    }),
-                    share: st.content.as_ref().and_then(|c| c.share.clone()),
-                }
-            })
-            .collect();
-        let standings = s.standings().unwrap_or_default();
-        let mut members: Vec<RoomMemberView> = s
-            .members
-            .values()
-            .filter(|mb| !mb.left)
-            .map(|mb| RoomMemberView {
-                id: mb.id.0,
-                name: member_name(mb),
-                role: snake(&mb.role),
-                admin: mb.admin,
-                connection: snake(&mb.connection),
-                participation: s
-                    .participation(mb.id)
-                    .map(|p| snake(&p))
-                    .unwrap_or_default(),
-                cpu: mb.is_cpu(),
-                level: s.opponent(mb.id).map(|o| o.level + 1),
-                ready: s
-                    .upcoming_stage()
-                    .and_then(|id| s.stage(id))
-                    .is_some_and(|st| st.prep(mb.id).ready),
-                points: standings
-                    .iter()
-                    .find(|st| st.participant == mb.id)
-                    .map(|st| st.total.to_string())
-                    .unwrap_or_default(),
-                at_start: false,
-            })
-            .collect();
-        if s.phase == Phase::Lobby || s.current.is_none() {
-            for n in 1..=r.cpus_of(&s.next.rules) {
-                members.push(RoomMemberView {
-                    name: format!("CPU {n}"),
-                    cpu: true,
-                    level: Some(s.next.rules.cpu.opponent.level + 1),
-                    at_start: true,
-                    ..RoomMemberView::default()
+                        _ => m::state_loading().into(),
+                    },
+                    Some(Participation::NotReady { .. }) if s.current.is_some() => {
+                        m::state_not_ready().into()
+                    }
+                    Some(Participation::LoadFailed { .. }) => m::state_load_failed().into(),
+                    Some(Participation::Competing { .. }) => m::state_playing().into(),
+                    Some(Participation::SittingOut { .. }) => m::state_sitting_out().into(),
+                    _ => String::new(),
+                };
+                let (sub, state) = person_row(s, member, points(member.id), state);
+                rows.push(PlayerRow {
+                    name,
+                    sub,
+                    state,
+                    me,
+                    ready,
+                    cpu: false,
                 });
             }
-        }
-        let view = RoomView {
-            phase: format!("{:?}", s.phase.kind()).to_lowercase(),
-            revision: s.revision.0,
-            selected: self.selected,
-            stages,
-            members,
-            cpus: r.cpus_of(rules),
-            level: rules.cpu.opponent.level + 1,
-            stage_count: rules.stages,
-            locked: r.locked_rules().is_some(),
-            ready: r.ready(),
-            countdown: self.countdown(),
-            status: String::new(),
-            refusal: r.refusal().map(|f| format!("{f:?}")),
-            start: String::new(),
-            history: s.history.len(),
-            online: r.online_link().map(|l| RoomOnlineView {
-                room_id: l.room_id().into(),
-                name: l.name().map(str::to_string),
-                link: snake(&l.state()),
-                role: r
-                    .my_role()
-                    .map(|(role, _)| snake(&role))
-                    .unwrap_or_default(),
-                admin: r.my_role().is_some_and(|(_, a)| a),
-                invite: r.invite_link(),
-                can_invite: r.invite_link().is_some(),
-                can_rotate: r.invite_link().is_some() && r.may(Capability::ChangeAccess),
+            MemberKind::Cpu { ordinal, opponent } => rows.push(PlayerRow {
+                name: cpu_name(opponent, *ordinal),
+                sub: cpu_sub(opponent),
+                state: points(member.id).unwrap_or_default(),
+                me: false,
+                ready: true,
+                cpu: true,
             }),
-            ..RoomView::default()
-        };
-        drop(r);
-        let r = self.room.borrow();
-        let standings = r
-            .state()
-            .standings()
-            .unwrap_or_default()
-            .into_iter()
+        }
+    }
+    if !in_match {
+        // Before the match: the CPUs its rules will seat.
+        let rules = &s.next.rules;
+        let roster = crate::state::cpu_roster::roster_of(rules, r.humans());
+        for (n, spec) in roster.iter().enumerate() {
+            rows.push(PlayerRow {
+                name: cpu_name(spec, u16::try_from(n + 1).unwrap_or(u16::MAX)),
+                sub: cpu_sub(spec),
+                state: m::cpu_at_start().into(),
+                me: false,
+                ready: true,
+                cpu: true,
+            });
+        }
+    }
+    rows
+}
+
+/// A person's row: under the name their role (Host, Co-host, Admin;
+/// Watching, Next match) and their points in a match; at the right their
+/// connection when not connected, else `state`.
+fn person_row(
+    s: &ddi_room::RoomState,
+    member: &ddi_room::Member,
+    points: Option<String>,
+    state: String,
+) -> (String, String) {
+    let role: Option<String> = match (member.role, member.admin) {
+        (Role::Owner, _) if s.source == ddi_room::ContentSource::Shared => {
+            Some(m::role_host().into())
+        }
+        (Role::CoHost, _) => Some(m::role_co_host().into()),
+        (Role::Member, true) => Some(m::role_admin().into()),
+        _ => None,
+    };
+    let seat: Option<String> = match s.participation(member.id) {
+        Some(Participation::WaitingNextMatch) => Some(m::next_match().into()),
+        Some(Participation::Watching) => Some(m::watching().into()),
+        _ => None,
+    };
+    let sub = [role, seat, points]
+        .into_iter()
+        .flatten()
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let state = match member.connection {
+        Connection::Joining => m::conn_joining().into(),
+        Connection::Reconnecting => m::conn_reconnecting().into(),
+        Connection::Disconnected => m::conn_away().into(),
+        Connection::Connected => state,
+    };
+    (sub, state)
+}
+
+/// One stage of the match as its picks' history shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PickRow {
+    /// "Stage 2".
+    pub stage: String,
+    /// The song's title (none: not picked yet).
+    pub title: Option<String>,
+    /// "Hard 9", and the local player's result once confirmed.
+    pub sub: String,
+    /// The stage being gathered or played now.
+    pub now: bool,
+}
+
+/// The match's stages (the next match's before one starts): what was
+/// picked for each, the stage now, and the player's result of those
+/// played.
+pub fn pick_rows(r: &RoomClient) -> Vec<PickRow> {
+    let s = r.state();
+    let now = match &s.phase {
+        Phase::Preparing { stage, .. }
+        | Phase::Countdown { stage, .. }
+        | Phase::Stage { stage }
+        | Phase::SongCompletion { stage } => Some(*stage),
+        _ => None,
+    };
+    r.stages()
+        .iter()
+        .enumerate()
+        .map(|(i, st)| {
+            let picked = st.content.as_ref().and_then(|c| r.picked(&c.id));
+            let card = st.content.as_ref().and_then(|c| c.card.as_ref());
+            let title = picked
+                .map(|p| p.song.title.clone())
+                .or_else(|| card.map(|c| c.title.clone()))
+                .or_else(|| st.content.as_ref().map(|_| m::host_song().into()));
+            // The chart's own words (its difficulty, or an edit's name).
+            let chart: Option<String> = picked
+                .map(|p| {
+                    UiText::data(format!("{} {}", p.chart.label(), p.chart.meter_text())).into()
+                })
+                .or_else(|| {
+                    card.filter(|c| !c.difficulty.is_empty())
+                        .map(|c| UiText::data(format!("{} {}", c.difficulty, c.meter)).into())
+                });
+            let mark = r.mark_of(st.id).map(|mk| mark_short(&mk));
+            let sub = [chart, mark]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · ");
+            PickRow {
+                stage: m::stage(i + 1).into(),
+                title: title.map(|t| UiText::data(t).into()),
+                sub,
+                now: Some(st.id) == now,
+            }
+        })
+        .collect()
+}
+
+/// The player's result of a stage, short: "1st · +4 pts".
+fn mark_short(mark: &StageMark) -> String {
+    let p = &mark.placement;
+    match p.finish {
+        Finish::Forfeit => m::mark_short_forfeit(p.place, mark.field).into(),
+        _ => m::mark_short(p.place, mark.field, p.points.to_string()).into(),
+    }
+}
+
+/// The room's More menu's items: its rules and players where the header
+/// has no room for their buttons (`compact`), stopping the match, an
+/// online room's invite, sign-in and sharing, and leaving.
+pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
+    let mut items = Vec::new();
+    if compact {
+        items.push(("rules".to_string(), m::rules().into()));
+        items.push(("players".to_string(), m::players().into()));
+    }
+    let running = r.state().phase.kind().match_running();
+    if running && r.may(Capability::StopMatch) {
+        items.push(("stop".to_string(), m::stop_match().into()));
+    }
+    if r.is_online() {
+        if r.link_state() == LinkState::SignInAgain {
+            items.push(("signin".to_string(), m::sign_in_again().into()));
+        }
+        if r.invite_link().is_some() {
+            items.push(("copy".to_string(), m::copy_invite().into()));
+        }
+        if r.invite_link().is_some() && r.may(Capability::ChangeAccess) {
+            items.push(("rotate".to_string(), m::replace_invite().into()));
+        }
+        if r.state()
+            .upcoming_stage()
+            .is_some_and(|up| r.may_retry_sharing(up))
+        {
+            items.push(("retry".to_string(), m::retry_sharing().into()));
+        }
+    }
+    items.push(("leave".to_string(), m::leave().into()));
+    items
+}
+
+/// The name of the room's More menu's pick message.
+pub const MORE: &str = "Room.More";
+
+/// Opens the room's More menu.
+pub fn open_more(env: &Env, room: &SharedRoom, compact: bool, cx: &mut Cx) {
+    let items = more_items(&room.borrow(), compact);
+    super::action_menu(env, &common::more(), items, MORE, cx);
+}
+
+/// What a pick of More leaves to the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoreAction {
+    Rules,
+    Players,
+    /// Done here (or nothing): the screen redraws.
+    Done,
+}
+
+/// Does what More's `id` asks.
+pub fn more_picked(id: &str, room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) -> MoreAction {
+    match id {
+        "rules" => return MoreAction::Rules,
+        "players" => return MoreAction::Players,
+        "stop" => {
+            let _ = room.borrow_mut().stop_match();
+        }
+        "copy" => {
+            let link = room.borrow().invite_link();
+            if let Some(link) = link {
+                cx.request(crate::UiRequest::CopyText(link));
+                room.borrow_mut()
+                    .set_link_notice(Some(LinkNotice::InviteCopied));
+            }
+        }
+        "rotate" => room.borrow_mut().rotate_invite(),
+        "signin" => room.borrow_mut().sign_in_again(),
+        "retry" => {
+            let up = room.borrow().state().upcoming_stage();
+            if let Some(up) = up {
+                room.borrow_mut().retry_sharing(up);
+            }
+        }
+        "leave" => {
+            room.borrow_mut().leave();
+            room.borrow_mut().set_rules_seen(false);
+            shell(RoomCall::Discard, cx);
+        }
+        _ => {}
+    }
+    MoreAction::Done
+}
+
+/// The rows the players panel scrolls through: the picks' history, then
+/// the players, each under its heading.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PanelRow {
+    Heading(String, String),
+    Pick(PickRow),
+    Player(PlayerRow),
+}
+
+/// The panel's rows for the room now.
+pub fn panel_rows(r: &RoomClient) -> Vec<PanelRow> {
+    let picks = pick_rows(r);
+    let players = player_rows(r);
+    let mut rows = Vec::new();
+    let picked = picks.iter().filter(|p| p.title.is_some()).count();
+    rows.push(PanelRow::Heading(
+        m::picks_heading().into(),
+        m::picks_count(picked, picks.len()).into(),
+    ));
+    rows.extend(picks.into_iter().map(PanelRow::Pick));
+    let cap = r.state().policy.max_competitors;
+    rows.push(PanelRow::Heading(
+        m::players().into(),
+        m::players_count(players.len(), cap).into(),
+    ));
+    rows.extend(players.into_iter().map(PanelRow::Player));
+    rows
+}
+
+/// A row's height in the panel.
+pub fn panel_row_height(row: &PanelRow) -> f32 {
+    match row {
+        PanelRow::Heading(..) => 30.0,
+        _ => 44.0,
+    }
+}
+
+/// How many of `rows` from `first` fit in `height`.
+pub fn panel_fit(rows: &[PanelRow], first: usize, height: f32) -> usize {
+    let mut used = 0.0;
+    let mut n = 0;
+    for row in rows.iter().skip(first) {
+        used += panel_row_height(row);
+        if used > height {
+            break;
+        }
+        n += 1;
+    }
+    n.max(1).min(rows.len().saturating_sub(first))
+}
+
+/// The panel's scrolled window: its rows from `first`, `w` wide, at most
+/// `height` tall, at `[x, y]`, with Up and Down marks (`Panel.Up`,
+/// `Panel.Down`: taps scroll) where rows are hidden above or below. Its
+/// first row at most the last that still fills it.
+pub fn panel(
+    env: &Env,
+    rows: &[PanelRow],
+    first: usize,
+    [x, y, w, height]: [f32; 4],
+) -> (Actor, usize) {
+    let mut children = Vec::new();
+    // The last first row that still shows the end.
+    let mut last_first = rows.len();
+    let mut used = 0.0;
+    while last_first > 0 {
+        let h = panel_row_height(&rows[last_first - 1]);
+        if used + h > height - 24.0 {
+            break;
+        }
+        used += h;
+        last_first -= 1;
+    }
+    let first = first.min(last_first);
+    let room = if first > 0 || last_first > 0 {
+        height - 24.0
+    } else {
+        height
+    };
+    let n = panel_fit(rows, first, room);
+    let mut ry = y + if first > 0 { 24.0 } else { 0.0 };
+    if first > 0 {
+        children.push(env.component(
+            "Link",
+            "Button",
+            &look::Spec::new([w, 22.0], &*m::panel_more_above(first)),
+            "Panel.Up",
+            [x + w / 2.0, y + 11.0],
+        ));
+    }
+    for (k, row) in rows.iter().enumerate().skip(first).take(n) {
+        let h = panel_row_height(row);
+        match row {
+            PanelRow::Heading(title, count) => {
+                let head = look::tracked(
+                    env.text(&format!("Panel{k}.Heading"), title, 11.0, 700, "Faint"),
+                    120,
+                );
+                children.push(left(head, x, ry + h / 2.0 + 2.0));
+                children.push(right(
+                    env.text(&format!("Panel{k}.Count"), count, 12.0, 400, "Muted"),
+                    x + w,
+                    ry + h / 2.0 + 2.0,
+                ));
+            }
+            PanelRow::Pick(p) => {
+                let mut stage = env.text(&format!("Panel{k}.Stage"), &p.stage, 12.0, 600, "Muted");
+                look::ellipsized(&mut stage, 72.0);
+                children.push(left(stage, x, ry + 13.0));
+                let (title, color) = match &p.title {
+                    Some(t) => (t.clone(), if p.now { "Accent" } else { "Text" }),
+                    None => (m::stage_empty().into(), "Faint"),
+                };
+                let mut t = env.text(&format!("Panel{k}.Title"), &title, 15.0, 700, color);
+                look::ellipsized(&mut t, w - 80.0);
+                children.push(left(t, x + 80.0, ry + 13.0));
+                if !p.sub.is_empty() {
+                    let mut sub = env.text(&format!("Panel{k}.Sub"), &p.sub, 12.0, 400, "Muted");
+                    look::ellipsized(&mut sub, w - 80.0);
+                    children.push(left(sub, x + 80.0, ry + 31.0));
+                }
+            }
+            PanelRow::Player(p) => {
+                let color = if p.me { "Text" } else { "Secondary" };
+                let state_w = look::mono_width(&p.state, 13.0).min(w * 0.45);
+                let mut name = env.text(&format!("Panel{k}.Name"), &p.name, 15.0, 600, color);
+                look::ellipsized(&mut name, (w - state_w - 12.0).max(40.0));
+                children.push(left(name, x, ry + 13.0));
+                if !p.sub.is_empty() {
+                    let mut sub = env.text(&format!("Panel{k}.Sub"), &p.sub, 12.0, 400, "Muted");
+                    look::ellipsized(&mut sub, (w - state_w - 12.0).max(40.0));
+                    children.push(left(sub, x, ry + 31.0));
+                }
+                let color = if p.ready && !p.cpu { "Accent" } else { "Muted" };
+                let mut state = env.text(&format!("Panel{k}.State"), &p.state, 13.0, 600, color);
+                look::ellipsized(&mut state, w * 0.45);
+                children.push(right(state, x + w, ry + 13.0));
+            }
+        }
+        ry += h;
+    }
+    let below = rows.len() - first - n;
+    if below > 0 {
+        children.push(env.component(
+            "Link",
+            "Button",
+            &look::Spec::new([w, 22.0], &*m::panel_more_below(below)),
+            "Panel.Down",
+            [x + w / 2.0, y + height - 11.0],
+        ));
+    }
+    (super::frame("Panel", children), first)
+}
+
+/// Says what a room screen shows (`ThemeState::room`): `view` (`select`,
+/// `prompt`), its controls `items`; what the pop-ups say of themselves is
+/// kept.
+pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
+    let r = room.borrow();
+    let s = r.state();
+    let rules = r.rules();
+    let stages = r
+        .stages()
+        .iter()
+        .map(|st| {
+            let p = st.content.as_ref().and_then(|c| r.picked(&c.id));
+            RoomStageView {
+                id: st.id.0,
+                song: p.map(|p| p.song.id.clone()),
+                chart: p.map(|p| p.chart.index),
+                started: st.play.is_some(),
+                content: st.content.as_ref().map(|c| {
+                    match c.status {
+                        ContentStatus::Pending => "pending",
+                        ContentStatus::Available => "available",
+                        ContentStatus::Unavailable { .. } => "unavailable",
+                    }
+                    .to_string()
+                }),
+                share: st.content.as_ref().and_then(|c| c.share.clone()),
+            }
+        })
+        .collect();
+    let standings = s.standings().unwrap_or_default();
+    let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
+    let mut members: Vec<RoomMemberView> = s
+        .members
+        .values()
+        .filter(|mb| !mb.left)
+        .map(|mb| RoomMemberView {
+            id: mb.id.0,
+            name: match &mb.kind {
+                MemberKind::Cpu { ordinal, opponent } => opponent
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("CPU {ordinal}")),
+                MemberKind::Human { name, .. } => name.clone(),
+            },
+            role: snake(&mb.role),
+            admin: mb.admin,
+            connection: snake(&mb.connection),
+            participation: s
+                .participation(mb.id)
+                .map(|p| snake(&p))
+                .unwrap_or_default(),
+            cpu: mb.is_cpu(),
+            level: s.opponent(mb.id).map(|o| o.level + 1),
+            personality: s.opponent(mb.id).and_then(|o| o.personality.clone()),
+            ready: upcoming.is_some_and(|st| st.prep(mb.id).ready),
+            points: standings
+                .iter()
+                .find(|st| st.participant == mb.id)
+                .map(|st| st.total.to_string())
+                .unwrap_or_default(),
+            at_start: false,
+        })
+        .collect();
+    let roster = crate::state::cpu_roster::roster_of(&s.next.rules, r.humans());
+    if s.phase == Phase::Lobby || s.current.is_none() {
+        for (n, spec) in roster.iter().enumerate() {
+            members.push(RoomMemberView {
+                name: spec
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("CPU {}", n + 1)),
+                cpu: true,
+                level: Some(spec.level + 1),
+                personality: spec.personality.clone(),
+                at_start: true,
+                ..RoomMemberView::default()
+            });
+        }
+    }
+    let spot = s.spotlight.as_ref();
+    let view = RoomView {
+        view: view.into(),
+        phase: format!("{:?}", s.phase.kind()).to_lowercase(),
+        revision: s.revision.0,
+        host: r.may(Capability::ChooseContent),
+        stages,
+        members,
+        cpus: u16::try_from(crate::state::cpu_roster::roster_of(rules, r.humans()).len())
+            .unwrap_or(u16::MAX),
+        stage_count: rules.stages,
+        locked: r.locked_rules().is_some(),
+        ready: r.ready(),
+        countdown: seconds_left(&r),
+        status: status(&r).into(),
+        refusal: r.refusal().map(|f| format!("{f:?}")),
+        history: s.history.len(),
+        items,
+        mark: r.last_mark().map(|mk| mark_text(&mk)),
+        standings: standings
+            .iter()
             .map(|st| RoomStandingView {
                 id: st.participant.0,
                 rank: st.rank,
@@ -1260,156 +943,68 @@ impl RoomScreen {
                     })
                     .collect(),
             })
-            .collect();
-        let mark = r.last_mark().map(|m| mark_text(&m));
-        drop(r);
-        let view = RoomView {
-            status: self.status().into(),
-            start: self.start_label().into(),
-            mark,
-            standings,
-            ..view
-        };
-        let items: Vec<String> = self.focusables().into_iter().map(|f| f.name).collect();
-        let mut st = self.env.state.borrow_mut();
-        st.screen = "room".into();
-        st.compact = self.layout.compact;
-        st.page_items = items.clone();
-        let rules_open = st.room.as_ref().is_some_and(|r| r.rules_open);
-        st.room = Some(RoomView {
-            items,
-            rules_open,
-            ..view
-        });
-    }
+            .collect(),
+        spotlight: spot.map(|sp| sp.card.title.clone()),
+        spotlight_song: r
+            .spotlight()
+            .and_then(|(_, p)| p)
+            .map(|p| p.song.id.clone()),
+        picks: pick_rows(&r)
+            .into_iter()
+            .map(|p| match p.title {
+                Some(t) => format!("{}: {t} {}", p.stage, p.sub),
+                None => p.stage,
+            })
+            .collect(),
+        online: r.online_link().map(|l| RoomOnlineView {
+            room_id: l.room_id().into(),
+            name: l.name().map(str::to_string),
+            link: snake(&l.state()),
+            role: r
+                .my_role()
+                .map(|(role, _)| snake(&role))
+                .unwrap_or_default(),
+            admin: r.my_role().is_some_and(|(_, a)| a),
+            invite: r.invite_link(),
+            can_invite: r.invite_link().is_some(),
+            can_rotate: r.invite_link().is_some() && r.may(Capability::ChangeAccess),
+        }),
+        ..RoomView::default()
+    };
+    drop(r);
+    let mut st = env.state.borrow_mut();
+    let kept = st.room.take().unwrap_or_default();
+    st.room = Some(RoomView {
+        rules_open: kept.rules_open,
+        rules_first: kept.rules_first,
+        draft: kept.draft,
+        rules_problem: kept.rules_problem,
+        add_open: kept.add_open,
+        players_open: kept.players_open,
+        standings_open: kept.standings_open,
+        ..view
+    });
+}
 
-    fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
-        let left = root.tween_time_left();
-        *root = self.tree(cx);
-        super::relaid(root, left, cx);
-        self.finish_build(root, cx);
-    }
-
-    /// What a fresh tree needs: the backdrop's images, the focus kept on
-    /// something there, the debug state.
-    fn finish_build(&mut self, root: &mut Actor, cx: &mut Cx) {
-        let source = self.selected_stage().and_then(|st| {
-            let c = st.content?;
-            self.room.borrow().picked(&c.id)?.song.background.clone()
-        });
-        self.backdrop.restore(root, cx, &self.env);
-        self.backdrop.set(source.as_deref(), root, cx, &self.env);
-        let names: Vec<String> = self.focusables().into_iter().map(|f| f.name).collect();
-        let focused = cx.focused().map(str::to_string);
-        match focused {
-            Some(f) if names.contains(&f) => super::restore_focus(root, Some(&f)),
-            Some(_) => cx.focus(stage_name(self.selected)),
-            None => {}
-        }
-        self.seen = Some((self.room.borrow().version(), self.countdown()));
-        self.publish();
-    }
-
-    fn select(&mut self, i: usize, root: &mut Actor, cx: &mut Cx) {
-        if i == self.selected {
-            return;
-        }
-        self.selected = i;
-        self.rebuild(root, cx);
-    }
-
-    fn choose(&mut self, cx: &mut Cx) {
-        let Some(stage) = self.selected_stage() else {
-            return;
-        };
-        if !self.choosable() {
-            self.room.borrow_mut().clear_refusal();
-            return;
-        }
-        let number = u16::try_from(self.selected + 1).unwrap_or(u16::MAX);
-        (self.shell)(
-            RoomCall::ChooseSong {
-                stage: stage.id,
-                number,
-            },
-            cx,
-        );
-    }
-
-    fn start(&mut self, cx: &mut Cx) {
-        let phase = self.room.borrow().state().phase.clone();
-        let mut r = self.room.borrow_mut();
-        let _ = match phase {
-            Phase::Lobby | Phase::Preparing { window: None, .. } | Phase::Intermission { .. } => {
-                r.start()
-            }
-            Phase::Preparing { .. } | Phase::Countdown { .. } => r.cancel_start(),
-            Phase::Stage { .. } | Phase::SongCompletion { .. } => r.stop_match(),
-            Phase::MatchResults | Phase::Interrupted { .. } => r.open_next_match(),
-        };
-        drop(r);
-        // The stage started shows: the upcoming one, or the first of the
-        // next match.
-        let up = self.room.borrow().state().upcoming_stage();
-        if let Some(i) =
-            up.and_then(|id| self.room.borrow().stages().iter().position(|s| s.id == id))
-        {
-            self.selected = i;
-        }
-        let _ = cx;
-    }
-
-    fn open_more(&mut self, cx: &mut Cx) {
-        let r = self.room.borrow();
-        let running = r.state().phase.kind().match_running();
-        let mut items = Vec::new();
-        if running && r.may(Capability::StopMatch) {
-            items.push(("stop".to_string(), m::stop_match().into()));
-        }
-        if r.is_online() {
-            if r.link_state() == LinkState::SignInAgain {
-                items.push(("signin".to_string(), m::sign_in_again().into()));
-            }
-            if r.invite_link().is_some() {
-                items.push(("copy".to_string(), m::copy_invite().into()));
-            }
-            if r.invite_link().is_some() && r.may(Capability::ChangeAccess) {
-                items.push(("rotate".to_string(), m::replace_invite().into()));
-            }
-            if r.state()
-                .upcoming_stage()
-                .is_some_and(|up| r.may_retry_sharing(up))
-            {
-                items.push(("retry".to_string(), m::retry_sharing().into()));
-            }
-        }
-        drop(r);
-        items.push(("leave".to_string(), m::leave().into()));
-        super::action_menu(&self.env, &common::more(), items, "Room.More", cx);
-    }
-
-    fn open_rules(&mut self, cx: &mut Cx) {
-        cx.overlay(
-            super::room_dialogs::RulesDialog::new(self.env.clone(), self.room.clone()),
-            true,
-        );
+/// Changes what the pop-ups say of themselves in the debug state.
+pub fn publish_dialog(env: &Env, f: impl FnOnce(&mut RoomView)) {
+    if let Ok(mut st) = env.state.try_borrow_mut() {
+        f(st.room.get_or_insert_with(RoomView::default));
     }
 }
 
-/// A stage row's actor name.
-fn stage_name(i: usize) -> String {
-    format!("Stage.{i}")
-}
-
-fn member_name(m: &ddi_room::Member) -> String {
+pub(crate) fn member_name(m: &ddi_room::Member) -> String {
     match &m.kind {
         MemberKind::Human { name, .. } => name.clone(),
-        MemberKind::Cpu { ordinal, .. } => format!("CPU {ordinal}"),
+        MemberKind::Cpu { ordinal, opponent } => opponent
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("CPU {ordinal}")),
     }
 }
 
-/// The local player's result of a stage, as a line (under the song in
-/// the room, on the stage's results).
+/// The local player's result of a stage, as a line (the standings pop-up,
+/// the stage's results).
 pub fn mark_text(mark: &StageMark) -> String {
     let p = &mark.placement;
     let points = p.points.to_string();
@@ -1428,48 +1023,12 @@ pub fn mark_text(mark: &StageMark) -> String {
 
 /// A value's name as serde writes it (`co_host`, `reconnecting`), for the
 /// debug state.
-fn snake<T: Serialize>(v: &T) -> String {
+pub(crate) fn snake<T: Serialize>(v: &T) -> String {
     match serde_json::to_value(v) {
         Ok(serde_json::Value::String(s)) => s,
         Ok(serde_json::Value::Object(o)) => o.keys().next().cloned().unwrap_or_default(),
         _ => String::new(),
     }
-}
-
-/// An online room's person, as their row says it: under the name their
-/// role (Host, Co-host, Admin; Watching, Next match), else their points
-/// in a match; at the right their connection when not connected, else
-/// their readiness (`ready`).
-fn online_row(
-    s: &ddi_room::RoomState,
-    member: &ddi_room::Member,
-    points: Option<String>,
-    ready: String,
-) -> (String, String) {
-    let role: Option<String> = match (member.role, member.admin) {
-        (Role::Owner, _) => Some(m::role_host().into()),
-        (Role::CoHost, _) => Some(m::role_co_host().into()),
-        (Role::Member, true) => Some(m::role_admin().into()),
-        (Role::Member, false) => None,
-    };
-    let seat: Option<String> = match s.participation(member.id) {
-        Some(Participation::WaitingNextMatch) => Some(m::next_match().into()),
-        Some(Participation::Watching) => Some(m::watching().into()),
-        _ => None,
-    };
-    let sub = [role, seat, points]
-        .into_iter()
-        .flatten()
-        .filter(|t| !t.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let state = match member.connection {
-        Connection::Joining => m::conn_joining().into(),
-        Connection::Reconnecting => m::conn_reconnecting().into(),
-        Connection::Disconnected => m::conn_away().into(),
-        Connection::Connected => ready,
-    };
-    (sub, state)
 }
 
 /// Why a stage's song could not be prepared, worded.
@@ -1490,14 +1049,14 @@ fn sharing_status(r: &RoomClient, up: StageId, number: usize) -> Option<UiText> 
         return None;
     }
     let content = r.state().stage(up)?.content.as_ref()?;
-    if let ddi_room::ContentStatus::Unavailable { code } = &content.status {
+    if let ContentStatus::Unavailable { code } = &content.status {
         return Some(if code == "digest_mismatch" {
             m::status_share_mismatch(number)
         } else {
             m::status_share_unavailable(number)
         });
     }
-    if content.status != ddi_room::ContentStatus::Pending {
+    if content.status != ContentStatus::Pending {
         return None;
     }
     Some(match r.sharing(up)? {
@@ -1527,11 +1086,12 @@ pub fn refusal_text(why: &Refusal) -> UiText {
         }
         Refusal::Room(r) => match r {
             Rejection::NoContent | Rejection::ContentPending => m::refused_no_song(),
-            Rejection::NotEnoughReady { .. } => m::refused_not_ready(),
+            Rejection::NotEnoughReady { .. } => m::refused_too_few(),
             Rejection::StageStarted | Rejection::StartCommitted => m::refused_started(),
             Rejection::WrongPhase { .. } | Rejection::NotUpcoming | Rejection::WindowOpen => {
                 m::refused_phase()
             }
+            Rejection::Unauthorized { .. } => m::refused_host_only(),
             Rejection::InvalidRules(p) | Rejection::RulesNeedReview(p) => rules_problem(p),
             other => {
                 let code = format!("{other:?}");
@@ -1549,210 +1109,5 @@ pub fn rules_problem(p: &RulesProblem) -> UiText {
         RulesProblem::OverCap(c) => m::rules_over_cap(c.cap),
         RulesProblem::TooFewSeats { min, .. } => m::rules_too_few(*min),
         _ => m::rules_invalid(),
-    }
-}
-
-impl Screen for RoomScreen {
-    fn shared_bars(&self) -> bool {
-        true
-    }
-
-    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
-        Some(self.env.presentation())
-    }
-
-    fn name(&self) -> &str {
-        "room"
-    }
-
-    fn build(&mut self, cx: &mut Cx) -> Actor {
-        self.room
-            .borrow_mut()
-            .tick((cx.clock() * 1000.0).max(0.0) as u64);
-        let mut root = self.tree(cx);
-        if let Some(f) = self.initial.take() {
-            cx.focus(f);
-        } else if cx.focused().is_none() {
-            cx.focus(stage_name(self.selected));
-        }
-        self.finish_build(&mut root, cx);
-        root
-    }
-
-    fn focusables(&self) -> Vec<Focusable> {
-        let n = self.room.borrow().stages().len();
-        let (first, shown) = self.window(n);
-        let mut v: Vec<Focusable> = (first..first + shown)
-            .map(|i| Focusable::new(stage_name(i)))
-            .collect();
-        if self.choosable() {
-            v.push(Focusable::new("Choose"));
-        }
-        if self.ready_shown() {
-            v.push(Focusable::new("Ready"));
-        }
-        if self.start_shown() {
-            v.push(Focusable::new("Start"));
-        }
-        v.push(Focusable::new("Rules"));
-        v.push(Focusable::new("More"));
-        v.push(Focusable::new("Back"));
-        v
-    }
-
-    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
-        self.time = cx.time();
-        self.live.tick(root, "Wordmark", &self.env, cx);
-        self.online_update(cx);
-        // The stages' songs to prepare, whatever is over the room.
-        let jobs = self.room.borrow_mut().take_load_jobs();
-        for job in jobs {
-            (self.shell)(RoomCall::Prepare(job), cx);
-        }
-        let uploads = self.room.borrow_mut().take_upload_jobs();
-        for job in uploads {
-            (self.shell)(RoomCall::Upload(Box::new(job)), cx);
-        }
-        if !cx.is_current_screen() {
-            self.covered = true;
-            return;
-        }
-        if std::mem::take(&mut self.covered) {
-            self.publish();
-        }
-        self.room
-            .borrow_mut()
-            .tick((cx.clock() * 1000.0).max(0.0) as u64);
-        // The countdown is over: the stage is played (once).
-        let order = self.room.borrow_mut().take_stage_order();
-        if let Some(order) = order {
-            (self.shell)(RoomCall::PlayStage(Box::new(order)), cx);
-        }
-        // Back from a stage: the next one shown (the one played is done).
-        let phase = self.room.borrow().state().phase.kind();
-        if self.phase.replace(phase) != Some(phase)
-            && matches!(phase, ddi_room::PhaseKind::Intermission)
-        {
-            let up = self.room.borrow().state().upcoming_stage();
-            let i = up.and_then(|id| self.room.borrow().stages().iter().position(|s| s.id == id));
-            if let Some(i) = i {
-                self.selected = i;
-                cx.focus(stage_name(i));
-            }
-        }
-        let now = (self.room.borrow().version(), self.countdown());
-        let size = Layout::new(&self.env, cx);
-        if self.seen != Some(now) || size.size != self.layout.size || size.zoom != self.layout.zoom
-        {
-            self.rebuild(root, cx);
-        } else if self.env.state.borrow().screen != "room" {
-            self.publish();
-        }
-    }
-
-    fn animating(&self) -> bool {
-        // The countdown and the readiness window run on the room's clock.
-        self.countdown().is_some() || self.live.animating(&self.env)
-    }
-
-    fn wake_at(&self) -> Option<f64> {
-        // An online room's messages come while nothing moves: looked for
-        // ten times a second.
-        self.room.borrow().is_online().then_some(self.time + 0.1)
-    }
-
-    fn message(&mut self, msg: &crate::Message, root: &mut Actor, cx: &mut Cx) {
-        if msg.name == crate::controller_hints::CHANGED {
-            self.rebuild(root, cx);
-        }
-        if msg.name == super::room_dialogs::RULES_SAVED {
-            self.rebuild(root, cx);
-        }
-        match super::menu_pick(msg, "Room.More") {
-            Some("stop") => {
-                let _ = self.room.borrow_mut().stop_match();
-                self.rebuild(root, cx);
-            }
-            Some("copy") => {
-                let link = self.room.borrow().invite_link();
-                if let Some(link) = link {
-                    cx.request(crate::UiRequest::CopyText(link));
-                    self.room
-                        .borrow_mut()
-                        .set_link_notice(Some(LinkNotice::InviteCopied));
-                }
-                self.rebuild(root, cx);
-            }
-            Some("rotate") => {
-                self.room.borrow_mut().rotate_invite();
-                self.rebuild(root, cx);
-            }
-            Some("signin") => self.room.borrow_mut().sign_in_again(),
-            Some("retry") => {
-                let up = self.room.borrow().state().upcoming_stage();
-                if let Some(up) = up {
-                    self.room.borrow_mut().retry_sharing(up);
-                }
-                self.rebuild(root, cx);
-            }
-            Some("leave") => {
-                self.room.borrow_mut().leave();
-                (self.shell)(RoomCall::Discard, cx)
-            }
-            _ => {}
-        }
-    }
-
-    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
-        match input {
-            Input::Focus { to: Some(to), .. } => {
-                if let Some(i) = to.strip_prefix("Stage.").and_then(|i| i.parse().ok()) {
-                    self.select(i, root, cx);
-                }
-                Handled::No
-            }
-            Input::Menu {
-                action: MenuAction::Back,
-                ..
-            } => {
-                (self.shell)(RoomCall::Leave, cx);
-                Handled::Yes
-            }
-            Input::Menu {
-                action: MenuAction::More,
-                ..
-            } => {
-                self.open_more(cx);
-                Handled::Yes
-            }
-            Input::Activate { name } => {
-                if let Some(i) = name.strip_prefix("Stage.").and_then(|i| i.parse().ok()) {
-                    if i != self.selected {
-                        self.select(i, root, cx);
-                    } else {
-                        self.choose(cx);
-                    }
-                    return Handled::Yes;
-                }
-                match name.as_str() {
-                    "Back" => (self.shell)(RoomCall::Leave, cx),
-                    "More" => self.open_more(cx),
-                    "Rules" => self.open_rules(cx),
-                    "Choose" => self.choose(cx),
-                    "Ready" => {
-                        let ready = self.room.borrow().ready();
-                        let _ = self.room.borrow_mut().set_ready(!ready);
-                        self.rebuild(root, cx);
-                    }
-                    "Start" if self.start_shown() => {
-                        self.start(cx);
-                        self.rebuild(root, cx);
-                    }
-                    _ => {}
-                }
-                Handled::Yes
-            }
-            _ => Handled::No,
-        }
     }
 }

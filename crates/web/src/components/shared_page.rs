@@ -54,7 +54,7 @@ impl Component for SharedPage {
                     "main",
                     select_page::Props {
                         shared: true,
-                        pick: None,
+                        room: None,
                     },
                 ));
             }

@@ -92,15 +92,10 @@ pub(crate) enum Route {
     /// The announcer studio (`docs/plans/announcer-studio.md`).
     Studio,
     /// The multiplayer prototype (`docs/plans/multiplayer-prototype-progress.md`),
-    /// behind its hidden switch (`#/?mp=1`): its home (`#/mp`), the
-    /// practice room (`#/room`) and song select choosing a stage's song
-    /// (`#/room/pick?stage=<id>&n=<number>`).
+    /// behind its hidden switch (`#/?mp=1`): its home (`#/mp`) and the
+    /// practice room (`#/room`: its song select, M7b).
     Multiplayer,
     Room,
-    RoomPick {
-        stage: u64,
-        number: u16,
-    },
     /// An invite's page (`#/mp/join/<invite>`, M5c): the room it is for,
     /// joining it; the link carries `mp=1`, the switch.
     MpJoin {
@@ -244,14 +239,9 @@ impl Route {
             "credits" => Route::Credits,
             "announcer" => Route::Studio,
             "mp" => Route::Multiplayer,
-            "room" => Route::Room,
-            "room/pick" => match (
-                params.get("stage").and_then(|s| s.parse().ok()),
-                params.get("n").and_then(|s| s.parse().ok()),
-            ) {
-                (Some(stage), Some(number)) => Route::RoomPick { stage, number },
-                _ => Route::Room,
-            },
+            // `room/pick` was M2's song select choosing a stage's song;
+            // the room's song select is the room now (M7b).
+            "room" | "room/pick" => Route::Room,
             "skin-preview" => Route::SkinPreview {
                 params: params
                     .iter()
@@ -366,7 +356,6 @@ impl Route {
             Route::Studio => "#/announcer".into(),
             Route::Multiplayer => "#/mp".into(),
             Route::Room => "#/room".into(),
-            Route::RoomPick { stage, number } => format!("#/room/pick?stage={stage}&n={number}"),
             Route::MpJoin { invite } => format!("#/mp/join/{}", percent_encode(invite)),
             Route::MpRoom { id } => format!("#/mp/room/{}", percent_encode(id)),
             Route::VideoCheck { sources, decoder } => {
@@ -791,7 +780,6 @@ fn fallback_parent(current: Route) -> String {
     use ddi_ui::navigation::Destination;
     // The multiplayer prototype's routes opened directly: each its parent.
     let multiplayer = match &current {
-        Route::RoomPick { .. } => Some(Route::Room),
         Route::Room | Route::MpJoin { .. } | Route::MpRoom { .. } => Some(Route::Multiplayer),
         _ => None,
     };
@@ -839,7 +827,6 @@ pub(crate) fn has_bars(route: &Route) -> bool {
             | Route::Studio
             | Route::Multiplayer
             | Route::Room
-            | Route::RoomPick { .. }
             | Route::MpJoin { .. }
             | Route::MpRoom { .. }
     )

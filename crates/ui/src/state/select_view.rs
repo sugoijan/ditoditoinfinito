@@ -385,7 +385,6 @@ pub fn select_data(
         import: ImportView::default(),
         autoplay: false,
         shared: None,
-        pick: None,
     }
 }
 

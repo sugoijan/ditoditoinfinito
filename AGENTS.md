@@ -761,7 +761,18 @@ Rust and the browser are implementation details, not advertised features.
   exact fractions, `Points`); the battle a stage is played under, by name
   and version, and its ranking of judged runs (`battle.rs`:
   `BattlePreset::GaugeSurvivalV0`, provisional: each competitor's own
-  ruleset gauge as life, empty is out of the stage; `rank`, `decided`). The reducer (`reduce.rs`): commands from an
+  ruleset gauge as life, empty is out of the stage; `rank`, `decided`).
+  M7b's match flow in the model: `Command::Pick` (the operator's Start on
+  a song: the next stage's song, the match started or gone on, its
+  readiness window opened, all as one change), `Command::Spotlight` and
+  `Event::SpotlightChanged` (the song an operator's song select rests on,
+  `RoomState::spotlight`, with a `ContentCard` to show before it is
+  loaded), `Command::SetSpotlightShare` (the authority's: its share, by
+  chart, which a pick of that chart reuses, `RoomState::known_share`);
+  `hosted-deadline-v1` (a window counts from the song's availability and
+  ends early once every connected player who could join is ready and
+  loaded); `CpuMode::Roster` (named CPUs, each its own `OpponentSpec`);
+  protocol 2, still taking 1. The reducer (`reduce.rs`): commands from an
   `Actor` (a member, or the authority for joins, connections, content status
   and confirmed outcomes) decided into events, atomic, refusals typed
   (`Rejection`); `RoomState::commit` applies a revision's events, so a
@@ -807,22 +818,29 @@ Rust and the browser are implementation details, not advertised features.
   kept from its envelopes, sends every change as a command (no room logic
   of its own), knows which library song and chart a stage's opaque content
   names (`Picked`), refuses charts the CPU cannot play (`eligible`: one
-  player, four lanes), hands the shell each chosen song to prepare
-  (`LoadJob`, `RoomCall::Prepare`: the chart read and `check_chart`, the
-  CPUs' plan built; `finish_load` reports it loaded or a `LoadProblem`),
-  and each stage whose countdown is over to play, once (`StageOrder`,
-  `RoomCall::PlayStage`), whose judged outcome the shell reports as the
+  player, four lanes), picks (`pick`: M7b's flow, `Command::Pick`),
+  tells the room the operator's resting song after `SPOTLIGHT_REST_MS`
+  (`hover`), hands the shell each chosen song to prepare (`LoadJob`,
+  `RoomCall::Prepare`: the chart read and `check_chart`, the CPUs' plan
+  built; `finish_load` reports it loaded or a `LoadProblem`), and the
+  stage whose readiness gathers with this player in it, once, for its
+  prompt (`StageOrder`, `RoomCall::PlayStage`; `view`, `stage_started`,
+  `leave_prompt`), whose judged outcome the shell reports as the
   authority (`report_stage`); `SharedRoom` is what the shells keep across
-  screens. A stage's prompt says so (`PromptInfo::set_stage`), its results
-  go back to the room (`ResultsKind::Stage`: no Retry), and the room shows
-  the intermission (places, points, the player's `mark_text`) and the
-  match's results; stage plays are never kept in the history.
+  screens. `state/cpu_roster.rs` (with `cpu_roster.json`): the named CPUs
+  practice seats (invented names, data in every language), Add random's
+  `RosterAim` hook. A stage's prompt says so (`PromptInfo::set_stage`),
+  its results go back to the room (`ResultsKind::Stage`: no Retry), whose
+  song select shows the standings and the match's results
+  (`StandingsDialog`); stage plays are never kept in the history.
   Online rooms (M5c, M5d): `RoomClient::online` holds an online link
   instead (`crates/ui/src/state/online/link.rs`: `ddi_room`'s
   `OnlineAuthority` over the shell's socket, its tickets, the room's name
   and invite, a stage's upload grant); its roles come from the shared
-  `ddi_room::can` (`RoomClient::may`). The operator's pick is the room's
-  commit (`ChooseContent`, pending): the client asks the room for the
+  `ddi_room::can` (`RoomClient::may`). The operator's resting song is
+  shared ahead (`SPOTLIGHT`, a grant for stage 0) and read from the share
+  by the others (their song select shows and previews it); the pick
+  reuses that share where it can. Otherwise the pick is pending: the client asks the room for the
   stage's grant and hands the shell an `UploadJob` (`RoomCall::Upload`:
   the song uploaded as the room's share with `Authorization: Grant`,
   `upload_progress`/`upload_finished`, an expired grant renewed, a
@@ -840,16 +858,23 @@ Rust and the browser are implementation details, not advertised features.
   request and answer; desktop's attempt polled, the web's page left for
   the server's sign-in), `screens/online.rs` the multiplayer home and an
   invite's page as pages made from it (`OnlineScreen`, `OnlineCall` to
-  the shell). `screens/room.rs` the unified room (players, the stage's song card and
-  chart, the stages; the status line, Ready and Start apart, `RoomCall` to
-  the shell; `ThemeState::room`, a `RoomView`, for tests),
-  `screens/room_dialogs.rs` its Rules (the running match's rules locked
-  beside the next match's, applied through the room) and the refusal
-  notice; song select's pick mode (`SelectData::pick`: the library, nothing
-  added, edited or shared, Enter "Use for stage N"). Text in
+  the shell). M7b: the room's main view is song select
+  (`SelectScreen::with_room`, `screens/select_room.rs`, a child module of
+  `select`): the host's library, Enter "Pick for stage N"; the others
+  following the host's song with the room's panel (status, picks,
+  players) in the list's place; Rules and Players in the header (More on
+  a phone), the status line over the list. `screens/room.rs` what the
+  room's screens share (`RoomCall`, the per-frame `Pump`, the status and
+  rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests);
+  `screens/room_dialogs.rs` Rules (first with Reset and OK, later Cancel
+  and Apply; practice's roster, `AddCpuDialog`), `PlayersDialog`,
+  `StandingsDialog` and the refusal notice; `screens/prompt_room.rs` the
+  stage's prompt (`PromptScreen::with_room`: Ready, its countdown, the
+  players beside the diagram, `PromptChoice::Ready` for the shell's audio
+  in the press, Start chosen when the room starts the stage). Text in
   `locales/*/room.ftl`. Desktop keeps the room for the run
-  (`crates/desktop/src/room.rs`: the home, the room and the pick on the
-  UI's stack; `--screen multiplayer|room`, refused with the switch off; a
+  (`crates/desktop/src/room.rs`: the home and the room's song select on
+  the UI's stack, a stage's prompt over it through the play host; `--screen multiplayer|room`, refused with the switch off; a
   stage played over the room through the play host, `play::Request::stage`,
   `room_screen_with` for tests, `tests/room_stage_flow.rs`). Its online
   rooms (M5c, `crates/desktop/src/online.rs`): HTTP through ureq on a
@@ -862,13 +887,15 @@ Rust and the browser are implementation details, not advertised features.
   from the room's share into the cache (`share::load`, the songs in
   `library::register_room_songs`) on threads (`room::upload`,
   `room::prepare_online`); `tests/online.rs` runs against a local server
-  named by `DDI_ONLINE_API` (sign-in, a room, an upload under the grant,
-  the guest's load from the share, the start and both runs reported).
+  named by `DDI_ONLINE_API` (sign-in, a room, the resting song uploaded
+  under the spotlight's grant and read by the guest, the pick reusing it,
+  both ready and both runs reported).
   The web keeps it for the session (`crates/web/src/room.rs`, thread-local
   as `crate::share` is): `#/?mp=1` (`mp=0`) sets the switch, `#/mp` is the
-  home, `#/room` the room and `#/room/pick?stage=<id>&n=<number>` song
-  select's pick mode (`select_page::Props::pick`, the page's
-  `Which::Multiplayer`/`Which::Room`), a stage played at
+  home, `#/room` the practice room's song select
+  (`select_page::Props::room`, `crate::room::RoomRoute`, its calls
+  `crate::room::shell`; `#/room/pick` is `#/room` now), a stage's prompt
+  and play at
   `#/play?song=…&chart=…&stage=<id>` (`game_canvas::Props::room_stage`, its
   outcome reported by the game loop, back to `#/room`; an address the room
   did not hand over shows the room); with the switch off those routes show
@@ -876,7 +903,7 @@ Rust and the browser are implementation details, not advertised features.
   `crates/web/src/online.rs`): `#/mp` is the online home
   (`ddi_ui::screens::online::OnlineScreen`), `#/mp/join/<invite>` an
   invite's page (its link carries `mp=1`, the switch),
-  `#/mp/room/<id>` the online room; signing in leaves the page for the
+  `#/mp/room/<id>` the online room's song select; signing in leaves the page for the
   server's `api/auth/twitch/login?return=<route>` and comes back to the
   route (`?signin=canceled` when canceled), what it was for kept in
   `sessionStorage` (`ddi.mp.after`); the session is the server's HttpOnly

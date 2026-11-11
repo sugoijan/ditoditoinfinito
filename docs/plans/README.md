@@ -46,7 +46,13 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   screen to screen everywhere. M7c: the hand larger behind the field, no
   heading beside the play (the battle's moment in a status line), the
   sides' whole height for the miniatures, and turns where not everyone
-  fits. Provisional choices and open questions listed.
+  fits. M7b: the maintainer's match flow: song select is the room (the
+  host's pick starts or continues the match; the others follow the host's
+  resting song, shared ahead), Rules first on entering, readiness on the
+  stage's prompt (Ready, its countdown, the players; the stage starts once
+  all are ready or at the deadline, the rest sit out), standings after
+  each stage, a named CPU roster. Provisional choices and open questions
+  listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two
   flows while the original design lane continues. Separates selected constraints,

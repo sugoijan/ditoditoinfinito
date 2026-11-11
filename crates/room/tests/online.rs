@@ -692,7 +692,7 @@ fn the_backoff_doubles_to_its_cap() {
 #[test]
 fn the_resync_frame_is_the_servers_first_one() {
     let text = serde_json::to_string(&ddi_room::Resync::snapshot()).unwrap();
-    assert_eq!(text, r#"{"v":1,"want":"snapshot"}"#);
+    assert_eq!(text, r#"{"v":2,"want":"snapshot"}"#);
     let frame: ddi_room::ClientFrame = serde_json::from_str(&text).unwrap();
     assert!(matches!(frame, ddi_room::ClientFrame::Resync(_)));
     let cmd: ddi_room::ClientFrame =

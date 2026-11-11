@@ -61,6 +61,7 @@ pub use rules::{
     ReadinessPolicy, RoomPolicy, RulesProblem,
 };
 pub use state::{
-    ContentStatus, Loading, Match, MatchEnding, MatchRecord, NextMatchDraft, Participation, Prep,
-    RoomState, Seat, SitOutReason, Stage, StageContent, StagePlay, StageStanding, Standing,
+    ContentCard, ContentStatus, Loading, Match, MatchEnding, MatchRecord, NextMatchDraft,
+    Participation, Prep, RoomState, Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay,
+    StageStanding, Standing,
 };

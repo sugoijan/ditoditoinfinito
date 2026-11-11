@@ -57,14 +57,31 @@ impl Member {
 }
 
 /// What a CPU seat plays like, opaque to the room: the stage runner turns it
-/// into a real opponent. `level` and `seed` are today's CPU controls; a
-/// personality can join them without changing the room.
+/// into a real opponent. `level` and `seed` are today's CPU controls;
+/// `personality` its skills (`ddi_engine::cpu::Skills`: a preset's name or
+/// seven multipliers) and `name` what the room calls it (a roster's CPU,
+/// M7b; none: "CPU n").
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpponentSpec {
     pub level: u8,
     pub seed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub personality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl OpponentSpec {
+    /// The longest name and personality a CPU may carry (characters).
+    pub const MAX_TEXT: usize = 192;
+
+    /// Whether its texts are within [`OpponentSpec::MAX_TEXT`].
+    pub fn fits(&self) -> bool {
+        [&self.personality, &self.name].iter().all(|t| {
+            t.as_ref()
+                .is_none_or(|t| t.chars().count() <= Self::MAX_TEXT)
+        })
+    }
 }
 
 impl OpponentSpec {
@@ -220,6 +237,7 @@ mod tests {
             level: 1,
             seed: 7,
             personality: None,
+            name: None,
         };
         let (a, b) = (spec.for_seat(1), spec.for_seat(2));
         assert_ne!(a.seed, b.seed);

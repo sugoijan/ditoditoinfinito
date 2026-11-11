@@ -42,11 +42,11 @@ use std::collections::BTreeSet;
 
 use ddi_library::share::ShareError;
 use ddi_room::{
-    BattlePreset, Capability, ChartKey, ClientId, Command, ContentId, ContentSource, ContentStatus,
-    CpuMode, Finisher, Identity, LinkState, Loading, LocalAuthority, ManualClock, MatchRules,
-    MemberKind, Mirror, OpponentSpec, ParticipantId, Phase, Placement, Rejection, ReportedRun,
-    Revision, Role, RoomAuthority, RoomId, RoomPolicy, RoomState, RulesProblem, Run, ServerMessage,
-    SongKey, Stage, StageId, Transport,
+    BattlePreset, Capability, ChartKey, ClientId, Command, ContentCard, ContentId, ContentSource,
+    ContentStatus, Finisher, Identity, LinkState, Loading, LocalAuthority, ManualClock, MatchId,
+    MatchRules, MemberKind, Mirror, OpponentSpec, ParticipantId, Phase, Placement, Rejection,
+    ReportedRun, Revision, Role, RoomAuthority, RoomId, RoomPolicy, RoomState, RulesProblem, Run,
+    ServerMessage, SongKey, Stage, StageId, Transport,
 };
 
 use crate::state::online::SharedOnline;
@@ -65,6 +65,38 @@ pub fn cpu_levels() -> u8 {
 /// `normal`, the third of five). PROVISIONAL: a convenient start, not a
 /// calibrated profile.
 pub const DEFAULT_CPU_LEVEL: u8 = 2;
+
+/// Practice's starting CPUs: three of the catalog (`cpu_roster`), drawn
+/// from the room's seed.
+pub const STARTING_CPUS: usize = 3;
+
+/// How long an operator's song select rests on a song before the room
+/// shows it to the others and an online room shares it (M7b). PROVISIONAL
+/// (`spotlight-rest-v0`): long enough that scrolling through the list
+/// sends nothing.
+pub const SPOTLIGHT_REST_MS: u64 = 3_000;
+
+/// The stage id the spotlight's upload and download go under (stages are
+/// numbered from 1): the server's grant for "no stage" (M7b).
+pub const SPOTLIGHT: StageId = StageId(0);
+
+/// What the room's screens show now (M7b's flow): song select (the host
+/// picking, the others following), or a stage's start prompt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomView {
+    Select,
+    Prompt(StageId),
+}
+
+/// What leaving a stage's prompt means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptExit {
+    /// The stage is being played with this player in it: a forfeit.
+    Forfeit,
+    /// Before its start: back to the room, not ready (sitting it out if it
+    /// starts meanwhile).
+    Withdraw,
+}
 
 /// A local library song and chart a stage's content names.
 #[derive(Clone, Debug, PartialEq)]
@@ -303,6 +335,9 @@ pub struct CpuSeat {
     pub ordinal: u16,
     pub level: u8,
     pub seed: u64,
+    /// A roster CPU's name (data) and personality (`ddi_engine::cpu::Skills`).
+    pub name: Option<String>,
+    pub skills: Option<String>,
 }
 
 /// A stage to play now, handed to the shell once its countdown is over
@@ -365,6 +400,18 @@ pub fn eligible(chart: &ChartEntry) -> Result<(), Unsupported> {
     }
 }
 
+/// What the room shows of `song`'s `chart` before anyone loads it.
+pub fn card_of(song: &SongEntry, chart: &ChartEntry) -> ContentCard {
+    let cut = |t: &str| t.chars().take(ContentCard::MAX_TEXT).collect::<String>();
+    ContentCard {
+        title: cut(&song.title),
+        artist: cut(&song.artist),
+        difficulty: cut(chart.difficulty.name()),
+        meter: chart.meter,
+        style: cut(&chart.style),
+    }
+}
+
 /// The opaque content id of a library chart: the song's library id and
 /// the chart's digest (its index where the library has no digest yet).
 pub fn content_id(song: &SongEntry, chart: &ChartEntry) -> ContentId {
@@ -414,6 +461,20 @@ pub struct RoomClient {
     uploads: Vec<UploadJob>,
     /// The shell's threads' news ([`ShellNews`]).
     inbox: Option<Inbox>,
+    /// The song and chart an operator's song select rests on, since when
+    /// (M7b): told to the room once it rested [`SPOTLIGHT_REST_MS`].
+    resting: Option<(ContentId, ContentCard, u64)>,
+    /// This device's upload of the spotlight's song (an online operator's).
+    spotlight_sharing: Option<(ContentId, Sharing)>,
+    /// The spotlight's song as read from the room's share (a member's), and
+    /// the content asked for.
+    spotlight_loaded: Option<(ContentId, Picked)>,
+    spotlight_asked: Option<ContentId>,
+    /// The Rules pop-up opened by itself on entering (M7b).
+    rules_seen: bool,
+    /// The last results the player was shown: the match and its confirmed
+    /// stages (the match's results counted as one more).
+    results_seen: (Option<MatchId>, usize),
 }
 
 /// The room shared by the screens that show it (the room, its song
@@ -430,7 +491,10 @@ impl RoomClient {
             level: DEFAULT_CPU_LEVEL,
             seed,
             personality: None,
+            name: None,
         });
+        let roster = super::cpu_roster::starting(STARTING_CPUS, seed);
+        let rules = super::cpu_roster::with_roster(rules, roster, 1);
         Self::practice_under(now_ms, rules, RoomPolicy::default())
     }
 
@@ -448,6 +512,7 @@ impl RoomClient {
             level: DEFAULT_CPU_LEVEL,
             seed,
             personality: None,
+            name: None,
         });
         rules.stages = 1;
         rules.seats = cpus + 1;
@@ -480,6 +545,12 @@ impl RoomClient {
             sharing: BTreeMap::new(),
             uploads: Vec::new(),
             inbox: None,
+            resting: None,
+            spotlight_sharing: None,
+            spotlight_loaded: None,
+            spotlight_asked: None,
+            rules_seen: false,
+            results_seen: (None, 0),
         };
         room.pump();
         room
@@ -528,6 +599,12 @@ impl RoomClient {
             sharing: BTreeMap::new(),
             uploads: Vec::new(),
             inbox: None,
+            resting: None,
+            spotlight_sharing: None,
+            spotlight_loaded: None,
+            spotlight_asked: None,
+            rules_seen: false,
+            results_seen: (None, 0),
         };
         room.tick(now_ms);
         room
@@ -693,9 +770,203 @@ impl RoomClient {
         self.take_grants();
         self.read_inbox();
         self.pump();
+        self.tell_spotlight();
         if self.link_state() != before {
             self.version += 1;
         }
+    }
+
+    /// The operator's song select rests on `song`'s `chart` (none: no
+    /// song). Once it has rested [`SPOTLIGHT_REST_MS`], an online room is
+    /// told (the others see and hear it, and it is shared ahead); moving
+    /// on before then sends nothing. Practice has nobody to show it to.
+    pub fn hover(&mut self, shown: Option<(&SongEntry, &ChartEntry)>) {
+        let now = self.now_ms();
+        let next = shown.map(|(song, chart)| {
+            let id = content_id(song, chart);
+            self.picks.entry(id.clone()).or_insert_with(|| Picked {
+                song: song.clone(),
+                chart: chart.clone(),
+            });
+            (id, card_of(song, chart))
+        });
+        if self.resting.as_ref().map(|(id, _, _)| id) != next.as_ref().map(|(id, _)| id) {
+            self.resting = next.map(|(id, card)| (id, card, now));
+        }
+    }
+
+    /// Tells the room what the operator's song select has rested on.
+    fn tell_spotlight(&mut self) {
+        if !self.is_online()
+            || self.link_state() != LinkState::Connected
+            || !self.may(Capability::ChooseContent)
+        {
+            return;
+        }
+        let Some((id, card, since)) = self.resting.clone() else {
+            return;
+        };
+        let chart_has_digest = id.chart.as_str().parse::<ddi_chart::ChartDigest>().is_ok();
+        if self.now_ms() < since + SPOTLIGHT_REST_MS || !chart_has_digest {
+            return;
+        }
+        let shown = self.state().spotlight.as_ref();
+        if shown.is_some_and(|s| s.content == id && s.by == self.me) {
+            return;
+        }
+        // Once per rest: a refusal is not asked again until it moves.
+        self.resting = None;
+        let _ = self.send(Command::Spotlight {
+            content: Some(id),
+            card: Some(Box::new(card)),
+        });
+    }
+
+    /// The song the room's operator rests on, as this device can show it:
+    /// its card, and the song and chart once read (its own library's, or
+    /// the room's share of it).
+    pub fn spotlight(&self) -> Option<(&ContentCard, Option<&Picked>)> {
+        let s = self.state().spotlight.as_ref()?;
+        let picked = self.picks.get(&s.content).or_else(|| {
+            self.spotlight_loaded
+                .as_ref()
+                .filter(|(id, _)| *id == s.content)
+                .map(|(_, p)| p)
+        });
+        Some((&s.card, picked))
+    }
+
+    /// What the room's screens should show now (M7b): the start prompt of
+    /// the stage this player is in or may still join, else song select.
+    pub fn view(&self) -> RoomView {
+        match self.prompt_stage() {
+            Some(stage) => RoomView::Prompt(stage),
+            None => RoomView::Select,
+        }
+    }
+
+    /// The stage whose start prompt this player belongs on: gathering
+    /// readiness after a pick (and they a candidate who has the song), or
+    /// counting down or played with them in its lineup.
+    fn prompt_stage(&self) -> Option<StageId> {
+        let s = self.state();
+        let (stage, gathering) = match s.phase {
+            Phase::Preparing {
+                stage,
+                window: Some(_),
+            } => (stage, true),
+            Phase::Countdown { stage, .. } | Phase::Stage { stage } => (stage, false),
+            _ => return None,
+        };
+        let st = s.stage(stage)?;
+        if !self.picks.contains_key(&st.content.as_ref()?.id) {
+            return None;
+        }
+        let me = self.me;
+        if gathering {
+            let candidate = s.candidates().contains(&me)
+                && s.member(me)
+                    .is_some_and(|m| m.intent == ddi_room::Intent::Play);
+            candidate.then_some(stage)
+        } else {
+            st.play
+                .as_ref()
+                .is_some_and(|p| p.lineup.contains(&me))
+                .then_some(stage)
+        }
+    }
+
+    /// Whether the room's stage `stage` has started with this player in it:
+    /// its prompt starts the play now.
+    pub fn stage_started(&self, stage: StageId) -> bool {
+        let s = self.state();
+        matches!(s.phase, Phase::Stage { stage: p } | Phase::SongCompletion { stage: p } if p == stage)
+            && s.stage(stage)
+                .and_then(|st| st.play.as_ref())
+                .is_some_and(|p| p.lineup.contains(&self.me))
+    }
+
+    /// What leaving stage `stage`'s prompt means now; withdrawing clears
+    /// this player's Ready (and an operator's pick: the window closed, back
+    /// to choosing).
+    pub fn leave_prompt(&mut self, stage: StageId) -> PromptExit {
+        self.launched.remove(&stage);
+        if self.stage_started(stage) {
+            return PromptExit::Forfeit;
+        }
+        if self.state().upcoming_stage() == Some(stage) {
+            if self.ready() {
+                let _ = self.set_ready(false);
+            }
+            if self.may(Capability::Advance)
+                && matches!(
+                    self.state().phase,
+                    Phase::Preparing {
+                        window: Some(_),
+                        ..
+                    }
+                )
+            {
+                let _ = self.cancel_start();
+            }
+        }
+        PromptExit::Withdraw
+    }
+
+    /// Whether the Rules pop-up has opened by itself since the player came
+    /// into the room (M7b: once, until they leave and come back).
+    pub fn rules_seen(&self) -> bool {
+        self.rules_seen
+    }
+
+    pub fn set_rules_seen(&mut self, seen: bool) {
+        self.rules_seen = seen;
+    }
+
+    /// Results the player has not been shown yet: a stage's (its number,
+    /// from 1) or the match's (`None`), once confirmed.
+    pub fn unseen_results(&self) -> Option<Option<u16>> {
+        let s = self.state();
+        let m = s.current.as_ref().filter(|_| s.phase != Phase::Lobby)?;
+        let confirmed = m
+            .stages
+            .iter()
+            .filter(|st| st.play.as_ref().is_some_and(|p| p.song_ended))
+            .count();
+        let over = matches!(s.phase, Phase::MatchResults | Phase::Interrupted { .. });
+        let seen = match self.results_seen {
+            (Some(id), n) if id == m.id => n,
+            _ => 0,
+        };
+        let total = confirmed + usize::from(over);
+        if total <= seen {
+            return None;
+        }
+        Some(if over {
+            None
+        } else {
+            Some(u16::try_from(confirmed).unwrap_or(u16::MAX))
+        })
+    }
+
+    /// The player was shown the results there are.
+    pub fn results_shown(&mut self) {
+        let s = self.state();
+        let Some(m) = s.current.as_ref() else {
+            return;
+        };
+        let confirmed = m
+            .stages
+            .iter()
+            .filter(|st| st.play.as_ref().is_some_and(|p| p.song_ended))
+            .count();
+        let over = matches!(s.phase, Phase::MatchResults | Phase::Interrupted { .. });
+        self.results_seen = (Some(m.id), confirmed + usize::from(over));
+    }
+
+    /// The people who want to play now (at least one: the player).
+    pub fn humans(&self) -> usize {
+        self.state().reserved_humans().max(1)
     }
 
     /// The stages shown: the running (or just finished) match's, else the
@@ -727,21 +998,27 @@ impl RoomClient {
             .map(|m| &m.rules)
     }
 
-    /// Choose `song`'s `chart` for `stage`: refused when the CPUs cannot
-    /// play it, or when the room refuses (a started stage, a stale view).
-    pub fn choose(
-        &mut self,
-        stage: StageId,
-        song: &SongEntry,
-        chart: &ChartEntry,
-    ) -> Result<(), Refusal> {
+    /// Whether `chart` may be picked here: the CPUs can play it (practice),
+    /// or every member can check it by its digest (online).
+    pub fn pickable(&self, chart: &ChartEntry) -> Result<(), Unsupported> {
         if self.is_online() {
             // No CPUs in a hosted room; its content must be named by the
             // chart's digest, which every participant can check.
             if chart.digest.is_none() {
-                return self.refuse(Refusal::Chart(Unsupported::NoDigest));
+                return Err(Unsupported::NoDigest);
             }
-        } else if let Err(why) = eligible(chart) {
+            Ok(())
+        } else {
+            eligible(chart)
+        }
+    }
+
+    /// The operator's pick (M7b): `song`'s `chart` becomes the song of the
+    /// stage the room plays next, and the match starts (or goes on); the
+    /// stage's readiness gathers on its start prompt. Refused when the
+    /// CPUs cannot play it, or when the room refuses.
+    pub fn pick(&mut self, song: &SongEntry, chart: &ChartEntry) -> Result<(), Refusal> {
+        if let Err(why) = self.pickable(chart) {
             return self.refuse(Refusal::Chart(why));
         }
         let id = content_id(song, chart);
@@ -752,10 +1029,24 @@ impl RoomClient {
                 chart: chart.clone(),
             },
         );
-        self.send(Command::ChooseContent {
-            stage,
-            content: Some(id),
+        self.send(Command::Pick {
+            content: id,
+            card: Some(Box::new(card_of(song, chart))),
         })
+    }
+
+    /// The stage the next pick is for: its number in the match (from 1),
+    /// a new match's first after a match's results.
+    pub fn next_pick_number(&self) -> u16 {
+        let s = self.state();
+        let n = match (&s.phase, &s.current) {
+            (Phase::Lobby | Phase::MatchResults | Phase::Interrupted { .. }, _) | (_, None) => 0,
+            (_, Some(m)) => s
+                .upcoming_stage()
+                .and_then(|id| m.stage_index(id))
+                .unwrap_or(0),
+        };
+        u16::try_from(n + 1).unwrap_or(u16::MAX)
     }
 
     /// Declare (or withdraw) readiness for the upcoming stage. Never
@@ -772,63 +1063,19 @@ impl RoomClient {
         })
     }
 
-    /// Whether the local player is ready for the upcoming stage.
+    /// Whether the local player is ready for the upcoming stage (or in
+    /// the lineup of the stage counting down).
     pub fn ready(&self) -> bool {
         let s = self.state();
+        if let Phase::Countdown { stage, .. } = s.phase {
+            return s
+                .stage(stage)
+                .and_then(|st| st.play.as_ref())
+                .is_some_and(|p| p.lineup.contains(&self.me));
+        }
         s.upcoming_stage()
             .and_then(|id| s.stage(id))
             .is_some_and(|stage| stage.prep(self.me).ready)
-    }
-
-    /// Start: in the lobby the match (its rules and roster locked) with its
-    /// first stage, one command the room refuses whole; between stages
-    /// the next one.
-    pub fn start(&mut self) -> Result<(), Refusal> {
-        let Some(stage) = self.state().upcoming_stage() else {
-            return self.refuse(Refusal::Room(Rejection::WrongPhase {
-                phase: self.state().phase.kind(),
-            }));
-        };
-        let readiness_rev = self.readiness_rev(stage);
-        // This device's own preparation: failed, or not done yet (a
-        // window would wait its whole length for it).
-        if let Some(p) = self.load_problem(stage) {
-            return self.refuse(Refusal::Load(p));
-        }
-        if self.loading(stage) {
-            return self.refuse(Refusal::Preparing);
-        }
-        // Practice words its own refusal before the press (the room would
-        // say the same); online, the others' readiness is the room's.
-        if self.state().phase == Phase::Lobby
-            && !self.is_online()
-            && let Some(why) = self.start_blocker(stage)
-        {
-            return self.refuse(Refusal::Room(why));
-        }
-        self.send(Command::StartStage {
-            stage,
-            readiness_rev,
-        })
-    }
-
-    /// Why Start would be refused now, as the room would say it: no song,
-    /// or no ready player. The room decides; this only words it before
-    /// the press.
-    pub fn start_blocker(&self, stage: StageId) -> Option<Rejection> {
-        let s = self.state();
-        let st = s.stage(stage)?;
-        match &st.content {
-            None => return Some(Rejection::NoContent),
-            Some(c) if c.status == ContentStatus::Pending => {
-                return Some(Rejection::ContentPending);
-            }
-            _ => {}
-        }
-        (!st.prep(self.me).ready).then_some(Rejection::NotEnoughReady {
-            ready_humans: 0,
-            competitors: 0,
-        })
     }
 
     /// Why the local player's preparation of `stage` failed, if it did.
@@ -883,6 +1130,15 @@ impl RoomClient {
     /// song and chart as read from the room's share, or why not. The stage
     /// is reported loaded once its chart is the one chosen.
     pub fn finish_shared_load(&mut self, job: &LoadJob, result: Result<Picked, LoadProblem>) {
+        if job.stage == SPOTLIGHT {
+            // The spotlight's song for the others to see and hear; a
+            // failure leaves its card alone.
+            if let (Ok(picked), Some(asked)) = (result, self.spotlight_asked.clone()) {
+                self.spotlight_loaded = Some((asked, picked));
+                self.version += 1;
+            }
+            return;
+        }
         if self.readiness_rev(job.stage) != job.readiness_rev {
             return;
         }
@@ -943,6 +1199,12 @@ impl RoomClient {
     /// The upload of stage `stage`'s song moved on: `done` bytes of
     /// `total`.
     pub fn upload_progress(&mut self, stage: StageId, done: f64, total: f64) {
+        if stage == SPOTLIGHT {
+            if let Some((_, s @ Sharing::Uploading { .. })) = &mut self.spotlight_sharing {
+                *s = Sharing::Uploading { done, total };
+            }
+            return;
+        }
         if let Some((_, s @ Sharing::Uploading { .. })) = self.sharing.get_mut(&stage) {
             *s = Sharing::Uploading { done, total };
             self.version += 1;
@@ -953,6 +1215,17 @@ impl RoomClient {
     /// hears it from the server, not from here), or why not. An expired
     /// grant is renewed and the upload made again.
     pub fn upload_finished(&mut self, stage: StageId, result: Result<String, ShareError>) {
+        if stage == SPOTLIGHT {
+            // The room hears it from the server; a failure is not retried
+            // (the pick shares the song itself).
+            if let Some((_, s)) = &mut self.spotlight_sharing {
+                *s = match result {
+                    Ok(_) => Sharing::Sent,
+                    Err(e) => Sharing::Failed(SharingProblem::Upload(e)),
+                };
+            }
+            return;
+        }
         let Some((chosen, state)) = self.sharing.get(&stage).cloned() else {
             return;
         };
@@ -1008,6 +1281,10 @@ impl RoomClient {
             None => return,
         };
         for n in news {
+            if n.stage == SPOTLIGHT {
+                self.spotlight_granted(n.answer);
+                continue;
+            }
             let Some((chosen, Sharing::Asking)) = self.sharing.get(&n.stage).cloned() else {
                 continue;
             };
@@ -1050,6 +1327,39 @@ impl RoomClient {
         }
     }
 
+    /// The room's answer to the spotlight's grant: its upload handed to the
+    /// shell, or the room's earlier share taken.
+    fn spotlight_granted(
+        &mut self,
+        answer: Result<ddi_library::share::GrantAnswer, crate::state::online::api::Problem>,
+    ) {
+        let Some((content, Sharing::Asking)) = self.spotlight_sharing.clone() else {
+            return;
+        };
+        let next = match answer {
+            Ok(answer) => match (answer.grant, self.picks.get(&content)) {
+                (Some(grant), Some(p)) => {
+                    self.uploads.push(UploadJob {
+                        stage: SPOTLIGHT,
+                        content: content.clone(),
+                        song: p.song.clone(),
+                        chart: p.chart.clone(),
+                        grant,
+                        max_bytes: answer.max_bytes,
+                    });
+                    Sharing::Uploading {
+                        done: 0.0,
+                        total: 0.0,
+                    }
+                }
+                (None, _) if answer.share.is_some() => Sharing::Sent,
+                _ => Sharing::Failed(SharingProblem::Grant("no_grant".into())),
+            },
+            Err(p) => Sharing::Failed(SharingProblem::Grant(p.code)),
+        };
+        self.spotlight_sharing = Some((content, next));
+    }
+
     /// Report one's own run of stage `stage` (an online room's: it ranks
     /// everyone's reports).
     pub fn report_run(&mut self, stage: StageId, run: Run) -> Result<(), Refusal> {
@@ -1062,23 +1372,22 @@ impl RoomClient {
     /// The stage whose countdown just ended, to play now: handed over
     /// once (a stage is never played twice).
     pub fn take_stage_order(&mut self) -> Option<StageOrder> {
-        let s = self.state();
-        let Phase::Stage { stage } = s.phase else {
-            return None;
-        };
+        let stage = self.prompt_stage()?;
         if self.launched.contains(&stage) {
             return None;
         }
+        let s = self.state();
         let m = s.current.as_ref()?;
         let index = m.stage_index(stage)?;
         let st = &m.stages[index];
-        let play = st.play.as_ref()?;
-        if !play.lineup.contains(&self.me) {
-            return None;
-        }
         let picked = self.picked(&st.content.as_ref()?.id)?.clone();
-        let cpus = play
-            .lineup
+        // Who plays it: its lineup once committed, else every candidate
+        // (CPUs never sit out; people's readiness is still open).
+        let field: Vec<ParticipantId> = match &st.play {
+            Some(play) => play.lineup.iter().copied().collect(),
+            None => s.candidates(),
+        };
+        let cpus = field
             .iter()
             .filter_map(|id| match &s.member(*id)?.kind {
                 MemberKind::Cpu { ordinal, opponent } => Some(CpuSeat {
@@ -1086,6 +1395,8 @@ impl RoomClient {
                     ordinal: *ordinal,
                     level: opponent.level,
                     seed: opponent.seed,
+                    name: opponent.name.clone(),
+                    skills: opponent.personality.clone(),
                 }),
                 MemberKind::Human { .. } => None,
             })
@@ -1100,7 +1411,7 @@ impl RoomClient {
             me: self.me,
             cpus,
             others: u16::try_from(
-                play.lineup
+                field
                     .iter()
                     .filter(|id| **id != self.me)
                     .filter(|id| s.member(**id).is_some_and(|m| !m.is_cpu()))
@@ -1259,20 +1570,6 @@ impl RoomClient {
         s.policy.readiness.min_competitors.saturating_sub(humans)
     }
 
-    /// `rules` with `cpus` fixed CPU opponents, the seats following.
-    pub fn with_cpus(&self, mut rules: MatchRules, cpus: u16) -> MatchRules {
-        let humans = u16::try_from(self.state().reserved_humans().max(1)).unwrap_or(u16::MAX);
-        rules.cpu.mode = CpuMode::Fixed { count: cpus };
-        rules.seats = humans.saturating_add(cpus);
-        rules
-    }
-
-    /// How many CPUs `rules` seat with the people who play now.
-    pub fn cpus_of(&self, rules: &MatchRules) -> u16 {
-        let humans = self.state().reserved_humans().max(1);
-        u16::try_from(rules.cpu_seats(humans)).unwrap_or(u16::MAX)
-    }
-
     fn readiness_rev(&self, stage: StageId) -> u32 {
         self.state().stage(stage).map_or(0, |s| s.readiness_rev)
     }
@@ -1414,6 +1711,47 @@ impl RoomClient {
         }
     }
 
+    /// The spotlight's song (M7b): the operator who rests on it shares it
+    /// ahead under the room's grant (once per song), so that its pick is
+    /// available at once; the others read the room's share of it, to show
+    /// its banner and play its preview before anything is picked.
+    fn sync_spotlight(&mut self) {
+        let Some(spot) = self.state().spotlight.clone() else {
+            return;
+        };
+        if spot.by == self.me {
+            let asked = self
+                .spotlight_sharing
+                .as_ref()
+                .is_some_and(|(c, _)| *c == spot.content);
+            if spot.share.is_none() && !asked && self.picks.contains_key(&spot.content) {
+                self.spotlight_sharing = Some((spot.content.clone(), Sharing::Asking));
+                if let Some(l) = self.online_link_mut() {
+                    l.request_grant(SPOTLIGHT, Revision(0));
+                }
+            }
+            return;
+        }
+        let Some(share) = spot.share else {
+            return;
+        };
+        if self.picks.contains_key(&spot.content)
+            || self.spotlight_asked.as_ref() == Some(&spot.content)
+        {
+            return;
+        }
+        self.spotlight_asked = Some(spot.content.clone());
+        self.jobs.push(LoadJob {
+            stage: SPOTLIGHT,
+            readiness_rev: 0,
+            song: ddi_library::share::song_id(&share, 0),
+            chart: 0,
+            digest: spot.content.chart.as_str().parse().ok(),
+            share: Some(share),
+            cpus: false,
+        });
+    }
+
     /// An online room's content (M5d). An operator's own pick waiting for
     /// its share (pending, or refused by the room) is shared from here
     /// once per choice: the room's grant asked for, then the upload handed
@@ -1425,6 +1763,7 @@ impl RoomClient {
         if self.link_state() != LinkState::Connected {
             return;
         }
+        self.sync_spotlight();
         let me = self.me;
         let operator = self.may(Capability::ChooseContent);
         let mut ask = Vec::new();
@@ -1526,54 +1865,29 @@ mod tests {
         }
     }
 
+    fn cpus(room: &RoomClient) -> usize {
+        crate::state::cpu_roster::roster_of(room.rules(), room.humans()).len()
+    }
+
     #[test]
-    fn practice_seats_eight_opponents_and_development_far_more() {
+    fn practice_seats_a_named_roster_and_development_far_more() {
         let room = RoomClient::new(0, 7);
         assert_eq!(room.max_cpus(), 8, "nine competitors, the player included");
+        let roster = &room.rules().cpu.roster;
+        assert_eq!(roster.len(), STARTING_CPUS);
+        assert!(
+            roster
+                .iter()
+                .all(|c| c.name.is_some() && c.personality.is_some())
+        );
         let dev = RoomClient::development(0, 7, 64);
-        assert_eq!(dev.cpus_of(dev.rules()), 64);
+        assert_eq!(cpus(&dev), 64);
         assert!(dev.check_rules(dev.rules()).is_ok());
         assert_eq!(dev.rules().awards, ddi_room::AwardScheme::DevelopmentV0);
         assert_eq!(dev.max_cpus(), 128);
         // Never beyond the development cap.
         let most = RoomClient::development(0, 7, 1000);
-        assert_eq!(most.cpus_of(most.rules()), 128);
-    }
-
-    #[test]
-    fn choosing_reports_the_local_content_loaded_and_refuses_what_cpus_cannot_play() {
-        let mut room = RoomClient::new(1_000, 7);
-        let first = room.stages()[0].id;
-        let s = song("a");
-        assert_eq!(
-            room.choose(first, &s, &s.charts[1]),
-            Err(Refusal::Chart(Unsupported::Layout {
-                style: "dance-double".into()
-            }))
-        );
-        assert!(room.stages()[0].content.is_none());
-        room.choose(first, &s, &s.charts[0]).unwrap();
-        let st = &room.stages()[0];
-        assert_eq!(
-            st.content.as_ref().unwrap().id,
-            content_id(&s, &s.charts[0])
-        );
-        // Loading until the shell has prepared it: a job, handed once.
-        assert_eq!(st.prep(room.me()).loading, Loading::Loading { permille: 0 });
-        assert!(room.loading(first));
-        let jobs = room.take_load_jobs();
-        assert_eq!(jobs.len(), 1);
-        assert_eq!((jobs[0].song.as_str(), jobs[0].chart), ("a", 0));
-        assert!(room.take_load_jobs().is_empty());
-        room.finish_load(&jobs[0], Ok(()));
-        let st = &room.stages()[0];
-        assert_eq!(st.prep(room.me()).loading, Loading::Loaded);
-        assert!(!st.prep(room.me()).ready, "never ready by itself");
-        assert_eq!(
-            room.picked(&content_id(&s, &s.charts[0])).unwrap().song.id,
-            "a"
-        );
-        assert!(room.refusal().is_none());
+        assert_eq!(cpus(&most), 128);
     }
 
     /// Every song asked for prepared, as a shell does.
@@ -1584,70 +1898,102 @@ mod tests {
     }
 
     #[test]
-    fn start_needs_a_song_and_ready_then_counts_down_into_the_stage() {
+    fn a_pick_starts_the_match_and_opens_the_prompt_until_ready_starts_the_stage() {
         let mut room = RoomClient::new(1_000, 7);
-        let first = room.stages()[0].id;
-        assert_eq!(room.start(), Err(Refusal::Room(Rejection::NoContent)));
         let s = song("a");
-        room.choose(first, &s, &s.charts[0]).unwrap();
-        room.set_ready(true).unwrap();
-        // Ready while loading is allowed; Start waits for the song.
-        assert_eq!(room.start(), Err(Refusal::Preparing));
-        room.set_ready(false).unwrap();
-        prepare(&mut room);
+        assert_eq!(room.view(), RoomView::Select);
+        assert_eq!(room.next_pick_number(), 1);
+        // The CPUs play four-lane one-player charts only.
+        assert_eq!(
+            room.pick(&s, &s.charts[1]),
+            Err(Refusal::Chart(Unsupported::Layout {
+                style: "dance-double".into()
+            }))
+        );
+        assert_eq!(room.state().phase, Phase::Lobby, "nothing started");
+        room.pick(&s, &s.charts[0]).unwrap();
+        let first = room.stages()[0].id;
         assert!(matches!(
-            room.start(),
-            Err(Refusal::Room(Rejection::NotEnoughReady { .. }))
+            room.state().phase,
+            Phase::Preparing {
+                window: Some(_),
+                ..
+            }
         ));
-        assert_eq!(room.state().phase, Phase::Lobby, "no match locked");
-        room.set_ready(true).unwrap();
-        assert!(room.ready());
-        room.start().unwrap();
-        assert!(matches!(room.state().phase, Phase::Countdown { .. }));
-        let m = room.state().current.as_ref().unwrap();
-        assert_eq!(m.roster.len(), 4, "the player and three CPUs");
-        room.tick(3_999);
-        assert!(matches!(room.state().phase, Phase::Countdown { .. }));
-        room.tick(4_000);
-        assert_eq!(room.state().phase, Phase::Stage { stage: first });
-        // Handed to the shell once: the song, the CPUs committed.
+        assert_eq!(room.view(), RoomView::Prompt(first));
+        assert_eq!(
+            room.stages()[0]
+                .content
+                .as_ref()
+                .unwrap()
+                .card
+                .as_ref()
+                .unwrap()
+                .title,
+            "Song a"
+        );
+        // The prompt opens once, before anyone is ready; the CPUs with it.
         let order = room.take_stage_order().unwrap();
         assert_eq!((order.stage, order.number, order.of), (first, 1, 4));
-        assert_eq!(order.song.id, "a");
         assert_eq!(order.cpus.len(), 3);
+        assert!(order.cpus.iter().all(|c| c.name.is_some()));
         assert_eq!(order.battle, BattlePreset::GaugeSurvivalV0);
         assert!(room.take_stage_order().is_none());
+        // Loading until the shell prepared it; Ready while loading holds.
+        assert!(room.loading(first));
+        room.set_ready(true).unwrap();
+        assert!(!room.stage_started(first));
+        prepare(&mut room);
+        // Ready and loaded, alone with CPUs: the countdown, then the stage.
+        assert!(matches!(room.state().phase, Phase::Countdown { .. }));
+        room.tick(3_999);
+        assert!(!room.stage_started(first));
+        room.tick(4_000);
+        assert!(room.stage_started(first));
+        assert_eq!(room.leave_prompt(first), PromptExit::Forfeit);
         room.stop_match().unwrap();
         assert!(matches!(room.state().phase, Phase::Interrupted { .. }));
-        room.open_next_match().unwrap();
-        assert_eq!(room.state().phase, Phase::Lobby);
+        assert_eq!(room.view(), RoomView::Select);
+        // A pick after a stopped match opens the next match.
+        room.pick(&s, &s.charts[0]).unwrap();
         assert_eq!(room.state().history.len(), 1);
         assert!(!room.ready(), "a new match has fresh readiness");
     }
 
     #[test]
-    fn rules_follow_the_cap_and_clear_readiness_in_the_lobby() {
+    fn leaving_the_prompt_before_the_start_withdraws_and_reopens_the_pick() {
+        let mut room = RoomClient::new(0, 1);
+        let s = song("a");
+        room.pick(&s, &s.charts[0]).unwrap();
+        let first = room.stages()[0].id;
+        assert!(room.take_stage_order().is_some());
+        // The operator's Back: not ready, the window closed, song select.
+        assert_eq!(room.leave_prompt(first), PromptExit::Withdraw);
+        assert!(matches!(
+            room.state().phase,
+            Phase::Preparing { window: None, .. }
+        ));
+        assert_eq!(room.view(), RoomView::Select);
+        assert_eq!(room.next_pick_number(), 1);
+        // Picking it again opens its prompt again.
+        room.pick(&s, &s.charts[0]).unwrap();
+        assert_eq!(room.view(), RoomView::Prompt(first));
+        assert!(room.take_stage_order().is_some());
+    }
+
+    #[test]
+    fn rules_follow_the_cap_and_the_roster() {
         let mut room = RoomClient::new(0, 1);
         assert_eq!((room.min_cpus(), room.max_cpus()), (1, 8));
-        let s = song("a");
-        let first = room.stages()[0].id;
-        room.choose(first, &s, &s.charts[0]).unwrap();
-        prepare(&mut room);
-        room.set_ready(true).unwrap();
-        let mut rules = room.with_cpus(room.rules().clone(), 8);
-        rules.cpu.opponent.level = 4;
+        let roster = crate::state::cpu_roster::at_level(&[], 4, 8, 3);
+        let mut rules = crate::state::cpu_roster::with_roster(room.rules().clone(), roster, 1);
         rules.stages = 2;
         room.save_rules(rules.clone()).unwrap();
-        assert_eq!(room.cpus_of(room.rules()), 8);
+        assert_eq!(cpus(&room), 8);
         assert_eq!(room.stages().len(), 2);
-        assert!(!room.ready(), "a rules change clears readiness");
-        // The song is still there; its preparation, cleared with the
-        // readiness, is asked for again.
-        assert!(room.stages()[0].content.is_some());
-        assert!(room.loading(first));
-        prepare(&mut room);
-        assert_eq!(room.stages()[0].prep(room.me()).loading, Loading::Loaded);
-        let over = room.with_cpus(rules, 9);
+        let mut over = rules.clone();
+        over.cpu.roster.push(over.cpu.roster[0].clone());
+        let over = crate::state::cpu_roster::with_roster(over.clone(), over.cpu.roster, 1);
         assert!(room.check_rules(&over).is_err());
         assert!(matches!(
             room.save_rules(over),
@@ -1655,22 +2001,27 @@ mod tests {
                 RulesProblem::OverCap(_)
             )))
         ));
+        // The match seats the roster's CPUs, each its own profile.
+        let s = song("a");
+        room.pick(&s, &s.charts[0]).unwrap();
+        let order = room.take_stage_order().unwrap();
+        assert_eq!(order.cpus.len(), 8);
+        assert!(order.cpus.iter().all(|c| c.level == 4));
     }
 
     #[test]
-    fn a_failed_preparation_is_reported_and_a_replaced_song_asks_again() {
+    fn a_failed_preparation_is_reported_and_withdrawing_lets_the_host_pick_again() {
         let mut room = RoomClient::new(0, 1);
-        let first = room.stages()[0].id;
         let s = song("a");
-        room.choose(first, &s, &s.charts[0]).unwrap();
+        room.pick(&s, &s.charts[0]).unwrap();
+        let first = room.stages()[0].id;
         let old = room.take_load_jobs();
         room.finish_load(&old[0], Err(LoadProblem::CpuCannotPlay));
         assert_eq!(room.load_problem(first), Some(LoadProblem::CpuCannotPlay));
-        room.set_ready(true).unwrap();
-        assert_eq!(room.start(), Err(Refusal::Load(LoadProblem::CpuCannotPlay)));
+        assert_eq!(room.leave_prompt(first), PromptExit::Withdraw);
         // Another song: a new job; the old answer counts for nothing.
         let t = song("b");
-        room.choose(first, &t, &t.charts[0]).unwrap();
+        room.pick(&t, &t.charts[0]).unwrap();
         assert_eq!(room.load_problem(first), None);
         let jobs = room.take_load_jobs();
         assert_eq!(jobs[0].song, "b");
@@ -1681,28 +2032,27 @@ mod tests {
     }
 
     /// A whole practice match with outcomes reported as a stage runner
-    /// does: intermission with the points, the next stage, the match's
-    /// results, then the lobby with fresh readiness.
+    /// does: the standings once, the next pick, the match's results, and
+    /// a pick opening the next match.
     #[test]
-    fn reported_stages_run_a_match_to_its_results_and_back_to_the_lobby() {
+    fn reported_stages_run_a_match_to_its_results_and_the_next_one() {
         let mut room = RoomClient::new(0, 1);
         let rules = MatchRules {
             stages: 2,
             ..room.rules().clone()
         };
         room.save_rules(rules).unwrap();
+        assert!(!room.rules_seen());
         let s = song("a");
-        for st in room.stages().iter().map(|s| s.id).collect::<Vec<_>>() {
-            room.choose(st, &s, &s.charts[0]).unwrap();
-        }
-        prepare(&mut room);
         let mut now = 0;
         let mut play = |room: &mut RoomClient, early: bool, me_first: bool| {
+            room.pick(&s, &s.charts[0]).unwrap();
+            let order = room.take_stage_order().unwrap();
+            prepare(room);
             room.set_ready(true).unwrap();
-            room.start().unwrap();
             now += 3_000;
             room.tick(now);
-            let order = room.take_stage_order().unwrap();
+            assert!(room.stage_started(order.stage));
             let mut ids: Vec<ParticipantId> = order.cpus.iter().map(|c| c.participant).collect();
             if me_first {
                 ids.insert(0, order.me);
@@ -1723,6 +2073,10 @@ mod tests {
         };
         let first = play(&mut room, true, true);
         assert!(matches!(room.state().phase, Phase::Intermission { .. }));
+        assert_eq!(room.unseen_results(), Some(Some(1)));
+        room.results_shown();
+        assert_eq!(room.unseen_results(), None);
+        assert_eq!(room.next_pick_number(), 2);
         let mark = room.last_mark().unwrap();
         assert_eq!((mark.number, mark.placement.place, mark.field), (1, 1, 4));
         assert!(mark.experimental);
@@ -1731,6 +2085,8 @@ mod tests {
         let second = play(&mut room, false, false);
         assert_ne!(first.stage, second.stage);
         assert_eq!(room.state().phase, Phase::MatchResults);
+        assert_eq!(room.unseen_results(), Some(None), "the match's results");
+        room.results_shown();
         assert_eq!(room.mark_of(second.stage).unwrap().placement.place, 4);
         let standings = room.state().standings().unwrap();
         let mine = standings
@@ -1738,12 +2094,9 @@ mod tests {
             .find(|s| s.participant == room.me())
             .unwrap();
         assert_eq!(mine.total, ddi_room::Points::whole(5));
-        // CPU 1: second, then first (3 + 4 points).
         assert_eq!(room.match_end(), Some(MatchEnd::NotWon));
-        room.open_next_match().unwrap();
-        assert_eq!(room.match_end(), None);
-        assert_eq!(room.state().phase, Phase::Lobby);
-        assert!(!room.ready());
-        assert!(room.last_mark().is_none());
+        assert_eq!(room.next_pick_number(), 1, "the next match's first");
+        play(&mut room, true, true);
+        assert_eq!(room.state().history.len(), 1);
     }
 }

@@ -9,7 +9,9 @@ use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, 
 use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
 use crate::rules::{Access, Admission, CapExceeded, MatchRules, RulesProblem};
-use crate::state::{ContentStatus, Loading, MatchEnding, SitOutReason, StageContent};
+use crate::state::{
+    ContentCard, ContentStatus, Loading, MatchEnding, SitOutReason, Spotlight, StageContent,
+};
 use serde::{Deserialize, Serialize};
 
 /// Who issues a command. Clients act as their member; the authority itself
@@ -57,6 +59,28 @@ pub enum Command {
     ChooseContent {
         stage: StageId,
         content: Option<ContentId>,
+    },
+    /// The maintainer's match flow (M7b): the operator's song select's Start
+    /// on a song. It becomes the song of the stage the room plays next and
+    /// the match starts (from the lobby, or after a match's results: the
+    /// next match) or goes on (between stages); the stage's readiness
+    /// window opens at once, its deadline counting from when the song is
+    /// available to everyone, and the stage starts as soon as everyone who
+    /// could still join is ready and loaded. One change, refused whole. In
+    /// the lobby and after a match it needs the envelope's base, as
+    /// `StartMatch` does.
+    Pick {
+        content: ContentId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        card: Option<Box<ContentCard>>,
+    },
+    /// The song an operator's song select rests on (M7b), for the others
+    /// to see and hear before it is picked; `None` clears it. Changes
+    /// nothing else (no readiness, no stage).
+    Spotlight {
+        content: Option<ContentId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        card: Option<Box<ContentCard>>,
     },
     /// Save the next match's rules. Never touches a running match's rules.
     SaveNextRules {
@@ -118,6 +142,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         share: Option<String>,
     },
+    /// A share of chart `chart` was made for the room (the spotlight's
+    /// upload, M7b; shares are told apart by their chart's digest, as the
+    /// server's reuse is): the spotlight on that chart takes it, and every
+    /// unstarted stage on it waiting for its share becomes available with
+    /// it.
+    SetSpotlightShare {
+        chart: crate::ids::ChartKey,
+        share: String,
+    },
     /// The stage's result is confirmed before the song ends; the winner may
     /// finish the song.
     ConfirmStage {
@@ -163,6 +196,10 @@ pub enum Event {
     },
     AccessChanged {
         access: Access,
+    },
+    /// The song an operator's song select rests on, or none (M7b).
+    SpotlightChanged {
+        spotlight: Option<Spotlight>,
     },
     /// Replaces the stage's content and clears its readiness.
     ContentChosen {
@@ -337,6 +374,8 @@ pub enum Rejection {
     NotInLineup,
     /// A different run was reported already.
     AlreadyReported,
+    /// A content card's text is too long (`ContentCard::MAX_TEXT`).
+    InvalidCard,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

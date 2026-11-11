@@ -55,9 +55,6 @@ room-join-heading = JOIN BY LINK
 # where the language has them.
 room-practice-heading = CPU PRACTICE
 
-# A short line under the players' heading: what kind of room this is.
-room-practice-note = Prototype · this device only
-
 # The heading over the players' column (about 16 letters).
 room-players = Players
 
@@ -66,16 +63,6 @@ room-players = Players
 #   $players (Number) - players in the room, CPUs included
 #   $cap (Number) - the most the room allows
 room-players-count = { $players } / { $cap }
-
-# On a phone, the players in one line under the header.
-# Variables:
-#   $cpus (Number) - how many CPU opponents
-#   $level (Number) - their level, from 1
-#   $levels (Number) - how many levels there are
-room-players-line = { $cpus ->
-    [one] You and one CPU · level { $level } of { $levels }
-   *[other] You and { $cpus } CPUs · level { $level } of { $levels }
-}
 
 # The local player's name in the players' column (about 16 letters).
 room-you = You
@@ -102,66 +89,23 @@ room-state-not-ready = Not ready
 # During a stage.
 room-state-playing = Playing
 
-# At the right of a row during a match: the points so far.
-# Variables:
-#   $points (String) - the points, as the room keeps them ("4", "7/2")
-room-points = { $points } pts
-
 # A stage's number on its row in the stage list (about 10 letters).
 # Variables:
 #   $number (Number) - the stage, from 1
 room-stage = Stage { $number }
 
-# Under a stage's song on its row: the stage and its chart.
-# Variables:
-#   $number (Number) - the stage, from 1
-#   $chart (String) - the chart's difficulty and meter ("Hard 9")
-room-stage-chart = Stage { $number } · { $chart }
-
 # A stage's row with no song yet.
 room-stage-empty = No song yet
-
-# Under the song when the stage has none (about 30 letters).
-room-no-song = Choose a song for this stage.
-
-# The button under the song: opens song select to choose the stage's
-# song (about 16 letters).
-room-choose-song = Choose song
-
-# The same button when the stage has a song.
-room-change-song = Change song
-
-# Under the song of a stage that has started: it cannot change.
-room-stage-locked = This stage has started; its song stays.
 
 # The header's buttons.
 room-rules = Rules
 
-# The bottom right's buttons (about 16 letters each).
+# Buttons: the stage's prompt's Ready, More's Stop match (about 16 letters each).
 room-ready = Ready
 room-unready = Cancel ready
-room-start-match = Start match
-# Variables:
-#   $number (Number) - the stage, from 1
-room-start-stage = Start stage { $number }
-room-cancel-start = Cancel start
 room-stop-match = Stop match
-room-new-match = Next match
 
-## The status line at the bottom left: what the room waits for.
-
-# Variables:
-#   $number (Number) - the stage, from 1
-room-status-choose = Choose a song for stage { $number }.
-
-room-status-not-ready = Press Ready when you are, then Start match.
-
-room-status-ready = Ready. Start when you like.
-
-# A readiness window: who is not ready by then sits the stage out.
-# Variables:
-#   $seconds (Number) - seconds left
-room-status-window = Starting in { $seconds } s; anyone not ready sits this stage out.
+## The status line (over the list, or atop the room's panel): what the room waits for.
 
 # The countdown to the stage's start.
 # Variables:
@@ -180,15 +124,9 @@ room-status-playing = Stage { $number } is being played.
 #   $number (Number) - the stage, from 1
 room-status-preparing = Preparing stage { $number }'s song…
 
-room-status-stopped = Match stopped. Finished stages keep their results.
-
-room-status-over = Match over.
-
 ## Why something was refused, on the status line.
 
 room-refused-no-song = Choose a song for this stage first.
-
-room-refused-not-ready = Press Ready first.
 
 room-refused-started = That stage has started; it cannot change now.
 
@@ -238,17 +176,12 @@ room-chart-unsupported-title = Not for CPUs
 
 ## Song select choosing a stage's song.
 
-# Its name in its header, in small capitals: written in capitals where
-# the language has them.
+# The Enter key's hint on the host's song select in a room: picks the
+# chart shown for the next stage, starting the match at the first (a word
+# or three).
 # Variables:
 #   $number (Number) - the stage, from 1
-room-pick-heading = STAGE { $number } SONG
-
-# The Enter key's hint: chooses the chart shown for the stage (a word or
-# three).
-# Variables:
-#   $number (Number) - the stage, from 1
-room-pick-use = Use for stage { $number }
+room-pick-use = Pick for stage { $number }
 
 ## The Rules pop-up: this match's rules, locked while it runs, and the
 ## next match's, which can change.
@@ -413,11 +346,6 @@ room-mark-experimental = points experimental
 #   $points (String) - their points, as the room keeps them
 room-rank-points = #{ $rank } · { $points } pts
 
-# The status line between stages, when not ready.
-# Variables:
-#   $number (Number) - the next stage, from 1
-room-status-next = Press Ready when you are, then Start stage { $number }.
-
 ## The match's results, in the room where the song was.
 
 room-results-title = Match results
@@ -446,7 +374,6 @@ room-results-none = —
 ## The footer's key hints (a word or two each).
 
 room-hint-move = Move
-room-hint-select = Select
 room-hint-back = Back
 
 ## Online rooms (invite-only, signed in with Twitch): the account on the
@@ -592,9 +519,6 @@ room-conn-joining = Joining
 room-conn-reconnecting = Reconnecting
 room-conn-away = Away
 
-# A short line under the players' heading in an online room.
-room-online-note = Online · prototype
-
 # A stage's row and the song's card when another person chose the song
 # and this device has not read it from the room yet.
 room-host-song = Song chosen by the host
@@ -659,6 +583,159 @@ room-invite-not-replaced = Couldn't replace the invite.
 #   $number (Number) - the stage, from 1
 room-status-host-chooses = The host chooses stage { $number }'s song.
 
-# Under the song card when the stage has none yet, for someone who does
-# not choose it.
-room-no-song-yet = No song chosen yet.
+## The match flow (M7b): song select is the room. The host picks each
+## stage's song there; the others follow the host's song.
+
+# The status line over the list (the host's) or at the top of the room's
+# panel (the others'): one line.
+room-status-pick-first = Pick a song to start the match.
+
+room-status-host-picks-first = The host is choosing the first song.
+
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-pick-next = Pick stage { $number }'s song.
+
+# A stage's start screen gathers readiness: the stage starts once everyone
+# is ready, or when the time is up (whoever is not ready then sits it out).
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $seconds (Number) - whole seconds left
+room-status-gathering = Stage { $number } starts once everyone is ready · { $seconds } s
+
+# For someone who was not ready in time, while the others play.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-sitting-out = You're sitting out stage { $number }; the others are playing it.
+
+room-status-pick-new-match = Match over. Pick a song to start the next match.
+
+room-status-stopped-pick = Match stopped. Pick a song to start the next match.
+
+room-status-host-picks-new-match = Match over. The host picks the next match's first song.
+
+# A CPU's personality, after its level under its name: what kind of
+# patterns it is good at (a word or two each).
+room-cpu-style-balanced = Balanced
+room-cpu-style-stream = Streams
+room-cpu-style-jacks = Jacks
+room-cpu-style-chords = Chords
+room-cpu-style-stamina = Stamina
+room-cpu-style-technical = Technical
+# Seven multipliers of its own, no preset's.
+room-cpu-style-custom = Custom
+
+# At the right of a player's row (about 12 letters each).
+room-state-loading = Loading
+# Variables:
+#   $percent (Number) - how much of the song is loaded, 0 to 100
+room-state-loading-percent = Loading { $percent }%
+room-state-load-failed = Load failed
+room-state-sitting-out = Sitting out
+
+# The player's result of a stage in the picks' list, short.
+# Variables:
+#   $place (Number) - the place, from 1
+#   $field (Number) - how many played the stage
+#   $points (String) - the points it gave, as the room keeps them ("3", "5/2")
+room-mark-short = { $place } of { $field } · +{ $points } pts
+# The same for a stage the player left.
+# Variables:
+#   $place (Number) - the place, from 1
+#   $field (Number) - how many played the stage
+room-mark-short-forfeit = { $place } of { $field } · left
+
+# The heading over the match's picks in the room's panel (about 16
+# letters).
+room-picks-heading = Picks
+
+# Beside it: how many stages have a song, of the match's.
+# Variables:
+#   $picked (Number) - stages with a song
+#   $stages (Number) - the match's stages
+room-picks-count = { $picked } of { $stages }
+
+# Marks at the top and the bottom of a scrolled list: how many rows are
+# hidden there (a tap scrolls).
+# Variables:
+#   $count (Number) - rows hidden
+room-panel-more-above = ▲ { $count } more
+# Variables:
+#   $count (Number) - rows hidden
+room-panel-more-below = ▼ { $count } more
+
+# Refusals said on the status line or in a pop-up.
+room-refused-too-few = Not enough players to start a stage.
+room-refused-host-only = Only the host can do that.
+# A pop-up's title saying why something was refused.
+room-refused-title = Not possible
+
+# The Rules pop-up as it opens by itself on entering: applies and closes
+# (short).
+room-rules-ok = OK
+
+# The running match's rules, in one line.
+# Variables:
+#   $stages (Number) - the match's stages
+#   $cpus (Number) - its CPU opponents
+room-rules-locked-line = { $stages ->
+    [one] One stage
+   *[other] { $stages } stages
+} · { $cpus ->
+    [one] one CPU
+   *[other] { $cpus } CPUs
+}
+
+room-rules-no-cpus = No CPU opponents.
+
+# The button removing a CPU from the next match (a mark).
+room-rules-remove = ×
+
+# Buttons under the CPUs (about 16 letters each): one more CPU, drawn at
+# random; or chosen (by level, several at once, or by name).
+room-rules-add-random = Add random
+room-rules-add-custom = Add custom…
+
+## Add custom: CPUs by level, or one by name.
+
+room-add-cpus-title = Add CPUs
+
+room-add-cpus-count = How many
+
+# The button adding CPUs at the level chosen.
+# Variables:
+#   $count (Number) - how many
+#   $level (Number) - their level, from 1
+room-add-cpus-at-level = { $count ->
+    [one] Add one at level { $level }
+   *[other] Add { $count } at level { $level }
+}
+
+# The heading over the CPUs listed by name, each added by choosing it.
+room-add-cpus-by-name = Or one by name
+
+room-add-cpus-full = Every seat is taken.
+
+room-add-cpus-none-left = Every CPU is seated already.
+
+## A stage's standings, after its results.
+
+# Variables:
+#   $number (Number) - the stage, from 1
+room-standings-title = Stage { $number } standings
+
+# Closes the standings: back to song select (about 12 letters).
+room-standings-continue = Continue
+
+## The stage's start screen in a room: Ready instead of Start.
+
+# Under the song: the player was not ready in time.
+room-prompt-sat-out = You weren't ready in time, so you sit this stage out.
+
+# Under the song: the room canceled the stage's start (too few were ready,
+# or the host picked again).
+room-prompt-canceled = The stage's start was canceled.
+
+# At the right of a CPU's row on a stage's start screen, where people's
+# say whether they are ready (short).
+room-cpu-label = CPU

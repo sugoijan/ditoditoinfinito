@@ -18,19 +18,25 @@ fn room(song: &Song, stages: u16, cpus: u16, level: u8) -> RoomClient {
     room_seeded(song, stages, cpus, level, 7)
 }
 
-/// [`room`] whose CPUs' seeds come from `seed`.
-fn room_seeded(song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> RoomClient {
+/// [`room`] whose CPUs' seeds come from `seed`: a fixed count of CPUs at
+/// one level, each seat its own seed from the room's.
+fn room_seeded(_song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> RoomClient {
     let mut room = RoomClient::new(0, seed);
-    let mut rules = room.with_cpus(
-        MatchRules {
-            stages,
-            ..room.rules().clone()
-        },
-        cpus,
-    );
+    let mut rules = MatchRules {
+        stages,
+        seats: cpus + 1,
+        ..room.rules().clone()
+    };
+    rules.cpu.mode = ddi_room::CpuMode::Fixed { count: cpus };
+    rules.cpu.roster.clear();
     rules.cpu.opponent.level = level;
     room.save_rules(rules).unwrap();
-    let entry = SongEntry {
+    room
+}
+
+/// Beatucada's chart as the library lists it.
+fn entry(song: &Song) -> SongEntry {
+    SongEntry {
         id: "beatucada".into(),
         title: "Beatucada".into(),
         charts: vec![ChartEntry {
@@ -41,24 +47,25 @@ fn room_seeded(song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> Roo
             ..ChartEntry::default()
         }],
         ..SongEntry::default()
-    };
-    for st in room.stages().iter().map(|s| s.id).collect::<Vec<_>>() {
-        room.choose(st, &entry, &entry.charts[0]).unwrap();
     }
+}
+
+/// The pick (its song prepared: its chart read and the CPUs' plan
+/// checked, as a shell does), Ready, the countdown: the stage the room
+/// hands over.
+fn begin(song: &Song, room: &mut RoomClient, now: &mut u64) -> StageOrder {
+    let e = entry(song);
+    room.pick(&e, &e.charts[0]).unwrap();
+    let order = room.take_stage_order().expect("its prompt");
     for job in room.take_load_jobs() {
         let checked = check_chart(song, job.chart, job.digest, &mut |e| panic!("{e}"));
         room.finish_load(&job, checked);
     }
-    room
-}
-
-/// Ready, Start, the countdown: the stage the room hands over.
-fn begin(room: &mut RoomClient, now: &mut u64) -> StageOrder {
     room.set_ready(true).unwrap();
-    room.start().unwrap();
     *now += 3_000;
     room.tick(*now);
-    room.take_stage_order().expect("the stage is on")
+    assert!(room.stage_started(order.stage), "the stage is on");
+    order
 }
 
 /// The stage's session on the fake clock (`auto`: autoplayed), what it
@@ -113,7 +120,7 @@ fn a_whole_match_of_judged_stages_reaches_its_results_and_the_next_lobby() {
     let mut now = 0;
     let mut totals = Vec::new();
     for stage in 1..=2 {
-        let order = begin(&mut room, &mut now);
+        let order = begin(&song, &mut room, &mut now);
         assert_eq!(order.number, stage);
         let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
         let SessionEvent::Finished { results, .. } = event else {
@@ -176,7 +183,7 @@ fn a_quit_is_a_forfeit_and_a_stage_never_restarts() {
     let settings = Settings::default();
     let mut room = room(&song, 1, 3, 2);
     let mut now = 0;
-    let order = begin(&mut room, &mut now);
+    let order = begin(&song, &mut room, &mut now);
     // R twice: no restart in a stage. Escape twice: a quit.
     let keys = [
         (5.0, "KeyR", true),
@@ -208,7 +215,7 @@ fn out_of_life_the_player_is_out_and_a_last_cpu_wins_early() {
     let settings = Settings::default();
     let mut room = room(&song, 1, 1, 4);
     let mut now = 0;
-    let order = begin(&mut room, &mut now);
+    let order = begin(&song, &mut room, &mut now);
     // Nobody presses: the gauge empties, the play fails.
     let (s, event, outcome) = play(&song, &settings, &order, false, &[]);
     let SessionEvent::Finished { results, .. } = event else {
@@ -241,7 +248,7 @@ fn the_winner_finishes_the_song_whatever_the_gauge_does_after() {
     let slips = |seed: u64| {
         let mut probe = room_seeded(&song, 1, 1, 0, seed);
         let mut now = 0;
-        let seat = begin(&mut probe, &mut now).cpus[0].clone();
+        let seat = begin(&song, &mut probe, &mut now).cpus[0].clone();
         let mut rules = settings.ruleset_for(&song.charts[CHART]);
         rules.fail = ddi_engine::FailPolicy::Immediate;
         let mut alone = ddi_engine::cpu::Opponent::new(&song, CHART, rules, 0, seat.seed).unwrap();
@@ -252,7 +259,7 @@ fn the_winner_finishes_the_song_whatever_the_gauge_does_after() {
     let seed = (1..64).find(|&s| slips(s)).expect("a CPU that slips");
     let mut room = room_seeded(&song, 1, 1, 0, seed);
     let mut now = 0;
-    let order = begin(&mut room, &mut now);
+    let order = begin(&song, &mut room, &mut now);
     let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
     assert!(matches!(event, SessionEvent::Finished { .. }));
     let b = s.battle().unwrap();
@@ -275,7 +282,7 @@ fn a_stage_is_never_a_replay_a_test_or_the_cpu_demo() {
     let settings = Settings::default();
     let mut room = room(&song, 1, 1, 2);
     let mut now = 0;
-    let order = begin(&mut room, &mut now);
+    let order = begin(&song, &mut room, &mut now);
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut config = SessionConfig::from_settings(&settings, false, None);
     config.opponents = Some(StageSetup::of(&order));
@@ -408,7 +415,7 @@ fn a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine() {
     let mut now = 0;
     let mut heard = Vec::new();
     for stage in 1..=2 {
-        let order = begin(&mut room, &mut now);
+        let order = begin(&song, &mut room, &mut now);
         let (s, said) = play_voiced(
             &song,
             &settings,
@@ -502,7 +509,7 @@ fn out_of_life_is_said_or_shown_and_nothing_follows_it() {
     for pack in packs {
         let mut room = room(&song, 1, 1, 4);
         let mut now = 0;
-        let order = begin(&mut room, &mut now);
+        let order = begin(&song, &mut room, &mut now);
         let (s, said) = play_voiced(
             &song,
             &settings,
@@ -584,7 +591,7 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
         .find(|&seed| {
             let mut probe = room_seeded(&song, 1, 3, 0, seed);
             let mut now = 0;
-            let times = outs(&begin(&mut probe, &mut now));
+            let times = outs(&begin(&song, &mut probe, &mut now));
             let mut t: Vec<f64> = times.iter().flatten().copied().collect();
             t.sort_by(f64::total_cmp);
             t.len() == 3 && t.windows(2).all(|w| w[1] - w[0] > 0.1)
@@ -592,7 +599,7 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
         .expect("three CPUs that slip apart");
     let mut room = room_seeded(&song, 1, 3, 0, seed);
     let mut now = 0;
-    let order = begin(&mut room, &mut now);
+    let order = begin(&song, &mut room, &mut now);
     // A pack without the milestone.
     let pack: Vec<&str> = FULL
         .iter()
@@ -644,7 +651,7 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     let settings = Settings::default();
     let mut room = room(&song, 1, 1, 2);
     let mut now = 0;
-    let mut order = begin(&mut room, &mut now);
+    let mut order = begin(&song, &mut room, &mut now);
     order.cpus.clear();
     order.others = 1;
     let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
@@ -678,7 +685,7 @@ fn each_cpu_s_miniature_is_fed_its_judged_moments() {
     let settings = Settings::default();
     let mut room = room(&song, 1, 3, 2);
     let mut now = 0;
-    let order = begin(&mut room, &mut now);
+    let order = begin(&song, &mut room, &mut now);
     let (s, _, _) = play(&song, &settings, &order, true, &[]);
     let battle = s.battle().expect("a stage's battle");
     let track = battle.track();

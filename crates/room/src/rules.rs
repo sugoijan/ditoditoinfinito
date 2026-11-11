@@ -84,12 +84,15 @@ pub struct CapExceeded {
     pub cap: u16,
 }
 
-/// How a host-triggered start treats unready people
-/// (`docs/plans/multiplayer.md`, "Hosted readiness without an indefinite
-/// wait"): Start opens a window when someone eligible is unready; at its
-/// deadline the ready and loaded start and the others sit out the stage
-/// with zero points. Nobody's unreadiness vetoes the start. PROVISIONAL:
-/// every number here is a working value, not a decided one.
+/// How a start treats unready people (`docs/plans/multiplayer.md`, "Hosted
+/// readiness without an indefinite wait"): a pick (or Start) opens a window
+/// when someone eligible is unready; at its deadline the ready and loaded
+/// start and the others sit out the stage with zero points. Nobody's
+/// unreadiness vetoes the start. `hosted-deadline-v1` (M7b, the maintainer's
+/// flow): the window counts from when the song is available to everyone,
+/// and the stage starts as soon as every connected player who could still
+/// join is ready and loaded (v0 never shortened it). PROVISIONAL: every
+/// number here is a working value, not a decided one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadinessPolicy {
     /// Names this policy and its version in records and on the wire.
@@ -106,13 +109,16 @@ pub struct ReadinessPolicy {
 
 impl ReadinessPolicy {
     pub const HOSTED_DEADLINE_V0: &'static str = "hosted-deadline-v0";
+    pub const HOSTED_DEADLINE_V1: &'static str = "hosted-deadline-v1";
 }
 
 impl Default for ReadinessPolicy {
     fn default() -> Self {
         Self {
-            id: Self::HOSTED_DEADLINE_V0.into(),
-            window_ms: 15_000,
+            id: Self::HOSTED_DEADLINE_V1.into(),
+            // Long enough for a member to download a song not shared ahead
+            // (the spotlight's upload usually makes it ready at once).
+            window_ms: 30_000,
             countdown_ms: 3_000,
             min_ready_humans: 1,
             min_competitors: 2,
@@ -222,6 +228,7 @@ impl MatchRules {
             cpu: CpuRules {
                 mode: CpuMode::Fixed { count: 3 },
                 opponent,
+                roster: Vec::new(),
             },
             battle: crate::battle::BattlePreset::GAUGE_SURVIVAL_V0.into(),
             ..Self::hosted()
@@ -239,7 +246,9 @@ impl MatchRules {
                     level: 0,
                     seed: 0,
                     personality: None,
+                    name: None,
                 },
+                roster: Vec::new(),
             },
             return_each_stage: true,
             mid_match_entry: false,
@@ -254,6 +263,21 @@ impl MatchRules {
             CpuMode::Off => 0,
             CpuMode::Fixed { count } => usize::from(count),
             CpuMode::Fill => usize::from(self.seats).saturating_sub(humans),
+            CpuMode::Roster => self.cpu.roster.len(),
+        }
+    }
+
+    /// The `ordinal`th CPU seat's profile (from 1): the roster's entry, or
+    /// the common profile with its own seed.
+    pub fn cpu_for_seat(&self, ordinal: u16) -> OpponentSpec {
+        match self.cpu.mode {
+            CpuMode::Roster => self
+                .cpu
+                .roster
+                .get(usize::from(ordinal).saturating_sub(1))
+                .cloned()
+                .unwrap_or_else(|| self.cpu.opponent.for_seat(ordinal)),
+            _ => self.cpu.opponent.for_seat(ordinal),
         }
     }
 
@@ -279,6 +303,9 @@ impl MatchRules {
         if !self.return_each_stage && self.mid_match_entry {
             return Err(RulesProblem::EliminationWithLateEntry);
         }
+        if !self.cpu.opponent.fits() || !self.cpu.roster.iter().all(OpponentSpec::fits) {
+            return Err(RulesProblem::CpuText);
+        }
         let seats = usize::from(self.seats);
         if humans > seats {
             return Err(RulesProblem::HumansExceedSeats {
@@ -303,6 +330,10 @@ pub struct CpuRules {
     pub mode: CpuMode,
     /// The common profile of the match's CPUs; each seat gets its own seed.
     pub opponent: OpponentSpec,
+    /// [`CpuMode::Roster`]'s CPUs, each its own profile (M7b's named CPUs),
+    /// in seat order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roster: Vec<OpponentSpec>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,6 +345,8 @@ pub enum CpuMode {
     },
     /// Fill the seats people leave open at the roster's lock.
     Fill,
+    /// The CPUs [`CpuRules::roster`] lists, each its own (M7b).
+    Roster,
 }
 
 /// Why a set of rules cannot be used (now).
@@ -343,6 +376,8 @@ pub enum RulesProblem {
         cpus: u16,
         seats: u16,
     },
+    /// A CPU's name or personality is too long.
+    CpuText,
 }
 
 #[cfg(test)]
@@ -354,6 +389,7 @@ mod tests {
             level: 2,
             seed: 1,
             personality: None,
+            name: None,
         }
     }
 

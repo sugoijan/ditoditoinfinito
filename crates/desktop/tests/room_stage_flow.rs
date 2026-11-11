@@ -1,12 +1,13 @@
 //! A whole CPU-practice match as the desktop window runs it
-//! (`docs/plans/multiplayer-prototype-progress.md`, M3), on this machine's
-//! GPU offscreen and a fake clock with no sound device: the room prepares
-//! its stages' songs (the chart read, the CPUs' plan checked), each
-//! stage's countdown hands it to the play host (its prompt, the play
-//! against the CPUs drawn with their column, its outcome reported to the
-//! room, results going back to the room), the intermission, the match's
-//! results and the next match's lobby with fresh readiness; then a stage
-//! left from its prompt is a forfeit. Nothing is kept in the history.
+//! (`docs/plans/multiplayer-prototype-progress.md`, M3 and M7b's flow), on
+//! this machine's GPU offscreen and a fake clock with no sound device: the
+//! room's song select (its pick), the stage's song prepared (the chart
+//! read, the CPUs' plan checked), its prompt opened by the room over it
+//! (Ready, then the room starting the play against the CPUs drawn with
+//! their column, its outcome reported, results going back to the room),
+//! the standings, the match's results, the next match's pick; then a
+//! stage's prompt left before its start withdraws (no forfeit). Nothing
+//! is kept in the history.
 //! Skipped where there is no GPU adapter (CI). `DDI_ROOM_SHOTS=<dir>`
 //! keeps pictures of the play, the intermission and the results (PPM).
 
@@ -107,6 +108,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
 
     // The room over the start menu, its stages played through the host.
     let room = ddi_desktop::room::current();
+    room.borrow_mut().set_rules_seen(true);
     ui.push(ddi_desktop::room::room_screen_with(
         &env,
         None,
@@ -134,26 +136,16 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
             ..r.rules().clone()
         };
         r.save_rules(rules).unwrap();
-        for st in r.stages().iter().map(|s| s.id).collect::<Vec<_>>() {
-            r.choose(st, &entry, &entry.charts[0]).unwrap();
-        }
     }
-    // The room's update prepares them: the chart read, the plan checked.
-    ui.update(0.1);
-    let first = room.borrow().stages()[0].id;
-    assert!(!room.borrow().loading(first), "prepared");
-    assert_eq!(room.borrow().load_problem(first), None);
 
     let mut play_stage = |ui: &mut ddi_ui::Ui, shot: Option<&str>| {
-        {
-            let mut r = room.borrow_mut();
-            r.set_ready(true).unwrap();
-            r.start().unwrap();
-            let later = r.now_ms() + 3_000;
-            r.tick(later);
-        }
-        // The countdown over: the room hands the stage to the host.
+        // The host's pick: the room's update prepares it (the chart read,
+        // the plan checked) and hands its prompt to the host.
+        room.borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
         ui.update(0.1);
+        let stage = room.borrow().state().upcoming_stage().unwrap();
+        assert!(!room.borrow().loading(stage), "prepared");
+        assert_eq!(room.borrow().load_problem(stage), None);
         let mut request = host
             .requested
             .borrow_mut()
@@ -175,7 +167,16 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         }
         ui.update(0.5);
         assert_eq!(top(ui), "play-prompt");
+        // Ready: the room counts down (alone with CPUs, all ready), then
+        // starts the stage, the prompt pressing Start for the host.
         key(ui, "Enter", "Enter");
+        ui.update(0.05);
+        assert!(room.borrow().ready());
+        {
+            let mut r = room.borrow_mut();
+            let later = r.now_ms() + 3_000;
+            r.tick(later);
+        }
         ui.update(0.05);
         host.poll(ui, &env, Some(dev()), 48_000);
         assert!(host.playing(), "{:?}", ui.layers());
@@ -232,7 +233,11 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         host.poll(ui, &env, Some(dev()), 48_000);
         ui.update(1.0);
         assert!(!host.prompting() && !host.playing());
-        assert_eq!(top(ui), "room", "{:?}", ui.layers());
+        // The room's song select, its standings over it; Continue.
+        assert_eq!(top(ui), "room-standings", "{:?}", ui.layers());
+        key(ui, "Enter", "Enter");
+        ui.update(0.5);
+        assert_eq!(top(ui), "select", "{:?}", ui.layers());
     };
 
     play_stage(&mut ui, Some("play"));
@@ -265,24 +270,11 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     assert!(store.is_empty(), "a stage is not kept in the history");
     eprintln!("room flow: {:?}", host.log);
 
-    // The next match: the lobby, fresh readiness; a stage left from its
-    // prompt is a forfeit.
-    room.borrow_mut().open_next_match().unwrap();
-    assert_eq!(room.borrow().state().phase, Phase::Lobby);
+    // The next match's pick: fresh readiness; its prompt left before the
+    // start withdraws (the pick reopened, no forfeit).
+    room.borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
+    assert_eq!(room.borrow().state().history.len(), 1);
     assert!(!room.borrow().ready());
-    {
-        let mut r = room.borrow_mut();
-        let st = r.stages()[0].id;
-        r.choose(st, &entry, &entry.charts[0]).unwrap();
-    }
-    ui.update(0.1);
-    {
-        let mut r = room.borrow_mut();
-        r.set_ready(true).unwrap();
-        r.start().unwrap();
-        let later = r.now_ms() + 3_000;
-        r.tick(later);
-    }
     ui.update(0.1);
     let mut waited = 0;
     while !host.prompt_ready() {
@@ -297,9 +289,11 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     ui.update(0.5);
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     ui.update(1.0);
-    assert_eq!(top(&ui), "room", "{:?}", ui.layers());
-    let mark = room.borrow().last_mark().expect("the forfeit's result");
-    assert_eq!(mark.placement.finish, ddi_room::Finish::Forfeit);
-    assert_eq!(mark.placement.points, ddi_room::Points::ZERO);
+    assert_eq!(top(&ui), "select", "{:?}", ui.layers());
+    assert!(matches!(
+        room.borrow().state().phase,
+        Phase::Preparing { window: None, .. }
+    ));
+    assert!(room.borrow().last_mark().is_none(), "no stage played");
     assert_eq!(store.len(), 0);
 }

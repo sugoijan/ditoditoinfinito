@@ -45,6 +45,9 @@ use crate::look::{self, Spec, call, named, quad, quad_at};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 
+#[path = "prompt_room.rs"]
+mod room_mode;
+
 /// What the prompt names: the song and its chart.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PromptInfo {
@@ -179,6 +182,11 @@ pub enum PromptChoice {
     },
     /// Keep the play options as the defaults.
     SaveOptions,
+    /// A multiplayer room's stage: Ready pressed (or counted down to),
+    /// inside the press where it was one: the shell readies what the play
+    /// will start without another press (the web's audio context). The
+    /// room starts the stage later; the prompt then chooses Start.
+    Ready,
 }
 
 /// What the prompt shows, for tests (`ThemeState::prompt`).
@@ -603,6 +611,8 @@ pub struct PromptScreen {
     /// The view's strings are to be made again (the state or the hints
     /// changed: a rebuild).
     view_dirty: bool,
+    /// A multiplayer room's stage (M7b, `prompt_room.rs`): Start is Ready.
+    room: Option<room_mode::PromptRoom>,
 }
 
 /// Where the countdown is (`docs/plans/start-prompt.md`).
@@ -747,6 +757,7 @@ impl PromptScreen {
             caps: RefCell::default(),
             keys_active: None,
             view_dirty: true,
+            room: None,
         }
     }
 
@@ -840,6 +851,10 @@ impl PromptScreen {
     }
 
     fn choose(&self, choice: PromptChoice, cx: &mut Cx) {
+        // A room's Start is Ready (toggled).
+        if choice == PromptChoice::Start && self.room_ready(None, cx) {
+            return;
+        }
         if matches!(
             choice,
             PromptChoice::Start | PromptChoice::Back | PromptChoice::Retry
@@ -898,7 +913,7 @@ impl PromptScreen {
         }
         if !state.touch && state.step == PromptStep::Ready && !state.no_card {
             let (start, back, activate) = (
-                msg::prompt::start(),
+                self.room_start_label().unwrap_or_else(msg::prompt::start),
                 msg::common::back(),
                 msg::prompt::hint_activate(),
             );
@@ -1006,6 +1021,18 @@ impl PromptScreen {
         if !i.mods.is_empty() && (state.step != PromptStep::Ready || state.options.is_empty()) {
             line(&mut c, "Mods", &i.mods, SMALL, 400, "Muted", &mut y);
         }
+        // A room's status: what it waits for, or why the prompt goes.
+        for (k, (text, color)) in self.room_lines().iter().enumerate() {
+            line(
+                &mut c,
+                &format!("Room.Status{k}."),
+                text,
+                BODY,
+                600,
+                color,
+                &mut y,
+            );
+        }
         // The play options (while Start is offered): this play's,
         // Options' own rows.
         let mut controls: Vec<String> = Vec::new();
@@ -1013,12 +1040,31 @@ impl PromptScreen {
             && let Some(binding) = &state.bindings
         {
             y += 12.0;
+            // A room's players beside the diagram.
+            let list_w = self.room_list_width(inner);
+            let gap = if list_w > 0.0 { 20.0 } else { 0.0 };
             let (actors, height, size, caps) =
-                super::prompt_controls::draw(env, binding, inner, y, sh < 480.0, cx);
+                super::prompt_controls::draw(env, binding, inner - list_w - gap, y, sh < 480.0, cx);
             c.extend(actors);
-            y += height;
+            if list_w > 0.0 {
+                let (list, list_h) = self.room_list([24.0 + inner - list_w, y, list_w, height]);
+                c.extend(list);
+                y += height.max(list_h);
+            } else {
+                // A narrow card (a phone upright): the players under it.
+                y += height;
+                let (list, list_h) = self.room_list([24.0, y + 6.0, inner, 0.0]);
+                c.extend(list);
+                y += list_h + if list_h > 0.0 { 6.0 } else { 0.0 };
+            }
             self.preview_size.set(Some(size));
             *self.caps.borrow_mut() = caps;
+        } else if state.step == PromptStep::Ready {
+            // No diagram (the layout not known yet): the players alone.
+            y += 12.0;
+            let (list, list_h) = self.room_list([24.0, y, inner, 0.0]);
+            c.extend(list);
+            y += list_h;
         }
         if state.step == PromptStep::Ready && !state.options.is_empty() {
             y += 14.0;
@@ -1122,7 +1168,11 @@ impl PromptScreen {
             // Not a card: the loading screen (`tree`).
             PromptStep::Loading => {}
             PromptStep::Ready => {
-                buttons.push(("Start".into(), msg::prompt::start().into(), "Prompt.Start"));
+                let start = self
+                    .room_start_label()
+                    .unwrap_or_else(msg::prompt::start)
+                    .into();
+                buttons.push(("Start".into(), start, "Prompt.Start"));
                 buttons.push(back());
             }
             PromptStep::Access { folder, refused } => {
@@ -1424,7 +1474,10 @@ impl PromptScreen {
                 if left <= 0.0 {
                     self.countdown = Countdown::Done;
                     self.rebuild(root, cx);
-                    self.choose(PromptChoice::Start, cx);
+                    // A room's countdown is to Ready, never away from it.
+                    if !self.room_ready(Some(true), cx) {
+                        self.choose(PromptChoice::Start, cx);
+                    }
                     return;
                 }
                 self.countdown = Countdown::Running(left, of);
@@ -1594,6 +1647,8 @@ impl PromptScreen {
             .as_ref()
             .map(|p| p.source.clone());
         st.page_items = self.buttons.clone();
+        drop(st);
+        self.room_publish(self.buttons.clone());
     }
 }
 
@@ -1822,6 +1877,10 @@ impl Screen for PromptScreen {
             || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
     }
 
+    fn wake_at(&self) -> Option<f64> {
+        self.room_wake_at()
+    }
+
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         // The shell started the play: gone.
         if self.state.borrow().done {
@@ -1913,6 +1972,7 @@ impl Screen for PromptScreen {
         {
             self.demo_time = (self.demo_time + dt) % (c.duration() + 1.0);
         }
+        self.room_update(dt, root, cx);
         self.tick_countdown(dt, root, cx);
         // Built again only while it moves: any other change bumps the
         // version, which builds the whole tree below.
@@ -2059,6 +2119,15 @@ impl Screen for PromptScreen {
                 && !matches!(cx.focused(), Some("Back" | "SaveOptions" | "Calibrate")) =>
             {
                 self.choose(PromptChoice::Start, cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == "Room.Up" || name == "Room.Down" => {
+                let by = if name == "Room.Down" { 3 } else { -3 };
+                self.room_scroll(by, root, cx);
+                Handled::Yes
+            }
+            Input::Wheel { delta, .. } if self.room.is_some() && delta[1] != 0.0 => {
+                self.room_scroll(if delta[1] > 0.0 { 1 } else { -1 }, root, cx);
                 Handled::Yes
             }
             Input::Activate { name } => {

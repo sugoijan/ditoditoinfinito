@@ -24,8 +24,7 @@ use ddi_room::StageId;
 use ddi_ui::Cx;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
-use ddi_ui::screens::room::{RoomCall, RoomScreen};
-use ddi_ui::screens::room_dialogs::NoticeDialog;
+use ddi_ui::screens::room::{RoomCall, RoomShell};
 use ddi_ui::screens::select::{SelectCall, SelectScreen};
 use ddi_ui::state::online::Redirect;
 use ddi_ui::state::room::{
@@ -189,11 +188,16 @@ pub fn stage_room() -> SharedRoom {
     PLAYING.with_borrow(Clone::clone).unwrap_or_else(current)
 }
 
-/// A stage left from its prompt in an online room: the player's forfeit
-/// reported as its own run. `false` for practice (its CPUs are played to
-/// their end by the play host).
-pub fn left_online_stage(stage: StageId) -> bool {
+/// A stage's prompt left (M7b): before the room started it, the player
+/// withdraws (not ready; the host's pick reopened), `true`; once it is
+/// being played with them, a forfeit: an online room's reported here as
+/// the player's own run (`true`), practice's left to the play host
+/// (`false`: its CPUs are played to their end).
+pub fn left_stage(stage: StageId) -> bool {
     let room = stage_room();
+    if room.borrow_mut().leave_prompt(stage) == ddi_ui::state::room::PromptExit::Withdraw {
+        return true;
+    }
     if !room.borrow().is_online() {
         return false;
     }
@@ -290,57 +294,76 @@ fn redirect(r: &Redirect) {
     }
 }
 
-/// An online room (`crate::online::room`): Back to the home, Leave room
-/// tells the room and forgets it, Choose song opens song select over it
-/// (its pick for this room), Sign in again opens the browser. The host's
-/// pick is uploaded as the room's share, each member prepares the stage's
-/// song from its library or the share, and a stage is played over the
-/// room as practice's are, its run reported to the room.
+/// Leave room's own: the room forgotten, the screen closed.
+type CloseFn = Rc<dyn Fn(bool, &mut Cx)>;
+
+/// The room's shell calls every room screen makes (song select, the
+/// stage's prompt): its songs prepared (practice: read from the library;
+/// online: the library or the room's share), uploaded (online), and a
+/// stage's prompt opened over the room through `play` (the play host's
+/// request). `songs`: whether there is a library (the sample songs have
+/// no charts to read).
+fn room_shell(
+    room: SharedRoom,
+    library: bool,
+    play: Option<Rc<RefCell<Option<crate::play::Request>>>>,
+    close: CloseFn,
+) -> RoomShell {
+    Rc::new(move |call, cx| match call {
+        RoomCall::Leave => cx.close(true),
+        RoomCall::Discard => close(true, cx),
+        RoomCall::Redirect(r) => redirect(&r),
+        RoomCall::Prepare(job) if room.borrow().is_online() => prepare_online(&room, job),
+        RoomCall::Prepare(job) => prepare(&room, &job, library),
+        RoomCall::Upload(job) => upload(*job),
+        // Its prompt over the room (`crate::play::host`): Ready, the
+        // play, its results; its outcome reported before them. The sample
+        // songs (no library) have no play.
+        RoomCall::PlayStage(order) => match &play {
+            Some(slot) => {
+                PLAYING.with_borrow_mut(|p| *p = Some(room.clone()));
+                *slot.borrow_mut() = Some(crate::play::Request::stage(*order));
+            }
+            None => eprintln!("room: stage {}: no library to play it from", order.number),
+        },
+    })
+}
+
+/// The shell a stage's prompt runs the room through meanwhile (its songs
+/// prepared and shared; it opens no other prompt).
+pub fn prompt_shell(room: &SharedRoom) -> RoomShell {
+    room_shell(room.clone(), true, None, Rc::new(|_, _| {}))
+}
+
+/// An online room (`crate::online::room`): its song select (M7b), Back to
+/// the home, Leave room tells the room and forgets it, Sign in again
+/// opens the browser. The host's picks and resting song are uploaded as
+/// the room's shares, each member prepares the stage's song from its
+/// library or the share, and a stage's prompt opens over the room.
 pub fn online_room_screen(
     env: &Env,
     id: &str,
     songs: Option<Rc<Songs>>,
     sound: Option<SharedPlayer>,
-) -> RoomScreen {
-    let e = env.clone();
+) -> SelectScreen {
     let room = crate::online::room(id);
-    let shared = room.clone();
     let play = songs.as_ref().map(|s| s.play.clone());
-    RoomScreen::new(
-        env.clone(),
-        room,
-        Rc::new(move |call, cx| match call {
-            RoomCall::Leave => cx.close(true),
-            RoomCall::Discard => {
-                crate::online::discard();
-                cx.close(true);
-            }
-            RoomCall::ChooseSong { stage, number } => cx.push(pick(
-                &e,
-                shared.clone(),
-                songs.as_ref(),
-                sound.clone(),
-                stage,
-                number,
-            )),
-            RoomCall::Redirect(r) => redirect(&r),
-            RoomCall::Prepare(job) => prepare_online(&shared, job),
-            RoomCall::Upload(job) => upload(*job),
-            RoomCall::PlayStage(order) => match &play {
-                Some(slot) => {
-                    PLAYING.with_borrow_mut(|p| *p = Some(shared.clone()));
-                    *slot.borrow_mut() = Some(crate::play::Request::stage(*order));
-                }
-                None => eprintln!("room: stage {}: no library to play it from", order.number),
-            },
-        }),
-    )
+    let close: CloseFn = Rc::new(|cancel, cx| {
+        crate::online::discard();
+        cx.close(cancel);
+    });
+    let shell = room_shell(room.clone(), songs.is_some(), play, close);
+    select(env, room, songs.as_ref(), sound, shell)
 }
 
-/// The practice room: Back to the home, Leave room forgets it first,
-/// Choose song opens song select over it, a stage is played through the
+/// The practice room's song select (M7b: the room's main view): Back to
+/// the home, Leave room forgets it first, a stage played through the
 /// library's play call.
-pub fn room_screen(env: &Env, songs: Option<Rc<Songs>>, sound: Option<SharedPlayer>) -> RoomScreen {
+pub fn room_screen(
+    env: &Env,
+    songs: Option<Rc<Songs>>,
+    sound: Option<SharedPlayer>,
+) -> SelectScreen {
     let play = songs.as_ref().map(|s| s.play.clone());
     room_screen_with(env, songs, sound, play)
 }
@@ -352,42 +375,13 @@ pub fn room_screen_with(
     songs: Option<Rc<Songs>>,
     sound: Option<SharedPlayer>,
     play: Option<Rc<RefCell<Option<crate::play::Request>>>>,
-) -> RoomScreen {
-    let e = env.clone();
-    RoomScreen::new(
-        env.clone(),
-        current(),
-        Rc::new(move |call, cx| match call {
-            RoomCall::Leave => cx.close(true),
-            RoomCall::Discard => {
-                discard();
-                cx.close(true);
-            }
-            RoomCall::ChooseSong { stage, number } => {
-                cx.push(pick(
-                    &e,
-                    current(),
-                    songs.as_ref(),
-                    sound.clone(),
-                    stage,
-                    number,
-                ));
-            }
-            RoomCall::Prepare(job) => prepare(&job, songs.is_some()),
-            // Played over the room (`crate::play::host`): its prompt, the
-            // play, its results; its outcome reported before them. The
-            // sample songs (no library) have no play.
-            RoomCall::PlayStage(order) => match &play {
-                Some(slot) => {
-                    PLAYING.with_borrow_mut(|p| *p = Some(current()));
-                    *slot.borrow_mut() = Some(crate::play::Request::stage(*order));
-                }
-                None => eprintln!("room: stage {}: no library to play it from", order.number),
-            },
-            // Practice never signs in, and shares nothing.
-            RoomCall::Redirect(_) | RoomCall::Upload(_) => {}
-        }),
-    )
+) -> SelectScreen {
+    let close: CloseFn = Rc::new(|cancel, cx| {
+        discard();
+        cx.close(cancel);
+    });
+    let shell = room_shell(current(), songs.is_some(), play, close);
+    select(env, current(), songs.as_ref(), sound, shell)
 }
 
 /// A stage's outcome (`ddi_session::battle`), reported to its room: in
@@ -413,7 +407,7 @@ pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::stat
 /// Prepares a stage's song: its chart read from the library (as a play
 /// reads it) and the CPUs' plan checked; the room told it loaded or why
 /// not. The sample songs (no library) have no chart: prepared at once.
-fn prepare(job: &ddi_ui::state::room::LoadJob, library: bool) {
+fn prepare(room: &SharedRoom, job: &ddi_ui::state::room::LoadJob, library: bool) {
     let result = match crate::play::load::read_chart(&job.song) {
         Ok(song) => prepare_chart(job, &song, &mut |e| {
             eprintln!("room: stage song {}: {e}", job.song)
@@ -426,45 +420,23 @@ fn prepare(job: &ddi_ui::state::room::LoadJob, library: bool) {
             Err(LoadProblem::Unreadable)
         }
     };
-    current().borrow_mut().finish_load(job, result);
+    room.borrow_mut().finish_load(job, result);
 }
 
-/// Song select over the library choosing stage `stage`'s song: a chart
-/// the CPUs cannot play is refused in a pop-up; one they can goes to the
-/// room, and song select closes. Its previews play as song select's do;
-/// it moves no singleplayer place.
-fn pick(
+/// The room's song select over the library (`songs`; the sample songs
+/// without one): previews as song select's, Back to the home; it moves no
+/// singleplayer place.
+fn select(
     env: &Env,
     room: SharedRoom,
     songs: Option<&Rc<Songs>>,
     sound: Option<SharedPlayer>,
-    stage: StageId,
-    number: u16,
+    shell: RoomShell,
 ) -> SelectScreen {
-    let picked = room.clone();
-    let play = Rc::new(
-        move |song: &ddi_ui::screens::data::SongEntry,
-              chart: &ddi_ui::screens::data::ChartEntry,
-              env: &Env,
-              cx: &mut Cx| {
-            let chosen = picked.borrow_mut().choose(stage, song, chart);
-            match chosen {
-                Ok(()) => cx.close(false),
-                Err(why) => cx.overlay(NoticeDialog::refusal(env.clone(), &why), true),
-            }
-        },
-    );
     let Some(songs) = songs else {
-        return ddi_ui::screens::sample::pick_screen(
-            env,
-            room,
-            stage,
-            number,
-            ddi_ui::screens::sample::select(),
-        );
+        return ddi_ui::screens::sample::room_screen(env, room.clone()).with_room(room, shell);
     };
-    let mut data = songs.data();
-    data.pick = Some(ddi_ui::screens::data::PickView { stage: number });
+    let data = songs.data();
     let songs = songs.clone();
     let calls: ddi_ui::screens::select::ShellFn = Rc::new(move |call, cx| match call {
         SelectCall::Leave => {
@@ -478,6 +450,14 @@ fn pick(
         }
         _ => {}
     });
-    SelectScreen::new(env.clone(), data, None, play, Rc::new(|_, _| {}))
-        .with_shell(calls, Default::default())
+    // The pick is the room's; the press needs nothing more here.
+    SelectScreen::new(
+        env.clone(),
+        data,
+        None,
+        Rc::new(|_, _, _, _| {}),
+        Rc::new(|_, _| {}),
+    )
+    .with_shell(calls, Default::default())
+    .with_room(room, shell)
 }

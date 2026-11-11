@@ -437,7 +437,7 @@ pub(crate) mod room {
     };
     use ddi_room::fake::{FakeServer, FakeSocket, Fault, SharedFake};
     use ddi_room::{
-        ClientId, Command, ContentStatus, Identity, Intent, LinkState, Loading, ManualClock, Phase,
+        ClientId, Command, ContentStatus, Identity, Intent, LinkState, ManualClock, Phase,
         PhaseKind, Role, RoomPolicy, Run,
     };
 
@@ -531,14 +531,19 @@ pub(crate) mod room {
         let jobs = room.take_upload_jobs();
         for j in &jobs {
             room.upload_progress(j.stage, 50.0, 100.0);
-            server
-                .borrow_mut()
-                .authority(Command::SetContentStatus {
+            let told = if j.stage == crate::state::room::SPOTLIGHT {
+                Command::SetSpotlightShare {
+                    chart: j.content.chart.clone(),
+                    share: share.into(),
+                }
+            } else {
+                Command::SetContentStatus {
                     stage: j.stage,
                     status: ContentStatus::Available,
                     share: Some(share.into()),
-                })
-                .unwrap();
+                }
+            };
+            server.borrow_mut().authority(told).unwrap();
             room.upload_finished(j.stage, Ok(share.into()));
         }
         jobs
@@ -616,13 +621,15 @@ pub(crate) mod room {
         }
     }
 
-    /// M5d: the host's pick uploads under the room's grant, the guest reads
-    /// it from the share and reports loaded, both ready, Start (one
-    /// command) opens the window for a member who never loads, the
-    /// countdown, the stage handed to each to play against the others'
-    /// devices, each reporting its own run; the room ranks them.
+    /// M7b: the host's song select rests on a song: after the rest the
+    /// room shows it to the others and it is uploaded under the room's
+    /// grant ahead of any pick; a member reads it from the share (its
+    /// banner and preview). The pick reuses that share (nothing uploaded
+    /// again), opens every member's prompt once they have the song, the
+    /// ready ones start at the deadline, the one still loading sits out;
+    /// each plays on their own device and reports their run.
     #[test]
-    fn the_host_s_song_is_uploaded_loaded_from_the_share_and_the_stage_played() {
+    fn the_spotlight_is_shared_ahead_the_pick_reuses_it_and_the_stage_is_played() {
         let clock = ManualClock::new(1_000);
         let server = room_of(&clock, &["bob", "carol"]);
         let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
@@ -641,116 +648,119 @@ pub(crate) mod room {
             Some("http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1")
         );
         assert_eq!(bob.invite_link(), None);
-        // The pick is the commit: pending, the grant asked for, the upload
-        // handed to the shell once.
+        // Moving through the list sends nothing; resting does.
         let s = song();
-        let stage = alice.stages()[0].id;
-        alice.choose(stage, &s, &s.charts[0]).unwrap();
-        assert_eq!(alice.sharing(stage), Some(&Sharing::Asking));
-        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
-        let st = &bob.stages()[0];
-        assert_eq!(st.content.as_ref().unwrap().status, ContentStatus::Pending);
-        assert!(bob.take_upload_jobs().is_empty(), "only the one who chose");
-        let jobs = alice.take_upload_jobs();
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(
-            (jobs[0].grant.as_str(), jobs[0].song.id.as_str()),
-            ("grant-alice-1", "bundled:a")
-        );
-        assert!(alice.take_upload_jobs().is_empty());
-        alice.upload_progress(stage, 30.0, 60.0);
-        assert_eq!(
-            alice.sharing(stage),
-            Some(&Sharing::Uploading {
-                done: 30.0,
-                total: 60.0
-            })
-        );
-        // Bob may not choose: refused by the room, said on his status.
         let mut other = song();
         other.id = "bundled:b".into();
         other.charts[0].digest = Some(ddi_chart::ChartDigest(8));
-        assert!(bob.choose(stage, &other, &other.charts[0]).is_err());
+        alice.hover(Some((&other, &other.charts[0])));
+        tick(&clock, &mut [&mut alice, &mut bob], 1_000);
+        alice.hover(Some((&s, &s.charts[0])));
+        tick(&clock, &mut [&mut alice, &mut bob], 2_000);
+        assert!(bob.state().spotlight.is_none(), "not rested yet");
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 1_200);
+        let spot = bob.state().spotlight.clone().unwrap();
+        assert_eq!(spot.card.title, "A");
+        assert_eq!(bob.spotlight().unwrap().1, None, "its card alone yet");
+        // Its upload, once, under a grant for no stage.
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        let jobs = alice.take_upload_jobs();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(
+            (jobs[0].stage, jobs[0].grant.as_str()),
+            (crate::state::room::SPOTLIGHT, "grant-alice-1")
+        );
+        server
+            .borrow_mut()
+            .authority(Command::SetSpotlightShare {
+                chart: jobs[0].content.chart.clone(),
+                share: "abc12345".into(),
+            })
+            .unwrap();
+        alice.upload_finished(jobs[0].stage, Ok("abc12345".into()));
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert!(alice.take_upload_jobs().is_empty());
+        // Bob reads it from the share: the song shown with its banner.
+        let b = bob.take_load_jobs();
+        assert_eq!(b.len(), 1);
+        assert_eq!(
+            (b[0].stage, b[0].share.as_deref()),
+            (crate::state::room::SPOTLIGHT, Some("abc12345"))
+        );
+        bob.finish_shared_load(&b[0], Ok(shared_pick(&s)));
+        assert_eq!(
+            bob.spotlight().unwrap().1.unwrap().song.id,
+            "shared:abc12345:0"
+        );
+        let _ = carol.take_load_jobs();
+        // Bob may not pick: refused by the room.
+        assert!(bob.pick(&other, &other.charts[0]).is_err());
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         assert!(matches!(
             bob.refusal(),
             Some(Refusal::Room(ddi_room::Rejection::Unauthorized { .. }))
         ));
-        // The server finishes the share: available with its id.
-        server
-            .borrow_mut()
-            .authority(Command::SetContentStatus {
-                stage,
-                status: ContentStatus::Available,
-                share: Some("abc12345".into()),
-            })
-            .unwrap();
-        alice.upload_finished(stage, Ok("abc12345".into()));
+        // The pick: the match starts, the stage available with the
+        // spotlight's share at once; nothing to upload again.
+        alice.pick(&s, &s.charts[0]).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        let stage = alice.stages()[0].id;
+        let content = bob.stages()[0].content.clone().unwrap();
+        assert_eq!(
+            (content.status, content.share.as_deref()),
+            (ContentStatus::Available, Some("abc12345"))
+        );
+        assert_eq!(alice.sharing(stage), None);
+        assert!(
+            alice.take_upload_jobs().is_empty(),
+            "the pick sends nothing"
+        );
         // Each prepares it: Alice from her library, Bob from the share.
         let a = alice.take_load_jobs();
         assert_eq!((a.len(), a[0].share.as_deref()), (1, None));
-        assert_eq!(a[0].song, "bundled:a");
         let b = bob.take_load_jobs();
         assert_eq!(b[0].share.as_deref(), Some("abc12345"));
         assert_eq!(b[0].song, "shared:abc12345:0");
         assert_eq!(b[0].digest, Some(ddi_chart::ChartDigest(7)));
         assert!(!b[0].cpus);
-        let st = &bob.stages()[0];
-        assert_eq!(st.prep(bob.me()).loading, Loading::Loading { permille: 0 });
+        // The prompt opens for the one who picked at once, for Bob once he
+        // has the song, never for Carol who never answers.
+        assert!(alice.take_stage_order().is_some());
+        assert!(bob.take_stage_order().is_none(), "not read yet");
         alice.finish_load(&a[0], Ok(()));
         bob.finish_shared_load(&b[0], Ok(shared_pick(&s)));
-        // Carol's device never answers: still loading.
         let _ = carol.take_load_jobs();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
-        let content = bob.stages()[0].content.clone().unwrap();
-        assert_eq!(
-            bob.picked(&content.id).unwrap().song.id,
-            "shared:abc12345:0"
-        );
-        assert_eq!(bob.stages()[0].prep(bob.me()).loading, Loading::Loaded);
-        // Readiness is Ready and Loaded; Start opens the window for Carol,
-        // who sits out at its deadline still loading.
+        let ob = bob.take_stage_order().unwrap();
+        assert_eq!(ob.song.id, "shared:abc12345:0");
+        assert_eq!(ob.others, 2);
+        assert!(carol.take_stage_order().is_none());
+        assert_eq!(carol.view(), crate::state::room::RoomView::Select);
+        // Both ready; Carol (connected, loading) holds the early start,
+        // so the deadline starts it, Carol sitting out.
         alice.set_ready(true).unwrap();
         bob.set_ready(true).unwrap();
-        carol.set_ready(true).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
-        alice.start().unwrap();
-        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
-        assert!(matches!(
-            bob.state().phase,
-            Phase::Preparing {
-                window: Some(_),
-                ..
-            }
-        ));
-        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 15_000);
+        assert_eq!(bob.state().phase.kind(), PhaseKind::Preparing);
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 30_000);
         assert_eq!(bob.state().phase.kind(), PhaseKind::Countdown);
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 4_000);
-        assert_eq!(alice.state().phase.kind(), PhaseKind::Stage);
+        assert!(alice.stage_started(stage) && bob.stage_started(stage));
+        assert!(!carol.stage_started(stage));
         let play = alice.state().current.as_ref().unwrap().stages[0]
             .play
             .clone()
             .unwrap();
         assert_eq!(
             play.sat_out.get(&carol.me()),
-            Some(&ddi_room::SitOutReason::StillLoading)
+            Some(&ddi_room::SitOutReason::NotReady)
         );
-        assert!(carol.take_stage_order().is_none(), "sitting out");
-        // Each plays it on its own device, against one other.
-        let oa = alice.take_stage_order().unwrap();
-        let ob = bob.take_stage_order().unwrap();
-        assert!(alice.take_stage_order().is_none(), "once");
-        assert_eq!((oa.others, ob.others), (1, 1));
-        assert!(oa.cpus.is_empty());
-        assert_eq!(oa.song.id, "bundled:a");
-        assert_eq!(ob.song.id, "shared:abc12345:0");
-        bob.report_run(ob.stage, Run::Out { at: 12.5 }).unwrap();
+        bob.report_run(stage, Run::Out { at: 12.5 }).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         assert_eq!(alice.state().phase.kind(), PhaseKind::Stage);
         alice
             .report_run(
-                oa.stage,
+                stage,
                 Run::Live {
                     life: 0.4,
                     accuracy: 0.8,
@@ -759,8 +769,8 @@ pub(crate) mod room {
             .unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         assert_eq!(bob.state().phase.kind(), PhaseKind::Intermission);
-        assert_eq!(bob.mark_of(ob.stage).unwrap().placement.place, 2);
-        assert_eq!(alice.mark_of(oa.stage).unwrap().placement.place, 1);
+        assert_eq!(bob.mark_of(stage).unwrap().placement.place, 2);
+        assert_eq!(alice.mark_of(stage).unwrap().placement.place, 1);
         assert_eq!(alice.state(), server.borrow().state());
         assert_eq!(bob.state(), server.borrow().state());
     }
@@ -778,7 +788,7 @@ pub(crate) mod room {
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         let s = song();
         let stage = alice.stages()[0].id;
-        alice.choose(stage, &s, &s.charts[0]).unwrap();
+        alice.pick(&s, &s.charts[0]).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         let jobs = alice.take_upload_jobs();
         assert_eq!(jobs[0].grant, "grant-alice-1");
@@ -837,30 +847,42 @@ pub(crate) mod room {
         bob.finish_shared_load(&b[0], Err(LoadProblem::Changed));
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         assert_eq!(bob.load_problem(stage), Some(LoadProblem::Changed));
-        bob.set_ready(true).unwrap();
-        assert_eq!(bob.start().err(), Some(Refusal::Load(LoadProblem::Changed)));
+        // No song, no prompt: Bob stays on song select and sits it out.
+        assert_eq!(bob.view(), crate::state::room::RoomView::Select);
     }
 
-    /// A pending song cannot start, and the refused Start locks nothing.
+    /// Alone, a pick is refused whole (nothing locked); with a guest, a
+    /// song still being shared holds the readiness window past its
+    /// deadline, which counts from when the song is available.
     #[test]
-    fn a_pending_song_cannot_start() {
+    fn a_lone_pick_is_refused_and_a_pending_song_holds_the_window() {
         let clock = ManualClock::new(1_000);
         let server = room_of(&clock, &[]);
         let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
         tick(&clock, &mut [&mut alice], 400);
         let s = song();
-        let stage = alice.stages()[0].id;
-        alice.choose(stage, &s, &s.charts[0]).unwrap();
-        tick(&clock, &mut [&mut alice], 400);
-        let st = &alice.stages()[0];
-        assert_eq!(st.content.as_ref().unwrap().status, ContentStatus::Pending);
-        let _ = alice.start();
+        let _ = alice.pick(&s, &s.charts[0]);
         tick(&clock, &mut [&mut alice], 400);
         assert!(matches!(
             alice.refusal(),
-            Some(Refusal::Room(ddi_room::Rejection::ContentPending))
+            Some(Refusal::Room(ddi_room::Rejection::NotEnoughReady { .. }))
         ));
         assert_eq!(alice.state().phase, Phase::Lobby, "no match locked");
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        alice.pick(&s, &s.charts[0]).unwrap();
+        tick(&clock, &mut [&mut alice], 400);
+        let stage = alice.stages()[0].id;
+        assert!(alice.state().content_pending(stage));
+        tick(&clock, &mut [&mut alice], 90_000);
+        assert!(matches!(
+            alice.state().phase,
+            Phase::Preparing {
+                window: Some(_),
+                ..
+            }
+        ));
     }
 
     #[test]

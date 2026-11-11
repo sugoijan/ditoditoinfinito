@@ -936,61 +936,42 @@ pub fn multiplayer_home(
     )
 }
 
-/// The room on `room`, its songs chosen from the sample songs
-/// ([`pick_screen`]).
-pub fn room_screen(env: &Env, room: crate::state::room::SharedRoom) -> super::room::RoomScreen {
-    use super::room::{RoomCall, RoomScreen};
-    let e = env.clone();
-    let shared = room.clone();
-    RoomScreen::new(
-        env.clone(),
-        room,
-        Rc::new(move |call, cx| match call {
-            RoomCall::Leave => cx.close(true),
-            RoomCall::Discard => {
-                *shared.borrow_mut() = crate::state::room::RoomClient::new(0, 1);
-                cx.close(true);
-            }
-            RoomCall::ChooseSong { stage, number } => {
-                cx.push(pick_screen(&e, shared.clone(), stage, number, select()));
-            }
-            // The sample songs have no charts to read: prepared at once
-            // (a development screen; the shells read the real chart).
-            RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
-            // Nor a play: the stage stays on until stopped. Practice has
-            // no sign-in, and nothing to upload.
-            RoomCall::PlayStage(_) | RoomCall::Redirect(_) | RoomCall::Upload(_) => {}
-        }),
-    )
+/// Room `room`'s song select on the sample songs (M7b: the room's main
+/// view): the host picks from them; the others follow. The sample songs
+/// have no charts to read (prepared at once) and no play (a stage's
+/// prompt is the shell's): a development screen.
+pub fn room_screen(env: &Env, room: crate::state::room::SharedRoom) -> SelectScreen {
+    room_select(env, room, select())
 }
 
-/// Song select over `data` choosing stage `stage`'s song (the
-/// `number`th) for `room`: a chart the CPUs cannot play is refused in a
-/// pop-up; one they can goes to the room, and song select closes.
-pub fn pick_screen(
+/// [`room_screen`] over `data`.
+pub fn room_select(
     env: &Env,
     room: crate::state::room::SharedRoom,
-    stage: ddi_room::StageId,
-    number: u16,
-    mut data: SelectData,
+    data: SelectData,
 ) -> SelectScreen {
-    data.pick = Some(super::data::PickView { stage: number });
-    let screen = SelectScreen::new(
+    use super::room::RoomCall;
+    let shared = room.clone();
+    let shell: super::room::RoomShell = Rc::new(move |call, cx| match call {
+        RoomCall::Leave => cx.close(true),
+        RoomCall::Discard => {
+            *shared.borrow_mut() = crate::state::room::RoomClient::new(0, 1);
+            cx.close(true);
+        }
+        // The sample songs have no charts to read: prepared at once (a
+        // development screen; the shells read the real chart).
+        RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
+        // Nor a play. Practice has no sign-in, and nothing to upload.
+        RoomCall::PlayStage(_) | RoomCall::Redirect(_) | RoomCall::Upload(_) => {}
+    });
+    SelectScreen::new(
         env.clone(),
         data,
         None,
-        Rc::new(
-            move |song, chart, env, cx| match room.borrow_mut().choose(stage, song, chart) {
-                Ok(()) => cx.close(false),
-                Err(why) => cx.overlay(
-                    super::room_dialogs::NoticeDialog::refusal(env.clone(), &why),
-                    true,
-                ),
-            },
-        ),
+        Rc::new(|_, _, _, _| {}),
         Rc::new(|_, _| {}),
-    );
-    screen.with_shell(
+    )
+    .with_shell(
         Rc::new(|call, cx| {
             if call == super::select::SelectCall::Leave {
                 cx.close(true);
@@ -998,6 +979,7 @@ pub fn pick_screen(
         }),
         Default::default(),
     )
+    .with_room(room, shell)
 }
 
 /// The chart editor on a made-up song, unsaved, for headless tests (the

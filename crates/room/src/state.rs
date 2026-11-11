@@ -35,6 +35,52 @@ pub struct RoomState {
     /// Finished matches, oldest first, at most `policy.history`.
     pub history: Vec<MatchRecord>,
     pub counters: Counters,
+    /// The song an operator's song select rests on, for the others to see
+    /// and hear before it is picked (M7b), or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spotlight: Option<Spotlight>,
+}
+
+/// What the room shows of a song before anyone has loaded it: the words
+/// the operator's library has for it. Display only, opaque to the room,
+/// never checked against the song (the content id is what counts).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentCard {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub artist: String,
+    /// The chart's difficulty as the chart names it (`Hard`), its meter and
+    /// its style's id (`dance-single`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub difficulty: String,
+    #[serde(default)]
+    pub meter: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub style: String,
+}
+
+impl ContentCard {
+    /// The longest text a card's field may carry (characters).
+    pub const MAX_TEXT: usize = 200;
+
+    /// Whether every text is within [`ContentCard::MAX_TEXT`].
+    pub fn fits(&self) -> bool {
+        [&self.title, &self.artist, &self.difficulty, &self.style]
+            .iter()
+            .all(|t| t.chars().count() <= Self::MAX_TEXT)
+    }
+}
+
+/// The song (and chart) an operator's song select rests on (M7b): who,
+/// what it is, and the room's share of it once uploaded (an online room's,
+/// which a later pick of the same content reuses).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Spotlight {
+    pub content: ContentId,
+    pub card: ContentCard,
+    pub by: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share: Option<String>,
 }
 
 /// The next unused id of each kind. Ids are never reused.
@@ -122,6 +168,9 @@ pub struct StageContent {
     /// made, `ddi_share_protocol`), once available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share: Option<String>,
+    /// What to show of it before it is loaded (M7b's picks history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<ContentCard>,
 }
 
 /// Whether the room can use a stage's content, as its authority knows.
@@ -440,6 +489,7 @@ impl RoomState {
             current: None,
             phase: Phase::Lobby,
             history: Vec::new(),
+            spotlight: None,
         }
     }
 
@@ -485,13 +535,43 @@ impl RoomState {
     /// authority runs [`RoomState::advance`] then (a server's alarm).
     pub fn next_deadline(&self) -> Option<Millis> {
         match &self.phase {
+            // A window waits while its song is still being shared.
             Phase::Preparing {
-                window: Some(w), ..
-            } => Some(w.deadline),
+                stage,
+                window: Some(w),
+            } => (!self.content_pending(*stage)).then_some(w.deadline),
             Phase::Countdown { start_at, .. } => Some(*start_at),
             Phase::Stage { stage } => self.report_deadline(*stage),
             _ => None,
         }
+    }
+
+    /// Whether `stage`'s chosen content is still being shared.
+    pub fn content_pending(&self, stage: StageId) -> bool {
+        self.stage(stage)
+            .and_then(|s| s.content.as_ref())
+            .is_some_and(|c| c.status == ContentStatus::Pending)
+    }
+
+    /// A share the room already has of `content`'s chart (shares are told
+    /// apart by their chart's digest, as the server's reuse is): the
+    /// spotlight's, or an available stage's (this match's, the next one's,
+    /// or a recorded match's), which a pick of the same chart reuses.
+    pub fn known_share(&self, content: &ContentId) -> Option<String> {
+        if let Some(s) = &self.spotlight
+            && s.content.chart == content.chart
+            && s.share.is_some()
+        {
+            return s.share.clone();
+        }
+        self.current
+            .iter()
+            .flat_map(|m| m.stages.iter())
+            .chain(self.playlist.iter())
+            .chain(self.history.iter().flat_map(|r| r.played.stages.iter()))
+            .filter_map(|s| s.content.as_ref())
+            .find(|c| c.id.chart == content.chart && c.status == ContentStatus::Available)
+            .and_then(|c| c.share.clone())
     }
 
     /// When a self-reported stage (`StagePlay::self_reported`) settles

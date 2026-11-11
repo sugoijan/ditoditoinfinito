@@ -15,6 +15,7 @@ fn opponent() -> OpponentSpec {
         level: 1,
         seed: 7,
         personality: None,
+        name: None,
     }
 }
 
@@ -441,7 +442,7 @@ fn every_message_kind_survives_the_wire() {
             rules: MatchRules::practice(opponent()),
         },
     ));
-    assert!(json.starts_with(r#"{"v":1,"client":"c","seq":17,"base":42,"cmd":{"save_next_rules""#));
+    assert!(json.starts_with(r#"{"v":2,"client":"c","seq":17,"base":42,"cmd":{"save_next_rules""#));
     for cmd in [
         Command::SetIntent {
             intent: Intent::Watch,
@@ -498,7 +499,7 @@ fn every_message_kind_survives_the_wire() {
     ));
     assert_eq!(
         ack,
-        r#"{"v":1,"rev":43,"msg":{"kind":"ack","client":"c","seq":17}}"#
+        r#"{"v":2,"rev":43,"msg":{"kind":"ack","client":"c","seq":17}}"#
     );
     for rejection in [
         Rejection::Stale {

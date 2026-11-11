@@ -163,6 +163,7 @@ fn play(s: &Scenario) -> Option<Played> {
     // development-only one.
     ddi_desktop::room::develop(if s.cpus > 8 { s.cpus } else { 0 });
     let room = ddi_desktop::room::current();
+    room.borrow_mut().set_rules_seen(true);
     ui.push(ddi_desktop::room::room_screen_with(
         &env,
         None,
@@ -193,17 +194,9 @@ fn play(s: &Scenario) -> Option<Played> {
         rules.cpu.mode = CpuMode::Fixed { count: s.cpus };
         rules.cpu.opponent.level = s.level;
         r.save_rules(rules).unwrap();
-        let st = r.stages()[0].id;
-        r.choose(st, &entry, &entry.charts[0]).unwrap();
+        r.pick(&entry, &entry.charts[0]).unwrap();
     }
-    ui.update(0.1);
-    {
-        let mut r = room.borrow_mut();
-        r.set_ready(true).unwrap();
-        r.start().unwrap();
-        let later = r.now_ms() + 3_000;
-        r.tick(later);
-    }
+    // The room's song select prepares it and opens its prompt.
     ui.update(0.1);
     let mut request = host.requested.borrow_mut().take().expect("the stage");
     request.auto = true;
@@ -220,7 +213,14 @@ fn play(s: &Scenario) -> Option<Played> {
         assert!(waited < 1000, "the song was never read");
     }
     ui.update(0.5);
+    // Ready; the room counts down and starts the stage.
     key(&mut ui, "Enter", "Enter");
+    ui.update(0.05);
+    {
+        let mut r = room.borrow_mut();
+        let later = r.now_ms() + 3_000;
+        r.tick(later);
+    }
     ui.update(0.05);
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     assert!(host.playing());

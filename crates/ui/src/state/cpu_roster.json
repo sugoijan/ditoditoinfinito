@@ -1,0 +1,29 @@
+{
+  "note": "The named practice CPUs (docs/plans/multiplayer-prototype-progress.md, M7b): invented names, the same in every language; skills a ddi_engine::cpu::Skills preset or seven multipliers; level 1 to 5 (the engine's strengths, relative to the chart). For review by the maintainer.",
+  "cpus": [
+    { "name": "Lumen Kite", "skills": "stream", "level": 1 },
+    { "name": "Brisk Otter", "skills": "balanced", "level": 1 },
+    { "name": "Paper Comet", "skills": "technical", "level": 1 },
+    { "name": "Mossy Accordion", "skills": "chords", "level": 1 },
+    { "name": "Marble Finch", "skills": "balanced", "level": 2 },
+    { "name": "Tinsel Pike", "skills": "jacks", "level": 2 },
+    { "name": "Juniper Drift", "skills": "stamina", "level": 2 },
+    { "name": "Quill Sprocket", "skills": "technical", "level": 2 },
+    { "name": "Copper Fennec", "skills": "stream", "level": 2 },
+    { "name": "Orbit Parsnip", "skills": "chords", "level": 3 },
+    { "name": "Velvet Metronome", "skills": "balanced", "level": 3 },
+    { "name": "Saffron Gale", "skills": "stream", "level": 3 },
+    { "name": "Basalt Wren", "skills": "jacks", "level": 3 },
+    { "name": "Glimmer Tock", "skills": "1.1,1,1,0.9,1.2,1,0.8", "level": 3 },
+    { "name": "Hollow Cadence", "skills": "stamina", "level": 3 },
+    { "name": "Nimbus Tap", "skills": "technical", "level": 3 },
+    { "name": "Ember Ratchet", "skills": "jacks", "level": 4 },
+    { "name": "Plinth Sparrow", "skills": "0.9,1.2,1.2,1,0.9,1.1,1", "level": 4 },
+    { "name": "Cinder Loop", "skills": "stamina", "level": 4 },
+    { "name": "Tessel Moth", "skills": "balanced", "level": 4 },
+    { "name": "Zephyr Abacus", "skills": "stream", "level": 4 },
+    { "name": "Pocket Thunder", "skills": "chords", "level": 5 },
+    { "name": "Halcyon Bolt", "skills": "technical", "level": 5 },
+    { "name": "Saltglass Rook", "skills": "balanced", "level": 5 }
+  ]
+}
