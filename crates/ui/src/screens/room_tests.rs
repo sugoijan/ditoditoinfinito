@@ -812,3 +812,74 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     press(&mut ha, "More");
     assert!(has(&ha, "Sign in again"), "{:?}", ha.texts());
 }
+
+/// M7d: a bot (`bot:<name>`) is a person's seat labeled Bot wherever the
+/// players are listed (the room's panel and Players, the prompt's rows,
+/// which share `player_rows`; the standings; an invite's host), and in the
+/// debug state.
+#[test]
+fn bots_are_labeled_wherever_players_are_listed() {
+    use crate::state::online::tests::room::{client, person, tick};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::bot("lumen-kite"), "Lumen Kite", Intent::Play)
+        .unwrap();
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    let ea = env();
+    let orders = Orders::default();
+    let mut ha = harness();
+    ha.push(
+        sample::room_select(&ea, alice.clone(), library("dance-single"))
+            .with_room(alice.clone(), shell(&alice, &orders)),
+    );
+    tick(&clock, &mut [&mut alice.borrow_mut()], 400);
+    tick(&clock, &mut [&mut alice.borrow_mut()], 400);
+    ha.run(0.3);
+    press(&mut ha, "Ok");
+    ha.run(0.3);
+    let a = view(&ea);
+    let bot = a
+        .members
+        .iter()
+        .find(|m| m.name == "Lumen Kite")
+        .expect("the bot in the debug state");
+    assert!(bot.bot && !bot.cpu && !bot.admin, "{bot:?}");
+    assert!(!a.members.iter().find(|m| m.name == "alice").unwrap().bot);
+    let rows = super::room::player_rows(&alice.borrow());
+    assert!(
+        rows.iter().any(|r| r.name == "Lumen Kite (Bot)" && !r.cpu),
+        "{:?}",
+        rows.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
+    let member = alice
+        .borrow()
+        .state()
+        .member_by_identity(&Identity::bot("lumen-kite"))
+        .cloned()
+        .unwrap();
+    assert_eq!(super::room::person_name(&member), "Lumen Kite (Bot)");
+    assert_eq!(super::room::shown_name("Alice", false), "Alice");
+    assert_eq!(
+        String::from(ddi_l10n::msg::room::invite_host(super::room::shown_name(
+            "Lumen Kite",
+            true
+        ))),
+        "Hosted by Lumen Kite (Bot)"
+    );
+}

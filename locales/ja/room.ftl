@@ -32,6 +32,8 @@ room-you = あなた
 
 room-cpu-name = CPU { $number }
 
+room-bot-name = { $name }（ボット）
+
 room-cpu-level = レベル { $level } / { $levels }
 
 room-cpu-at-start = 開始時

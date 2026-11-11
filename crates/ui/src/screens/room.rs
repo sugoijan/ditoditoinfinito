@@ -160,6 +160,8 @@ pub struct RoomMemberView {
     pub id: u64,
     pub name: String,
     pub cpu: bool,
+    /// A bot (`bot:<name>`, M7d): its name is shown labeled Bot.
+    pub bot: bool,
     /// A CPU's level, from 1, and personality.
     pub level: Option<u8>,
     pub personality: Option<String>,
@@ -424,7 +426,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 let name: String = if me {
                     m::you().into()
                 } else {
-                    UiText::data(member_name(member)).into()
+                    person_name(member)
                 };
                 let prep = upcoming.map(|st| st.prep(member.id));
                 let part = s.participation(member.id);
@@ -886,6 +888,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 .map(|p| snake(&p))
                 .unwrap_or_default(),
             cpu: mb.is_cpu(),
+            bot: mb.is_bot(),
             level: s.opponent(mb.id).map(|o| o.level + 1),
             personality: s.opponent(mb.id).and_then(|o| o.personality.clone()),
             ready: upcoming.is_some_and(|st| st.prep(mb.id).ready),
@@ -994,6 +997,21 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
 pub fn publish_dialog(env: &Env, f: impl FnOnce(&mut RoomView)) {
     if let Ok(mut st) = env.state.try_borrow_mut() {
         f(st.room.get_or_insert_with(RoomView::default));
+    }
+}
+
+/// A person's name as the screens show it: theirs (data), labeled Bot for
+/// a bot (M7d).
+pub(crate) fn person_name(m: &ddi_room::Member) -> String {
+    shown_name(&member_name(m), m.is_bot())
+}
+
+/// `name` (data) as shown: labeled Bot where `bot`.
+pub(crate) fn shown_name(name: &str, bot: bool) -> String {
+    if bot {
+        m::bot_name(UiText::data(name)).into()
+    } else {
+        UiText::data(name).into()
     }
 }
 

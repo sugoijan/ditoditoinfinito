@@ -1249,7 +1249,7 @@ impl Screen for StandingsDialog {
             Some(mb) if mb.id == r.me() => String::from(m::you()),
             Some(mb) => match &mb.kind {
                 MemberKind::Cpu { ordinal, opponent } => cpu_name(opponent, *ordinal),
-                MemberKind::Human { .. } => UiText::data(super::room::member_name(mb)).into(),
+                MemberKind::Human { .. } => super::room::person_name(mb),
             },
             None => String::new(),
         };

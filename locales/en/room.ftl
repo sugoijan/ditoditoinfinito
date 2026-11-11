@@ -72,6 +72,14 @@ room-you = You
 #   $number (Number) - which CPU, from 1
 room-cpu-name = CPU { $number }
 
+# A bot's name wherever players are listed (the room, the stage's start
+# screen, the standings, an invite's host): a simulated player an operator
+# added to test a room, played by the CPU, labeled so that it is never
+# taken for a person.
+# Variables:
+#   $name (String) - the bot's name
+room-bot-name = { $name } (Bot)
+
 # Under a CPU's name: its level, the CPU's strength relative to the
 # chart (not a skill rating).
 # Variables:

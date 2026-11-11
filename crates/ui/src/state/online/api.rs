@@ -174,6 +174,9 @@ pub struct Preview {
     pub room_id: String,
     pub room_name: String,
     pub host_display_name: String,
+    /// The host is a bot (`bot:<name>`, M7d): shown labeled.
+    #[serde(default)]
+    pub host_bot: bool,
     pub phase: PhaseKind,
     pub admission: Admission,
     #[serde(default)]

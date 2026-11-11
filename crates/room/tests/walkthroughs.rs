@@ -1930,3 +1930,38 @@ fn a_roster_seats_its_own_named_cpus_and_bounds_their_text() {
         Err(RulesProblem::OverCap(_))
     ));
 }
+
+/// M7d: a bot is a person's seat of its own kind (`bot:<name>`), told apart
+/// from Twitch users by its identity alone, and never an administrator,
+/// whatever the authority's join says.
+#[test]
+fn a_bot_is_its_own_kind_of_player_and_never_an_administrator() {
+    let mut r = Room::hosted(2);
+    let identity = Identity::bot("lumen-kite");
+    assert_eq!(identity.as_str(), "bot:lumen-kite");
+    assert!(identity.is_bot());
+    assert!(!Identity::new("twitch:42").is_bot());
+    assert!(
+        !Identity::new("dev:bot:x").is_bot(),
+        "only the prefix makes a bot"
+    );
+    r.sys(Command::Join {
+        identity: identity.clone(),
+        name: "Lumen Kite".into(),
+        admin: true,
+        intent: Intent::Play,
+    })
+    .unwrap();
+    let bot = r.s.member_by_identity(&identity).unwrap();
+    assert!(bot.is_bot());
+    assert!(!bot.admin, "a bot's join never makes it an administrator");
+    assert!(!bot.is_cpu(), "a bot plays a person's seat");
+    let host = r.s.member(r.host).unwrap();
+    assert!(!host.is_bot());
+    // A person's seat: it may play and ready up as anyone.
+    let id = bot.id;
+    assert!(matches!(
+        r.s.participation(id),
+        Some(Participation::NotReady { .. })
+    ));
+}

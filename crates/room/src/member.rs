@@ -43,6 +43,13 @@ impl Member {
         matches!(self.kind, MemberKind::Cpu { .. })
     }
 
+    /// A bot (M7d): a person's seat played by a simulated player, its
+    /// identity `bot:<name>` (the server's to give). It plays, readies and
+    /// reports as a person; the screens label it Bot.
+    pub fn is_bot(&self) -> bool {
+        self.identity().is_some_and(Identity::is_bot)
+    }
+
     pub fn identity(&self) -> Option<&Identity> {
         match &self.kind {
             MemberKind::Human { identity, .. } => Some(identity),

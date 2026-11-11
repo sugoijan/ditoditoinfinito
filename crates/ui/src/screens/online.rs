@@ -176,7 +176,7 @@ fn invite_doc(online: &Online) -> PageDoc {
         Some(Ok(p)) => {
             blocks.push(Block::Subheading(UiText::data(&p.room_name).into()));
             blocks.push(Block::Text(
-                m::invite_host(UiText::data(&p.host_display_name)).into(),
+                m::invite_host(super::room::shown_name(&p.host_display_name, p.host_bot)).into(),
             ));
             blocks.push(Block::Muted(m::invite_members(p.members).into()));
             blocks.push(Block::Text(admission_text(p.admission).into()));

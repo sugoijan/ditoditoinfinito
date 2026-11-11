@@ -533,6 +533,8 @@ impl RoomState {
                 intent,
             } => {
                 Self::authority_only(actor)?;
+                // A bot is never an administrator, whatever it is told.
+                let admin = &(*admin && !identity.is_bot());
                 if let Some(m) = self.member_by_identity(identity) {
                     // The same person back: the same row, whatever the
                     // admission now says.

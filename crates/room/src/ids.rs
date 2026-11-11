@@ -106,9 +106,29 @@ text_id!(
 );
 text_id!(
     /// Who a human is, as the authority established it: `local` for the
-    /// practice player, `twitch:<user id>` online. Never a display name.
+    /// practice player, `twitch:<user id>` online, `bot:<name>` for a
+    /// simulated player the server signed in for its operator (M7d). Never
+    /// a display name.
     Identity
 );
+
+impl Identity {
+    /// The prefix of a bot's identity (`bot:<slug>`): a kind of player of
+    /// its own, only ever set by the server (from a session it issued to an
+    /// operator's admin token), never a Twitch user's.
+    pub const BOT_PREFIX: &'static str = "bot:";
+
+    /// Bot `slug`'s identity (`bot:<slug>`).
+    pub fn bot(slug: &str) -> Self {
+        Self(format!("{}{slug}", Self::BOT_PREFIX))
+    }
+
+    /// Whether this is a bot's identity: shown labeled Bot, and never a
+    /// server administrator.
+    pub fn is_bot(&self) -> bool {
+        self.0.starts_with(Self::BOT_PREFIX)
+    }
+}
 text_id!(
     /// A song, as the host's library or the shared-song service names it.
     SongKey
