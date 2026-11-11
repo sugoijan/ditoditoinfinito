@@ -190,9 +190,9 @@ room-play-cue-stage-drawn = 1位タイ
 room-attack-policy-spread = 均等
 room-attack-policy-retaliate = 仕返し
 room-attack-policy-leader = トップ
-room-play-attack-waiting = { $policy }・アタック先を待機中
-room-results-drawn-final-attack = 最後のアタックで1位タイ
-room-prompt-speed-raised = アタックの予告が間に合うようスピードを上げています
+room-play-attack-waiting = { $policy }・攻撃先を待機中
+room-results-drawn-final-attack = 最後の攻撃で1位タイ
+room-prompt-speed-raised = 攻撃の予告が間に合うようスピードを上げています
 
 ## The footer's key hints.
 

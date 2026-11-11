@@ -62,6 +62,8 @@ alike. Changes to this list are the maintainer's.
 | lane | レーン |
 | Dancing☆Onigiri key mode (5 keys) | 5key |
 | mods (as the results list them) | オプション |
+| attack (a battle's) | 攻撃 |
+| attack power | パワー |
 
 ## Terms the screens' drafts settled on (step 3)
 

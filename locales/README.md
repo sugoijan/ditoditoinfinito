@@ -114,7 +114,10 @@ its kind in the player's language, its words after it.
   where a button was sized to its English, check the Japanese fits
   (`cargo run -- --lang ja`, `?lang=ja`).
 - **New characters**: a kanji no message used before fails `just
-  l10n-check` until the faces are cut again (below).
+  l10n-check` until the faces are cut again (below). Cut them: never
+  pick another word or write kana because the cut lacks a kanji (the
+  translation's accuracy decides the word, not the faces; only avoid
+  words obscure in themselves).
 
 ## Checking and reviewing
 
